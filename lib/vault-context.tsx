@@ -1,0 +1,505 @@
+"use client";
+
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+
+export type VaultDocumentType = "sop" | "lease" | "policy" | "other";
+export type ApprovalStatus = "draft" | "review" | "approved" | "needs_review";
+
+export type VaultSource = "upload" | "entrata" | "workflow";
+
+/** One entry in a document's history: edits, submissions, approvals, denials */
+export type DocumentHistoryEntry = {
+  at: string;
+  action: "edited" | "submitted" | "approved" | "denied";
+  by?: string;
+  version?: string;
+  note?: string;
+  summary?: string;
+};
+
+/** A stored snapshot of a previous version's body, created on each approval */
+export type DocumentVersion = {
+  version: string;
+  body: string;
+  approvedAt: string;
+  approvedBy?: string;
+  changeSummary?: string;
+};
+
+/** Training status per agent-document pair */
+export type AgentTrainingStatus = "pending" | "trained" | "out_of_date";
+
+/** Tracks per-agent training state for a document */
+export type AgentTrainingRecord = {
+  agentId: string;
+  status: AgentTrainingStatus;
+  trainedAt?: string;
+  trainedOnVersion?: string;
+};
+
+/** Activity log entry for the centralized feed */
+export type VaultActivityEntry = {
+  id: string;
+  at: string;
+  action: string;
+  by?: string;
+  documentId?: string;
+  documentName?: string;
+  detail?: string;
+};
+
+export type VaultItem = {
+  id: string;
+  fileName: string;
+  documentType: VaultDocumentType;
+  property: string;
+  approvalStatus: ApprovalStatus;
+  trainedOn: string;
+  modified: string;
+  owner: string;
+  type: "file" | "folder";
+  version?: string;
+  source?: VaultSource;
+  effectiveDate?: string;
+  tags?: string[];
+  body?: string;
+  linkedAgentIds?: string[];
+  history?: DocumentHistoryEntry[];
+  properties?: string[];
+  /** Stored previous versions (snapshots on approval) */
+  versions?: DocumentVersion[];
+  /** Per-agent training status records */
+  trainingRecords?: AgentTrainingRecord[];
+  /** Next review date — document flagged 'needs_review' when past due */
+  nextReviewDate?: string;
+  /** Parent folder ID for folder hierarchy; null/undefined = root */
+  folderId?: string;
+  /** If true, this is a template — not an active operational document */
+  isTemplate?: boolean;
+};
+
+export const COMPLIANCE_ITEMS = [
+  "Fair housing policy",
+  "Security deposit policy",
+  "Screening policy",
+  "Eviction procedures",
+  "Reasonable accommodation process",
+];
+
+const STORAGE_KEY = "janet-poc-vault";
+
+const LEASING_SOP_BODY = `ENTRATA | GO DARK STEPS
+The steps below must be completed prior to migration/transition to the new
+management system.
+● Setup > Properties > select property > Financial > Charges > General
+○ Ensure "Automatically Post Scheduled Charges" is set to NO
+● Setup > Properties > select property > Financial > Payments > Merchant Accounts > Charge
+Code Specific Merchant Accounts
+○ Change all "Charge Code Specific Merchant Accounts" to DEFAULT
+○ This needs to be accomplished before the merchant account is changed to null
+otherwise an error is received.
+● Setup > Properties > select property > Financial > Payments > Merchant Accounts > Default
+Merchant Account
+○ Change "Default Merchant Account" to NULL by having the BLANK field selected at the
+top of the list
+● Setup > Properties > select property > Financial > Closings > Period Advance
+○ Change the following 3 settings to NO
+■ - AR Auto Update Post Month
+■ - AP Auto Update Post Month
+■ - GL Auto Update Post Month
+● Setup > Properties > select property > Financial > Delinquency > Delinquency
+○ Ensure "Automatically Post Late Fees" is set to NO
+● Setup > Users & Groups
+○ Disable user access for any on-site team members
+● Setup > Properties > select property > ResidentPortal > Payments > General
+○ Change "Enable Resident Pay" to NO
+○ Change "Payments Tab" to DISABLED
+● Setup > Properties > select property > ResidentPortal > Payments > Payment Block Days
+○ Remove all dates from "Accept Online Payments On:"
+● Setup > Properties > select property > ResidentPortal > Payments > Auto Payments
+○ Remove all dates from "Allow Scheduled Payments on:"
+● Setup > Properties > select property > ResidentPortal > Maintenance > Standard:
+○ Change "Maintenance Tab" to DISABLED
+● Setup > Properties > select property > ResidentPortal > Enrollment/Login > Login:
+○ Change "Resident Portal App Login" to DISABLED
+○ Change "Allow Applicant Login" to NO
+● Setup > Properties > select property > Data Management > Leasing > Lease
+○ Click Edit Lease Forms Integration Settings
+○ Delete all information or choose the blank/null option from any drop down lists > Click
+Save
+● Setup > Properties > select property > Data Management > Leasing > Revenue Management
+○ Click Edit Revenue Management Vendor
+○ Delete all information or choose the blank/null option from any drop down lists. Turn all
+Yes/No settings to No > Click Save
+
+The steps below are recommended to be completed prior to
+migration/transition to the new management system.
+● Reports > Recurring Payments
+○ Select property & generate report
+○ Delete all individual recurring payments
+● Apps > API Access
+○ Remove all associated vendors
+■ From the Property list dropdown, select the property > Click Filter
+■ Click Manage > search for property > Click Remove
+● Setup > Company > Data Management > Integration Settings > Transmission Vendors
+○ Search for property > click Edit > click Delete to remove the integration from Bluemoon
+● Setup > Company > Document
+○ Select property from list on the left
+○ Delete application by clicking red X Delete
+● Setup > Properties > select property > Property > Floor Plans & Units > Unit Availability /
+Search:
+○ Set "Allow/Require Floor Plan Selection" to No/No
+○ Set "Allow / Require Unit Selection" to No/No
+● Setup > Properties > select property > Financial > Payments > General > Payment Types
+○ Turn all to NO. They will show as red stop signs once saved
+● Setup > Properties > select property > Communication > Contact Points
+○ Go through all tabs (Leads, Applicants, Residents, Payments, Renewals & Lease
+Modifications, and Maintenance) and remove all contact points. Click the Edit Pencil >
+uncheck any check boxes & change anything set to Yes to No > Save
+● Setup > Properties > select property > Communication > From Addresses
+○ Remove all email addresses
+○ Change "Email Relay "From" address:" to include historical within the email address (i.e.
+1515flatshistorical@emailrelay.com)
+● Setup > Properties > select property > Communication > Notification Recipients
+○ Delete all System Messages set up under Notification Recipients
+○ Click Edit Pencil next to each email > click Delete
+● Tools > Message Center > Scheduled
+○ Remove any scheduled emails for the property. Click Advanced > select the community >
+click Apply > edit the message to remove the property from the email if multiple
+properties are associated with it OR select "No" under Is Active if it's the only property
+associated with it
+● Setup > Company > Communication > Documents > Packets
+○ Filter for property & disassociate property from all associated packets
+○ DO NOT delete packets - if all properties associated to a packet are terminated, mark the
+packet as Inactive
+○ Search for Blue Moon Packet and mark as Inactive
+● Setup > Company > Communication > Documents > Templates
+○ Filter for property & remove property from all associated templates
+○ DO NOT delete any templates - if all properties associated to a template are terminated,
+disable the template`;
+
+const INITIAL_DOCS: VaultItem[] = [
+  { id: "1", fileName: "Leasing SOP", documentType: "sop", property: "Portfolio", approvalStatus: "approved", trainedOn: "Yes", modified: "Feb 18, 2025", owner: "Admin", type: "file", version: "2.1", source: "upload", effectiveDate: "2025-02-01", body: LEASING_SOP_BODY },
+  { id: "2", fileName: "Maintenance escalation", documentType: "sop", property: "Portfolio", approvalStatus: "approved", trainedOn: "Yes", modified: "Feb 15, 2025", owner: "Admin", type: "file", version: "1.0", source: "upload" },
+  { id: "3", fileName: "Fair housing policy", documentType: "policy", property: "Portfolio", approvalStatus: "approved", trainedOn: "Yes", modified: "Feb 10, 2025", owner: "Admin", type: "file", source: "upload", tags: ["compliance"] },
+  { id: "4", fileName: "Lease template", documentType: "lease", property: "Property A", approvalStatus: "draft", trainedOn: "No", modified: "Feb 5, 2025", owner: "Admin", type: "file", source: "upload" },
+  { id: "5", fileName: "Refund policy", documentType: "sop", property: "Portfolio", approvalStatus: "review", trainedOn: "No", modified: "Feb 20, 2025", owner: "Admin", type: "file", version: "1.0", source: "upload" },
+];
+
+/** Maps compliance subject (e.g. "Fair housing policy") to the document ID used to train on that subject */
+export type ComplianceSubjectDocumentIds = Record<string, string>;
+
+/** Workforce member acknowledgment for a compliance subject */
+export type WorkforceAck = {
+  memberId: string;
+  memberName: string;
+  subject: string;
+  acknowledgedAt: string;
+};
+
+type VaultContextValue = {
+  documents: VaultItem[];
+  setDocuments: React.Dispatch<React.SetStateAction<VaultItem[]>>;
+  addDocument: (item: Omit<VaultItem, "id" | "modified">) => void;
+  updateDocument: (id: string, updates: Partial<Pick<VaultItem, "fileName" | "documentType" | "property" | "approvalStatus" | "version" | "effectiveDate" | "modified" | "body" | "tags" | "linkedAgentIds" | "history" | "properties" | "nextReviewDate" | "folderId" | "isTemplate" | "versions" | "trainingRecords">>) => void;
+  addFolder: (fileName: string) => void;
+  moveToFolder: (docId: string, folderId: string | null) => void;
+  complianceChecked: Record<string, boolean>;
+  setComplianceChecked: (updater: (prev: Record<string, boolean>) => Record<string, boolean>) => void;
+  complianceSubjectDocumentIds: ComplianceSubjectDocumentIds;
+  setComplianceSubjectDocumentId: (subject: string, documentId: string | null) => void;
+  docCount: number;
+  /** Activity log (centralized feed) */
+  activityLog: VaultActivityEntry[];
+  addActivity: (entry: Omit<VaultActivityEntry, "id" | "at">) => void;
+  /** Workforce acknowledgments for compliance subjects */
+  workforceAcks: WorkforceAck[];
+  addWorkforceAck: (ack: Omit<WorkforceAck, "acknowledgedAt">) => void;
+  removeWorkforceAck: (memberId: string, subject: string) => void;
+  /** Approve a document: increment version, snapshot body, add history, mark trained agents as out_of_date */
+  approveDocument: (id: string, approvedBy: string, note?: string) => void;
+  /** Mark an agent as trained on a document at current version */
+  markAgentTrained: (docId: string, agentId: string) => void;
+};
+
+const VaultContext = createContext<VaultContextValue | null>(null);
+
+function nowDateStr() {
+  return new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function incrementVersion(ver: string | undefined): string {
+  if (!ver) return "1.0";
+  const parts = ver.split(".");
+  const major = parseInt(parts[0] ?? "1", 10);
+  const minor = parseInt(parts[1] ?? "0", 10);
+  return `${major}.${minor + 1}`;
+}
+
+const ACTIVITY_STORAGE_KEY = "janet-poc-vault-activity";
+const WORKFORCE_ACK_STORAGE_KEY = "janet-poc-vault-workforce-acks";
+
+export function VaultProvider({ children }: { children: React.ReactNode }) {
+  const [documents, setDocuments] = useState<VaultItem[]>(INITIAL_DOCS);
+  const [complianceChecked, setComplianceCheckedState] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(COMPLIANCE_ITEMS.map((k) => [k, false]))
+  );
+  const [complianceSubjectDocumentIds, setComplianceSubjectDocumentIdsState] = useState<ComplianceSubjectDocumentIds>({});
+  const [activityLog, setActivityLog] = useState<VaultActivityEntry[]>([]);
+  const [workforceAcks, setWorkforceAcks] = useState<WorkforceAck[]>([]);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const docs = Array.isArray(parsed.documents) ? parsed.documents : parsed.docs;
+        const compliance = parsed.compliance;
+        const subjectDocIds = parsed.complianceSubjectDocumentIds;
+        if (Array.isArray(docs)) {
+          const migrated = docs.map((d: VaultItem) =>
+            d.id === "1" && !d.body ? { ...d, body: LEASING_SOP_BODY } : d
+          );
+          setDocuments(migrated);
+        }
+        if (compliance && typeof compliance === "object") setComplianceCheckedState((p) => ({ ...p, ...compliance }));
+        if (subjectDocIds && typeof subjectDocIds === "object") setComplianceSubjectDocumentIdsState(subjectDocIds);
+      }
+      const actRaw = localStorage.getItem(ACTIVITY_STORAGE_KEY);
+      if (actRaw) {
+        const parsed = JSON.parse(actRaw);
+        if (Array.isArray(parsed)) setActivityLog(parsed);
+      }
+      const ackRaw = localStorage.getItem(WORKFORCE_ACK_STORAGE_KEY);
+      if (ackRaw) {
+        const parsed = JSON.parse(ackRaw);
+        if (Array.isArray(parsed)) setWorkforceAcks(parsed);
+      }
+    } catch {
+      // ignore
+    }
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        documents,
+        compliance: complianceChecked,
+        complianceSubjectDocumentIds,
+      }));
+    } catch {
+      // ignore
+    }
+  }, [documents, complianceChecked, complianceSubjectDocumentIds, mounted]);
+
+  useEffect(() => {
+    if (!mounted) return;
+    try { localStorage.setItem(ACTIVITY_STORAGE_KEY, JSON.stringify(activityLog)); } catch { /* ignore */ }
+  }, [activityLog, mounted]);
+
+  useEffect(() => {
+    if (!mounted) return;
+    try { localStorage.setItem(WORKFORCE_ACK_STORAGE_KEY, JSON.stringify(workforceAcks)); } catch { /* ignore */ }
+  }, [workforceAcks, mounted]);
+
+  // Check for documents past their nextReviewDate — auto-flag as needs_review
+  useEffect(() => {
+    if (!mounted) return;
+    const now = new Date();
+    setDocuments((prev) =>
+      prev.map((doc) => {
+        if (
+          doc.type === "file" &&
+          doc.nextReviewDate &&
+          doc.approvalStatus === "approved" &&
+          new Date(doc.nextReviewDate) <= now
+        ) {
+          return { ...doc, approvalStatus: "needs_review" as ApprovalStatus };
+        }
+        return doc;
+      })
+    );
+  }, [mounted]);
+
+  const addActivity = useCallback((entry: Omit<VaultActivityEntry, "id" | "at">) => {
+    const full: VaultActivityEntry = { ...entry, id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, at: new Date().toISOString() };
+    setActivityLog((prev) => [full, ...prev].slice(0, 200));
+  }, []);
+
+  const setComplianceSubjectDocumentId = useCallback((subject: string, documentId: string | null) => {
+    setComplianceSubjectDocumentIdsState((prev) => {
+      const next = { ...prev };
+      if (documentId == null) delete next[subject];
+      else next[subject] = documentId;
+      return next;
+    });
+  }, []);
+
+  const setComplianceChecked = useCallback((updater: (prev: Record<string, boolean>) => Record<string, boolean>) => {
+    setComplianceCheckedState((prev) => updater(prev));
+  }, []);
+
+  const addDocument = useCallback((item: Omit<VaultItem, "id" | "modified">) => {
+    const date = nowDateStr();
+    const newId = String(Date.now());
+    setDocuments((prev) => [
+      ...prev,
+      {
+        ...item,
+        id: newId,
+        modified: date,
+        source: item.source ?? "upload",
+        version: item.documentType === "sop" ? item.version ?? "1.0" : undefined,
+      },
+    ]);
+    addActivity({ action: "Document added", by: item.owner || "Admin", documentId: newId, documentName: item.fileName });
+  }, [addActivity]);
+
+  const updateDocument = useCallback((id: string, updates: Partial<Pick<VaultItem, "fileName" | "documentType" | "property" | "approvalStatus" | "version" | "effectiveDate" | "modified" | "body" | "tags" | "linkedAgentIds" | "history" | "properties" | "nextReviewDate" | "folderId" | "isTemplate" | "versions" | "trainingRecords">>) => {
+    setDocuments((prev) =>
+      prev.map((doc) => {
+        if (doc.id !== id) return doc;
+        const updated = {
+          ...doc,
+          ...updates,
+          modified: updates.modified ?? nowDateStr(),
+        };
+        // If body changed and there are trained agents, mark them out_of_date
+        if (updates.body && updates.body !== doc.body && doc.trainingRecords?.length) {
+          updated.trainingRecords = doc.trainingRecords.map((r) =>
+            r.status === "trained" ? { ...r, status: "out_of_date" as AgentTrainingStatus } : r
+          );
+        }
+        return updated;
+      })
+    );
+  }, []);
+
+  const approveDocument = useCallback((id: string, approvedBy: string, note?: string) => {
+    setDocuments((prev) =>
+      prev.map((doc) => {
+        if (doc.id !== id) return doc;
+        const newVersion = incrementVersion(doc.version);
+        const versionSnapshot: DocumentVersion = {
+          version: doc.version ?? "1.0",
+          body: doc.body ?? "",
+          approvedAt: new Date().toISOString(),
+          approvedBy,
+        };
+        const historyEntry: DocumentHistoryEntry = {
+          at: new Date().toISOString(),
+          action: "approved",
+          by: approvedBy,
+          version: newVersion,
+          note,
+        };
+        // Mark existing trained agents as out_of_date since a new version was approved
+        const updatedRecords = (doc.trainingRecords ?? []).map((r) =>
+          r.status === "trained" ? { ...r, status: "out_of_date" as AgentTrainingStatus } : r
+        );
+        return {
+          ...doc,
+          approvalStatus: "approved" as ApprovalStatus,
+          version: newVersion,
+          modified: nowDateStr(),
+          versions: [...(doc.versions ?? []), versionSnapshot],
+          history: [...(doc.history ?? []), historyEntry],
+          trainingRecords: updatedRecords,
+        };
+      })
+    );
+    addActivity({ action: "Document approved", by: approvedBy, documentId: id, detail: note });
+  }, [addActivity]);
+
+  const markAgentTrained = useCallback((docId: string, agentId: string) => {
+    setDocuments((prev) =>
+      prev.map((doc) => {
+        if (doc.id !== docId) return doc;
+        const existing = doc.trainingRecords ?? [];
+        const idx = existing.findIndex((r) => r.agentId === agentId);
+        const record: AgentTrainingRecord = {
+          agentId,
+          status: "trained",
+          trainedAt: new Date().toISOString(),
+          trainedOnVersion: doc.version ?? "1.0",
+        };
+        const next = idx >= 0 ? existing.map((r, i) => (i === idx ? record : r)) : [...existing, record];
+        return { ...doc, trainingRecords: next };
+      })
+    );
+  }, []);
+
+  const addFolder = useCallback((fileName: string) => {
+    const date = nowDateStr();
+    setDocuments((prev) => [
+      ...prev,
+      {
+        id: String(Date.now()),
+        fileName,
+        documentType: "other",
+        property: "—",
+        approvalStatus: "draft",
+        trainedOn: "—",
+        modified: date,
+        owner: "Admin",
+        type: "folder",
+      },
+    ]);
+  }, []);
+
+  const moveToFolder = useCallback((docId: string, folderId: string | null) => {
+    setDocuments((prev) =>
+      prev.map((d) => (d.id === docId ? { ...d, folderId: folderId ?? undefined } : d))
+    );
+  }, []);
+
+  const addWorkforceAck = useCallback((ack: Omit<WorkforceAck, "acknowledgedAt">) => {
+    setWorkforceAcks((prev) => {
+      const filtered = prev.filter((a) => !(a.memberId === ack.memberId && a.subject === ack.subject));
+      return [...filtered, { ...ack, acknowledgedAt: new Date().toISOString() }];
+    });
+    addActivity({ action: "Workforce acknowledgment", by: ack.memberName, detail: `Acknowledged "${ack.subject}"` });
+  }, [addActivity]);
+
+  const removeWorkforceAck = useCallback((memberId: string, subject: string) => {
+    setWorkforceAcks((prev) => prev.filter((a) => !(a.memberId === memberId && a.subject === subject)));
+  }, []);
+
+  const docCount = documents.filter((d) => d.type === "file" && !d.isTemplate).length;
+
+  return (
+    <VaultContext.Provider
+      value={{
+        documents,
+        setDocuments,
+        addDocument,
+        updateDocument,
+        addFolder,
+        moveToFolder,
+        complianceChecked,
+        setComplianceChecked,
+        complianceSubjectDocumentIds,
+        setComplianceSubjectDocumentId,
+        docCount,
+        activityLog,
+        addActivity,
+        workforceAcks,
+        addWorkforceAck,
+        removeWorkforceAck,
+        approveDocument,
+        markAgentTrained,
+      }}
+    >
+      {children}
+    </VaultContext.Provider>
+  );
+}
+
+export function useVault() {
+  const ctx = useContext(VaultContext);
+  if (!ctx) throw new Error("useVault must be used within VaultProvider");
+  return ctx;
+}

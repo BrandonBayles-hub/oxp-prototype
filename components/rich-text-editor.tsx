@@ -1,0 +1,251 @@
+"use client";
+
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import {
+  TextStyle,
+  FontFamily,
+  FontSize,
+} from "@tiptap/extension-text-style";
+import { useEffect, useRef, useState } from "react";
+import { Bold, Italic, List, ListOrdered, Quote, Undo, Redo } from "lucide-react";
+import { FontWeight } from "@/lib/tiptap-font-weight";
+
+function isHtml(s: string): boolean {
+  const t = s.trim();
+  return t.startsWith("<") && (t.includes("</") || t.endsWith("/>"));
+}
+
+function toTiptapContent(value: string): string {
+  if (!value.trim()) return "<p></p>";
+  if (isHtml(value)) return value;
+  return value
+    .split(/\n\n+/)
+    .map((p) => `<p>${p.replace(/\n/g, "<br>")}</p>`)
+    .join("");
+}
+
+type RichTextEditorProps = {
+  value: string;
+  onChange: (html: string) => void;
+  placeholder?: string;
+  className?: string;
+  minHeight?: string;
+  /** When this changes, value is re-applied to the editor (e.g. document id) */
+  contentKey?: string;
+};
+
+export function RichTextEditor({
+  value,
+  onChange,
+  placeholder = "Document content…",
+  className = "",
+  minHeight = "180px",
+  contentKey,
+}: RichTextEditorProps) {
+  const initialContent = useRef(toTiptapContent(value));
+  const lastContentKey = useRef(contentKey);
+
+  const editor = useEditor({
+    extensions: [
+      StarterKit,
+      TextStyle,
+      FontFamily,
+      FontSize,
+      FontWeight,
+    ],
+    content: initialContent.current,
+    immediatelyRender: false,
+    editorProps: {
+      attributes: {
+        class:
+          "prose prose-sm max-w-none dark:prose-invert focus:outline-none px-3 py-2",
+        style: `min-height: ${minHeight}`,
+      },
+    },
+    onUpdate: ({ editor }) => {
+      const html = editor.getHTML();
+      onChange(html === "<p></p>" ? "" : html);
+    },
+  });
+
+  const [textStyleAttrs, setTextStyleAttrs] = useState({
+    fontFamily: "",
+    fontWeight: "",
+    fontSize: "",
+  });
+
+  useEffect(() => {
+    if (!editor || contentKey === undefined || contentKey === lastContentKey.current) return;
+    lastContentKey.current = contentKey;
+    const next = toTiptapContent(value);
+    editor.commands.setContent(next, { emitUpdate: false });
+  }, [contentKey, value, editor]);
+
+  useEffect(() => {
+    if (!editor) return;
+    const updateAttrs = () => {
+      const attrs = editor.getAttributes("textStyle");
+      setTextStyleAttrs({
+        fontFamily: attrs.fontFamily ?? "",
+        fontWeight: attrs.fontWeight ?? "",
+        fontSize: attrs.fontSize ?? "",
+      });
+    };
+    updateAttrs();
+    editor.on("selectionUpdate", updateAttrs);
+    editor.on("transaction", updateAttrs);
+    return () => {
+      editor.off("selectionUpdate", updateAttrs);
+      editor.off("transaction", updateAttrs);
+    };
+  }, [editor]);
+
+  if (!editor) {
+    return (
+      <div
+        className={"rounded-md border border-input bg-muted/30 text-sm " + className}
+        style={{ minHeight }}
+      >
+        <div className="flex items-center justify-center px-3 py-8 text-muted-foreground">
+          Loading editor…
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={
+        "rounded-md border border-input bg-background text-sm " + className
+      }
+    >
+      <div className="flex flex-wrap items-center gap-0.5 border-b border-border/60 bg-muted/40 px-2 py-1">
+        {/* Font family */}
+        <select
+          value={textStyleAttrs.fontFamily}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v) editor.chain().focus().setFontFamily(v).run();
+            else editor.chain().focus().unsetFontFamily().run();
+          }}
+          className="h-8 min-w-0 max-w-[140px] rounded border border-border/60 bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+          title="Font"
+          aria-label="Font family"
+        >
+          <option value="">Default</option>
+          <option value="Inter, sans-serif">Inter</option>
+          <option value="system-ui, sans-serif">System</option>
+          <option value="Georgia, serif">Georgia</option>
+          <option value="ui-monospace, monospace">Monospace</option>
+        </select>
+        {/* Font weight */}
+        <select
+          value={textStyleAttrs.fontWeight}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v) editor.chain().focus().setFontWeight(v).run();
+            else editor.chain().focus().unsetFontWeight().run();
+          }}
+          className="h-8 min-w-0 max-w-[100px] rounded border border-border/60 bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+          title="Weight"
+          aria-label="Font weight"
+        >
+          <option value="">Default</option>
+          <option value="400">Normal</option>
+          <option value="500">Medium</option>
+          <option value="600">Semibold</option>
+          <option value="700">Bold</option>
+        </select>
+        {/* Font size */}
+        <select
+          value={textStyleAttrs.fontSize}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v) editor.chain().focus().setFontSize(v).run();
+            else editor.chain().focus().unsetFontSize().run();
+          }}
+          className="h-8 min-w-0 max-w-[80px] rounded border border-border/60 bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+          title="Size"
+          aria-label="Font size"
+        >
+          <option value="">Default</option>
+          <option value="12px">12</option>
+          <option value="14px">14</option>
+          <option value="16px">16</option>
+          <option value="18px">18</option>
+          <option value="24px">24</option>
+        </select>
+        <span className="mx-0.5 h-5 w-px bg-border" aria-hidden />
+        <button
+          type="button"
+          onClick={() => editor.chain().focus().toggleBold().run()}
+          className={`rounded p-1.5 ${editor.isActive("bold") ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+          title="Bold"
+          aria-label="Bold"
+        >
+          <Bold className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => editor.chain().focus().toggleItalic().run()}
+          className={`rounded p-1.5 ${editor.isActive("italic") ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+          title="Italic"
+          aria-label="Italic"
+        >
+          <Italic className="h-4 w-4" />
+        </button>
+        <span className="mx-0.5 h-5 w-px bg-border" aria-hidden />
+        <button
+          type="button"
+          onClick={() => editor.chain().focus().toggleBulletList().run()}
+          className={`rounded p-1.5 ${editor.isActive("bulletList") ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+          title="Bullet list"
+          aria-label="Bullet list"
+        >
+          <List className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => editor.chain().focus().toggleOrderedList().run()}
+          className={`rounded p-1.5 ${editor.isActive("orderedList") ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+          title="Numbered list"
+          aria-label="Numbered list"
+        >
+          <ListOrdered className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => editor.chain().focus().toggleBlockquote().run()}
+          className={`rounded p-1.5 ${editor.isActive("blockquote") ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+          title="Quote"
+          aria-label="Quote"
+        >
+          <Quote className="h-4 w-4" />
+        </button>
+        <span className="mx-0.5 h-5 w-px bg-border" aria-hidden />
+        <button
+          type="button"
+          onClick={() => editor.chain().focus().undo().run()}
+          disabled={!editor.can().undo()}
+          className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+          title="Undo"
+          aria-label="Undo"
+        >
+          <Undo className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => editor.chain().focus().redo().run()}
+          disabled={!editor.can().redo()}
+          className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+          title="Redo"
+          aria-label="Redo"
+        >
+          <Redo className="h-4 w-4" />
+        </button>
+      </div>
+      <EditorContent editor={editor} />
+    </div>
+  );
+}
