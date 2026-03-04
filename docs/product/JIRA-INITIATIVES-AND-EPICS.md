@@ -1,4 +1,4 @@
-# Janet POC — Jira Initiative, Epics & Stories
+# OXP Studio — Jira Initiative, Epics & Stories
 
 **Purpose:** Single source of truth for the Jira work hierarchy. One initiative, ten epics — one epic per active side-nav page. Each page is represented as a story under its epic so the epic can later expand with additional stories as scope grows.
 
@@ -10,7 +10,7 @@
 
 ### AI-Native Multifamily Property Management Platform
 
-> Deliver the Janet POC: a centralized, role-aware platform where multifamily property management companies configure, operate, and govern a blended human-AI workforce — from first-time setup through daily operations, performance measurement, and regulatory compliance.
+> Deliver the OXP Studio: a centralized, role-aware platform where multifamily property management companies configure, operate, and govern a blended human-AI workforce — from first-time setup through daily operations, performance measurement, and regulatory compliance.
 
 **Business value:** Reduces resident response time by routing issues to AI agents first. Maximizes AI ROI through continuous performance measurement alongside human staff. Provides the configuration, knowledge management, and governance framework required to operate responsibly in a regulated industry. Gives every role — from site-level IC to regional admin — a clear, actionable view of what needs attention.
 
