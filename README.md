@@ -2,6 +2,9 @@
 
 Proof-of-concept for the AI-native multifamily platform. Navigable UI with all major pages and mock data.
 
+## ProtoType
+
+Changes pushed on **main** branch will be accessible here: [https://entrata.github.io/oxp-prototype](https://entrata.github.io/oxp-prototype)
 ## Run
 
 ```bash
