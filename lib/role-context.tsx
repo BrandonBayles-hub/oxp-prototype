@@ -13,12 +13,11 @@ export type Role = (typeof ROLES)[number]["value"];
 
 const ALLOWED_ROUTES: Record<Role, string[] | "all"> = {
   admin: "all",
-  regional: ["/command-center", "/escalations", "/performance", "/agent-roster", "/workforce"],
-  property: ["/command-center", "/escalations", "/agent-roster", "/workforce"],
-  ic: ["/command-center", "/escalations", "/workforce"],
+  regional: ["/command-center", "/escalations", "/conversations", "/performance", "/agent-roster", "/workforce"],
+  property: ["/command-center", "/escalations", "/conversations", "/performance", "/agent-roster", "/workforce"],
+  ic: ["/command-center", "/escalations", "/conversations", "/workforce"],
 };
 
-/** Properties each role can see. "all" = no filtering. */
 const ROLE_PROPERTIES: Record<Role, string[] | "all"> = {
   admin: "all",
   regional: ["Property A", "Property B"],
@@ -26,18 +25,19 @@ const ROLE_PROPERTIES: Record<Role, string[] | "all"> = {
   ic: ["Property A"],
 };
 
-/** Check whether a property value falls within the role's scope */
-export function isPropertyInScope(property: string, roleProperties: string[] | "all"): boolean {
+export function matchesRoleProperties(
+  propertyLabel: string,
+  roleProperties: string[] | "all"
+): boolean {
   if (roleProperties === "all") return true;
-  if (property === "All properties" || property === "All") return true;
-  return roleProperties.some((rp) => property.includes(rp));
+  if (propertyLabel === "All properties" || propertyLabel === "All") return true;
+  return roleProperties.some((p) => propertyLabel.includes(p));
 }
 
 type RoleContextValue = {
   role: Role;
   setRole: (role: Role) => void;
   isRouteAllowed: (href: string) => boolean;
-  /** Properties visible to the current role. "all" = no restriction. */
   roleProperties: string[] | "all";
 };
 

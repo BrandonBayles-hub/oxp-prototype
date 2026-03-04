@@ -4,517 +4,585 @@ import { useState, useMemo } from "react";
 import { PageHeader } from "@/components/page-header";
 import {
   useVoice,
-  type PhrasingRule,
   type PropertyOverride,
   type AgentVoiceTuning,
+  type VerticalOverride,
 } from "@/lib/voice-context";
-import { useAgents, AGENT_BUCKETS } from "@/lib/agents-context";
-import { COMPLIANCE_ITEMS } from "@/lib/vault-context";
+import { useAgents } from "@/lib/agents-context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { useContract } from "@/lib/contract-context";
-import { ContractGate, R1ComingSoon } from "@/components/contract-overlay";
 import {
-  Palette, Radio, ShieldCheck, Building2, SlidersHorizontal,
-  Plus, Trash2, X, AlertTriangle, Pencil, Lock,
+  Building2, Layers, Home,
+  ChevronRight, Plus, Pencil, X, Trash2,
+  GraduationCap, Heart, Briefcase,
+  RotateCcw,
 } from "lucide-react";
 
-const REGULATED_AREAS = ["Fair housing", "Screening", "Accommodation", "Lease terms", "Advertising"];
-const PROPERTIES = ["Property A", "Property B", "Property C", "Property D"];
-const CHANNELS = ["voice", "chat", "sms", "portal"] as const;
-const CHANNEL_LABELS: Record<string, string> = { voice: "Voice (Phone)", chat: "Chat", sms: "SMS", portal: "Resident Portal" };
+/* ─── Constants ─── */
+
+const VERTICALS = ["Conventional", "Student", "Affordable", "Commercial"] as const;
+
+const VERTICAL_CONFIG: Record<string, { icon: typeof Building2; color: string; bgColor: string; description: string }> = {
+  Conventional: { icon: Building2, color: "text-blue-600", bgColor: "bg-blue-50 dark:bg-blue-950/30", description: "Market-rate multifamily apartments" },
+  Student: { icon: GraduationCap, color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950/30", description: "University and college housing" },
+  Affordable: { icon: Heart, color: "text-rose-600", bgColor: "bg-rose-50 dark:bg-rose-950/30", description: "Income-restricted housing communities" },
+  Commercial: { icon: Briefcase, color: "text-amber-600", bgColor: "bg-amber-50 dark:bg-amber-950/30", description: "Office and retail properties" },
+};
+
+const MOCK_PROPERTIES = [
+  { name: "Sunset Ridge Apartments", vertical: "Conventional", units: 240 },
+  { name: "The Reserve at Millcreek", vertical: "Conventional", units: 180 },
+  { name: "Parkside Lofts", vertical: "Conventional", units: 96 },
+  { name: "University Commons", vertical: "Student", units: 320 },
+  { name: "Campus Edge", vertical: "Student", units: 200 },
+  { name: "Oakwood Terrace", vertical: "Affordable", units: 150 },
+  { name: "Heritage Place", vertical: "Affordable", units: 88 },
+  { name: "Metro Business Center", vertical: "Commercial", units: 45 },
+];
+
+
+/* ─── Main Page ─── */
 
 export default function VoicePage() {
   const voice = useVoice();
   const { agents } = useAgents();
-  const autonomousAgents = useMemo(() => agents.filter((a) => a.type === "l4"), [agents]);
+  const [activeTab, setActiveTab] = useState("company");
+  const [editingVertical, setEditingVertical] = useState<string | null>(null);
+  const [propertyDialogOpen, setPropertyDialogOpen] = useState(false);
+  const [editingProperty, setEditingProperty] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState("brand");
-  const [addRuleOpen, setAddRuleOpen] = useState(false);
-  const [addOverrideOpen, setAddOverrideOpen] = useState(false);
-  const [editingOverride, setEditingOverride] = useState<string | null>(null);
-
-  const complianceRuleCount = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const r of voice.phrasingRules) {
-      counts[r.area] = (counts[r.area] || 0) + 1;
-    }
-    return counts;
-  }, [voice.phrasingRules]);
+  const autonomousAgents = useMemo(
+    () => agents.filter((a) => a.type === "autonomous"),
+    [agents],
+  );
 
   return (
-    <R1ComingSoon featureName="Voice & Brand" description="Configure your brand voice, tone, and communication style across all AI agents and channels.">
-    <ContractGate featureName="Voice & Brand">
     <>
       <PageHeader
-        title="Voice"
-        description="How your AI agents talk and behave — branding, channels, compliance guardrails, and per-property or per-agent tuning."
+        title="Voice & Brand"
+        description="Define how your AI agents communicate — set the tone, personality, and brand guidelines at every level from company-wide defaults down to individual agents."
       />
 
-      {/* Unified vs per-property toggle */}
-      <Card className="mb-6">
-        <CardContent className="flex items-center justify-between gap-4 py-4">
-          <div>
-            <p className="text-sm font-medium text-foreground">Voice scope</p>
-            <p className="text-xs text-muted-foreground">
-              Use one voice across your portfolio, or customize per property.
-            </p>
-          </div>
-          <div className="flex gap-3">
-            <Button
-              variant={voice.unified ? "default" : "outline"}
-              size="sm"
-              onClick={() => voice.update({ unified: true })}
-            >
-              Unified
-            </Button>
-            <Button
-              variant={!voice.unified ? "default" : "outline"}
-              size="sm"
-              onClick={() => voice.update({ unified: false })}
-            >
-              Per-property
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+          <CascadeVisual activeLevel={activeTab} onLevelClick={setActiveTab} />
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="mb-6">
-          <TabsTrigger value="brand"><Palette className="mr-1.5 h-3.5 w-3.5" /> Brand & Tone</TabsTrigger>
-          <TabsTrigger value="channels"><Radio className="mr-1.5 h-3.5 w-3.5" /> Channels</TabsTrigger>
-          <TabsTrigger value="guardrails"><ShieldCheck className="mr-1.5 h-3.5 w-3.5" /> Compliance Guardrails</TabsTrigger>
-          {!voice.unified && <TabsTrigger value="properties"><Building2 className="mr-1.5 h-3.5 w-3.5" /> Property Overrides</TabsTrigger>}
-          <TabsTrigger value="agents"><SlidersHorizontal className="mr-1.5 h-3.5 w-3.5" /> Agent Tuning</TabsTrigger>
-        </TabsList>
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="mb-6">
+              <TabsTrigger value="company">Company Defaults</TabsTrigger>
+              <TabsTrigger value="verticals">Verticals</TabsTrigger>
+              <TabsTrigger value="properties">Properties</TabsTrigger>
+              <TabsTrigger value="agents">Agent Tuning</TabsTrigger>
+            </TabsList>
 
-        {/* ── BRAND & TONE ── */}
-        <TabsContent value="brand" className="space-y-6">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle>Persona</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-foreground">Agent persona</label>
-                <input
-                  type="text"
-                  value={voice.persona}
-                  onChange={(e) => voice.update({ persona: e.target.value })}
-                  className="input-base"
-                  placeholder="e.g. Helpful property assistant"
-                />
-                <p className="mt-1 text-xs text-muted-foreground">How the AI identifies itself in conversations.</p>
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-foreground">Branding & tone instructions</label>
-                <textarea
-                  value={voice.brandingTone}
-                  onChange={(e) => voice.update({ brandingTone: e.target.value })}
-                  rows={3}
-                  className="input-base resize-y"
-                  placeholder="e.g. Professional and friendly. Always identify as an assistant for the property."
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle>Tone sliders</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              {([
-                { key: "toneFormality" as const, label: "Formality", low: "Casual", high: "Formal" },
-                { key: "toneWarmth" as const, label: "Warmth", low: "Neutral", high: "Warm" },
-                { key: "toneUrgency" as const, label: "Urgency", low: "Relaxed", high: "Urgent" },
-              ]).map(({ key, label, low, high }) => (
-                <div key={key}>
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <span className="text-sm font-medium text-foreground">{label}</span>
-                    <span className="text-xs text-muted-foreground">{voice[key]}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={voice[key]}
-                    onChange={(e) => voice.update({ [key]: Number(e.target.value) })}
-                    className="w-full accent-primary"
-                  />
-                  <div className="mt-0.5 flex justify-between text-[10px] text-muted-foreground">
-                    <span>{low}</span>
-                    <span>{high}</span>
-                  </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-
-          <div className="grid gap-6 sm:grid-cols-2">
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-emerald-700">Do</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2">
-                  {voice.doExamples.map((ex, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm">
-                      <span className="mt-0.5 text-emerald-600">✓</span>
+            {/* ── COMPANY DEFAULTS ── */}
+            <TabsContent value="company" className="space-y-6">
+              <div className="grid gap-6 lg:grid-cols-2">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Brand Identity</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-foreground">AI Persona</label>
                       <input
                         type="text"
-                        value={ex}
-                        onChange={(e) => {
-                          const next = [...voice.doExamples];
-                          next[i] = e.target.value;
-                          voice.update({ doExamples: next });
-                        }}
-                        className="input-base h-8 flex-1 text-sm"
+                        value={voice.persona}
+                        onChange={(e) => voice.update({ persona: e.target.value })}
+                        className="input-base"
+                        placeholder="e.g. Helpful property assistant"
                       />
-                      <button type="button" onClick={() => voice.update({ doExamples: voice.doExamples.filter((_, j) => j !== i) })} className="text-muted-foreground hover:text-foreground">
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-                <Button variant="ghost" size="sm" className="mt-2" onClick={() => voice.update({ doExamples: [...voice.doExamples, ""] })}>
-                  <Plus className="h-3.5 w-3.5" /> Add
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-red-700">Don&apos;t</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2">
-                  {voice.dontExamples.map((ex, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm">
-                      <span className="mt-0.5 text-red-600">✗</span>
-                      <input
-                        type="text"
-                        value={ex}
-                        onChange={(e) => {
-                          const next = [...voice.dontExamples];
-                          next[i] = e.target.value;
-                          voice.update({ dontExamples: next });
-                        }}
-                        className="input-base h-8 flex-1 text-sm"
+                      <p className="mt-1 text-xs text-muted-foreground">How your AI agents identify themselves in conversations.</p>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-foreground">Brand & Tone Guidelines</label>
+                      <textarea
+                        value={voice.brandingTone}
+                        onChange={(e) => voice.update({ brandingTone: e.target.value })}
+                        rows={6}
+                        className="input-base resize-y"
+                        placeholder="e.g. Professional and friendly. Always identify as an assistant for the property."
                       />
-                      <button type="button" onClick={() => voice.update({ dontExamples: voice.dontExamples.filter((_, j) => j !== i) })} className="text-muted-foreground hover:text-foreground">
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-                <Button variant="ghost" size="sm" className="mt-2" onClick={() => voice.update({ dontExamples: [...voice.dontExamples, ""] })}>
-                  <Plus className="h-3.5 w-3.5" /> Add
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-
-        {/* ── CHANNELS ── */}
-        <TabsContent value="channels" className="space-y-6">
-          <p className="text-sm text-muted-foreground">
-            Configure which communication channels are active and which agent handles each one.
-          </p>
-          {CHANNELS.map((ch) => {
-            const enabled = voice.channels[ch];
-            const settings = voice.channelSettings[ch] ?? {};
-            return (
-              <Card key={ch} className={cn(!enabled && "opacity-60")}>
-                <CardContent className="py-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                      <label className="flex cursor-pointer items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={enabled}
-                          onChange={(e) => voice.update({ channels: { ...voice.channels, [ch]: e.target.checked } })}
-                          className="h-4 w-4 rounded border-border"
-                        />
-                        <span className="text-sm font-medium text-foreground">{CHANNEL_LABELS[ch]}</span>
-                      </label>
+                      <p className="mt-1 text-xs text-muted-foreground">These guidelines apply as defaults across all agents and properties.</p>
                     </div>
-                    {enabled && (
-                      <select
-                        value={voice.channelAgent[ch] ?? ""}
-                        onChange={(e) => voice.update({ channelAgent: { ...voice.channelAgent, [ch]: e.target.value } })}
-                        className="select-base h-8 w-44 text-sm"
-                      >
-                        {autonomousAgents.map((a) => (
-                          <option key={a.id} value={a.name}>{a.name}</option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-                  {enabled && (
-                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                      <div>
-                        <label className="mb-1 block text-xs font-medium text-muted-foreground">Greeting</label>
-                        <input
-                          type="text"
-                          value={settings.greeting ?? ""}
-                          onChange={(e) => voice.update({
-                            channelSettings: { ...voice.channelSettings, [ch]: { ...settings, greeting: e.target.value } },
-                          })}
-                          className="input-base h-8 text-sm"
-                          placeholder="e.g. Hi! How can I help you today?"
-                        />
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-xs font-medium text-muted-foreground">Sign-off</label>
-                        <input
-                          type="text"
-                          value={settings.signoff ?? ""}
-                          onChange={(e) => voice.update({
-                            channelSettings: { ...voice.channelSettings, [ch]: { ...settings, signoff: e.target.value } },
-                          })}
-                          className="input-base h-8 text-sm"
-                          placeholder="e.g. Thanks for reaching out!"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
-        </TabsContent>
+                  </CardContent>
+                </Card>
 
-        {/* ── COMPLIANCE GUARDRAILS ── */}
-        <TabsContent value="guardrails" className="space-y-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Tone Profile</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-5">
+                    <ToneSliders
+                      formality={voice.toneFormality}
+                      warmth={voice.toneWarmth}
+                      urgency={voice.toneUrgency}
+                      onChange={(key, value) => voice.update({ [key]: value })}
+                    />
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="grid gap-6 sm:grid-cols-2">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm text-emerald-700 dark:text-emerald-400">Do</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ul className="space-y-2">
+                      {voice.doExamples.map((ex, i) => (
+                        <li key={i} className="flex items-start gap-2 text-sm">
+                          <span className="mt-0.5 text-emerald-600">&#10003;</span>
+                          <input
+                            type="text"
+                            value={ex}
+                            onChange={(e) => {
+                              const next = [...voice.doExamples];
+                              next[i] = e.target.value;
+                              voice.update({ doExamples: next });
+                            }}
+                            className="input-base h-8 flex-1 text-sm"
+                          />
+                          <button type="button" onClick={() => voice.update({ doExamples: voice.doExamples.filter((_, j) => j !== i) })} className="text-muted-foreground hover:text-foreground">
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    <Button variant="ghost" size="sm" className="mt-2" onClick={() => voice.update({ doExamples: [...voice.doExamples, ""] })}>
+                      <Plus className="h-3.5 w-3.5" /> Add
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm text-red-700 dark:text-red-400">Don&apos;t</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ul className="space-y-2">
+                      {voice.dontExamples.map((ex, i) => (
+                        <li key={i} className="flex items-start gap-2 text-sm">
+                          <span className="mt-0.5 text-red-600">&#10007;</span>
+                          <input
+                            type="text"
+                            value={ex}
+                            onChange={(e) => {
+                              const next = [...voice.dontExamples];
+                              next[i] = e.target.value;
+                              voice.update({ dontExamples: next });
+                            }}
+                            className="input-base h-8 flex-1 text-sm"
+                          />
+                          <button type="button" onClick={() => voice.update({ dontExamples: voice.dontExamples.filter((_, j) => j !== i) })} className="text-muted-foreground hover:text-foreground">
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    <Button variant="ghost" size="sm" className="mt-2" onClick={() => voice.update({ dontExamples: [...voice.dontExamples, ""] })}>
+                      <Plus className="h-3.5 w-3.5" /> Add
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+
+            {/* ── VERTICALS ── */}
+            <TabsContent value="verticals" className="space-y-6">
               <p className="text-sm text-muted-foreground">
-                Controlled phrasing rules ensure AI agents never misspeak in regulated areas. These feed directly into agent prompts as guardrails.
+                Customize voice and tone for different property types. Vertical-level settings override company defaults for all properties within that vertical.
               </p>
-            </div>
-            <Button size="sm" onClick={() => setAddRuleOpen(true)}>
-              <Plus className="h-3.5 w-3.5" /> Add rule
-            </Button>
-          </div>
 
-          {/* Coverage by compliance area */}
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {REGULATED_AREAS.map((area) => {
-              const count = complianceRuleCount[area] ?? 0;
-              const linked = COMPLIANCE_ITEMS.some((c) => c.toLowerCase().includes(area.toLowerCase()));
-              return (
-                <div key={area} className="flex items-center justify-between rounded-lg border border-border p-3">
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck className={cn("h-4 w-4", count > 0 ? "text-emerald-600" : "text-muted-foreground")} />
-                    <span className="text-sm font-medium text-foreground">{area}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {linked && <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">SOP linked</span>}
-                    <span className="text-xs text-muted-foreground">{count} rule{count !== 1 ? "s" : ""}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {VERTICALS.map((v) => {
+                  const config = VERTICAL_CONFIG[v];
+                  const override = voice.verticalOverrides.find((o) => o.vertical === v);
+                  const Icon = config.icon;
+                  const propertyCount = MOCK_PROPERTIES.filter((p) => p.vertical === v).length;
 
-          {/* Rules table */}
-          <div className="overflow-x-auto">
-            <table className="table-borderless w-full min-w-[600px]">
-              <thead>
-                <tr>
-                  <th>Area</th>
-                  <th>Type</th>
-                  <th>Phrase</th>
-                  <th>Replacement</th>
-                  <th className="w-16">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {voice.phrasingRules.length === 0 ? (
-                  <tr><td colSpan={5} className="text-sm text-muted-foreground">No phrasing rules yet.</td></tr>
-                ) : (
-                  voice.phrasingRules.map((rule) => (
-                    <tr key={rule.id} className="table-row-hover">
-                      <td>
-                        <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium">{rule.area}</span>
-                      </td>
-                      <td>
-                        <span className={cn(
-                          "inline-flex rounded-full px-2 py-0.5 text-xs font-medium",
-                          rule.type === "avoid" && "bg-red-50 text-red-700",
-                          rule.type === "require" && "bg-emerald-50 text-emerald-700",
-                          rule.type === "replace" && "bg-amber-50 text-amber-700",
-                        )}>
-                          {rule.type}
-                        </span>
-                      </td>
-                      <td className="text-sm text-foreground">{rule.phrase}</td>
-                      <td className="text-sm text-muted-foreground">{rule.replacement || "—"}</td>
-                      <td>
-                        <button type="button" onClick={() => voice.removePhrasingRule(rule.id)} className="text-muted-foreground hover:text-red-600">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </td>
+                  return (
+                    <Card key={v} className={cn("transition-colors", override?.enabled && "border-primary/30")}>
+                      <CardContent className="py-5">
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-start gap-3">
+                            <div className={cn("flex h-10 w-10 items-center justify-center rounded-lg", config.bgColor)}>
+                              <Icon className={cn("h-5 w-5", config.color)} />
+                            </div>
+                            <div>
+                              <h3 className="text-sm font-semibold text-foreground">{v}</h3>
+                              <p className="text-xs text-muted-foreground">{config.description}</p>
+                              <p className="mt-1 text-[10px] text-muted-foreground">{propertyCount} {propertyCount === 1 ? "property" : "properties"}</p>
+                            </div>
+                          </div>
+                          <Badge variant={override?.enabled ? "default" : "secondary"} className="text-[10px]">
+                            {override?.enabled ? "Custom" : "Inherited"}
+                          </Badge>
+                        </div>
+
+                        {override?.enabled ? (
+                          <div className="mt-4 space-y-2 rounded-lg bg-muted/50 p-3">
+                            <p className="text-xs">
+                              <span className="font-medium text-foreground">Persona:</span>{" "}
+                              <span className="text-muted-foreground">{override.persona || "—"}</span>
+                            </p>
+                            <p className="text-xs text-muted-foreground line-clamp-2">{override.brandingTone || "—"}</p>
+                            <div className="flex gap-3 pt-1">
+                              {[
+                                { label: "Formality", value: override.toneFormality },
+                                { label: "Warmth", value: override.toneWarmth },
+                                { label: "Urgency", value: override.toneUrgency },
+                              ].map(({ label, value }) => (
+                                <span key={label} className="text-[10px] text-muted-foreground">
+                                  {label}: <span className="font-medium text-foreground">{value ?? "—"}%</span>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="mt-4 text-xs italic text-muted-foreground">
+                            Inherits all settings from company defaults.
+                          </p>
+                        )}
+
+                        <div className="mt-4 flex gap-2">
+                          <Button variant="outline" size="sm" onClick={() => setEditingVertical(v)}>
+                            {override?.enabled ? (
+                              <><Pencil className="h-3 w-3" /> Edit</>
+                            ) : (
+                              <><Plus className="h-3 w-3" /> Customize</>
+                            )}
+                          </Button>
+                          {override?.enabled && (
+                            <Button variant="ghost" size="sm" onClick={() => voice.resetVerticalOverride(v)}>
+                              <RotateCcw className="h-3 w-3" /> Reset
+                            </Button>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </TabsContent>
+
+            {/* ── PROPERTIES ── */}
+            <TabsContent value="properties" className="space-y-6">
+              <div className="flex items-start justify-between gap-4">
+                <p className="text-sm text-muted-foreground">
+                  Override voice settings for individual properties. Properties without overrides inherit from their vertical or company defaults.
+                </p>
+                <Button size="sm" onClick={() => { setEditingProperty(null); setPropertyDialogOpen(true); }}>
+                  <Plus className="h-3.5 w-3.5" /> Add override
+                </Button>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="table-borderless w-full min-w-[600px]">
+                  <thead>
+                    <tr>
+                      <th>Property</th>
+                      <th>Vertical</th>
+                      <th>Voice Source</th>
+                      <th className="w-24">Actions</th>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </TabsContent>
+                  </thead>
+                  <tbody>
+                    {MOCK_PROPERTIES.map((prop) => {
+                      const override = voice.propertyOverrides.find((o) => o.property === prop.name);
+                      const verticalOverride = voice.verticalOverrides.find((v) => v.vertical === prop.vertical && v.enabled);
+                      const source = override
+                        ? "Custom"
+                        : verticalOverride
+                          ? `Vertical: ${prop.vertical}`
+                          : "Company Default";
+                      const config = VERTICAL_CONFIG[prop.vertical];
 
-        {/* ── PROPERTY OVERRIDES ── */}
-        {!voice.unified && (
-          <TabsContent value="properties" className="space-y-6">
-            <div className="flex items-start justify-between gap-4">
-              <p className="text-sm text-muted-foreground">
-                Override the company defaults for specific properties. Only properties with overrides are listed below — all others use the default voice.
-              </p>
-              <Button size="sm" onClick={() => setAddOverrideOpen(true)}>
-                <Plus className="h-3.5 w-3.5" /> Add override
-              </Button>
-            </div>
-
-            {voice.propertyOverrides.length === 0 ? (
-              <Card>
-                <CardContent className="py-8 text-center">
-                  <Building2 className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
-                  <p className="text-sm text-muted-foreground">No property overrides. All properties use the default voice.</p>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="space-y-4">
-                {voice.propertyOverrides.map((ov) => (
-                  <Card key={ov.property}>
-                    <CardContent className="py-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <h3 className="text-sm font-semibold text-foreground">{ov.property}</h3>
-                          {ov.persona && <p className="text-xs text-muted-foreground">Persona: {ov.persona}</p>}
-                        </div>
-                        <div className="flex gap-1.5">
-                          <Button variant="ghost" size="sm" onClick={() => setEditingOverride(ov.property)}>
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={() => voice.removePropertyOverride(ov.property)}>
-                            <Trash2 className="h-3.5 w-3.5 text-red-600" />
-                          </Button>
-                        </div>
-                      </div>
-                      {ov.brandingTone && (
-                        <p className="mt-2 text-sm text-foreground">{ov.brandingTone}</p>
-                      )}
-                      {ov.channels && (
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {CHANNELS.map((ch) => (
-                            <span
-                              key={ch}
-                              className={cn(
-                                "rounded-full px-2 py-0.5 text-[10px] font-medium",
-                                ov.channels?.[ch]
-                                  ? "bg-emerald-50 text-emerald-700"
-                                  : "bg-muted text-muted-foreground"
-                              )}
-                            >
-                              {CHANNEL_LABELS[ch]}: {ov.channels?.[ch] ? "On" : "Off"}
+                      return (
+                        <tr key={prop.name} className="table-row-hover">
+                          <td>
+                            <div>
+                              <p className="text-sm font-medium text-foreground">{prop.name}</p>
+                              <p className="text-[10px] text-muted-foreground">{prop.units} units</p>
+                            </div>
+                          </td>
+                          <td>
+                            <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium", config?.bgColor, config?.color)}>
+                              {prop.vertical}
                             </span>
-                          ))}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                ))}
+                          </td>
+                          <td>
+                            <span className={cn(
+                              "inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium",
+                              override ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+                            )}>
+                              {source}
+                            </span>
+                          </td>
+                          <td>
+                            <div className="flex gap-1">
+                              {override ? (
+                                <>
+                                  <button type="button" onClick={() => { setEditingProperty(prop.name); setPropertyDialogOpen(true); }} className="text-muted-foreground hover:text-foreground">
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button type="button" onClick={() => voice.removePropertyOverride(prop.name)} className="text-muted-foreground hover:text-red-600">
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </>
+                              ) : (
+                                <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setEditingProperty(prop.name); setPropertyDialogOpen(true); }}>
+                                  Customize
+                                </Button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
-            )}
-          </TabsContent>
-        )}
 
-        {/* ── AGENT TUNING ── */}
-        <TabsContent value="agents" className="space-y-6">
-          <p className="text-sm text-muted-foreground">
-            Fine-tune how individual agents communicate. These settings override the company defaults for each specific agent.
-          </p>
+              {voice.propertyOverrides.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="text-sm font-semibold text-foreground">Active Overrides</h3>
+                  {voice.propertyOverrides.map((ov) => {
+                    const config = ov.vertical ? VERTICAL_CONFIG[ov.vertical] : undefined;
+                    return (
+                      <Card key={ov.property} className="border-primary/20">
+                        <CardContent className="py-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <h4 className="text-sm font-semibold text-foreground">{ov.property}</h4>
+                                {ov.vertical && config && (
+                                  <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-medium", config.bgColor, config.color)}>
+                                    {ov.vertical}
+                                  </span>
+                                )}
+                              </div>
+                              {ov.persona && <p className="mt-0.5 text-xs text-muted-foreground">Persona: {ov.persona}</p>}
+                            </div>
+                            <div className="flex gap-1.5">
+                              <Button variant="ghost" size="sm" onClick={() => { setEditingProperty(ov.property); setPropertyDialogOpen(true); }}>
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => voice.removePropertyOverride(ov.property)}>
+                                <Trash2 className="h-3.5 w-3.5 text-red-600" />
+                              </Button>
+                            </div>
+                          </div>
+                          {ov.brandingTone && <p className="mt-2 text-sm text-muted-foreground">{ov.brandingTone}</p>}
+                          {(ov.toneFormality !== undefined || ov.toneWarmth !== undefined || ov.toneUrgency !== undefined) && (
+                            <div className="mt-2 flex gap-4">
+                              {ov.toneFormality !== undefined && (
+                                <span className="text-[10px] text-muted-foreground">Formality: <span className="font-medium text-foreground">{ov.toneFormality}%</span></span>
+                              )}
+                              {ov.toneWarmth !== undefined && (
+                                <span className="text-[10px] text-muted-foreground">Warmth: <span className="font-medium text-foreground">{ov.toneWarmth}%</span></span>
+                              )}
+                              {ov.toneUrgency !== undefined && (
+                                <span className="text-[10px] text-muted-foreground">Urgency: <span className="font-medium text-foreground">{ov.toneUrgency}%</span></span>
+                              )}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </TabsContent>
 
-          {voice.agentTuning.length === 0 ? (
-            <Card>
-              <CardContent className="py-8 text-center">
-                <SlidersHorizontal className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
-                <p className="text-sm text-muted-foreground">No agent-specific tuning configured.</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-4">
-              {voice.agentTuning.map((tuning) => {
-                const matchedAgent = agents.find((a) => String(a.id) === tuning.agentId);
-                const agentType = matchedAgent?.type;
-                return (
-                  <AgentTuningCard
-                    key={tuning.agentId}
-                    tuning={tuning}
-                    agentType={agentType}
-                    onUpdate={(updates) => voice.updateAgentTuning(tuning.agentId, updates)}
-                  />
-                );
-              })}
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
+            {/* ── AGENT TUNING ── */}
+            <TabsContent value="agents" className="space-y-6">
+              <p className="text-sm text-muted-foreground">
+                Fine-tune how individual ELI+ agents communicate. Agent-level settings take the highest priority in the cascade, overriding company, vertical, and property defaults.
+              </p>
 
-      {/* Add phrasing rule dialog */}
-      {addRuleOpen && (
-        <AddPhrasingRuleDialog
-          onClose={() => setAddRuleOpen(false)}
-          onAdd={(rule) => { voice.addPhrasingRule(rule); setAddRuleOpen(false); }}
-        />
-      )}
+              <div className="grid gap-4 sm:grid-cols-2">
+                {voice.agentTuning.map((tuning) => {
+                  const agent = autonomousAgents.find((a) => a.id === tuning.agentId);
+                  return (
+                    <AgentTuningCard
+                      key={tuning.agentId}
+                      tuning={tuning}
+                      agentStatus={agent?.status}
+                      onUpdate={(updates) => voice.updateAgentTuning(tuning.agentId, updates)}
+                    />
+                  );
+                })}
+              </div>
+            </TabsContent>
+          </Tabs>
 
-      {/* Add property override dialog */}
-      {addOverrideOpen && (
-        <AddPropertyOverrideDialog
-          existingProperties={voice.propertyOverrides.map((o) => o.property)}
-          onClose={() => setAddOverrideOpen(false)}
-          onAdd={(ov) => { voice.addPropertyOverride(ov); setAddOverrideOpen(false); }}
-        />
-      )}
+          {/* Vertical Edit Dialog */}
+          {editingVertical && (() => {
+            const override = voice.verticalOverrides.find((v) => v.vertical === editingVertical);
+            return (
+              <VerticalEditDialog
+                vertical={editingVertical}
+                override={override ?? { vertical: editingVertical, enabled: false }}
+                companyDefaults={{
+                  persona: voice.persona,
+                  brandingTone: voice.brandingTone,
+                  toneFormality: voice.toneFormality,
+                  toneWarmth: voice.toneWarmth,
+                  toneUrgency: voice.toneUrgency,
+                }}
+                onClose={() => setEditingVertical(null)}
+                onSave={(updates) => {
+                  voice.updateVerticalOverride(editingVertical, { ...updates, enabled: true });
+                  setEditingVertical(null);
+                }}
+              />
+            );
+          })()}
 
-      {/* Edit property override dialog */}
-      {editingOverride && (() => {
-        const ov = voice.propertyOverrides.find((o) => o.property === editingOverride);
-        if (!ov) return null;
-        return (
-          <EditPropertyOverrideDialog
-            override={ov}
-            onClose={() => setEditingOverride(null)}
-            onSave={(updates) => { voice.updatePropertyOverride(editingOverride, updates); setEditingOverride(null); }}
-          />
-        );
-      })()}
+          {/* Property Override Dialog */}
+          {propertyDialogOpen && (() => {
+            const existing = editingProperty
+              ? voice.propertyOverrides.find((o) => o.property === editingProperty)
+              : undefined;
+            return (
+              <PropertyOverrideDialog
+                override={existing}
+                preselectedProperty={editingProperty}
+                existingProperties={voice.propertyOverrides.map((o) => o.property)}
+                onClose={() => { setPropertyDialogOpen(false); setEditingProperty(null); }}
+                onSave={(data) => {
+                  if (existing) {
+                    voice.updatePropertyOverride(editingProperty!, data);
+                  } else {
+                    voice.addPropertyOverride(data as PropertyOverride);
+                  }
+                  setPropertyDialogOpen(false);
+                  setEditingProperty(null);
+                }}
+              />
+            );
+          })()}
     </>
-    </ContractGate>
-    </R1ComingSoon>
   );
 }
 
-/* ── Agent Tuning Card ── */
+/* ─── Cascade Visualization ─── */
+
+function CascadeVisual({ activeLevel, onLevelClick }: { activeLevel: string; onLevelClick: (level: string) => void }) {
+  const levels = [
+    { id: "company", label: "Company", desc: "Portfolio defaults", icon: Building2 },
+    { id: "verticals", label: "Vertical", desc: "By property type", icon: Layers },
+    { id: "properties", label: "Property", desc: "Individual overrides", icon: Home },
+    { id: "agents", label: "Agent", desc: "Per-agent tuning", icon: null },
+  ];
+
+  return (
+    <div className="mb-6 flex items-center gap-1 overflow-x-auto pb-1">
+      {levels.map((level, i) => {
+        const Icon = level.icon;
+        const isActive = activeLevel === level.id;
+        return (
+          <div key={level.id} className="flex items-center">
+            <button
+              type="button"
+              onClick={() => onLevelClick(level.id)}
+              className={cn(
+                "flex items-center gap-2.5 rounded-lg border px-4 py-2.5 transition-all",
+                isActive
+                  ? "border-primary bg-primary/5 shadow-sm"
+                  : "border-border hover:border-primary/30 hover:bg-muted/50",
+              )}
+            >
+              <div className={cn(
+                "flex h-8 w-8 items-center justify-center rounded-md",
+                isActive ? "bg-primary/10" : "bg-muted",
+              )}>
+                {level.id === "agents" ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src="/eli-cube.svg" alt="" width={18} height={18} className="shrink-0" />
+                ) : Icon ? (
+                  <Icon className={cn("h-4 w-4", isActive ? "text-primary" : "text-muted-foreground")} />
+                ) : null}
+              </div>
+              <div className="text-left">
+                <p className={cn("text-sm font-medium", isActive ? "text-primary" : "text-foreground")}>{level.label}</p>
+                <p className="text-[10px] text-muted-foreground">{level.desc}</p>
+              </div>
+            </button>
+            {i < levels.length - 1 && (
+              <ChevronRight className="mx-1 h-4 w-4 shrink-0 text-muted-foreground/50" />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ─── Tone Sliders (reusable) ─── */
+
+function ToneSliders({
+  formality,
+  warmth,
+  urgency,
+  onChange,
+  disabled,
+}: {
+  formality: number;
+  warmth: number;
+  urgency: number;
+  onChange: (key: string, value: number) => void;
+  disabled?: boolean;
+}) {
+  const sliders = [
+    { key: "toneFormality", label: "Formality", value: formality, low: "Casual", high: "Formal" },
+    { key: "toneWarmth", label: "Warmth", value: warmth, low: "Neutral", high: "Warm" },
+    { key: "toneUrgency", label: "Urgency", value: urgency, low: "Relaxed", high: "Urgent" },
+  ];
+
+  return (
+    <>
+      {sliders.map(({ key, label, value, low, high }) => (
+        <div key={key}>
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="text-sm font-medium text-foreground">{label}</span>
+            <span className="text-xs text-muted-foreground">{value}%</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={value}
+            onChange={(e) => onChange(key, Number(e.target.value))}
+            className="w-full accent-primary"
+            disabled={disabled}
+          />
+          <div className="mt-0.5 flex justify-between text-[10px] text-muted-foreground">
+            <span>{low}</span>
+            <span>{high}</span>
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+/* ─── Agent Tuning Card ─── */
 
 function AgentTuningCard({
   tuning,
-  agentType,
+  agentStatus,
   onUpdate,
 }: {
   tuning: AgentVoiceTuning;
-  agentType?: string;
+  agentStatus?: string;
   onUpdate: (updates: Partial<AgentVoiceTuning>) => void;
 }) {
-  const { contracted } = useContract();
-  const needsContract = !contracted && (agentType === "l4" || agentType === "l3");
   const [editing, setEditing] = useState(false);
   const [tone, setTone] = useState(tuning.toneOverride ?? "");
   const [personality, setPersonality] = useState(tuning.personality ?? "");
@@ -523,43 +591,43 @@ function AgentTuningCard({
   const [allowEmoji, setAllowEmoji] = useState(tuning.allowEmoji ?? false);
 
   const handleSave = () => {
-    onUpdate({ toneOverride: tone, personality, customInstructions: instructions, responseLength: responseLength as AgentVoiceTuning["responseLength"], allowEmoji });
+    onUpdate({
+      toneOverride: tone,
+      personality,
+      customInstructions: instructions,
+      responseLength: responseLength as AgentVoiceTuning["responseLength"],
+      allowEmoji,
+    });
     setEditing(false);
   };
 
-  if (needsContract) {
-    return (
-      <Card className="border-amber-200 bg-amber-50/30 dark:border-amber-900/50 dark:bg-amber-950/20">
-        <CardContent className="flex items-center justify-between gap-4 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/40">
-              <Lock className="h-4 w-4 text-amber-600" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">{tuning.agentName}</h3>
-              <p className="text-xs text-muted-foreground">
-                Enable ELI+ Agents to configure voice tuning for this agent.
-              </p>
-            </div>
-          </div>
-          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-            <Lock className="h-3 w-3" />
-            Unlock ELI+ Agents
-          </span>
-        </CardContent>
-      </Card>
-    );
-  }
+  const status = agentStatus || "Active";
+  const isOff = status === "Off";
+  const displayName = `ELI+ ${tuning.agentName}`;
 
   return (
-    <Card>
-      <CardContent className="py-4">
+    <Card className={cn(isOff && "opacity-70")}>
+      <CardContent className="py-5">
         <div className="flex items-start justify-between gap-3">
-          <div>
-            <h3 className="text-sm font-semibold text-foreground">{tuning.agentName}</h3>
-            <p className="text-xs text-muted-foreground">
-              {tuning.toneOverride || "Using default tone"} · {tuning.responseLength ?? "standard"} responses
-            </p>
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/eli-cube.svg" alt="" width={22} height={22} className="shrink-0" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-foreground">{displayName}</h3>
+                <span className={cn(
+                  "rounded-full px-1.5 py-0.5 text-[9px] font-medium",
+                  isOff ? "bg-muted text-muted-foreground" : "bg-[#B3FFCC] text-green-800",
+                )}>
+                  {status}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {tuning.toneOverride || "Using default tone"} · {tuning.responseLength ?? "standard"} responses
+              </p>
+            </div>
           </div>
           {!editing ? (
             <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
@@ -575,10 +643,17 @@ function AgentTuningCard({
 
         {!editing ? (
           <div className="mt-3 space-y-2 text-sm">
-            {tuning.personality && <p><span className="font-medium text-foreground">Personality:</span> <span className="text-muted-foreground">{tuning.personality}</span></p>}
-            {tuning.customInstructions && <p><span className="font-medium text-foreground">Instructions:</span> <span className="text-muted-foreground">{tuning.customInstructions}</span></p>}
+            {tuning.personality && (
+              <p><span className="font-medium text-foreground">Personality:</span> <span className="text-muted-foreground">{tuning.personality}</span></p>
+            )}
+            {tuning.customInstructions && (
+              <p><span className="font-medium text-foreground">Instructions:</span> <span className="text-muted-foreground">{tuning.customInstructions}</span></p>
+            )}
             <div className="flex items-center gap-3">
-              <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", tuning.allowEmoji ? "bg-emerald-50 text-emerald-700" : "bg-muted text-muted-foreground")}>
+              <span className={cn(
+                "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                tuning.allowEmoji ? "bg-[#B3FFCC] text-black" : "bg-muted text-muted-foreground",
+              )}>
                 Emoji: {tuning.allowEmoji ? "On" : "Off"}
               </span>
             </div>
@@ -618,156 +693,170 @@ function AgentTuningCard({
   );
 }
 
-/* ── Add Phrasing Rule Dialog ── */
+/* ─── Vertical Edit Dialog ─── */
 
-function AddPhrasingRuleDialog({
+function VerticalEditDialog({
+  vertical,
+  override,
+  companyDefaults,
   onClose,
-  onAdd,
+  onSave,
 }: {
+  vertical: string;
+  override: VerticalOverride;
+  companyDefaults: { persona: string; brandingTone: string; toneFormality: number; toneWarmth: number; toneUrgency: number };
   onClose: () => void;
-  onAdd: (rule: Omit<PhrasingRule, "id">) => void;
+  onSave: (updates: Partial<VerticalOverride>) => void;
 }) {
-  const [area, setArea] = useState(REGULATED_AREAS[0]);
-  const [type, setType] = useState<PhrasingRule["type"]>("avoid");
-  const [phrase, setPhrase] = useState("");
-  const [replacement, setReplacement] = useState("");
+  const [persona, setPersona] = useState(override.persona ?? companyDefaults.persona);
+  const [brandingTone, setBrandingTone] = useState(override.brandingTone ?? companyDefaults.brandingTone);
+  const [toneFormality, setToneFormality] = useState(override.toneFormality ?? companyDefaults.toneFormality);
+  const [toneWarmth, setToneWarmth] = useState(override.toneWarmth ?? companyDefaults.toneWarmth);
+  const [toneUrgency, setToneUrgency] = useState(override.toneUrgency ?? companyDefaults.toneUrgency);
+
+  const config = VERTICAL_CONFIG[vertical];
+  const Icon = config?.icon || Building2;
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add phrasing rule</DialogTitle>
-          <DialogDescription>Define a phrase to avoid, require, or replace in a regulated area.</DialogDescription>
+          <div className="flex items-center gap-3">
+            <div className={cn("flex h-9 w-9 items-center justify-center rounded-lg", config?.bgColor)}>
+              <Icon className={cn("h-4 w-4", config?.color)} />
+            </div>
+            <div>
+              <DialogTitle>Customize {vertical} Voice</DialogTitle>
+              <DialogDescription>{config?.description}</DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
+
         <div className="space-y-4">
           <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Regulated area</label>
-            <select value={area} onChange={(e) => setArea(e.target.value)} className="select-base w-full text-sm">
-              {REGULATED_AREAS.map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Persona</label>
+            <input type="text" value={persona} onChange={(e) => setPersona(e.target.value)} className="input-base text-sm" placeholder="e.g. Friendly campus guide" />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Rule type</label>
-            <select value={type} onChange={(e) => setType(e.target.value as PhrasingRule["type"])} className="select-base w-full text-sm">
-              <option value="avoid">Avoid (never say this)</option>
-              <option value="require">Require (always include)</option>
-              <option value="replace">Replace (swap for alternative)</option>
-            </select>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Brand & Tone Guidelines</label>
+            <textarea value={brandingTone} onChange={(e) => setBrandingTone(e.target.value)} rows={3} className="input-base resize-y text-sm" />
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Phrase</label>
-            <input type="text" value={phrase} onChange={(e) => setPhrase(e.target.value)} className="input-base text-sm" placeholder="e.g. tenant" />
+          <div className="rounded-lg border border-border p-4">
+            <p className="mb-3 text-xs font-medium text-foreground">Tone Profile</p>
+            <ToneSliders
+              formality={toneFormality}
+              warmth={toneWarmth}
+              urgency={toneUrgency}
+              onChange={(key, value) => {
+                if (key === "toneFormality") setToneFormality(value);
+                else if (key === "toneWarmth") setToneWarmth(value);
+                else if (key === "toneUrgency") setToneUrgency(value);
+              }}
+            />
           </div>
-          {(type === "avoid" || type === "replace") && (
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">Replacement {type === "avoid" ? "(optional)" : ""}</label>
-              <input type="text" value={replacement} onChange={(e) => setReplacement(e.target.value)} className="input-base text-sm" placeholder="e.g. resident" />
-            </div>
-          )}
         </div>
+
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => onAdd({ area, type, phrase, replacement: replacement || undefined })} disabled={!phrase.trim()}>Add rule</Button>
+          <Button onClick={() => onSave({ persona, brandingTone, toneFormality, toneWarmth, toneUrgency })}>
+            Save
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
 
-/* ── Add Property Override Dialog ── */
+/* ─── Property Override Dialog ─── */
 
-function AddPropertyOverrideDialog({
+function PropertyOverrideDialog({
+  override,
+  preselectedProperty,
   existingProperties,
   onClose,
-  onAdd,
+  onSave,
 }: {
+  override?: PropertyOverride;
+  preselectedProperty?: string | null;
   existingProperties: string[];
   onClose: () => void;
-  onAdd: (override: PropertyOverride) => void;
+  onSave: (data: PropertyOverride | Partial<PropertyOverride>) => void;
 }) {
-  const available = PROPERTIES.filter((p) => !existingProperties.includes(p));
-  const [property, setProperty] = useState(available[0] ?? "");
-  const [brandingTone, setBrandingTone] = useState("");
-  const [persona, setPersona] = useState("");
+  const isEditing = !!override;
+  const available = MOCK_PROPERTIES.filter((p) => !existingProperties.includes(p.name) || p.name === override?.property || p.name === preselectedProperty);
+  const [property, setProperty] = useState(override?.property ?? preselectedProperty ?? available[0]?.name ?? "");
+  const [persona, setPersona] = useState(override?.persona ?? "");
+  const [brandingTone, setBrandingTone] = useState(override?.brandingTone ?? "");
+  const [toneFormality, setToneFormality] = useState(override?.toneFormality ?? 65);
+  const [toneWarmth, setToneWarmth] = useState(override?.toneWarmth ?? 75);
+  const [toneUrgency, setToneUrgency] = useState(override?.toneUrgency ?? 40);
+
+  const selectedProperty = MOCK_PROPERTIES.find((p) => p.name === property);
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add property override</DialogTitle>
-          <DialogDescription>Customize voice settings for a specific property.</DialogDescription>
+          <DialogTitle>{isEditing ? `Edit ${override.property}` : "Add Property Override"}</DialogTitle>
+          <DialogDescription>
+            {isEditing
+              ? "Modify voice settings for this property."
+              : "Customize voice settings for a specific property. This overrides vertical and company defaults."}
+          </DialogDescription>
         </DialogHeader>
+
         <div className="space-y-4">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Property</label>
-            <select value={property} onChange={(e) => setProperty(e.target.value)} className="select-base w-full text-sm">
-              {available.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
-          </div>
+          {!isEditing && (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Property</label>
+              <select value={property} onChange={(e) => setProperty(e.target.value)} className="select-base w-full text-sm">
+                {available.map((p) => (
+                  <option key={p.name} value={p.name}>{p.name} ({p.vertical})</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">Persona override</label>
             <input type="text" value={persona} onChange={(e) => setPersona(e.target.value)} className="input-base text-sm" placeholder="e.g. Luxury concierge" />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Branding & tone override</label>
-            <textarea value={brandingTone} onChange={(e) => setBrandingTone(e.target.value)} rows={2} className="input-base resize-y text-sm" placeholder="e.g. Upscale and sophisticated." />
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Brand & tone override</label>
+            <textarea value={brandingTone} onChange={(e) => setBrandingTone(e.target.value)} rows={3} className="input-base resize-y text-sm" placeholder="e.g. Upscale and sophisticated." />
+          </div>
+
+          <div className="rounded-lg border border-border p-4">
+            <p className="mb-3 text-xs font-medium text-foreground">Tone Profile</p>
+            <ToneSliders
+              formality={toneFormality}
+              warmth={toneWarmth}
+              urgency={toneUrgency}
+              onChange={(key, value) => {
+                if (key === "toneFormality") setToneFormality(value);
+                else if (key === "toneWarmth") setToneWarmth(value);
+                else if (key === "toneUrgency") setToneUrgency(value);
+              }}
+            />
           </div>
         </div>
+
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => onAdd({ property, brandingTone: brandingTone || undefined, persona: persona || undefined, channels: { voice: true, chat: true, sms: false, portal: true } })} disabled={!property}>Add</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/* ── Edit Property Override Dialog ── */
-
-function EditPropertyOverrideDialog({
-  override,
-  onClose,
-  onSave,
-}: {
-  override: PropertyOverride;
-  onClose: () => void;
-  onSave: (updates: Partial<PropertyOverride>) => void;
-}) {
-  const [brandingTone, setBrandingTone] = useState(override.brandingTone ?? "");
-  const [persona, setPersona] = useState(override.persona ?? "");
-  const [channels, setChannels] = useState(override.channels ?? { voice: true, chat: true, sms: false, portal: true });
-
-  return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Edit {override.property}</DialogTitle>
-          <DialogDescription>Modify voice settings for this property.</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Persona</label>
-            <input type="text" value={persona} onChange={(e) => setPersona(e.target.value)} className="input-base text-sm" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Branding & tone</label>
-            <textarea value={brandingTone} onChange={(e) => setBrandingTone(e.target.value)} rows={2} className="input-base resize-y text-sm" />
-          </div>
-          <div>
-            <label className="mb-2 block text-xs font-medium text-muted-foreground">Channels</label>
-            <div className="flex flex-wrap gap-4">
-              {CHANNELS.map((ch) => (
-                <label key={ch} className="flex items-center gap-2">
-                  <input type="checkbox" checked={channels[ch]} onChange={(e) => setChannels({ ...channels, [ch]: e.target.checked })} className="h-4 w-4 rounded border-border" />
-                  <span className="text-sm text-foreground">{CHANNEL_LABELS[ch]}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => onSave({ brandingTone: brandingTone || undefined, persona: persona || undefined, channels })}>Save</Button>
+          <Button
+            onClick={() => onSave({
+              property,
+              vertical: selectedProperty?.vertical,
+              persona: persona || undefined,
+              brandingTone: brandingTone || undefined,
+              toneFormality,
+              toneWarmth,
+              toneUrgency,
+            })}
+            disabled={!property}
+          >
+            {isEditing ? "Save" : "Add"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

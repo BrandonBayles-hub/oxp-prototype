@@ -1,0 +1,74 @@
+"use client";
+
+import { usePathname } from "next/navigation";
+import { Sidebar } from "./sidebar";
+import { MobileNav } from "./mobile-nav";
+import { EntrataTopNav } from "./entrata-top-nav";
+import { NotificationToast } from "@/components/notification-toast";
+import { R1PreviewBanner } from "@/components/r1-preview-banner";
+import { ComingSoonOverlay } from "@/components/coming-soon-overlay";
+import { RouteGuard } from "@/components/route-guard";
+import { cn } from "@/lib/utils";
+
+const CHROMELESS_ROUTES: string[] = [];
+const FULL_BLEED_ROUTES = ["/conversations"];
+const NAV_ONLY_ROUTES = ["/escalations/settings"];
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const chromeless = CHROMELESS_ROUTES.some((r) => pathname.startsWith(r));
+  const fullBleed = FULL_BLEED_ROUTES.some((r) => pathname.startsWith(r));
+  const navOnly = NAV_ONLY_ROUTES.some((r) => pathname.startsWith(r));
+
+  if (chromeless) {
+    return (
+      <div className="flex h-screen flex-col overflow-hidden">
+        <main className="flex-1 overflow-y-auto bg-background">
+          <RouteGuard>{children}</RouteGuard>
+        </main>
+      </div>
+    );
+  }
+
+  if (navOnly) {
+    return (
+      <div className="flex h-screen flex-col overflow-hidden">
+        <EntrataTopNav />
+        <main className="flex-1 flex flex-col overflow-hidden bg-background">
+          <RouteGuard>{children}</RouteGuard>
+        </main>
+        <NotificationToast />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-screen flex-col overflow-hidden">
+      <EntrataTopNav />
+      <MobileNav />
+      <div className="flex flex-1 overflow-hidden">
+        <div className="hidden shrink-0 lg:block">
+          <Sidebar />
+        </div>
+        <main className={cn(
+          "flex-1 bg-muted/50",
+          fullBleed ? "flex flex-col overflow-hidden" : "pt-3 lg:pt-0 overflow-y-auto"
+        )}>
+          <R1PreviewBanner />
+          {fullBleed ? (
+            <RouteGuard>
+              <ComingSoonOverlay>{children}</ComingSoonOverlay>
+            </RouteGuard>
+          ) : (
+            <div className="page-content px-6 pb-3 pt-[4.5rem] sm:px-8 lg:px-10">
+              <RouteGuard>
+                <ComingSoonOverlay>{children}</ComingSoonOverlay>
+              </RouteGuard>
+            </div>
+          )}
+        </main>
+      </div>
+      <NotificationToast />
+    </div>
+  );
+}

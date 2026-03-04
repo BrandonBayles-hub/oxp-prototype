@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Sidebar } from "@/components/app-shell/sidebar";
-import { MobileNav } from "@/components/app-shell/mobile-nav";
-import { EntrataTopNav } from "@/components/app-shell/entrata-top-nav";
+import { AppShell } from "@/components/app-shell/app-shell";
 import { SetupProvider } from "@/lib/setup-context";
 import { VaultProvider } from "@/lib/vault-context";
 import { AgentsProvider } from "@/lib/agents-context";
@@ -11,12 +9,20 @@ import { VoiceProvider } from "@/lib/voice-context";
 import { EscalationsProvider } from "@/lib/escalations-context";
 import { WorkforceProvider } from "@/lib/workforce-context";
 import { ToolsProvider } from "@/lib/tools-context";
+import { GovernanceProvider } from "@/lib/governance-context";
 import { RoleProvider } from "@/lib/role-context";
-import { ContractProvider } from "@/lib/contract-context";
+import { FeedbackProvider } from "@/lib/feedback-context";
+import { ConversationsProvider } from "@/lib/conversations-context";
+import { NotificationsProvider } from "@/lib/notifications-context";
+import { FeatureEntitlementsProvider } from "@/lib/feature-entitlements-context";
+import { PermissionsProvider } from "@/lib/permissions-context";
+import { PlaybooksProvider } from "@/lib/playbooks-context";
+import { R1DemoProvider } from "@/lib/r1-demo-context";
+import { ComingSoonProvider } from "@/lib/coming-soon-context";
 
 export const metadata: Metadata = {
-  title: "OXP Studio / Entrata Agent Platform",
-  description: "AI-native multifamily platform",
+  title: "Janet POC",
+  description: "AI-native multifamily platform POC",
 };
 
 export default function RootLayout({
@@ -42,25 +48,29 @@ export default function RootLayout({
           .overflow-y-auto{overflow-y:auto;}
           .shrink-0{flex-shrink:0;}
           .select-none{user-select:none;}
-          .w-64{width:16rem;}
+          .w-56{width:14rem;}
           .border-r{border-right-width:1px;}
           .border-border{border-color:hsl(var(--border));}
           aside{background:hsl(var(--sidebar));border-color:hsl(var(--sidebar-border));}
           @media (min-width:1024px){.lg\\:block{display:block !important;} .lg\\:pt-0{padding-top:0;}}
           .pt-16{padding-top:4rem;}
           main{background:hsl(var(--muted) / 0.5);}
-          .page-content{padding:1.5rem 1rem;}
-          @media (min-width:640px){.page-content{padding-left:1.5rem;padding-right:1.5rem;}}
+          .page-content{padding:4.5rem 1.5rem 0.75rem;}
+          @media (min-width:640px){.page-content{padding-left:2rem;padding-right:2rem;}}
           @media (min-width:1024px){.page-content{padding-left:2.5rem;padding-right:2.5rem;}}
         ` }} />
         {/* eslint-disable-next-line @next/next/no-page-custom-font */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap" rel="stylesheet" />
+        <link href="https://fonts.cdnfonts.com/css/nohemi" rel="stylesheet" />
       </head>
       <body className="min-h-screen antialiased font-sans">
+        <R1DemoProvider>
+        <ComingSoonProvider>
         <RoleProvider>
-        <ContractProvider>
+        <PermissionsProvider>
+        <FeatureEntitlementsProvider>
         <SetupProvider>
           <VaultProvider>
             <AgentsProvider>
@@ -68,22 +78,19 @@ export default function RootLayout({
                 <WorkflowsProvider>
                   <VoiceProvider>
                     <EscalationsProvider>
+                    <ConversationsProvider>
                     <ToolsProvider>
-                    <div className="flex h-screen flex-col overflow-hidden">
-                      <EntrataTopNav />
-                      <MobileNav />
-                      <div className="flex flex-1 overflow-hidden">
-                        <div className="hidden shrink-0 lg:block">
-                          <Sidebar />
-                        </div>
-                        <main className="flex-1 overflow-y-auto bg-muted/50 pt-16 lg:pt-0">
-                          <div className="page-content px-4 py-6 sm:px-6 lg:px-10">
-                            {children}
-                          </div>
-                        </main>
-                      </div>
-                    </div>
+                    <GovernanceProvider>
+                    <FeedbackProvider>
+                    <PlaybooksProvider>
+                    <NotificationsProvider>
+                    <AppShell>{children}</AppShell>
+                    </NotificationsProvider>
+                    </PlaybooksProvider>
+                    </FeedbackProvider>
+                    </GovernanceProvider>
                     </ToolsProvider>
+                    </ConversationsProvider>
                     </EscalationsProvider>
                   </VoiceProvider>
                 </WorkflowsProvider>
@@ -91,8 +98,11 @@ export default function RootLayout({
             </AgentsProvider>
           </VaultProvider>
         </SetupProvider>
-        </ContractProvider>
+        </FeatureEntitlementsProvider>
+        </PermissionsProvider>
         </RoleProvider>
+        </ComingSoonProvider>
+        </R1DemoProvider>
       </body>
     </html>
   );

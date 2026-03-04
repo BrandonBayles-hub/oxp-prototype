@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback, Suspense } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
-  FileText, FolderOpen, Pencil, Send, CheckCircle, Upload, Building2,
-  Search, Clock, AlertTriangle, ChevronRight, X, CornerDownRight,
+  FileText, FilePlus, FolderOpen, FolderPlus, Pencil, Send, CheckCircle, Upload, Building2,
+  Search, Clock, AlertTriangle, ChevronRight, X, CornerDownRight, BookOpen, Plus, MoreHorizontal, MoreVertical, Trash2,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import {
@@ -18,16 +18,25 @@ import {
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAgents } from "@/lib/agents-context";
-import { ContractGate } from "@/components/contract-overlay";
 import { useWorkforce } from "@/lib/workforce-context";
 import { useEscalations } from "@/lib/escalations-context";
 import { EscalationDetailSheet } from "@/components/escalation-detail-sheet";
-import { Shield, Library, FileCheck, Users, Activity } from "lucide-react";
+import { Shield, ShieldCheck, FileCheck, Users, Activity } from "lucide-react";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Chat, type ChatMessage } from "@/components/ui/chat";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const DOC_TYPES = ["All", "sop", "policy", "lease", "other"] as const;
-const APPROVAL_STATUSES = ["All", "draft", "review", "approved", "needs_review"] as const;
+const APPROVAL_STATUSES = ["All", "review", "approved", "needs_review"] as const;
 const PROPERTIES = ["All", "Portfolio", "Property A", "Property B", "Property C"];
 
 const TRAIN_SOP_METRICS_STORAGE_KEY = "janet-poc-trainings-sop-metrics-prev";
@@ -128,7 +137,7 @@ function CoverageRing({ filled, total, size = 64 }: { filled: number; total: num
   );
 }
 
-export default function TrainingsSopPage() {
+function TrainingsSopContent() {
   const {
     documents: items, setDocuments: setItems,
     addDocument: addDocToVault, updateDocument, addFolder: addFolderToVault,
@@ -136,7 +145,7 @@ export default function TrainingsSopPage() {
     complianceSubjectDocumentIds, setComplianceSubjectDocumentId,
     docCount, activityLog, addActivity,
     workforceAcks, addWorkforceAck, removeWorkforceAck,
-    approveDocument, markAgentTrained, moveToFolder,
+    approveDocument, markAgentTrained, moveToFolder, deleteDocument,
   } = useVault();
   const { agents } = useAgents();
   const { members: workforceMembers, humanMembers } = useWorkforce();
@@ -151,23 +160,31 @@ export default function TrainingsSopPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<"list" | "templates">("list");
+  const [showExploreSops, setShowExploreSops] = useState(false);
   const [bulkActionResult, setBulkActionResult] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [complianceSelectSubject, setComplianceSelectSubject] = useState<string | null>(null);
   const [previousMetrics, setPreviousMetrics] = useState<TrainSopMetricsSnapshot | null>(null);
   const metricsSnapshotRef = useRef<TrainSopMetricsSnapshot | null>(null);
-  const [askQuestion, setAskQuestion] = useState("");
-  const [askAnswer, setAskAnswer] = useState<string | null>(null);
-  const [askLoading, setAskLoading] = useState(false);
+  const [askChatOpen, setAskChatOpen] = useState(false);
+  const [askChatMessages, setAskChatMessages] = useState<ChatMessage[]>([
+    { id: "welcome", role: "assistant", text: "Hi! Ask me anything about your documents, SOPs, or policies." },
+  ]);
   const [bulkTagInput, setBulkTagInput] = useState("");
   const [showBulkTagInput, setShowBulkTagInput] = useState(false);
   const [bulkSummaryResult, setBulkSummaryResult] = useState<string | null>(null);
-  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
-  const [moveDocId, setMoveDocId] = useState<string | null>(null);
-  const [reviewDocId, setReviewDocId] = useState<string | null>(null);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const [currentFolderId, setCurrentFolderIdRaw] = useState<string | null>(searchParams.get("folder"));
+  const setCurrentFolderId = useCallback((id: string | null) => {
+    setCurrentFolderIdRaw(id);
+    const url = id ? `/trainings-sop?folder=${id}` : "/trainings-sop";
+    router.push(url, { scroll: false });
+  }, [router]);
+  const [moveDocId, setMoveDocId] = useState<string | null>(null);
+  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
+  const [reviewDocId, setReviewDocId] = useState<string | null>(null);
   const { items: escalationItems, addEscalation } = useEscalations();
-
   const handleReviewDoc = useCallback((doc: VaultItem) => {
     const existing = escalationItems.find(
       (e) => e.type === "approval" && e.documentApprovalContext?.documentId === doc.id && e.status !== "Done"
@@ -176,21 +193,23 @@ export default function TrainingsSopPage() {
       setReviewDocId(existing.id);
       return;
     }
+    const category = doc.documentType === "lease" ? "Leasing" : "Compliance";
     const newId = addEscalation({
       type: "approval",
-      name: `SOP review: ${doc.fileName}`,
+      name: `Document review: ${doc.fileName}`,
       summary: "Document submitted for approval.",
       status: "Open",
-      assignee: "",
-      category: "Compliance",
+      category,
       property: doc.property ?? "Portfolio",
-      labels: doc.tags ?? [],
+      labels: [],
       notes: [],
+      assignee: "",
       documentApprovalContext: {
         documentId: doc.id,
         documentName: doc.fileName,
         changeSummary: `Review requested for ${doc.fileName}.`,
         proposedBody: doc.body ?? "",
+        previousBody: "",
       },
     });
     setReviewDocId(newId);
@@ -203,7 +222,7 @@ export default function TrainingsSopPage() {
 
   const pendingReviewDocs = useMemo(() => {
     return items.filter(
-      (d) => d.type === "file" && !d.isTemplate && d.documentType === "sop" &&
+      (d) => d.type === "file" && !d.isTemplate &&
         (d.approvalStatus === "review" || d.approvalStatus === "needs_review")
     );
   }, [items]);
@@ -228,6 +247,7 @@ export default function TrainingsSopPage() {
   const fileDocuments = useMemo(() => items.filter((i) => i.type === "file" && !i.isTemplate) as VaultItem[], [items]);
   const templateDocuments = useMemo(() => items.filter((i) => i.type === "file" && i.isTemplate) as VaultItem[], [items]);
   const folders = useMemo(() => items.filter((i) => i.type === "folder"), [items]);
+  const currentFolder = useMemo(() => currentFolderId ? folders.find((f) => f.id === currentFolderId) : null, [currentFolderId, folders]);
 
   const filtered = useMemo(() => {
     let list = items;
@@ -237,7 +257,7 @@ export default function TrainingsSopPage() {
       // Normal list: filter by current folder
       list = list.filter((i) => {
         if (i.isTemplate) return false;
-        if (currentFolderId) return i.folderId === currentFolderId || (i.type === "folder" && i.id === currentFolderId);
+        if (currentFolderId) return i.folderId === currentFolderId;
         return !i.folderId || i.type === "folder";
       });
     }
@@ -255,6 +275,10 @@ export default function TrainingsSopPage() {
       if (approvalFilter !== "All" && i.type === "file" && i.approvalStatus !== approvalFilter) return false;
       if (propertyFilter !== "All" && i.property !== propertyFilter) return false;
       return true;
+    }).sort((a, b) => {
+      if (a.type === "folder" && b.type !== "folder") return -1;
+      if (a.type !== "folder" && b.type === "folder") return 1;
+      return 0;
     });
   }, [items, search, docTypeFilter, approvalFilter, propertyFilter, viewMode, currentFolderId]);
 
@@ -283,7 +307,7 @@ export default function TrainingsSopPage() {
   metricsSnapshotRef.current = {
     docCount: items.filter((i) => i.type === "file" && !i.isTemplate).length,
     complianceLinked: COMPLIANCE_ITEMS.filter((s) => complianceSubjectDocumentIds[s]).length,
-    sopsPending: items.filter((i) => i.type === "file" && !i.isTemplate && i.documentType === "sop" && (i.approvalStatus === "draft" || i.approvalStatus === "review")).length,
+    sopsPending: items.filter((i) => i.type === "file" && !i.isTemplate && i.approvalStatus === "review").length,
     agentsTrained: agentsWithComplianceTraining.filter(({ areas }) => areas.length > 0).length,
     savedAt: new Date().toISOString(),
   };
@@ -296,15 +320,39 @@ export default function TrainingsSopPage() {
     source: "upload" | "entrata" = "upload",
     body?: string
   ) => {
-    addDocToVault({
+    const docProperty = property ?? "Portfolio";
+    const category = documentType === "lease" ? "Leasing" : "Compliance";
+    const newId = addDocToVault({
       fileName, documentType,
-      property: property ?? "Portfolio",
-      approvalStatus: "draft", trainedOn: "No",
+      property: docProperty,
+      approvalStatus: "review",
+      trainedOn: "No",
       owner: "Admin", type: "file",
-      source, version: documentType === "sop" ? "1.0" : undefined,
-      effectiveDate: documentType === "sop" ? effectiveDate : undefined,
+      source, version: "1.0",
+      effectiveDate: effectiveDate || undefined,
       body,
+      folderId: currentFolderId ?? undefined,
+      history: [{ at: new Date().toISOString(), action: "submitted" as const, by: "Admin", summary: "New document submitted for review." }],
     });
+    const escId = addEscalation({
+      type: "approval",
+      name: `Document review: ${fileName}`,
+      summary: "New document submitted for review.",
+      status: "Open",
+      category,
+      property: docProperty,
+      assignee: "",
+      linkToSource: `/trainings-sop/${newId}`,
+      labels: [],
+      documentApprovalContext: {
+        documentId: newId,
+        documentName: fileName,
+        changeSummary: "New document submitted for review.",
+        proposedBody: body ?? "",
+        previousBody: "",
+      },
+    });
+    setReviewDocId(escId);
     setAddDocMode(null);
   };
 
@@ -323,7 +371,7 @@ export default function TrainingsSopPage() {
   const runBulkAnalysis = () => {
     const count = selectedDocs.length;
     const types = Array.from(new Set(selectedDocs.map((d) => d.documentType)));
-    const needsReview = selectedDocs.filter((d) => d.approvalStatus === "draft" || d.approvalStatus === "review").length;
+    const needsReview = selectedDocs.filter((d) => d.approvalStatus === "review").length;
     const noBody = selectedDocs.filter((d) => !d.body?.trim()).length;
     setBulkActionResult(
       `Analysis of ${count} document(s): Types: ${types.join(", ")}. ` +
@@ -371,25 +419,23 @@ export default function TrainingsSopPage() {
 
   const editingItem = editingId ? (items.find((i) => i.id === editingId) ?? null) : null;
 
-  // Ask a question handler
-  const handleAskQuestion = useCallback(() => {
-    if (!askQuestion.trim()) return;
-    setAskLoading(true);
-    setAskAnswer(null);
+  const handleAskChatSend = useCallback((text: string) => {
+    const userMsg: ChatMessage = { id: `u-${Date.now()}`, role: "user", text };
+    setAskChatMessages((prev) => [...prev, userMsg]);
+    addActivity({ action: "Question asked", by: "Admin", detail: text });
     setTimeout(() => {
-      const answer = generateMockAnswer(askQuestion, fileDocuments);
-      setAskAnswer(answer);
-      setAskLoading(false);
-      addActivity({ action: "Question asked", by: "Admin", detail: askQuestion.trim() });
+      const answer = generateMockAnswer(text, fileDocuments);
+      const assistantMsg: ChatMessage = { id: `a-${Date.now()}`, role: "assistant", text: answer };
+      setAskChatMessages((prev) => [...prev, assistantMsg]);
     }, 600);
-  }, [askQuestion, fileDocuments, addActivity]);
+  }, [fileDocuments, addActivity]);
 
   const complianceLinkedCount = useMemo(
     () => COMPLIANCE_ITEMS.filter((s) => complianceSubjectDocumentIds[s]).length,
     [complianceSubjectDocumentIds]
   );
   const sopsPendingReviewCount = useMemo(
-    () => items.filter((i) => i.type === "file" && !i.isTemplate && i.documentType === "sop" && (i.approvalStatus === "draft" || i.approvalStatus === "review" || i.approvalStatus === "needs_review")).length,
+    () => items.filter((i) => i.type === "file" && !i.isTemplate && (i.approvalStatus === "review" || i.approvalStatus === "needs_review")).length,
     [items]
   );
   const agentsTrainedOnComplianceCount = useMemo(
@@ -412,7 +458,7 @@ export default function TrainingsSopPage() {
     : { text: complianceLinkedCount === COMPLIANCE_ITEMS.length ? "All areas linked" : "Link SOPs in Compliance tab", variant: complianceLinkedCount === COMPLIANCE_ITEMS.length ? ("positive" as const) : ("neutral" as const) };
   const sopsPendingTrend = previousMetrics
     ? formatTrendDelta(sopsPendingReviewCount, previousMetrics.sopsPending, { lowerIsBetter: true, suffix: "since last visit", lastVisitAt: previousMetrics.savedAt })
-    : { text: sopsPendingReviewCount === 0 ? "None pending" : "In draft or review", variant: sopsPendingReviewCount === 0 ? ("positive" as const) : ("neutral" as const) };
+    : { text: sopsPendingReviewCount === 0 ? "None pending" : "In review", variant: sopsPendingReviewCount === 0 ? ("positive" as const) : ("neutral" as const) };
   const agentsTrainedTrend = previousMetrics
     ? formatTrendDelta(agentsTrainedOnComplianceCount, previousMetrics.agentsTrained, { suffix: "since last visit", lastVisitAt: previousMetrics.savedAt })
     : { text: "Link agents to docs in Agent Roster", variant: "neutral" as const };
@@ -439,9 +485,9 @@ export default function TrainingsSopPage() {
   const trainingStatusBadge = (status: AgentTrainingStatus) => {
     const cls =
       status === "trained"
-        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+        ? "bg-[#B3FFCC] text-black dark:bg-emerald-900/40 dark:text-emerald-300"
         : status === "out_of_date"
-          ? "bg-amber-50 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+          ? "bg-amber-400 text-amber-950 dark:bg-amber-900/40 dark:text-amber-300"
           : "bg-muted text-muted-foreground";
     const label = status === "out_of_date" ? "Out of date" : status === "trained" ? "Trained" : "Pending";
     return <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${cls}`}>{label}</span>;
@@ -454,20 +500,65 @@ export default function TrainingsSopPage() {
   );
 
   return (
-    <ContractGate featureName="Training and SOPs">
     <>
-      <PageHeader
-        title="Training and SOPs"
-        description="Your single source for SOPs and operational documents. Upload or add from Entrata to train and ground agents; tag for compliance. SOPs drive how your team and AI operate."
-        actions={
-          <Button variant={viewMode === "templates" ? "default" : "outline"} size="sm" onClick={() => setViewMode(viewMode === "templates" ? "list" : "templates")}>
-            Explore SOPs
-          </Button>
-        }
-      />
+      {currentFolder ? (
+        <header className="page-header">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="mb-1.5 flex items-center gap-1 text-sm text-muted-foreground">
+                <button type="button" onClick={() => setCurrentFolderId(null)} className="hover:underline text-primary">Trainings & SOP</button>
+                <ChevronRight className="h-3 w-3" />
+                <span className="font-medium text-foreground">{currentFolder.fileName}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background">
+                  <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                </span>
+                <h1 className="font-heading text-[hsl(var(--foreground))]">{currentFolder.fileName}</h1>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-44 p-1" align="start">
+                    <button
+                      type="button"
+                      onClick={() => setRenamingFolderId(currentFolder.id)}
+                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+                    >
+                      <Pencil className="h-3.5 w-3.5" /> Rename
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMoveDocId(currentFolder.id)}
+                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+                    >
+                      <CornerDownRight className="h-3.5 w-3.5" /> Move
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { deleteDocument(currentFolder.id); setCurrentFolderId(null); }}
+                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Delete
+                    </button>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+          </div>
+        </header>
+      ) : (
+        <PageHeader
+          title="Trainings & SOP"
+          description="Your single source for SOPs and operational documents. Upload or add from Entrata to train and ground agents; tag for compliance. SOPs drive how your team and AI operate."
+        />
+      )}
 
-      {/* Training gaps banner */}
-      {(() => {
+
+      {/* Training gaps banner (hidden until compliance tab is reintroduced) */}
+      {false && (() => {
         const unlinkedAreas = COMPLIANCE_ITEMS.filter((s) => !complianceSubjectDocumentIds[s]);
         const outOfDateAgents = agentsWithComplianceTraining.filter(({ agent, areas }) =>
           areas.some((a) => {
@@ -483,7 +574,7 @@ export default function TrainingsSopPage() {
         if (gaps.length === 0) return null;
         return (
           <Card className="mb-6 border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30">
-            <CardContent className="flex items-center gap-3 py-4 justify-between">
+            <CardContent className="flex flex-col items-start gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-3">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100 dark:bg-amber-900/50">
                   <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
@@ -501,8 +592,8 @@ export default function TrainingsSopPage() {
         );
       })()}
 
-      {/* Compliance coverage dashboard */}
-      <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      {/* Compliance coverage dashboard (hidden until compliance tab is reintroduced) */}
+      {false && <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {trainSopKpis.map(({ label, value, href, icon: Icon, trendText, trendVariant }) => (
           <Link key={label} href={href}>
             <Card className="h-full transition-colors hover:border-primary/40 hover:bg-muted/30">
@@ -535,7 +626,7 @@ export default function TrainingsSopPage() {
             </p>
           </div>
         </Card>
-      </div>
+      </div>}
 
       {/* Documents needing review alert */}
       {docsNeedingReview.length > 0 && (
@@ -551,13 +642,34 @@ export default function TrainingsSopPage() {
       )}
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)} className="mb-6">
-        <TabsList className="mb-4">
-          <TabsTrigger value="library" className="gap-2"><Library className="h-4 w-4" />Document library</TabsTrigger>
-          <TabsTrigger value="compliance" className="gap-2"><Shield className="h-4 w-4" />Compliance</TabsTrigger>
-          <TabsTrigger value="activity" className="gap-2"><Activity className="h-4 w-4" />Activity</TabsTrigger>
-        </TabsList>
+        {!currentFolderId && (
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <TabsList>
+              <TabsTrigger value="library">Document library</TabsTrigger>
+              <TabsTrigger value="compliance">Compliance</TabsTrigger>
+              <TabsTrigger value="activity">Activity</TabsTrigger>
+            </TabsList>
+            <Button variant="outline" size="sm" onClick={() => setShowExploreSops(true)}>
+              <BookOpen className="mr-1.5 h-3.5 w-3.5" /> Explore SOPs
+            </Button>
+          </div>
+        )}
 
         {/* ── COMPLIANCE TAB ── */}
+        <TabsContent value="compliance" className="mt-0">
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <span className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg border border-border bg-muted">
+              <ShieldCheck className="h-6 w-6 text-foreground" />
+            </span>
+            <h3 className="text-lg font-semibold text-foreground">Coming soon</h3>
+            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+              Compliance tracking is on the way. You&apos;ll be able to link SOPs to compliance areas, track agent training status, and manage audit readiness from here.
+            </p>
+          </div>
+        </TabsContent>
+
+        {/* ── COMPLIANCE TAB (preserved for reintroduction) ── */}
+        {false && (
         <TabsContent value="compliance" className="mt-0">
           <section>
             <h2 className="section-title mb-1">Compliance areas</h2>
@@ -676,39 +788,12 @@ export default function TrainingsSopPage() {
             </div>
           </section>
         </TabsContent>
+        )}
 
         {/* ── DOCUMENT LIBRARY TAB ── */}
         <TabsContent value="library" className="mt-0">
-          {/* Folder breadcrumb */}
-          {currentFolderId && viewMode === "list" && (
-            <div className="mb-3 flex items-center gap-1 text-sm text-muted-foreground">
-              <button type="button" onClick={() => setCurrentFolderId(null)} className="hover:underline text-primary">Root</button>
-              <ChevronRight className="h-3 w-3" />
-              <span className="font-medium text-foreground">{folders.find((f) => f.id === currentFolderId)?.fileName ?? "Folder"}</span>
-            </div>
-          )}
-
-          <div className="mb-6 flex flex-wrap items-center gap-3">
-            <input type="search" placeholder="Search files, type, or owners" value={search} onChange={(e) => setSearch(e.target.value)} className="input-base w-64 min-w-[12rem]" />
-            <select value={docTypeFilter} onChange={(e) => setDocTypeFilter(e.target.value)} className="select-base w-auto min-w-[8rem]">
-              <option value="All">Type: All</option>
-              {DOC_TYPES.filter((d) => d !== "All").map((d) => (<option key={d} value={d}>{d}</option>))}
-            </select>
-            <select value={propertyFilter} onChange={(e) => setPropertyFilter(e.target.value)} className="select-base w-auto min-w-[8rem]">
-              {PROPERTIES.map((p) => (<option key={p} value={p}>{p === "All" ? "Property: All" : p}</option>))}
-            </select>
-            <select value={approvalFilter} onChange={(e) => setApprovalFilter(e.target.value)} className="select-base w-auto min-w-[8rem]">
-              <option value="All">Approval: All</option>
-              {APPROVAL_STATUSES.filter((a) => a !== "All").map((a) => (<option key={a} value={a}>{a === "needs_review" ? "Needs review" : a}</option>))}
-            </select>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => setShowNewFolder(true)}>+ New Folder</Button>
-              <Button size="sm" onClick={() => setAddDocMode("choice")}>+ Add Document</Button>
-            </div>
-          </div>
-
           {/* Documents awaiting review — reuses Command Center escalation card pattern */}
-          {pendingReviewDocs.length > 0 && viewMode === "list" && (
+          {pendingReviewDocs.length > 0 && viewMode === "list" && !currentFolderId && (
             <Card className="mb-6">
               <CardHeader className="pb-3">
                 <CardTitle>Awaiting Review</CardTitle>
@@ -728,51 +813,54 @@ export default function TrainingsSopPage() {
                           <button
                             type="button"
                             onClick={() => handleReviewDoc(doc)}
-                            className="flex w-full flex-col justify-center rounded-lg border border-border bg-gray-100 p-3 text-left transition-colors hover:border-primary/40 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700"
+                            className="flex w-full gap-3 rounded-lg border border-border bg-muted/50 p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted dark:bg-muted/50 dark:hover:bg-muted"
                           >
-                            <div className="flex items-start justify-between gap-2">
-                              <span className="truncate text-sm font-medium text-foreground" title={doc.fileName}>{doc.fileName}</span>
-                              <div className="flex shrink-0 items-center gap-1.5">
-                                {isOverdue && (
-                                  <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-800 dark:bg-red-900/40 dark:text-red-200">Overdue</span>
-                                )}
-                                <span className={cn(
-                                  "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-                                  doc.approvalStatus === "needs_review"
-                                    ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
-                                    : "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200"
-                                )}>
-                                  {statusLabel}
-                                </span>
+                            <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border bg-background"><FileText className="h-3.5 w-3.5 text-muted-foreground" /></span>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-start justify-between gap-2">
+                                <span className="truncate text-sm font-medium text-foreground" title={doc.fileName}>{doc.fileName}</span>
+                                <div className="flex shrink-0 items-center gap-1.5">
+                                  {isOverdue && (
+                                    <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-800 dark:bg-red-900/40 dark:text-red-200">Overdue</span>
+                                  )}
+                                  <span className={cn(
+                                    "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                                    doc.approvalStatus === "needs_review"
+                                      ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+                                      : "bg-amber-400 text-amber-950 dark:bg-amber-900/40 dark:text-amber-300"
+                                  )}>
+                                    {statusLabel}
+                                  </span>
+                                </div>
                               </div>
-                            </div>
-                            <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                              <span className="truncate">{doc.property ?? "Portfolio"}</span>
-                              <span aria-hidden>·</span>
-                              <span>v{doc.version ?? "1.0"}</span>
-                              {doc.modified && (
-                                <>
-                                  <span aria-hidden>·</span>
-                                  <span className="truncate">{doc.modified}</span>
-                                </>
-                              )}
-                            </div>
-                            {esc && (
-                              <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
-                                {esc.assignee && <span className="truncate">Assigned to {esc.assignee}</span>}
-                                {esc.assignee && esc.status && <span aria-hidden>·</span>}
-                                {esc.status && <span>{esc.status}</span>}
-                                {(esc.labels?.length ?? 0) > 0 && (
+                              <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                                <span className="truncate">{doc.property ?? "Portfolio"}</span>
+                                <span aria-hidden>·</span>
+                                <span>v{doc.version ?? "1.0"}</span>
+                                {doc.modified && (
                                   <>
                                     <span aria-hidden>·</span>
-                                    {esc.labels!.slice(0, 2).map((l) => (
-                                      <span key={l} className="rounded bg-muted px-1.5 py-0.5 text-[10px]">{l}</span>
-                                    ))}
-                                    {esc.labels!.length > 2 && <span className="text-[10px]">+{esc.labels!.length - 2}</span>}
+                                    <span className="truncate">{doc.modified}</span>
                                   </>
                                 )}
                               </div>
-                            )}
+                              {esc && (
+                                <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
+                                  {esc.assignee && <span className="truncate">Assigned to {esc.assignee}</span>}
+                                  {esc.assignee && esc.status && <span aria-hidden>·</span>}
+                                  {esc.status && <span>{esc.status}</span>}
+                                  {(esc.labels?.length ?? 0) > 0 && (
+                                    <>
+                                      <span aria-hidden>·</span>
+                                      {esc.labels!.slice(0, 2).map((l) => (
+                                        <span key={l} className="rounded bg-muted px-1.5 py-0.5 text-[10px]">{l}</span>
+                                      ))}
+                                      {esc.labels!.length > 2 && <span className="text-[10px]">+{esc.labels!.length - 2}</span>}
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                           </button>
                         </li>
                       );
@@ -783,6 +871,27 @@ export default function TrainingsSopPage() {
             </Card>
           )}
 
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <input type="search" placeholder="Search files, type, or owners" value={search} onChange={(e) => setSearch(e.target.value)} className="input-base w-64 min-w-[12rem]" />
+              <select value={docTypeFilter} onChange={(e) => setDocTypeFilter(e.target.value)} className="select-base w-auto min-w-[8rem]">
+                <option value="All">Type: All</option>
+                {DOC_TYPES.filter((d) => d !== "All").map((d) => (<option key={d} value={d}>{d}</option>))}
+              </select>
+              <select value={propertyFilter} onChange={(e) => setPropertyFilter(e.target.value)} className="select-base w-auto min-w-[8rem]">
+                {PROPERTIES.map((p) => (<option key={p} value={p}>{p === "All" ? "Property: All" : p}</option>))}
+              </select>
+              <select value={approvalFilter} onChange={(e) => setApprovalFilter(e.target.value)} className="select-base w-auto min-w-[8rem]">
+                <option value="All">Approval: All</option>
+                {APPROVAL_STATUSES.filter((a) => a !== "All").map((a) => (<option key={a} value={a}>{a === "needs_review" ? "Needs review" : a}</option>))}
+              </select>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setShowNewFolder(true)}><FolderPlus className="h-4 w-4" /> New Folder</Button>
+              <Button variant="outline" size="sm" onClick={() => setAddDocMode("choice")}><FilePlus className="h-4 w-4" /> Add Document</Button>
+            </div>
+          </div>
+
           {/* Bulk actions */}
           {selectedIds.size > 0 && (
             <div className="mb-4 flex flex-wrap items-center gap-3 rounded-md border border-border bg-muted/30 p-3">
@@ -790,7 +899,7 @@ export default function TrainingsSopPage() {
               <Button variant="secondary" size="sm" onClick={runBulkAnalysis}>Run analysis</Button>
               <Button variant="secondary" size="sm" onClick={runBulkSummarize}>Summarize</Button>
               <Button variant="secondary" size="sm" onClick={runBulkTag}>Tag</Button>
-              <Button asChild size="sm"><Link href="/workflows">Run workflow</Link></Button>
+              <Button asChild size="sm"><Link href={`/workflows?docs=${Array.from(selectedIds).join(",")}`}>Run workflow</Link></Button>
               <button type="button" onClick={() => { setSelectedIds(new Set()); setShowBulkTagInput(false); setBulkActionResult(null); setBulkSummaryResult(null); }} className="text-sm text-muted-foreground hover:underline">Clear</button>
             </div>
           )}
@@ -818,15 +927,12 @@ export default function TrainingsSopPage() {
               <thead>
                 <tr>
                   <th className="w-10"><input type="checkbox" checked={filtered.filter((i) => i.type === "file").length > 0 && selectedIds.size === filtered.filter((i) => i.type === "file").length} onChange={selectAll} className="h-4 w-4 rounded border-border" /></th>
-                  <th>File name</th>
+                  <th>Name</th>
                   <th>Type</th>
                   <th>Property</th>
                   <th>Approval</th>
-                  <th>Version</th>
-                  <th>Review by</th>
                   <th>Modified</th>
                   <th>Owner</th>
-                  <th>Source</th>
                   <th className="w-32">Actions</th>
                 </tr>
               </thead>
@@ -844,63 +950,71 @@ export default function TrainingsSopPage() {
                     tabIndex={row.type === "file" || row.type === "folder" ? 0 : undefined}
                     onKeyDown={(row.type === "file" || row.type === "folder") ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (row.type === "folder") setCurrentFolderId(row.id); else router.push(`/trainings-sop/${row.id}`); } } : undefined}
                   >
-                    <td onClick={(e) => e.stopPropagation()}>
-                      {row.type === "file" && (
-                        <input type="checkbox" checked={selectedIds.has(row.id)} onChange={() => toggleSelect(row.id)} className="h-4 w-4 rounded border-border" />
-                      )}
-                    </td>
-                    <td className="font-medium text-foreground">
-                      {row.type === "folder" ? (
-                        <span className="inline-flex items-center gap-1.5 cursor-pointer"><FolderOpen className="inline h-4 w-4 text-muted-foreground" /> {row.fileName}</span>
-                      ) : (
-                        <Link href={`/trainings-sop/${row.id}`} className="inline-flex items-center gap-1.5 text-foreground hover:underline" onClick={(e) => e.stopPropagation()}>
-                          <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                          {row.fileName}
-                          {row.isTemplate && <span className="ml-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">Template</span>}
-                        </Link>
-                      )}
-                    </td>
+                    {row.type === "folder" ? (
+                      <td colSpan={2} className="font-medium text-foreground">
+                        <span className="inline-flex items-center gap-1.5 cursor-pointer"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gray-500 dark:bg-gray-500"><FolderOpen className="h-3.5 w-3.5 text-white" /></span> {row.fileName}</span>
+                      </td>
+                    ) : (
+                      <>
+                        <td onClick={(e) => e.stopPropagation()}>
+                          <input type="checkbox" checked={selectedIds.has(row.id)} onChange={() => toggleSelect(row.id)} className="h-4 w-4 rounded border-border" />
+                        </td>
+                        <td className="font-medium text-foreground">
+                          <Link href={`/trainings-sop/${row.id}`} className="inline-flex items-center gap-1.5 text-foreground hover:underline" onClick={(e) => e.stopPropagation()}>
+                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border bg-background"><FileText className="h-3.5 w-3.5 text-muted-foreground" /></span>
+                            {row.fileName}
+                            {row.isTemplate && <span className="ml-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">Template</span>}
+                          </Link>
+                        </td>
+                      </>
+                    )}
                     <td className="capitalize text-muted-foreground">{row.documentType}</td>
                     <td className="text-muted-foreground">{row.property}</td>
                     <td>
                       {row.type === "file" ? (
                         <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
                           row.approvalStatus === "approved"
-                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                            ? "bg-[#B3FFCC] text-black dark:bg-emerald-900/40 dark:text-emerald-300"
                             : row.approvalStatus === "review"
-                              ? "bg-amber-50 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                              ? "bg-amber-400 text-amber-950 dark:bg-amber-900/40 dark:text-amber-300"
                               : row.approvalStatus === "needs_review"
-                                ? "bg-red-50 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+                                ? "bg-red-500 text-white dark:bg-red-900/40 dark:text-red-300"
                                 : "bg-muted text-muted-foreground"
                         }`}>{row.approvalStatus === "needs_review" ? "Needs review" : row.approvalStatus}</span>
                       ) : "—"}
                     </td>
-                    <td className="text-muted-foreground">{row.type === "file" && row.documentType === "sop" ? (row.version ?? "—") : "—"}</td>
-                    <td className="text-muted-foreground">
-                      {row.type === "file" && row.nextReviewDate
-                        ? <span className={new Date(row.nextReviewDate) <= new Date() ? "text-red-600 font-medium" : ""}>{new Date(row.nextReviewDate).toLocaleDateString()}</span>
-                        : "—"
-                      }
-                    </td>
                     <td className="text-muted-foreground">{row.modified}</td>
                     <td className="text-muted-foreground">
-                      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-muted text-xs font-medium text-foreground">
-                        {(row.owner ?? "?").slice(0, 1).toUpperCase()}
-                      </span>{" "}{row.owner}
+                      <Avatar className="inline-flex h-6 w-6 text-[10px]">
+                        <AvatarFallback className="bg-gray-300 text-gray-700 dark:bg-gray-600 dark:text-gray-200">{(row.owner ?? "?").slice(0, 1).toUpperCase()}</AvatarFallback>
+                      </Avatar>{" "}{row.owner}
                     </td>
-                    <td className="text-muted-foreground">{row.type === "file" ? (row.source ?? "upload") : "—"}</td>
-                    <td onClick={(e) => e.stopPropagation()}>
+                    <td className="text-right" onClick={(e) => e.stopPropagation()}>
                       {row.type === "file" && (
-                        <div className="flex items-center gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditingId(row.id)} aria-label="Edit"><Pencil className="h-4 w-4" /></Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setMoveDocId(row.id)} aria-label="Move to folder" title="Move to folder"><CornerDownRight className="h-4 w-4" /></Button>
-                          {row.documentType === "sop" && row.approvalStatus === "draft" && (
-                            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setApproval(row.id, "review")}><Send className="h-3 w-3" /> Submit</Button>
-                          )}
-                          {row.documentType === "sop" && (row.approvalStatus === "review" || row.approvalStatus === "needs_review") && (
-                            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => handleReviewDoc(row)}>Review</Button>
-                          )}
-                        </div>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-44">
+                            <DropdownMenuItem onClick={() => setEditingId(row.id)}>
+                              <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setMoveDocId(row.id)}>
+                              <CornerDownRight className="mr-2 h-3.5 w-3.5" /> Move
+                            </DropdownMenuItem>
+                            {(row.approvalStatus === "review" || row.approvalStatus === "needs_review") && (
+                              <DropdownMenuItem onClick={() => handleReviewDoc(row)}>
+                                <CheckCircle className="mr-2 h-3.5 w-3.5" /> Review
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => deleteDocument(row.id)}>
+                              <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       )}
                     </td>
                   </tr>
@@ -910,40 +1024,44 @@ export default function TrainingsSopPage() {
           </div>
 
           {filtered.length === 0 && (
-            <p className="mt-4 text-sm text-muted-foreground">
-              {viewMode === "templates" ? "No templates yet. Save a document as a template from the document detail page." : "No documents match. Try a different search or add a document."}
-            </p>
+            <div className="mt-8 flex flex-col items-center justify-center py-12 text-center">
+              {currentFolderId ? (
+                <>
+                  <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-muted/50">
+                    <FolderOpen className="h-6 w-6 text-muted-foreground" />
+                  </span>
+                  <p className="text-sm font-medium text-foreground">This folder is empty</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Move documents into this folder or add a new one.</p>
+                  <div className="mt-4 flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setAddDocMode("choice")}><FilePlus className="h-4 w-4" /> Add Document</Button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {viewMode === "templates" ? "No templates yet. Save a document as a template from the document detail page." : "No documents match. Try a different search or add a document."}
+                </p>
+              )}
+            </div>
           )}
 
-          {/* Ask a question */}
-          <div className="fixed bottom-8 right-8 z-40 flex flex-col items-end gap-2">
-            {askAnswer !== null && (
-              <div className="w-80 rounded-lg border border-border bg-card p-3 shadow-lg">
-                <div className="flex items-start justify-between gap-2">
-                  <p className="text-xs font-medium text-foreground">Answer</p>
-                  <button type="button" onClick={() => setAskAnswer(null)} className="text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
-                </div>
-                <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">{askAnswer}</p>
-              </div>
-            )}
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                placeholder="Ask a question about your documents"
-                value={askQuestion}
-                onChange={(e) => setAskQuestion(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") handleAskQuestion(); }}
-                className="input-base w-72 rounded-full shadow-md"
-                aria-label="Ask a question about documents"
-              />
-              <Button size="icon" className="h-9 w-9 shrink-0 rounded-full shadow-md" onClick={handleAskQuestion} disabled={askLoading || !askQuestion.trim()}>
-                <Search className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
+          {/* AI Document Assistant FAB + Chat Panel — hidden for now */}
         </TabsContent>
 
         {/* ── ACTIVITY TAB ── */}
+        <TabsContent value="activity" className="mt-0">
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <span className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg border border-border bg-muted">
+              <Activity className="h-6 w-6 text-foreground" />
+            </span>
+            <h3 className="text-lg font-semibold text-foreground">Coming soon</h3>
+            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+              The activity feed is on the way. You&apos;ll be able to see uploads, approvals, training events, and other document actions here.
+            </p>
+          </div>
+        </TabsContent>
+
+        {/* ── ACTIVITY TAB (preserved for reintroduction) ── */}
+        {false && (
         <TabsContent value="activity" className="mt-0">
           <section>
             <h2 className="section-title mb-1">Activity feed</h2>
@@ -980,6 +1098,7 @@ export default function TrainingsSopPage() {
             )}
           </section>
         </TabsContent>
+        )}
       </Tabs>
 
       {/* ── MODALS ── */}
@@ -994,6 +1113,15 @@ export default function TrainingsSopPage() {
       )}
       {showNewFolder && (
         <SimpleModal title="New Folder" placeholder="Folder name" onClose={() => setShowNewFolder(false)} onSave={addFolder} />
+      )}
+      {renamingFolderId && (
+        <SimpleModal
+          title="Rename Folder"
+          placeholder="Folder name"
+          initialValue={folders.find((f) => f.id === renamingFolderId)?.fileName ?? ""}
+          onClose={() => setRenamingFolderId(null)}
+          onSave={(name) => { updateDocument(renamingFolderId, { fileName: name }); setRenamingFolderId(null); }}
+        />
       )}
 
       <EditDocSheet
@@ -1027,8 +1155,48 @@ export default function TrainingsSopPage() {
         open={!!reviewEscalationItem}
         onOpenChange={(open) => { if (!open) setReviewDocId(null); }}
       />
+
+      <ExploreSopsDialog
+        open={showExploreSops}
+        onOpenChange={setShowExploreSops}
+        existingDocNames={items.filter((d) => d.type === "file").map((d) => d.fileName)}
+        onAdd={(template) => {
+          const templateId = addDocToVault({
+            fileName: template.name,
+            documentType: template.documentType,
+            property: "Portfolio",
+            approvalStatus: "review",
+            trainedOn: "No",
+            owner: "Admin",
+            type: "file",
+            source: "upload",
+            body: template.body,
+            tags: template.tags,
+            version: "1.0",
+            history: [{ at: new Date().toISOString(), action: "submitted" as const, by: "Admin", summary: "New document submitted for review." }],
+          });
+          const escId = addEscalation({
+            type: "approval",
+            name: `Document review: ${template.name}`,
+            summary: "New document submitted for review.",
+            status: "Open",
+            category: "Compliance",
+            property: "Portfolio",
+            assignee: "",
+            linkToSource: `/trainings-sop/${templateId}`,
+            labels: [],
+            documentApprovalContext: {
+              documentId: templateId,
+              documentName: template.name,
+              changeSummary: "New document submitted for review.",
+              proposedBody: template.body ?? "",
+              previousBody: "",
+            },
+          });
+          setReviewDocId(escId);
+        }}
+      />
     </>
-    </ContractGate>
   );
 }
 
@@ -1135,7 +1303,7 @@ function ComplianceSelectDocumentModal({
                   <td className="font-medium text-foreground"><span className="inline-flex items-center gap-1.5"><FileText className="h-4 w-4 shrink-0 text-muted-foreground" />{row.fileName}</span></td>
                   <td className="capitalize text-muted-foreground">{row.documentType}</td>
                   <td className="text-muted-foreground">{row.property}</td>
-                  <td><span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${row.approvalStatus === "approved" ? "bg-emerald-50 text-emerald-700" : row.approvalStatus === "review" ? "bg-amber-50 text-amber-700" : row.approvalStatus === "needs_review" ? "bg-red-50 text-red-700" : "bg-muted text-muted-foreground"}`}>{row.approvalStatus === "needs_review" ? "Needs review" : row.approvalStatus}</span></td>
+                  <td><span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${row.approvalStatus === "approved" ? "bg-[#B3FFCC] text-black" : row.approvalStatus === "review" ? "bg-amber-400 text-amber-950" : row.approvalStatus === "needs_review" ? "bg-red-500 text-white" : "bg-muted text-muted-foreground"}`}>{row.approvalStatus === "needs_review" ? "Needs review" : row.approvalStatus}</span></td>
                   <td className="text-muted-foreground">{row.modified}</td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <Button variant="secondary" size="sm" className="h-7 bg-white border border-border hover:bg-muted/80" onClick={() => onSelect(row.id)}>
@@ -1314,8 +1482,8 @@ function EntrataDocsModal({
   );
 }
 
-function SimpleModal({ title, placeholder, onClose, onSave }: { title: string; placeholder: string; onClose: () => void; onSave: (value: string) => void }) {
-  const [value, setValue] = useState("");
+function SimpleModal({ title, placeholder, onClose, onSave, initialValue = "" }: { title: string; placeholder: string; onClose: () => void; onSave: (value: string) => void; initialValue?: string }) {
+  const [value, setValue] = useState(initialValue);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20" onClick={onClose}>
       <div className="w-full max-w-sm rounded-lg border border-border bg-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
@@ -1339,7 +1507,7 @@ function EditDocSheet({
   const [fileName, setFileName] = useState("");
   const [documentType, setDocumentType] = useState<VaultItem["documentType"]>("sop");
   const [property, setProperty] = useState("");
-  const [approvalStatus, setApprovalStatus] = useState<ApprovalStatus>("draft");
+  const [approvalStatus, setApprovalStatus] = useState<ApprovalStatus>("review");
   const [body, setBody] = useState("");
   const [nextReviewDate, setNextReviewDate] = useState("");
   const [isTemplate, setIsTemplate] = useState(false);
@@ -1369,10 +1537,10 @@ function EditDocSheet({
 
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent className="w-full sm:max-w-3xl">
+      <SheetContent className="w-full sm:max-w-lg">
         <SheetHeader>
           <SheetTitle>Edit document</SheetTitle>
-          <SheetDescription>SOP lifecycle: draft → review → approved. Set a review date to be reminded when this document needs re-review.</SheetDescription>
+          <SheetDescription>Document lifecycle: review → approved. Set a review date to be reminded when this document needs re-review.</SheetDescription>
         </SheetHeader>
         {item && (
           <div className="mt-6 space-y-4">
@@ -1398,7 +1566,7 @@ function EditDocSheet({
                 <div>
                   <label className="mb-1 block text-xs font-medium text-foreground">Approval status</label>
                   <select value={approvalStatus} onChange={(e) => setApprovalStatus(e.target.value as ApprovalStatus)} className="select-base w-full">
-                    <option value="draft">draft</option><option value="review">review</option><option value="approved">approved</option><option value="needs_review">needs review</option>
+                    <option value="review">review</option><option value="approved">approved</option><option value="needs_review">needs review</option>
                   </select>
                 </div>
               </>
@@ -1424,5 +1592,133 @@ function EditDocSheet({
         )}
       </SheetContent>
     </Sheet>
+  );
+}
+
+/* ── Explore SOPs Dialog ── */
+
+const SOP_TEMPLATES: { id: string; name: string; category: string; documentType: VaultItem["documentType"]; description: string; tags?: string[]; body?: string }[] = [
+  { id: "t-1", name: "Fair Housing Policy", category: "Compliance", documentType: "policy", description: "Outlines fair housing obligations, protected classes, and prohibited practices for all staff and AI agents.", tags: ["compliance", "fair-housing"] },
+  { id: "t-2", name: "Screening & Application SOP", category: "Compliance", documentType: "sop", description: "Standard procedure for applicant screening, criteria disclosure, and adverse action notices.", tags: ["compliance", "screening"] },
+  { id: "t-3", name: "Reasonable Accommodation SOP", category: "Compliance", documentType: "sop", description: "Process for handling accommodation and modification requests under the Fair Housing Act and ADA.", tags: ["compliance", "accommodation"] },
+  { id: "t-4", name: "Leasing & Move-In SOP", category: "Leasing", documentType: "sop", description: "End-to-end leasing workflow from inquiry through lease execution and move-in coordination.", tags: ["leasing"] },
+  { id: "t-5", name: "Renewal & Retention SOP", category: "Leasing", documentType: "sop", description: "Renewal offer timing, retention strategies, rent increase communication, and lease extension handling.", tags: ["leasing", "retention"] },
+  { id: "t-6", name: "Notice to Vacate SOP", category: "Leasing", documentType: "sop", description: "Procedures for processing move-out notices, scheduling inspections, and final account settlement.", tags: ["leasing", "move-out"] },
+  { id: "t-7", name: "Maintenance Request SOP", category: "Maintenance", documentType: "sop", description: "Work order intake, prioritization, vendor dispatch, resident communication, and completion tracking.", tags: ["maintenance"] },
+  { id: "t-8", name: "Emergency Maintenance SOP", category: "Maintenance", documentType: "sop", description: "After-hours emergency response procedures for floods, fires, lock-outs, and HVAC failures.", tags: ["maintenance", "emergency"] },
+  { id: "t-9", name: "Unit Turn & Make-Ready SOP", category: "Maintenance", documentType: "sop", description: "Checklist and timeline for turning units between residents, including inspection and punch list.", tags: ["maintenance", "turns"] },
+  { id: "t-10", name: "Rent Collection & Delinquency SOP", category: "Payments", documentType: "sop", description: "Payment processing, late fee policies, delinquency follow-up cadence, and payment plan procedures.", tags: ["payments"] },
+  { id: "t-11", name: "Refund & Credit Policy", category: "Payments", documentType: "policy", description: "Guidelines for issuing refunds, concessions, and account credits with approval thresholds.", tags: ["payments"] },
+  { id: "t-12", name: "Resident Complaint Escalation SOP", category: "Resident Relations", documentType: "sop", description: "How to receive, log, escalate, and resolve resident complaints across all channels.", tags: ["resident-relations", "escalation"] },
+  { id: "t-13", name: "Pet & Animal Policy", category: "General", documentType: "policy", description: "Pet policies, breed restrictions, pet deposits, and assistance animal verification procedures.", tags: ["policy"] },
+  { id: "t-14", name: "Vendor Management SOP", category: "General", documentType: "sop", description: "Vendor onboarding, insurance verification, performance tracking, and invoice approval workflows.", tags: ["operations", "vendors"] },
+];
+
+const SOP_TEMPLATE_CATEGORIES = [...new Set(SOP_TEMPLATES.map((t) => t.category))];
+
+function ExploreSopsDialog({
+  open,
+  onOpenChange,
+  existingDocNames,
+  onAdd,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  existingDocNames: string[];
+  onAdd: (template: (typeof SOP_TEMPLATES)[0]) => void;
+}) {
+  const [categoryFilter, setCategoryFilter] = useState("All");
+  const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
+
+  const filtered = categoryFilter === "All"
+    ? SOP_TEMPLATES
+    : SOP_TEMPLATES.filter((t) => t.category === categoryFilter);
+
+  const handleAdd = (template: (typeof SOP_TEMPLATES)[0]) => {
+    onAdd(template);
+    setAddedIds((prev) => new Set(prev).add(template.id));
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            Explore SOP Templates
+          </DialogTitle>
+          <DialogDescription>
+            Browse templates to jumpstart your document library. Add any template for review, then customize it for your portfolio.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-wrap gap-1.5 pb-2">
+          <button
+            type="button"
+            onClick={() => setCategoryFilter("All")}
+            className={cn(
+              "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+              categoryFilter === "All" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
+            )}
+          >
+            All
+          </button>
+          {SOP_TEMPLATE_CATEGORIES.map((cat) => (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => setCategoryFilter(cat)}
+              className={cn(
+                "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                categoryFilter === cat ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
+              )}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex-1 overflow-y-auto -mx-6 px-6">
+          <div className="divide-y divide-border pb-2">
+            {filtered.map((template) => {
+              const alreadyInVault = existingDocNames.some((n) => n.toLowerCase() === template.name.toLowerCase());
+              const justAdded = addedIds.has(template.id);
+              return (
+                <div key={template.id} className="flex items-start gap-3 py-3">
+                  <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted">
+                    <FileText className="h-4 w-4 text-foreground" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-foreground">{template.name}</p>
+                      <Badge variant="secondary" className="text-[10px]">{template.documentType}</Badge>
+                    </div>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{template.description}</p>
+                  </div>
+                  <div className="shrink-0 pt-0.5">
+                    {alreadyInVault || justAdded ? (
+                      <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
+                        <CheckCircle className="h-3.5 w-3.5" /> {justAdded ? "Added" : "In library"}
+                      </span>
+                    ) : (
+                      <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleAdd(template)}>
+                        <Plus className="h-3 w-3" /> Add
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export default function TrainingsSopPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-muted-foreground">Loading…</div>}>
+      <TrainingsSopContent />
+    </Suspense>
   );
 }

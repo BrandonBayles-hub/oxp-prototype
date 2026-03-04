@@ -1,772 +1,2304 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/page-header";
+import { ComingSoon } from "@/components/coming-soon";
 import { useWorkforce, TEAMS, type WorkforceMember, type WorkforceTier } from "@/lib/workforce-context";
-import { useAgents } from "@/lib/agents-context";
-import { useEscalations } from "@/lib/escalations-context";
-import { useRole, isPropertyInScope } from "@/lib/role-context";
-import { ContractGate } from "@/components/contract-overlay";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { useAgents, type Agent } from "@/lib/agents-context";
+import { useEscalations, type EscalationRoutingRule, type EscalationType } from "@/lib/escalations-context";
+import { useConversations } from "@/lib/conversations-context";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
+} from "@/components/ui/sheet";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import {
-  BarChart3, Bot, Building2, Users, X, Zap, BrainCircuit, Cog,
+  Network, Tag, ChevronRight, ChevronDown, Award,
+  X, Plus, Building2, MapPin, Search, Check, List, Trash2, Users,
 } from "lucide-react";
-import Image from "next/image";
 
-type ViewMode = "org" | "all" | "agents" | "humans";
+/* ──────────────────────────── Helpers ──────────────────────────── */
 
-const TIER_ORDER: Record<WorkforceTier, number> = { leadership: 0, management: 1, coordinator: 2, specialist: 3 };
+const TIER_ORDER: Record<WorkforceTier, number> = {
+  leadership: 0,
+  management: 1,
+  coordinator: 2,
+  specialist: 3,
+};
 
-function AgentIcon({ level, size = "md" }: { level?: WorkforceMember["agentLevel"]; size?: "sm" | "md" }) {
-  const iconClass = size === "sm" ? "h-3.5 w-3.5" : "h-4 w-4";
-  const imgSize = size === "sm" ? 14 : 20;
-  switch (level) {
-    case "l1": return <Cog className={cn(iconClass, "text-gray-400")} />;
-    case "l2": return <BarChart3 className={cn(iconClass, "text-amber-400")} />;
-    case "l3": return <Bot className={cn(iconClass, "text-emerald-400")} />;
-    case "l4": return <Image src="/eli-plus-cube.svg" alt="ELI+" width={imgSize} height={imgSize} />;
-    default:   return <Zap className={cn(iconClass, "text-amber-500")} />;
+type MemberMetric = { value: string; label: string; highlight?: boolean };
+
+function getMemberMetric(
+  member: WorkforceMember,
+  agents: Agent[],
+  tasksByAssignee: Map<string, number>,
+): MemberMetric {
+  if (member.type === "agent") {
+    const agent = agents.find((a) => a.name === member.name);
+    if (agent) {
+      if (agent.type === "autonomous") {
+        if (agent.revenueImpact && agent.revenueImpact !== "—") {
+          return { value: agent.revenueImpact, label: "wk", highlight: true };
+        }
+        return { value: `${agent.conversationCount}`, label: "chats", highlight: true };
+      }
+      if (agent.type === "intelligence") {
+        return { value: `${agent.insightsGenerated ?? 0}`, label: "insights" };
+      }
+      if (agent.type === "operations") {
+        return { value: `${agent.runsCompleted ?? 0}`, label: "runs" };
+      }
+    }
+    return { value: "100%", label: "compliant", highlight: true };
   }
+
+  const count = tasksByAssignee.get(member.name) ?? 0;
+  return { value: String(count), label: "tasks" };
 }
 
-function agentAvatarBg(level?: WorkforceMember["agentLevel"]) {
-  switch (level) {
-    case "l1": return "bg-gray-100 dark:bg-gray-800";
-    case "l3": return "bg-emerald-50 dark:bg-emerald-950/40";
-    default:   return "bg-amber-50 dark:bg-amber-950/40";
-  }
+function getAgentTypeLabel(role: string): string {
+  if (role.includes("Insights")) return "Intelligence Agent";
+  if (role.includes("Automation")) return "Operations Agent";
+  return "Autonomous Agent";
 }
 
-function normalizeLabel(t: string): string {
-  return t.trim().toLowerCase();
-}
+/* ──────────────────────────── Component ────────────────────────── */
 
 export default function WorkforcePage() {
-  const { members, updateMember, allLabels: workforceLabels, humanMembers, agentMembers } = useWorkforce();
+  const { members, humanMembers, agentMembers, updateMember, allLabels } = useWorkforce();
   const { agents } = useAgents();
-  const { items: escalations } = useEscalations();
-  const { role, roleProperties } = useRole();
-  const isSiteStaff = role === "ic";
-  const isRegional = role === "regional";
-  const isProperty = role === "property";
-  const [view, setView] = useState<ViewMode>("org");
+  const {
+    items: escalations,
+    routingRules, addRoutingRule, removeRoutingRule, updateRoutingRule,
+  } = useEscalations();
+  const { items: conversations } = useConversations();
+  const [activeTab, setActiveTab] = useState("org");
+  const [orgView, setOrgView] = useState<"tree" | "table">("tree");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [propertyFilters, setPropertyFilters] = useState<Set<string>>(new Set());
+  const [labelFilters, setLabelFilters] = useState<Set<string>>(new Set());
+  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
 
-  const SITE_STAFF_PROPERTY = "Property A";
+  const selectedMember = useMemo(
+    () => members.find((m) => m.id === selectedMemberId) ?? null,
+    [members, selectedMemberId],
+  );
 
-  const scopedMembers = useMemo(() => {
-    if (roleProperties === "all") return members;
-    return members.filter((m) => {
-      const props = m.properties ?? [];
-      if (props.length === 0) return true;
-      return props.some((p) => isPropertyInScope(p, roleProperties));
+  const toggleNode = useCallback((id: string) => {
+    setExpandedNodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
     });
-  }, [members, roleProperties]);
+  }, []);
 
-  const myTeamMembers = useMemo(() => {
-    const filterProps = isSiteStaff ? [SITE_STAFF_PROPERTY] : (roleProperties === "all" ? null : roleProperties);
-    if (!filterProps) return members;
-    return members.filter((m) => {
-      const props = m.properties ?? [];
-      return props.includes("All properties") || props.some((p) => filterProps.includes(p));
-    });
-  }, [members, isSiteStaff, roleProperties]);
-  const myTeamHumans = useMemo(() => myTeamMembers.filter((m) => m.type === "human"), [myTeamMembers]);
-  const myTeamAgents = useMemo(() => myTeamMembers.filter((m) => m.type === "agent"), [myTeamMembers]);
+  /* ── Property filter ── */
 
-  const displayMembers = (isSiteStaff || isRegional || isProperty) ? scopedMembers : members;
-  const displayHumans = useMemo(() => displayMembers.filter((m) => m.type === "human"), [displayMembers]);
-  const displayAgents = useMemo(() => displayMembers.filter((m) => m.type === "agent"), [displayMembers]);
+  const allProperties = useMemo(() => {
+    const set = new Set<string>();
+    for (const m of members) {
+      for (const p of m.properties ?? []) {
+        if (p !== "All properties") set.add(p);
+      }
+    }
+    return Array.from(set).sort();
+  }, [members]);
 
+  const hasActiveFilters = searchQuery.trim() !== "" || propertyFilters.size > 0 || labelFilters.size > 0;
+
+  const filteredMembers = useMemo(() => {
+    let result = members;
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      result = result.filter((m) =>
+        m.name.toLowerCase().includes(q) ||
+        m.role.toLowerCase().includes(q) ||
+        m.jtbd.toLowerCase().includes(q) ||
+        m.team.toLowerCase().includes(q),
+      );
+    }
+    if (propertyFilters.size > 0) {
+      result = result.filter((m) => {
+        const props = m.properties ?? [];
+        if (props.includes("All properties")) return true;
+        return props.some((p) => propertyFilters.has(p));
+      });
+    }
+    if (labelFilters.size > 0) {
+      result = result.filter((m) => {
+        const mLabels = m.labels ?? [];
+        return mLabels.some((l) => labelFilters.has(l));
+      });
+    }
+    return result;
+  }, [members, searchQuery, propertyFilters, labelFilters]);
+
+  /* ── Stats ── */
+
+  const totalHumans = humanMembers.length;
+  const totalAI = agentMembers.length;
+  const totalMembers = members.length;
   const teamsWithAI = useMemo(() => {
-    const s = new Set<string>();
-    for (const m of displayMembers) if (m.type === "agent") s.add(m.team);
-    return s.size;
-  }, [displayMembers]);
-
-  const totalHumans = displayHumans.length;
-  const totalAI = displayAgents.length;
-  const totalMembers = displayMembers.length;
+    const s: Record<string, number> = {};
+    for (const m of members) {
+      if (m.type === "agent") s[m.team] = (s[m.team] ?? 0) + 1;
+    }
+    return Object.keys(s).length;
+  }, [members]);
   const openEscalations = escalations.filter((e) => e.status !== "Done").length;
 
-  const labelPool = useMemo(() => {
+  /* ── Org Structure data ── */
+
+  const leaderIds = useMemo(
+    () => new Set(members.filter((m) => m.tier === "leadership").map((m) => m.id)),
+    [members],
+  );
+
+  const leaders = useMemo(
+    () => filteredMembers.filter((m) => m.tier === "leadership"),
+    [filteredMembers],
+  );
+
+  const propertyCount = allProperties.length;
+
+  const tasksByAssignee = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const e of escalations) {
+      if (e.assignee && e.status !== "Done" && e.status !== "Resolved") {
+        map.set(e.assignee, (map.get(e.assignee) ?? 0) + 1);
+      }
+    }
+    for (const c of conversations) {
+      if (c.assignee && c.status === "open") {
+        map.set(c.assignee, (map.get(c.assignee) ?? 0) + 1);
+      }
+    }
+    return map;
+  }, [escalations, conversations]);
+
+  const memberMetrics = useMemo(() => {
+    const map = new Map<string, MemberMetric>();
+    for (const m of members) {
+      map.set(m.id, getMemberMetric(m, agents, tasksByAssignee));
+    }
+    return map;
+  }, [members, agents, tasksByAssignee]);
+
+  const offAgentNames = useMemo(() => {
     const set = new Set<string>();
-    workforceLabels.forEach((t) => set.add(t));
-    agents.forEach((a) => (a.labels ?? []).forEach((t) => set.add(t)));
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [workforceLabels, agents]);
+    for (const a of agents) {
+      if (a.status === "Off") set.add(a.name);
+    }
+    return set;
+  }, [agents]);
 
-  const teamGroups = useMemo(() => {
-    return TEAMS.map((team) => {
-      const teamMembers = displayMembers.filter((m) => m.team === team);
-      const teamAgents = teamMembers.filter((m) => m.type === "agent");
-      const teamHumans = teamMembers
-        .filter((m) => m.type === "human")
-        .sort((a, b) => {
-          const ta = TIER_ORDER[a.tier ?? "specialist"];
-          const tb = TIER_ORDER[b.tier ?? "specialist"];
-          return ta !== tb ? ta - tb : a.name.localeCompare(b.name);
-        });
-      const hasActiveAgent = teamAgents.length > 0;
-      return { team, members: teamMembers, agents: teamAgents, humans: teamHumans, hasActiveAgent };
-    }).filter((g) => g.members.length > 0);
-  }, [displayMembers]);
-
-  const memberById = useMemo(() => new Map(displayMembers.map((m) => [m.id, m])), [displayMembers]);
-  const memberSet = useMemo(() => new Set(displayMembers.map((m) => m.id)), [displayMembers]);
-
-  const orgMembers = useMemo(() => {
-    const seenAgentTeam = new Set<string>();
-    return displayMembers.filter((m) => {
-      if (m.type === "human") return true;
-      if (m.agentLevel !== "l4") return false;
-      if (seenAgentTeam.has(m.team)) return false;
-      seenAgentTeam.add(m.team);
-      return true;
+  const sortMembers = (arr: WorkforceMember[]) =>
+    [...arr].sort((a, b) => {
+      const aMgr = a.type === "human" && a.tier === "management";
+      const bMgr = b.type === "human" && b.tier === "management";
+      if (aMgr !== bMgr) return aMgr ? -1 : 1;
+      if (a.type !== b.type) return a.type === "agent" ? -1 : 1;
+      const ta = TIER_ORDER[a.tier ?? "specialist"];
+      const tb = TIER_ORDER[b.tier ?? "specialist"];
+      if (ta !== tb) return ta - tb;
+      return a.name.localeCompare(b.name);
     });
-  }, [displayMembers]);
 
-  const orgMemberSet = useMemo(() => new Set(orgMembers.map((m) => m.id)), [orgMembers]);
-
-  const orgRoots = useMemo(() => {
-    return orgMembers.filter((m) => !m.reportsTo || !orgMemberSet.has(m.reportsTo));
-  }, [orgMembers, orgMemberSet]);
-
-  const childrenOf = useMemo(() => {
+  const childrenOfMap = useMemo(() => {
     const map = new Map<string, WorkforceMember[]>();
-    for (const m of orgMembers) {
-      if (m.reportsTo && orgMemberSet.has(m.reportsTo)) {
+    for (const m of filteredMembers) {
+      if (m.reportsTo && !leaderIds.has(m.id)) {
         const list = map.get(m.reportsTo) ?? [];
         list.push(m);
         map.set(m.reportsTo, list);
       }
     }
-    for (const [, list] of map) {
-      list.sort((a, b) => {
-        if (a.type !== b.type) return a.type === "human" ? 1 : -1;
+    for (const children of map.values()) {
+      children.sort((a, b) => {
+        if (a.type !== b.type) return a.type === "agent" ? -1 : 1;
         const ta = TIER_ORDER[a.tier ?? "specialist"];
         const tb = TIER_ORDER[b.tier ?? "specialist"];
-        return ta !== tb ? ta - tb : a.name.localeCompare(b.name);
+        if (ta !== tb) return ta - tb;
+        return a.name.localeCompare(b.name);
       });
     }
     return map;
-  }, [orgMembers, orgMemberSet]);
+  }, [filteredMembers, leaderIds]);
+
+  const autoExpandedRef = useRef(false);
+
+  const teamSections = useMemo(() => {
+    const sections: { team: string; topLevel: WorkforceMember[] }[] = [];
+    for (const team of TEAMS) {
+      const teamMembers = filteredMembers.filter(
+        (m) => m.team === team && !leaderIds.has(m.id),
+      );
+      if (teamMembers.length === 0) continue;
+      const topLevel = teamMembers.filter(
+        (m) => !m.reportsTo || leaderIds.has(m.reportsTo),
+      );
+      sections.push({ team, topLevel: sortMembers(topLevel) });
+    }
+    return sections;
+  }, [filteredMembers, leaderIds]);
+
+  useEffect(() => {
+    if (autoExpandedRef.current) return;
+    const ids = new Set<string>();
+    for (const l of leaders) {
+      if (childrenOfMap.has(l.id)) ids.add(l.id);
+    }
+    for (const section of teamSections) {
+      for (const m of section.topLevel) {
+        if (childrenOfMap.has(m.id)) ids.add(m.id);
+      }
+    }
+    if (ids.size > 0) {
+      setExpandedNodes(ids);
+      autoExpandedRef.current = true;
+    }
+  }, [leaders, teamSections, childrenOfMap]);
 
   return (
-    <ContractGate featureName="Workforce">
     <>
       <PageHeader
-        title={isSiteStaff ? "My Workforce" : "Workforce"}
-        description={isSiteStaff
-          ? "Your team and the AI agents that work alongside you at your property."
-          : "Your org structure with AI layered in — who works on what, how work routes, and how human and AI capabilities combine."
-        }
+        title="Workforce"
+        description="Your org structure with AI layered in — who works on what, how work routes, and how human and AI capabilities combine."
       />
 
-      {isSiteStaff ? (
-        <>
-          <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {[
-              { label: "My team", value: myTeamHumans.length, sub: `at ${SITE_STAFF_PROPERTY}` },
-              { label: "AI agents", value: myTeamAgents.length, sub: "working alongside you" },
-              { label: "Open escalations", value: openEscalations },
-            ].map((s) => (
-              <Card key={s.label}>
-                <CardContent className="py-3">
-                  <p className="text-2xl font-bold text-foreground">{s.value}</p>
-                  <p className="text-xs text-muted-foreground">{s.label}</p>
-                  {"sub" in s && s.sub && <p className="mt-0.5 text-[10px] text-muted-foreground">{s.sub}</p>}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-          <SiteStaffMyTeam humans={myTeamHumans} agents={myTeamAgents} property={SITE_STAFF_PROPERTY} />
-        </>
-      ) : (
-        <>
-          <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
-            {[
-              { label: "Total workforce", value: totalMembers, sub: `${totalHumans} human · ${totalAI} AI` },
-              { label: "Human staff", value: totalHumans },
-              { label: "AI agents", value: totalAI },
-              { label: "Teams with AI", value: `${teamsWithAI}/${TEAMS.length}` },
-              { label: "Open escalations", value: openEscalations },
-            ].map((s) => (
-              <Card key={s.label}>
-                <CardContent className="py-3">
-                  <p className="text-2xl font-bold text-foreground">{s.value}</p>
-                  <p className="text-xs text-muted-foreground">{s.label}</p>
-                  {"sub" in s && s.sub && <p className="mt-0.5 text-[10px] text-muted-foreground">{s.sub}</p>}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+      {/* Overview stats */}
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
+        {[
+          { label: "Total workforce", value: totalMembers, sub: `${totalHumans} staff · ${totalAI} ELI+ agents` },
+          { label: "Human staff", value: totalHumans },
+          { label: "ELI+ agents", value: totalAI },
+          { label: "Teams with AI", value: `${teamsWithAI}/${TEAMS.length}` },
+          { label: "Open escalations", value: openEscalations },
+        ].map((s) => (
+          <Card key={s.label}>
+            <CardContent className="py-3">
+              <p className="text-2xl font-bold text-foreground">{s.value}</p>
+              <p className="text-xs text-muted-foreground">{s.label}</p>
+              {"sub" in s && s.sub && <p className="mt-0.5 text-[10px] text-muted-foreground">{s.sub}</p>}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
 
-          {/* View toggle + summary */}
-          <div className="mb-6 flex items-center justify-between">
-            <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/30 p-1">
-              {([
-                { key: "org", label: "Org Chart" },
-                { key: "all", label: "All" },
-                { key: "agents", label: "AI Agents" },
-                { key: "humans", label: "Humans" },
-              ] as { key: ViewMode; label: string }[]).map((v) => (
-                <button
-                  key={v.key}
-                  type="button"
-                  onClick={() => setView(v.key)}
-                  className={cn(
-                    "rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors",
-                    view === v.key
-                      ? "bg-foreground text-background shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  {v.label}
-                </button>
-              ))}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="mb-6">
+          <TabsTrigger value="org">Org Structure</TabsTrigger>
+          <TabsTrigger value="routing" className="hidden">Routing</TabsTrigger>
+          <TabsTrigger value="roles">Roles &amp; Access</TabsTrigger>
+          <TabsTrigger value="compliance">Compliance</TabsTrigger>
+        </TabsList>
+
+        {/* ───── TAB 1: Org Structure ───── */}
+        <TabsContent value="org" className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex h-9 rounded-md border border-input">
+              <button
+                type="button"
+                onClick={() => setOrgView("tree")}
+                className={cn(
+                  "flex h-full w-9 items-center justify-center rounded-l-md transition-colors",
+                  orgView === "tree"
+                    ? "bg-foreground text-background"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                aria-label="Tree view"
+              >
+                <Network className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setOrgView("table")}
+                className={cn(
+                  "flex h-full w-9 items-center justify-center rounded-r-md border-l border-input transition-colors",
+                  orgView === "table"
+                    ? "bg-foreground text-background"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                aria-label="Table view"
+              >
+                <List className="h-4 w-4" />
+              </button>
             </div>
-            <span className="text-xs text-muted-foreground">
-              {totalHumans} staff · {agentMembers.filter((a) => a.role.includes("Agent") || a.role.includes("Autonomous")).length} autonomous agents · {agentMembers.filter((a) => a.role.includes("Insights") || a.role.includes("Intelligence") || a.role.includes("Automation") || a.role.includes("Operations")).length} intelligence agents
-            </span>
+            <div className="relative flex-1 min-w-[200px] max-w-sm">
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search people, roles, teams..."
+                className="h-9 pl-8 text-xs"
+              />
+            </div>
+            <FilterDropdown
+              label="Property"
+              options={allProperties}
+              selected={propertyFilters}
+              onToggle={(p) => setPropertyFilters((prev) => {
+                const next = new Set(prev);
+                if (next.has(p)) next.delete(p); else next.add(p);
+                return next;
+              })}
+            />
+            <FilterDropdown
+              label="Label"
+              options={allLabels}
+              selected={labelFilters}
+              onToggle={(l) => setLabelFilters((prev) => {
+                const next = new Set(prev);
+                if (next.has(l)) next.delete(l); else next.add(l);
+                return next;
+              })}
+            />
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={() => { setSearchQuery(""); setPropertyFilters(new Set()); setLabelFilters(new Set()); }}
+                className="flex h-9 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" /> Clear
+              </button>
+            )}
           </div>
 
-          {view === "org" && (
-            <OrgChartView
-              roots={orgRoots}
-              childrenOf={childrenOf}
-              totalHumans={totalHumans}
-              totalAI={totalAI}
+          {orgView === "tree" ? (
+            <Card>
+              <CardContent className="pt-6 pb-4">
+                <div className="mb-4 flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <h2 className="text-lg font-semibold text-foreground">
+                      Property Team + Agent Workforce
+                    </h2>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {totalHumans} staff &middot; {totalAI} ELI+ agents
+                  </p>
+                </div>
+
+                {leaders.map((m) => (
+                  <MemberRowContent
+                    key={m.id}
+                    member={m}
+                    metric={memberMetrics.get(m.id)!}
+                    onMemberClick={setSelectedMemberId}
+                    isAgentOff={m.type === "agent" && offAgentNames.has(m.name)}
+                  />
+                ))}
+
+                {teamSections.map((section) => (
+                  <div key={section.team}>
+                    <TeamDivider label={section.team} />
+                    {section.topLevel.map((m, i) => (
+                      <MemberNode
+                        key={m.id}
+                        member={m}
+                        childrenOfMap={childrenOfMap}
+                        memberMetrics={memberMetrics}
+                        isLast={i === section.topLevel.length - 1}
+                        expandedNodes={expandedNodes}
+                        onToggle={toggleNode}
+                        onMemberClick={setSelectedMemberId}
+                        offAgentNames={offAgentNames}
+                      />
+                    ))}
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          ) : (
+            <OrgTable
+              leaders={leaders}
+              teamSections={teamSections}
+              childrenOfMap={childrenOfMap}
+              memberMetrics={memberMetrics}
+              expandedNodes={expandedNodes}
+              onToggle={toggleNode}
+              onMemberClick={setSelectedMemberId}
+              offAgentNames={offAgentNames}
             />
           )}
-          {(view === "all" || view === "agents" || view === "humans") && (
-            <TeamListView
-              teamGroups={teamGroups}
-              filter={view}
-              labelPool={labelPool}
-              onUpdate={updateMember}
-            />
-          )}
-        </>
-      )}
+        </TabsContent>
+
+        {/* ───── TAB 2: Routing ───── */}
+        <TabsContent value="routing" className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Escalations are first routed by label and property match (configured per person on the Org tab). If no label match is found, these rules apply — the most specific matching rule wins.
+          </p>
+
+          <RoutingRulesEditor
+            rules={routingRules}
+            humanMembers={humanMembers}
+            onAdd={addRoutingRule}
+            onRemove={removeRoutingRule}
+            onUpdate={updateRoutingRule}
+          />
+        </TabsContent>
+
+        {/* ───── TAB 3: Roles & Access ───── */}
+        <TabsContent value="roles">
+          <RolesAccessPanel humanMembers={humanMembers} />
+        </TabsContent>
+
+        {/* ───── TAB 4: Compliance ───── */}
+        <TabsContent value="compliance">
+          <ComingSoon feature="Compliance tracking" />
+        </TabsContent>
+      </Tabs>
+
+      {/* ───── Member Detail Sheet ───── */}
+      <MemberDetailSheet
+        member={selectedMember}
+        open={selectedMember !== null}
+        onOpenChange={(open) => { if (!open) setSelectedMemberId(null); }}
+        members={members}
+        allProperties={allProperties}
+        allLabels={allLabels}
+        childrenOfMap={childrenOfMap}
+        memberMetrics={memberMetrics}
+        updateMember={updateMember}
+        onMemberClick={setSelectedMemberId}
+      />
     </>
-    </ContractGate>
   );
 }
 
-/* ═══════════════════════════════════════════════════════════
-   Org Chart View — Hierarchical tree with connectors
-   ═══════════════════════════════════════════════════════════ */
+/* ──────────────────────────── Roles & Access ────────────────────── */
 
-function OrgChartView({
-  roots,
-  childrenOf,
-  totalHumans,
-  totalAI,
-}: {
-  roots: WorkforceMember[];
-  childrenOf: Map<string, WorkforceMember[]>;
-  totalHumans: number;
-  totalAI: number;
-}) {
-  const sortedRoots = useMemo(() =>
-    [...roots].sort((a, b) => {
-      if (a.type !== b.type) return a.type === "human" ? -1 : 1;
-      const ta = TIER_ORDER[a.tier ?? "specialist"];
-      const tb = TIER_ORDER[b.tier ?? "specialist"];
-      return ta !== tb ? ta - tb : a.name.localeCompare(b.name);
-    }),
-    [roots]
+import { ALL_PERMISSIONS, PERMISSION_SECTIONS, usePermissions } from "@/lib/permissions-context";
+
+type RoleTab = { key: string; label: string; builtin: boolean };
+
+const BUILT_IN_ROLES: RoleTab[] = [
+  { key: "admin", label: "Corporate Admins", builtin: true },
+  { key: "regional", label: "Team Lead", builtin: true },
+];
+
+type EntrataGroup = { id: string; name: string; memberCount: number };
+
+const ENTRATA_GROUPS: EntrataGroup[] = [
+  { id: "eg-leasing", name: "Leasing Team", memberCount: 6 },
+  { id: "eg-maintenance", name: "Maintenance Staff", memberCount: 12 },
+  { id: "eg-accounting", name: "Accounting", memberCount: 4 },
+  { id: "eg-regional-ops", name: "Regional Operations", memberCount: 8 },
+  { id: "eg-compliance", name: "Compliance Officers", memberCount: 3 },
+  { id: "eg-resident-svc", name: "Resident Services", memberCount: 9 },
+];
+
+function RolesAccessPanel({ humanMembers }: { humanMembers: WorkforceMember[] }) {
+  const [customRoles, setCustomRoles] = useState<RoleTab[]>([]);
+  const [activeRole, setActiveRole] = useState<string>("admin");
+  const { permissions, setPermissions } = usePermissions();
+  const [roleMembers, setRoleMembers] = useState<Record<string, string[]>>(() => ({
+    admin: [],
+    regional: ["h-regional"],
+  }));
+  const [comboOpen, setComboOpen] = useState(false);
+  const [comboQuery, setComboQuery] = useState("");
+  const [groupComboOpen, setGroupComboOpen] = useState(false);
+  const [groupComboQuery, setGroupComboQuery] = useState("");
+  const [roleGroups, setRoleGroups] = useState<Record<string, string[]>>({});
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newRoleName, setNewRoleName] = useState("");
+  const [deleteConfirmKey, setDeleteConfirmKey] = useState<string | null>(null);
+
+  const allRoles = [...BUILT_IN_ROLES, ...customRoles];
+  const isAdmin = activeRole === "admin";
+  const showUserPicker = !isAdmin;
+  const currentPerms = permissions[activeRole] ?? new Set<string>();
+  const currentMembers = roleMembers[activeRole] ?? [];
+
+  const currentGroups = roleGroups[activeRole] ?? [];
+
+  const availableGroups = useMemo(() => {
+    const assigned = new Set(currentGroups);
+    const q = groupComboQuery.toLowerCase().trim();
+    return ENTRATA_GROUPS.filter((g) => {
+      if (assigned.has(g.id)) return false;
+      if (q && !g.name.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [currentGroups, groupComboQuery]);
+
+  const availableMembers = useMemo(() => {
+    const assigned = new Set(currentMembers);
+    const q = comboQuery.toLowerCase().trim();
+    return humanMembers.filter((m) => {
+      if (assigned.has(m.id)) return false;
+      if (q && !m.name.toLowerCase().includes(q) && !m.role.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [humanMembers, currentMembers, comboQuery]);
+
+  const addMember = (memberId: string) => {
+    setRoleMembers((prev) => ({
+      ...prev,
+      [activeRole]: [...(prev[activeRole] ?? []), memberId],
+    }));
+    setComboOpen(false);
+    setComboQuery("");
+  };
+
+  const removeMember = (memberId: string) => {
+    setRoleMembers((prev) => ({
+      ...prev,
+      [activeRole]: (prev[activeRole] ?? []).filter((id) => id !== memberId),
+    }));
+  };
+
+  const addGroup = (groupId: string) => {
+    setRoleGroups((prev) => ({
+      ...prev,
+      [activeRole]: [...(prev[activeRole] ?? []), groupId],
+    }));
+    setGroupComboOpen(false);
+    setGroupComboQuery("");
+  };
+
+  const removeGroup = (groupId: string) => {
+    setRoleGroups((prev) => ({
+      ...prev,
+      [activeRole]: (prev[activeRole] ?? []).filter((id) => id !== groupId),
+    }));
+  };
+
+  const togglePermission = (permId: string) => {
+    if (isAdmin) return;
+    setPermissions((prev) => {
+      const next = { ...prev };
+      const set = new Set(next[activeRole] ?? []);
+      if (set.has(permId)) set.delete(permId);
+      else set.add(permId);
+      next[activeRole] = set;
+      return next;
+    });
+  };
+
+  const handleCreateRole = () => {
+    const trimmed = newRoleName.trim();
+    if (!trimmed) return;
+    const key = `custom-${Date.now()}`;
+    setCustomRoles((prev) => [...prev, { key, label: trimmed, builtin: false }]);
+    setPermissions((prev) => ({ ...prev, [key]: new Set<string>() }));
+    setRoleMembers((prev) => ({ ...prev, [key]: [] }));
+    setActiveRole(key);
+    setCreateOpen(false);
+    setNewRoleName("");
+  };
+
+  const handleDeleteRole = (key: string) => {
+    setCustomRoles((prev) => prev.filter((r) => r.key !== key));
+    setRoleMembers((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setRoleGroups((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setPermissions((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    if (activeRole === key) setActiveRole("admin");
+    setDeleteConfirmKey(null);
+  };
+
+  return (
+    <div>
+      <div className="mb-6 flex items-center gap-2">
+        {allRoles.map((r) => (
+          <div key={r.key} className="group relative flex items-center">
+            <button
+              onClick={() => setActiveRole(r.key)}
+              className={cn(
+                "rounded-full px-5 py-2 text-sm font-medium transition-colors",
+                activeRole === r.key
+                  ? "bg-foreground text-background"
+                  : "border border-border bg-background text-foreground hover:bg-muted",
+                !r.builtin && "pr-8"
+              )}
+            >
+              {r.label}
+            </button>
+            {!r.builtin && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setDeleteConfirmKey(r.key); }}
+                className={cn(
+                  "absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-0.5 transition-colors",
+                  activeRole === r.key
+                    ? "text-background/60 hover:text-background"
+                    : "text-muted-foreground/60 hover:text-foreground"
+                )}
+                aria-label={`Delete ${r.label}`}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+        ))}
+        <button
+          onClick={() => setCreateOpen(true)}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-dashed border-border text-muted-foreground transition-colors hover:border-foreground hover:text-foreground"
+          aria-label="Create new role"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Create role dialog */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Create New Role</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <label className="text-sm font-medium text-foreground" htmlFor="new-role-name">
+              Role name
+            </label>
+            <Input
+              id="new-role-name"
+              value={newRoleName}
+              onChange={(e) => setNewRoleName(e.target.value)}
+              placeholder="e.g. Property Manager"
+              className="mt-1.5"
+              autoFocus
+              onKeyDown={(e) => { if (e.key === "Enter") handleCreateRole(); }}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setCreateOpen(false); setNewRoleName(""); }}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateRole} disabled={!newRoleName.trim()}>
+              Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete role confirmation dialog */}
+      <Dialog open={!!deleteConfirmKey} onOpenChange={() => setDeleteConfirmKey(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Role</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground py-2">
+            Are you sure you want to delete{" "}
+            <span className="font-medium text-foreground">
+              {allRoles.find((r) => r.key === deleteConfirmKey)?.label}
+            </span>
+            ? All assigned users and permissions will be removed.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirmKey(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={() => deleteConfirmKey && handleDeleteRole(deleteConfirmKey)}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {isAdmin && (
+        <div className="mb-8 px-4 py-3">
+          <p className="text-sm text-muted-foreground">
+            Corporate Admin users are synced automatically through Entrata. All permissions are enabled by default.
+          </p>
+        </div>
+      )}
+
+      {showUserPicker && (
+        <div className="mb-8">
+          <div className="flex items-center gap-3 mb-3">
+            <h3 className="text-sm font-semibold text-foreground">Users in this role</h3>
+            <Popover open={comboOpen} onOpenChange={setComboOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs">
+                  <Plus className="h-3 w-3" />
+                  Add User
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-64 p-0" align="start">
+                <div className="p-2 border-b border-border">
+                  <div className="relative">
+                    <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      type="text"
+                      value={comboQuery}
+                      onChange={(e) => setComboQuery(e.target.value)}
+                      placeholder="Search people..."
+                      className="h-8 w-full rounded-md border border-input bg-background pl-7 pr-3 text-xs placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                      autoFocus
+                    />
+                  </div>
+                </div>
+                <div className="max-h-48 overflow-y-auto p-1">
+                  {availableMembers.length === 0 ? (
+                    <p className="px-2 py-3 text-center text-xs text-muted-foreground">No matching users</p>
+                  ) : (
+                    availableMembers.map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => addMember(m.id)}
+                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted transition-colors"
+                      >
+                        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
+                          {m.name.split(" ").map((n) => n[0]).join("")}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-foreground truncate">{m.name}</p>
+                          <p className="text-[11px] text-muted-foreground truncate">{m.role}</p>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            <Popover open={groupComboOpen} onOpenChange={setGroupComboOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs">
+                  <Users className="h-3 w-3" />
+                  Add Group
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-72 p-0" align="start">
+                <div className="p-2 border-b border-border">
+                  <p className="text-[11px] font-medium text-muted-foreground mb-1.5">Entrata User Groups</p>
+                  <div className="relative">
+                    <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      type="text"
+                      value={groupComboQuery}
+                      onChange={(e) => setGroupComboQuery(e.target.value)}
+                      placeholder="Search groups..."
+                      className="h-8 w-full rounded-md border border-input bg-background pl-7 pr-3 text-xs placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                      autoFocus
+                    />
+                  </div>
+                </div>
+                <div className="max-h-48 overflow-y-auto p-1">
+                  {availableGroups.length === 0 ? (
+                    <p className="px-2 py-3 text-center text-xs text-muted-foreground">No matching groups</p>
+                  ) : (
+                    availableGroups.map((g) => (
+                      <button
+                        key={g.id}
+                        onClick={() => addGroup(g.id)}
+                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted transition-colors"
+                      >
+                        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                          <Users className="h-3 w-3" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-medium text-foreground truncate">{g.name}</p>
+                          <p className="text-[11px] text-muted-foreground">{g.memberCount} members</p>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          {/* Assigned groups */}
+          {currentGroups.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-3">
+              {currentGroups.map((groupId) => {
+                const group = ENTRATA_GROUPS.find((g) => g.id === groupId);
+                if (!group) return null;
+                return (
+                  <span
+                    key={groupId}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-xs font-medium text-foreground"
+                  >
+                    <Users className="h-3 w-3 text-primary" />
+                    {group.name}
+                    <span className="text-muted-foreground">({group.memberCount})</span>
+                    <button
+                      onClick={() => removeGroup(groupId)}
+                      className="ml-0.5 text-muted-foreground hover:text-foreground transition-colors"
+                      aria-label={`Remove ${group.name}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Assigned individuals */}
+          {currentMembers.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {currentMembers.map((memberId) => {
+                const member = humanMembers.find((m) => m.id === memberId);
+                if (!member) return null;
+                return (
+                  <span
+                    key={memberId}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground"
+                  >
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[9px] font-medium text-muted-foreground">
+                      {member.name.split(" ").map((n) => n[0]).join("")}
+                    </span>
+                    {member.name}
+                    <button
+                      onClick={() => removeMember(memberId)}
+                      className="ml-0.5 text-muted-foreground hover:text-foreground transition-colors"
+                      aria-label={`Remove ${member.name}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          ) : currentGroups.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No users or groups assigned to this role yet.</p>
+          ) : null}
+        </div>
+      )}
+
+      <div className="space-y-8">
+        {PERMISSION_SECTIONS.map((section) => {
+          const sectionPerms = ALL_PERMISSIONS.filter((p) => p.section === section);
+          if (sectionPerms.length === 0) return null;
+          return (
+            <div key={section}>
+              <h3 className="text-base font-semibold text-foreground mb-3">{section}</h3>
+              <div className="rounded-lg border border-border">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/30">
+                      <th className="px-4 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground w-40">Capability</th>
+                      <th className="px-4 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Description</th>
+                      <th className="px-4 py-2 w-28" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sectionPerms.map((perm) => {
+                      const enabled = currentPerms.has(perm.id);
+                      return (
+                        <tr key={perm.id} className="border-b border-border last:border-b-0">
+                          <td className="px-4 py-3 text-sm font-medium text-foreground whitespace-nowrap">{perm.capability}</td>
+                          <td className="px-4 py-3 text-sm text-muted-foreground">{perm.description}</td>
+                          <td className="px-4 py-3 text-right">
+                            {isAdmin ? (
+                              <span className="text-xs text-muted-foreground italic">Always on</span>
+                            ) : enabled ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-red-600"
+                                onClick={() => togglePermission(perm.id)}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                                Remove
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                                onClick={() => togglePermission(perm.id)}
+                              >
+                                <Plus className="h-3 w-3" />
+                                Add
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
+}
+
+/* ──────────────────────────── Routing Rules Editor ──────────────── */
+
+const RULE_CATEGORIES = ["Payments", "Maintenance", "Leasing", "Accounting", "Compliance"];
+const RULE_TYPES: { value: EscalationType; label: string }[] = [
+  { value: "approval", label: "Approval" },
+  { value: "doc_improvement", label: "Doc improvement" },
+  { value: "conversation", label: "Conversation" },
+  { value: "training", label: "Training" },
+  { value: "workflow", label: "Workflow" },
+];
+const TIER_OPTIONS: { value: WorkforceTier; label: string }[] = [
+  { value: "specialist", label: "Specialist" },
+  { value: "coordinator", label: "Coordinator" },
+  { value: "management", label: "Management" },
+  { value: "leadership", label: "Leadership" },
+];
+
+function describeCondition(rule: EscalationRoutingRule): string {
+  const parts: string[] = [];
+  if (rule.category) parts.push(`Category = ${rule.category}`);
+  if (rule.type) {
+    const label = RULE_TYPES.find((t) => t.value === rule.type)?.label ?? rule.type;
+    parts.push(`Type = ${label}`);
+  }
+  if (rule.property) parts.push(`Property = ${rule.property}`);
+  if (rule.labels?.length) parts.push(`Labels include ${rule.labels.join(", ")}`);
+  if (rule.minPriority) parts.push(`Priority ≥ ${rule.minPriority}`);
+  return parts.length > 0 ? parts.join(" & ") : "Everything (fallback)";
+}
+
+function RoutingRulesEditor({
+  rules,
+  humanMembers,
+  onAdd,
+  onRemove,
+  onUpdate,
+}: {
+  rules: EscalationRoutingRule[];
+  humanMembers: WorkforceMember[];
+  onAdd: (rule: Omit<EscalationRoutingRule, "id">) => void;
+  onRemove: (id: string) => void;
+  onUpdate: (id: string, updates: Partial<Omit<EscalationRoutingRule, "id">>) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [newCategory, setNewCategory] = useState("");
+  const [newType, setNewType] = useState("");
+  const [newAssignees, setNewAssignees] = useState<string[]>([]);
+  const [newReassignMin, setNewReassignMin] = useState("");
+  const [newEscalateMin, setNewEscalateMin] = useState("");
+  const [newMaxTier, setNewMaxTier] = useState("");
+
+  const assigneeOptions = useMemo(() => {
+    const names = humanMembers.map((m) => m.name);
+    if (!names.includes("Admin")) names.unshift("Admin");
+    return names;
+  }, [humanMembers]);
+
+  const isFallback = (rule: EscalationRoutingRule) =>
+    !rule.category && !rule.type && (!rule.labels || rule.labels.length === 0);
+
+  const resetForm = () => {
+    setNewCategory("");
+    setNewType("");
+    setNewAssignees([]);
+    setNewReassignMin("");
+    setNewEscalateMin("");
+    setNewMaxTier("");
+    setAdding(false);
+  };
+
+  const nameToId = useCallback((name: string) => {
+    return humanMembers.find((m) => m.name === name)?.id ?? name;
+  }, [humanMembers]);
+
+  const resolveNames = useCallback((rule: EscalationRoutingRule): string[] => {
+    if (rule.assigneeIds?.length) {
+      return rule.assigneeIds
+        .map((id) => humanMembers.find((m) => m.id === id)?.name)
+        .filter((n): n is string => n != null);
+    }
+    return rule.assignees ?? [];
+  }, [humanMembers]);
+
+  const handleAdd = () => {
+    if (newAssignees.length === 0) return;
+    const rule: Omit<EscalationRoutingRule, "id"> = { assigneeIds: newAssignees.map(nameToId) };
+    if (newCategory) rule.category = newCategory;
+    if (newType) rule.type = newType as EscalationType;
+    if (newReassignMin) rule.reassignAfterMinutes = Number(newReassignMin);
+    if (newEscalateMin) rule.escalateToManagerAfterMinutes = Number(newEscalateMin);
+    if (newMaxTier) rule.maxEscalationTier = newMaxTier as WorkforceTier;
+    onAdd(rule);
+    resetForm();
+  };
+
+  const addAssigneeToRule = (ruleId: string, name: string, currentIds: string[]) => {
+    const id = nameToId(name);
+    if (!currentIds.includes(id)) {
+      onUpdate(ruleId, { assigneeIds: [...currentIds, id] });
+    }
+  };
+
+  const removeAssigneeFromRule = (ruleId: string, name: string, currentIds: string[]) => {
+    const id = nameToId(name);
+    const next = currentIds.filter((n) => n !== id);
+    if (next.length > 0) onUpdate(ruleId, { assigneeIds: next });
+  };
 
   return (
     <Card>
-      <CardContent className="py-6">
-        <div className="mb-6">
-          <div className="flex items-center gap-2">
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
-            </span>
-            <h2 className="text-lg font-semibold text-foreground">Property Team + Agent Workforce</h2>
-          </div>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            {totalHumans} staff · {totalAI} AI agents
-          </p>
-        </div>
+      <CardContent className="p-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-10 pl-4">#</TableHead>
+              <TableHead className="w-[180px]">Condition</TableHead>
+              <TableHead>Assignees</TableHead>
+              <TableHead className="w-[80px] text-center">Reassign</TableHead>
+              <TableHead className="w-[80px] text-center">Escalate</TableHead>
+              <TableHead className="w-[100px] text-center">Ceiling</TableHead>
+              <TableHead className="w-10" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rules.map((rule, i) => {
+              const fallback = isFallback(rule);
+              const ruleNames = resolveNames(rule);
+              const ruleIds = rule.assigneeIds ?? [];
+              const unusedOptions = assigneeOptions.filter((n) => !ruleNames.includes(n));
+              return (
+                <TableRow key={rule.id} className={cn(fallback && "bg-muted/30", "align-top")}>
+                  <TableCell className="pl-4 pt-3 text-xs text-muted-foreground">{i + 1}</TableCell>
+                  <TableCell className="pt-3">
+                    <span className={cn("text-xs font-medium", fallback && "text-muted-foreground")}>
+                      {describeCondition(rule)}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap items-center gap-1.5 py-1">
+                      {ruleNames.map((name) => {
+                        const member = humanMembers.find((m) => m.name === name);
+                        const propLabel = member?.properties?.includes("All properties")
+                          ? "All"
+                          : member?.properties?.join(", ");
+                        return (
+                          <span
+                            key={name}
+                            className="group inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-xs"
+                          >
+                            {name}
+                            {propLabel && (
+                              <span className="text-[10px] text-muted-foreground">({propLabel})</span>
+                            )}
+                            {ruleNames.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => removeAssigneeFromRule(rule.id, name, ruleIds)}
+                                className="ml-0.5 rounded-full p-0.5 text-muted-foreground/40 transition-colors hover:bg-destructive/10 hover:text-destructive group-hover:text-muted-foreground"
+                              >
+                                <X className="h-2.5 w-2.5" />
+                              </button>
+                            )}
+                          </span>
+                        );
+                      })}
+                      {unusedOptions.length > 0 && (
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <button
+                              type="button"
+                              className="inline-flex h-6 items-center gap-0.5 rounded-full border border-dashed border-border px-2 text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+                            >
+                              <Plus className="h-3 w-3" />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-48 p-1" align="start">
+                            <div className="max-h-48 overflow-y-auto">
+                              {unusedOptions.map((name) => (
+                                <button
+                                  key={name}
+                                  type="button"
+                                  onClick={() => addAssigneeToRule(rule.id, name, ruleIds)}
+                                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent hover:text-accent-foreground"
+                                >
+                                  {name}
+                                </button>
+                              ))}
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="pt-2 text-center">
+                    <input
+                      type="number"
+                      min={1}
+                      value={rule.reassignAfterMinutes ?? ""}
+                      onChange={(e) => onUpdate(rule.id, { reassignAfterMinutes: e.target.value ? Number(e.target.value) : undefined })}
+                      placeholder="10"
+                      className="h-7 w-16 rounded border border-input bg-background px-1.5 text-center text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                      aria-label="Reassign after minutes"
+                    />
+                    <span className="block text-[9px] text-muted-foreground mt-0.5">min</span>
+                  </TableCell>
+                  <TableCell className="pt-2 text-center">
+                    <input
+                      type="number"
+                      min={1}
+                      value={rule.escalateToManagerAfterMinutes ?? ""}
+                      onChange={(e) => onUpdate(rule.id, { escalateToManagerAfterMinutes: e.target.value ? Number(e.target.value) : undefined })}
+                      placeholder="30"
+                      className="h-7 w-16 rounded border border-input bg-background px-1.5 text-center text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                      aria-label="Escalate to manager after minutes"
+                    />
+                    <span className="block text-[9px] text-muted-foreground mt-0.5">min</span>
+                  </TableCell>
+                  <TableCell className="pt-2 text-center">
+                    <select
+                      value={rule.maxEscalationTier ?? ""}
+                      onChange={(e) => onUpdate(rule.id, { maxEscalationTier: (e.target.value || undefined) as WorkforceTier | undefined })}
+                      className="h-7 w-[88px] rounded border border-input bg-background px-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                      aria-label="Max escalation tier"
+                    >
+                      <option value="">No limit</option>
+                      {TIER_OPTIONS.map((t) => (
+                        <option key={t.value} value={t.value}>{t.label}</option>
+                      ))}
+                    </select>
+                  </TableCell>
+                  <TableCell className="pt-3">
+                    {!fallback && (
+                      <button
+                        type="button"
+                        onClick={() => onRemove(rule.id)}
+                        className="rounded p-1 text-muted-foreground/50 transition-colors hover:bg-destructive/10 hover:text-destructive"
+                        aria-label="Remove rule"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
 
-        <div>
-          {sortedRoots.map((root) => (
-            <OrgChartNode key={root.id} member={root} childrenOf={childrenOf} depth={0} isLast={false} />
-          ))}
-        </div>
+            {/* Add rule form row */}
+            {adding && (
+              <TableRow className="align-top">
+                <TableCell className="pl-4 pt-3 text-xs text-muted-foreground">+</TableCell>
+                <TableCell className="pt-2">
+                  <div className="flex flex-col gap-2">
+                    <select
+                      value={newCategory}
+                      onChange={(e) => setNewCategory(e.target.value)}
+                      className="h-7 rounded border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                    >
+                      <option value="">Any category</option>
+                      {RULE_CATEGORIES.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={newType}
+                      onChange={(e) => setNewType(e.target.value)}
+                      className="h-7 rounded border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                    >
+                      <option value="">Any type</option>
+                      {RULE_TYPES.map((t) => (
+                        <option key={t.value} value={t.value}>{t.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </TableCell>
+                <TableCell className="pt-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {newAssignees.map((name) => (
+                      <span
+                        key={name}
+                        className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-xs"
+                      >
+                        {name}
+                        <button
+                          type="button"
+                          onClick={() => setNewAssignees((prev) => prev.filter((n) => n !== name))}
+                          className="ml-0.5 rounded-full p-0.5 text-muted-foreground hover:text-destructive"
+                        >
+                          <X className="h-2.5 w-2.5" />
+                        </button>
+                      </span>
+                    ))}
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        if (e.target.value && !newAssignees.includes(e.target.value)) {
+                          setNewAssignees((prev) => [...prev, e.target.value]);
+                        }
+                        e.target.value = "";
+                      }}
+                      className="h-7 rounded border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                    >
+                      <option value="">Add person...</option>
+                      {assigneeOptions
+                        .filter((n) => !newAssignees.includes(n))
+                        .map((name) => (
+                          <option key={name} value={name}>{name}</option>
+                        ))}
+                    </select>
+                  </div>
+                </TableCell>
+                <TableCell className="pt-2 text-center">
+                  <input
+                    type="number"
+                    min={1}
+                    value={newReassignMin}
+                    onChange={(e) => setNewReassignMin(e.target.value)}
+                    placeholder="10"
+                    className="h-7 w-16 rounded border border-input bg-background px-1.5 text-center text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                    aria-label="Reassign after minutes"
+                  />
+                </TableCell>
+                <TableCell className="pt-2 text-center">
+                  <input
+                    type="number"
+                    min={1}
+                    value={newEscalateMin}
+                    onChange={(e) => setNewEscalateMin(e.target.value)}
+                    placeholder="30"
+                    className="h-7 w-16 rounded border border-input bg-background px-1.5 text-center text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                    aria-label="Escalate to manager after minutes"
+                  />
+                </TableCell>
+                <TableCell className="pt-2 text-center">
+                  <select
+                    value={newMaxTier}
+                    onChange={(e) => setNewMaxTier(e.target.value)}
+                    className="h-7 w-[88px] rounded border border-input bg-background px-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                    aria-label="Max escalation tier"
+                  >
+                    <option value="">No limit</option>
+                    {TIER_OPTIONS.map((t) => (
+                      <option key={t.value} value={t.value}>{t.label}</option>
+                    ))}
+                  </select>
+                </TableCell>
+                <TableCell className="pt-2">
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      onClick={handleAdd}
+                      disabled={newAssignees.length === 0}
+                      className="rounded p-1 text-primary transition-colors hover:bg-primary/10 disabled:opacity-30"
+                      aria-label="Save rule"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resetForm}
+                      className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted"
+                      aria-label="Cancel"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+
+        {!adding && (
+          <div className="border-t border-border px-4 py-2">
+            <button
+              type="button"
+              onClick={() => setAdding(true)}
+              className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <Plus className="h-3.5 w-3.5" /> Add rule
+            </button>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
 }
 
-function OrgChartNode({
-  member,
-  childrenOf,
-  depth,
-  isLast,
+/* ──────────────────────────── Filter Dropdown ───────────────────── */
+
+function FilterDropdown({
+  label,
+  icon: Icon,
+  options,
+  selected,
+  onToggle,
 }: {
-  member: WorkforceMember;
-  childrenOf: Map<string, WorkforceMember[]>;
-  depth: number;
-  isLast: boolean;
+  label: string;
+  icon?: React.ElementType;
+  options: string[];
+  selected: Set<string>;
+  onToggle: (value: string) => void;
 }) {
-  const children = childrenOf.get(member.id) ?? [];
-  const isAgent = member.type === "agent";
-  const indent = depth * 40;
-
-  const directReportAgents = children.filter((c) => c.type === "agent");
-  const directReportHumans = children.filter((c) => c.type === "human");
-
-  const teamGrouped = useMemo(() => {
-    if (children.length === 0) return [];
-    const map = new Map<string, { agents: WorkforceMember[]; humans: WorkforceMember[] }>();
-    for (const c of children) {
-      const team = c.team;
-      if (!map.has(team)) map.set(team, { agents: [], humans: [] });
-      if (c.type === "agent") map.get(team)!.agents.push(c);
-      else map.get(team)!.humans.push(c);
-    }
-    return Array.from(map.entries());
-  }, [children]);
-
-  const isManager = directReportHumans.length > 0 || directReportAgents.length > 0;
+  const [open, setOpen] = useState(false);
 
   return (
-    <div>
-      {/* The member row */}
-      <div className="relative flex items-center gap-3 py-3" style={{ paddingLeft: indent }}>
-        {depth > 0 && (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className={cn(
+            "h-9 gap-1.5 text-xs font-normal",
+            selected.size > 0 && "border-primary/50 bg-primary/5 text-primary hover:bg-primary/10 hover:text-primary",
+          )}
+        >
+          {Icon && <Icon className="h-3.5 w-3.5" />}
+          {label}
+          {selected.size > 0 && (
+            <span className="ml-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+              {selected.size}
+            </span>
+          )}
+          <ChevronDown className={cn("ml-1 h-3 w-3 transition-transform", open && "rotate-180")} />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-52 p-1" align="start">
+        {options.length === 0 && (
+          <p className="px-2 py-3 text-center text-xs text-muted-foreground">No options</p>
+        )}
+        {options.map((opt) => {
+          const isSelected = selected.has(opt);
+          return (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => onToggle(opt)}
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent hover:text-accent-foreground"
+            >
+              <div className={cn(
+                "flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
+                isSelected
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-muted-foreground/30",
+              )}>
+                {isSelected && <Check className="h-3 w-3" />}
+              </div>
+              {opt}
+            </button>
+          );
+        })}
+        {selected.size > 0 && (
           <>
-            {/* Vertical line from parent */}
-            <div
-              className="absolute border-l-2 border-border"
-              style={{ left: indent - 20, top: 0, height: "50%" }}
-            />
-            {/* Horizontal connector */}
-            <div
-              className="absolute border-t-2 border-border"
-              style={{ left: indent - 20, top: "50%", width: 20 }}
-            />
-            {/* Curved corner */}
-            <div
-              className="absolute rounded-bl-lg border-b-2 border-l-2 border-border"
-              style={{ left: indent - 20, top: 0, width: 20, height: "50%" }}
-            />
+            <div className="my-1 h-px bg-border" />
+            <button
+              type="button"
+              onClick={() => { for (const s of selected) onToggle(s); }}
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            >
+              Clear all
+            </button>
           </>
         )}
+      </PopoverContent>
+    </Popover>
+  );
+}
 
-        {/* Avatar */}
-        <div className={cn(
-          "relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold",
-          isAgent ? agentAvatarBg(member.agentLevel) : "bg-muted text-foreground"
-        )}>
-          {isAgent ? <AgentIcon level={member.agentLevel} /> : member.name.split(" ").map((n) => n[0]).join("")}
-        </div>
+/* ──────────────────────────── Team Divider ──────────────────────── */
 
-        {/* Info */}
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <p className="text-sm font-semibold text-foreground">
-              {isAgent && member.name.endsWith(" AI") ? `ELI+ ${member.name}` : member.name}
-            </p>
-            {isAgent && (
-              <span className="rounded bg-red-500 px-1.5 py-0.5 text-[9px] font-semibold leading-none text-white">AI</span>
-            )}
+function TeamDivider({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-3 py-4">
+      <div className="h-px flex-1 bg-border" />
+      <span className="whitespace-nowrap text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </span>
+      <div className="h-px flex-1 bg-border" />
+    </div>
+  );
+}
+
+/* ──────────────────────────── Member Row Content ─────────────────── */
+
+function MemberRowContent({
+  member,
+  metric,
+  onMemberClick,
+  isAgentOff,
+}: {
+  member: WorkforceMember;
+  metric: MemberMetric;
+  onMemberClick?: (id: string) => void;
+  isAgentOff?: boolean;
+}) {
+  const isAgent = member.type === "agent";
+  const initials = member.name
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2);
+
+  const scope = member.properties?.join(", ") ?? "";
+  const description = isAgent
+    ? `ELI+ Agent \u00b7 ${member.jtbd}`
+    : [member.role, scope].filter(Boolean).join(" \u00b7 ");
+
+  const handleClick = onMemberClick
+    ? (e: React.MouseEvent) => { e.stopPropagation(); onMemberClick(member.id); }
+    : undefined;
+
+  return (
+    <div className={cn("flex items-center gap-3 py-3 relative", isAgentOff && "opacity-40")}>
+      <div
+        className={cn(onMemberClick && "cursor-pointer")}
+        onClick={handleClick}
+      >
+        {isAgent ? (
+          <div className={cn(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-shadow hover:ring-2 hover:ring-primary/30",
+            isAgentOff ? "bg-muted" : "bg-primary/10",
+          )}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/eli-cube.svg" alt="" className={cn("h-5 w-5", isAgentOff && "grayscale")} />
           </div>
-          <p className="text-xs text-muted-foreground">
-            {isAgent
-              ? `Autonomous Agent · ${member.jtbd}`
-              : `${member.role}${member.properties?.[0] ? ` · ${member.properties[0]}` : ""}`
-            }
-          </p>
-        </div>
-
-        {/* Metric */}
-        <div className="shrink-0 text-right">
-          <OrgChartMetric member={member} />
-        </div>
+        ) : (
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold text-foreground transition-shadow hover:ring-2 hover:ring-primary/30">
+            {initials}
+          </div>
+        )}
       </div>
 
-      {/* Children grouped by team */}
-      {isManager && teamGrouped.length > 0 && (
-        <div>
-          {teamGrouped.map(([team, group], gi) => {
-            const allInGroup = [...group.agents, ...group.humans];
-            return (
-              <div key={team}>
-                {/* Team section header */}
-                <div
-                  className="flex items-center gap-2 pb-1 pt-4"
-                  style={{ paddingLeft: indent + 40 }}
-                >
-                  <div className="h-px flex-1 bg-border/50" />
-                  <p className="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    {team}
-                  </p>
-                  <div className="h-px flex-1 bg-border/50" />
-                </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <p
+            className={cn(
+              "text-sm font-medium text-foreground",
+              onMemberClick && "cursor-pointer hover:underline",
+            )}
+            onClick={handleClick}
+          >
+            {member.name}
+          </p>
+          {isAgent && !isAgentOff && (
+            <span className="inline-flex items-center rounded bg-[#B3FFCC] px-1.5 py-0.5 text-[10px] font-medium leading-3 text-black">
+              Active
+            </span>
+          )}
+          {isAgent && isAgentOff && (
+            <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-3 text-muted-foreground">
+              Off
+            </span>
+          )}
+        </div>
+        <p className="truncate text-xs text-muted-foreground">{description}</p>
+      </div>
 
-                {/* Team members */}
-                {allInGroup.map((child, ci) => (
-                  <OrgChartNode
-                    key={child.id}
-                    member={child}
-                    childrenOf={childrenOf}
-                    depth={depth + 1}
-                    isLast={ci === allInGroup.length - 1 && gi === teamGrouped.length - 1}
-                  />
-                ))}
-              </div>
-            );
-          })}
+      {isAgentOff ? (
+        <div className="shrink-0 text-right">
+          <p className="text-xs font-medium text-amber-600">Not enabled</p>
+          <p className="text-[10px] text-muted-foreground">Activate in Agent Roster</p>
+        </div>
+      ) : (
+        <div className="shrink-0 text-right">
+          <p
+            className={cn(
+              "text-sm font-semibold",
+              metric.highlight
+                ? "text-green-600 dark:text-green-400"
+                : "text-foreground",
+            )}
+          >
+            {metric.value}
+          </p>
+          <p className="text-[10px] text-muted-foreground">{metric.label}</p>
         </div>
       )}
     </div>
   );
 }
 
-function OrgChartMetric({ member }: { member: WorkforceMember }) {
-  const isAgent = member.type === "agent";
-  let value = "—";
-  let label = "";
-  let color = "text-foreground";
+/* ──────────────────────────── Member Node (recursive) ───────────── */
 
-  if (isAgent) {
-    color = "text-green-600 dark:text-green-400";
-    if (member.name.includes("Leasing") && member.role.includes("Agent")) { value = "34%"; label = "conv."; }
-    else if (member.name.includes("Payments") && member.role.includes("Agent")) { value = "$23.4K"; label = "wk"; }
-    else if (member.name.includes("Renewal") && member.role.includes("Agent")) { value = "92%"; label = "retain"; }
-    else if (member.name.includes("Maintenance") && member.role.includes("Agent")) { value = "4.2hr"; label = "avg"; }
-    else if (member.name.includes("Compliance") && member.role.includes("Agent")) { value = "100%"; label = "compliant"; }
-    else if (member.role.includes("Insights")) { value = "—"; label = "insights"; }
-    else if (member.role.includes("Automation") || member.role.includes("Operations")) { value = "97%"; label = "auto"; }
-    else { value = "Active"; }
-  } else {
-    if (member.tier === "leadership") { value = "6"; label = "properties"; }
-    else if (member.tier === "management" && member.team.includes("Leasing")) { value = "312"; label = "units"; }
-    else if (member.tier === "management" && member.team.includes("Maintenance")) { value = "5"; label = "active WOs"; }
-    else if (member.tier === "management" && member.team.includes("Revenue")) { value = "$23.4K"; label = "collected"; }
-    else if (member.tier === "management" && member.team.includes("Resident")) { value = "92%"; label = "retention"; }
-    else if (member.role.includes("Consultant") || member.role.includes("Coordinator")) { value = "2"; label = "tours today"; }
-    else if (member.role.includes("Technician")) { value = "3"; label = "WOs"; }
-    else if (member.role.includes("Specialist")) { value = "4"; label = "tasks"; }
-    else if (member.role.includes("Officer")) { value = "2"; label = "reviews"; }
-    else if (member.name.includes("Jake") || member.name.includes("Jordan")) { value = "Training"; label = ""; }
-  }
-
-  return (
-    <>
-      <p className={cn("text-sm font-bold", color)}>{value}</p>
-      {label && <p className="text-[10px] text-muted-foreground">{label}</p>}
-    </>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════
-   Team List View (All / AI Agents / Humans)
-   ═══════════════════════════════════════════════════════════ */
-
-function TeamListView({
-  teamGroups,
-  filter,
-  labelPool,
-  onUpdate,
+function MemberNode({
+  member,
+  childrenOfMap,
+  memberMetrics,
+  isLast,
+  expandedNodes,
+  onToggle,
+  onMemberClick,
+  offAgentNames,
 }: {
-  teamGroups: { team: string; agents: WorkforceMember[]; humans: WorkforceMember[]; hasActiveAgent: boolean }[];
-  filter: "all" | "agents" | "humans";
-  labelPool: string[];
-  onUpdate: (id: string, updates: Partial<Omit<WorkforceMember, "id">>) => void;
+  member: WorkforceMember;
+  childrenOfMap: Map<string, WorkforceMember[]>;
+  memberMetrics: Map<string, MemberMetric>;
+  isLast: boolean;
+  expandedNodes: Set<string>;
+  onToggle: (id: string) => void;
+  onMemberClick: (id: string) => void;
+  offAgentNames: Set<string>;
 }) {
-  const filteredGroups = useMemo(() => {
-    return teamGroups.map((g) => ({
-      ...g,
-      agents: filter === "humans" ? [] : g.agents,
-      humans: filter === "agents" ? [] : g.humans,
-    })).filter((g) => g.agents.length > 0 || g.humans.length > 0);
-  }, [teamGroups, filter]);
+  const children = childrenOfMap.get(member.id) ?? [];
+  const metric = memberMetrics.get(member.id)!;
+  const hasChildren = children.length > 0;
+  const isExpanded = expandedNodes.has(member.id);
+  const isOff = member.type === "agent" && offAgentNames.has(member.name);
 
   return (
-    <div className="space-y-4">
-      {filteredGroups.map((group) => {
-        const totalInGroup = group.agents.length + group.humans.length;
-        return (
-          <Card key={group.team}>
-            <CardContent className="py-6">
-              <div className="mb-4 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className={cn(
-                    "inline-flex h-2.5 w-2.5 rounded-full",
-                    group.hasActiveAgent ? "bg-green-500" : "bg-muted-foreground/40"
-                  )} />
-                  <h3 className="text-base font-semibold text-foreground">{group.team}</h3>
-                </div>
-                <span className="text-xs text-muted-foreground">
-                  {group.agents.length > 0 && `${group.agents.length} agent${group.agents.length !== 1 ? "s" : ""}`}
-                  {group.agents.length > 0 && group.humans.length > 0 && " · "}
-                  {group.humans.length > 0 && `${group.humans.length} staff`}
-                </span>
-              </div>
-              <p className="mb-4 text-sm text-muted-foreground">{totalInGroup} member{totalInGroup !== 1 ? "s" : ""}</p>
+    <div className="relative ml-4 pl-6">
+      {/* Vertical connector */}
+      <div
+        className={cn(
+          "absolute left-0 w-px bg-border",
+          isLast ? "top-0 h-8" : "top-0 bottom-0",
+        )}
+      />
+      {/* Horizontal branch to avatar */}
+      <div className="absolute left-0 top-8 h-px w-5 bg-border" />
 
-              {group.agents.length > 0 && (
-                <div className="mb-6">
-                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Autonomous Agents
-                  </p>
-                  <div className="space-y-4">
-                    {group.agents.map((m) => (
-                      <TeamMemberRow key={m.id} member={m} labelPool={labelPool} onUpdate={onUpdate} />
-                    ))}
-                  </div>
-                </div>
-              )}
+      <div
+        className={cn(
+          "flex items-center gap-0",
+          hasChildren && "cursor-pointer rounded-md transition-colors hover:bg-muted/50",
+        )}
+        onClick={hasChildren ? () => onToggle(member.id) : undefined}
+        role={hasChildren ? "button" : undefined}
+        aria-expanded={hasChildren ? isExpanded : undefined}
+        aria-label={hasChildren ? (isExpanded ? `Collapse ${member.name}` : `Expand ${member.name}`) : undefined}
+      >
+        {hasChildren && (
+          <div className="flex h-5 w-5 shrink-0 items-center justify-center text-muted-foreground">
+            {isExpanded ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+          </div>
+        )}
+        <div className={cn("flex-1 min-w-0", !hasChildren && "ml-5")}>
+          <MemberRowContent member={member} metric={metric} onMemberClick={onMemberClick} isAgentOff={isOff} />
+        </div>
+      </div>
 
-              {group.humans.length > 0 && (
-                <div>
-                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Staff
-                  </p>
-                  <div className="space-y-4">
-                    {group.humans.map((m) => (
-                      <TeamMemberRow key={m.id} member={m} labelPool={labelPool} onUpdate={onUpdate} />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        );
-      })}
+      {hasChildren && isExpanded &&
+        children.map((child, i) => (
+          <MemberNode
+            key={child.id}
+            member={child}
+            childrenOfMap={childrenOfMap}
+            memberMetrics={memberMetrics}
+            isLast={i === children.length - 1}
+            expandedNodes={expandedNodes}
+            onToggle={onToggle}
+            onMemberClick={onMemberClick}
+            offAgentNames={offAgentNames}
+          />
+        ))}
+
+      {hasChildren && !isExpanded && (
+        <button
+          type="button"
+          onClick={() => onToggle(member.id)}
+          className="ml-5 -mt-1 mb-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+        >
+          {children.length} direct report{children.length !== 1 ? "s" : ""}
+        </button>
+      )}
     </div>
   );
 }
 
-function TeamMemberRow({
-  member,
-  labelPool,
-  onUpdate,
-}: {
-  member: WorkforceMember;
-  labelPool: string[];
-  onUpdate: (id: string, updates: Partial<Omit<WorkforceMember, "id">>) => void;
-}) {
-  const isAgent = member.type === "agent";
-  const labels = member.labels ?? [];
-  const labelsNormalized = useMemo(() => new Set(labels.map(normalizeLabel)), [labels]);
-  const availableToAdd = labelPool.filter((t) => !labelsNormalized.has(normalizeLabel(t)));
+/* ──────────────────────────── Property Picker ────────────────────── */
 
-  const addLabel = (tag: string) => {
-    const t = tag.trim();
-    if (!t || labelsNormalized.has(normalizeLabel(t))) return;
-    const canonical = labelPool.find((l) => normalizeLabel(l) === normalizeLabel(t)) ?? t;
-    onUpdate(member.id, { labels: [...labels, canonical] });
+function PropertyPicker({
+  allProperties,
+  selected,
+  hasAllProperties,
+  onAdd,
+  onRemove,
+  onToggleAll,
+  newProperty,
+  onNewPropertyChange,
+}: {
+  allProperties: string[];
+  selected: string[];
+  hasAllProperties: boolean;
+  onAdd: (property: string) => void;
+  onRemove: (property: string) => void;
+  onToggleAll: () => void;
+  newProperty: string;
+  onNewPropertyChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <Plus className="h-3 w-3" /> Edit
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-56 p-1" align="end">
+        <button
+          type="button"
+          onClick={onToggleAll}
+          className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+        >
+          <div className={cn(
+            "flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
+            hasAllProperties
+              ? "border-primary bg-primary text-primary-foreground"
+              : "border-muted-foreground/30",
+          )}>
+            {hasAllProperties && <Check className="h-3 w-3" />}
+          </div>
+          All properties
+        </button>
+
+        {allProperties.length > 0 && <div className="my-1 h-px bg-border" />}
+
+        <div className="max-h-48 overflow-y-auto">
+          {allProperties.map((p) => {
+            const isSelected = hasAllProperties || selected.includes(p);
+            return (
+              <button
+                key={p}
+                type="button"
+                disabled={hasAllProperties}
+                onClick={() => isSelected ? onRemove(p) : onAdd(p)}
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent hover:text-accent-foreground",
+                  hasAllProperties && "opacity-50",
+                )}
+              >
+                <div className={cn(
+                  "flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
+                  isSelected
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-muted-foreground/30",
+                )}>
+                  {isSelected && <Check className="h-3 w-3" />}
+                </div>
+                {p}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mt-1 border-t border-border pt-1">
+          <div className="flex gap-1 px-1 pb-1">
+            <input
+              value={newProperty}
+              onChange={(e) => onNewPropertyChange(e.target.value)}
+              placeholder="Custom property..."
+              className="h-7 flex-1 rounded border border-input bg-background px-2 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && newProperty.trim()) {
+                  onAdd(newProperty);
+                  onNewPropertyChange("");
+                }
+              }}
+            />
+            <button
+              type="button"
+              disabled={!newProperty.trim()}
+              onClick={() => { onAdd(newProperty); onNewPropertyChange(""); }}
+              className="h-7 shrink-0 rounded bg-primary px-2 text-[11px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+            >
+              Add
+            </button>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/* ──────────────────────────── Member Detail Sheet ────────────────── */
+
+function MemberDetailSheet({
+  member,
+  open,
+  onOpenChange,
+  members,
+  allProperties,
+  allLabels,
+  childrenOfMap,
+  memberMetrics,
+  updateMember,
+  onMemberClick,
+}: {
+  member: WorkforceMember | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  members: WorkforceMember[];
+  allProperties: string[];
+  allLabels: string[];
+  childrenOfMap: Map<string, WorkforceMember[]>;
+  memberMetrics: Map<string, MemberMetric>;
+  updateMember: (id: string, updates: Partial<Omit<WorkforceMember, "id">>) => void;
+  onMemberClick: (id: string) => void;
+}) {
+  const [newLabel, setNewLabel] = useState("");
+  const [newProperty, setNewProperty] = useState("");
+  const [newSpecialty, setNewSpecialty] = useState("");
+
+  if (!member) return null;
+
+  const isAgent = member.type === "agent";
+  const initials = member.name.split(" ").map((w) => w[0]).join("").slice(0, 2);
+  const reportsTo = member.reportsTo ? members.find((m) => m.id === member.reportsTo) : null;
+  const directReports = childrenOfMap.get(member.id) ?? [];
+  const labels = member.labels ?? [];
+  const properties = member.properties ?? [];
+  const specialties = member.specialties ?? [];
+  const metric = memberMetrics.get(member.id);
+
+  const tierLabel: Record<string, string> = {
+    leadership: "Leadership",
+    management: "Manager",
+    coordinator: "Coordinator",
+    specialist: "Specialist",
   };
 
-  const removeLabel = (tag: string) => {
-    onUpdate(member.id, { labels: labels.filter((l) => l !== tag) });
+  const unusedLabels = allLabels.filter(
+    (l) => !labels.some((existing) => existing.toLowerCase() === l.toLowerCase()),
+  );
+
+  const hasAllProperties = properties.includes("All properties");
+
+  const addLabel = (label: string) => {
+    if (!label.trim() || labels.some((l) => l.toLowerCase() === label.trim().toLowerCase())) return;
+    updateMember(member.id, { labels: [...labels, label.trim()] });
+  };
+
+  const removeLabel = (label: string) => {
+    updateMember(member.id, { labels: labels.filter((l) => l !== label) });
+  };
+
+  const addProperty = (property: string) => {
+    if (!property.trim() || properties.includes(property.trim())) return;
+    updateMember(member.id, { properties: [...properties, property.trim()] });
+  };
+
+  const removeProperty = (property: string) => {
+    updateMember(member.id, { properties: properties.filter((p) => p !== property) });
+  };
+
+  const toggleAllProperties = () => {
+    if (hasAllProperties) {
+      updateMember(member.id, { properties: properties.filter((p) => p !== "All properties") });
+    } else {
+      updateMember(member.id, { properties: ["All properties"] });
+    }
+  };
+
+  const addSpecialty = (s: string) => {
+    if (!s.trim() || specialties.some((e) => e.toLowerCase() === s.trim().toLowerCase())) return;
+    updateMember(member.id, { specialties: [...specialties, s.trim()] });
+  };
+
+  const removeSpecialty = (s: string) => {
+    updateMember(member.id, { specialties: specialties.filter((e) => e !== s) });
   };
 
   return (
-    <div className="flex items-start gap-3">
-      <div className={cn(
-        "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold",
-        isAgent ? agentAvatarBg(member.agentLevel) : "bg-muted text-foreground"
-      )}>
-        {isAgent ? <AgentIcon level={member.agentLevel} /> : member.name.split(" ").map((n) => n[0]).join("")}
-      </div>
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="overflow-y-auto sm:max-w-md">
+        <SheetHeader className="pb-4">
+          <div className="flex items-center gap-3">
+            {isAgent ? (
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/eli-cube.svg" alt="" className="h-6 w-6" />
+              </div>
+            ) : (
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-muted text-base font-semibold text-foreground">
+                {initials}
+              </div>
+            )}
+            <div>
+              <SheetTitle className="flex items-center gap-2">
+                {member.name}
+                {isAgent && (
+                  <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-3 text-muted-foreground">
+                    {member.role}
+                  </span>
+                )}
+              </SheetTitle>
+              <SheetDescription>{member.role}</SheetDescription>
+            </div>
+          </div>
+        </SheetHeader>
 
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <p className="text-sm font-semibold text-foreground">{member.name}</p>
-          {isAgent && (
-            <span className="rounded bg-red-500 px-1.5 py-0.5 text-[9px] font-semibold leading-none text-white">AI</span>
+        <div className="space-y-6">
+          {/* ── Overview ── */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-lg border border-border p-3">
+              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Department</p>
+              <p className="mt-0.5 text-sm font-medium">{member.team}</p>
+            </div>
+            <div className="rounded-lg border border-border p-3">
+              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Role</p>
+              <p className="mt-0.5 text-sm font-medium">{member.tier ? tierLabel[member.tier] : (isAgent ? getAgentTypeLabel(member.role) : "Staff")}</p>
+            </div>
+            {metric && (
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{metric.label}</p>
+                <p className={cn("mt-0.5 text-sm font-semibold", metric.highlight && "text-green-600 dark:text-green-400")}>{metric.value}</p>
+              </div>
+            )}
+            {reportsTo && (
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Reports to</p>
+                <button
+                  type="button"
+                  onClick={() => onMemberClick(reportsTo.id)}
+                  className="mt-0.5 text-sm font-medium text-primary hover:underline"
+                >
+                  {reportsTo.name}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* ── Direct Reports ── */}
+          {directReports.length > 0 && (
+            <div>
+              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-2">
+                Direct reports ({directReports.length})
+              </p>
+              <div className="space-y-1">
+                {directReports.map((dr) => {
+                  const drIsAgent = dr.type === "agent";
+                  const drInitials = dr.name.split(" ").map((w) => w[0]).join("").slice(0, 2);
+                  return (
+                    <button
+                      key={dr.id}
+                      type="button"
+                      onClick={() => onMemberClick(dr.id)}
+                      className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left transition-colors hover:bg-muted"
+                    >
+                      {drIsAgent ? (
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src="/eli-cube.svg" alt="" className="h-3.5 w-3.5" />
+                        </div>
+                      ) : (
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold">
+                          {drInitials}
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-medium">{dr.name}</p>
+                        <p className="truncate text-[10px] text-muted-foreground">{dr.role}</p>
+                      </div>
+                      {drIsAgent && (
+                        <span className="inline-flex items-center rounded bg-muted px-1 py-0.5 text-[9px] font-medium leading-3 text-muted-foreground">
+                          {dr.role}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           )}
-        </div>
-        <p className="text-xs text-muted-foreground">{member.team}</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          <span className="font-medium text-foreground/70">Works on:</span> {member.jtbd}
-        </p>
 
-        {/* Routing labels — humans only for v1 */}
-        {!isAgent && (
-          <div className="mt-2">
-            <p className="mb-1.5 text-[10px] font-medium text-muted-foreground">Routing labels</p>
-            <div className="flex flex-wrap items-center gap-1.5">
+          {/* ── Properties ── */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
+                <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Properties</p>
+              </div>
+              <PropertyPicker
+                allProperties={allProperties}
+                selected={properties}
+                hasAllProperties={hasAllProperties}
+                onAdd={addProperty}
+                onRemove={removeProperty}
+                onToggleAll={toggleAllProperties}
+                newProperty={newProperty}
+                onNewPropertyChange={setNewProperty}
+              />
+            </div>
+            {properties.length === 0 ? (
+              <p className="text-xs text-muted-foreground italic">No properties assigned</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {properties.map((p) => (
+                  <span
+                    key={p}
+                    className="group inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2.5 py-1 text-xs"
+                  >
+                    <Building2 className="h-3 w-3 text-muted-foreground" />
+                    {p}
+                    <button
+                      type="button"
+                      onClick={() => removeProperty(p)}
+                      className="ml-0.5 rounded-full p-0.5 text-muted-foreground/50 transition-colors hover:bg-destructive/10 hover:text-destructive group-hover:text-muted-foreground"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ── Specialties ── */}
+          {!isAgent && (
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <Award className="h-3.5 w-3.5 text-muted-foreground" />
+                <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Specialties</p>
+              </div>
+              <p className="mb-2 text-[11px] text-muted-foreground">
+                Subject-matter expertise areas. Helps match the right person to escalations.
+              </p>
+              {specialties.length === 0 && (
+                <p className="text-xs text-muted-foreground italic">No specialties added</p>
+              )}
+              <div className="flex flex-wrap gap-1.5">
+                {specialties.map((s) => (
+                  <span
+                    key={s}
+                    className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700 dark:text-amber-400"
+                  >
+                    <Award className="h-3 w-3" />
+                    {s}
+                    <button
+                      type="button"
+                      onClick={() => removeSpecialty(s)}
+                      className="ml-0.5 rounded-full p-0.5 text-amber-600/60 hover:bg-amber-500/20 hover:text-amber-700 dark:text-amber-400/60 dark:hover:text-amber-400"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <div className="mt-2 flex gap-2">
+                <Input
+                  value={newSpecialty}
+                  onChange={(e) => setNewSpecialty(e.target.value)}
+                  placeholder="Add specialty..."
+                  className="h-8 text-xs"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && newSpecialty.trim()) {
+                      addSpecialty(newSpecialty);
+                      setNewSpecialty("");
+                    }
+                  }}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 shrink-0"
+                  onClick={() => { addSpecialty(newSpecialty); setNewSpecialty(""); }}
+                  disabled={!newSpecialty.trim()}
+                >
+                  <Plus className="mr-1 h-3 w-3" /> Add
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Routing Labels ── */}
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <Tag className="h-3.5 w-3.5 text-muted-foreground" />
+              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Routing labels</p>
+            </div>
+            <p className="mb-2 text-[11px] text-muted-foreground">
+              Escalations with matching labels get routed to this person. More label overlap = higher priority.
+            </p>
+            {labels.length === 0 && (
+              <p className="text-xs text-muted-foreground italic">No labels — this person won&apos;t receive label-routed work</p>
+            )}
+            <div className="flex flex-wrap gap-1.5">
               {labels.map((l) => (
                 <span
                   key={l}
-                  className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-0.5 text-xs font-medium"
+                  className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary"
                 >
+                  <Tag className="h-3 w-3" />
                   {l}
-                  <button type="button" onClick={() => removeLabel(l)} className="rounded hover:bg-muted" aria-label={`Remove ${l}`}>
+                  <button
+                    type="button"
+                    onClick={() => removeLabel(l)}
+                    className="ml-0.5 rounded-full p-0.5 text-primary/60 hover:bg-primary/20 hover:text-primary"
+                  >
                     <X className="h-3 w-3" />
                   </button>
                 </span>
               ))}
             </div>
-            <div className="mt-2 flex items-center gap-2">
-              <select
-                value=""
-                onChange={(e) => { if (e.target.value) addLabel(e.target.value); e.target.value = ""; }}
-                className="h-7 rounded border border-input bg-background px-2 text-xs"
-                aria-label="Add existing label"
-              >
-                <option value="">Add existing…</option>
-                {availableToAdd.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-              <input
-                type="text"
-                placeholder="New label"
-                className="h-7 w-24 rounded border border-input bg-background px-2 text-xs"
+            {unusedLabels.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {unusedLabels.map((l) => (
+                  <button
+                    key={l}
+                    type="button"
+                    onClick={() => addLabel(l)}
+                    className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+                  >
+                    <Plus className="h-3 w-3" /> {l}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="mt-2 flex gap-2">
+              <Input
+                value={newLabel}
+                onChange={(e) => setNewLabel(e.target.value)}
+                placeholder="Custom label..."
+                className="h-8 text-xs"
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    addLabel((e.target as HTMLInputElement).value);
-                    (e.target as HTMLInputElement).value = "";
+                  if (e.key === "Enter" && newLabel.trim()) {
+                    addLabel(newLabel);
+                    setNewLabel("");
                   }
                 }}
               />
-              <button
-                type="button"
-                onClick={(e) => {
-                  const input = (e.currentTarget.parentElement?.querySelector('input[type="text"]') as HTMLInputElement);
-                  if (input?.value) { addLabel(input.value); input.value = ""; }
-                }}
-                className="h-7 rounded border border-input bg-background px-3 text-xs font-medium hover:bg-muted"
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 shrink-0"
+                onClick={() => { addLabel(newLabel); setNewLabel(""); }}
+                disabled={!newLabel.trim()}
               >
                 Add
-              </button>
+              </Button>
             </div>
           </div>
-        )}
-      </div>
 
-      {/* Right side type label */}
-      <div className="shrink-0 text-right">
-        {isAgent ? (
-          <>
-            <p className="text-sm font-semibold text-green-600 dark:text-green-400">Active</p>
-            <p className="text-[10px] text-muted-foreground">autonomous</p>
-          </>
-        ) : (
-          <>
-            <p className="text-sm font-semibold text-foreground">Staff</p>
-            <p className="text-[10px] text-muted-foreground">{member.role}</p>
-          </>
-        )}
-      </div>
-    </div>
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 
-/* ═══════════════════════════════════════════════════════════
-   Site Staff — My Team
-   ═══════════════════════════════════════════════════════════ */
+/* ──────────────────────────── Org Table ──────────────────────────── */
 
-function SiteStaffMyTeam({
-  humans,
-  agents,
-  property,
+function OrgTable({
+  leaders,
+  teamSections,
+  childrenOfMap,
+  memberMetrics,
+  expandedNodes,
+  onToggle,
+  onMemberClick,
+  offAgentNames,
 }: {
-  humans: WorkforceMember[];
-  agents: WorkforceMember[];
-  property: string;
+  leaders: WorkforceMember[];
+  teamSections: { team: string; topLevel: WorkforceMember[] }[];
+  childrenOfMap: Map<string, WorkforceMember[]>;
+  memberMetrics: Map<string, MemberMetric>;
+  expandedNodes: Set<string>;
+  onToggle: (id: string) => void;
+  onMemberClick: (id: string) => void;
+  offAgentNames: Set<string>;
 }) {
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          Your team at <span className="font-medium text-foreground">{property}</span> — the people and AI agents you work alongside every day.
-        </p>
-        <Badge variant="outline" className="shrink-0">
-          {humans.length} people · {agents.length} AI
-        </Badge>
-      </div>
-
-      <div>
-        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
-          <Users className="h-4 w-4" /> Team Members
-        </h3>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {humans.map((m) => (
-            <Card key={m.id}>
-              <CardContent className="flex items-start gap-3 py-4">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold">
-                  {m.name.charAt(0)}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{m.name}</p>
-                  <p className="text-xs text-muted-foreground">{m.role}</p>
-                  <p className="mt-1 text-[11px] text-muted-foreground">{m.jtbd}</p>
-                  {m.properties && m.properties.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {m.properties.map((p) => (
-                        <Badge key={p} variant="secondary" className="text-[9px]">
-                          <Building2 className="mr-0.5 h-2.5 w-2.5" /> {p}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+    <Card>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="min-w-[260px]">Name</TableHead>
+            <TableHead className="min-w-[140px]">Role</TableHead>
+            <TableHead className="min-w-[100px]">Properties</TableHead>
+            <TableHead className="min-w-[120px]">Labels</TableHead>
+            <TableHead className="text-right min-w-[100px]">Metric</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {leaders.map((m) => (
+            <OrgTableRow
+              key={m.id}
+              member={m}
+              depth={0}
+              childrenOfMap={childrenOfMap}
+              memberMetrics={memberMetrics}
+              expandedNodes={expandedNodes}
+              onToggle={onToggle}
+              onMemberClick={onMemberClick}
+              offAgentNames={offAgentNames}
+            />
           ))}
-        </div>
-      </div>
-
-      <div>
-        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
-          <Bot className="h-4 w-4" /> AI Agents at Your Property
-        </h3>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {agents.map((m) => (
-            <Card key={m.id}>
-              <CardContent className="flex items-start gap-3 py-4">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                  <Bot className="h-5 w-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="truncate text-sm font-medium">{m.name}</p>
-                    <AgentTypeBadge role={m.role} />
-                  </div>
-                  <p className="text-xs text-muted-foreground">{m.team}</p>
-                  <p className="mt-1 text-[11px] text-muted-foreground">{m.jtbd}</p>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
-    </div>
+          {teamSections.map((section) =>
+            section.topLevel.map((m) => (
+              <OrgTableRow
+                key={m.id}
+                member={m}
+                depth={0}
+                childrenOfMap={childrenOfMap}
+                memberMetrics={memberMetrics}
+                expandedNodes={expandedNodes}
+                onToggle={onToggle}
+                onMemberClick={onMemberClick}
+                offAgentNames={offAgentNames}
+              />
+            )),
+          )}
+        </TableBody>
+      </Table>
+    </Card>
   );
 }
 
-/* ═══════════════════════════════════════════════════════════ */
+/* ──────────────────────────── Org Table Row ──────────────────────── */
 
-function AgentTypeBadge({ role }: { role: string }) {
-  if (role.includes("Insights")) {
-    return (
-      <Badge variant="outline" className="gap-1 text-[9px]">
-        <BrainCircuit className="h-2.5 w-2.5" /> Insights
-      </Badge>
-    );
-  }
-  if (role.includes("Automation") || role.includes("Operations")) {
-    return (
-      <Badge variant="outline" className="gap-1 text-[9px]">
-        <Cog className="h-2.5 w-2.5" /> Automation
-      </Badge>
-    );
-  }
+function OrgTableRow({
+  member,
+  depth,
+  childrenOfMap,
+  memberMetrics,
+  expandedNodes,
+  onToggle,
+  onMemberClick,
+  offAgentNames,
+}: {
+  member: WorkforceMember;
+  depth: number;
+  childrenOfMap: Map<string, WorkforceMember[]>;
+  memberMetrics: Map<string, MemberMetric>;
+  expandedNodes: Set<string>;
+  onToggle: (id: string) => void;
+  onMemberClick: (id: string) => void;
+  offAgentNames: Set<string>;
+}) {
+  const children = childrenOfMap.get(member.id) ?? [];
+  const metric = memberMetrics.get(member.id);
+  const hasChildren = children.length > 0;
+  const isExpanded = expandedNodes.has(member.id);
+  const isAgent = member.type === "agent";
+  const isOff = isAgent && offAgentNames.has(member.name);
+  const initials = member.name.split(" ").map((w) => w[0]).join("").slice(0, 2);
+  const labels = member.labels ?? [];
+  const properties = member.properties ?? [];
+
+  const hasAllProps = properties.length >= 3;
+  const propsDisplay = hasAllProps ? "All properties" : properties.join(", ");
+
   return (
-    <Badge variant="outline" className="gap-1 text-[9px]">
-      <Zap className="h-2.5 w-2.5" /> Autonomous
-    </Badge>
+    <>
+      <TableRow
+        className={cn(
+          hasChildren && "cursor-pointer",
+          isAgent && depth > 0 && "bg-muted/20",
+          isOff && "opacity-40",
+        )}
+        onClick={hasChildren ? () => onToggle(member.id) : undefined}
+      >
+        {/* Name */}
+        <TableCell className="py-2.5">
+          <div className="flex items-center gap-2" style={{ paddingLeft: `${depth * 20}px` }}>
+            {hasChildren ? (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onToggle(member.id); }}
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              </button>
+            ) : (
+              <span className="w-5 shrink-0" />
+            )}
+            <div
+              className="shrink-0 cursor-pointer"
+              onClick={(e) => { e.stopPropagation(); onMemberClick(member.id); }}
+            >
+              {isAgent ? (
+                <div className={cn("flex h-7 w-7 items-center justify-center rounded-full transition-shadow hover:ring-2 hover:ring-primary/30", isOff ? "bg-muted" : "bg-primary/10")}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/eli-cube.svg" alt="" className={cn("h-3.5 w-3.5", isOff && "grayscale")} />
+                </div>
+              ) : (
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-[10px] font-semibold transition-shadow hover:ring-2 hover:ring-primary/30">
+                  {initials}
+                </div>
+              )}
+            </div>
+            <div className="min-w-0">
+              <span
+                className="cursor-pointer whitespace-nowrap text-sm font-medium hover:underline"
+                onClick={(e) => { e.stopPropagation(); onMemberClick(member.id); }}
+              >
+                {member.name}
+              </span>
+              {isAgent && (
+                <span className={cn("ml-1.5 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium leading-3", isOff ? "bg-muted text-muted-foreground" : "bg-[#B3FFCC] text-black")}>
+                  {isOff ? "Off" : "Active"}
+                </span>
+              )}
+              {hasChildren && !isExpanded && (
+                <span className="ml-1.5 text-[10px] text-muted-foreground">+{children.length}</span>
+              )}
+            </div>
+          </div>
+        </TableCell>
+
+        {/* Role */}
+        <TableCell className="py-2.5">
+          <span className="whitespace-nowrap text-xs text-muted-foreground">{member.role}</span>
+        </TableCell>
+
+        {/* Properties */}
+        <TableCell className="py-2.5">
+          <span className="whitespace-nowrap text-xs text-muted-foreground">
+            {propsDisplay || "\u2014"}
+          </span>
+        </TableCell>
+
+        {/* Labels */}
+        <TableCell className="py-2.5">
+          <div className="flex flex-wrap gap-1">
+            {labels.map((l) => (
+              <span key={l} className="inline-block whitespace-nowrap rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                {l}
+              </span>
+            ))}
+          </div>
+        </TableCell>
+
+        {/* Metric */}
+        <TableCell className="py-2.5 text-right">
+          {isOff ? (
+            <span className="text-xs text-amber-600">Not enabled</span>
+          ) : metric ? (
+            <span className="whitespace-nowrap">
+              <span className={cn("text-sm font-semibold", metric.highlight && "text-green-600 dark:text-green-400")}>
+                {metric.value}
+              </span>
+              <span className="ml-1 text-[10px] text-muted-foreground">{metric.label}</span>
+            </span>
+          ) : null}
+        </TableCell>
+      </TableRow>
+      {hasChildren && isExpanded &&
+        children.map((child) => (
+          <OrgTableRow
+            key={child.id}
+            member={child}
+            depth={depth + 1}
+            childrenOfMap={childrenOfMap}
+            memberMetrics={memberMetrics}
+            expandedNodes={expandedNodes}
+            onToggle={onToggle}
+            onMemberClick={onMemberClick}
+            offAgentNames={offAgentNames}
+          />
+        ))}
+    </>
   );
 }

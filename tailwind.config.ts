@@ -11,6 +11,7 @@ const config: Config = {
   	extend: {
   		fontFamily: {
   			heading: [
+  				'Nohemi',
   				'Plus Jakarta Sans',
   				'ui-sans-serif',
   				'system-ui',

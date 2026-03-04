@@ -4,25 +4,24 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
-import { useSetup } from "@/lib/setup-context";
 import { useRole } from "@/lib/role-context";
-import { useContract } from "@/lib/contract-context";
 import { useNavBadges, type NavBadge } from "@/lib/use-nav-badges";
 import {
   Rocket,
   LayoutDashboard,
   AlertCircle,
   BarChart3,
-  Users,
+  Codepen,
   UserCog,
   GitBranch,
   BookOpen,
   Mic,
   Wrench,
   Shield,
+  Sparkles,
 } from "lucide-react";
 
-const activationItem = { href: "/getting-started", label: "Agent Activation", icon: Rocket };
+const activationItem = { href: "/getting-started", label: "AI & Agent Activation", icon: Rocket };
 
 const navGroups = [
   {
@@ -30,13 +29,14 @@ const navGroups = [
     items: [
       { href: "/command-center", label: "Command Center", icon: LayoutDashboard },
       { href: "/escalations", label: "Escalations", icon: AlertCircle },
+      { href: "/entrata-experts", label: "Entrata Experts", icon: Sparkles },
     ],
   },
   {
     label: "My Workforce",
     items: [
       { href: "/performance", label: "Performance", icon: BarChart3 },
-      { href: "/agent-roster", label: "Agent Roster", icon: Users },
+      { href: "/agent-roster", label: "Agent Roster", icon: Codepen },
       { href: "/workforce", label: "Workforce", icon: UserCog },
     ],
   },
@@ -45,7 +45,7 @@ const navGroups = [
     items: [
       activationItem,
       { href: "/workflows", label: "Workflows", icon: GitBranch },
-      { href: "/trainings-sop", label: "Training and SOPs", icon: BookOpen },
+      { href: "/trainings-sop", label: "Trainings & SOP", icon: BookOpen },
       { href: "/voice", label: "Voice & Brand", icon: Mic },
       // { href: "/tools", label: "Tools", icon: Wrench },
       { href: "/governance", label: "Governance", icon: Shield },
@@ -84,21 +84,16 @@ function ActivationProgress({ completed, total }: { completed: number; total: nu
   );
 }
 
-const UNGATED_ROUTES = new Set(["/agent-roster"]);
-
 export function Sidebar() {
   const pathname = usePathname();
-  const { goLiveComplete } = useSetup();
   const { isRouteAllowed } = useRole();
   const { badges, activation } = useNavBadges();
-  const { contracted } = useContract();
 
   const navGroupsWithVisibility = navGroups
     .map((group) => ({
       ...group,
       items: group.items
-        .filter((item) => isRouteAllowed(item.href))
-        .filter((item) => goLiveComplete ? item.href !== "/getting-started" : true),
+        .filter((item) => isRouteAllowed(item.href)),
     }))
     .filter((group) => group.items.length > 0);
 
@@ -107,22 +102,10 @@ export function Sidebar() {
       className="flex h-full w-64 flex-col border-r border-[hsl(var(--sidebar-border))] bg-[hsl(var(--sidebar))]"
       style={{ minWidth: "16rem" }}
     >
-      <div className="flex items-center gap-3 px-4 py-5">
-        <Image
-          src="/entrata-cube.svg"
-          alt="Entrata"
-          width={36}
-          height={36}
-          className="shrink-0"
-        />
-        <div className="flex flex-col">
-          <span className="text-lg font-bold leading-tight tracking-wide text-[hsl(var(--foreground))]">
-            entrata
-          </span>
-          <span className="text-[9px] font-semibold uppercase tracking-[0.2em] text-[#CC0000]">
-            OXP Studio
-          </span>
-        </div>
+      <div className="flex h-14 items-center gap-3 px-4">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/eli-cube.svg" alt="" width={28} height={28} className="shrink-0" />
+        <span className="text-base tracking-tight text-foreground"><span className="font-bold">OXP</span> <span className="font-light">Studio</span></span>
       </div>
       <nav className="flex-1 space-y-6 overflow-y-auto px-2 py-4">
         {navGroupsWithVisibility.map((group) => (
@@ -136,7 +119,6 @@ export function Sidebar() {
                 const Icon = item.icon;
                 const badge = badges[item.href];
                 const isActivation = item.href === "/getting-started";
-                const isUngated = !contracted && UNGATED_ROUTES.has(item.href);
                 return (
                   <li key={item.href}>
                     <Link
@@ -144,25 +126,16 @@ export function Sidebar() {
                       className={cn(
                         "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
                         isActive
-                          ? isUngated
-                            ? "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200"
-                            : "bg-[hsl(var(--muted))] text-[hsl(var(--foreground))]"
-                          : isUngated
-                            ? "bg-amber-50 text-amber-800 hover:bg-amber-100 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-900/40"
-                            : "text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]/80 hover:text-[hsl(var(--foreground))]"
+                          ? "bg-[hsl(var(--muted))] text-[hsl(var(--foreground))]"
+                          : "text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]/80 hover:text-[hsl(var(--foreground))]"
                       )}
                     >
-                      <Icon className={cn("h-4 w-4 shrink-0 stroke-[1.5]", isUngated && "text-amber-600 dark:text-amber-400")} />
+                      <Icon className="h-4 w-4 shrink-0 stroke-[1.5]" />
                       {item.label}
-                      {isUngated && (
-                        <span className="ml-auto rounded-full bg-amber-200 px-1.5 py-0.5 text-[9px] font-bold leading-none text-amber-800 dark:bg-amber-800 dark:text-amber-200">
-                          ACTIVE
-                        </span>
-                      )}
-                      {!isUngated && isActivation && !activation.done && (
+                      {isActivation && !activation.done && (
                         <ActivationProgress completed={activation.completed} total={activation.total} />
                       )}
-                      {contracted && !isActivation && badge && <NavBadgeChip badge={badge} />}
+                      {!isActivation && badge && <NavBadgeChip badge={badge} />}
                     </Link>
                   </li>
                 );

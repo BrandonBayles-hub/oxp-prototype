@@ -13,13 +13,30 @@
  */
 
 import * as React from "react";
-import { Paperclip, ArrowUp } from "lucide-react";
+import { Paperclip, ArrowUp, FileText, Wrench, ChevronDown, ChevronRight, Clock, Cpu, ThumbsUp, ThumbsDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+export type ChatSource = {
+  title: string;
+  snippet: string;
+  docId?: string;
+};
+
+export type ChatToolCall = {
+  name: string;
+  status: "success" | "error";
+  detail?: string;
+};
 
 export type ChatMessage = {
   id?: string;
   role: string;
   text: string;
+  sources?: ChatSource[];
+  toolCalls?: ChatToolCall[];
+  tokensUsed?: number;
+  latencyMs?: number;
+  feedback?: "positive" | "negative";
 };
 
 type ChatProps = {
@@ -40,6 +57,13 @@ type ChatProps = {
   injectDraft?: string;
   /** Called after injectDraft has been applied to the input, so the caller can clear injectDraft. */
   onInjectApplied?: () => void;
+  /** Called when user clicks thumbs up/down on a message. Only shown for roles listed in feedbackRoles. */
+  onFeedback?: (messageIndex: number, rating: "positive" | "negative") => void;
+  /** Roles that should show feedback buttons (default: ["assistant"]) */
+  feedbackRoles?: string[];
+  /** Quick-reply suggestions shown as chips above the input. Clicking one fills the draft (or calls onSuggestionClick if provided). */
+  suggestions?: string[];
+  onSuggestionClick?: (text: string) => void;
 };
 
 const defaultRoleLabels: Record<string, string> = {
@@ -62,6 +86,10 @@ export function Chat({
   showAttach = true,
   injectDraft,
   onInjectApplied,
+  onFeedback,
+  feedbackRoles = ["assistant"],
+  suggestions,
+  onSuggestionClick,
 }: ChatProps) {
   const [draft, setDraft] = React.useState("");
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -90,17 +118,18 @@ export function Chat({
   const variant = (role: string) => roleVariant?.[role] ?? "inbound";
 
   return (
-    <div className={cn("flex flex-col rounded-lg border border-border bg-card overflow-hidden", className)}>
+    <div className={cn("flex flex-col rounded-lg border border-border bg-muted overflow-hidden", className)}>
       <div
         ref={scrollRef}
-        className="scrollbar-hide overflow-y-auto bg-muted px-3 py-3"
-        style={{ maxHeight: typeof messageListHeight === "number" ? `${messageListHeight}px` : messageListHeight }}
+        className={cn("scrollbar-hide overflow-y-auto bg-muted px-3 py-3", !messageListHeight && "flex-1 min-h-0")}
+        style={messageListHeight ? { maxHeight: typeof messageListHeight === "number" ? `${messageListHeight}px` : messageListHeight } : undefined}
       >
         <div className="space-y-3">
           {messages.map((msg, idx) => {
             const v = variant(msg.role);
             const isOutbound = v === "outbound";
             const isSystem = v === "system";
+            const hasMeta = msg.toolCalls?.length || msg.sources?.length || msg.tokensUsed || msg.latencyMs;
             return (
               <div
                 key={msg.id ?? idx}
@@ -127,14 +156,99 @@ export function Chat({
                 >
                   {msg.text}
                 </div>
+                {(hasMeta || (onFeedback && feedbackRoles.includes(msg.role))) && (
+                  <div className="mt-1 flex flex-col gap-1.5 max-w-full">
+                    {msg.toolCalls && msg.toolCalls.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {msg.toolCalls.map((tc, ti) => (
+                          <span
+                            key={ti}
+                            className={cn(
+                              "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium",
+                              tc.status === "success" ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "bg-red-500/10 text-red-700 dark:text-red-400"
+                            )}
+                            title={tc.detail}
+                          >
+                            <Wrench className="h-2.5 w-2.5" />
+                            {tc.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {msg.sources && msg.sources.length > 0 && (
+                      <SourcesList sources={msg.sources} />
+                    )}
+                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                      {msg.latencyMs != null && (
+                        <span className="inline-flex items-center gap-0.5">
+                          <Clock className="h-2.5 w-2.5" />
+                          {msg.latencyMs}ms
+                        </span>
+                      )}
+                      {msg.tokensUsed != null && (
+                        <span className="inline-flex items-center gap-0.5">
+                          <Cpu className="h-2.5 w-2.5" />
+                          {msg.tokensUsed} tokens
+                        </span>
+                      )}
+                      {onFeedback && feedbackRoles.includes(msg.role) && (
+                        <span className="inline-flex items-center gap-0.5 ml-auto">
+                          <button
+                            type="button"
+                            className={cn(
+                              "rounded p-0.5 transition-colors",
+                              msg.feedback === "positive" ? "text-emerald-600 bg-emerald-500/10" : "hover:text-foreground"
+                            )}
+                            onClick={() => onFeedback(idx, "positive")}
+                            aria-label="Helpful"
+                          >
+                            <ThumbsUp className="h-3 w-3" />
+                          </button>
+                          <button
+                            type="button"
+                            className={cn(
+                              "rounded p-0.5 transition-colors",
+                              msg.feedback === "negative" ? "text-red-600 bg-red-500/10" : "hover:text-foreground"
+                            )}
+                            onClick={() => onFeedback(idx, "negative")}
+                            aria-label="Not helpful"
+                          >
+                            <ThumbsDown className="h-3 w-3" />
+                          </button>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
       </div>
+      {suggestions && suggestions.length > 0 && (
+        <div className="mt-auto flex flex-col gap-1.5 bg-muted px-3 pt-3">
+          <p className="text-[10px] font-semibold tracking-wider text-muted-foreground">SUGGESTED REPLIES</p>
+          {suggestions.map((text) => (
+            <button
+              key={text}
+              type="button"
+              onClick={() => {
+                if (onSuggestionClick) {
+                  onSuggestionClick(text);
+                } else {
+                  setDraft(text);
+                }
+              }}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 line-clamp-2"
+            >
+              {text}
+            </button>
+          ))}
+        </div>
+      )}
       <form
         onSubmit={handleSubmit}
-        className="bg-muted p-3"
+        className={cn("bg-muted p-3", !(suggestions && suggestions.length > 0) && "mt-auto")}
       >
         <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-2 shadow-sm transition-shadow focus-within:border-primary/40 focus-within:shadow-md">
           {showAttach && (
@@ -172,6 +286,33 @@ export function Chat({
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function SourcesList({ sources }: { sources: ChatSource[] }) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <div className="rounded-md border border-border bg-background/50">
+      <button
+        type="button"
+        className="flex w-full items-center gap-1 px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <FileText className="h-2.5 w-2.5" />
+        {sources.length} source{sources.length !== 1 ? "s" : ""} cited
+        {open ? <ChevronDown className="ml-auto h-2.5 w-2.5" /> : <ChevronRight className="ml-auto h-2.5 w-2.5" />}
+      </button>
+      {open && (
+        <div className="border-t border-border px-2 py-1.5 space-y-1.5">
+          {sources.map((s, i) => (
+            <div key={i} className="text-[10px]">
+              <p className="font-medium text-foreground">{s.title}</p>
+              <p className="text-muted-foreground leading-relaxed">{s.snippet}</p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
