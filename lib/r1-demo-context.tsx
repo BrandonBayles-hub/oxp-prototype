@@ -13,7 +13,7 @@ type R1DemoContextValue = {
 const R1DemoContext = createContext<R1DemoContextValue | null>(null);
 
 export function R1DemoProvider({ children }: { children: React.ReactNode }) {
-  const [isR1Preview, setIsR1Preview] = useState(true);
+  const [isR1Preview, setIsR1Preview] = useState(false);
 
   useEffect(() => {
     try {
