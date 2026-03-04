@@ -5,9 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
-import { useSetup } from "@/lib/setup-context";
 import { useRole } from "@/lib/role-context";
-import { useContract } from "@/lib/contract-context";
 import { useNavBadges, type NavBadge } from "@/lib/use-nav-badges";
 import {
   Rocket,
@@ -23,7 +21,7 @@ import {
   Shield,
 } from "lucide-react";
 
-const activationItem = { href: "/getting-started", label: "Agent Activation", icon: Rocket };
+const activationItem = { href: "/getting-started", label: "AI & Agent Activation", icon: Rocket };
 
 const navGroups = [
   {
@@ -46,7 +44,7 @@ const navGroups = [
     items: [
       activationItem,
       { href: "/workflows", label: "Workflows", icon: GitBranch },
-      { href: "/trainings-sop", label: "Training and SOPs", icon: BookOpen },
+      { href: "/trainings-sop", label: "Trainings & SOP", icon: BookOpen },
       { href: "/voice", label: "Voice & Brand", icon: Mic },
       // { href: "/tools", label: "Tools", icon: Wrench },
       { href: "/governance", label: "Governance", icon: Shield },
@@ -88,18 +86,14 @@ function ActivationProgress({ completed, total }: { completed: number; total: nu
 export function MobileNav() {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
-  const { goLiveComplete } = useSetup();
   const { isRouteAllowed } = useRole();
   const { badges, activation } = useNavBadges();
-  const { contracted } = useContract();
-  const UNGATED_ROUTES = new Set(["/agent-roster"]);
 
   const navGroupsWithVisibility = navGroups
     .map((group) => ({
       ...group,
       items: group.items
-        .filter((item) => isRouteAllowed(item.href))
-        .filter((item) => goLiveComplete ? item.href !== "/getting-started" : true),
+        .filter((item) => isRouteAllowed(item.href)),
     }))
     .filter((group) => group.items.length > 0);
 
@@ -124,16 +118,9 @@ export function MobileNav() {
           />
           <aside className="fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] border-r border-[hsl(var(--border))] bg-[hsl(var(--sidebar))] shadow-xl lg:hidden">
             <div className="flex h-14 items-center justify-between border-b border-[hsl(var(--sidebar-border))] px-4">
-              <div className="flex items-center gap-3">
-                <Image src="/entrata-cube.svg" alt="Entrata" width={36} height={36} />
-                <div className="flex flex-col">
-                  <span className="text-lg font-bold leading-tight tracking-wide text-[hsl(var(--foreground))]">
-                    entrata
-                  </span>
-                  <span className="text-[9px] font-semibold uppercase tracking-[0.2em] text-[#CC0000]">
-                    OXP Studio
-                  </span>
-                </div>
+              <div className="flex items-center gap-2">
+                <Image src="/entrata-cube.svg" alt="Entrata" width={40} height={40} />
+                <span className="text-sm font-medium text-[hsl(var(--foreground))]">entrata</span>
               </div>
               <button
                 type="button"
@@ -157,7 +144,6 @@ export function MobileNav() {
                       const Icon = item.icon;
                       const badge = badges[item.href];
                       const isActivation = item.href === "/getting-started";
-                      const isUngated = !contracted && UNGATED_ROUTES.has(item.href);
                       return (
                         <li key={item.href}>
                           <Link
@@ -166,25 +152,16 @@ export function MobileNav() {
                             className={cn(
                               "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
                               pathname === item.href
-                                ? isUngated
-                                  ? "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200"
-                                  : "bg-[hsl(var(--muted))] text-[hsl(var(--foreground))]"
-                                : isUngated
-                                  ? "bg-amber-50 text-amber-800 hover:bg-amber-100 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-900/40"
-                                  : "text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]/80 hover:text-[hsl(var(--foreground))]"
+                                ? "bg-[hsl(var(--muted))] text-[hsl(var(--foreground))]"
+                                : "text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]/80 hover:text-[hsl(var(--foreground))]"
                             )}
                           >
-                            <Icon className={cn("h-4 w-4 shrink-0 stroke-[1.5]", isUngated && "text-amber-600 dark:text-amber-400")} />
+                            <Icon className="h-4 w-4 shrink-0 stroke-[1.5]" />
                             {item.label}
-                            {isUngated && (
-                              <span className="ml-auto rounded-full bg-amber-200 px-1.5 py-0.5 text-[9px] font-bold leading-none text-amber-800 dark:bg-amber-800 dark:text-amber-200">
-                                ACTIVE
-                              </span>
-                            )}
-                            {!isUngated && isActivation && !activation.done && (
+                            {isActivation && !activation.done && (
                               <ActivationProgress completed={activation.completed} total={activation.total} />
                             )}
-                            {contracted && !isActivation && badge && <NavBadgeChip badge={badge} />}
+                            {!isActivation && badge && <NavBadgeChip badge={badge} />}
                           </Link>
                         </li>
                       );

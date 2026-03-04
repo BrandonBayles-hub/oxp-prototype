@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 export type VaultDocumentType = "sop" | "lease" | "policy" | "other";
-export type ApprovalStatus = "draft" | "review" | "approved" | "needs_review";
+export type ApprovalStatus = "review" | "approved" | "needs_review";
 
 export type VaultSource = "upload" | "entrata" | "workflow";
 
@@ -85,6 +85,9 @@ export const COMPLIANCE_ITEMS = [
   "Eviction procedures",
   "Reasonable accommodation process",
 ];
+
+export const SUGGESTED_PROPERTY_TAGS = ["Portfolio", "Property A", "Property B", "Property C"];
+export const SUGGESTED_SUBJECT_TAGS = ["Leasing", "Maintenance", "Compliance", "Payments", "Policy", "Resident relations", "Operations"];
 
 const STORAGE_KEY = "janet-poc-vault";
 
@@ -178,12 +181,48 @@ packet as Inactive
 ○ DO NOT delete any templates - if all properties associated to a template are terminated,
 disable the template`;
 
+const REFUND_POLICY_BODY = `REFUND POLICY — Standard Operating Procedure
+
+1. SCOPE
+This policy applies to all refund requests received from current and former residents across all managed properties.
+
+2. ELIGIBILITY
+Refunds may be issued for:
+  • Security deposit returns (per state-specific timelines)
+  • Overpayment of rent or fees
+  • Duplicate payment corrections
+  • Cancelled amenity or service fees (if within 48-hour window)
+  • Move-in fee adjustments when unit condition differs from showing
+
+3. APPROVAL THRESHOLDS
+  • Up to $250 — Site-level manager may approve
+  • $250–$500 — Regional manager approval required
+  • Over $500 — VP of Operations approval required; AI agent must escalate
+
+4. PROCESSING TIMELINE
+  • Standard refunds: processed within 5 business days of approval
+  • Security deposits: per applicable state law (default 30 days if not specified)
+  • Emergency / hardship refunds: processed within 2 business days
+
+5. DOCUMENTATION REQUIREMENTS
+All refunds must include:
+  • Original payment reference or receipt
+  • Written refund request from resident (email acceptable)
+  • Manager approval notation in system
+  • Reason code selected in Entrata
+
+6. AI AGENT GUIDELINES
+  • Agents may acknowledge refund requests and set expectations on timeline
+  • Agents must NOT commit to specific refund amounts without manager approval
+  • Refund requests over $500 must be escalated immediately
+  • Agent should reference this policy when explaining the process to residents`;
+
 const INITIAL_DOCS: VaultItem[] = [
   { id: "1", fileName: "Leasing SOP", documentType: "sop", property: "Portfolio", approvalStatus: "approved", trainedOn: "Yes", modified: "Feb 18, 2025", owner: "Admin", type: "file", version: "2.1", source: "upload", effectiveDate: "2025-02-01", body: LEASING_SOP_BODY },
   { id: "2", fileName: "Maintenance escalation", documentType: "sop", property: "Portfolio", approvalStatus: "approved", trainedOn: "Yes", modified: "Feb 15, 2025", owner: "Admin", type: "file", version: "1.0", source: "upload" },
   { id: "3", fileName: "Fair housing policy", documentType: "policy", property: "Portfolio", approvalStatus: "approved", trainedOn: "Yes", modified: "Feb 10, 2025", owner: "Admin", type: "file", source: "upload", tags: ["compliance"] },
-  { id: "4", fileName: "Lease template", documentType: "lease", property: "Property A", approvalStatus: "draft", trainedOn: "No", modified: "Feb 5, 2025", owner: "Admin", type: "file", source: "upload" },
-  { id: "5", fileName: "Refund policy", documentType: "sop", property: "Portfolio", approvalStatus: "review", trainedOn: "No", modified: "Feb 20, 2025", owner: "Admin", type: "file", version: "1.0", source: "upload" },
+  { id: "4", fileName: "Lease template", documentType: "lease", property: "Property A", approvalStatus: "review", trainedOn: "No", modified: "Feb 5, 2025", owner: "Admin", type: "file", source: "upload" },
+  { id: "5", fileName: "Refund policy", documentType: "sop", property: "Portfolio", approvalStatus: "review", trainedOn: "No", modified: "Feb 20, 2025", owner: "Admin", type: "file", version: "1.0", source: "upload", body: REFUND_POLICY_BODY },
 ];
 
 /** Maps compliance subject (e.g. "Fair housing policy") to the document ID used to train on that subject */
@@ -200,7 +239,7 @@ export type WorkforceAck = {
 type VaultContextValue = {
   documents: VaultItem[];
   setDocuments: React.Dispatch<React.SetStateAction<VaultItem[]>>;
-  addDocument: (item: Omit<VaultItem, "id" | "modified">) => void;
+  addDocument: (item: Omit<VaultItem, "id" | "modified">) => string;
   updateDocument: (id: string, updates: Partial<Pick<VaultItem, "fileName" | "documentType" | "property" | "approvalStatus" | "version" | "effectiveDate" | "modified" | "body" | "tags" | "linkedAgentIds" | "history" | "properties" | "nextReviewDate" | "folderId" | "isTemplate" | "versions" | "trainingRecords">>) => void;
   addFolder: (fileName: string) => void;
   moveToFolder: (docId: string, folderId: string | null) => void;
@@ -220,6 +259,8 @@ type VaultContextValue = {
   approveDocument: (id: string, approvedBy: string, note?: string) => void;
   /** Mark an agent as trained on a document at current version */
   markAgentTrained: (docId: string, agentId: string) => void;
+  /** Delete a document or folder by id */
+  deleteDocument: (id: string) => void;
 };
 
 const VaultContext = createContext<VaultContextValue | null>(null);
@@ -258,9 +299,13 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         const compliance = parsed.compliance;
         const subjectDocIds = parsed.complianceSubjectDocumentIds;
         if (Array.isArray(docs)) {
-          const migrated = docs.map((d: VaultItem) =>
-            d.id === "1" && !d.body ? { ...d, body: LEASING_SOP_BODY } : d
-          );
+          const migrated = docs.map((d: VaultItem) => {
+            let doc = d;
+            if (doc.id === "1" && !doc.body) doc = { ...doc, body: LEASING_SOP_BODY };
+            if (doc.id === "5" && !doc.body) doc = { ...doc, body: REFUND_POLICY_BODY };
+            if ((doc.approvalStatus as string) === "draft" && doc.type === "file") doc = { ...doc, approvalStatus: "review" };
+            return doc;
+          });
           setDocuments(migrated);
         }
         if (compliance && typeof compliance === "object") setComplianceCheckedState((p) => ({ ...p, ...compliance }));
@@ -342,7 +387,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     setComplianceCheckedState((prev) => updater(prev));
   }, []);
 
-  const addDocument = useCallback((item: Omit<VaultItem, "id" | "modified">) => {
+  const addDocument = useCallback((item: Omit<VaultItem, "id" | "modified">): string => {
     const date = nowDateStr();
     const newId = String(Date.now());
     setDocuments((prev) => [
@@ -356,6 +401,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       },
     ]);
     addActivity({ action: "Document added", by: item.owner || "Admin", documentId: newId, documentName: item.fileName });
+    return newId;
   }, [addActivity]);
 
   const updateDocument = useCallback((id: string, updates: Partial<Pick<VaultItem, "fileName" | "documentType" | "property" | "approvalStatus" | "version" | "effectiveDate" | "modified" | "body" | "tags" | "linkedAgentIds" | "history" | "properties" | "nextReviewDate" | "folderId" | "isTemplate" | "versions" | "trainingRecords">>) => {
@@ -441,7 +487,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         fileName,
         documentType: "other",
         property: "—",
-        approvalStatus: "draft",
+        approvalStatus: "approved",
         trainedOn: "—",
         modified: date,
         owner: "Admin",
@@ -454,6 +500,19 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     setDocuments((prev) =>
       prev.map((d) => (d.id === docId ? { ...d, folderId: folderId ?? undefined } : d))
     );
+  }, []);
+
+  const deleteDocument = useCallback((id: string) => {
+    setDocuments((prev) => {
+      const target = prev.find((d) => d.id === id);
+      if (!target) return prev;
+      if (target.type === "folder") {
+        return prev.filter((d) => d.id !== id).map((d) =>
+          d.folderId === id ? { ...d, folderId: undefined } : d
+        );
+      }
+      return prev.filter((d) => d.id !== id);
+    });
   }, []);
 
   const addWorkforceAck = useCallback((ack: Omit<WorkforceAck, "acknowledgedAt">) => {
@@ -491,6 +550,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         removeWorkforceAck,
         approveDocument,
         markAgentTrained,
+        deleteDocument,
       }}
     >
       {children}

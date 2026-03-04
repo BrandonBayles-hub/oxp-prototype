@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 
-const STORAGE_KEY = "janet-poc-voice";
+const STORAGE_KEY = "janet-poc-voice-v2";
 
 export type PhrasingRule = {
   id: string;
@@ -12,10 +12,24 @@ export type PhrasingRule = {
   replacement?: string;
 };
 
+export type VerticalOverride = {
+  vertical: string;
+  enabled: boolean;
+  persona?: string;
+  brandingTone?: string;
+  toneFormality?: number;
+  toneWarmth?: number;
+  toneUrgency?: number;
+};
+
 export type PropertyOverride = {
   property: string;
+  vertical?: string;
   brandingTone?: string;
   persona?: string;
+  toneFormality?: number;
+  toneWarmth?: number;
+  toneUrgency?: number;
   channels?: { voice: boolean; chat: boolean; sms: boolean; portal: boolean };
   phrasingRules?: PhrasingRule[];
 };
@@ -40,9 +54,13 @@ export type VoiceState = {
   doExamples: string[];
   dontExamples: string[];
   channels: { voice: boolean; chat: boolean; sms: boolean; portal: boolean };
+  /** @deprecated Use channelAgentId — kept for display compatibility */
   channelAgent: Record<string, string>;
+  /** Source of truth: maps channel key to agent ID */
+  channelAgentId: Record<string, string>;
   channelSettings: Record<string, { greeting?: string; signoff?: string }>;
   phrasingRules: PhrasingRule[];
+  verticalOverrides: VerticalOverride[];
   propertyOverrides: PropertyOverride[];
   agentTuning: AgentVoiceTuning[];
 };
@@ -66,6 +84,7 @@ const DEFAULT_STATE: VoiceState = {
   ],
   channels: { voice: true, chat: true, sms: false, portal: true },
   channelAgent: { voice: "Leasing AI", chat: "Leasing AI", sms: "Leasing AI", portal: "Leasing AI" },
+  channelAgentId: { voice: "4", chat: "4", sms: "4", portal: "4" },
   channelSettings: {
     chat: { greeting: "Hi! How can I help you today?", signoff: "Thanks for reaching out!" },
     sms: { greeting: "Hi {name}, this is {property}.", signoff: "" },
@@ -82,11 +101,21 @@ const DEFAULT_STATE: VoiceState = {
     { id: "pr-7", area: "Advertising", type: "avoid", phrase: "perfect for families" },
     { id: "pr-8", area: "Advertising", type: "avoid", phrase: "great for young professionals" },
   ],
+  verticalOverrides: [
+    { vertical: "Conventional", enabled: false },
+    { vertical: "Student", enabled: true, persona: "Friendly campus guide", brandingTone: "Casual, upbeat, and approachable. Use conversational language that resonates with college-age residents. Reference campus life and student-friendly amenities.", toneFormality: 35, toneWarmth: 85, toneUrgency: 30 },
+    { vertical: "Affordable", enabled: true, persona: "Supportive community assistant", brandingTone: "Warm, empathetic, and clear. Use simple, accessible language. Be sensitive to financial concerns and emphasize available resources and community support.", toneFormality: 55, toneWarmth: 90, toneUrgency: 35 },
+    { vertical: "Commercial", enabled: true, persona: "Professional property consultant", brandingTone: "Polished, efficient, and business-focused. Use industry terminology appropriately. Prioritize ROI, business outcomes, and professional service.", toneFormality: 85, toneWarmth: 50, toneUrgency: 55 },
+  ],
   propertyOverrides: [
     {
-      property: "Property A",
+      property: "Sunset Ridge Apartments",
+      vertical: "Conventional",
       brandingTone: "Upscale and sophisticated. Use luxury language. Address residents formally.",
       persona: "Luxury concierge",
+      toneFormality: 80,
+      toneWarmth: 70,
+      toneUrgency: 35,
       channels: { voice: true, chat: true, sms: true, portal: true },
     },
   ],
@@ -106,6 +135,8 @@ type VoiceContextValue = VoiceState & {
   updatePropertyOverride: (property: string, updates: Partial<PropertyOverride>) => void;
   removePropertyOverride: (property: string) => void;
   updateAgentTuning: (agentId: string, updates: Partial<AgentVoiceTuning>) => void;
+  updateVerticalOverride: (vertical: string, updates: Partial<VerticalOverride>) => void;
+  resetVerticalOverride: (vertical: string) => void;
   configured: boolean;
 };
 
@@ -183,6 +214,24 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
+  const updateVerticalOverride = useCallback((vertical: string, updates: Partial<VerticalOverride>) => {
+    setState((prev) => ({
+      ...prev,
+      verticalOverrides: prev.verticalOverrides.map((v) =>
+        v.vertical === vertical ? { ...v, ...updates } : v
+      ),
+    }));
+  }, []);
+
+  const resetVerticalOverride = useCallback((vertical: string) => {
+    setState((prev) => ({
+      ...prev,
+      verticalOverrides: prev.verticalOverrides.map((v) =>
+        v.vertical === vertical ? { vertical, enabled: false } : v
+      ),
+    }));
+  }, []);
+
   const configured = state.brandingTone.trim().length > 0 || Object.values(state.channels).some(Boolean);
 
   return (
@@ -196,6 +245,8 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
         updatePropertyOverride,
         removePropertyOverride,
         updateAgentTuning,
+        updateVerticalOverride,
+        resetVerticalOverride,
         configured,
       }}
     >

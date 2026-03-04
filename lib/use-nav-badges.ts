@@ -5,6 +5,10 @@ import { useEscalations } from "@/lib/escalations-context";
 import { useVault } from "@/lib/vault-context";
 import { useAgents } from "@/lib/agents-context";
 import { useSetup } from "@/lib/setup-context";
+import { useWorkflows } from "@/lib/workflows-context";
+import { useVoice } from "@/lib/voice-context";
+import { useTools } from "@/lib/tools-context";
+import { useGovernance } from "@/lib/governance-context";
 
 export type NavBadge = {
   count: number;
@@ -14,7 +18,10 @@ export type NavBadge = {
 
 export type NavBadges = Record<string, NavBadge | undefined>;
 
-const TOTAL_ACTIVATION_STEPS = 9;
+const STEP_IDS = [
+  "account", "entrata", "tools", "vault", "agents",
+  "workflows", "voice", "governance", "golive",
+] as const;
 
 export type NavBadgeResult = {
   badges: NavBadges;
@@ -23,22 +30,26 @@ export type NavBadgeResult = {
 
 export function useNavBadges(): NavBadgeResult {
   const { items: escalations } = useEscalations();
-  const { documents } = useVault();
-  const { agents } = useAgents();
+  const { documents, docCount } = useVault();
+  const { agents, agentsEnabledCount } = useAgents();
   const { completedSteps, goLiveComplete } = useSetup();
+  const { atLeastOneEnabled } = useWorkflows();
+  const { configured: voiceConfigured } = useVoice();
+  const { availableToolNames } = useTools();
+  const { enabledGuardrailCount } = useGovernance();
 
   return useMemo(() => {
     const badges: NavBadges = {};
 
     const openEscalations = escalations.filter(
-      (e) => e.status !== "Done" && e.status !== "Resolved"
+      (e) => e.status !== "Done"
     ).length;
     if (openEscalations > 0) {
       badges["/escalations"] = { count: openEscalations, variant: "action" };
     }
 
     const needsAttention = escalations.filter(
-      (e) => e.status === "Open" || e.priority === "urgent" || e.priority === "high"
+      (e) => e.status === "Open" || e.status === "Blocked" || e.priority === "urgent" || e.priority === "high"
     ).length;
     if (needsAttention > 0) {
       badges["/command-center"] = { count: needsAttention, variant: "action" };
@@ -60,13 +71,34 @@ export function useNavBadges(): NavBadgeResult {
       badges["/agent-roster"] = { count: agentBadgeCount, variant: "info" };
     }
 
+    const autoDetected: Record<string, boolean> = {
+      account: true,
+      entrata: true,
+      tools: availableToolNames.length > 0,
+      vault: docCount > 0,
+      agents: agentsEnabledCount > 0,
+      workflows: atLeastOneEnabled,
+      voice: voiceConfigured,
+      governance: enabledGuardrailCount > 0,
+      golive: false,
+    };
+
+    const activationCompleted = STEP_IDS.reduce(
+      (n, id, i) => n + (completedSteps.includes(i) || autoDetected[id] ? 1 : 0),
+      0
+    );
+
     return {
       badges,
       activation: {
-        completed: completedSteps.length,
-        total: TOTAL_ACTIVATION_STEPS,
+        completed: activationCompleted,
+        total: STEP_IDS.length,
         done: goLiveComplete,
       },
     };
-  }, [escalations, documents, agents, completedSteps, goLiveComplete]);
+  }, [
+    escalations, documents, agents, completedSteps, goLiveComplete,
+    docCount, agentsEnabledCount, atLeastOneEnabled, voiceConfigured,
+    availableToolNames, enabledGuardrailCount,
+  ]);
 }

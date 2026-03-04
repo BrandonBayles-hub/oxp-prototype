@@ -2,7 +2,6 @@
 
 import { Suspense, useState, useMemo, useEffect } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import {
@@ -14,9 +13,6 @@ import {
   type AgentType,
 } from "@/lib/agents-context";
 import { useWorkforce } from "@/lib/workforce-context";
-import { useRole, isPropertyInScope } from "@/lib/role-context";
-import { useContract } from "@/lib/contract-context";
-import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault-context";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,8 +24,19 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useTools } from "@/lib/tools-context";
-import { Tag, X, DollarSign, Megaphone, Users, Wrench, ShieldCheck, Power, Activity, AlertCircle, Play, Clock, CheckCircle, XCircle, Calendar, Lightbulb, Target, Database, BarChart3, Pencil, Save, ArrowLeft, ArrowRight, Sparkles, BookOpen, Cog, Bot, MessageSquare, Shield, Zap, Eye, EyeOff, Globe, Mail, Phone, Volume2, Lock, ExternalLink } from "lucide-react";
-import { Chat, type ChatMessage } from "@/components/ui/chat";
+import { useGovernance } from "@/lib/governance-context";
+import { useAgentCompliance } from "@/lib/use-agent-compliance";
+import { Tag, X, DollarSign, Megaphone, Users, Wrench, ShieldCheck, Power, Activity, AlertCircle, Play, Clock, CheckCircle, CheckCircle2, XCircle, Calendar, Lightbulb, Target, Database, BarChart3, Pencil, Save, ArrowLeft, ArrowRight, Sparkles, BookOpen, Cog, Bot, Box, MessageSquare, Shield, Zap, Eye, EyeOff, Globe, Mail, Phone, Volume2, History, RotateCcw, Lock, ExternalLink } from "lucide-react";
+import { Chat, type ChatMessage, type ChatSource, type ChatToolCall } from "@/components/ui/chat";
+
+const AGENT_TYPE_ICON: Record<AgentType, string> = {
+  operations: "/icon-l1-essentials.svg",
+  intelligence: "/icon-l2-operational.svg",
+  efficiency: "/icon-l3-efficiency.svg",
+  autonomous: "/eli-cube.svg",
+  fully_autonomous: "/icon-l5-autonomous.svg",
+};
+import { useFeedback } from "@/lib/feedback-context";
 
 const DATA_SOURCE_OPTIONS = [
   "Entrata Ledger",
@@ -57,11 +64,11 @@ const BUCKET_ICONS: Record<string, React.ComponentType<{ className?: string }>> 
 };
 
 const TEMPLATES: { name: string; bucket: (typeof BUCKETS)[number]; type: AgentType }[] = [
-  { name: "Leasing AI", bucket: "Leasing & Marketing", type: "l4" },
-  { name: "Renewal AI", bucket: "Resident Relations & Retention", type: "l4" },
-  { name: "Maintenance AI", bucket: "Operations & Maintenance", type: "l4" },
-  { name: "Payments AI", bucket: "Revenue & Financial Management", type: "l4" },
-  { name: "Custom (from scratch)", bucket: BUCKETS[0], type: "l3" },
+  { name: "Leasing AI", bucket: "Leasing & Marketing", type: "autonomous" },
+  { name: "Renewal AI", bucket: "Resident Relations & Retention", type: "autonomous" },
+  { name: "Maintenance AI", bucket: "Operations & Maintenance", type: "operations" },
+  { name: "Payments AI", bucket: "Revenue & Financial Management", type: "autonomous" },
+  { name: "Custom (from scratch)", bucket: BUCKETS[0], type: "autonomous" },
 ];
 
 const CHANNEL_OPTIONS = [
@@ -178,7 +185,7 @@ function generateSystemPrompt(agentName: string, bucket: string, persona: string
 
 export default function AgentRosterPage() {
   return (
-    <Suspense fallback={<div className="p-6 text-muted-foreground">Loading…</div>}>
+    <Suspense>
       <AgentRosterContent />
     </Suspense>
   );
@@ -186,26 +193,35 @@ export default function AgentRosterPage() {
 
 function AgentRosterContent() {
   const searchParams = useSearchParams();
-  const { agents: allAgents, addAgent, updateAgent } = useAgents();
-  const { roleProperties } = useRole();
-  const { contracted } = useContract();
-  const agents = useMemo(() => {
-    if (roleProperties === "all") return allAgents;
-    return allAgents.filter((a) => isPropertyInScope(a.scope, roleProperties));
-  }, [allAgents, roleProperties]);
+  const { agents, addAgent, updateAgent } = useAgents();
   const { allLabels: workforceLabels } = useWorkforce();
-  const { documents } = useVault();
+  const { documents, updateDocument } = useVault();
+  const { state: govState } = useGovernance();
+  const complianceWarnings = useAgentCompliance(agents, govState, documents);
+  const syncVaultLinkedAgents = (docIds?: string[]) => {
+    if (!docIds?.length) return;
+    const newAgentId = String(Date.now());
+    for (const docId of docIds) {
+      const doc = documents.find((d) => d.id === docId);
+      if (!doc) continue;
+      const existing = doc.linkedAgentIds ?? [];
+      if (!existing.includes(newAgentId)) {
+        updateDocument(docId, { linkedAgentIds: [...existing, newAgentId] });
+      }
+    }
+  };
   const [bucketFilter, setBucketFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [typeFilter, setTypeFilter] = useState<AgentType | "All">("All");
   const [showTypeSelector, setShowTypeSelector] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showCreateAuto, setShowCreateAuto] = useState(false);
+  const [showComingSoon, setShowComingSoon] = useState(false);
+  const [showEliPlusActivate, setShowEliPlusActivate] = useState(false);
   const [opsAgentId, setOpsAgentId] = useState<string | null>(null);
   const [intelAgentId, setIntelAgentId] = useState<string | null>(null);
   const [autoAgentId, setAutoAgentId] = useState<string | null>(null);
   const [expandedBucket, setExpandedBucket] = useState<string | null>(null);
-  const [showUnlockEli, setShowUnlockEli] = useState(false);
 
   const selectedId = opsAgentId ?? intelAgentId ?? autoAgentId;
 
@@ -214,9 +230,8 @@ function AgentRosterContent() {
     if (!agentId) return;
     const agent = agents.find((a) => a.id === agentId);
     if (!agent) return;
-    if (agent.type === "l1") setOpsAgentId(agentId);
-    else if (agent.type === "l2") setIntelAgentId(agentId);
-    else setAutoAgentId(agentId); // l3, l4, l5 all use autonomous sheet
+    if (agent.type === "operations" || agent.type === "intelligence" || agent.type === "efficiency") setOpsAgentId(agentId);
+    else setAutoAgentId(agentId);
   }, [searchParams, agents]);
 
   const filtered = useMemo(() => {
@@ -246,155 +261,142 @@ function AgentRosterContent() {
         title="Agent Roster"
         description="Create, find, and manage AI agents. View config and performance per agent."
       />
-      <div className="mb-6 flex flex-wrap items-center gap-3">
-        <select
-          value={bucketFilter}
-          onChange={(e) => setBucketFilter(e.target.value)}
-          className="select-base w-auto min-w-[11rem]"
-        >
-          <option value="All">All domains</option>
-          {BUCKETS.map((b) => (
-            <option key={b} value={b}>{b}</option>
-          ))}
-        </select>
-        <select
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value as AgentType | "All")}
-          className="select-base w-auto min-w-[10rem]"
-        >
-          <option value="All">All types</option>
-          {AGENT_TYPES.map((t) => (
-            <option key={t.value} value={t.value}>{t.label}</option>
-          ))}
-        </select>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="select-base w-auto min-w-[10rem]"
-        >
-          <option value="All">All statuses</option>
-          <option value="Active">Active</option>
-          <option value="Off">Off</option>
-        </select>
-        <Button onClick={() => setShowTypeSelector(true)}>
-          <Sparkles className="mr-1.5 h-4 w-4" /> Create Agent
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <select
+            value={bucketFilter}
+            onChange={(e) => setBucketFilter(e.target.value)}
+            className="select-base w-auto min-w-[11rem]"
+          >
+            <option value="All">All buckets</option>
+            {BUCKETS.map((b) => (
+              <option key={b} value={b}>{b}</option>
+            ))}
+          </select>
+          <select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value as AgentType | "All")}
+            className="select-base w-auto min-w-[10rem]"
+          >
+            <option value="All">All types</option>
+            {AGENT_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}{t.value === "fully_autonomous" ? " (Coming Soon)" : ""}
+              </option>
+            ))}
+          </select>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="select-base w-auto min-w-[10rem]"
+          >
+            <option value="All">All statuses</option>
+            <option value="Active">Active</option>
+            <option value="Off">Off</option>
+          </select>
+        </div>
+        <Button onClick={() => setShowComingSoon(true)}>
+          <img src="/eli-cube.svg" alt="" width={16} height={16} className="mr-1" /> Create Agent
         </Button>
       </div>
 
       <div>
-        <div className="space-y-8">
+        {typeFilter === "fully_autonomous" && (
+          <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-amber-300 bg-amber-50/50 py-16 text-center dark:border-amber-800/40 dark:bg-amber-950/10">
+            <img src="/icon-l5-autonomous.svg" alt="" width={48} height={48} className="mb-4" />
+            <h3 className="text-lg font-semibold text-foreground">L5 · Autonomous Agents</h3>
+            <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+              Fully autonomous agents that independently manage end-to-end workflows, make decisions, and take action across your portfolio with minimal human oversight.
+            </p>
+            <Badge variant="outline" className="mt-4 border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+              Coming Soon
+            </Badge>
+          </div>
+        )}
+        <div className={`space-y-8 ${typeFilter === "fully_autonomous" ? "hidden" : ""}`}>
           {BUCKETS.map((bucket) => {
             const items = byBucket[bucket] ?? [];
-            const isExpanded = expandedBucket === bucket;
-            const showCount = isExpanded ? items.length : Math.min(3, items.length);
-            const visibleItems = items.slice(0, showCount);
-            const hasMore = items.length > 3;
 
             return (
               <section key={bucket} className="rounded-lg border border-[hsl(var(--border))]/50 bg-white">
-                <div className="border-b border-[hsl(var(--border))]/50 px-4 py-3">
-                  <h2 className="section-title mb-0 flex items-center gap-2">
-                    {(() => { const Icon = BUCKET_ICONS[bucket]; return Icon ? <Icon className="h-4 w-4 text-muted-foreground" /> : null; })()}
+                <div className="px-4 py-4">
+                  <h2 className="section-title mb-0 flex items-center gap-3 text-base">
+                    {(() => { const Icon = BUCKET_ICONS[bucket]; return Icon ? <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted"><Icon className="h-4.5 w-4.5 text-foreground" /></span> : null; })()}
                     {bucket} <span className="font-normal text-[hsl(var(--muted-foreground))]">({items.length})</span>
                   </h2>
                 </div>
-                <ul className="divide-y divide-[hsl(var(--border))]/50">
+                <ul>
                   {items.length === 0 ? (
                     <li className="px-4 py-4 text-[length:var(--text-body)] text-[hsl(var(--muted-foreground))]">
                       No agents in this bucket.
                     </li>
                   ) : (
-                    visibleItems.map((agent) => {
-                      const needsContract = !contracted && (agent.type === "l4" || agent.type === "l3");
-                      const isInactiveL4 = agent.type === "l4" && agent.status !== "Active" && agent.status !== "Shadow";
-                      const isLocked = needsContract || isInactiveL4;
+                    items.map((agent, idx) => {
+                      const isOffEliPlus = agent.type === "autonomous" && agent.status === "Off";
                       return (
-                      <li
-                        key={agent.id}
-                        className={`relative flex cursor-pointer items-center justify-between gap-4 px-4 py-3 ${
-                          isLocked
-                            ? "bg-gray-50 dark:bg-gray-900/50"
-                            : selectedId === agent.id ? "bg-[hsl(var(--muted))]/50" : "hover:bg-[hsl(var(--muted))]/30"
-                        }`}
-                        onClick={() => {
-                          if (isLocked) {
-                            setShowUnlockEli(true);
-                            return;
-                          }
-                          if (needsContract) {
-                            return;
-                          }
-                          agent.type === "l1" ? setOpsAgentId(agent.id) : agent.type === "l2" ? setIntelAgentId(agent.id) : setAutoAgentId(agent.id);
-                        }}
-                      >
-                        <div className={`flex min-w-0 items-center gap-3 ${isLocked ? "opacity-50" : ""}`}>
-                          {agent.type === "l1" && (
-                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-gray-100 dark:bg-gray-800">
-                              <Cog className="h-3.5 w-3.5 text-gray-400" />
-                            </span>
-                          )}
-                          {agent.type === "l2" && (
-                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-50 dark:bg-amber-950/40">
-                              <BarChart3 className="h-3.5 w-3.5 text-amber-400" />
-                            </span>
-                          )}
-                          {agent.type === "l3" && (
-                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-emerald-50 dark:bg-emerald-950/40">
-                              <Bot className="h-3.5 w-3.5 text-emerald-400" />
-                            </span>
-                          )}
-                          {agent.type === "l4" && (
-                            <Image src="/eli-plus-cube.svg" alt="ELI+" width={20} height={20} className="shrink-0" />
-                          )}
-                          <div className="min-w-0">
-                            <p className="text-[length:var(--text-body)] font-medium text-[hsl(var(--foreground))] truncate">{agent.name}</p>
-                            <p className="text-[length:var(--text-caption)] text-[hsl(var(--muted-foreground))] truncate">{agent.description}</p>
+                        <li
+                          key={agent.id}
+                          className={`flex items-center justify-between gap-4 px-4 py-3 ${
+                            idx < items.length - 1 ? "border-b border-[hsl(var(--border))]/50 mx-4 px-0" : "mx-4 px-0"
+                          } ${
+                            isOffEliPlus
+                              ? "opacity-50 cursor-default"
+                              : selectedId === agent.id ? "bg-[hsl(var(--muted))]/50 cursor-pointer" : "hover:bg-[hsl(var(--muted))]/30 cursor-pointer"
+                          }`}
+                          onClick={() => {
+                            if (isOffEliPlus) return;
+                            if (agent.type === "operations" || agent.type === "efficiency" || agent.type === "intelligence") setOpsAgentId(agent.id);
+                            else setAutoAgentId(agent.id);
+                          }}
+                        >
+                          <div className="flex min-w-0 items-center gap-3">
+                            <img src={AGENT_TYPE_ICON[agent.type] ?? "/icon-l1-essentials.svg"} alt="" width={20} height={20} className="shrink-0" />
+                            <div className="min-w-0">
+                              <p className="text-[length:var(--text-body)] font-medium text-[hsl(var(--foreground))] truncate">{agent.type === "autonomous" ? `ELI+ ${agent.name}` : agent.name}</p>
+                              <p className="text-[length:var(--text-caption)] text-[hsl(var(--muted-foreground))] truncate">{agent.description}</p>
+                            </div>
                           </div>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-3">
-                          {isLocked ? (
-                            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                              <Lock className="h-3 w-3" />
-                              Unlock ELI+ Agents
-                            </span>
-                          ) : needsContract ? (
-                            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                              <Lock className="h-3 w-3" />
-                              Unlock Intelligence Agents
-                            </span>
-                          ) : (
-                            <>
-                              <span className="text-[length:var(--text-caption)] text-[hsl(var(--muted-foreground))]">
-                                {AGENT_TYPES.find((t) => t.value === agent.type)?.label ?? agent.type}
-                              </span>
+                          <div className="flex shrink-0 items-center gap-3">
+                            {!isOffEliPlus && complianceWarnings[agent.id] && (
                               <span
-                                className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                                  agent.status === "Active"
-                                    ? "bg-emerald-50 text-emerald-700"
-                                    : "bg-muted text-muted-foreground"
-                                }`}
+                                className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-red-500 text-white dark:bg-red-900/30 dark:text-red-300"
+                                title={complianceWarnings[agent.id].map((w) => w.message).join("; ")}
                               >
-                                {agent.status}
+                                <AlertCircle className="h-3 w-3" />
+                                {complianceWarnings[agent.id].length}
                               </span>
-                            </>
-                          )}
-                        </div>
-                      </li>
+                            )}
+                            {isOffEliPlus ? (
+                              <Button
+                                size="sm"
+                                className="shrink-0 gap-1.5 bg-primary text-primary-foreground shadow-md opacity-100 hover:bg-primary/90"
+                                onClick={(e) => { e.stopPropagation(); setShowEliPlusActivate(true); }}
+                              >
+                                <Lock className="h-3 w-3" />
+                                Unlock ELI+ Agents
+                              </Button>
+                            ) : (
+                              <>
+                                <span className="text-[length:var(--text-caption)] text-[hsl(var(--muted-foreground))]">
+                                  {AGENT_TYPES.find((t) => t.value === agent.type)?.label ?? "L1 · ELI Essentials"}
+                                </span>
+                                <span
+                                  className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                                    agent.status === "Active"
+                                      ? "bg-[#B3FFCC] text-black"
+                                      : "bg-amber-400 text-amber-950"
+                                  }`}
+                                >
+                                  {agent.status}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </li>
                       );
                     })
                   )}
                 </ul>
-                {hasMore && (
-                  <div className="border-t border-[hsl(var(--border))]/50 px-4 py-2">
-                    <button
-                      type="button"
-                      onClick={() => setExpandedBucket(isExpanded ? null : bucket)}
-                      className="text-sm font-medium text-[hsl(var(--primary))] hover:underline"
-                    >
-                      {isExpanded ? "Show less" : `View all (${items.length})`}
-                    </button>
-                  </div>
-                )}
               </section>
             );
           })}
@@ -406,9 +408,10 @@ function AgentRosterContent() {
         const opsAgent = agents.find((a) => a.id === opsAgentId);
         if (!opsAgent) return null;
         return (
-          <OperationsAgentModal
+          <OperationsAgentSheet
             agent={opsAgent}
-            onClose={() => setOpsAgentId(null)}
+            open
+            onOpenChange={(open) => { if (!open) setOpsAgentId(null); }}
             onToggle={(status) => updateAgent(opsAgent.id, { status })}
           />
         );
@@ -420,71 +423,20 @@ function AgentRosterContent() {
         return (
           <IntelligenceAgentSheet
             agent={intelAgent}
-            open={!!intelAgentId}
+            open
             onOpenChange={(open) => { if (!open) setIntelAgentId(null); }}
-            onToggle={(status) => updateAgent(intelAgent.id, { status })}
+            onUpdate={(updates) => updateAgent(intelAgent.id, updates)}
           />
         );
       })()}
-
-      <Dialog open={showUnlockEli} onOpenChange={setShowUnlockEli}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <div className="flex items-center gap-3">
-              <Image src="/eli-plus-cube.svg" alt="ELI+" width={36} height={36} />
-              <div>
-                <DialogTitle className="text-xl">ELI+ Agents</DialogTitle>
-                <DialogDescription>Autonomous AI agents for your properties</DialogDescription>
-              </div>
-            </div>
-          </DialogHeader>
-          <div className="mt-4 space-y-4">
-            <div className="rounded-lg border border-border bg-muted/20 p-4">
-              <p className="text-sm font-medium text-foreground">What ELI+ agents do</p>
-              <ul className="mt-2 space-y-1.5 text-sm text-muted-foreground">
-                <li className="flex items-start gap-2"><CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />Handle resident conversations autonomously across chat, SMS, and voice</li>
-                <li className="flex items-start gap-2"><CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />Schedule tours, process applications, and sign leases automatically</li>
-                <li className="flex items-start gap-2"><CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />Collect rent, follow up on late payments, and manage renewals</li>
-                <li className="flex items-start gap-2"><CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />Escalate complex issues to your team with full context</li>
-              </ul>
-            </div>
-            <div className="rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-900/50 dark:bg-green-950/30">
-              <p className="text-sm font-semibold text-green-800 dark:text-green-200">Impact from similar properties</p>
-              <div className="mt-3 grid grid-cols-3 gap-3">
-                <div className="text-center">
-                  <p className="text-xl font-bold text-green-700 dark:text-green-300">386 hrs</p>
-                  <p className="text-[11px] text-green-600 dark:text-green-400">Staff hours saved</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-xl font-bold text-green-700 dark:text-green-300">$42K</p>
-                  <p className="text-[11px] text-green-600 dark:text-green-400">Revenue impact</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-xl font-bold text-green-700 dark:text-green-300">89%</p>
-                  <p className="text-[11px] text-green-600 dark:text-green-400">Resolution rate</p>
-                </div>
-              </div>
-            </div>
-            <a
-              href="https://www.entrata.com/products/eli-plus/request-access"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex h-11 w-full items-center justify-center gap-2 rounded-md bg-primary text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-            >
-              Request Access to ELI+ Agents
-              <ExternalLink className="h-4 w-4" />
-            </a>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <AgentTypeSelectorDialog
         open={showTypeSelector}
         onOpenChange={setShowTypeSelector}
         onSelect={(type) => {
           setShowTypeSelector(false);
-          if (type === "l1" || type === "l2") setShowCreate(true);
-          else setShowCreateAuto(true);
+          if (type === "intelligence") setShowCreate(true);
+          else if (type === "autonomous") setShowCreateAuto(true);
         }}
       />
 
@@ -493,6 +445,7 @@ function AgentRosterContent() {
         onOpenChange={setShowCreate}
         onSave={(agent) => {
           addAgent(agent);
+          syncVaultLinkedAgents(agent.vaultDocIds);
         }}
       />
 
@@ -501,8 +454,88 @@ function AgentRosterContent() {
         onOpenChange={setShowCreateAuto}
         onSave={(agent) => {
           addAgent(agent);
+          syncVaultLinkedAgents(agent.vaultDocIds);
         }}
       />
+
+      <Dialog open={showComingSoon} onOpenChange={setShowComingSoon}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Box className="h-5 w-5 text-primary" /> Create Agent
+            </DialogTitle>
+            <DialogDescription>
+              Agent creation is coming soon. You&apos;ll be able to build custom Intelligence, Operations, and Autonomous agents tailored to your portfolio&apos;s needs.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowComingSoon(false)}>Got it</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ELI+ Agents Activation Dialog */}
+      <Dialog open={showEliPlusActivate} onOpenChange={setShowEliPlusActivate}>
+        <DialogContent className="max-w-md p-0">
+          <div className="p-6 pb-0">
+            <div className="flex items-center gap-3">
+              <img src="/eli-cube.svg" alt="" width={32} height={32} />
+              <div>
+                <DialogTitle className="text-base font-semibold">ELI+ Agents</DialogTitle>
+                <DialogDescription className="text-sm text-muted-foreground">
+                  Autonomous AI agents for your properties
+                </DialogDescription>
+              </div>
+            </div>
+          </div>
+
+          <div className="px-6 pt-4">
+            <div className="rounded-lg border border-border p-4">
+              <p className="mb-3 text-sm font-semibold text-foreground">What ELI+ agents do</p>
+              <ul className="space-y-2">
+                {[
+                  "Handle resident conversations autonomously across chat, SMS, and voice",
+                  "Schedule tours, process applications, and sign leases automatically",
+                  "Collect rent, follow up on late payments, and manage renewals",
+                  "Escalate complex issues to your team with full context",
+                ].map((item) => (
+                  <li key={item} className="flex items-start gap-2">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
+                    <span className="text-sm text-muted-foreground">{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          <div className="px-6 pt-4">
+            <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4 dark:border-amber-800/40 dark:bg-amber-950/20">
+              <p className="mb-3 text-sm font-semibold text-foreground">Impact from similar properties</p>
+              <div className="grid grid-cols-3 gap-4 text-center">
+                <div>
+                  <p className="text-xl font-bold text-foreground">386 hrs</p>
+                  <p className="text-xs text-muted-foreground">Staff hours saved</p>
+                </div>
+                <div>
+                  <p className="text-xl font-bold text-foreground">$42K</p>
+                  <p className="text-xs text-muted-foreground">Revenue impact</p>
+                </div>
+                <div>
+                  <p className="text-xl font-bold text-foreground">89%</p>
+                  <p className="text-xs text-muted-foreground">Resolution rate</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-6">
+            <Button className="w-full gap-2" onClick={() => setShowEliPlusActivate(false)}>
+              Request Access to ELI+ Agents
+              <ExternalLink className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {autoAgentId && (() => {
         const autoAgent = agents.find((a) => a.id === autoAgentId);
@@ -577,14 +610,16 @@ function CreateAgentDialog({
 
   const handleCreate = () => {
     if (!name.trim()) return;
+    const docNames = selectedDocs.map((id) => approvedDocs.find((d) => d.id === id)?.fileName).filter(Boolean);
     onSave({
       name: name.trim(),
       description: description.trim(),
       status: "Active",
       bucket,
-      type: "l2",
+      type: "intelligence",
       scope: "All properties",
-      vaultBinding: selectedDocs.length > 0 ? `SOPs: ${selectedDocs.join(", ")}` : "—",
+      vaultBinding: docNames.length > 0 ? `SOPs: ${docNames.join(", ")}` : "—",
+      vaultDocIds: selectedDocs,
       channels: [],
       toolsAllowed: selectedTools.length > 0 ? selectedTools : ["Entrata MCP"],
       guardrails: "",
@@ -763,13 +798,13 @@ function CreateAgentDialog({
               ) : (
                 <div className="max-h-48 space-y-1.5 overflow-y-auto">
                   {approvedDocs.map((doc) => {
-                    const selected = selectedDocs.includes(doc.fileName);
+                    const selected = selectedDocs.includes(doc.id);
                     return (
                       <label key={doc.id} className="flex cursor-pointer items-center gap-2 rounded-md border border-border p-2 hover:bg-muted/30">
                         <input
                           type="checkbox"
                           checked={selected}
-                          onChange={() => toggleDoc(doc.fileName)}
+                          onChange={() => toggleDoc(doc.id)}
                           className="h-4 w-4 rounded border-border"
                         />
                         <div className="min-w-0 flex-1">
@@ -895,7 +930,10 @@ function CreateAgentDialog({
                 <div>
                   <span className="text-xs text-muted-foreground">Vault documents ({selectedDocs.length})</span>
                   <div className="mt-1 flex flex-wrap gap-1">
-                    {selectedDocs.map((d) => <Badge key={d} variant="outline" className="text-[10px]">{d}</Badge>)}
+                    {selectedDocs.map((id) => {
+                      const doc = approvedDocs.find((d) => d.id === id);
+                      return <Badge key={id} variant="outline" className="text-[10px]">{doc?.fileName ?? id}</Badge>;
+                    })}
                   </div>
                 </div>
               )}
@@ -947,104 +985,13 @@ function CreateAgentDialog({
   );
 }
 
-function OperationsAgentModal({
-  agent,
-  onClose,
-  onToggle,
-}: {
-  agent: Agent;
-  onClose: () => void;
-  onToggle: (status: string) => void;
-}) {
-  const isActive = agent.status === "Active";
-  const hasRuns = (agent.runsCompleted ?? 0) > 0;
-  const lastRunDate = agent.lastRunAt ? new Date(agent.lastRunAt) : null;
+const L2_PROPERTY_DATA = [
+  { name: "Harvest Peak Capital", vertical: "Conventional", runs: 21, errors: 0, avgDuration: "3m 45s", lastRun: "success" as const },
+  { name: "Skyline Apartments", vertical: "Conventional", runs: 16, errors: 1, avgDuration: "3m 45s", lastRun: "success" as const },
+  { name: "The Meridian", vertical: "Affordable", runs: 9, errors: 1, avgDuration: "3m 45s", lastRun: "error" as const },
+];
 
-  return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <div className="flex items-center justify-between gap-3">
-            <DialogTitle>{agent.name}</DialogTitle>
-            <span
-              className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                isActive ? "bg-emerald-50 text-emerald-700" : "bg-muted text-muted-foreground"
-              }`}
-            >
-              {isActive ? "Active" : "Off"}
-            </span>
-          </div>
-          <DialogDescription>{agent.bucket}</DialogDescription>
-        </DialogHeader>
-
-        <p className="text-sm text-foreground">{agent.description}</p>
-
-        {agent.schedule && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Calendar className="h-3.5 w-3.5" />
-            <span>Schedule: {agent.schedule}</span>
-          </div>
-        )}
-
-        {hasRuns ? (
-          <>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="rounded-lg border border-border bg-muted/30 p-3 text-center">
-                <Play className="mx-auto mb-1 h-4 w-4 text-muted-foreground" />
-                <p className="text-lg font-semibold text-foreground">{agent.runsCompleted}</p>
-                <p className="text-[11px] text-muted-foreground">Runs</p>
-              </div>
-              <div className="rounded-lg border border-border bg-muted/30 p-3 text-center">
-                <AlertCircle className="mx-auto mb-1 h-4 w-4 text-muted-foreground" />
-                <p className="text-lg font-semibold text-foreground">{agent.errorCount ?? 0}</p>
-                <p className="text-[11px] text-muted-foreground">Errors</p>
-              </div>
-              <div className="rounded-lg border border-border bg-muted/30 p-3 text-center">
-                <Clock className="mx-auto mb-1 h-4 w-4 text-muted-foreground" />
-                <p className="text-lg font-semibold text-foreground">{agent.avgRunDuration ?? "—"}</p>
-                <p className="text-[11px] text-muted-foreground">Avg duration</p>
-              </div>
-            </div>
-            {lastRunDate && (
-              <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/20 p-3 text-sm">
-                {agent.lastRunStatus === "success" ? (
-                  <CheckCircle className="h-4 w-4 shrink-0 text-emerald-600" />
-                ) : agent.lastRunStatus === "error" ? (
-                  <XCircle className="h-4 w-4 shrink-0 text-red-600" />
-                ) : (
-                  <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
-                )}
-                <div>
-                  <p className="font-medium text-foreground">Last run: {agent.lastRunStatus}</p>
-                  <p className="text-xs text-muted-foreground">{lastRunDate.toLocaleString()}</p>
-                </div>
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="rounded-lg border border-border bg-muted/20 p-4 text-center">
-            <p className="text-sm text-muted-foreground">
-              {isActive ? "No runs yet. This agent will execute on its next scheduled trigger." : "Turn this agent on to start running."}
-            </p>
-          </div>
-        )}
-
-        <DialogFooter className="sm:justify-between">
-          <Button variant="outline" onClick={onClose}>Close</Button>
-          <Button
-            variant={isActive ? "destructive" : "default"}
-            onClick={() => onToggle(isActive ? "Off" : "Active")}
-          >
-            <Power className="h-4 w-4" />
-            {isActive ? "Turn off" : "Turn on"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function IntelligenceAgentSheet({
+function OperationsAgentSheet({
   agent,
   open,
   onOpenChange,
@@ -1056,39 +1003,28 @@ function IntelligenceAgentSheet({
   onToggle: (status: string) => void;
 }) {
   const isActive = agent.status === "Active";
-  const runs = agent.runsCompleted ?? agent.insightsGenerated ?? 0;
-  const hasRuns = runs > 0;
-  const lastRunDate = (agent.lastRunAt ?? agent.lastInsightAt) ? new Date(agent.lastRunAt ?? agent.lastInsightAt!) : null;
-  const lastRunStatus = agent.lastRunStatus ?? "success";
-
-  const [propertyStatuses, setPropertyStatuses] = useState<Record<string, string>>({
-    "Harvest Peak Capital": "Active",
-    "Skyline Apartments": "Active",
-    "The Meridian": "Off",
+  const hasRuns = (agent.runsCompleted ?? 0) > 0;
+  const lastRunDate = agent.lastRunAt ? new Date(agent.lastRunAt) : null;
+  const [propertyStatuses, setPropertyStatuses] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    L2_PROPERTY_DATA.forEach((p) => { init[p.name] = p.name === "The Meridian" ? "Off" : "Active"; });
+    return init;
   });
-
-  const [showToggleConfirm, setShowToggleConfirm] = useState(false);
-
-  const propertyRows = [
-    { property: "Harvest Peak Capital", vertical: "Conventional", runs: Math.round(runs * 0.45) || 0, errors: Math.round((agent.errorCount ?? 0) * 0.2), avgDuration: agent.avgRunDuration ?? "—", lastRunOk: true },
-    { property: "Skyline Apartments", vertical: "Conventional", runs: Math.round(runs * 0.35) || 0, errors: Math.round((agent.errorCount ?? 0) * 0.3), avgDuration: agent.avgRunDuration ?? "—", lastRunOk: true },
-    { property: "The Meridian", vertical: "Affordable", runs: Math.round(runs * 0.2) || 0, errors: Math.round((agent.errorCount ?? 0) * 0.5), avgDuration: agent.avgRunDuration ?? "—", lastRunOk: false },
-  ];
+  const [showTurnOnAllConfirm, setShowTurnOnAllConfirm] = useState(false);
+  const allActive = Object.values(propertyStatuses).every((s) => s === "Active");
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full overflow-y-auto sm:max-w-3xl">
+      <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
         <SheetHeader>
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <div className="flex h-6 w-6 items-center justify-center rounded-md bg-amber-50 dark:bg-amber-950/40">
-                <BarChart3 className="h-3.5 w-3.5 text-amber-400" />
-              </div>
+              <img src={AGENT_TYPE_ICON[agent.type] ?? "/icon-l1-essentials.svg"} alt="" width={20} height={20} />
               <SheetTitle>{agent.name}</SheetTitle>
             </div>
             <span
               className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                isActive ? "bg-emerald-50 text-emerald-700" : "bg-muted text-muted-foreground"
+                isActive ? "bg-[#B3FFCC] text-black" : "bg-muted text-muted-foreground"
               }`}
             >
               {isActive ? "Active" : "Off"}
@@ -1100,64 +1036,63 @@ function IntelligenceAgentSheet({
         <div className="mt-6 space-y-6">
           <p className="text-sm text-foreground">{agent.description}</p>
 
-          <a
-            href={`https://app.entrata.com/agents/${agent.id}/settings`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm font-semibold text-primary transition-colors hover:bg-primary/10"
+          {/* Open Agent/ELI Essentials Settings link */}
+          <button
+            type="button"
+            className="flex w-full items-center justify-between rounded-lg border border-border bg-muted/30 px-4 py-3 text-left transition-colors hover:bg-muted/50"
           >
-            <span className="flex items-center gap-2">
-              Open Agent Settings in Entrata
+            <span className="text-sm font-medium text-foreground">
+              {agent.type === "operations" ? "Open ELI Essentials Settings in Entrata" : "Open Agent Settings in Entrata"}
             </span>
-            <ExternalLink className="h-4 w-4" />
-          </a>
+            <ExternalLink className="h-4 w-4 text-muted-foreground" />
+          </button>
 
-          {hasRuns && (
+          {/* L1 agents only show name, category, description, and settings link */}
+          {agent.type !== "operations" && <>
+
+          {/* Performance metrics */}
+          {hasRuns ? (
             <>
-              <div className="grid grid-cols-4 gap-2">
-                <div className="rounded-lg border border-border bg-muted/30 p-2.5 text-center">
-                  <p className="text-lg font-semibold text-foreground">{runs}</p>
-                  <p className="text-[10px] text-muted-foreground">Runs</p>
+              <div className="grid grid-cols-4 gap-3">
+                <div className="rounded-lg border border-border bg-muted/30 p-3 text-center">
+                  <p className="text-2xl font-semibold text-foreground">{agent.runsCompleted}</p>
+                  <p className="text-xs text-muted-foreground">Runs</p>
                 </div>
-                <div className="rounded-lg border border-border bg-muted/30 p-2.5 text-center">
-                  <p className="text-lg font-semibold text-foreground">{agent.errorCount ?? 0}</p>
-                  <p className="text-[10px] text-muted-foreground">Errors</p>
+                <div className="rounded-lg border border-border bg-muted/30 p-3 text-center">
+                  <p className="text-2xl font-semibold text-foreground">{agent.errorCount ?? 0}</p>
+                  <p className="text-xs text-muted-foreground">Errors</p>
                 </div>
-                <div className="rounded-lg border border-border bg-muted/30 p-2.5 text-center">
-                  <p className="text-lg font-semibold text-foreground">{agent.avgRunDuration ?? "—"}</p>
-                  <p className="text-[10px] text-muted-foreground">Avg Duration</p>
+                <div className="rounded-lg border border-border bg-muted/30 p-3 text-center">
+                  <p className="text-2xl font-semibold text-foreground">{agent.avgRunDuration ?? "—"}</p>
+                  <p className="text-xs text-muted-foreground">Avg Duration</p>
                 </div>
-                <div className="rounded-lg border border-border bg-muted/30 p-2.5 text-center">
-                  {lastRunStatus === "success" ? (
-                    <p className="text-lg font-semibold text-emerald-600">✓</p>
-                  ) : lastRunStatus === "error" ? (
-                    <p className="text-lg font-semibold text-red-600">✗</p>
+                <div className="rounded-lg border border-border bg-muted/30 p-3 text-center flex flex-col items-center justify-center">
+                  {agent.lastRunStatus === "success" ? (
+                    <CheckCircle className="h-6 w-6 text-emerald-600" />
+                  ) : agent.lastRunStatus === "error" ? (
+                    <XCircle className="h-6 w-6 text-red-600" />
                   ) : (
-                    <p className="text-lg font-semibold text-muted-foreground">—</p>
+                    <Clock className="h-6 w-6 text-muted-foreground" />
                   )}
-                  <p className="text-[10px] text-muted-foreground">Last Run</p>
+                  <p className="text-xs text-muted-foreground mt-1">Last Run</p>
                 </div>
               </div>
 
               {lastRunDate && (
                 <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/20 p-3 text-sm">
-                  {lastRunStatus === "success" ? (
+                  {agent.lastRunStatus === "success" ? (
                     <CheckCircle className="h-4 w-4 shrink-0 text-emerald-600" />
-                  ) : lastRunStatus === "error" ? (
-                    <XCircle className="h-4 w-4 shrink-0 text-red-600" />
                   ) : (
-                    <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <XCircle className="h-4 w-4 shrink-0 text-red-600" />
                   )}
                   <div>
-                    <p className="font-medium text-foreground">Last run: {lastRunStatus}</p>
+                    <p className="font-medium text-foreground">Last run: {agent.lastRunStatus}</p>
                     <p className="text-xs text-muted-foreground">{lastRunDate.toLocaleString()}</p>
                   </div>
                 </div>
               )}
             </>
-          )}
-
-          {!hasRuns && (
+          ) : (
             <div className="rounded-lg border border-border bg-muted/20 p-4 text-center">
               <p className="text-sm text-muted-foreground">
                 {isActive ? "No runs yet. This agent will execute on its next scheduled trigger." : "Turn this agent on to start running."}
@@ -1165,53 +1100,48 @@ function IntelligenceAgentSheet({
             </div>
           )}
 
+          {/* Properties Table */}
           <div>
-            <select className="select-base w-auto min-w-[10rem] text-sm" defaultValue="all">
-              <option value="all">All Properties</option>
-              <option value="prop-a">Harvest Peak Capital</option>
-              <option value="prop-b">Skyline Apartments</option>
-              <option value="prop-c">The Meridian</option>
+            <select className="select-base mb-4 w-auto min-w-[10rem]">
+              <option>All Properties</option>
             </select>
-          </div>
-
-          <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border">
-                  <th className="pb-2.5 text-left text-xs font-medium text-muted-foreground">Property</th>
-                  <th className="pb-2.5 text-left text-xs font-medium text-muted-foreground">Status</th>
-                  <th className="pb-2.5 text-left text-xs font-medium text-muted-foreground">Vertical</th>
-                  <th className="pb-2.5 text-right text-xs font-medium text-muted-foreground">Runs</th>
-                  <th className="pb-2.5 text-right text-xs font-medium text-muted-foreground">Errors</th>
-                  <th className="pb-2.5 text-right text-xs font-medium text-muted-foreground">Avg Duration</th>
-                  <th className="pb-2.5 text-center text-xs font-medium text-muted-foreground">Last Run</th>
+                <tr className="border-b border-border text-left">
+                  <th className="pb-2 font-medium text-muted-foreground">Property</th>
+                  <th className="pb-2 font-medium text-muted-foreground">Status</th>
+                  <th className="pb-2 font-medium text-muted-foreground">Vertical</th>
+                  <th className="pb-2 font-medium text-muted-foreground text-right">Runs</th>
+                  <th className="pb-2 font-medium text-muted-foreground text-right">Errors</th>
+                  <th className="pb-2 font-medium text-muted-foreground">Avg Duration</th>
+                  <th className="pb-2 font-medium text-muted-foreground text-center">Last Run</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border">
-                {propertyRows.map((row) => (
-                  <tr key={row.property}>
-                    <td className="py-3 font-medium text-foreground">{row.property}</td>
+              <tbody>
+                {L2_PROPERTY_DATA.map((prop) => (
+                  <tr key={prop.name} className="border-b border-border/50">
+                    <td className="py-3 font-medium text-foreground">{prop.name}</td>
                     <td className="py-3">
                       <select
-                        className="h-7 w-24 rounded-md border border-border bg-background px-2 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-primary"
-                        value={propertyStatuses[row.property] ?? "Off"}
-                        onChange={(e) => setPropertyStatuses((prev) => ({ ...prev, [row.property]: e.target.value }))}
+                        className="select-base h-8 w-[5.5rem] text-xs"
+                        value={propertyStatuses[prop.name]}
+                        onChange={(e) => setPropertyStatuses((prev) => ({ ...prev, [prop.name]: e.target.value }))}
                       >
                         <option value="Active">Active</option>
                         <option value="Off">Off</option>
                       </select>
                     </td>
-                    <td className="py-3 text-muted-foreground">{row.vertical}</td>
-                    <td className="py-3 text-right font-medium text-foreground">{row.runs}</td>
+                    <td className="py-3 text-muted-foreground">{prop.vertical}</td>
+                    <td className="py-3 text-right font-medium text-foreground">{prop.runs}</td>
                     <td className="py-3 text-right">
-                      <span className={row.errors > 0 ? "font-medium text-red-600" : "text-muted-foreground"}>{row.errors}</span>
+                      <span className={prop.errors > 0 ? "font-medium text-red-600" : "text-foreground"}>{prop.errors}</span>
                     </td>
-                    <td className="py-3 text-right text-muted-foreground">{row.avgDuration}</td>
+                    <td className="py-3 text-muted-foreground">{prop.avgDuration}</td>
                     <td className="py-3 text-center">
-                      {row.lastRunOk ? (
+                      {prop.lastRun === "success" ? (
                         <CheckCircle className="mx-auto h-4 w-4 text-emerald-600" />
                       ) : (
-                        <XCircle className="mx-auto h-4 w-4 text-red-500" />
+                        <XCircle className="mx-auto h-4 w-4 text-red-600" />
                       )}
                     </td>
                   </tr>
@@ -1220,12 +1150,456 @@ function IntelligenceAgentSheet({
             </table>
           </div>
 
+          {/* Turn on/off all properties */}
           <div className="flex items-center justify-between border-t border-border pt-4">
             <span className="text-sm text-muted-foreground">Agent status (all properties)</span>
             <Button
+              variant={allActive ? "destructive" : "default"}
+              size="sm"
+              onClick={() => setShowTurnOnAllConfirm(true)}
+            >
+              <Power className="h-4 w-4" />
+              {allActive ? "Turn off" : "Turn on"}
+            </Button>
+          </div>
+
+          </>}
+        </div>
+      </SheetContent>
+
+      {/* Confirmation dialog */}
+      <Dialog open={showTurnOnAllConfirm} onOpenChange={setShowTurnOnAllConfirm}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{allActive ? "Turn off" : "Turn on"} {agent.name}?</DialogTitle>
+            <DialogDescription>
+              You are {allActive ? "turning off" : "turning on"} {agent.name} for all properties. This will {allActive ? "stop" : "start"} the agent across every property in your portfolio.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-row justify-end gap-2 sm:justify-end">
+            <Button variant="outline" onClick={() => setShowTurnOnAllConfirm(false)}>No, cancel</Button>
+            <Button
+              onClick={() => {
+                const newStatus = allActive ? "Off" : "Active";
+                setPropertyStatuses((prev) => {
+                  const updated: Record<string, string> = {};
+                  for (const key of Object.keys(prev)) updated[key] = newStatus;
+                  return updated;
+                });
+                onToggle(newStatus);
+                setShowTurnOnAllConfirm(false);
+              }}
+            >
+              Yes, {allActive ? "turn off" : "turn on"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Sheet>
+  );
+}
+
+function IntelligenceAgentSheet({
+  agent,
+  open,
+  onOpenChange,
+  onUpdate,
+}: {
+  agent: Agent;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onUpdate: (updates: Partial<Agent>) => void;
+}) {
+  const { documents } = useVault();
+  const vaultDocs = useMemo(() => documents.filter((d) => d.type === "file").map((d) => ({ id: d.id, fileName: d.fileName, body: d.body })), [documents]);
+  const agentDocs = useMemo(() => vaultDocs.filter((d) => agent.vaultDocIds?.includes(d.id)), [vaultDocs, agent.vaultDocIds]);
+  const [editing, setEditing] = useState(false);
+  const [promptDraft, setPromptDraft] = useState(agent.prompt ?? "");
+  const [goalDraft, setGoalDraft] = useState(agent.goal ?? "");
+  const [frequencyDraft, setFrequencyDraft] = useState(agent.analysisFrequency ?? "Weekly");
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatDisabled, setChatDisabled] = useState(false);
+  const { addFeedback } = useFeedback();
+
+  const isActive = agent.status === "Active";
+  const hasInsights = (agent.insightsGenerated ?? 0) > 0;
+  const pending = agent.pendingChanges;
+
+  const stageOrApply = (updates: Partial<Agent>) => {
+    if (!isActive) {
+      onUpdate(updates);
+      return;
+    }
+    const configKeys = ["prompt", "goal", "analysisFrequency"] as const;
+    const configUpdates: Record<string, string | undefined> = {};
+    let hasConfigChange = false;
+    for (const key of configKeys) {
+      if (key in updates) {
+        configUpdates[key] = updates[key] as string | undefined;
+        hasConfigChange = true;
+      }
+    }
+    if (hasConfigChange) {
+      onUpdate({
+        pendingChanges: {
+          ...(pending ?? { changedAt: new Date().toISOString() }),
+          ...configUpdates,
+          changedAt: new Date().toISOString(),
+        },
+      });
+    }
+    const nonConfigUpdates = Object.fromEntries(
+      Object.entries(updates).filter(([k]) => !(configKeys as readonly string[]).includes(k))
+    );
+    if (Object.keys(nonConfigUpdates).length > 0) onUpdate(nonConfigUpdates);
+  };
+
+  const handlePublish = () => {
+    if (!pending) return;
+    const applied: Partial<Agent> = {};
+    if (pending.prompt !== undefined) applied.prompt = pending.prompt;
+    if (pending.goal !== undefined) applied.goal = pending.goal;
+    if (pending.analysisFrequency !== undefined) applied.analysisFrequency = pending.analysisFrequency;
+    if (pending.prompt !== undefined && pending.prompt !== agent.prompt) {
+      const history = agent.promptHistory ?? [];
+      const nextVersion = history.length > 0 ? Math.max(...history.map((h) => h.version)) + 1 : 1;
+      applied.promptHistory = [...history, { version: nextVersion, prompt: agent.prompt ?? "", changedAt: new Date().toISOString(), changedBy: "Admin", note: "Published from staging" }];
+    }
+    onUpdate({ ...applied, pendingChanges: undefined });
+    setPromptDraft(pending.prompt ?? agent.prompt ?? "");
+    setGoalDraft(pending.goal ?? agent.goal ?? "");
+    setFrequencyDraft(pending.analysisFrequency ?? agent.analysisFrequency ?? "Weekly");
+  };
+
+  const handleDiscard = () => {
+    onUpdate({ pendingChanges: undefined });
+  };
+
+  const handleSave = () => {
+    stageOrApply({ prompt: promptDraft, goal: goalDraft, analysisFrequency: frequencyDraft });
+    setEditing(false);
+  };
+
+  const handleCancel = () => {
+    setPromptDraft(agent.prompt ?? "");
+    setGoalDraft(agent.goal ?? "");
+    setFrequencyDraft(agent.analysisFrequency ?? "Weekly");
+    setEditing(false);
+  };
+
+  const handleFeedback = (messageIndex: number, rating: "positive" | "negative") => {
+    const msg = chatMessages[messageIndex];
+    if (!msg || msg.role !== "assistant") return;
+    setChatMessages((prev) => prev.map((m, i) => i === messageIndex ? { ...m, feedback: rating } : m));
+    addFeedback({ agentId: agent.id, agentName: agent.name, rating, messageText: msg.text });
+  };
+
+  const handleChatSend = (text: string) => {
+    setChatMessages((prev) => [...prev, { role: "user", text }]);
+    setChatDisabled(true);
+
+    setTimeout(() => {
+      const response = generateAgentChatResponse(text, agent, vaultDocs);
+      if (response.updates) stageOrApply(response.updates);
+      setChatMessages((prev) => [...prev, {
+        role: "assistant",
+        text: response.text,
+        sources: response.sources,
+        toolCalls: response.toolCalls,
+        tokensUsed: response.tokensUsed,
+        latencyMs: response.latencyMs,
+      }]);
+      setChatDisabled(false);
+    }, 800 + Math.random() * 600);
+  };
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
+        <SheetHeader>
+          <div className="flex items-center justify-between gap-3">
+            <SheetTitle className="flex items-center gap-2">
+              <img src={AGENT_TYPE_ICON[agent.type] ?? "/icon-l1-essentials.svg"} alt="" width={18} height={18} />
+              {agent.name}
+            </SheetTitle>
+            <span
+              className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                isActive ? "bg-[#B3FFCC] text-black" : "bg-muted text-muted-foreground"
+              }`}
+            >
+              {isActive ? "Active" : "Off"}
+            </span>
+          </div>
+          <SheetDescription>{agent.bucket}</SheetDescription>
+        </SheetHeader>
+
+        <div className="mt-6 space-y-6">
+          <p className="text-sm text-foreground">{agent.description}</p>
+
+          {/* Pending changes banner */}
+          {pending && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/30">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Unpublished changes</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    These changes are staged and won&apos;t affect the live agent until you publish.
+                  </p>
+                  <ul className="mt-2 space-y-1 text-xs text-foreground">
+                    {pending.prompt !== undefined && pending.prompt !== agent.prompt && (
+                      <li>Prompt updated</li>
+                    )}
+                    {pending.goal !== undefined && pending.goal !== agent.goal && (
+                      <li>Goal updated</li>
+                    )}
+                    {pending.analysisFrequency !== undefined && pending.analysisFrequency !== agent.analysisFrequency && (
+                      <li>Frequency changed to {pending.analysisFrequency}</li>
+                    )}
+                  </ul>
+                </div>
+              </div>
+              <div className="mt-3 flex gap-2">
+                <Button size="sm" onClick={handlePublish}>Publish</Button>
+                <Button variant="ghost" size="sm" onClick={handleDiscard}>Discard</Button>
+              </div>
+            </div>
+          )}
+
+          {/* Metrics */}
+          {hasInsights ? (
+            <div className="grid grid-cols-3 gap-3">
+              <div className="rounded-lg border border-border bg-muted/30 p-3 text-center">
+                <Lightbulb className="mx-auto mb-1 h-4 w-4 text-muted-foreground" />
+                <p className="text-lg font-semibold text-foreground">{agent.insightsGenerated}</p>
+                <p className="text-[11px] text-muted-foreground">Insights</p>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/30 p-3 text-center">
+                <CheckCircle className="mx-auto mb-1 h-4 w-4 text-muted-foreground" />
+                <p className="text-lg font-semibold text-foreground">{agent.recommendationsActedOn ?? 0}</p>
+                <p className="text-[11px] text-muted-foreground">Acted on</p>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/30 p-3 text-center">
+                <BarChart3 className="mx-auto mb-1 h-4 w-4 text-muted-foreground" />
+                <p className="text-lg font-semibold text-foreground">
+                  {agent.insightsGenerated && agent.recommendationsActedOn
+                    ? `${Math.round((agent.recommendationsActedOn / agent.insightsGenerated) * 100)}%`
+                    : "—"}
+                </p>
+                <p className="text-[11px] text-muted-foreground">Action rate</p>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-border bg-muted/20 p-4 text-center">
+              <p className="text-sm text-muted-foreground">
+                {isActive ? "No insights yet. This agent will generate insights on its next analysis cycle." : "Turn this agent on to start generating insights."}
+              </p>
+            </div>
+          )}
+
+          {/* Prompt & Goal */}
+          <div className="space-y-4 rounded-lg border border-border p-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-semibold text-foreground">Prompt & Goal</h4>
+              {!editing ? (
+                <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
+                  <Pencil className="h-3.5 w-3.5" /> Edit
+                </Button>
+              ) : (
+                <div className="flex gap-1.5">
+                  <Button variant="ghost" size="sm" onClick={handleCancel}>Cancel</Button>
+                  <Button size="sm" onClick={handleSave}>
+                    <Save className="h-3.5 w-3.5" /> Save
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Analysis prompt</label>
+              {editing ? (
+                <textarea
+                  value={promptDraft}
+                  onChange={(e) => setPromptDraft(e.target.value)}
+                  rows={4}
+                  className="input-base w-full resize-y text-sm"
+                  placeholder="Tell the agent how to analyze the data..."
+                />
+              ) : (
+                <p className="text-sm text-foreground whitespace-pre-wrap">{agent.prompt || "No prompt configured."}</p>
+              )}
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Goal</label>
+              {editing ? (
+                <textarea
+                  value={goalDraft}
+                  onChange={(e) => setGoalDraft(e.target.value)}
+                  rows={2}
+                  className="input-base w-full resize-y text-sm"
+                  placeholder="What is the measurable goal for this agent?"
+                />
+              ) : (
+                <div className="flex items-start gap-2">
+                  <Target className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <p className="text-sm text-foreground">{agent.goal || "No goal set."}</p>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Analysis frequency</label>
+              {editing ? (
+                <select
+                  value={frequencyDraft}
+                  onChange={(e) => setFrequencyDraft(e.target.value)}
+                  className="select-base w-full text-sm"
+                >
+                  <option value="Hourly">Hourly</option>
+                  <option value="Daily">Daily</option>
+                  <option value="Weekly">Weekly</option>
+                  <option value="Monthly">Monthly</option>
+                </select>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-sm text-foreground">{agent.analysisFrequency ?? "Not set"}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Data Sources */}
+          {(agent.dataSources?.length ?? 0) > 0 && (
+            <div>
+              <h4 className="mb-2 text-sm font-semibold text-foreground flex items-center gap-2">
+                <Database className="h-3.5 w-3.5 text-muted-foreground" /> Data sources
+              </h4>
+              <div className="flex flex-wrap gap-1.5">
+                {agent.dataSources!.map((ds) => (
+                  <span key={ds} className="inline-flex rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium">{ds}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Tools */}
+          {agent.toolsAllowed.length > 0 && agent.toolsAllowed[0] !== "Entrata MCP" && (
+            <div>
+              <h4 className="mb-2 text-sm font-semibold text-foreground flex items-center gap-2">
+                <Cog className="h-3.5 w-3.5 text-muted-foreground" /> Tools
+              </h4>
+              <div className="flex flex-wrap gap-1.5">
+                {agent.toolsAllowed.map((t) => (
+                  <span key={t} className="inline-flex rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium">
+                    <code className="text-[10px]">{t}</code>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Knowledge / Vault binding */}
+          {agent.vaultBinding && agent.vaultBinding !== "—" && (
+            <div>
+              <h4 className="mb-2 text-sm font-semibold text-foreground flex items-center gap-2">
+                <BookOpen className="h-3.5 w-3.5 text-muted-foreground" /> Knowledge
+              </h4>
+              <p className="text-sm text-foreground">{agent.vaultBinding}</p>
+            </div>
+          )}
+
+          {/* Prompt Version History */}
+          {(agent.promptHistory?.length ?? 0) > 0 && (
+            <PromptVersionHistory
+              history={agent.promptHistory!}
+              currentPrompt={agent.prompt ?? ""}
+              onRestore={(prompt) => {
+                stageOrApply({ prompt });
+                setPromptDraft(prompt);
+              }}
+            />
+          )}
+
+          {/* Recent Insights */}
+          {(agent.recentInsights?.length ?? 0) > 0 && (
+            <div>
+              <h4 className="mb-3 text-sm font-semibold text-foreground flex items-center gap-2">
+                <Lightbulb className="h-3.5 w-3.5 text-muted-foreground" /> Recent insights
+              </h4>
+              <ul className="space-y-3">
+                {agent.recentInsights!.map((insight, i) => (
+                  <li key={i} className="rounded-lg border border-border p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-medium text-foreground">{insight.title}</p>
+                      <span className="shrink-0 text-[10px] text-muted-foreground">
+                        {new Date(insight.at).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground leading-relaxed">{insight.summary}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Context Assembly Panel */}
+          <div className="rounded-lg border border-border bg-muted/30 p-3">
+            <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              <Cog className="h-3 w-3" /> Context Assembly
+            </h4>
+            <div className="grid gap-2 text-[11px]">
+              <div className="flex items-start gap-2">
+                <span className="shrink-0 font-medium text-muted-foreground w-20">Prompt</span>
+                <span className="text-foreground truncate">{agent.prompt ? `"${agent.prompt.slice(0, 80)}${agent.prompt.length > 80 ? "…" : ""}"` : "Not set"}</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="shrink-0 font-medium text-muted-foreground w-20">Vault docs</span>
+                <span className="text-foreground">{agentDocs.length > 0 ? agentDocs.map((d) => d.fileName).join(", ") : "None bound"}</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="shrink-0 font-medium text-muted-foreground w-20">Tools</span>
+                <span className="text-foreground">{agent.toolsAllowed.length > 0 ? agent.toolsAllowed.join(", ") : "None"}</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="shrink-0 font-medium text-muted-foreground w-20">Data sources</span>
+                <span className="text-foreground">{agent.dataSources?.join(", ") ?? "None"}</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="shrink-0 font-medium text-muted-foreground w-20">History</span>
+                <span className="text-foreground">{chatMessages.length} turn{chatMessages.length !== 1 ? "s" : ""} in session</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Chat */}
+          <div>
+            <h4 className="mb-2 text-sm font-semibold text-foreground">Ask or update this agent</h4>
+            {chatMessages.length === 0 && (
+              <p className="mb-2 text-xs text-muted-foreground">
+                Use natural language to ask questions or give instructions. For example: &ldquo;Focus more on delinquency trends&rdquo; or &ldquo;What data sources are you using?&rdquo;
+              </p>
+            )}
+            <Chat
+              messages={chatMessages}
+              onSend={handleChatSend}
+              disabled={chatDisabled}
+              placeholder="Ask a question or give an instruction..."
+              roleLabels={{ user: "You", assistant: agent.name }}
+              roleVariant={{ user: "inbound", assistant: "outbound" }}
+              showAttach={false}
+              messageListHeight={240}
+              onFeedback={handleFeedback}
+            />
+          </div>
+
+          {/* On/Off toggle */}
+          <div className="flex items-center justify-between border-t border-border pt-4">
+            <span className="text-sm text-muted-foreground">Agent status</span>
+            <Button
               variant={isActive ? "destructive" : "default"}
               size="sm"
-              onClick={() => setShowToggleConfirm(true)}
+              onClick={() => onUpdate({ status: isActive ? "Off" : "Active" })}
             >
               <Power className="h-4 w-4" />
               {isActive ? "Turn off" : "Turn on"}
@@ -1233,77 +1607,124 @@ function IntelligenceAgentSheet({
           </div>
         </div>
       </SheetContent>
-
-      <Dialog open={showToggleConfirm} onOpenChange={setShowToggleConfirm}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{isActive ? "Turn off" : "Turn on"} {agent.name}?</DialogTitle>
-            <DialogDescription>
-              You are {isActive ? "turning off" : "turning on"} {agent.name} for all properties. This will {isActive ? "stop" : "start"} the agent across every property in your portfolio.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" size="sm" onClick={() => setShowToggleConfirm(false)}>
-              No, cancel
-            </Button>
-            <Button
-              variant={isActive ? "destructive" : "default"}
-              size="sm"
-              onClick={() => {
-                onToggle(isActive ? "Off" : "Active");
-                const newStatus = isActive ? "Off" : "Active";
-                setPropertyStatuses((prev) => {
-                  const updated = { ...prev };
-                  for (const key of Object.keys(updated)) updated[key] = newStatus;
-                  return updated;
-                });
-                setShowToggleConfirm(false);
-              }}
-            >
-              Yes, {isActive ? "turn off" : "turn on"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </Sheet>
   );
 }
 
+function PromptVersionHistory({
+  history,
+  currentPrompt,
+  onRestore,
+}: {
+  history: { version: number; prompt: string; changedAt: string; changedBy: string; note?: string }[];
+  currentPrompt: string;
+  onRestore: (prompt: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const sorted = [...history].sort((a, b) => b.version - a.version);
+
+  return (
+    <div>
+      <button
+        type="button"
+        className="mb-2 flex w-full items-center gap-2 text-sm font-semibold text-foreground"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <History className="h-3.5 w-3.5 text-muted-foreground" />
+        Prompt version history ({history.length})
+        <span className="ml-auto text-[10px] text-muted-foreground">{expanded ? "collapse" : "expand"}</span>
+      </button>
+      {expanded && (
+        <div className="space-y-2">
+          {sorted.map((entry) => {
+            const isCurrent = entry.prompt === currentPrompt;
+            return (
+              <div key={entry.version} className="rounded-lg border border-border p-2.5">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[10px] font-semibold bg-muted rounded px-1.5 py-0.5">v{entry.version}</span>
+                  <span className="text-[10px] text-muted-foreground">{new Date(entry.changedAt).toLocaleString()}</span>
+                  <span className="text-[10px] text-muted-foreground">by {entry.changedBy}</span>
+                  {isCurrent && <span className="text-[10px] font-medium text-emerald-600">current</span>}
+                  {!isCurrent && (
+                    <button
+                      type="button"
+                      className="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-foreground bg-muted hover:bg-muted/80"
+                      onClick={() => onRestore(entry.prompt)}
+                    >
+                      <RotateCcw className="h-2.5 w-2.5" /> Restore
+                    </button>
+                  )}
+                </div>
+                {entry.note && <p className="text-[10px] text-muted-foreground mb-1">{entry.note}</p>}
+                <p className="text-xs text-foreground line-clamp-2 font-mono bg-muted/50 rounded p-1.5">{entry.prompt}</p>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type EnrichedResponse = {
+  text: string;
+  updates?: Partial<Agent>;
+  sources?: ChatSource[];
+  toolCalls?: ChatToolCall[];
+  tokensUsed?: number;
+  latencyMs?: number;
+};
+
 function generateAgentChatResponse(
   message: string,
-  agent: Agent
-): { text: string; updates?: Partial<Agent> } {
+  agent: Agent,
+  vaultDocs?: { id: string; fileName: string; body?: string }[]
+): EnrichedResponse {
   const lower = message.toLowerCase();
   const staged = agent.status === "Active" ? "\n\nThis change has been staged — publish it from the banner above to make it live." : "";
 
+  const agentDocs = vaultDocs?.filter((d) => agent.vaultDocIds?.includes(d.id)) ?? [];
+  const makeSources = (count?: number): ChatSource[] => {
+    const docs = agentDocs.length > 0 ? agentDocs : (vaultDocs ?? []).slice(0, 2);
+    return docs.slice(0, count ?? 2).map((d) => ({
+      title: d.fileName,
+      snippet: d.body ? d.body.slice(0, 120) + "…" : `Operational document: ${d.fileName}`,
+      docId: d.id,
+    }));
+  };
+  const makeTools = (names?: string[]): ChatToolCall[] =>
+    (names ?? agent.toolsAllowed ?? []).slice(0, 2).map((n) => ({ name: n, status: "success" as const }));
+  const simLatency = () => 200 + Math.floor(Math.random() * 800);
+  const simTokens = () => 80 + Math.floor(Math.random() * 300);
+
   if (lower.includes("data source") || lower.includes("what data") || lower.includes("where do you get")) {
     const sources = agent.dataSources?.join(", ") || "No data sources configured";
-    return { text: `I'm currently pulling from: ${sources}. Would you like me to add or remove any data sources?` };
+    return { text: `I'm currently pulling from: ${sources}. Would you like me to add or remove any data sources?`, sources: makeSources(1), tokensUsed: simTokens(), latencyMs: simLatency() };
   }
 
   if (lower.includes("what is your goal") || lower.includes("what's your goal") || lower.includes("your objective")) {
-    return { text: agent.goal ? `My current goal is: ${agent.goal}` : "I don't have a goal set yet. Tell me what you'd like me to optimize for and I'll update it." };
+    return { text: agent.goal ? `My current goal is: ${agent.goal}` : "I don't have a goal set yet. Tell me what you'd like me to optimize for and I'll update it.", tokensUsed: simTokens(), latencyMs: simLatency() };
   }
 
   if (lower.includes("what is your prompt") || lower.includes("what are your instructions") || lower.includes("how do you analyze")) {
-    return { text: agent.prompt ? `Here's my current analysis prompt:\n\n"${agent.prompt}"` : "I don't have an analysis prompt yet. Tell me what you'd like me to focus on." };
+    return { text: agent.prompt ? `Here's my current analysis prompt:\n\n"${agent.prompt}"` : "I don't have an analysis prompt yet. Tell me what you'd like me to focus on.", tokensUsed: simTokens(), latencyMs: simLatency() };
   }
 
   if (lower.includes("how often") || lower.includes("frequency") || lower.includes("how frequently") || lower.includes("schedule")) {
-    return { text: `I currently run ${agent.analysisFrequency?.toLowerCase() ?? "on no set schedule"}. Would you like me to change that? You can say "run daily" or "run monthly".` };
+    return { text: `I currently run ${agent.analysisFrequency?.toLowerCase() ?? "on no set schedule"}. Would you like me to change that? You can say "run daily" or "run monthly".`, tokensUsed: simTokens(), latencyMs: simLatency() };
   }
 
   if (lower.includes("run daily") || lower.includes("change to daily") || lower.includes("switch to daily")) {
-    return { text: `Done — I've updated my analysis frequency to daily.${staged}`, updates: { analysisFrequency: "Daily" } };
+    return { text: `Done — I've updated my analysis frequency to daily.${staged}`, updates: { analysisFrequency: "Daily" }, toolCalls: makeTools(["config.updateAgent"]), tokensUsed: simTokens(), latencyMs: simLatency() };
   }
   if (lower.includes("run weekly") || lower.includes("change to weekly") || lower.includes("switch to weekly")) {
-    return { text: `Done — I've updated my analysis frequency to weekly.${staged}`, updates: { analysisFrequency: "Weekly" } };
+    return { text: `Done — I've updated my analysis frequency to weekly.${staged}`, updates: { analysisFrequency: "Weekly" }, toolCalls: makeTools(["config.updateAgent"]), tokensUsed: simTokens(), latencyMs: simLatency() };
   }
   if (lower.includes("run monthly") || lower.includes("change to monthly") || lower.includes("switch to monthly")) {
-    return { text: `Done — I've updated my analysis frequency to monthly.${staged}`, updates: { analysisFrequency: "Monthly" } };
+    return { text: `Done — I've updated my analysis frequency to monthly.${staged}`, updates: { analysisFrequency: "Monthly" }, toolCalls: makeTools(["config.updateAgent"]), tokensUsed: simTokens(), latencyMs: simLatency() };
   }
   if (lower.includes("run hourly") || lower.includes("change to hourly")) {
-    return { text: `Done — I've updated my analysis frequency to hourly. Note: this will generate a high volume of insights.${staged}`, updates: { analysisFrequency: "Hourly" } };
+    return { text: `Done — I've updated my analysis frequency to hourly. Note: this will generate a high volume of insights.${staged}`, updates: { analysisFrequency: "Hourly" }, toolCalls: makeTools(["config.updateAgent"]), tokensUsed: simTokens(), latencyMs: simLatency() };
   }
 
   if (lower.includes("focus on") || lower.includes("prioritize") || lower.includes("pay attention to") || lower.includes("look at")) {
@@ -1315,41 +1736,48 @@ function generateAgentChatResponse(
     return {
       text: `Got it — I've updated my prompt to include a focus on "${focus}".${staged}`,
       updates: { prompt: updatedPrompt },
+      toolCalls: makeTools(["config.updateAgent"]),
+      sources: makeSources(),
+      tokensUsed: simTokens(),
+      latencyMs: simLatency(),
     };
   }
 
   if (lower.includes("change goal") || lower.includes("update goal") || lower.includes("new goal") || lower.includes("set goal")) {
     const goalText = message.replace(/^.*?(change|update|new|set)\s*goal\s*(to)?\s*/i, "").replace(/[.!?]+$/, "").trim();
     if (goalText.length > 5) {
-      return { text: `Goal updated to: "${goalText}"${staged}`, updates: { goal: goalText } };
+      return { text: `Goal updated to: "${goalText}"${staged}`, updates: { goal: goalText }, toolCalls: makeTools(["config.updateAgent"]), tokensUsed: simTokens(), latencyMs: simLatency() };
     }
-    return { text: "What would you like the new goal to be? For example: 'Set goal to reduce delinquency by 20% this quarter.'" };
+    return { text: "What would you like the new goal to be? For example: 'Set goal to reduce delinquency by 20% this quarter.'", tokensUsed: simTokens(), latencyMs: simLatency() };
   }
 
   if (lower.includes("latest insight") || lower.includes("recent insight") || lower.includes("what did you find") || lower.includes("any findings")) {
     if (agent.recentInsights && agent.recentInsights.length > 0) {
       const latest = agent.recentInsights[0];
-      return { text: `My most recent insight (${new Date(latest.at).toLocaleDateString()}):\n\n**${latest.title}**\n${latest.summary}` };
+      return { text: `My most recent insight (${new Date(latest.at).toLocaleDateString()}):\n\n**${latest.title}**\n${latest.summary}`, sources: makeSources(), toolCalls: makeTools(), tokensUsed: simTokens(), latencyMs: simLatency() };
     }
-    return { text: "I haven't generated any insights yet. Once I run my next analysis cycle, I'll have findings to share." };
+    return { text: "I haven't generated any insights yet. Once I run my next analysis cycle, I'll have findings to share.", tokensUsed: simTokens(), latencyMs: simLatency() };
   }
 
   if (lower.includes("how many insight") || lower.includes("stats") || lower.includes("performance") || lower.includes("how are you doing")) {
     const total = agent.insightsGenerated ?? 0;
     const acted = agent.recommendationsActedOn ?? 0;
     const rate = total > 0 ? Math.round((acted / total) * 100) : 0;
-    return { text: `Here's my performance summary:\n• ${total} insights generated\n• ${acted} recommendations acted on\n• ${rate}% action rate\n\nWant me to adjust my focus to improve these numbers?` };
+    return { text: `Here's my performance summary:\n• ${total} insights generated\n• ${acted} recommendations acted on\n• ${rate}% action rate\n\nWant me to adjust my focus to improve these numbers?`, toolCalls: makeTools(["analytics.getAgentStats"]), tokensUsed: simTokens(), latencyMs: simLatency() };
   }
 
   if (lower.includes("turn off") || lower.includes("disable") || lower.includes("stop running")) {
-    return { text: "I've turned myself off. No new insights will be generated until you turn me back on.", updates: { status: "Off" } };
+    return { text: "I've turned myself off. No new insights will be generated until you turn me back on.", updates: { status: "Off" }, toolCalls: makeTools(["config.updateAgent"]), tokensUsed: simTokens(), latencyMs: simLatency() };
   }
   if (lower.includes("turn on") || lower.includes("enable") || lower.includes("start running") || lower.includes("activate")) {
-    return { text: "I'm now active. I'll start generating insights on my next scheduled cycle.", updates: { status: "Active" } };
+    return { text: "I'm now active. I'll start generating insights on my next scheduled cycle.", updates: { status: "Active" }, toolCalls: makeTools(["config.updateAgent"]), tokensUsed: simTokens(), latencyMs: simLatency() };
   }
 
   return {
     text: `I understand you're asking about "${message}". Here's what I can help with:\n\n• **Update my focus** — "Focus on late payments" or "Prioritize vendor costs"\n• **Change my goal** — "Set goal to reduce costs by 10%"\n• **Adjust frequency** — "Run daily" or "Switch to monthly"\n• **Ask about my work** — "Latest insights", "How are you performing?"\n• **Check my config** — "What data sources?", "What's your prompt?"\n\nWhat would you like to do?`,
+    sources: makeSources(1),
+    tokensUsed: simTokens(),
+    latencyMs: simLatency(),
   };
 }
 
@@ -1360,6 +1788,7 @@ function generateAgentChatResponse(
 function AgentTypeSelectorDialog({
   open,
   onOpenChange,
+  onSelect,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -1367,51 +1796,53 @@ function AgentTypeSelectorDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md overflow-hidden">
-        <div className="relative">
-          <DialogHeader>
-            <DialogTitle>What type of agent?</DialogTitle>
-            <DialogDescription>
-              Choose the agent type that matches your use case.
-            </DialogDescription>
-          </DialogHeader>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>What type of agent?</DialogTitle>
+          <DialogDescription>
+            Choose the agent type that matches your use case.
+          </DialogDescription>
+        </DialogHeader>
 
-          <div className="space-y-3 py-2">
-            {([
-              { type: "l4" as AgentType, desc: "Cross-functional orchestration. Coordinates multiple agents across departments to optimize outcomes holistically." },
-              { type: "l3" as AgentType, desc: "Resident-facing autonomy. Interacts directly with residents across channels using MCP tools within bounded guardrails." },
-              { type: "l2" as AgentType, desc: "Data analysis and insights. Analyzes patterns, generates recommendations, and surfaces actionable intelligence." },
-              { type: "l1" as AgentType, desc: "Automated operations. Runs scheduled tasks, processes data, and executes rule-based workflows." },
-            ]).map((item) => (
-              <div
-                key={item.type}
-                className="flex w-full items-start gap-4 rounded-lg border border-border p-4 text-left"
-              >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-foreground text-background text-sm font-bold">
-                  {item.type.toUpperCase()}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold">{item.type.toUpperCase()}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{item.desc}</p>
-                </div>
-                <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
-              </div>
-            ))}
-          </div>
-
-          {/* Coming soon overlay */}
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-lg bg-white/80 backdrop-blur-[2px] dark:bg-background/80">
-            <div className="flex flex-col items-center gap-3 px-6 text-center">
-              <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-primary">Coming Soon</span>
-              <h3 className="text-lg font-semibold text-foreground">Custom Agent Builder</h3>
-              <p className="max-w-xs text-sm text-muted-foreground">
-                Build and deploy your own custom agents tailored to your portfolio. Contact your CSM or Entrata for early access and more information.
-              </p>
-              <Button variant="outline" size="sm" className="mt-1" onClick={() => onOpenChange(false)}>
-                Got it
-              </Button>
+        <div className="space-y-3 py-2">
+          <button
+            type="button"
+            className="flex w-full items-start gap-4 rounded-lg border border-border p-4 text-left transition-colors hover:bg-muted/50"
+            onClick={() => onSelect("autonomous")}
+          >
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-foreground text-background">
+              <Bot className="h-5 w-5" />
             </div>
-          </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold">L4 · Conversational (ELI+)</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Interacts with residents directly across channels. Uses MCP tools to take actions within bounded autonomy and configurable guardrails.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1">
+                {["Chat", "SMS", "Voice", "Portal"].map((ch) => (
+                  <span key={ch} className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">{ch}</span>
+                ))}
+              </div>
+            </div>
+            <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
+          </button>
+
+          <button
+            type="button"
+            className="flex w-full items-start gap-4 rounded-lg border border-border p-4 text-left transition-colors hover:bg-muted/50"
+            onClick={() => onSelect("intelligence")}
+          >
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
+              <Sparkles className="h-5 w-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold">L2 · Operational Efficiency</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Analyzes data, generates insights, and makes recommendations. Does not interact with residents or take actions directly.
+              </p>
+            </div>
+            <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
+          </button>
         </div>
       </DialogContent>
     </Dialog>
@@ -1540,14 +1971,16 @@ function CreateAutonomousAgentDialog({
 
   const handleCreate = () => {
     if (!name.trim()) return;
+    const docNames = selectedDocs.map((id) => approvedDocs.find((d) => d.id === id)?.fileName).filter(Boolean);
     onSave({
       name: name.trim(),
       description: description.trim(),
-      status: deploymentMode === "shadow" ? "Off" : "Active",
+      status: deploymentMode === "shadow" ? "Training" : "Active",
       bucket,
-      type: "l3",
+      type: "autonomous",
       scope,
-      vaultBinding: selectedDocs.length > 0 ? `SOPs: ${selectedDocs.join(", ")}` : "",
+      vaultBinding: docNames.length > 0 ? `SOPs: ${docNames.join(", ")}` : "",
+      vaultDocIds: selectedDocs,
       channels,
       toolsAllowed: selectedTools.length > 0 ? selectedTools : ["Entrata MCP"],
       guardrails: [
@@ -1587,7 +2020,8 @@ function CreateAutonomousAgentDialog({
     <Dialog open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) reset(); }}>
       <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <img src="/eli-cube.svg" alt="" width={20} height={20} />
             Create Autonomous Agent
           </DialogTitle>
           <DialogDescription>
@@ -1783,10 +2217,10 @@ function CreateAutonomousAgentDialog({
               ) : (
                 <div className="max-h-36 space-y-1.5 overflow-y-auto">
                   {approvedDocs.map((doc) => {
-                    const sel = selectedDocs.includes(doc.fileName);
+                    const sel = selectedDocs.includes(doc.id);
                     return (
                       <label key={doc.id} className="flex cursor-pointer items-center gap-2 rounded-md border border-border p-2 hover:bg-muted/30">
-                        <input type="checkbox" checked={sel} onChange={() => toggleDoc(doc.fileName)} className="h-4 w-4 rounded border-border" />
+                        <input type="checkbox" checked={sel} onChange={() => toggleDoc(doc.id)} className="h-4 w-4 rounded border-border" />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium">{doc.fileName}</p>
                           {doc.tags && doc.tags.length > 0 && (
@@ -1823,9 +2257,9 @@ function CreateAutonomousAgentDialog({
                         <div className="flex items-center gap-2">
                           <p className="text-sm font-medium">{tool.label}</p>
                           <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                            tool.risk === "high" ? "bg-red-50 text-red-700" :
-                            tool.risk === "medium" ? "bg-amber-50 text-amber-700" :
-                            "bg-emerald-50 text-emerald-700"
+                            tool.risk === "high" ? "bg-red-500 text-white" :
+                            tool.risk === "medium" ? "bg-amber-400 text-amber-950" :
+                            "bg-[#B3FFCC] text-black"
                           }`}>
                             {tool.risk}
                           </span>
@@ -1838,7 +2272,7 @@ function CreateAutonomousAgentDialog({
                           onClick={() => toggleApproval(tool.name)}
                           className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition-colors ${
                             needsApproval
-                              ? "bg-amber-50 text-amber-700"
+                              ? "bg-amber-400 text-amber-950"
                               : "bg-muted text-muted-foreground hover:bg-muted/80"
                           }`}
                           title={needsApproval ? "Human approval required" : "No approval needed"}
@@ -1981,9 +2415,10 @@ function CreateAutonomousAgentDialog({
             <div className="rounded-md border border-border p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
+                  <img src="/eli-cube.svg" alt="" width={16} height={16} />
                   <h4 className="font-semibold">{name || "Untitled Agent"}</h4>
                 </div>
-                <Badge variant="secondary" className="text-[10px]">L3</Badge>
+                <Badge variant="secondary" className="text-[10px]">Autonomous</Badge>
               </div>
               {description && <p className="text-sm text-muted-foreground">{description}</p>}
 
@@ -2166,9 +2601,13 @@ function AutonomousAgentSheet({
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatDisabled, setChatDisabled] = useState(false);
   const [aiAssisting, setAiAssisting] = useState(false);
+  const [viewMode, setViewMode] = useState<"config" | "simulate">("config");
+  const [simMessages, setSimMessages] = useState<ChatMessage[]>([]);
+  const [simDisabled, setSimDisabled] = useState(false);
+  const { addFeedback } = useFeedback();
 
   const isActive = agent.status === "Active";
-  const isShadow = agent.deploymentMode === "shadow";
+  const isShadow = agent.deploymentMode === "shadow" || agent.status === "Training";
   const pending = agent.pendingChanges;
 
   const stageOrApply = (updates: Partial<Agent>) => {
@@ -2234,29 +2673,28 @@ function AutonomousAgentSheet({
     }, 800 + Math.random() * 600);
   };
 
+  const ELI_PLUS_PROPERTIES = [
+    { name: "Harvest Peak Capital", status: "Active", vertical: "Conventional", complete: 94 },
+    { name: "Skyline Apartments", status: "Active", vertical: "Conventional", complete: 87 },
+    { name: "The Meridian", status: "Setup", vertical: "Affordable", complete: 42 },
+  ];
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full overflow-y-auto sm:max-w-3xl">
+      <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
         <SheetHeader>
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              {agent.type === "l4" && (
-                <Image src="/eli-plus-cube.svg" alt="ELI+" width={18} height={18} />
-              )}
+              <img src="/eli-cube.svg" alt="" width={20} height={20} />
               <SheetTitle>{agent.name}</SheetTitle>
             </div>
-            <div className="flex items-center gap-1.5">
-              {isShadow && (
-                <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">Shadow</span>
-              )}
-              <span
-                className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                  isActive ? "bg-emerald-50 text-emerald-700" : "bg-muted text-muted-foreground"
-                }`}
-              >
-                {isActive ? "Active" : agent.status}
-              </span>
-            </div>
+            <span
+              className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                isActive ? "bg-[#B3FFCC] text-black" : "bg-muted text-muted-foreground"
+              }`}
+            >
+              {isActive ? "Active" : agent.status}
+            </span>
           </div>
           <SheetDescription>{agent.bucket}</SheetDescription>
         </SheetHeader>
@@ -2264,332 +2702,80 @@ function AutonomousAgentSheet({
         <div className="mt-6 space-y-6">
           <p className="text-sm text-foreground">{agent.description}</p>
 
-          {agent.type === "l4" && (
-            <a
-              href={`https://app.entrata.com/eli-plus/agents/${agent.id}/settings`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm font-semibold text-primary transition-colors hover:bg-primary/10"
-            >
-              <span className="flex items-center gap-2">
-                <Image src="/eli-plus-cube.svg" alt="" width={16} height={16} />
-                Open ELI+ Settings in Entrata
-              </span>
-              <ExternalLink className="h-4 w-4" />
-            </a>
-          )}
+          {/* Open ELI+ Settings link */}
+          <button
+            type="button"
+            className="flex w-full items-center justify-between rounded-lg border border-border bg-muted/30 px-4 py-3 text-left transition-colors hover:bg-muted/50"
+          >
+            <div className="flex items-center gap-2">
+              <img src="/eli-cube.svg" alt="" width={16} height={16} />
+              <span className="text-sm font-medium text-foreground">Open ELI+ Settings in Entrata</span>
+            </div>
+            <ExternalLink className="h-4 w-4 text-muted-foreground" />
+          </button>
 
-          {agent.type === "l4" ? (
-            <>
-              {/* Entrata-style property settings for L4/ELI+ agents */}
-              <div className="flex items-center gap-3">
-                <Button variant="outline" size="sm" asChild>
-                  <a href={`https://help.entrata.com/eli-plus/${agent.name.toLowerCase().replace(/\s+/g, "-")}`} target="_blank" rel="noopener noreferrer">
-                    View Help Article
-                  </a>
-                </Button>
-              </div>
+          {/* View Help Article */}
+          <Button variant="outline" size="sm">View Help Article</Button>
 
-              <div>
-                <select className="select-base w-auto min-w-[10rem] text-sm" defaultValue="all">
-                  <option value="all">All Properties</option>
-                  <option value="prop-a">Property A</option>
-                  <option value="prop-b">Property B</option>
-                  <option value="prop-c">Property C</option>
-                </select>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="pb-2.5 text-left text-xs font-medium text-muted-foreground">Property</th>
-                      <th className="pb-2.5 text-left text-xs font-medium text-muted-foreground">Status</th>
-                      <th className="pb-2.5 text-left text-xs font-medium text-muted-foreground">Vertical</th>
-                      <th className="pb-2.5 text-left text-xs font-medium text-muted-foreground">Complete</th>
-                      <th className="pb-2.5 w-10"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {[
-                      { property: "Harvest Peak Capital", status: "Active", vertical: "Conventional", complete: 94 },
-                      { property: "Skyline Apartments", status: "Active", vertical: "Conventional", complete: 87 },
-                      { property: "The Meridian", status: "Setup", vertical: "Affordable", complete: 42 },
-                    ].map((row) => (
-                      <tr key={row.property}>
-                        <td className="py-3 font-medium text-foreground">{row.property}</td>
-                        <td className="py-3">
-                          <span className={cn(
-                            "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium",
-                            row.status === "Active" && "bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-300",
-                            row.status === "Setup" && "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
-                            row.status === "Off" && "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400",
-                          )}>
-                            {row.status}
-                          </span>
-                        </td>
-                        <td className="py-3 text-muted-foreground">{row.vertical}</td>
-                        <td className="py-3">
-                          <div className="flex items-center gap-2">
-                            <div className="h-2 w-24 overflow-hidden rounded-full bg-muted">
-                              <div
-                                className={`h-full rounded-full transition-all ${row.complete >= 80 ? "bg-green-600" : row.complete >= 50 ? "bg-amber-500" : "bg-muted-foreground/40"}`}
-                                style={{ width: `${row.complete}%` }}
-                              />
-                            </div>
-                            <span className="text-xs text-muted-foreground">{row.complete}%</span>
-                          </div>
-                        </td>
-                        <td className="py-3">
-                          <Button variant="ghost" size="icon" className="h-7 w-7">
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          ) : (
-            <>
-              {/* L3 agent settings — keep existing pattern */}
-              {/* Pending changes banner */}
-              {pending && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/30">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">Unpublished changes</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      Changes are staged and won&apos;t affect the live agent until published.
-                    </p>
-                    <ul className="mt-2 space-y-1 text-xs text-foreground">
-                      {pending.systemPrompt !== undefined && pending.systemPrompt !== agent.systemPrompt && <li>System prompt updated</li>}
-                      {pending.goal !== undefined && pending.goal !== agent.goal && <li>Goal updated</li>}
-                    </ul>
-                  </div>
-                  <div className="mt-3 flex gap-2">
-                    <Button size="sm" onClick={handlePublish}>Publish</Button>
-                    <Button variant="ghost" size="sm" onClick={handleDiscard}>Discard</Button>
-                  </div>
-                </div>
-              )}
-
-              {/* Performance metrics */}
-              <div className="grid grid-cols-4 gap-2">
-                <div className="rounded-lg border border-border bg-muted/30 p-2.5 text-center">
-                  <p className="text-lg font-semibold text-foreground">{agent.conversationCount}</p>
-                  <p className="text-[10px] text-muted-foreground">Conversations</p>
-                </div>
-                <div className="rounded-lg border border-border bg-muted/30 p-2.5 text-center">
-                  <p className="text-lg font-semibold text-foreground">{agent.resolutionRate}</p>
-                  <p className="text-[10px] text-muted-foreground">Resolution</p>
-                </div>
-                <div className="rounded-lg border border-border bg-muted/30 p-2.5 text-center">
-                  <p className="text-lg font-semibold text-foreground">{agent.escalationsCount}</p>
-                  <p className="text-[10px] text-muted-foreground">Escalations</p>
-                </div>
-                <div className="rounded-lg border border-border bg-muted/30 p-2.5 text-center">
-                  <p className="text-lg font-semibold text-foreground">{agent.revenueImpact}</p>
-                  <p className="text-[10px] text-muted-foreground">Revenue</p>
-                </div>
-              </div>
-
-              {/* System Prompt */}
-              <div className="space-y-3 rounded-lg border border-border p-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-semibold text-foreground">System Prompt</h4>
-                  {!editing ? (
-                    <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
-                      <Pencil className="h-3.5 w-3.5" /> Edit
-                    </Button>
-                  ) : (
-                    <div className="flex gap-1.5">
-                      <Button variant="ghost" size="sm" onClick={handleCancel}>Cancel</Button>
-                      <Button size="sm" onClick={handleSave}>
-                        <Save className="h-3.5 w-3.5" /> Save
-                      </Button>
-                    </div>
-                  )}
-                </div>
-                {editing ? (
-                  <>
-                    <div className="flex justify-end">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={aiAssisting}
-                        onClick={() => {
-                          setAiAssisting(true);
-                          setTimeout(() => {
-                            setPromptDraft((prev) => generateSystemPrompt(agent.name, agent.bucket, agent.persona ?? "professional", prev));
-                            setAiAssisting(false);
-                          }, 600);
-                        }}
-                        className="h-7 gap-1.5 text-xs"
-                      >
-                        {aiAssisting ? (
-                          <><Sparkles className="h-3.5 w-3.5 animate-spin" /> Generating…</>
-                        ) : (
-                          <><Sparkles className="h-3.5 w-3.5" /> {promptDraft ? "Improve with AI" : "Generate with AI"}</>
-                        )}
-                      </Button>
-                    </div>
-                    <textarea
-                      value={promptDraft}
-                      onChange={(e) => setPromptDraft(e.target.value)}
-                      rows={12}
-                      className="input-base w-full resize-y text-sm font-mono"
-                      placeholder="Define the agent's core behavior..."
-                    />
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-muted-foreground">Goal</label>
-                      <textarea
-                        value={goalDraft}
-                        onChange={(e) => setGoalDraft(e.target.value)}
-                        rows={2}
-                        className="input-base w-full resize-y text-sm"
-                        placeholder="What is the measurable goal?"
-                      />
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-sm text-foreground whitespace-pre-wrap">
-                      {agent.systemPrompt || "No system prompt configured. Click Edit to add one."}
-                    </p>
-                    {agent.goal && (
-                      <div className="flex items-start gap-2 pt-2 border-t border-border">
-                        <Target className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        <p className="text-sm text-foreground">{agent.goal}</p>
+          {/* Properties Table */}
+          <div>
+            <select className="select-base mb-4 w-auto min-w-[10rem]">
+              <option>All Properties</option>
+            </select>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-left">
+                  <th className="pb-2 font-medium text-muted-foreground">Property</th>
+                  <th className="pb-2 font-medium text-muted-foreground">Status</th>
+                  <th className="pb-2 font-medium text-muted-foreground">Vertical</th>
+                  <th className="pb-2 font-medium text-muted-foreground">Complete</th>
+                  <th className="pb-2 w-8"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {ELI_PLUS_PROPERTIES.map((prop) => (
+                  <tr key={prop.name} className="border-b border-border/50">
+                    <td className="py-3 font-medium text-foreground">{prop.name}</td>
+                    <td className="py-3">
+                      <span className={`text-sm font-medium ${prop.status === "Active" ? "text-green-600" : "text-amber-600"}`}>
+                        {prop.status}
+                      </span>
+                    </td>
+                    <td className="py-3 text-muted-foreground">{prop.vertical}</td>
+                    <td className="py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-24 overflow-hidden rounded-full bg-muted">
+                          <div
+                            className={`h-full rounded-full ${prop.complete >= 80 ? "bg-green-500" : prop.complete >= 50 ? "bg-amber-400" : "bg-muted-foreground/40"}`}
+                            style={{ width: `${prop.complete}%` }}
+                          />
+                        </div>
+                        <span className="text-muted-foreground">{prop.complete}%</span>
                       </div>
-                    )}
-                  </>
-                )}
-              </div>
+                    </td>
+                    <td className="py-3">
+                      <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-              {/* Persona & Voice */}
-              <div className="space-y-2">
-                <h4 className="text-sm font-semibold text-foreground">Persona & Voice</h4>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div className="rounded-lg border border-border p-2.5">
-                    <span className="text-[10px] text-muted-foreground">Tone</span>
-                    <p className="font-medium capitalize">{agent.persona ?? "professional"}</p>
-                  </div>
-                  <div className="rounded-lg border border-border p-2.5">
-                    <span className="text-[10px] text-muted-foreground">Channels</span>
-                    <p className="font-medium">{agent.channels.join(", ") || "None"}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Guardrails */}
-              <div className="space-y-2">
-                <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                  <Shield className="h-3.5 w-3.5 text-muted-foreground" /> Guardrails
-                </h4>
-                <div className="grid grid-cols-3 gap-2 text-sm">
-                  <div className="rounded-lg border border-border p-2.5">
-                    <span className="text-[10px] text-muted-foreground">Max steps</span>
-                    <p className="font-semibold">{agent.maxSteps ?? 10}</p>
-                  </div>
-                  <div className="rounded-lg border border-border p-2.5">
-                    <span className="text-[10px] text-muted-foreground">Fair housing</span>
-                    <p className="font-semibold">{agent.fairHousingEnabled !== false ? "On" : "Off"}</p>
-                  </div>
-                  <div className="rounded-lg border border-border p-2.5">
-                    <span className="text-[10px] text-muted-foreground">Confidence</span>
-                    <p className="font-semibold">{agent.confidenceThreshold ?? 70}%</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Escalation */}
-              <div className="space-y-2">
-                <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                  <Zap className="h-3.5 w-3.5 text-muted-foreground" /> Escalation Rules
-                </h4>
-                <div className="rounded-lg border border-border p-3 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">Default behavior</span>
-                    <span className="font-medium capitalize">{(agent.escalationDefault ?? "agent_handles").replace("_", " ")}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* SLA */}
-              {(agent.slaFirstResponseMinutes || agent.slaResolutionHours) && (
-                <div className="space-y-2">
-                  <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                    <Clock className="h-3.5 w-3.5 text-muted-foreground" /> SLA
-                  </h4>
-                  <div className="grid grid-cols-3 gap-2 text-sm">
-                    <div className="rounded-lg border border-border p-2.5">
-                      <span className="text-[10px] text-muted-foreground">First response</span>
-                      <p className="font-semibold">{agent.slaFirstResponseMinutes} min</p>
-                    </div>
-                    <div className="rounded-lg border border-border p-2.5">
-                      <span className="text-[10px] text-muted-foreground">Resolution</span>
-                      <p className="font-semibold">{agent.slaResolutionHours} hrs</p>
-                    </div>
-                    <div className="rounded-lg border border-border p-2.5">
-                      <span className="text-[10px] text-muted-foreground">Hours</span>
-                      <p className="font-semibold">{agent.slaBusinessHoursOnly ? "Business" : "24/7"}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Configuration summary */}
-              <div className="space-y-2">
-                <Link href="/voice" className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline">
-                  Configuration <ExternalLink className="h-3.5 w-3.5" />
-                </Link>
-                <dl className="space-y-1.5 text-sm">
-                  <div className="flex justify-between">
-                    <dt className="text-muted-foreground">Scope</dt>
-                    <dd className="font-medium">{agent.scope}</dd>
-                  </div>
-                  <div className="flex justify-between">
-                    <dt className="text-muted-foreground">Routing labels</dt>
-                    <dd className="font-medium">{(agent.labels?.length ?? 0) > 0 ? agent.labels!.join(", ") : "None"}</dd>
-                  </div>
-                </dl>
-              </div>
-
-              {/* Chat */}
+          {/* Pending changes banner */}
+          {pending && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/30">
               <div>
-                <h4 className="mb-2 text-sm font-semibold text-foreground">Configure via chat</h4>
-                {chatMessages.length === 0 && (
-                  <p className="mb-2 text-xs text-muted-foreground">
-                    Use natural language to update this agent. For example: &ldquo;Add SMS channel&rdquo;, &ldquo;Escalate anything about mold&rdquo;, or &ldquo;What tools are you using?&rdquo;
-                  </p>
-                )}
-                <Chat
-                  messages={chatMessages}
-                  onSend={handleChatSend}
-                  disabled={chatDisabled}
-                  placeholder="Give an instruction or ask a question..."
-                  roleLabels={{ user: "You", assistant: agent.name }}
-                  roleVariant={{ user: "inbound", assistant: "outbound" }}
-                  showAttach={false}
-                  messageListHeight={240}
-                />
+                <p className="text-sm font-medium text-foreground">Unpublished changes</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Changes are staged and won&apos;t affect the live agent until published.
+                </p>
               </div>
-
-              {/* Status controls */}
-              <div className="flex items-center justify-between border-t border-border pt-4">
-                <span className="text-sm text-muted-foreground">Agent status</span>
-                <Button
-                  variant={isActive || isShadow ? "destructive" : "default"}
-                  size="sm"
-                  onClick={() => onUpdate({ status: isActive || isShadow ? "Off" : "Active" })}
-                >
-                  <Power className="h-4 w-4" />
-                  {isActive || isShadow ? "Turn off" : "Turn on"}
-                </Button>
+              <div className="mt-3 flex gap-2">
+                <Button size="sm" onClick={handlePublish}>Publish</Button>
+                <Button variant="ghost" size="sm" onClick={handleDiscard}>Discard</Button>
               </div>
-            </>
+            </div>
           )}
         </div>
       </SheetContent>
@@ -2702,7 +2888,7 @@ function generateAutonomousAgentChatResponse(
     if (lower.includes("go live") || lower.includes("activate") || lower.includes("active")) {
       return { text: "I've switched to active mode. I'll now respond to residents directly.", updates: { deploymentMode: "active", status: "Active" } };
     }
-    return { text: "I've switched to shadow mode. My responses will be reviewed before sending.", updates: { deploymentMode: "shadow", status: "Off" } };
+    return { text: "I've switched to shadow mode. My responses will be reviewed before sending.", updates: { deploymentMode: "shadow", status: "Training" } };
   }
 
   if (lower.includes("turn off") || lower.includes("disable") || lower.includes("stop")) {
@@ -2716,4 +2902,132 @@ function generateAutonomousAgentChatResponse(
   return {
     text: `I can help you configure me. Here's what I can do:\n\n• **System prompt** — "What's your prompt?" or click Edit above\n• **Channels** — "Add SMS channel" or "What channels?"\n• **Escalation** — "Escalate anything about mold" or "Add escalation keyword"\n• **Guardrails** — "What are your guardrails?" or "Set max steps to 8"\n• **Tools** — "What tools do you have?"\n• **Prohibited phrases** — "Don't ever say guaranteed"\n• **Disclosures** — "Always mention pet policy"\n• **Deployment** — "Go live" or "Switch to shadow"\n\nWhat would you like to configure?`,
   };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Conversation Simulator — shows agent handling a mock resident interaction
+   ═══════════════════════════════════════════════════════════════════════ */
+
+const MOCK_RESIDENT = {
+  name: "Jane Smith",
+  unit: "Unit 204",
+  property: "Oakwood Apartments",
+  leaseExpires: "March 15, 2026",
+  type: "resident" as const,
+};
+
+const MOCK_SCOPE = {
+  tenant: "Acme Property Management",
+  property: "Oakwood Apartments",
+  channel: "Chat",
+};
+
+const SIM_RESPONSES: Record<string, { text: string; sources: ChatSource[]; toolCalls: ChatToolCall[] }> = {
+  default: {
+    text: `Hello! I'm here to help with anything related to your apartment at ${MOCK_RESIDENT.property}. I can see your lease for ${MOCK_RESIDENT.unit}. How can I assist you today?`,
+    sources: [{ title: "Lease Terms SOP", snippet: "Standard greeting protocol: acknowledge resident by unit and confirm identity before proceeding." }],
+    toolCalls: [{ name: "Entrata MCP: getResidentProfile", status: "success", detail: "Retrieved profile for Jane Smith, Unit 204" }],
+  },
+  tour: {
+    text: `We'd love to show you around! We have availability for tours this week. Our one-bedrooms at ${MOCK_RESIDENT.property} start at $1,450/month with a $300 pet deposit. Would you like to schedule a time?`,
+    sources: [{ title: "Leasing SOP", snippet: "Always provide pricing upfront when asked about tours. Include pet deposit if applicable." }, { title: "Current Availability", snippet: "3 one-bedroom units available, starting at $1,450/mo." }],
+    toolCalls: [{ name: "Entrata MCP: getAvailableUnits", status: "success" }, { name: "Entrata MCP: getPropertyPricing", status: "success" }],
+  },
+  maintenance: {
+    text: `I'm sorry to hear about that! I've created a work order for your ${MOCK_RESIDENT.unit}. A maintenance technician will be assigned within 4 hours during business hours. You'll receive a text when they're on their way. Is this an emergency?`,
+    sources: [{ title: "Maintenance Escalation SOP", snippet: "Standard work orders: 4hr assignment SLA during business hours. Emergency: immediate dispatch." }],
+    toolCalls: [{ name: "Entrata MCP: createWorkOrder", status: "success", detail: "WO-4521 created for Unit 204" }],
+  },
+  payment: {
+    text: `I can see your account for ${MOCK_RESIDENT.unit}. Your current balance is $1,450.00, due on March 1st. Your last payment of $1,450.00 was received on February 1st. Would you like to make a payment now or set up autopay?`,
+    sources: [{ title: "Payment Policy SOP", snippet: "Always confirm current balance and due date before processing payments." }],
+    toolCalls: [{ name: "Entrata MCP: getResidentLedger", status: "success", detail: "Retrieved ledger for Unit 204" }],
+  },
+  renewal: {
+    text: `Great question! Your lease for ${MOCK_RESIDENT.unit} expires on ${MOCK_RESIDENT.leaseExpires}. Based on current market rates and your 2-year tenure, I'd recommend a renewal at $1,495/month — that's a 3.1% increase, which is below the market average of 4.2% for comparable units. Would you like me to prepare a renewal offer?`,
+    sources: [{ title: "Renewal Process SOP", snippet: "Factor in tenure, payment history, and market comps when suggesting renewal terms." }, { title: "Market Comps", snippet: "Avg 1BR rent in area: $1,520/mo. Avg increase: 4.2%." }],
+    toolCalls: [{ name: "Entrata MCP: getLeaseDetails", status: "success" }, { name: "analytics.getMarketComps", status: "success" }],
+  },
+};
+
+function getSimResponse(text: string): { text: string; sources: ChatSource[]; toolCalls: ChatToolCall[] } {
+  const lower = text.toLowerCase();
+  if (lower.includes("tour") || lower.includes("visit") || lower.includes("look")) return SIM_RESPONSES.tour;
+  if (lower.includes("maintenance") || lower.includes("repair") || lower.includes("broken") || lower.includes("fix") || lower.includes("leak")) return SIM_RESPONSES.maintenance;
+  if (lower.includes("payment") || lower.includes("pay") || lower.includes("rent") || lower.includes("balance")) return SIM_RESPONSES.payment;
+  if (lower.includes("renew") || lower.includes("lease") || lower.includes("expir")) return SIM_RESPONSES.renewal;
+  return SIM_RESPONSES.default;
+}
+
+function ConversationSimulator({
+  agent,
+  messages,
+  setMessages,
+  disabled,
+  setDisabled,
+  onFeedback,
+}: {
+  agent: Agent;
+  messages: ChatMessage[];
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+  disabled: boolean;
+  setDisabled: React.Dispatch<React.SetStateAction<boolean>>;
+  onFeedback: (idx: number, rating: "positive" | "negative") => void;
+}) {
+  const handleSend = (text: string) => {
+    setMessages((prev) => [...prev, { role: "user", text }]);
+    setDisabled(true);
+    setTimeout(() => {
+      const response = getSimResponse(text);
+      setMessages((prev) => [...prev, {
+        role: "assistant",
+        text: response.text,
+        sources: response.sources,
+        toolCalls: response.toolCalls,
+        tokensUsed: 150 + Math.floor(Math.random() * 200),
+        latencyMs: 300 + Math.floor(Math.random() * 600),
+      }]);
+      setDisabled(false);
+    }, 600 + Math.random() * 800);
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* Identity & Scope Context */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-lg border border-border bg-muted/30 p-2.5">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Resident Identity</p>
+          <p className="text-xs font-medium">{MOCK_RESIDENT.name}</p>
+          <p className="text-[10px] text-muted-foreground">{MOCK_RESIDENT.unit} · {MOCK_RESIDENT.property}</p>
+          <p className="text-[10px] text-muted-foreground">Lease expires: {MOCK_RESIDENT.leaseExpires}</p>
+        </div>
+        <div className="rounded-lg border border-border bg-muted/30 p-2.5">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Request Scope</p>
+          <p className="text-xs font-medium">{MOCK_SCOPE.tenant}</p>
+          <p className="text-[10px] text-muted-foreground">{MOCK_SCOPE.property}</p>
+          <p className="text-[10px] text-muted-foreground">Channel: {MOCK_SCOPE.channel}</p>
+        </div>
+      </div>
+
+      <div>
+        <h4 className="mb-2 text-sm font-semibold text-foreground">Simulated resident conversation</h4>
+        {messages.length === 0 && (
+          <p className="mb-2 text-xs text-muted-foreground">
+            Type as a resident would. Try: &ldquo;I need maintenance for a leak&rdquo;, &ldquo;When does my lease expire?&rdquo;, or &ldquo;How do I pay rent?&rdquo;
+          </p>
+        )}
+        <Chat
+          messages={messages}
+          onSend={handleSend}
+          disabled={disabled}
+          placeholder="Type as a resident..."
+          roleLabels={{ user: MOCK_RESIDENT.name, assistant: agent.name }}
+          roleVariant={{ user: "inbound", assistant: "outbound" }}
+          showAttach={false}
+          messageListHeight={240}
+          onFeedback={onFeedback}
+        />
+      </div>
+    </div>
+  );
 }

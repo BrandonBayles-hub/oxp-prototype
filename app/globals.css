@@ -82,13 +82,14 @@
   display: none;
 }
 
-/* Show horizontal scrollbar only on hover or when engaged (class added while scrolling) */
+/* Scrollbar visible only on hover — no layout shift */
 .scrollbar-hover {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
 }
 .scrollbar-hover::-webkit-scrollbar {
   height: 8px;
+  width: 6px;
 }
 .scrollbar-hover::-webkit-scrollbar-track {
   background: transparent;
@@ -96,34 +97,23 @@
 .scrollbar-hover::-webkit-scrollbar-thumb {
   background: transparent;
   border-radius: 4px;
-}
-.scrollbar-hover:not(:hover):not(.scrollbar-visible)::-webkit-scrollbar {
-  display: none;
+  transition: background 0.2s;
 }
 .scrollbar-hover:hover,
 .scrollbar-hover.scrollbar-visible {
-  scrollbar-width: thin;
-  -ms-overflow-style: auto;
-}
-.scrollbar-hover:hover::-webkit-scrollbar,
-.scrollbar-hover.scrollbar-visible::-webkit-scrollbar {
-  display: block;
+  scrollbar-color: hsl(var(--border)) transparent;
 }
 .scrollbar-hover:hover::-webkit-scrollbar-thumb,
 .scrollbar-hover.scrollbar-visible::-webkit-scrollbar-thumb {
   background: hsl(var(--border));
 }
-.scrollbar-hover:hover::-webkit-scrollbar-track,
-.scrollbar-hover.scrollbar-visible::-webkit-scrollbar-track {
-  background: hsl(var(--muted) / 0.5);
-}
 
 /* Minimal layout helpers that don't override Shadcn */
 .page-content .page-header {
-  @apply mb-6;
+  @apply mb-3;
 }
 .page-content .page-header h1 {
-  @apply text-2xl font-semibold leading-tight tracking-tight;
+  @apply text-2xl font-medium leading-tight tracking-tight;
 }
 .page-content .page-header p {
   @apply mt-1 text-sm text-muted-foreground;
@@ -175,6 +165,13 @@
   }
   .btn-secondary {
     @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 h-9 px-4 py-2;
+  }
+  /* HTML diff: ins/del highlighting for rendered rich-text diffs */
+  .html-diff ins {
+    @apply rounded-sm bg-emerald-100 px-0.5 text-emerald-800 no-underline dark:bg-emerald-900/40 dark:text-emerald-200;
+  }
+  .html-diff del {
+    @apply rounded-sm bg-red-100 px-0.5 text-red-800 line-through dark:bg-red-900/40 dark:text-red-200;
   }
   /* Section headings: minimal, use Shadcn typography */
   .section-title {

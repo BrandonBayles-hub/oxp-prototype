@@ -1,9 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "export",
-  basePath: process.env.NEXT_PUBLIC_BASE_PATH ?? "",
-  assetPrefix: process.env.NEXT_PUBLIC_BASE_PATH ?? "",
+  // No server redirect: root app/page.tsx does client-side redirect to /getting-started.
+  // This avoids 404s that can occur with config redirects in some setups.
   transpilePackages: [
     "@tiptap/react",
     "@tiptap/starter-kit",

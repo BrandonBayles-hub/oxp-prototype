@@ -1,9 +1,19 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { useAgents, type Agent } from "@/lib/agents-context";
 import { useVault, COMPLIANCE_ITEMS } from "@/lib/vault-context";
+import {
+  useGovernance,
+  HIGH_REGULATION_ACTIVITIES,
+  RISK_COLORS,
+  LIFECYCLE_STAGES,
+  AUDIT_EVENT_TYPES,
+  GENERAL_AI_SECTIONS,
+  type RiskLevel,
+  type AuditEventType,
+} from "@/lib/governance-context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -20,243 +30,16 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { ContractGate, R1ComingSoon } from "@/components/contract-overlay";
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle,
+} from "@/components/ui/sheet";
 import {
   Shield, ScrollText, ClipboardList, BrainCircuit,
   Plus, Trash2, ChevronDown, ChevronUp, AlertTriangle,
   Eye, FileCheck, Power, Timer, Download, History,
-  CheckCircle2, XCircle, Clock, Zap,
+  CheckCircle2, XCircle, Clock, Zap, Search, Cpu,
+  FileText, Wrench, ArrowRight, Activity,
 } from "lucide-react";
-
-/* ─────────────────────────────── Constants ────────────────────────────── */
-
-const GOV_STORAGE = "janet-poc-governance-v2";
-
-const HIGH_REGULATION_ACTIVITIES = [
-  {
-    id: "screening",
-    label: "Tenant Screening",
-    risk: "high",
-    description: "Application screening, background checks, and admission decisions.",
-    defaultApprovalGate: true,
-    defaultPolicyCheck: true,
-    defaultRequiredDocs: ["Screening policy", "Fair housing policy"],
-  },
-  {
-    id: "eviction",
-    label: "Eviction & Notices",
-    risk: "critical",
-    description: "Eviction filings, legal notices, and lease termination actions.",
-    defaultApprovalGate: true,
-    defaultPolicyCheck: true,
-    defaultRequiredDocs: ["Eviction procedures"],
-  },
-  {
-    id: "accommodation",
-    label: "Reasonable Accommodation",
-    risk: "critical",
-    description: "Disability accommodation requests, ESA processing, and modifications.",
-    defaultApprovalGate: true,
-    defaultPolicyCheck: true,
-    defaultRequiredDocs: ["Reasonable accommodation process", "Fair housing policy"],
-  },
-  {
-    id: "refunds",
-    label: "Refunds & Fee Waivers",
-    risk: "medium",
-    description: "Security deposit refunds, late fee waivers, and financial concessions.",
-    defaultApprovalGate: true,
-    defaultPolicyCheck: false,
-    defaultRequiredDocs: ["Security deposit policy"],
-  },
-  {
-    id: "lease_terms",
-    label: "Lease Terms & Enforcement",
-    risk: "high",
-    description: "Lease clause interpretation, rent adjustments, and term enforcement.",
-    defaultApprovalGate: false,
-    defaultPolicyCheck: true,
-    defaultRequiredDocs: [],
-  },
-  {
-    id: "advertising",
-    label: "Advertising & Marketing",
-    risk: "medium",
-    description: "Listing content, ad targeting, and promotional communications.",
-    defaultApprovalGate: false,
-    defaultPolicyCheck: true,
-    defaultRequiredDocs: ["Fair housing policy"],
-  },
-] as const;
-
-type RiskLevel = "low" | "medium" | "high" | "critical";
-
-const RISK_COLORS: Record<RiskLevel, string> = {
-  low: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200",
-  medium: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
-  high: "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200",
-  critical: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
-};
-
-const LIFECYCLE_STAGES = [
-  { id: "draft", label: "Draft", icon: ScrollText, description: "Agent is being configured. No live interactions." },
-  { id: "training", label: "Training", icon: BrainCircuit, description: "Agent is learning from linked SOPs and documents." },
-  { id: "shadow", label: "Shadow", icon: Eye, description: "Agent runs in parallel but all outputs require human approval before delivery." },
-  { id: "active", label: "Active", icon: Zap, description: "Agent is live and handling interactions autonomously within guardrails." },
-  { id: "suspended", label: "Suspended", icon: Power, description: "Agent is temporarily paused. No new interactions accepted." },
-  { id: "retired", label: "Retired", icon: Clock, description: "Agent is permanently decommissioned. Historical data retained." },
-] as const;
-
-type AuditEventType = "agent_response" | "tool_call" | "document_retrieval" | "escalation" | "approval" | "config_change";
-
-const AUDIT_EVENT_TYPES: { id: AuditEventType; label: string; description: string }[] = [
-  { id: "agent_response", label: "Agent Responses", description: "All AI-generated messages sent to residents or staff" },
-  { id: "tool_call", label: "Tool & API Calls", description: "Every MCP tool invocation and external API call" },
-  { id: "document_retrieval", label: "Document Retrievals", description: "Which SOPs/docs were grounded on for each response" },
-  { id: "escalation", label: "Escalations", description: "All escalation events, routing decisions, and outcomes" },
-  { id: "approval", label: "Approval Decisions", description: "Human approve/deny actions on agent proposals" },
-  { id: "config_change", label: "Configuration Changes", description: "Any changes to agent settings, guardrails, or governance" },
-];
-
-const GENERAL_AI_SECTIONS = [
-  {
-    id: "humanReview",
-    label: "Human-in-the-Loop Review",
-    icon: Eye,
-    description: "Require human review for high-risk agent outputs before they reach residents.",
-    settings: [
-      { id: "hrHighRisk", label: "Require review for high-risk activities", default: true },
-      { id: "hrNewAgents", label: "Auto-enable shadow mode for newly deployed agents", default: true },
-      { id: "hrFinancial", label: "Require approval for financial transactions above threshold", default: true },
-    ],
-  },
-  {
-    id: "outputFilters",
-    label: "Output Safety Filters",
-    icon: Shield,
-    description: "Filters that prevent agents from generating harmful, non-compliant, or sensitive content.",
-    settings: [
-      { id: "ofPii", label: "PII redaction in logs and exports", default: true },
-      { id: "ofDiscriminatory", label: "Block discriminatory language patterns", default: true },
-      { id: "ofLegal", label: "Flag legal advice or liability-creating statements", default: true },
-      { id: "ofPromptInjection", label: "Prompt injection detection and blocking", default: true },
-    ],
-  },
-  {
-    id: "fairHousing",
-    label: "Fair Housing Posture",
-    icon: FileCheck,
-    description: "Aligned with HUD May 2024 guidance. Ensures screening criteria are consistent, transparent, and documented.",
-    settings: [
-      { id: "fhConsistentCriteria", label: "Enforce consistent screening criteria across properties", default: true },
-      { id: "fhApprovedDocsOnly", label: "Ground agent responses in approved documents only", default: true },
-      { id: "fhPolicyContradiction", label: "Check responses against policy before sending", default: false },
-      { id: "fhDisputeRights", label: "Inform applicants of dispute rights in screening decisions", default: true },
-    ],
-  },
-  {
-    id: "frameworks",
-    label: "Industry Framework Alignment",
-    icon: ClipboardList,
-    description: "Track alignment with recognized AI governance frameworks to demonstrate responsible AI practices.",
-    settings: [
-      { id: "fwNistRmf", label: "NIST AI Risk Management Framework (AI RMF 1.0)", default: true },
-      { id: "fwEuAiAct", label: "EU AI Act — high-risk system requirements", default: false },
-      { id: "fwBidenEo", label: "Executive Order 14110 — Safe AI", default: false },
-      { id: "fwNaahq", label: "NAAHQ AI guidance for multifamily", default: true },
-    ],
-  },
-] as const;
-
-/* ─────────────────────────────── State Types ──────────────────────────── */
-
-type ActivityGuardrail = {
-  enabled: boolean;
-  approvalGate: boolean;
-  policyCheck: boolean;
-  requiredDocs: string[];
-  scope: "all" | "specific";
-  scopedAgentIds: string[];
-  thresholdAmount?: number;
-};
-
-type RequiredDocEntry = {
-  document: string;
-  required: boolean;
-  activities: string[];
-};
-
-type LifecycleSettings = {
-  enforceShadowMode: boolean;
-  shadowDurationDays: number;
-  killSwitchEnabled: boolean;
-  autoSuspendOnErrors: boolean;
-  errorThreshold: number;
-  requireApprovalForActivation: boolean;
-};
-
-type AuditSettings = {
-  enabledEvents: Record<AuditEventType, boolean>;
-  retentionDays: number;
-  exportFormat: "json" | "csv";
-  traceEnabled: boolean;
-  traceIdFormat: "uuid" | "sequential";
-  realTimeAlerts: boolean;
-};
-
-type GovState = {
-  activities: Record<string, ActivityGuardrail>;
-  requiredDocs: RequiredDocEntry[];
-  lifecycle: LifecycleSettings;
-  audit: AuditSettings;
-  generalAi: Record<string, boolean>;
-};
-
-function buildDefaultState(): GovState {
-  const activities: Record<string, ActivityGuardrail> = {};
-  for (const a of HIGH_REGULATION_ACTIVITIES) {
-    activities[a.id] = {
-      enabled: true,
-      approvalGate: a.defaultApprovalGate,
-      policyCheck: a.defaultPolicyCheck,
-      requiredDocs: [...a.defaultRequiredDocs],
-      scope: "all",
-      scopedAgentIds: [],
-    };
-  }
-
-  const requiredDocs: RequiredDocEntry[] = COMPLIANCE_ITEMS.map((doc) => ({
-    document: doc,
-    required: true,
-    activities: HIGH_REGULATION_ACTIVITIES
-      .filter((a) => (a.defaultRequiredDocs as readonly string[]).includes(doc))
-      .map((a) => a.id),
-  }));
-
-  return {
-    activities,
-    requiredDocs,
-    lifecycle: {
-      enforceShadowMode: true,
-      shadowDurationDays: 7,
-      killSwitchEnabled: true,
-      autoSuspendOnErrors: true,
-      errorThreshold: 5,
-      requireApprovalForActivation: true,
-    },
-    audit: {
-      enabledEvents: Object.fromEntries(AUDIT_EVENT_TYPES.map((e) => [e.id, true])) as Record<AuditEventType, boolean>,
-      retentionDays: 365,
-      exportFormat: "json",
-      traceEnabled: true,
-      traceIdFormat: "uuid",
-      realTimeAlerts: true,
-    },
-    generalAi: Object.fromEntries(
-      GENERAL_AI_SECTIONS.flatMap((s) => s.settings.map((st) => [st.id, st.default]))
-    ),
-  };
-}
 
 /* ─────────────────────────────── Mock Audit Log ───────────────────────── */
 
@@ -280,101 +63,172 @@ const EVENT_ICONS: Record<AuditEventType, typeof Shield> = {
   config_change: History,
 };
 
+type TraceStep = {
+  type: "input" | "rag" | "llm" | "tool" | "output";
+  label: string;
+  detail: string;
+  latencyMs: number;
+  meta?: Record<string, string | number>;
+};
+
+type TraceDetail = {
+  traceId: string;
+  agent: string;
+  event: AuditEventType;
+  timestamp: string;
+  totalLatencyMs: number;
+  totalTokens: number;
+  estimatedCost: string;
+  steps: TraceStep[];
+};
+
+function TraceViewerContent({ trace }: { trace: TraceDetail }) {
+  return (
+    <>
+      <SheetHeader>
+        <SheetTitle className="flex items-center gap-2">
+          <Search className="h-4 w-4" />
+          Trace: <code className="text-sm font-mono">{trace.traceId}</code>
+        </SheetTitle>
+      </SheetHeader>
+
+      <div className="mt-4 space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-lg border border-border p-3">
+            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Agent</p>
+            <p className="mt-0.5 text-sm font-medium">{trace.agent}</p>
+          </div>
+          <div className="rounded-lg border border-border p-3">
+            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Event</p>
+            <p className="mt-0.5 text-sm font-medium capitalize">{trace.event.replace(/_/g, " ")}</p>
+          </div>
+          <div className="rounded-lg border border-border p-3">
+            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Total latency</p>
+            <p className="mt-0.5 text-sm font-semibold">{trace.totalLatencyMs}ms</p>
+          </div>
+          <div className="rounded-lg border border-border p-3">
+            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Tokens / Cost</p>
+            <p className="mt-0.5 text-sm font-semibold">{trace.totalTokens} · {trace.estimatedCost}</p>
+          </div>
+        </div>
+
+        <div>
+          <h4 className="mb-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Execution chain</h4>
+          <div className="space-y-0">
+            {trace.steps.map((step, si) => {
+              const stepIcons: Record<string, typeof Shield> = { input: Zap, rag: FileText, llm: Cpu, tool: Wrench, output: CheckCircle2 };
+              const StepIcon = stepIcons[step.type] ?? Zap;
+              const isLast = si === trace.steps.length - 1;
+              return (
+                <div key={si} className="flex gap-3">
+                  <div className="flex flex-col items-center">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-background">
+                      <StepIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                    </div>
+                    {!isLast && <div className="w-px flex-1 bg-border" />}
+                  </div>
+                  <div className={cn("pb-4 flex-1 min-w-0", isLast && "pb-0")}>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium">{step.label}</p>
+                      <span className="text-[10px] text-muted-foreground">{step.latencyMs}ms</span>
+                    </div>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{step.detail}</p>
+                    {step.meta && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {Object.entries(step.meta).map(([k, v]) => (
+                          <span key={k} className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono">
+                            {k}: {v}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-border p-3 bg-muted/30">
+          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">Timestamp</p>
+          <p className="text-xs">{new Date(trace.timestamp).toLocaleString()}</p>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function generateMockTrace(entry: (typeof MOCK_AUDIT_LOG)[number]): TraceDetail {
+  const ragLatency = 45 + Math.floor(Math.random() * 60);
+  const llmLatency = 180 + Math.floor(Math.random() * 400);
+  const toolLatency = entry.event === "tool_call" ? 90 + Math.floor(Math.random() * 200) : 0;
+  const tokensIn = 400 + Math.floor(Math.random() * 600);
+  const tokensOut = 120 + Math.floor(Math.random() * 300);
+  const total = tokensIn + tokensOut;
+  const cost = (total * 0.000003).toFixed(4);
+
+  const steps: TraceStep[] = [
+    { type: "input", label: "User input", detail: entry.detail, latencyMs: 2, meta: { channel: "Chat", property: "Oakwood Apartments" } },
+    { type: "rag", label: "RAG retrieval", detail: "Queried Vault for relevant SOPs and policies", latencyMs: ragLatency, meta: { chunks: 3 + Math.floor(Math.random() * 4), topScore: (0.85 + Math.random() * 0.14).toFixed(2) } },
+    { type: "llm", label: "LLM inference", detail: "Claude 3.5 Sonnet — generated response", latencyMs: llmLatency, meta: { model: "claude-3.5-sonnet", tokensIn, tokensOut } },
+  ];
+  if (entry.event === "tool_call" || entry.event === "agent_response") {
+    const toolName = entry.detail.includes("MCP") ? entry.detail.split(": ").pop() ?? "Entrata MCP" : "Entrata MCP";
+    steps.push({ type: "tool", label: "Tool call", detail: `Called ${toolName}`, latencyMs: toolLatency, meta: { tool: toolName, result: "success" } });
+  }
+  if (entry.event === "escalation") {
+    steps.push({ type: "tool", label: "Escalation", detail: "Routed to on-call staff via escalation engine", latencyMs: 15, meta: { reason: "emergency", assignee: "On-call maintenance" } });
+  }
+  steps.push({ type: "output", label: "Response delivered", detail: "Sent to user via channel", latencyMs: 5 });
+
+  return {
+    traceId: entry.traceId,
+    agent: entry.agent,
+    event: entry.event,
+    timestamp: entry.timestamp,
+    totalLatencyMs: steps.reduce((s, st) => s + st.latencyMs, 0),
+    totalTokens: total,
+    estimatedCost: `$${cost}`,
+    steps,
+  };
+}
+
+const LIFECYCLE_ICONS: Record<string, typeof Shield> = {
+  draft: ScrollText,
+  training: BrainCircuit,
+  shadow: Eye,
+  active: Zap,
+  suspended: Power,
+  retired: Clock,
+};
+
 /* ─────────────────────────────── Component ─────────────────────────────── */
 
 export default function GovernancePage() {
   const { agents } = useAgents();
   const { documents } = useVault();
-  const [state, setState] = useState<GovState>(buildDefaultState);
+  const {
+    state,
+    updateState,
+    updateActivity,
+    updateLifecycle,
+    updateAudit,
+    toggleGeneralAi,
+    toggleDocRequired,
+    enabledGuardrailCount,
+  } = useGovernance();
   const [activeTab, setActiveTab] = useState("guardrails");
   const [expandedActivity, setExpandedActivity] = useState<string | null>(null);
   const [addDocDialogOpen, setAddDocDialogOpen] = useState(false);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(GOV_STORAGE);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        setState((prev) => ({
-          activities: { ...prev.activities, ...parsed.activities },
-          requiredDocs: parsed.requiredDocs ?? prev.requiredDocs,
-          lifecycle: { ...prev.lifecycle, ...parsed.lifecycle },
-          audit: {
-            ...prev.audit,
-            ...parsed.audit,
-            enabledEvents: { ...prev.audit.enabledEvents, ...parsed.audit?.enabledEvents },
-          },
-          generalAi: { ...prev.generalAi, ...parsed.generalAi },
-        }));
-      }
-    } catch { /* ignore */ }
-  }, []);
-
-  const persist = useCallback((next: GovState) => {
-    try { localStorage.setItem(GOV_STORAGE, JSON.stringify(next)); } catch { /* ignore */ }
-  }, []);
-
-  const updateState = useCallback((updater: (prev: GovState) => GovState) => {
-    setState((prev) => {
-      const next = updater(prev);
-      persist(next);
-      return next;
-    });
-  }, [persist]);
-
-  const updateActivity = useCallback((actId: string, patch: Partial<ActivityGuardrail>) => {
-    updateState((prev) => ({
-      ...prev,
-      activities: {
-        ...prev.activities,
-        [actId]: { ...prev.activities[actId], ...patch },
-      },
-    }));
-  }, [updateState]);
-
-  const updateLifecycle = useCallback((patch: Partial<LifecycleSettings>) => {
-    updateState((prev) => ({
-      ...prev,
-      lifecycle: { ...prev.lifecycle, ...patch },
-    }));
-  }, [updateState]);
-
-  const updateAudit = useCallback((patch: Partial<AuditSettings>) => {
-    updateState((prev) => ({
-      ...prev,
-      audit: { ...prev.audit, ...patch },
-    }));
-  }, [updateState]);
-
-  const toggleGeneralAi = useCallback((key: string) => {
-    updateState((prev) => ({
-      ...prev,
-      generalAi: { ...prev.generalAi, [key]: !prev.generalAi[key] },
-    }));
-  }, [updateState]);
-
-  const toggleDocRequired = useCallback((docIndex: number) => {
-    updateState((prev) => {
-      const docs = [...prev.requiredDocs];
-      docs[docIndex] = { ...docs[docIndex], required: !docs[docIndex].required };
-      return { ...prev, requiredDocs: docs };
-    });
-  }, [updateState]);
-
+  const [selectedTrace, setSelectedTrace] = useState<TraceDetail | null>(null);
   /* ── Derived data ── */
 
   const allAgents = useMemo(() => agents, [agents]);
   const activeAgentCount = useMemo(() => agents.filter((a) => a.status === "Active").length, [agents]);
-  const trainingAgentCount = useMemo(() => agents.filter((a) => a.status === "Training").length, [agents]);
 
   const approvedDocCount = useMemo(
     () => documents.filter((d) => d.approvalStatus === "approved").length,
     [documents]
-  );
-
-  const enabledGuardrailCount = useMemo(
-    () => Object.values(state.activities).filter((a) => a.enabled).length,
-    [state.activities]
   );
 
   const enabledAuditEvents = useMemo(
@@ -398,8 +252,6 @@ export default function GovernancePage() {
   ];
 
   return (
-    <R1ComingSoon featureName="Governance" description="Define and enforce compliance policies, guardrails, and audit controls across all AI agents and properties.">
-    <ContractGate featureName="Governance">
     <>
       <PageHeader
         title="Governance"
@@ -522,7 +374,7 @@ export default function GovernancePage() {
                         </div>
                         {guardrail.scope === "specific" && (
                           <div className="mt-2 flex flex-wrap gap-1.5">
-                            {allAgents.filter((a) => a.type === "l4").map((agent) => {
+                            {allAgents.filter((a) => a.type === "autonomous").map((agent) => {
                               const isSelected = guardrail.scopedAgentIds.includes(agent.id);
                               return (
                                 <button
@@ -732,7 +584,7 @@ export default function GovernancePage() {
             <CardContent>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
                 {LIFECYCLE_STAGES.map((stage) => {
-                  const Icon = stage.icon;
+                  const Icon = LIFECYCLE_ICONS[stage.id] ?? Shield;
                   const agentCount = agents.filter((a) => {
                     if (stage.id === "active") return a.status === "Active";
                     if (stage.id === "training") return a.status === "Training";
@@ -1043,6 +895,50 @@ export default function GovernancePage() {
             </Card>
           </div>
 
+          {/* Aggregate metrics */}
+          <div className="grid gap-3 sm:grid-cols-4 mb-4">
+            <Card className="border-border/60">
+              <CardContent className="flex items-center gap-3 pt-5">
+                <Activity className="h-5 w-5 text-muted-foreground" />
+                <div>
+                  <p className="text-lg font-semibold">{MOCK_AUDIT_LOG.length}</p>
+                  <p className="text-xs text-muted-foreground">Total traces</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-border/60">
+              <CardContent className="flex items-center gap-3 pt-5">
+                <Clock className="h-5 w-5 text-muted-foreground" />
+                <div>
+                  <p className="text-lg font-semibold">
+                    {Math.round(MOCK_AUDIT_LOG.reduce((s, e) => s + generateMockTrace(e).totalLatencyMs, 0) / MOCK_AUDIT_LOG.length)}ms
+                  </p>
+                  <p className="text-xs text-muted-foreground">Avg latency</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-border/60">
+              <CardContent className="flex items-center gap-3 pt-5">
+                <Cpu className="h-5 w-5 text-muted-foreground" />
+                <div>
+                  <p className="text-lg font-semibold">
+                    {(MOCK_AUDIT_LOG.reduce((s, e) => s + generateMockTrace(e).totalTokens, 0) / 1000).toFixed(1)}K
+                  </p>
+                  <p className="text-xs text-muted-foreground">Tokens today</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-border/60">
+              <CardContent className="flex items-center gap-3 pt-5">
+                <XCircle className="h-5 w-5 text-muted-foreground" />
+                <div>
+                  <p className="text-lg font-semibold">0%</p>
+                  <p className="text-xs text-muted-foreground">Error rate</p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
           {/* Recent audit log */}
           <Card>
             <CardHeader className="pb-3">
@@ -1081,7 +977,13 @@ export default function GovernancePage() {
                           {entry.detail}
                         </TableCell>
                         <TableCell>
-                          <code className="rounded bg-muted px-1.5 py-0.5 text-[10px]">{entry.traceId}</code>
+                          <button
+                            type="button"
+                            className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono hover:bg-primary/10 hover:text-primary transition-colors cursor-pointer"
+                            onClick={() => setSelectedTrace(generateMockTrace(entry))}
+                          >
+                            {entry.traceId} <Search className="inline h-2.5 w-2.5 ml-0.5" />
+                          </button>
                         </TableCell>
                       </TableRow>
                     );
@@ -1090,6 +992,13 @@ export default function GovernancePage() {
               </Table>
             </CardContent>
           </Card>
+
+          {/* Trace Viewer Sheet */}
+          <Sheet open={!!selectedTrace} onOpenChange={(open) => !open && setSelectedTrace(null)}>
+            <SheetContent className="sm:max-w-lg overflow-y-auto">
+              {selectedTrace && <TraceViewerContent trace={selectedTrace!} />}
+            </SheetContent>
+          </Sheet>
         </TabsContent>
 
         {/* ───── TAB 5: General AI Governance ───── */}
@@ -1100,14 +1009,12 @@ export default function GovernancePage() {
           </p>
 
           {GENERAL_AI_SECTIONS.map((section) => {
-            const Icon = section.icon;
             const enabledCount = section.settings.filter((s) => state.generalAi[s.id]).length;
 
             return (
               <Card key={section.id}>
                 <CardHeader className="pb-3">
                   <div className="flex items-center gap-2">
-                    <Icon className="h-4 w-4 text-muted-foreground" />
                     <CardTitle>{section.label}</CardTitle>
                     <Badge variant="secondary" className="ml-auto text-[10px]">
                       {enabledCount}/{section.settings.length} enabled
@@ -1189,8 +1096,6 @@ export default function GovernancePage() {
         }}
       />
     </>
-    </ContractGate>
-    </R1ComingSoon>
   );
 }
 

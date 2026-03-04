@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { PageHeader } from "@/components/page-header";
 import { useTools, type EntrataModule, type CustomMcpServer } from "@/lib/tools-context";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 import {
   Plus, Trash2, ExternalLink, ShieldCheck, ShieldAlert,
   CheckCircle2, Clock, XCircle, Server, Plug,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, Webhook, Send, Copy, Eye,
 } from "lucide-react";
 
 /* ─────────────────────────────── Helpers ────────────────────────────── */
@@ -119,6 +119,7 @@ export default function ToolsPage() {
         <TabsList className="mb-6">
           <TabsTrigger value="entrata">Entrata</TabsTrigger>
           <TabsTrigger value="custom">Custom MCP</TabsTrigger>
+          <TabsTrigger value="events">Events & Webhooks</TabsTrigger>
         </TabsList>
 
         {/* ───── TAB 1: Entrata Modules ───── */}
@@ -178,6 +179,11 @@ export default function ToolsPage() {
               />
             ))
           )}
+        </TabsContent>
+
+        {/* ───── TAB 3: Events & Webhooks ───── */}
+        <TabsContent value="events" className="space-y-4">
+          <EventsAndWebhooks />
         </TabsContent>
       </Tabs>
 
@@ -486,5 +492,214 @@ function AddServerDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/* ────────────────────── Events & Webhooks ─────────────────────────── */
+
+type PlatformEvent = {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  webhookUrl: string;
+  samplePayload: Record<string, unknown>;
+  recentDeliveries: { at: string; status: "success" | "failed"; httpCode: number }[];
+};
+
+const INITIAL_EVENTS: PlatformEvent[] = [
+  {
+    id: "conversation.ended",
+    name: "conversation.ended",
+    description: "Fired when an agent completes a conversation with a resident",
+    enabled: true,
+    webhookUrl: "https://hooks.example.com/janet/conversations",
+    samplePayload: { event: "conversation.ended", agentId: "agent-1", agentName: "Leasing AI", residentId: "r-204", unit: "Unit 204", property: "Oakwood Apartments", resolution: "resolved", turns: 4, latencyMs: 1240, timestamp: "2026-02-23T10:30:00Z" },
+    recentDeliveries: [
+      { at: "2026-02-23T10:30:12Z", status: "success", httpCode: 200 },
+      { at: "2026-02-23T09:15:04Z", status: "success", httpCode: 200 },
+      { at: "2026-02-22T16:45:33Z", status: "failed", httpCode: 500 },
+    ],
+  },
+  {
+    id: "escalation.created",
+    name: "escalation.created",
+    description: "Fired when an agent escalates to a human operator",
+    enabled: true,
+    webhookUrl: "https://hooks.example.com/janet/escalations",
+    samplePayload: { event: "escalation.created", agentId: "agent-10", agentName: "Maintenance AI", reason: "Emergency work order detected", priority: "urgent", assignee: "On-call maintenance", property: "Oakwood Apartments", timestamp: "2026-02-23T11:00:00Z" },
+    recentDeliveries: [
+      { at: "2026-02-23T11:00:05Z", status: "success", httpCode: 200 },
+    ],
+  },
+  {
+    id: "work_order.created",
+    name: "work_order.created",
+    description: "Fired when an agent creates a work order via Entrata MCP",
+    enabled: false,
+    webhookUrl: "",
+    samplePayload: { event: "work_order.created", workOrderId: "WO-4521", unit: "Unit 204", category: "plumbing", priority: "standard", createdBy: "Maintenance AI", timestamp: "2026-02-23T08:30:00Z" },
+    recentDeliveries: [],
+  },
+  {
+    id: "document.approved",
+    name: "document.approved",
+    description: "Fired when a Vault document is approved and agents are retrained",
+    enabled: false,
+    webhookUrl: "",
+    samplePayload: { event: "document.approved", documentId: "doc-123", fileName: "Lease Terms SOP v3.pdf", approvedBy: "Admin", version: "3.0", agentsRetrained: 3, timestamp: "2026-02-23T14:00:00Z" },
+    recentDeliveries: [],
+  },
+  {
+    id: "agent.suspended",
+    name: "agent.suspended",
+    description: "Fired when an agent is suspended (emergency kill switch or manual)",
+    enabled: true,
+    webhookUrl: "https://hooks.example.com/janet/alerts",
+    samplePayload: { event: "agent.suspended", agentId: "agent-1", agentName: "Leasing AI", reason: "Emergency kill switch", suspendedBy: "Admin", timestamp: "2026-02-23T12:00:00Z" },
+    recentDeliveries: [],
+  },
+  {
+    id: "feedback.submitted",
+    name: "feedback.submitted",
+    description: "Fired when a user submits feedback on an agent response",
+    enabled: false,
+    webhookUrl: "",
+    samplePayload: { event: "feedback.submitted", agentId: "agent-1", agentName: "Leasing AI", rating: "negative", comment: "Wrong pet deposit amount", messagePreview: "The pet deposit is $250...", timestamp: "2026-02-23T14:30:00Z" },
+    recentDeliveries: [],
+  },
+];
+
+function EventsAndWebhooks() {
+  const [events, setEvents] = useState<PlatformEvent[]>(INITIAL_EVENTS);
+  const [previewPayload, setPreviewPayload] = useState<PlatformEvent | null>(null);
+
+  const toggleEvent = useCallback((id: string) => {
+    setEvents((prev) => prev.map((e) => e.id === id ? { ...e, enabled: !e.enabled } : e));
+  }, []);
+
+  const updateWebhookUrl = useCallback((id: string, url: string) => {
+    setEvents((prev) => prev.map((e) => e.id === id ? { ...e, webhookUrl: url } : e));
+  }, []);
+
+  const enabledCount = events.filter((e) => e.enabled).length;
+
+  return (
+    <>
+      <p className="text-sm text-muted-foreground">
+        Platform events are emitted when agents take actions. Configure webhook endpoints to receive real-time event data in your systems.
+      </p>
+
+      <div className="grid gap-3 sm:grid-cols-3 mb-2">
+        <Card>
+          <CardContent className="flex items-center gap-3 py-3">
+            <Webhook className="h-5 w-5 text-muted-foreground" />
+            <div>
+              <p className="text-lg font-semibold">{events.length}</p>
+              <p className="text-xs text-muted-foreground">Event types</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex items-center gap-3 py-3">
+            <Send className="h-5 w-5 text-emerald-500" />
+            <div>
+              <p className="text-lg font-semibold">{enabledCount}</p>
+              <p className="text-xs text-muted-foreground">Active webhooks</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex items-center gap-3 py-3">
+            <XCircle className="h-5 w-5 text-red-500" />
+            <div>
+              <p className="text-lg font-semibold">
+                {events.reduce((s, e) => s + e.recentDeliveries.filter((d) => d.status === "failed").length, 0)}
+              </p>
+              <p className="text-xs text-muted-foreground">Failed deliveries</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="space-y-3">
+        {events.map((evt) => (
+          <Card key={evt.id} className={cn("transition-colors", evt.enabled ? "border-border" : "border-border/40 opacity-70")}>
+            <CardContent className="py-4">
+              <div className="flex items-start gap-3">
+                <Switch
+                  checked={evt.enabled}
+                  onCheckedChange={() => toggleEvent(evt.id)}
+                  className="mt-0.5"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <code className="text-sm font-semibold font-mono">{evt.name}</code>
+                    {evt.enabled && <Badge variant="outline" className="text-[10px] text-emerald-600">Active</Badge>}
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-2">{evt.description}</p>
+                  {evt.enabled && (
+                    <div className="flex items-center gap-2 mb-2">
+                      <Input
+                        value={evt.webhookUrl}
+                        onChange={(e) => updateWebhookUrl(evt.id, e.target.value)}
+                        placeholder="https://your-endpoint.com/webhook"
+                        className="text-xs h-8 font-mono"
+                      />
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-[10px]"
+                      onClick={() => setPreviewPayload(evt)}
+                    >
+                      <Eye className="h-3 w-3 mr-1" /> Sample payload
+                    </Button>
+                    {evt.recentDeliveries.length > 0 && (
+                      <span className="text-[10px] text-muted-foreground">
+                        Last: {new Date(evt.recentDeliveries[0].at).toLocaleString()} ·{" "}
+                        <span className={evt.recentDeliveries[0].status === "success" ? "text-emerald-600" : "text-red-500"}>
+                          {evt.recentDeliveries[0].httpCode}
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Sample Payload Dialog */}
+      <Dialog open={!!previewPayload} onOpenChange={(open) => !open && setPreviewPayload(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-mono text-sm">{previewPayload?.name}</DialogTitle>
+            <DialogDescription>Sample webhook payload for this event type</DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg bg-muted p-3 overflow-auto max-h-[400px]">
+            <pre className="text-xs font-mono whitespace-pre-wrap text-foreground">
+              {previewPayload ? JSON.stringify(previewPayload.samplePayload, null, 2) : ""}
+            </pre>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (previewPayload) {
+                  navigator.clipboard?.writeText(JSON.stringify(previewPayload.samplePayload, null, 2));
+                }
+              }}
+            >
+              <Copy className="h-3.5 w-3.5 mr-1" /> Copy
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
