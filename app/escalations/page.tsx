@@ -7,6 +7,8 @@ import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EscalationDetailSheet } from "@/components/escalation-detail-sheet";
+import { CustomTaskDetailSheet } from "@/components/custom-task-detail-sheet";
+import { CreateCustomTaskDialog } from "@/components/create-custom-task-dialog";
 import {
   useEscalations,
   useEscalationAnalytics,
@@ -22,6 +24,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useRole } from "@/lib/role-context";
 import { usePermissions } from "@/lib/permissions-context";
 import { usePlaybooks, type PlaybookPriority } from "@/lib/playbooks-context";
+import { SEED_PLAYBOOK_TEMPLATES } from "@/lib/playbook-templates-data";
+import { PROPERTIES } from "@/lib/specialties-data";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 
@@ -60,6 +65,7 @@ function EscalationsContent() {
   const { role } = useRole();
   const { hasPermission } = usePermissions();
   const canAccessSettings = hasPermission("p-tasks-edit-specialty");
+  const { addPlaybook } = usePlaybooks();
   const analytics = useEscalationAnalytics();
 
   const currentUser = useMemo(() => getCurrentUser(role), [getCurrentUser, role]);
@@ -100,6 +106,10 @@ function EscalationsContent() {
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [activeTab, setActiveTab] = useState<"escalations" | "playbooks">("escalations");
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [showCreateTaskDialog, setShowCreateTaskDialog] = useState(false);
+  const [showLaunchPlaybook, setShowLaunchPlaybook] = useState(false);
+  const [launchTemplateId, setLaunchTemplateId] = useState("");
+  const [launchProperty, setLaunchProperty] = useState("");
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -244,18 +254,64 @@ function EscalationsContent() {
   };
 
   const handleCreateTask = () => {
+    setShowCreateTaskDialog(true);
+  };
+
+  const handleCreateTaskSave = (task: import("@/lib/specialties-data").TaskTemplate) => {
     const escId = addEscalation({
       type: "workflow",
-      summary: "New task",
-      category: categoryFilter.size === 1 ? Array.from(categoryFilter)[0] : "Compliance",
-      property: propertyFilter.size === 1 ? Array.from(propertyFilter)[0] : "Portfolio",
+      name: task.name,
+      summary: task.name,
+      category: "Leasing",
+      property: task.property ?? "Portfolio",
       escalatedByAgent: "Manual",
-      aiReasonForEscalation: "Created manually from the escalations toolbar.",
+      aiReasonForEscalation: task.description || "Created manually from the escalations toolbar.",
       status: "Open",
-      assignee: "",
+      assignee: task.assignee ?? "",
       priority: "medium",
+      descriptionHtml: task.descriptionHtml,
+      sections: task.sections,
     });
     setSelectedId(escId);
+  };
+
+  const handleLaunchPlaybook = () => {
+    const template = SEED_PLAYBOOK_TEMPLATES.find((t) => t.id === launchTemplateId);
+    if (!template || !launchProperty) return;
+
+    const now = new Date().toISOString();
+    const PRIORITY_MAP: Record<string, PlaybookPriority> = { P0: "P0", P1: "P1", P2: "P2", P3: "P3" };
+
+    const tasks = template.tasks.map((t) => ({
+      id: `t-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: t.name,
+      type: "workflow" as const,
+      summary: t.name,
+      category: "Playbook",
+      property: launchProperty,
+      status: "Open",
+      assignee: "",
+      priority: ({ P0: "urgent", P1: "high", P2: "medium", P3: "low" } as const)[t.priority] ?? ("medium" as const),
+      dueAt: now,
+      createdAt: now,
+    }));
+
+    addPlaybook({
+      templateName: template.name,
+      property: launchProperty,
+      properties: [launchProperty],
+      createdAt: now.split("T")[0],
+      dueAt: now,
+      launchedAt: now,
+      status: "In Progress",
+      priority: PRIORITY_MAP[template.priority] ?? "P2",
+      assignee: "",
+      description: template.description,
+      tasks,
+    });
+
+    setShowLaunchPlaybook(false);
+    setActiveTab("playbooks");
   };
 
   return (
@@ -313,7 +369,7 @@ function EscalationsContent() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-44">
                 <DropdownMenuItem onClick={handleCreateTask}>Create Task</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setActiveTab("playbooks")}>Launch Playbook</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { setLaunchTemplateId(""); setLaunchProperty(""); setShowLaunchPlaybook(true); }}>Launch Playbook</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -802,11 +858,80 @@ function EscalationsContent() {
         )}
       </div>
 
-      <EscalationDetailSheet
-        item={selected}
-        open={!!selectedId}
-        onOpenChange={(o) => !o && setSelectedId(null)}
+      {selected?.type === "workflow" ? (
+        <CustomTaskDetailSheet
+          item={selected}
+          open={!!selectedId}
+          onOpenChange={(o) => !o && setSelectedId(null)}
+        />
+      ) : (
+        <EscalationDetailSheet
+          item={selected}
+          open={!!selectedId}
+          onOpenChange={(o) => !o && setSelectedId(null)}
+        />
+      )}
+
+      <CreateCustomTaskDialog
+        open={showCreateTaskDialog}
+        onOpenChange={setShowCreateTaskDialog}
+        mode="template"
+        onSave={handleCreateTaskSave}
       />
+
+      <Dialog open={showLaunchPlaybook} onOpenChange={(open) => { setShowLaunchPlaybook(open); if (!open) { setLaunchTemplateId(""); setLaunchProperty(""); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Launch Playbook</DialogTitle>
+            <DialogDescription>Select a playbook template and property to launch a new playbook.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground">Playbook Template</label>
+              <Select value={launchTemplateId} onValueChange={setLaunchTemplateId}>
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue placeholder="Select a template" />
+                </SelectTrigger>
+                <SelectContent>
+                  {SEED_PLAYBOOK_TEMPLATES.filter((t) => t.variety !== "automated").map((t) => (
+                    <SelectItem key={t.id} value={t.id} className="text-sm">
+                      <span className="flex items-center gap-2">
+                        {t.name}
+                        <span className="text-[10px] text-muted-foreground">({t.tasks.length} tasks)</span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {launchTemplateId && (() => {
+                const tpl = SEED_PLAYBOOK_TEMPLATES.find((t) => t.id === launchTemplateId);
+                return tpl ? (
+                  <p className="text-xs text-muted-foreground mt-1">{tpl.description}</p>
+                ) : null;
+              })()}
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground">Property</label>
+              <Select value={launchProperty} onValueChange={setLaunchProperty}>
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue placeholder="Select a property" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PROPERTIES.map((p) => (
+                    <SelectItem key={p} value={p} className="text-sm">{p}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" size="sm" onClick={() => setShowLaunchPlaybook(false)}>Cancel</Button>
+            <Button size="sm" disabled={!launchTemplateId || !launchProperty} onClick={handleLaunchPlaybook}>
+              Launch Playbook
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
         </>
       ) : (
         <PlaybooksTab />
@@ -993,11 +1118,11 @@ function PlaybooksTab() {
         </button>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto scrollbar-hover">
         <table className="table-borderless min-w-[900px]">
           <thead>
             <tr className="bg-muted/30">
-              <PbTh field="templateName" label="Task" sortField={sortField} sortDir={sortDir} onSort={toggleSort} className="min-w-[180px]" />
+              <PbTh field="templateName" label="Task" sortField={sortField} sortDir={sortDir} onSort={toggleSort} className="sticky left-0 z-10 min-w-[180px] border-r border-border bg-muted" />
               <PbTh field="property" label="Name" sortField={sortField} sortDir={sortDir} onSort={toggleSort} className="min-w-[160px]" />
               <PbTh field="createdAt" label="Created" sortField={sortField} sortDir={sortDir} onSort={toggleSort} className="min-w-[120px]" />
               <PbTh field="status" label="Status" sortField={sortField} sortDir={sortDir} onSort={toggleSort} className="min-w-[100px]" />
@@ -1017,7 +1142,7 @@ function PlaybooksTab() {
                   onClick={() => router.push(`/playbooks/${pb.id}`)}
                   className="group cursor-pointer table-row-hover"
                 >
-                  <td className="whitespace-nowrap px-4 py-3.5">
+                  <td className="sticky left-0 z-10 min-w-[180px] border-r border-border bg-background whitespace-nowrap px-4 py-3.5">
                     <span className="text-sm font-medium text-foreground">{pb.templateName}</span>
                   </td>
                   <td className="whitespace-nowrap px-4 py-3.5 text-sm text-foreground">{pb.property}</td>

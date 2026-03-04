@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/dialog";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { cn } from "@/lib/utils";
+import { CreateCustomTaskDialog } from "@/components/create-custom-task-dialog";
 import {
   getPlaybookTemplate,
   PLAYBOOK_CATEGORIES,
@@ -122,7 +123,7 @@ export function PlaybookTemplateDetailClient() {
   const [taskToDelete, setTaskToDelete] = useState<PlaybookTemplateTask | null>(null);
   const [taskToEdit, setTaskToEdit] = useState<PlaybookTemplateTask | null>(null);
 
-  type TaskSortField = "name" | "description" | "dueOffset" | "specialtyId";
+  type TaskSortField = "name" | "description" | "dueOffset" | "priority" | "specialtyId";
   const [sort, setSort] = useState<{ key: TaskSortField; dir: SortDir } | null>(null);
 
   const sortedTasks = useMemo(() => {
@@ -149,6 +150,10 @@ export function PlaybookTemplateDetailClient() {
   const handleDeleteTask = (id: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== id));
     setTaskToDelete(null);
+  };
+
+  const handlePriorityChange = (taskId: string, priority: PlaybookTemplatePriority) => {
+    setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, priority } : t)));
   };
 
   const handleSpecialtyChange = (taskId: string, specialtyId: string) => {
@@ -362,35 +367,41 @@ export function PlaybookTemplateDetailClient() {
 
         {/* Right: Tasks table */}
         <div className="flex-1 overflow-y-auto">
-          <div className="rounded-lg border border-border">
-            <table className="w-full">
+          <div className="rounded-lg border border-border overflow-x-auto scrollbar-hover">
+            <table className="w-full min-w-[800px]">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
                   <th
-                    className="cursor-pointer px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+                    className="sticky left-0 z-10 min-w-[180px] border-r border-border bg-muted cursor-pointer px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
                     onClick={() => setSort(toggleSort(sort, "name"))}
                   >
                     Task Name <SortIcon active={sort?.key === "name"} dir={sort?.dir ?? "asc"} />
                   </th>
                   <th
-                    className="cursor-pointer px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+                    className="min-w-[180px] cursor-pointer px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
                     onClick={() => setSort(toggleSort(sort, "description"))}
                   >
                     Description <SortIcon active={sort?.key === "description"} dir={sort?.dir ?? "asc"} />
                   </th>
                   <th
-                    className="cursor-pointer px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+                    className="min-w-[80px] cursor-pointer px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
                     onClick={() => setSort(toggleSort(sort, "dueOffset"))}
                   >
                     Due <SortIcon active={sort?.key === "dueOffset"} dir={sort?.dir ?? "asc"} />
                   </th>
                   <th
-                    className="cursor-pointer px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+                    className="min-w-[80px] cursor-pointer px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+                    onClick={() => setSort(toggleSort(sort, "priority"))}
+                  >
+                    Priority <SortIcon active={sort?.key === "priority"} dir={sort?.dir ?? "asc"} />
+                  </th>
+                  <th
+                    className="min-w-[150px] cursor-pointer px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
                     onClick={() => setSort(toggleSort(sort, "specialtyId"))}
                   >
                     Specialty <SortIcon active={sort?.key === "specialtyId"} dir={sort?.dir ?? "asc"} />
                   </th>
-                  <th className="w-20 px-2 py-2.5" />
+                  <th className="w-20 min-w-[80px] px-2 py-2.5" />
                 </tr>
               </thead>
               <tbody>
@@ -399,21 +410,48 @@ export function PlaybookTemplateDetailClient() {
                     key={task.id}
                     className="border-b border-border last:border-b-0 hover:bg-muted/20 transition-colors"
                   >
-                    <td className="px-4 py-3 text-sm font-medium text-foreground whitespace-nowrap">
+                    <td className="sticky left-0 z-10 min-w-[180px] border-r border-border bg-background px-4 py-3 text-sm font-medium text-foreground whitespace-nowrap">
                       {task.name}
                     </td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground max-w-[220px] truncate">
+                    <td className="min-w-[180px] px-4 py-3 text-sm text-muted-foreground max-w-[220px] truncate">
                       {task.description}
                     </td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
+                    <td className="min-w-[80px] px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
                       {task.dueOffset}
                     </td>
-                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                    <td className="min-w-[80px] px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <Select
+                        value={task.priority}
+                        onValueChange={(v) => handlePriorityChange(task.id, v as PlaybookTemplatePriority)}
+                      >
+                        <SelectTrigger
+                          className={cn(
+                            "h-7 w-16 text-xs font-medium border-0 shadow-none rounded-md",
+                            task.priority === "P0"
+                              ? "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200"
+                              : task.priority === "P1"
+                                ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+                                : task.priority === "P2"
+                                  ? "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200"
+                                  : "bg-muted text-muted-foreground"
+                          )}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="P0" className="text-xs">P0</SelectItem>
+                          <SelectItem value="P1" className="text-xs">P1</SelectItem>
+                          <SelectItem value="P2" className="text-xs">P2</SelectItem>
+                          <SelectItem value="P3" className="text-xs">P3</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </td>
+                    <td className="min-w-[150px] px-4 py-3" onClick={(e) => e.stopPropagation()}>
                       <Select
                         value={task.specialtyId || UNASSIGNED}
                         onValueChange={(v) => handleSpecialtyChange(task.id, v)}
                       >
-                        <SelectTrigger className="h-8 w-36 text-xs border-0 shadow-none bg-muted/40">
+                        <SelectTrigger className="h-8 w-full text-xs border-0 shadow-none bg-muted/40">
                           <SelectValue placeholder="Select" />
                         </SelectTrigger>
                         <SelectContent>
@@ -428,7 +466,7 @@ export function PlaybookTemplateDetailClient() {
                         </SelectContent>
                       </Select>
                     </td>
-                    <td className="px-2 py-3 text-center">
+                    <td className="w-20 min-w-[80px] px-2 py-3 text-center">
                       <div className="flex items-center justify-center gap-0.5">
                         <Button
                           variant="ghost"
@@ -452,7 +490,7 @@ export function PlaybookTemplateDetailClient() {
                 ))}
                 {tasks.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">
                       No tasks yet. Click &ldquo;Add Tasks&rdquo; to get started.
                     </td>
                   </tr>
@@ -471,14 +509,13 @@ export function PlaybookTemplateDetailClient() {
       />
 
       {/* Edit Task Dialog */}
-      {taskToEdit && (
-        <EditTaskDialog
-          open={true}
-          onOpenChange={(v) => { if (!v) setTaskToEdit(null); }}
-          task={taskToEdit}
-          onSave={handleUpdateTask}
-        />
-      )}
+      <CreateCustomTaskDialog
+        open={taskToEdit !== null}
+        onOpenChange={(open) => { if (!open) setTaskToEdit(null); }}
+        mode="playbook"
+        initialData={taskToEdit}
+        onSave={(updated) => { handleUpdateTask(updated); setTaskToEdit(null); }}
+      />
 
       {/* Delete Task Confirm */}
       <Dialog open={taskToDelete !== null} onOpenChange={(v) => { if (!v) setTaskToDelete(null); }}>
@@ -643,131 +680,3 @@ function AddTaskDialog({
   );
 }
 
-// ── Edit Task Dialog ─────────────────────────────────────────────────────────
-
-function EditTaskDialog({
-  open,
-  onOpenChange,
-  task,
-  onSave,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  task: PlaybookTemplateTask;
-  onSave: (task: PlaybookTemplateTask) => void;
-}) {
-  const [name, setName] = useState(task.name);
-  const [description, setDescription] = useState(task.description);
-  const [dueOffset, setDueOffset] = useState(task.dueOffset);
-  const [priority, setPriority] = useState<PlaybookTemplatePriority>(task.priority);
-  const [specialtyId, setSpecialtyId] = useState(task.specialtyId);
-
-  const handleSave = () => {
-    if (!name.trim()) return;
-    onSave({
-      ...task,
-      name: name.trim(),
-      description: description.trim(),
-      dueOffset,
-      priority,
-      specialtyId,
-    });
-    onOpenChange(false);
-  };
-
-  const labelClass = "text-xs font-medium text-foreground";
-  const inputClass =
-    "h-9 w-full rounded-md border border-input bg-background px-3 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary";
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Edit Task</DialogTitle>
-          <DialogDescription>
-            Update this playbook task.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 py-2">
-          <div className="space-y-1.5">
-            <label className={labelClass}>Task Name</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Submit Photos"
-              className={inputClass}
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className={labelClass}>Description</label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Describe what this task involves"
-              rows={2}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary resize-none"
-            />
-          </div>
-
-          <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-1.5">
-              <label className={labelClass}>Due</label>
-              <Select value={dueOffset} onValueChange={setDueOffset}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PLAYBOOK_TEMPLATE_DUE_OPTIONS.map((d) => (
-                    <SelectItem key={d} value={d} className="text-sm">{d}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <label className={labelClass}>Priority</label>
-              <Select value={priority} onValueChange={(v) => setPriority(v as PlaybookTemplatePriority)}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="P0" className="text-sm">P0 - Emergency</SelectItem>
-                  <SelectItem value="P1" className="text-sm">P1 - High</SelectItem>
-                  <SelectItem value="P2" className="text-sm">P2 - Medium</SelectItem>
-                  <SelectItem value="P3" className="text-sm">P3 - Low</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <label className={labelClass}>Specialty</label>
-              <Select value={specialtyId || UNASSIGNED} onValueChange={(v) => setSpecialtyId(v === UNASSIGNED ? "" : v)}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue placeholder="Select" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={UNASSIGNED} className="text-xs text-muted-foreground">
-                    None
-                  </SelectItem>
-                  {SPECIALTIES.map((s) => (
-                    <SelectItem key={s.id} value={s.id} className="text-sm">{s.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button size="sm" disabled={!name.trim()} onClick={handleSave}>
-            Save Changes
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
