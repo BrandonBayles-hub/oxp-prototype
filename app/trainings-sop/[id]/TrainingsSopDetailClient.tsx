@@ -1,0 +1,1211 @@
+"use client";
+
+import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
+import { useState, useEffect, useMemo, useRef } from "react";
+import {
+  ArrowLeft,
+  Pencil,
+  Share2,
+  Send,
+  CheckCircle,
+  Tag,
+  Bot,
+  X,
+  ZoomIn,
+  ZoomOut,
+  ChevronLeft,
+  ChevronRight,
+  History,
+  FileText,
+  Clock,
+  Download,
+  Printer,
+  Shield,
+  Users,
+} from "lucide-react";
+import { PageHeader } from "@/components/page-header";
+import { useVault, COMPLIANCE_ITEMS, SUGGESTED_PROPERTY_TAGS, SUGGESTED_SUBJECT_TAGS, type VaultItem, type VaultDocumentType, type DocumentHistoryEntry, type AgentTrainingStatus } from "@/lib/vault-context";
+import { useAgents } from "@/lib/agents-context";
+import { useWorkforce } from "@/lib/workforce-context";
+import dynamic from "next/dynamic";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useEscalations } from "@/lib/escalations-context";
+import { EscalationDetailSheet } from "@/components/escalation-detail-sheet";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { TagCombobox } from "@/components/tag-combobox";
+
+const RichTextEditor = dynamic(
+  () => import("@/components/rich-text-editor").then((m) => ({ default: m.RichTextEditor })),
+  { ssr: false }
+);
+
+function normalizeTag(t: string): string {
+  return t.trim().toLowerCase();
+}
+
+function AgentLinkCombobox({
+  agents,
+  linkedIds,
+  onToggle,
+}: {
+  agents: { id: string; name: string; bucket: string; type: string }[];
+  linkedIds: string[];
+  onToggle: (agentId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const unlinked = useMemo(
+    () => agents.filter((a) => !linkedIds.includes(a.id)),
+    [agents, linkedIds]
+  );
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return unlinked;
+    const q = search.toLowerCase();
+    return unlinked.filter(
+      (a) => a.name.toLowerCase().includes(q) || a.bucket.toLowerCase().includes(q) || a.type.toLowerCase().includes(q)
+    );
+  }, [unlinked, search]);
+
+  if (unlinked.length === 0) return null;
+
+  return (
+    <div ref={ref} className="relative mt-2">
+      <button
+        type="button"
+        onClick={() => { setOpen((o) => !o); setSearch(""); }}
+        className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+      >
+        + Link an agent
+        <ChevronRight className={cn("h-3 w-3 transition-transform", open && "rotate-90")} />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-30 mt-1 w-72 rounded-lg border border-border bg-card shadow-lg">
+          <div className="border-b border-border p-2">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search agents..."
+              className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-xs placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+              autoFocus
+            />
+          </div>
+          <ul className="max-h-52 overflow-y-auto p-1">
+            {filtered.length === 0 ? (
+              <li className="px-2.5 py-3 text-center text-xs text-muted-foreground">
+                {search ? "No agents match your search" : "All agents are already linked"}
+              </li>
+            ) : (
+              filtered.map((a) => (
+                <li key={a.id}>
+                  <button
+                    type="button"
+                    onClick={() => { onToggle(a.id); }}
+                    className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm hover:bg-muted transition-colors"
+                  >
+                    <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[9px] font-semibold text-primary">
+                      {a.name.slice(0, 1)}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-medium text-foreground">{a.name}</p>
+                      <p className="truncate text-[10px] text-muted-foreground">{a.bucket} · {a.type}</p>
+                    </div>
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+          <div className="border-t border-border px-2.5 py-1.5 text-[10px] text-muted-foreground">
+            {unlinked.length} agent{unlinked.length === 1 ? "" : "s"} available
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function TrainingsSopDetailClient() {
+  const params = useParams();
+  const router = useRouter();
+  const id = typeof params.id === "string" ? params.id : params.id?.[0];
+  const {
+    documents, updateDocument, approveDocument, markAgentTrained, addActivity,
+    complianceSubjectDocumentIds, workforceAcks, addWorkforceAck, removeWorkforceAck,
+  } = useVault();
+  const { agents } = useAgents();
+  const { humanMembers } = useWorkforce();
+  const { items: escalationItems, addEscalation } = useEscalations();
+  const doc = documents.find((d) => d.id === id && d.type === "file");
+
+  const approvalEscalations = useMemo(
+    () =>
+      escalationItems.filter(
+        (e) =>
+          e.type === "approval" &&
+          e.documentApprovalContext?.documentId === id &&
+          e.status !== "Done"
+      ).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [escalationItems, id]
+  );
+
+  const [approvalSheetOpen, setApprovalSheetOpen] = useState(false);
+  const [activeApprovalEscalation, setActiveApprovalEscalation] = useState<typeof approvalEscalations[number] | null>(null);
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+  const [versionsDialogOpen, setVersionsDialogOpen] = useState(false);
+  const [selectedVersionIdx, setSelectedVersionIdx] = useState<number | null>(null);
+  const createdApprovalEscalationForDocRef = useRef<string | null>(null);
+
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editStep, setEditStep] = useState<1 | 2>(1);
+  const [dialogBody, setDialogBody] = useState("");
+  const [dialogChangeSummary, setDialogChangeSummary] = useState("");
+  const [dialogChangeReason, setDialogChangeReason] = useState("");
+  const [shareCopied, setShareCopied] = useState(false);
+  const [viewerPage, setViewerPage] = useState(1);
+  const [viewerZoom, setViewerZoom] = useState(100);
+  const viewerScrollRef = useRef<HTMLDivElement>(null);
+  const [viewerContainerWidth, setViewerContainerWidth] = useState(0);
+  const [nameEdit, setNameEdit] = useState<string | null>(null);
+  const [propertiesExpanded, setPropertiesExpanded] = useState(false);
+  const [workforceExpanded, setWorkforceExpanded] = useState(false);
+  const [reviewDateEdit, setReviewDateEdit] = useState("");
+
+  const PROPERTY_BADGE_LIMIT = 3;
+  const docProperties = useMemo(
+    () => (doc?.properties?.length ? doc.properties : [doc?.property ?? "Portfolio"].filter(Boolean)),
+    [doc?.properties, doc?.property]
+  );
+  const docTags = useMemo(() => doc?.tags ?? [], [doc?.tags]);
+  const docTagsNormalized = useMemo(() => new Set(docTags.map(normalizeTag)), [docTags]);
+  const linkedAgents = useMemo(
+    () => (doc?.linkedAgentIds ?? []).map((aid) => agents.find((a) => a.id === aid)).filter(Boolean) as typeof agents,
+    [doc?.linkedAgentIds, agents]
+  );
+  const complianceSubjectsForDoc = useMemo(
+    () => COMPLIANCE_ITEMS.filter((s) => complianceSubjectDocumentIds[s] === id),
+    [complianceSubjectDocumentIds, id]
+  );
+  const workforceAcksForDoc = useMemo(
+    () => workforceAcks.filter((a) => complianceSubjectsForDoc.includes(a.subject)),
+    [workforceAcks, complianceSubjectsForDoc]
+  );
+  const existingLabelsMap = useMemo(() => {
+    const map = new Map<string, string>();
+    const add = (label: string) => {
+      const n = normalizeTag(label);
+      if (!n) return;
+      if (!map.has(n)) map.set(n, label.trim());
+    };
+    [...SUGGESTED_PROPERTY_TAGS, ...SUGGESTED_SUBJECT_TAGS, ...COMPLIANCE_ITEMS].forEach(add);
+    documents.forEach((d) => (d.tags ?? []).forEach(add));
+    return map;
+  }, [documents]);
+  const existingLabels = useMemo(() => Array.from(existingLabelsMap.values()).sort((a, b) => a.localeCompare(b)), [existingLabelsMap]);
+  const availableToAdd = useMemo(
+    () => existingLabels.filter((t) => !docTagsNormalized.has(normalizeTag(t))),
+    [existingLabels, docTagsNormalized]
+  );
+
+  const isBodyHtml = useMemo(() => {
+    const body = doc?.body ?? "";
+    const t = body.trim();
+    return t.startsWith("<") && t.includes("</");
+  }, [doc?.body]);
+
+  const LINES_PER_PAGE = 42;
+  const viewerPages = useMemo(() => {
+    const body = doc?.body ?? "";
+    if (!body.trim()) return [""];
+    if (isBodyHtml) return [body];
+    const lines = body.split(/\n/);
+    const pages: string[] = [];
+    for (let i = 0; i < lines.length; i += LINES_PER_PAGE) {
+      pages.push(lines.slice(i, i + LINES_PER_PAGE).join("\n"));
+    }
+    return pages.length ? pages : [""];
+  }, [doc?.body, isBodyHtml]);
+  const totalPages = viewerPages.length;
+  const currentPageContent = viewerPages[viewerPage - 1] ?? viewerPages[0] ?? "";
+
+  useEffect(() => {
+    setViewerPage(1);
+  }, [id, doc?.id]);
+
+  // Widen the layout container for this page so the document preview has more room.
+  useEffect(() => {
+    const wrapper = document.querySelector<HTMLElement>(".page-content");
+    if (!wrapper) return;
+    const wideCls = ["!max-w-[96rem]", "lg:!px-4"];
+    wrapper.classList.add(...wideCls);
+    return () => wrapper.classList.remove(...wideCls);
+  }, []);
+
+  useEffect(() => {
+    const el = viewerScrollRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) setViewerContainerWidth(entry.contentRect.width);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // 21cm ≈ 793.7px at 96 CSS px/inch. Scale so the paper fits the container at 100% zoom.
+  const PAPER_WIDTH_PX = 793.7;
+  const fitScale = viewerContainerWidth > 0 ? Math.min(1, viewerContainerWidth / PAPER_WIDTH_PX) : 0.7;
+  const effectiveScale = fitScale * (viewerZoom / 100);
+
+  // When doc is SOP in review but no approval escalation exists (e.g. submitted from list), create one so the approval card always has full details and sheet.
+  useEffect(() => {
+    if (!id || !doc || doc.documentType !== "sop" || doc.approvalStatus !== "review") return;
+    const hasEscalation = escalationItems.some(
+      (e) =>
+        e.type === "approval" &&
+        e.documentApprovalContext?.documentId === id &&
+        e.status !== "Done"
+    );
+    if (hasEscalation || createdApprovalEscalationForDocRef.current === id) return;
+    createdApprovalEscalationForDocRef.current = id;
+    addEscalation({
+      type: "approval",
+      name: `Document review: ${doc.fileName}`,
+      summary: "Document submitted for approval.",
+      category: "Compliance",
+      property: doc.property,
+      status: "Open",
+      assignee: "",
+      linkToSource: `/trainings-sop/${id}`,
+      labels: [...(doc.tags ?? [])],
+      documentApprovalContext: {
+        documentId: id,
+        documentName: doc.fileName,
+        changeSummary: "Submitted for review.",
+        proposedBody: doc.body ?? "",
+        previousBody: "",
+      },
+    });
+  }, [id, doc?.id, doc?.documentType, doc?.approvalStatus, doc?.fileName, doc?.property, doc?.body, escalationItems, addEscalation]);
+
+  useEffect(() => {
+    if (editDialogOpen && doc) {
+      setDialogBody(doc.body ?? "");
+      setEditStep(1);
+      setDialogChangeSummary("");
+      setDialogChangeReason("");
+    }
+  }, [editDialogOpen, doc?.id, doc?.body]);
+
+  if (!id) {
+    return (
+      <div className="space-y-4">
+        <PageHeader title="Document" description="Invalid document." />
+        <Link href="/trainings-sop" className="text-sm text-primary underline hover:no-underline">
+          ← Back to Trainings & SOP
+        </Link>
+      </div>
+    );
+  }
+
+  if (!doc) {
+    return (
+      <div className="space-y-4">
+        <PageHeader title="Document not found" description="This document may have been removed or the link is invalid." />
+        <Link href="/trainings-sop" className="text-sm text-primary underline hover:no-underline">
+          ← Back to Trainings & SOP
+        </Link>
+      </div>
+    );
+  }
+
+  const handleNameBlur = () => {
+    if (nameEdit !== null && nameEdit.trim() !== doc.fileName) {
+      updateDocument(id, { fileName: nameEdit.trim() || doc.fileName });
+    }
+    setNameEdit(null);
+  };
+
+  const handleSubmitForApproval = () => {
+    const summary = [dialogChangeSummary.trim(), dialogChangeReason.trim()].filter(Boolean).join(" — ") || "Document changes submitted for approval.";
+    const existingHistory = doc.history ?? [];
+    const submittedEntry = {
+      at: new Date().toISOString(),
+      action: "submitted" as const,
+      by: doc.owner,
+      summary,
+    };
+    updateDocument(id, {
+      approvalStatus: "review",
+      history: [...existingHistory, submittedEntry],
+    });
+    addEscalation({
+      type: "approval",
+      name: `Document review: ${doc.fileName}`,
+      summary,
+      category: doc.documentType === "sop" ? "Compliance" : "Leasing",
+      property: doc.property,
+      status: "Open",
+      assignee: "",
+      linkToSource: `/trainings-sop/${id}`,
+      labels: [...(doc.tags ?? [])],
+      documentApprovalContext: {
+        documentId: id,
+        documentName: doc.fileName,
+        changeSummary: summary,
+        proposedBody: dialogBody,
+        previousBody: doc.body ?? "",
+      },
+    });
+    setDialogChangeSummary("");
+    setEditDialogOpen(false);
+  };
+
+  const shareUrl = typeof window !== "undefined" ? `${window.location.origin}/trainings-sop/${id}` : "";
+  const copyShareLink = async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    } catch {
+      if (typeof window !== "undefined") window.prompt("Copy this link:", shareUrl);
+    }
+  };
+
+  const addTag = (tag: string) => {
+    const trimmed = tag.trim();
+    if (!trimmed) return;
+    const n = normalizeTag(trimmed);
+    if (docTagsNormalized.has(n)) return;
+    const canonical = existingLabelsMap.get(n) ?? trimmed;
+    const next = [...(doc.tags ?? []), canonical].filter(Boolean);
+    updateDocument(id, { tags: next });
+  };
+
+  const removeTag = (tag: string) => {
+    updateDocument(id, { tags: (doc.tags ?? []).filter((t) => t !== tag) });
+  };
+
+  const toggleAgent = (agentId: string) => {
+    const current = doc.linkedAgentIds ?? [];
+    const next = current.includes(agentId) ? current.filter((x) => x !== agentId) : [...current, agentId];
+    updateDocument(id, { linkedAgentIds: next });
+  };
+
+  const displayTitle = nameEdit !== null ? nameEdit : doc.fileName;
+  const displayBody = doc.body ?? "";
+
+  return (
+    <>
+      <header className="page-header">
+        <div className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <Link
+            href={doc.folderId ? `/trainings-sop?folder=${doc.folderId}` : "/trainings-sop"}
+            className="flex shrink-0 items-center justify-center rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Back to Trainings & SOP"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Link>
+          {nameEdit !== null ? (
+            <input
+              type="text"
+              value={nameEdit}
+              onChange={(e) => setNameEdit(e.target.value)}
+              onBlur={handleNameBlur}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }}
+              className="min-w-0 flex-1 truncate rounded border border-transparent bg-transparent font-heading text-2xl font-medium leading-tight tracking-tight text-foreground focus:border-border focus:outline-none focus:ring-1 focus:ring-ring"
+              aria-label="Document name"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setNameEdit(doc.fileName)}
+              className="min-w-0 truncate text-left font-heading text-2xl font-medium leading-tight tracking-tight text-foreground hover:text-muted-foreground"
+            >
+              {doc.fileName}
+            </button>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            onClick={() => setHistoryDialogOpen(true)}
+            aria-label="View document history"
+            title="History"
+          >
+            <History className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" size="sm" onClick={copyShareLink}>
+            <Share2 className="h-4 w-4" />
+            {shareCopied ? "Link copied" : "Share"}
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setEditDialogOpen(true)}>
+            <Pencil className="h-4 w-4" />
+            Edit
+          </Button>
+        </div>
+        </div>
+      </header>
+
+      <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
+        <DialogContent className="max-h-[85vh] max-w-md overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <History className="h-4 w-4" />
+              Document history
+            </DialogTitle>
+            <DialogDescription>
+              Changes, submissions, and approval results with reviewer notes.
+            </DialogDescription>
+          </DialogHeader>
+          {(doc.history?.length ?? 0) > 0 ? (
+            <ul className="space-y-3 text-sm">
+              {[...(doc.history ?? [])].reverse().map((entry: DocumentHistoryEntry, idx: number) => (
+                <li key={`${entry.at}-${idx}`} className="rounded-md border border-border/60 bg-muted/30 p-2.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(entry.at).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}
+                    </span>
+                    <span
+                      className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                        entry.action === "approved"
+                          ? "bg-primary/15 text-primary"
+                          : entry.action === "denied"
+                            ? "bg-destructive/15 text-destructive"
+                            : entry.action === "submitted"
+                              ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                              : "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      {entry.action}
+                    </span>
+                    {entry.by && (
+                      <span className="text-xs text-muted-foreground">by {entry.by}</span>
+                    )}
+                  </div>
+                  {(entry.note || entry.summary) && (
+                    <p className="mt-1.5 text-xs text-foreground">
+                      {entry.note ?? entry.summary}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              No history yet. Submissions and approvals will appear here.
+            </p>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Version history dialog */}
+      <Dialog open={versionsDialogOpen} onOpenChange={setVersionsDialogOpen}>
+        <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Version history</DialogTitle>
+            <DialogDescription>Previous approved versions of this document. Click to preview.</DialogDescription>
+          </DialogHeader>
+          {(doc.versions?.length ?? 0) > 0 ? (
+            <ul className="space-y-2">
+              {[...(doc.versions ?? [])].reverse().map((v, idx) => (
+                <li key={`${v.version}-${idx}`}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedVersionIdx(idx)}
+                    className={cn(
+                      "w-full rounded-md border p-3 text-left transition-colors hover:bg-muted/50",
+                      selectedVersionIdx === idx ? "border-primary bg-muted/30" : "border-border"
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">v{v.version}</span>
+                      <span className="text-xs text-muted-foreground">{new Date(v.approvedAt).toLocaleDateString()}</span>
+                    </div>
+                    {v.approvedBy && <p className="text-xs text-muted-foreground">Approved by {v.approvedBy}</p>}
+                    {v.changeSummary && <p className="mt-1 text-xs text-muted-foreground">{v.changeSummary}</p>}
+                  </button>
+                  {selectedVersionIdx === idx && v.body && (
+                    <div className="mt-2 rounded-md border border-border bg-muted/20 p-3">
+                      <p className="mb-1 text-[10px] font-medium text-muted-foreground">Content at v{v.version}</p>
+                      <div
+                        className="prose prose-sm max-w-none max-h-48 overflow-auto text-xs dark:prose-invert"
+                        dangerouslySetInnerHTML={{ __html: v.body.startsWith("<") ? v.body : `<pre class="whitespace-pre-wrap">${v.body}</pre>` }}
+                      />
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="py-6 text-center text-sm text-muted-foreground">No previous versions. Versions are created each time a document is approved.</p>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editDialogOpen} onOpenChange={(open) => { setEditDialogOpen(open); if (!open) setEditStep(1); }}>
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editStep === 1 ? "Edit document" : "Describe changes & submit"}</DialogTitle>
+            <DialogDescription>
+              {editStep === 1
+                ? "Step 1: Update the document content below. Use the toolbar for bold, lists, and more. Click Next to describe your changes."
+                : "Step 2: Summarize what changed and why. Save and close = keep your edits only. Submit for approval = send to the escalation queue."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {editStep === 1 ? (
+            <div className="space-y-4 py-2">
+              <div className="min-h-[280px]">
+                <label className="mb-1 block text-xs font-medium text-foreground">Document content</label>
+                {editDialogOpen && (
+                  <RichTextEditor
+                    key={`edit-body-${id}-${editDialogOpen}`}
+                    value={dialogBody}
+                    onChange={setDialogBody}
+                    placeholder="Document content…"
+                    minHeight="260px"
+                    contentKey={id}
+                  />
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4 py-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-foreground">What was updated?</label>
+                <textarea
+                  value={dialogChangeSummary}
+                  onChange={(e) => setDialogChangeSummary(e.target.value)}
+                  placeholder="Summarize the changes (e.g. Updated late fee section, added move-out checklist)"
+                  rows={2}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-foreground">Why were these changes made?</label>
+                <textarea
+                  value={dialogChangeReason}
+                  onChange={(e) => setDialogChangeReason(e.target.value)}
+                  placeholder="Explain the reason (e.g. Policy change from regional, resident request, compliance update)"
+                  rows={2}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground"
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            {editStep === 1 ? (
+              <>
+                <Button variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+                {doc.documentType === "sop" ? (
+                  <Button onClick={() => setEditStep(2)}>Next: Describe changes</Button>
+                ) : (
+                  <Button onClick={() => { updateDocument(id, { body: dialogBody }); setEditDialogOpen(false); }}>Save</Button>
+                )}
+              </>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => setEditStep(1)}>Back</Button>
+                <Button variant="outline" onClick={() => { updateDocument(id, { body: dialogBody }); setEditDialogOpen(false); }}>
+                  Save and close
+                </Button>
+                {doc.documentType === "sop" && (
+                  <Button onClick={handleSubmitForApproval}>
+                    <Send className="h-4 w-4" />
+                    Submit for approval
+                  </Button>
+                )}
+              </>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,340px)_1fr]">
+        {/* Left: Document details */}
+        <div className="space-y-6">
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="font-semibold text-foreground">SOP Details</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div>
+                <label className="text-muted-foreground">Document name</label>
+                <input
+                  type="text"
+                  value={nameEdit !== null ? nameEdit : doc.fileName}
+                  onChange={(e) => setNameEdit(e.target.value)}
+                  onBlur={handleNameBlur}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+                  className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium text-foreground"
+                  placeholder="Document name"
+                  aria-label="Document name"
+                />
+              </div>
+              <div>
+                <label className="text-muted-foreground">Type</label>
+                <select
+                  value={doc.documentType}
+                  onChange={(e) => updateDocument(id, { documentType: e.target.value as VaultDocumentType })}
+                  className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium capitalize"
+                  aria-label="Document type"
+                >
+                  <option value="sop">SOP</option>
+                  <option value="policy">Policy</option>
+                  <option value="lease">Lease</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-muted-foreground">Property</label>
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  {(propertiesExpanded ? docProperties : docProperties.slice(0, PROPERTY_BADGE_LIMIT)).map((p) => (
+                    <span
+                      key={p}
+                      className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium"
+                    >
+                      {p}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = docProperties.filter((x) => x !== p);
+                          const primary = next[0] ?? "Portfolio";
+                          updateDocument(id, { properties: next.length ? next : undefined, property: primary });
+                        }}
+                        className="rounded hover:bg-muted"
+                        aria-label={`Remove ${p}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+                {docProperties.length > PROPERTY_BADGE_LIMIT && (
+                  <button
+                    type="button"
+                    onClick={() => setPropertiesExpanded((e) => !e)}
+                    className="mt-1.5 text-xs font-medium text-primary hover:underline"
+                  >
+                    {propertiesExpanded ? "See less" : `See more (${docProperties.length - PROPERTY_BADGE_LIMIT} more)`}
+                  </button>
+                )}
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (!v) return;
+                    if (docProperties.includes(v)) return;
+                    const next = [...docProperties, v];
+                    updateDocument(id, { properties: next, property: next[0] });
+                    e.target.value = "";
+                  }}
+                  className="mt-1.5 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium"
+                  aria-label="Add property"
+                >
+                  <option value="">Add property…</option>
+                  {SUGGESTED_PROPERTY_TAGS.filter((p) => !docProperties.includes(p)).map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Approval</span>
+                <p>
+                  <span
+                    className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+                      doc.approvalStatus === "approved"
+                        ? "bg-[#B3FFCC] text-black dark:bg-emerald-900/40 dark:text-emerald-300"
+                        : doc.approvalStatus === "review"
+                          ? "bg-amber-400 text-amber-950 dark:bg-amber-900/40 dark:text-amber-300"
+                          : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    {doc.approvalStatus}
+                  </span>
+                </p>
+              </div>
+              {doc.documentType === "sop" && approvalEscalations.length > 0 && (
+                <div className="space-y-2">
+                  {approvalEscalations.map((esc) => (
+                    <div
+                      key={esc.id}
+                      className="cursor-pointer rounded-md border border-border/60 bg-muted/30 p-3 transition-colors hover:bg-muted/50"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => { setActiveApprovalEscalation(esc); setApprovalSheetOpen(true); }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setActiveApprovalEscalation(esc);
+                          setApprovalSheetOpen(true);
+                        }
+                      }}
+                      aria-label="Open approval review"
+                    >
+                      <p className="text-sm font-semibold text-foreground">Approval review</p>
+                      <p className="mt-0.5 text-xs font-medium text-foreground">
+                        {esc.documentApprovalContext?.documentName ?? doc.fileName}
+                      </p>
+                      <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                        {esc.documentApprovalContext?.changeSummary ||
+                          esc.summary ||
+                          "No description provided"}
+                      </p>
+                      <p className="mt-0.5 text-[10px] text-muted-foreground/70">
+                        Submitted {new Date(esc.createdAt).toLocaleDateString()}
+                      </p>
+                      <p className="mt-1.5 flex items-center gap-1 text-xs font-medium text-primary">
+                        View Approval
+                        <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {doc.documentType === "sop" && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <div><span className="text-muted-foreground">Version</span><p className="font-medium">{doc.version ?? "1.0"}</p></div>
+                    {(doc.versions?.length ?? 0) > 0 && (
+                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setVersionsDialogOpen(true)}>
+                        View history ({doc.versions!.length})
+                      </Button>
+                    )}
+                  </div>
+                  <div><span className="text-muted-foreground">Effective date</span><p className="font-medium">{doc.effectiveDate ?? "—"}</p></div>
+                </>
+              )}
+              <div>
+                <span className="text-muted-foreground">Next review date</span>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <input
+                    type="date"
+                    value={reviewDateEdit || doc.nextReviewDate || ""}
+                    onChange={(e) => {
+                      setReviewDateEdit(e.target.value);
+                      updateDocument(id, { nextReviewDate: e.target.value || undefined });
+                    }}
+                    className="block rounded-md border border-input bg-background px-2 py-1 text-sm font-medium"
+                  />
+                  {doc.nextReviewDate && new Date(doc.nextReviewDate) <= new Date() && (
+                    <span className="text-xs font-medium text-red-600">Overdue</span>
+                  )}
+                </div>
+              </div>
+              <div><span className="text-muted-foreground">Modified</span><p className="font-medium">{doc.modified}</p></div>
+              <div><span className="text-muted-foreground">Owner</span><p className="font-medium">{doc.owner}</p></div>
+              <div><span className="text-muted-foreground">Source</span><p className="font-medium">{doc.source ?? "upload"}</p></div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold text-foreground">Connections</CardTitle>
+              <CardDescription>How this document connects to compliance, AI agents, and your workforce.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {/* ── Compliance ── */}
+              <div>
+                <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <Shield className="h-3.5 w-3.5" /> Compliance
+                </p>
+                {complianceSubjectsForDoc.length > 0 ? (
+                  <ul className="space-y-1">
+                    {complianceSubjectsForDoc.map((subject) => (
+                      <li key={subject} className="flex items-center gap-2 rounded-md bg-emerald-50 px-2.5 py-1.5 text-sm dark:bg-emerald-900/20">
+                        <CheckCircle className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                        <span className="font-medium text-emerald-800 dark:text-emerald-200">{subject}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="rounded-md border border-dashed border-border px-2.5 py-2 text-xs text-muted-foreground">
+                    Not linked to a compliance area.{" "}
+                    <Link href="/trainings-sop" className="text-primary hover:underline">Assign in Compliance tab</Link>
+                  </p>
+                )}
+              </div>
+
+              {/* ── AI Agents ── */}
+              <div>
+                <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <Bot className="h-3.5 w-3.5" /> AI Agents
+                </p>
+                {linkedAgents.length > 0 ? (
+                  <ul className="space-y-1.5">
+                    {linkedAgents.map((a) => {
+                      const record = doc.trainingRecords?.find((r) => r.agentId === a.id);
+                      const status: AgentTrainingStatus = record?.status ?? "pending";
+                      const statusLabel = status === "trained" ? "Trained" : status === "out_of_date" ? "Out of date" : "Pending";
+                      const statusCls = status === "trained"
+                        ? "bg-[#B3FFCC] text-black dark:bg-emerald-900/40 dark:text-emerald-300"
+                        : status === "out_of_date"
+                          ? "bg-amber-400 text-amber-950 dark:bg-amber-900/40 dark:text-amber-300"
+                          : "bg-muted text-muted-foreground";
+                      return (
+                        <li key={a.id} className="flex items-center justify-between rounded-md border border-border/50 px-2.5 py-1.5">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">
+                              {a.name.slice(0, 1)}
+                            </span>
+                            <Link href={`/agent-roster?agent=${a.id}`} className="truncate text-sm font-medium text-foreground hover:underline">{a.name}</Link>
+                            <span className={`shrink-0 inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${statusCls}`}>{statusLabel}</span>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1">
+                            {status !== "trained" && (
+                              <Button
+                                variant="ghost" size="sm" className="h-6 text-[10px] px-2"
+                                onClick={() => {
+                                  markAgentTrained(id, a.id);
+                                  addActivity({ action: "Agent trained", by: "Admin", documentId: id, documentName: doc.fileName, detail: `${a.name} marked as trained on v${doc.version ?? "1.0"}` });
+                                }}
+                              >
+                                Train
+                              </Button>
+                            )}
+                            <button type="button" onClick={() => toggleAgent(a.id)} className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={`Unlink ${a.name}`}>
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <p className="rounded-md border border-dashed border-border px-2.5 py-2 text-xs text-muted-foreground">
+                    No agents linked to this document yet.
+                  </p>
+                )}
+                <AgentLinkCombobox
+                  agents={agents}
+                  linkedIds={doc.linkedAgentIds ?? []}
+                  onToggle={toggleAgent}
+                />
+              </div>
+
+              {/* ── Workforce ── */}
+              <div>
+                <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <Users className="h-3.5 w-3.5" /> Workforce
+                </p>
+                {complianceSubjectsForDoc.length > 0 ? (
+                  <>
+                    <div className="space-y-1.5">
+                      {(workforceExpanded ? humanMembers : humanMembers.slice(0, 3)).map((m) => {
+                        const ackedSubjects = complianceSubjectsForDoc.filter((s) =>
+                          workforceAcksForDoc.some((a) => a.memberId === m.id && a.subject === s)
+                        );
+                        const allAcked = ackedSubjects.length === complianceSubjectsForDoc.length;
+                        return (
+                          <div key={m.id} className="flex items-center justify-between rounded-md border border-border/50 px-2.5 py-1.5">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-foreground">
+                                {m.name.slice(0, 1)}
+                              </span>
+                              <span className="truncate text-sm font-medium text-foreground">{m.name}</span>
+                              <span className="text-[10px] text-muted-foreground">{m.role}</span>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              {allAcked ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                                  <CheckCircle className="h-2.5 w-2.5" /> Acknowledged
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    complianceSubjectsForDoc.forEach((s) => {
+                                      if (!workforceAcksForDoc.some((a) => a.memberId === m.id && a.subject === s)) {
+                                        addWorkforceAck({ memberId: m.id, memberName: m.name, subject: s });
+                                      }
+                                    });
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted transition-colors"
+                                >
+                                  {ackedSubjects.length > 0 ? `${ackedSubjects.length}/${complianceSubjectsForDoc.length}` : "Not yet"}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {humanMembers.length > 3 && (
+                      <button
+                        type="button"
+                        onClick={() => setWorkforceExpanded((v) => !v)}
+                        className="mt-1.5 text-xs font-medium text-primary hover:underline"
+                      >
+                        {workforceExpanded ? "Show less" : `Show all (${humanMembers.length})`}
+                      </button>
+                    )}
+                    {humanMembers.length === 0 && (
+                      <p className="text-xs text-muted-foreground">No human staff in the workforce.</p>
+                    )}
+                  </>
+                ) : (
+                  <p className="rounded-md border border-dashed border-border px-2.5 py-2 text-xs text-muted-foreground">
+                    Link this document to a compliance area to track staff acknowledgment.
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Labels
+              </CardTitle>
+              <CardDescription>Labels connect this document to escalation routing and AI agents. Matching labels on agents or workforce members create automatic associations.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {docTags.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {docTags.map((t) => (
+                    <Badge key={t} variant="secondary" className="gap-1 text-[10px]">
+                      {t}
+                      <button type="button" onClick={() => removeTag(t)} className="ml-0.5 rounded-full hover:bg-muted-foreground/20" aria-label={`Remove ${t}`}>
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              ) : (
+                <p className="rounded-md border border-dashed border-border px-2.5 py-2 text-xs text-muted-foreground">
+                  No labels yet. Add labels below to drive routing and agent connections.
+                </p>
+              )}
+
+              <TagCombobox
+                existingLabels={availableToAdd}
+                onAdd={addTag}
+              />
+
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Right: Document preview */}
+        <div className="min-h-[480px] lg:sticky lg:top-6 flex flex-col rounded-lg border border-border/60 bg-card overflow-hidden">
+          {/* Viewer toolbar */}
+          <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-4 py-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="truncate text-sm font-medium text-foreground">{displayTitle || "Untitled"}</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setViewerZoom((z) => Math.max(60, z - 10))}
+                className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                aria-label="Zoom out"
+              >
+                <ZoomOut className="h-4 w-4" />
+              </button>
+              <span className="min-w-[2.5rem] text-center text-[11px] tabular-nums text-muted-foreground">{viewerZoom}%</span>
+              <button
+                type="button"
+                onClick={() => setViewerZoom((z) => Math.min(150, z + 10))}
+                className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                aria-label="Zoom in"
+              >
+                <ZoomIn className="h-4 w-4" />
+              </button>
+              <div className="mx-1 h-4 w-px bg-border" />
+              <button
+                type="button"
+                onClick={() => { if (typeof window !== "undefined") window.print(); }}
+                className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                aria-label="Print"
+                title="Print"
+              >
+                <Printer className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+
+          {displayBody?.trim() ? (
+            <>
+              {/* Paper area with subtle dot grid background */}
+              <div
+                ref={viewerScrollRef}
+                className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8"
+                style={{ backgroundColor: "hsl(var(--muted))", backgroundImage: "radial-gradient(circle, hsl(var(--border)) 0.5px, transparent 0.5px)", backgroundSize: "16px 16px" }}
+              >
+                {/* Sizer wrapper: reserves space matching the scaled paper so scrolling works */}
+                <div
+                  className="mx-auto"
+                  style={{
+                    width: `calc(21cm * ${effectiveScale})`,
+                    minHeight: `calc(29.7cm * ${effectiveScale})`,
+                  }}
+                >
+                  <div
+                    className="bg-card shadow-lg rounded border border-border/40 origin-top-left"
+                    style={{
+                      width: "21cm",
+                      minHeight: "29.7cm",
+                      transform: `scale(${effectiveScale})`,
+                    }}
+                  >
+                    {/* Document header band */}
+                    <div className="border-b border-border/40 bg-muted/20 px-8 py-5 sm:px-10">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <h2 className="font-heading text-xl font-semibold text-foreground leading-tight">
+                            {displayTitle || "Untitled"}
+                          </h2>
+                          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                            <span className="inline-flex items-center gap-1 capitalize">
+                              <FileText className="h-3 w-3" />{doc.documentType}
+                            </span>
+                            <span>{doc.property}</span>
+                            {doc.version && <span>v{doc.version}</span>}
+                            <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" />{doc.modified}</span>
+                            {doc.effectiveDate && <span>Effective {doc.effectiveDate}</span>}
+                          </div>
+                        </div>
+                        {doc.owner && (
+                          <div className="shrink-0 flex items-center gap-1.5">
+                            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                              {doc.owner.slice(0, 1).toUpperCase()}
+                            </span>
+                            <span className="text-xs text-muted-foreground hidden sm:inline">{doc.owner}</span>
+                          </div>
+                        )}
+                      </div>
+                      {docTags.length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          {docTags.map((t) => (
+                            <span key={t} className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-[10px] font-medium text-primary border border-primary/15">{t}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Document body */}
+                    <div className="px-8 py-6 sm:px-10 sm:py-8">
+                      <div
+                        className={cn(
+                          "font-sans text-foreground leading-relaxed selection:bg-primary/20",
+                          "prose prose-sm max-w-none dark:prose-invert",
+                          "prose-headings:font-semibold prose-headings:text-foreground prose-headings:tracking-tight",
+                          "prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5",
+                          "prose-strong:text-foreground",
+                          isBodyHtml ? "prose-p:first:mt-0" : "whitespace-pre-wrap font-mono text-[13px]"
+                        )}
+                        style={{
+                          fontSize: isBodyHtml ? "14px" : "13px",
+                          lineHeight: isBodyHtml ? 1.7 : 1.6,
+                          letterSpacing: isBodyHtml ? "0.01em" : undefined,
+                        }}
+                        {...(isBodyHtml ? { dangerouslySetInnerHTML: { __html: currentPageContent } } : {})}
+                      >
+                        {!isBodyHtml ? currentPageContent : null}
+                      </div>
+                    </div>
+
+                    {/* Document footer */}
+                    <div className="border-t border-border/30 bg-muted/10 px-8 py-3 sm:px-10">
+                      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                        <span>Page {viewerPage} of {totalPages}</span>
+                        <span>{doc.source === "entrata" ? "Source: Entrata" : "Source: Uploaded"} · {doc.fileName}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Pagination bar */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-3 border-t border-border bg-card px-4 py-2">
+                  <button
+                    type="button"
+                    onClick={() => setViewerPage((p) => Math.max(1, p - 1))}
+                    disabled={viewerPage <= 1}
+                    className="rounded p-1.5 text-foreground/70 hover:bg-muted disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                    aria-label="Previous page"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+                      const page = i + 1;
+                      return (
+                        <button
+                          key={page}
+                          type="button"
+                          onClick={() => setViewerPage(page)}
+                          className={cn(
+                            "h-7 min-w-[1.75rem] rounded px-1.5 text-xs font-medium transition-colors",
+                            viewerPage === page ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
+                          )}
+                        >
+                          {page}
+                        </button>
+                      );
+                    })}
+                    {totalPages > 7 && <span className="text-xs text-muted-foreground px-1">...</span>}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setViewerPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={viewerPage >= totalPages}
+                    className="rounded p-1.5 text-foreground/70 hover:bg-muted disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                    aria-label="Next page"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 bg-muted/30">
+              <div className="rounded-full bg-muted p-4">
+                <FileText className="h-8 w-8 text-muted-foreground" />
+              </div>
+              <p className="text-sm font-medium text-foreground">No content yet</p>
+              <p className="text-xs text-muted-foreground text-center max-w-xs">Click Edit to add body text, or upload a document to populate the content.</p>
+              <Button size="sm" onClick={() => setEditDialogOpen(true)}>
+                <Pencil className="h-3.5 w-3.5" /> Add content
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <EscalationDetailSheet
+        item={activeApprovalEscalation}
+        open={approvalSheetOpen}
+        onOpenChange={(o) => { setApprovalSheetOpen(o); if (!o) setActiveApprovalEscalation(null); }}
+      />
+    </>
+  );
+}
