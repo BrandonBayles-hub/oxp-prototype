@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { useWorkforce, getAssigneeByLabels } from "@/lib/workforce-context";
+import { useWorkforce, getAssigneeByLabels, type WorkforceMember } from "@/lib/workforce-context";
 
 // TDD §4.6.1 + Harvey/Sierra/DEEP-RESEARCH: full escalation model for handoff-with-context and staff assist
 export type EscalationType =
@@ -131,12 +131,9 @@ function getAssignedByRule(item: EscalationItem): string {
 /** 1) Label-based: match escalation labels to workforce member labels. 2) Fallback: category/type rules. */
 function getAssignedByRouting(
   item: EscalationItem,
-  humanMembers: { name: string; labels?: string[] }[]
+  humanMembers: WorkforceMember[]
 ): string {
-  const byLabel = getAssigneeByLabels(
-    item.labels,
-    humanMembers as { name: string; labels?: string[] }[]
-  );
+  const byLabel = getAssigneeByLabels(item.labels, humanMembers);
   if (byLabel) return byLabel;
   return getAssignedByRule(item);
 }
@@ -144,7 +141,7 @@ function getAssignedByRouting(
 /** Apply routing to items that have no assignee. Uses labels first, then rules. */
 function applyRoutingRules(
   items: EscalationItem[],
-  humanMembers: { name: string; labels?: string[] }[]
+  humanMembers: WorkforceMember[]
 ): EscalationItem[] {
   return items.map((item) => {
     if (item.assignee != null && item.assignee.trim() !== "") return item;

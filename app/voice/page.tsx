@@ -32,7 +32,7 @@ const CHANNEL_LABELS: Record<string, string> = { voice: "Voice (Phone)", chat: "
 export default function VoicePage() {
   const voice = useVoice();
   const { agents } = useAgents();
-  const autonomousAgents = useMemo(() => agents.filter((a) => a.type === "autonomous"), [agents]);
+  const autonomousAgents = useMemo(() => agents.filter((a) => a.type === "l4"), [agents]);
 
   const [activeTab, setActiveTab] = useState("brand");
   const [addRuleOpen, setAddRuleOpen] = useState(false);
@@ -600,7 +600,7 @@ function AgentTuningCard({
             <div className="flex items-center gap-6">
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">Response length</label>
-                <select value={responseLength} onChange={(e) => setResponseLength(e.target.value)} className="select-base h-8 text-sm">
+                <select value={responseLength} onChange={(e) => setResponseLength(e.target.value as "concise" | "standard" | "detailed")} className="select-base h-8 text-sm">
                   <option value="concise">Concise</option>
                   <option value="standard">Standard</option>
                   <option value="detailed">Detailed</option>

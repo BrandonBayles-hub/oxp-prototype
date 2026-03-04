@@ -204,15 +204,15 @@ export function EntrataTopNav() {
                 padding: "0 10px",
                 fontSize: 11.5,
                 fontWeight: 500,
-                color: item.active ? "#fff" : "rgba(255,255,255,0.75)",
-                background: item.active ? "#CC0000" : "transparent",
+                color: "active" in item && item.active ? "#fff" : "rgba(255,255,255,0.75)",
+                background: "active" in item && item.active ? "#CC0000" : "transparent",
                 transition: "background 150ms",
               }}
               onMouseEnter={(e) => {
-                if (!item.active) e.currentTarget.style.background = "rgba(255,255,255,0.08)";
+                if (!("active" in item && item.active)) e.currentTarget.style.background = "rgba(255,255,255,0.08)";
               }}
               onMouseLeave={(e) => {
-                if (!item.active) e.currentTarget.style.background = "transparent";
+                if (!("active" in item && item.active)) e.currentTarget.style.background = "transparent";
               }}
             >
               {Icon && <Icon style={{ width: 13, height: 13, strokeWidth: 1.5 }} />}

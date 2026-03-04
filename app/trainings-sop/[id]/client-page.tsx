@@ -460,8 +460,6 @@ export default function DocumentDetailPage() {
     const canonical = existingLabelsMap.get(n) ?? trimmed;
     const next = [...(doc.tags ?? []), canonical].filter(Boolean);
     updateDocument(id, { tags: next });
-    setTagInput("");
-    setNewTagInput("");
   };
 
   const removeTag = (tag: string) => {

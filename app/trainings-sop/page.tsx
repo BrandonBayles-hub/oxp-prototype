@@ -181,11 +181,10 @@ export default function TrainingsSopPage() {
       name: `SOP review: ${doc.fileName}`,
       summary: "Document submitted for approval.",
       status: "Open",
+      assignee: "",
       category: "Compliance",
       property: doc.property ?? "Portfolio",
-      labels: doc.labels ?? [],
-      createdAt: new Date().toISOString(),
-      replies: [],
+      labels: doc.tags ?? [],
       notes: [],
       documentApprovalContext: {
         documentId: doc.id,

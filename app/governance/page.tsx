@@ -522,7 +522,7 @@ export default function GovernancePage() {
                         </div>
                         {guardrail.scope === "specific" && (
                           <div className="mt-2 flex flex-wrap gap-1.5">
-                            {allAgents.filter((a) => a.type === "autonomous").map((agent) => {
+                            {allAgents.filter((a) => a.type === "l4").map((agent) => {
                               const isSelected = guardrail.scopedAgentIds.includes(agent.id);
                               return (
                                 <button
