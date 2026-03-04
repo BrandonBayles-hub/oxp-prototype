@@ -1,0 +1,26 @@
+name: Deployment
+
+on:
+  workflow_dispatch:
+  push:
+    branches: 
+      - main
+
+jobs:
+  deploy-staging:
+    runs-on: ubuntu-latest
+    environment: dev
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Deploy to Staging
+        uses: entrata/deploy-microfrontend@main
+        with:
+          ENVIRONMENT: dev
+          REGION: "us-east-1"
+          ACCOUNT_ID: 388604198110
+          S3_BUCKET: "388604198110-oxp-prototype"
+          STACK: "staging"
+          ROLE_ARN: "arn:aws:iam::388604198110:role/oxp-prototype-github-actions-role"
+          MICROFRONTEND_NAME: "oxp-prototype"
