@@ -6,12 +6,23 @@ export type Specialty = {
   name: string;
 };
 
+export type TaskSections = {
+  links: { enabled: boolean; required: boolean };
+  attachments: { enabled: boolean; required: boolean };
+  checklist: {
+    enabled: boolean;
+    requireAll: boolean;
+    items: string[];
+  };
+};
+
 export type TaskTemplate = {
   id: string;
   name: string;
   workflow: string;
   specialtyId: string;
   description: string;
+  descriptionHtml?: string;
   system: boolean;
   repeats?: SpecialtyTaskRepeats;
   priority?: SpecialtyTaskPriority;
@@ -22,6 +33,7 @@ export type TaskTemplate = {
   monthDay?: number;
   createTime?: string;
   timezone?: string;
+  sections?: TaskSections;
 };
 
 export type SpecialtyTaskRepeats = "Never" | "Daily" | "Weekly" | "Monthly";
@@ -49,6 +61,8 @@ export type SpecialtyTask = {
   createTime?: string;
   /** IANA timezone for scheduling */
   timezone?: string;
+  descriptionHtml?: string;
+  sections?: TaskSections;
 };
 
 // ── System task catalog (Entrata) ───────────────────────────────────────────
@@ -214,6 +228,7 @@ const LEASING_ONSITE_TASKS: SpecialtyTask[] = [
   { id: "st-5", name: "Countersign Lease", workflow: "Leasing", specialtyId: "onsite-leasing", repeats: "Never", priority: "P1", dueIn: "1 Day", source: "system" },
   { id: "st-6", name: "Generate Lease", workflow: "Leasing", specialtyId: "onsite-leasing", repeats: "Never", priority: "P1", dueIn: "1 Day", source: "system" },
   { id: "st-7", name: "Lead Clean Up", workflow: "Custom", specialtyId: "onsite-leasing", repeats: "Weekly", priority: "P3", dueIn: "1 Week", source: "custom", weekDays: ["Mon", "Fri"], createTime: "08:00", timezone: "America/Denver" },
+  { id: "st-11", name: "Daily Property Closing", workflow: "Custom", specialtyId: "onsite-leasing", repeats: "Weekly", priority: "P2", dueIn: "1 Day", source: "custom", property: "Sun Valley", assignee: "Madelyn Dias", descriptionHtml: "<p><strong><em>What\u2019s New</em></strong></p><ul><li>Clients can now edit the text to create better descriptions</li><li>This will allow them to have better communication with their teams</li><li><span style=\"color: red\">Lots and lots of control like color and alignment</span></li></ul>", sections: { links: { enabled: false, required: false }, attachments: { enabled: false, required: false }, checklist: { enabled: true, requireAll: true, items: ["Lock the doors", "Close the windows"] } } },
   { id: "st-8", name: "Lead Follow Up", workflow: "Leasing", specialtyId: "onsite-leasing", repeats: "Never", priority: "P3", dueIn: "3 Hours", source: "system" },
   { id: "st-9", name: "Manual Screen Applicant", workflow: "Leasing", specialtyId: "onsite-leasing", repeats: "Never", priority: "P1", dueIn: "1 Day", source: "system" },
   { id: "st-10", name: "Reject Applications", workflow: "Leasing", specialtyId: "onsite-leasing", repeats: "Weekly", priority: "P3", dueIn: "5 Days", source: "system", weekDays: ["Fri"], createTime: "09:00", timezone: "America/Denver" },

@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useWorkforce, getManagerOf, isTierAbove, isMemberAvailable, type WorkforceMember, type WorkforceTier } from "@/lib/workforce-context";
 import type { ConversationItem } from "@/lib/conversations-context";
 import type { Agent } from "@/lib/agents-context";
+import type { TaskSections } from "@/lib/specialties-data";
 
 export type EscalationType =
   | "conversation"
@@ -93,6 +94,10 @@ export type EscalationItem = {
   slaStage?: number;
   /** Timestamp of the last SLA-triggered action; resets the clock for the next tier */
   lastSlaActionAt?: string;
+  /** Rich-text HTML description for custom tasks */
+  descriptionHtml?: string;
+  /** Task sections config (links, attachments, checklist) for custom tasks */
+  sections?: TaskSections;
 };
 
 export type EscalationRoutingRule = {
@@ -608,6 +613,33 @@ const INITIAL: EscalationItem[] = [
     ],
     dueAt: new Date(Date.now() + 8 * 3600_000).toISOString(),
     createdAt: new Date(Date.now() - 3 * 3600_000).toISOString(),
+  },
+  {
+    id: "daily-closing-1",
+    name: "Daily Property Closing",
+    type: "workflow",
+    summary: "Daily Property Closing",
+    category: "Leasing",
+    property: "Sun Valley Apartments",
+    status: "In progress",
+    assignee: "Madelyn Dias",
+    priority: "medium",
+    dueAt: "2024-10-31T23:59:59Z",
+    createdAt: "2025-10-15T08:00:00Z",
+    descriptionHtml: "<p><strong><em>What\u2019s New</em></strong></p><ul><li>Clients can now edit the text to create better descriptions</li><li>This will allow them to have better communication with their teams</li><li><span style=\"color: red\">Lots and lots of control like color and alignment</span></li></ul>",
+    sections: {
+      links: { enabled: false, required: false },
+      attachments: { enabled: false, required: false },
+      checklist: {
+        enabled: true,
+        requireAll: true,
+        items: ["Lock the doors", "Close the windows"],
+      },
+    },
+    history: [
+      { at: "2025-10-15T08:00:00Z", by: "System", action: "created task", detail: "Daily Property Closing" },
+      { at: "2025-10-15T08:05:00Z", by: "System", action: "assigned to", detail: "Madelyn Dias" },
+    ],
   },
 ];
 

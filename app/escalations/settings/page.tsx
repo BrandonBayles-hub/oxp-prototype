@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
+import { CreateCustomTaskDialog } from "@/components/create-custom-task-dialog";
 import { usePermissions } from "@/lib/permissions-context";
 import { useWorkforce } from "@/lib/workforce-context";
 import { useVault, type VaultItem } from "@/lib/vault-context";
@@ -72,13 +73,6 @@ const NAV_SECTIONS: NavSection[] = [
     label: "Playbooks",
     items: [
       { id: "playbook-library", label: "Playbook Library" },
-    ],
-  },
-  {
-    label: "Communications",
-    items: [
-      { id: "labels", label: "Labels" },
-      { id: "inbox", label: "Inbox" },
     ],
   },
 ];
@@ -149,8 +143,6 @@ export default function EscalationSettingsPage() {
         {activeSection === "escalation-tasks" && <EscalationTasksView />}
         {activeSection === "specialties" && <SpecialtiesView />}
         {activeSection === "playbook-library" && <PlaybookLibraryView />}
-        {activeSection === "labels" && <LabelsView />}
-        {activeSection === "inbox" && <InboxView />}
       </div>
     </div>
   );
@@ -236,11 +228,24 @@ function EscalationTasksView() {
     setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, specialtyId: val } : t)));
   };
 
+  const handlePriorityChange = (taskId: string, priority: SpecialtyTaskPriority) => {
+    setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, priority } : t)));
+  };
+
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [taskToDelete, setTaskToDelete] = useState<TaskTemplate | null>(null);
+  const [editingTask, setEditingTask] = useState<TaskTemplate | null>(null);
+  const [editingSystemTask, setEditingSystemTask] = useState<TaskTemplate | null>(null);
+  const [systemEditPriority, setSystemEditPriority] = useState<SpecialtyTaskPriority>("P2");
+  const [systemEditSpecialty, setSystemEditSpecialty] = useState("");
 
   const handleAddCustomTask = (task: TaskTemplate) => {
     setTasks((prev) => [...prev, task]);
+  };
+
+  const handleEditTask = (updated: TaskTemplate) => {
+    setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+    setEditingTask(null);
   };
 
   const handleDeleteTask = (taskId: string) => {
@@ -325,15 +330,16 @@ function EscalationTasksView() {
       </p>
 
       {/* Table */}
-      <div className="mt-4 rounded-lg border border-border">
-        <table className="w-full">
+      <div className="mt-4 rounded-lg border border-border overflow-x-auto scrollbar-hover">
+        <table className="w-full min-w-[900px]">
           <thead>
             <tr className="border-b border-border bg-muted/30">
-              <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Task</th>
-              <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Workflow</th>
-              <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Specialty</th>
-              <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Description</th>
-              <th className="w-10 px-2 py-2.5" />
+              <th className="sticky left-0 z-10 min-w-[200px] border-r border-border bg-muted px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Task</th>
+              <th className="min-w-[110px] px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Workflow</th>
+              <th className="min-w-[70px] px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Priority</th>
+              <th className="min-w-[160px] px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Specialty</th>
+              <th className="min-w-[200px] px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Description</th>
+              <th className="w-20 min-w-[80px] px-2 py-2.5" />
             </tr>
           </thead>
           <tbody>
@@ -347,16 +353,40 @@ function EscalationTasksView() {
                     isUnassigned && tab === "system" && "bg-amber-50/40 dark:bg-amber-950/10"
                   )}
                 >
-                  <td className="px-4 py-3 text-sm font-medium text-foreground whitespace-nowrap">{task.name}</td>
-                  <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">{task.workflow}</td>
-                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                  <td className="sticky left-0 z-10 border-r border-border bg-background min-w-[200px] px-4 py-3 text-sm font-medium text-foreground whitespace-nowrap">{task.name}</td>
+                  <td className="min-w-[110px] px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">{task.workflow}</td>
+                  <td className="min-w-[70px] px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                    <Select
+                      value={task.priority ?? "P2"}
+                      onValueChange={(v) => handlePriorityChange(task.id, v as SpecialtyTaskPriority)}
+                    >
+                      <SelectTrigger
+                        className={cn(
+                          "h-7 w-16 text-xs font-medium border-0 shadow-none rounded-md",
+                          (task.priority ?? "P2") === "P1"
+                            ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+                            : (task.priority ?? "P2") === "P2"
+                              ? "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200"
+                              : "bg-muted text-muted-foreground"
+                        )}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="P1" className="text-xs">P1</SelectItem>
+                        <SelectItem value="P2" className="text-xs">P2</SelectItem>
+                        <SelectItem value="P3" className="text-xs">P3</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </td>
+                  <td className="min-w-[160px] px-4 py-3" onClick={(e) => e.stopPropagation()}>
                     <Select
                       value={task.specialtyId || UNASSIGNED}
                       onValueChange={(v) => handleSpecialtyChange(task.id, v)}
                     >
                       <SelectTrigger
                         className={cn(
-                          "h-8 w-44 text-xs border-0 shadow-none",
+                          "h-8 w-full text-xs border-0 shadow-none",
                           isUnassigned
                             ? "bg-amber-100/60 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
                             : "bg-muted/40"
@@ -374,10 +404,23 @@ function EscalationTasksView() {
                       </SelectContent>
                     </Select>
                   </td>
-                  <td className="px-4 py-3 text-sm text-muted-foreground max-w-xs truncate">{task.description}</td>
-                  <td className="px-2 py-3 text-center">
+                  <td className="min-w-[200px] px-4 py-3 text-sm text-muted-foreground truncate max-w-xs">{task.description}</td>
+                  <td className="w-20 min-w-[80px] px-2 py-3 text-center">
                     <div className="flex items-center justify-center gap-0.5">
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                        onClick={() => {
+                          if (task.system) {
+                            setEditingSystemTask(task);
+                            setSystemEditPriority(task.priority ?? "P2");
+                            setSystemEditSpecialty(task.specialtyId);
+                          } else {
+                            setEditingTask(task);
+                          }
+                        }}
+                      >
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
                       {!task.system && (
@@ -397,7 +440,7 @@ function EscalationTasksView() {
             })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">
                   No tasks match the current filters.
                 </td>
               </tr>
@@ -409,8 +452,85 @@ function EscalationTasksView() {
       <CreateCustomTaskDialog
         open={showCreateDialog}
         onOpenChange={setShowCreateDialog}
+        mode="template"
         onSave={handleAddCustomTask}
       />
+
+      <CreateCustomTaskDialog
+        open={editingTask !== null}
+        onOpenChange={(open) => { if (!open) setEditingTask(null); }}
+        mode="template"
+        initialData={editingTask}
+        onSave={(updated) => { handleEditTask(updated); }}
+      />
+
+      {/* Edit System Task Dialog */}
+      <Dialog open={editingSystemTask !== null} onOpenChange={(v) => { if (!v) setEditingSystemTask(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit System Task</DialogTitle>
+            <DialogDescription>
+              System tasks are managed by Entrata. You can adjust the priority and specialty assignment.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="rounded-md border border-border bg-muted/30 px-4 py-3">
+              <p className="text-sm font-medium text-foreground">{editingSystemTask?.name}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{editingSystemTask?.workflow}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-foreground">Priority</label>
+                <Select value={systemEditPriority} onValueChange={(v) => setSystemEditPriority(v as SpecialtyTaskPriority)}>
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="P1" className="text-sm">P1 - Critical</SelectItem>
+                    <SelectItem value="P2" className="text-sm">P2 - High</SelectItem>
+                    <SelectItem value="P3" className="text-sm">P3 - Normal</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-foreground">Specialty</label>
+                <Select value={systemEditSpecialty || UNASSIGNED} onValueChange={(v) => setSystemEditSpecialty(v === UNASSIGNED ? "" : v)}>
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={UNASSIGNED} className="text-xs text-muted-foreground">Unassigned</SelectItem>
+                    {SPECIALTIES.map((s) => (
+                      <SelectItem key={s.id} value={s.id} className="text-sm">{s.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setEditingSystemTask(null)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                if (!editingSystemTask) return;
+                setTasks((prev) =>
+                  prev.map((t) =>
+                    t.id === editingSystemTask.id
+                      ? { ...t, priority: systemEditPriority, specialtyId: systemEditSpecialty }
+                      : t
+                  )
+                );
+                setEditingSystemTask(null);
+              }}
+            >
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={taskToDelete !== null} onOpenChange={(v) => { if (!v) setTaskToDelete(null); }}>
         <DialogContent className="max-w-sm">
@@ -583,210 +703,6 @@ function CadenceScheduler({
   );
 }
 
-// ── Create Custom Task Dialog ─────────────────────────────────────────────
-
-function CreateCustomTaskDialog({
-  open,
-  onOpenChange,
-  onSave,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSave: (task: TaskTemplate) => void;
-}) {
-  const [name, setName] = useState("");
-  const [workflow, setWorkflow] = useState("Custom");
-  const [specialtyId, setSpecialtyId] = useState(SPECIALTIES[0].id);
-  const [description, setDescription] = useState("");
-  const [schedule, setSchedule] = useState<CadenceState>({
-    cadence: "Never",
-    weekDays: ["Mon"],
-    monthDay: 1,
-    createTime: "09:00",
-    timezone: "America/Denver",
-  });
-  const [priority, setPriority] = useState<SpecialtyTaskPriority>("P2");
-  const [dueIn, setDueIn] = useState("1 Day");
-  const [assignee, setAssignee] = useState("");
-  const [property, setProperty] = useState("");
-
-  const reset = () => {
-    setName("");
-    setWorkflow("Custom");
-    setSpecialtyId(SPECIALTIES[0].id);
-    setDescription("");
-    setSchedule({ cadence: "Never", weekDays: ["Mon"], monthDay: 1, createTime: "09:00", timezone: "America/Denver" });
-    setPriority("P2");
-    setDueIn("1 Day");
-    setAssignee("");
-    setProperty("");
-  };
-
-  const handleSave = () => {
-    if (!name.trim()) return;
-    const scheduling: Partial<TaskTemplate> = schedule.cadence !== "Never"
-      ? {
-          createTime: schedule.createTime,
-          timezone: schedule.timezone,
-          ...(schedule.cadence === "Weekly" ? { weekDays: schedule.weekDays } : {}),
-          ...(schedule.cadence === "Monthly" ? { monthDay: schedule.monthDay } : {}),
-        }
-      : {};
-
-    onSave({
-      id: `t-custom-${Date.now()}`,
-      name: name.trim(),
-      workflow,
-      specialtyId,
-      description: description.trim(),
-      system: false,
-      repeats: schedule.cadence,
-      priority,
-      dueIn,
-      assignee: assignee || undefined,
-      property: property || undefined,
-      ...scheduling,
-    });
-    reset();
-    onOpenChange(false);
-  };
-
-  const labelClass = "text-xs font-medium text-foreground";
-  const inputClass =
-    "h-9 w-full rounded-md border border-input bg-background px-3 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary";
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v); }}>
-      <DialogContent className="max-w-md max-h-[85vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle>Create Custom Task</DialogTitle>
-          <DialogDescription>
-            Add a custom task for recurring or ad-hoc work outside standard system workflows.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="flex-1 overflow-y-auto space-y-4 py-2 -mx-6 px-6">
-          <div className="space-y-1.5">
-            <label className={labelClass}>Task Name</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Weekly Lead Cleanup"
-              className={inputClass}
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className={labelClass}>Description</label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Describe what this task involves"
-              rows={2}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary resize-none"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className={labelClass}>Workflow</label>
-            <Select value={workflow} onValueChange={setWorkflow}>
-              <SelectTrigger className="h-9 text-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {TASK_WORKFLOWS.map((w) => (
-                  <SelectItem key={w} value={w} className="text-sm">{w}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className={labelClass}>Specialty</label>
-            <Select value={specialtyId} onValueChange={setSpecialtyId}>
-              <SelectTrigger className="h-9 text-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {SPECIALTIES.map((s) => (
-                  <SelectItem key={s.id} value={s.id} className="text-sm">{s.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <CadenceScheduler value={schedule} onChange={setSchedule} labelClass={labelClass} />
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <label className={labelClass}>Priority</label>
-              <Select value={priority} onValueChange={(v) => setPriority(v as SpecialtyTaskPriority)}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="P1" className="text-sm">P1 - Critical</SelectItem>
-                  <SelectItem value="P2" className="text-sm">P2 - High</SelectItem>
-                  <SelectItem value="P3" className="text-sm">P3 - Normal</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <label className={labelClass}>Due In</label>
-              <Select value={dueIn} onValueChange={setDueIn}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {DUE_IN_OPTIONS.map((d) => (
-                    <SelectItem key={d} value={d} className="text-sm">{d}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className={labelClass}>Assignee <span className="text-muted-foreground font-normal">(optional)</span></label>
-            <input
-              type="text"
-              value={assignee}
-              onChange={(e) => setAssignee(e.target.value)}
-              placeholder="Leave blank for automatic assignment"
-              className={inputClass}
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className={labelClass}>Property <span className="text-muted-foreground font-normal">(optional)</span></label>
-            <Select value={property || "__none__"} onValueChange={(v) => setProperty(v === "__none__" ? "" : v)}>
-              <SelectTrigger className="h-9 text-sm">
-                <SelectValue placeholder="All Properties" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__" className="text-sm">All Properties</SelectItem>
-                {PROPERTIES.map((p) => (
-                  <SelectItem key={p} value={p} className="text-sm">{p}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="ghost" size="sm" onClick={() => { reset(); onOpenChange(false); }}>
-            Cancel
-          </Button>
-          <Button size="sm" disabled={!name.trim()} onClick={handleSave}>
-            Create Task
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 // ── Specialties View ───────────────────────────────────────────────────────
 
 const ASSIGNMENT_MODE_LABELS: Record<AssignmentMode, { label: string; icon: React.ReactNode }> = {
@@ -830,15 +746,15 @@ function SpecialtiesView() {
         </Button>
       </div>
 
-      <div className="mt-4 rounded-lg border border-border">
-        <table className="w-full">
+      <div className="mt-4 rounded-lg border border-border overflow-x-auto scrollbar-hover">
+        <table className="w-full min-w-[700px]">
           <thead>
             <tr className="border-b border-border bg-muted/30">
-              <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Specialty</th>
-              <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Tasks</th>
-              <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Members</th>
-              <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Assignment</th>
-              <th className="w-10 px-2 py-2.5" />
+              <th className="sticky left-0 z-10 min-w-[180px] border-r border-border bg-muted px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Specialty</th>
+              <th className="min-w-[70px] px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Tasks</th>
+              <th className="min-w-[90px] px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Members</th>
+              <th className="min-w-[140px] px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Assignment</th>
+              <th className="w-10 min-w-[48px] px-2 py-2.5" />
             </tr>
           </thead>
           <tbody>
@@ -854,13 +770,13 @@ function SpecialtiesView() {
                   className="border-b border-border last:border-b-0 hover:bg-muted/20 transition-colors cursor-pointer"
                   onClick={() => router.push(`/escalations/settings/specialty/${s.id}`)}
                 >
-                  <td className="px-4 py-3">
+                  <td className="sticky left-0 z-10 min-w-[180px] border-r border-border bg-background px-4 py-3">
                     <span className="text-sm font-medium text-foreground">{s.name}</span>
                   </td>
-                  <td className="px-4 py-3 text-sm text-muted-foreground">
+                  <td className="min-w-[70px] px-4 py-3 text-sm text-muted-foreground">
                     {taskCount}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="min-w-[90px] px-4 py-3">
                     {memberCount > 0 ? (
                       <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
                         <Users className="h-3.5 w-3.5" />
@@ -870,13 +786,13 @@ function SpecialtiesView() {
                       <span className="text-xs text-muted-foreground/60">No members</span>
                     )}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="min-w-[140px] px-4 py-3">
                     <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                       {modeInfo.icon}
                       {modeInfo.label}
                     </span>
                   </td>
-                  <td className="px-2 py-3 text-center">
+                  <td className="w-10 min-w-[48px] px-2 py-3 text-center">
                     <Button
                       variant="ghost"
                       size="icon"
@@ -1059,38 +975,38 @@ function PlaybookLibraryView() {
 
       <p className="mt-2 text-xs font-medium text-muted-foreground">Playbooks</p>
 
-      <div className="mt-3 rounded-lg border border-border">
-        <table className="w-full">
+      <div className="mt-3 rounded-lg border border-border overflow-x-auto scrollbar-hover">
+        <table className="w-full min-w-[850px]">
           <thead>
             <tr className="border-b border-border bg-muted/30">
               <th
-                className="cursor-pointer px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+                className="sticky left-0 z-10 min-w-[180px] border-r border-border bg-muted cursor-pointer px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
                 onClick={() => toggleSort("name")}
               >
                 Playbook Name <SortIcon field="name" />
               </th>
               <th
-                className="cursor-pointer px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+                className="min-w-[100px] cursor-pointer px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
                 onClick={() => toggleSort("category")}
               >
                 Category <SortIcon field="category" />
               </th>
               <th
-                className="cursor-pointer px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+                className="min-w-[90px] cursor-pointer px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
                 onClick={() => toggleSort("repeats")}
               >
                 Repeats <SortIcon field="repeats" />
               </th>
               <th
-                className="cursor-pointer px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+                className="min-w-[80px] cursor-pointer px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
                 onClick={() => toggleSort("priority")}
               >
                 Priority <SortIcon field="priority" />
               </th>
-              <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <th className="min-w-[200px] px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                 Description
               </th>
-              <th className="w-20 px-2 py-2.5" />
+              <th className="w-20 min-w-[80px] px-2 py-2.5" />
             </tr>
           </thead>
           <tbody>
@@ -1099,16 +1015,16 @@ function PlaybookLibraryView() {
                 key={tpl.id}
                 className="border-b border-border last:border-b-0 hover:bg-muted/20 transition-colors"
               >
-                <td className="px-4 py-3 text-sm font-medium text-foreground whitespace-nowrap">
+                <td className="sticky left-0 z-10 min-w-[180px] border-r border-border bg-background px-4 py-3 text-sm font-medium text-foreground whitespace-nowrap">
                   {tpl.name}
                 </td>
-                <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
+                <td className="min-w-[100px] px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
                   {tpl.category}
                 </td>
-                <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
+                <td className="min-w-[90px] px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
                   {tpl.repeats}
                 </td>
-                <td className="px-4 py-3">
+                <td className="min-w-[80px] px-4 py-3">
                   <span
                     className={cn(
                       "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
@@ -1118,10 +1034,10 @@ function PlaybookLibraryView() {
                     {tpl.priority}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-sm text-muted-foreground max-w-xs truncate">
+                <td className="min-w-[200px] px-4 py-3 text-sm text-muted-foreground truncate max-w-xs">
                   {tpl.description}
                 </td>
-                <td className="px-2 py-3 text-center">
+                <td className="w-20 min-w-[80px] px-2 py-3 text-center">
                   {tpl.variety === "automated" ? (
                     <Button
                       variant="ghost"
@@ -1640,15 +1556,15 @@ function CreatePlaybookFromDocDialog({
 
             {/* Table */}
             <div className="flex-1 min-h-0 overflow-y-auto">
-              <div className="rounded-lg border border-border">
-              <table className="w-full">
+              <div className="rounded-lg border border-border overflow-x-auto scrollbar-hover">
+              <table className="w-full min-w-[700px]">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
-                    <th className="px-4 py-2 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Name</th>
-                    <th className="px-4 py-2 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Type</th>
-                    <th className="px-4 py-2 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Property</th>
-                    <th className="px-4 py-2 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Approval</th>
-                    <th className="px-4 py-2 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Modified</th>
+                    <th className="sticky left-0 z-10 min-w-[200px] border-r border-border bg-muted px-4 py-2 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Name</th>
+                    <th className="min-w-[80px] px-4 py-2 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Type</th>
+                    <th className="min-w-[100px] px-4 py-2 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Property</th>
+                    <th className="min-w-[90px] px-4 py-2 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Approval</th>
+                    <th className="min-w-[100px] px-4 py-2 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Modified</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1689,7 +1605,7 @@ function CreatePlaybookFromDocDialog({
                         </td>
                       ) : (
                         <>
-                          <td className="px-4 py-2.5 font-medium text-foreground">
+                          <td className="sticky left-0 z-10 min-w-[200px] border-r border-border bg-background px-4 py-2.5 font-medium text-foreground">
                             <span className="inline-flex items-center gap-2">
                               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border bg-background">
                                 <FileText className="h-3.5 w-3.5 text-muted-foreground" />
@@ -1700,14 +1616,14 @@ function CreatePlaybookFromDocDialog({
                               )}
                             </span>
                           </td>
-                          <td className="px-4 py-2.5 text-sm capitalize text-muted-foreground">{row.documentType}</td>
-                          <td className="px-4 py-2.5 text-sm text-muted-foreground">{row.property}</td>
-                          <td className="px-4 py-2.5">
+                          <td className="min-w-[80px] px-4 py-2.5 text-sm capitalize text-muted-foreground">{row.documentType}</td>
+                          <td className="min-w-[100px] px-4 py-2.5 text-sm text-muted-foreground">{row.property}</td>
+                          <td className="min-w-[90px] px-4 py-2.5">
                             <Badge variant="secondary" className={cn("text-[10px]", approvalBadgeClass(row.approvalStatus))}>
                               {approvalLabel(row.approvalStatus)}
                             </Badge>
                           </td>
-                          <td className="px-4 py-2.5 text-sm text-muted-foreground">{row.modified}</td>
+                          <td className="min-w-[100px] px-4 py-2.5 text-sm text-muted-foreground">{row.modified}</td>
                         </>
                       )}
                     </tr>
@@ -1772,25 +1688,25 @@ function CreatePlaybookFromDocDialog({
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto">
-              <div className="rounded-lg border border-border">
-              <table className="w-full">
+              <div className="rounded-lg border border-border overflow-x-auto scrollbar-hover">
+              <table className="w-full min-w-[800px]">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
-                    <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Task Name</th>
-                    <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Description</th>
-                    <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Due</th>
-                    <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Priority</th>
-                    <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Specialty</th>
-                    <th className="w-20 px-2 py-2.5" />
+                    <th className="sticky left-0 z-10 min-w-[180px] border-r border-border bg-muted px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Task Name</th>
+                    <th className="min-w-[180px] px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Description</th>
+                    <th className="min-w-[80px] px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Due</th>
+                    <th className="min-w-[110px] px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Priority</th>
+                    <th className="min-w-[150px] px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Specialty</th>
+                    <th className="w-20 min-w-[80px] px-2 py-2.5" />
                   </tr>
                 </thead>
                 <tbody>
                   {tasks.map((task) => (
                     <tr key={task.id} className="border-b border-border last:border-b-0 hover:bg-muted/20 transition-colors">
-                      <td className="px-4 py-3 text-sm font-medium text-foreground whitespace-nowrap">{task.name}</td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground max-w-[220px] truncate">{task.description}</td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">{task.dueOffset}</td>
-                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <td className="sticky left-0 z-10 min-w-[180px] border-r border-border bg-background px-4 py-3 text-sm font-medium text-foreground whitespace-nowrap">{task.name}</td>
+                      <td className="min-w-[180px] px-4 py-3 text-sm text-muted-foreground max-w-[220px] truncate">{task.description}</td>
+                      <td className="min-w-[80px] px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">{task.dueOffset}</td>
+                      <td className="min-w-[110px] px-4 py-3" onClick={(e) => e.stopPropagation()}>
                         <Select
                           value={task.priority}
                           onValueChange={(v) => handlePriorityChange(task.id, v as PlaybookTemplatePriority)}
@@ -1806,12 +1722,12 @@ function CreatePlaybookFromDocDialog({
                           </SelectContent>
                         </Select>
                       </td>
-                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <td className="min-w-[150px] px-4 py-3" onClick={(e) => e.stopPropagation()}>
                         <Select
                           value={task.specialtyId || "__unassigned__"}
                           onValueChange={(v) => handleSpecialtyChange(task.id, v)}
                         >
-                          <SelectTrigger className="h-8 w-36 text-xs border-0 shadow-none bg-muted/40">
+                          <SelectTrigger className="h-8 w-full text-xs border-0 shadow-none bg-muted/40">
                             <SelectValue placeholder="Select" />
                           </SelectTrigger>
                           <SelectContent>
@@ -1822,7 +1738,7 @@ function CreatePlaybookFromDocDialog({
                           </SelectContent>
                         </Select>
                       </td>
-                      <td className="px-2 py-3 text-center">
+                      <td className="w-20 min-w-[80px] px-2 py-3 text-center">
                         <div className="flex items-center justify-center gap-0.5">
                           <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => setTaskToEdit(task)}>
                             <Pencil className="h-3.5 w-3.5" />
@@ -1850,9 +1766,13 @@ function CreatePlaybookFromDocDialog({
             <FromDocAddTaskDialog open={showAddTask} onOpenChange={setShowAddTask} onSave={handleAddTask} />
 
             {/* Edit Task Dialog */}
-            {taskToEdit && (
-              <FromDocEditTaskDialog open={true} onOpenChange={(v) => { if (!v) setTaskToEdit(null); }} task={taskToEdit} onSave={handleUpdateTask} />
-            )}
+            <CreateCustomTaskDialog
+              open={taskToEdit !== null}
+              onOpenChange={(open) => { if (!open) setTaskToEdit(null); }}
+              mode="playbook"
+              initialData={taskToEdit}
+              onSave={(updated) => { handleUpdateTask(updated); setTaskToEdit(null); }}
+            />
 
             {/* Delete Task Confirm */}
             <Dialog open={taskToDelete !== null} onOpenChange={(v) => { if (!v) setTaskToDelete(null); }}>
@@ -2121,94 +2041,6 @@ function FromDocAddTaskDialog({
   );
 }
 
-function FromDocEditTaskDialog({
-  open,
-  onOpenChange,
-  task,
-  onSave,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  task: PlaybookTemplateTask;
-  onSave: (task: PlaybookTemplateTask) => void;
-}) {
-  const [name, setName] = useState(task.name);
-  const [description, setDescription] = useState(task.description);
-  const [dueOffset, setDueOffset] = useState(task.dueOffset);
-  const [priority, setPriority] = useState<PlaybookTemplatePriority>(task.priority);
-  const [specialtyId, setSpecialtyId] = useState(task.specialtyId);
-
-  const handleSave = () => {
-    if (!name.trim()) return;
-    onSave({ ...task, name: name.trim(), description: description.trim(), dueOffset, priority, specialtyId });
-    onOpenChange(false);
-  };
-
-  const labelClass = "text-xs font-medium text-foreground";
-  const inputClass = "h-9 w-full rounded-md border border-input bg-background px-3 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary";
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Edit Task</DialogTitle>
-          <DialogDescription>Update this playbook task.</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4 py-2">
-          <div className="space-y-1.5">
-            <label className={labelClass}>Task Name</label>
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Submit Photos" className={inputClass} />
-          </div>
-          <div className="space-y-1.5">
-            <label className={labelClass}>Description</label>
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe what this task involves" rows={2} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary resize-none" />
-          </div>
-          <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-1.5">
-              <label className={labelClass}>Due</label>
-              <Select value={dueOffset} onValueChange={setDueOffset}>
-                <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {PLAYBOOK_TEMPLATE_DUE_OPTIONS.map((d) => (
-                    <SelectItem key={d} value={d} className="text-sm">{d}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <label className={labelClass}>Priority</label>
-              <Select value={priority} onValueChange={(v) => setPriority(v as PlaybookTemplatePriority)}>
-                <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="P0" className="text-sm">P0 - Emergency</SelectItem>
-                  <SelectItem value="P1" className="text-sm">P1 - High</SelectItem>
-                  <SelectItem value="P2" className="text-sm">P2 - Medium</SelectItem>
-                  <SelectItem value="P3" className="text-sm">P3 - Low</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <label className={labelClass}>Specialty</label>
-              <Select value={specialtyId || FROM_DOC_UNASSIGNED} onValueChange={(v) => setSpecialtyId(v === FROM_DOC_UNASSIGNED ? "" : v)}>
-                <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={FROM_DOC_UNASSIGNED} className="text-xs text-muted-foreground">None</SelectItem>
-                  {SPECIALTIES.map((s) => (
-                    <SelectItem key={s.id} value={s.id} className="text-sm">{s.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button size="sm" disabled={!name.trim()} onClick={handleSave}>Save Changes</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 // ── Create Playbook Template Dialog ────────────────────────────────────────
 
@@ -2386,117 +2218,3 @@ function CreatePlaybookTemplateDialog({
   );
 }
 
-// ── Labels View ────────────────────────────────────────────────────────────
-
-const SEED_LABELS = [
-  { id: "l-1", name: "Leasing", color: "#3b82f6" },
-  { id: "l-2", name: "Maintenance", color: "#f59e0b" },
-  { id: "l-3", name: "Payments", color: "#10b981" },
-  { id: "l-4", name: "Compliance", color: "#8b5cf6" },
-  { id: "l-5", name: "Resident relations", color: "#ec4899" },
-  { id: "l-6", name: "Operations", color: "#6366f1" },
-  { id: "l-7", name: "Policy", color: "#64748b" },
-];
-
-function LabelsView() {
-  return (
-    <>
-      <h1 className="text-xl font-semibold text-foreground">Labels</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Manage labels used for categorizing and routing escalations.
-      </p>
-
-      <div className="mt-5 rounded-lg border border-border">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-border bg-muted/30">
-              <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Label</th>
-              <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Color</th>
-              <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Used By</th>
-              <th className="w-10 px-2 py-2.5" />
-            </tr>
-          </thead>
-          <tbody>
-            {SEED_LABELS.map((label) => (
-              <tr key={label.id} className="border-b border-border last:border-b-0 hover:bg-muted/20 transition-colors">
-                <td className="px-4 py-3 text-sm font-medium text-foreground">
-                  <span className="inline-flex items-center gap-2">
-                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: label.color }} />
-                    {label.name}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-sm text-muted-foreground font-mono text-xs">{label.color}</td>
-                <td className="px-4 py-3 text-sm text-muted-foreground">Routing rules, workforce members</td>
-                <td className="px-2 py-3 text-center">
-                  <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground">
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </>
-  );
-}
-
-// ── Inbox View ─────────────────────────────────────────────────────────────
-
-function InboxView() {
-  return (
-    <>
-      <h1 className="text-xl font-semibold text-foreground">Inbox</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Configure how escalation notifications are delivered to team members.
-      </p>
-
-      <div className="mt-5 space-y-4">
-        <div className="rounded-lg border border-border p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-foreground">Email Notifications</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Send email when a new escalation is assigned</p>
-            </div>
-            <span className="inline-flex rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/40 dark:text-green-200">
-              Enabled
-            </span>
-          </div>
-        </div>
-        <div className="rounded-lg border border-border p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-foreground">In-App Notifications</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Show a notification badge for new and overdue escalations</p>
-            </div>
-            <span className="inline-flex rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/40 dark:text-green-200">
-              Enabled
-            </span>
-          </div>
-        </div>
-        <div className="rounded-lg border border-border p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-foreground">SLA Breach Alerts</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Notify managers when an escalation exceeds its SLA target</p>
-            </div>
-            <span className="inline-flex rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/40 dark:text-green-200">
-              Enabled
-            </span>
-          </div>
-        </div>
-        <div className="rounded-lg border border-border p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-foreground">Slack Integration</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Post escalation updates to a Slack channel</p>
-            </div>
-            <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-              Not configured
-            </span>
-          </div>
-        </div>
-      </div>
-    </>
-  );
-}

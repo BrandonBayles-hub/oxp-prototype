@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import {
   ArrowLeft,
@@ -16,6 +16,7 @@ import {
   FileText,
   Layers,
   Check,
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -41,7 +42,10 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { useWorkforce } from "@/lib/workforce-context";
+import { CreateCustomTaskDialog } from "@/components/create-custom-task-dialog";
 import {
   getSpecialtyDetail,
   SYSTEM_TASK_CATALOG,
@@ -402,7 +406,6 @@ function CadenceScheduler({
 
 function TasksTab({ tasks: initialTasks, specialtyId }: { tasks: SpecialtyTask[]; specialtyId: string }) {
   const [tasks, setTasks] = useState(initialTasks);
-  const [taskFilter, setTaskFilter] = useState("All Tasks");
   const [workflowFilter, setWorkflowFilter] = useState("All Workflows");
   const [searchQuery, setSearchQuery] = useState("");
   const [sort, setSort] = useState<{ key: TaskSortKey; dir: SortDir } | null>(null);
@@ -410,6 +413,7 @@ function TasksTab({ tasks: initialTasks, specialtyId }: { tasks: SpecialtyTask[]
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showSystemDialog, setShowSystemDialog] = useState(false);
   const [editingTask, setEditingTask] = useState<SpecialtyTask | null>(null);
+  const [editingCustomTask, setEditingCustomTask] = useState<SpecialtyTask | null>(null);
   const [taskToRemove, setTaskToRemove] = useState<SpecialtyTask | null>(null);
 
   const workflows = useMemo(() => {
@@ -493,7 +497,7 @@ function TasksTab({ tasks: initialTasks, specialtyId }: { tasks: SpecialtyTask[]
       <div className="mt-4 flex items-center gap-2">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
+            <Button variant={tasks.length === 0 ? "default" : "outline"} size="sm" className="h-8 gap-1.5 text-xs">
               <Plus className="h-3.5 w-3.5" />
               Add Task
             </Button>
@@ -515,15 +519,6 @@ function TasksTab({ tasks: initialTasks, specialtyId }: { tasks: SpecialtyTask[]
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-
-        <Select value={taskFilter} onValueChange={setTaskFilter}>
-          <SelectTrigger className="h-8 w-28 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="All Tasks" className="text-xs">All Tasks</SelectItem>
-          </SelectContent>
-        </Select>
 
         <Select value={workflowFilter} onValueChange={setWorkflowFilter}>
           <SelectTrigger className="h-8 w-36 text-xs">
@@ -549,26 +544,26 @@ function TasksTab({ tasks: initialTasks, specialtyId }: { tasks: SpecialtyTask[]
       </div>
 
       {/* Table */}
-      <div className="mt-4 rounded-lg border border-border">
-        <table className="w-full">
+      <div className="mt-4 rounded-lg border border-border overflow-x-auto scrollbar-hover">
+        <table className="w-full min-w-[750px]">
           <thead>
             <tr className="border-b border-border bg-muted/30">
-              <th className={thClass} onClick={() => setSort(toggleSort(sort, "name"))}>
+              <th className={cn(thClass, "sticky left-0 z-10 min-w-[180px] border-r border-border bg-muted")} onClick={() => setSort(toggleSort(sort, "name"))}>
                 Task <SortIcon active={sort?.key === "name"} dir={sort?.dir ?? "asc"} />
               </th>
-              <th className={thClass} onClick={() => setSort(toggleSort(sort, "workflow"))}>
+              <th className={cn(thClass, "min-w-[100px]")} onClick={() => setSort(toggleSort(sort, "workflow"))}>
                 Workflow <SortIcon active={sort?.key === "workflow"} dir={sort?.dir ?? "asc"} />
               </th>
-              <th className={thClass} onClick={() => setSort(toggleSort(sort, "repeats"))}>
+              <th className={cn(thClass, "min-w-[90px]")} onClick={() => setSort(toggleSort(sort, "repeats"))}>
                 Repeats <SortIcon active={sort?.key === "repeats"} dir={sort?.dir ?? "asc"} />
               </th>
-              <th className={thClass} onClick={() => setSort(toggleSort(sort, "priority"))}>
-                Due <SortIcon active={sort?.key === "priority"} dir={sort?.dir ?? "asc"} />
+              <th className={cn(thClass, "min-w-[80px]")} onClick={() => setSort(toggleSort(sort, "priority"))}>
+                Priority <SortIcon active={sort?.key === "priority"} dir={sort?.dir ?? "asc"} />
               </th>
-              <th className={thClass} onClick={() => setSort(toggleSort(sort, "dueIn"))}>
+              <th className={cn(thClass, "min-w-[80px]")} onClick={() => setSort(toggleSort(sort, "dueIn"))}>
                 Due <SortIcon active={sort?.key === "dueIn"} dir={sort?.dir ?? "asc"} />
               </th>
-              <th className="w-10 px-2 py-2.5" />
+              <th className="w-20 min-w-[80px] px-2 py-2.5" />
             </tr>
           </thead>
           <tbody>
@@ -577,16 +572,16 @@ function TasksTab({ tasks: initialTasks, specialtyId }: { tasks: SpecialtyTask[]
                 key={task.id}
                 className="border-b border-border last:border-b-0 hover:bg-muted/20 transition-colors"
               >
-                <td className="px-4 py-3 text-sm font-medium text-foreground whitespace-nowrap">
+                <td className="sticky left-0 z-10 min-w-[180px] border-r border-border bg-background px-4 py-3 text-sm font-medium text-foreground whitespace-nowrap">
                   {task.name}
                 </td>
-                <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
+                <td className="min-w-[100px] px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
                   {task.workflow}
                 </td>
-                <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
+                <td className="min-w-[90px] px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
                   {task.repeats}
                 </td>
-                <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                <td className="min-w-[80px] px-4 py-3" onClick={(e) => e.stopPropagation()}>
                   <Select
                     value={task.priority}
                     onValueChange={(v) => handlePriorityChange(task.id, v)}
@@ -610,16 +605,16 @@ function TasksTab({ tasks: initialTasks, specialtyId }: { tasks: SpecialtyTask[]
                     </SelectContent>
                   </Select>
                 </td>
-                <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
+                <td className="min-w-[80px] px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
                   {task.dueIn}
                 </td>
-                <td className="px-2 py-3 text-center">
+                <td className="w-20 min-w-[80px] px-2 py-3 text-center">
                   <div className="flex items-center justify-center gap-0.5">
                     <Button
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                      onClick={() => setEditingTask(task)}
+                      onClick={() => task.source === "custom" ? setEditingCustomTask(task) : setEditingTask(task)}
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
@@ -647,11 +642,24 @@ function TasksTab({ tasks: initialTasks, specialtyId }: { tasks: SpecialtyTask[]
       </div>
 
       {/* Create New Task Dialog */}
-      <CreateNewTaskDialog
+      <CreateCustomTaskDialog
         open={showCreateDialog}
         onOpenChange={setShowCreateDialog}
+        mode="specialty"
         specialtyId={specialtyId}
+        hideSpecialtyWorkflow
         onSave={handleAddCustomTask}
+      />
+
+      {/* Edit Custom Task Dialog */}
+      <CreateCustomTaskDialog
+        open={editingCustomTask !== null}
+        onOpenChange={(open) => { if (!open) setEditingCustomTask(null); }}
+        mode="specialty"
+        specialtyId={specialtyId}
+        hideSpecialtyWorkflow
+        initialData={editingCustomTask}
+        onSave={(updated) => { handleEditTask(updated); setEditingCustomTask(null); }}
       />
 
       {/* Add System Tasks Dialog */}
@@ -916,188 +924,6 @@ function EditTaskDialog({
   );
 }
 
-// ── Create New Task Dialog ──────────────────────────────────────────────────
-
-function CreateNewTaskDialog({
-  open,
-  onOpenChange,
-  specialtyId,
-  onSave,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  specialtyId: string;
-  onSave: (task: SpecialtyTask) => void;
-}) {
-  const [name, setName] = useState("");
-  const [workflow, setWorkflow] = useState("Custom");
-  const [schedule, setSchedule] = useState<CadenceState>({
-    cadence: "Never",
-    weekDays: ["Mon"],
-    monthDay: 1,
-    createTime: "09:00",
-    timezone: "America/Denver",
-  });
-  const [priority, setPriority] = useState<SpecialtyTaskPriority>("P2");
-  const [dueIn, setDueIn] = useState("1 Day");
-  const [assignee, setAssignee] = useState("");
-  const [property, setProperty] = useState("");
-
-  const reset = () => {
-    setName("");
-    setWorkflow("Custom");
-    setSchedule({ cadence: "Never", weekDays: ["Mon"], monthDay: 1, createTime: "09:00", timezone: "America/Denver" });
-    setPriority("P2");
-    setDueIn("1 Day");
-    setAssignee("");
-    setProperty("");
-  };
-
-  const handleSave = () => {
-    if (!name.trim()) return;
-    const scheduling: Partial<SpecialtyTask> = schedule.cadence !== "Never"
-      ? {
-          createTime: schedule.createTime,
-          timezone: schedule.timezone,
-          ...(schedule.cadence === "Weekly" ? { weekDays: schedule.weekDays } : {}),
-          ...(schedule.cadence === "Monthly" ? { monthDay: schedule.monthDay } : {}),
-        }
-      : {};
-
-    onSave({
-      id: `st-custom-${Date.now()}`,
-      name: name.trim(),
-      workflow,
-      specialtyId,
-      repeats: schedule.cadence,
-      priority,
-      dueIn,
-      source: "custom",
-      assignee: assignee || undefined,
-      property: property || undefined,
-      ...scheduling,
-    });
-    reset();
-    onOpenChange(false);
-  };
-
-  const labelClass = "text-xs font-medium text-foreground";
-  const inputClass =
-    "h-9 w-full rounded-md border border-input bg-background px-3 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary";
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v); }}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Create New Task</DialogTitle>
-          <DialogDescription>
-            Create a custom task that will live within this specialty.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 py-2">
-          {/* Task Name */}
-          <div className="space-y-1.5">
-            <label className={labelClass}>Task Name</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Weekly Lead Cleanup"
-              className={inputClass}
-            />
-          </div>
-
-          {/* Workflow */}
-          <div className="space-y-1.5">
-            <label className={labelClass}>Workflow</label>
-            <Select value={workflow} onValueChange={setWorkflow}>
-              <SelectTrigger className="h-9 text-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {CUSTOM_WORKFLOWS.map((w) => (
-                  <SelectItem key={w} value={w} className="text-sm">{w}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Cadence + scheduling */}
-          <CadenceScheduler value={schedule} onChange={setSchedule} labelClass={labelClass} />
-
-          {/* Priority + Due In (side by side) */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <label className={labelClass}>Priority</label>
-              <Select value={priority} onValueChange={(v) => setPriority(v as SpecialtyTaskPriority)}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="P1" className="text-sm">P1 - Critical</SelectItem>
-                  <SelectItem value="P2" className="text-sm">P2 - High</SelectItem>
-                  <SelectItem value="P3" className="text-sm">P3 - Normal</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <label className={labelClass}>Due In</label>
-              <Select value={dueIn} onValueChange={setDueIn}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {DUE_IN_OPTIONS.map((d) => (
-                    <SelectItem key={d} value={d} className="text-sm">{d}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Assignee */}
-          <div className="space-y-1.5">
-            <label className={labelClass}>Assignee <span className="text-muted-foreground font-normal">(optional)</span></label>
-            <input
-              type="text"
-              value={assignee}
-              onChange={(e) => setAssignee(e.target.value)}
-              placeholder="Leave blank for automatic assignment"
-              className={inputClass}
-            />
-          </div>
-
-          {/* Property */}
-          <div className="space-y-1.5">
-            <label className={labelClass}>Property <span className="text-muted-foreground font-normal">(optional)</span></label>
-            <Select value={property || "__none__"} onValueChange={(v) => setProperty(v === "__none__" ? "" : v)}>
-              <SelectTrigger className="h-9 text-sm">
-                <SelectValue placeholder="All Properties" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__" className="text-sm">All Properties</SelectItem>
-                {PROPERTIES.map((p) => (
-                  <SelectItem key={p} value={p} className="text-sm">{p}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="ghost" size="sm" onClick={() => { reset(); onOpenChange(false); }}>
-            Cancel
-          </Button>
-          <Button size="sm" disabled={!name.trim()} onClick={handleSave}>
-            Create Task
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 // ── Add System Tasks Dialog ─────────────────────────────────────────────────
 
 function AddSystemTasksDialog({
@@ -1313,6 +1139,84 @@ function TeammatesTab({ teammates: initialTeammates }: { teammates: SpecialtyTea
   const [teammates, setTeammates] = useState(initialTeammates);
   const [searchQuery, setSearchQuery] = useState("");
   const [sort, setSort] = useState<{ key: TeammateSortKey; dir: SortDir } | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addSearch, setAddSearch] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const { humanMembers } = useWorkforce();
+
+  const teams = useMemo(
+    () => Array.from(new Set(humanMembers.map((m) => m.team).filter(Boolean))).sort(),
+    [humanMembers]
+  );
+
+  const existingIds = useMemo(() => new Set(teammates.map((t) => t.id)), [teammates]);
+
+  const availableMembers = useMemo(
+    () => humanMembers.filter((m) => !existingIds.has(m.id)),
+    [humanMembers, existingIds]
+  );
+
+  const addSearchLower = addSearch.toLowerCase().trim();
+  const filteredTeams = useMemo(
+    () => (addSearchLower ? teams.filter((t) => t.toLowerCase().includes(addSearchLower)) : teams),
+    [teams, addSearchLower]
+  );
+  const filteredMembers = useMemo(
+    () =>
+      addSearchLower
+        ? availableMembers.filter(
+            (m) =>
+              m.name.toLowerCase().includes(addSearchLower) ||
+              m.role.toLowerCase().includes(addSearchLower) ||
+              (m.team || "").toLowerCase().includes(addSearchLower)
+          )
+        : availableMembers,
+    [availableMembers, addSearchLower]
+  );
+
+  const toggleSelection = useCallback((id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleTeam = useCallback(
+    (team: string) => {
+      const teamMemberIds = availableMembers.filter((m) => m.team === team).map((m) => m.id);
+      setSelected((prev) => {
+        const next = new Set(prev);
+        const allSelected = teamMemberIds.every((id) => next.has(id));
+        if (allSelected) {
+          teamMemberIds.forEach((id) => next.delete(id));
+        } else {
+          teamMemberIds.forEach((id) => next.add(id));
+        }
+        return next;
+      });
+    },
+    [availableMembers]
+  );
+
+  const handleAddSelected = useCallback(() => {
+    const newTeammates: SpecialtyTeammate[] = humanMembers
+      .filter((m) => selected.has(m.id))
+      .map((m) => ({
+        id: m.id,
+        name: m.name,
+        permission: "User" as const,
+        properties: (m as Record<string, unknown>).properties
+          ? ((m as Record<string, unknown>).properties as string[])
+          : [],
+      }));
+    setTeammates((prev) => [...prev, ...newTeammates]);
+    setSelected(new Set());
+    setAddSearch("");
+    setAddOpen(false);
+  }, [humanMembers, selected]);
 
   const filtered = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -1360,10 +1264,107 @@ function TeammatesTab({ teammates: initialTeammates }: { teammates: SpecialtyTea
 
       {/* Toolbar */}
       <div className="mt-4 flex items-center gap-2">
-        <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
-          <Plus className="h-3.5 w-3.5" />
-          Add Teammate
-        </Button>
+        <Popover open={addOpen} onOpenChange={(open) => { setAddOpen(open); if (!open) { setAddSearch(""); setSelected(new Set()); } }}>
+          <PopoverTrigger asChild>
+            <Button variant={teammates.length === 0 ? "default" : "outline"} size="sm" className="h-8 gap-1.5 text-xs">
+              <Plus className="h-3.5 w-3.5" />
+              Add Teammate
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-80 p-0" align="start">
+            <div className="flex flex-col">
+              <div className="border-b border-border p-2">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    type="text"
+                    value={addSearch}
+                    onChange={(e) => setAddSearch(e.target.value)}
+                    placeholder="Search users or groups..."
+                    className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-3 text-xs placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                    autoFocus
+                  />
+                </div>
+              </div>
+              <div className="max-h-64 overflow-y-auto">
+                {filteredTeams.length > 0 && (
+                  <div className="px-2 pt-2 pb-1">
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Groups</p>
+                    {filteredTeams.map((team) => {
+                      const teamMemberIds = availableMembers.filter((m) => m.team === team).map((m) => m.id);
+                      const allChecked = teamMemberIds.length > 0 && teamMemberIds.every((id) => selected.has(id));
+                      const someChecked = teamMemberIds.some((id) => selected.has(id));
+                      return (
+                        <button
+                          key={team}
+                          type="button"
+                          className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent transition-colors"
+                          onClick={() => toggleTeam(team)}
+                        >
+                          <span className={cn(
+                            "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                            allChecked
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : someChecked
+                                ? "border-primary bg-primary/20"
+                                : "border-muted-foreground/30"
+                          )}>
+                            {allChecked && <Check className="h-3 w-3" />}
+                            {someChecked && !allChecked && <span className="block h-0.5 w-2 bg-primary rounded" />}
+                          </span>
+                          <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span className="flex-1 truncate text-foreground">{team}</span>
+                          <span className="text-[10px] text-muted-foreground">{teamMemberIds.length}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {filteredMembers.length > 0 && (
+                  <div className="px-2 pt-2 pb-1">
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Users</p>
+                    {filteredMembers.map((member) => (
+                      <button
+                        key={member.id}
+                        type="button"
+                        className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent transition-colors"
+                        onClick={() => toggleSelection(member.id)}
+                      >
+                        <span className={cn(
+                          "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                          selected.has(member.id)
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-muted-foreground/30"
+                        )}>
+                          {selected.has(member.id) && <Check className="h-3 w-3" />}
+                        </span>
+                        <Avatar className="h-5 w-5">
+                          <AvatarFallback className="text-[8px] font-medium">
+                            {member.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <span className="block truncate text-foreground">{member.name}</span>
+                          <span className="block truncate text-[10px] text-muted-foreground">{member.role} &middot; {member.team}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {filteredTeams.length === 0 && filteredMembers.length === 0 && (
+                  <p className="px-3 py-4 text-center text-xs text-muted-foreground">No results found.</p>
+                )}
+              </div>
+              {selected.size > 0 && (
+                <div className="border-t border-border p-2">
+                  <Button size="sm" className="h-8 w-full text-xs" onClick={handleAddSelected}>
+                    Add {selected.size} Teammate{selected.size !== 1 ? "s" : ""}
+                  </Button>
+                </div>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
 
         <div className="ml-auto relative w-56">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -1378,21 +1379,21 @@ function TeammatesTab({ teammates: initialTeammates }: { teammates: SpecialtyTea
       </div>
 
       {/* Table */}
-      <div className="mt-4 rounded-lg border border-border">
-        <table className="w-full">
+      <div className="mt-4 rounded-lg border border-border overflow-x-auto scrollbar-hover">
+        <table className="w-full min-w-[500px]">
           <thead>
             <tr className="border-b border-border bg-muted/30">
-              <th className={thClass} onClick={() => setSort(toggleSort(sort, "name"))}>
+              <th className={cn(thClass, "sticky left-0 z-10 min-w-[160px] border-r border-border bg-muted")} onClick={() => setSort(toggleSort(sort, "name"))}>
                 Name <SortIcon active={sort?.key === "name"} dir={sort?.dir ?? "asc"} />
               </th>
-              <th className={thClass} onClick={() => setSort(toggleSort(sort, "permission"))}>
+              <th className={cn(thClass, "min-w-[120px]")} onClick={() => setSort(toggleSort(sort, "permission"))}>
                 Permission{" "}
                 <SortIcon active={sort?.key === "permission"} dir={sort?.dir ?? "asc"} />
               </th>
-              <th className={thClass} onClick={() => setSort(toggleSort(sort, "property"))}>
+              <th className={cn(thClass, "min-w-[140px]")} onClick={() => setSort(toggleSort(sort, "property"))}>
                 Property <SortIcon active={sort?.key === "property"} dir={sort?.dir ?? "asc"} />
               </th>
-              <th className="w-10 px-2 py-2.5" />
+              <th className="w-10 min-w-[48px] px-2 py-2.5" />
             </tr>
           </thead>
           <tbody>
@@ -1401,7 +1402,7 @@ function TeammatesTab({ teammates: initialTeammates }: { teammates: SpecialtyTea
                 key={tm.id}
                 className="border-b border-border last:border-b-0 hover:bg-muted/20 transition-colors"
               >
-                <td className="px-4 py-3">
+                <td className="sticky left-0 z-10 min-w-[160px] border-r border-border bg-background px-4 py-3">
                   <div className="flex items-center gap-3">
                     <Avatar className="h-8 w-8">
                       <AvatarFallback className="text-xs font-medium">
@@ -1411,11 +1412,11 @@ function TeammatesTab({ teammates: initialTeammates }: { teammates: SpecialtyTea
                     <span className="text-sm font-medium text-foreground">{tm.name}</span>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-sm text-muted-foreground">{tm.permission}</td>
-                <td className="px-4 py-3 text-sm text-muted-foreground">
+                <td className="min-w-[120px] px-4 py-3 text-sm text-muted-foreground">{tm.permission}</td>
+                <td className="min-w-[140px] px-4 py-3 text-sm text-muted-foreground">
                   {tm.properties.join(", ")}
                 </td>
-                <td className="px-2 py-3 text-center">
+                <td className="w-10 min-w-[48px] px-2 py-3 text-center">
                   <Button
                     variant="ghost"
                     size="icon"
