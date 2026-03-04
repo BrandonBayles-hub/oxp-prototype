@@ -1,4 +1,4 @@
-# Janet POC
+# OXP Studio
 
 Proof-of-concept for an **AI-native multifamily property management platform**. Janet gives property management companies a single place to configure, operate, and govern a blended human-AI workforce — from onboarding and agent setup through daily operations, performance measurement, and regulatory compliance.
 

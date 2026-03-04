@@ -1,6 +1,6 @@
 # POC to Production — Migration Guide
 
-**Purpose:** Document exactly what is mocked in the Janet POC, where the seams are, and how to replace mock data with real backends. This is the engineer's playbook for turning the navigable prototype into a production application.
+**Purpose:** Document exactly what is mocked in the OXP Studio, where the seams are, and how to replace mock data with real backends. This is the engineer's playbook for turning the navigable prototype into a production application.
 
 **Prerequisite reading:** [CODEBASE-GUIDE.md](CODEBASE-GUIDE.md) for how the code is structured.
 

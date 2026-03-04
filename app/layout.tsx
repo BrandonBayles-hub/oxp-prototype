@@ -21,7 +21,7 @@ import { R1DemoProvider } from "@/lib/r1-demo-context";
 import { ComingSoonProvider } from "@/lib/coming-soon-context";
 
 export const metadata: Metadata = {
-  title: "Janet POC",
+  title: "OXP Studio",
   description: "AI-native multifamily platform POC",
 };
 

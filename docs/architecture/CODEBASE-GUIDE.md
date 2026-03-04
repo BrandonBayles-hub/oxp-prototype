@@ -1,6 +1,6 @@
 # Codebase Guide
 
-**Purpose:** Explain how the Janet POC code works so a new developer can get productive in a day. This bridges the gap between the TDD (what we're building) and the actual codebase (how it's built).
+**Purpose:** Explain how the OXP Studio code works so a new developer can get productive in a day. This bridges the gap between the TDD (what we're building) and the actual codebase (how it's built).
 
 **Audience:** Engineers picking up this codebase for the first time.
 
