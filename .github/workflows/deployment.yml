@@ -24,6 +24,10 @@ jobs:
           STACK: "staging"
           ROLE_ARN: "arn:aws:iam::388604198110:role/oxp-prototype-github-actions-role"
           MICROFRONTEND_NAME: "oxp-prototype"
+          CUSTOM_VARS: |
+            {
+              "NODE_ENV": "development"
+            }
   
   deploy-common:
     runs-on: ubuntu-latest
