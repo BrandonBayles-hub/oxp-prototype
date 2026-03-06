@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   // Static export for deployment (output copied to dist/ by build script).
   output: "export",
+  trailingSlash: true,  // outputs /command-center/index.html
   // No server redirect: root app/page.tsx does client-side redirect to /getting-started.
   // This avoids 404s that can occur with config redirects in some setups.
   transpilePackages: [
