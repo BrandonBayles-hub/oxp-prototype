@@ -1085,8 +1085,8 @@ function PlaybooksTab() {
           case "status": cmp = (PB_STATUS_ORDER[a.status] ?? 99) - (PB_STATUS_ORDER[b.status] ?? 99); break;
           case "priority": cmp = PB_PRIORITY_RANK[a.priority] - PB_PRIORITY_RANK[b.priority]; break;
           case "completedTasks": {
-            const aR = a.tasks.filter((t) => t.status === "Completed").length / (a.tasks.length || 1);
-            const bR = b.tasks.filter((t) => t.status === "Completed").length / (b.tasks.length || 1);
+            const aR = a.tasks.filter((t) => t.status === "Done").length / (a.tasks.length || 1);
+            const bR = b.tasks.filter((t) => t.status === "Done").length / (b.tasks.length || 1);
             cmp = aR - bR; break;
           }
           case "assignee": cmp = (a.assignee || "zzz").localeCompare(b.assignee || "zzz"); break;
@@ -1133,7 +1133,7 @@ function PlaybooksTab() {
           </thead>
           <tbody>
             {filtered.map((pb) => {
-              const completed = pb.tasks.filter((t) => t.status === "Completed").length;
+              const completed = pb.tasks.filter((t) => t.status === "Done").length;
               const total = pb.tasks.length;
               const pct = total > 0 ? (completed / total) * 100 : 0;
               return (
