@@ -42,3 +42,7 @@ jobs:
           STACK: "staging"
           ROLE_ARN: "arn:aws:iam::388604198110:role/prototype-github-actions-role"
           MICROFRONTEND_NAME: "prototype"
+          CUSTOM_VARS: |
+            {
+              "NODE_ENV": "staging"
+            }

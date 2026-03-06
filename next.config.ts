@@ -1,10 +1,11 @@
 import type { NextConfig } from "next";
-
+const basePath = process.env.NODE_ENV === "development" ? "" : "/oxp-prototype";
+const assetPrefix = process.env.NODE_ENV === "development" ? undefined : "/oxp-prototype/";
 const nextConfig: NextConfig = {
   // Static export for deployment (output copied to dist/ by build script).
   output: "export",
-  basePath: '/oxp-prototype',
-  assetPrefix: '/oxp-prototype/',
+  basePath: basePath,
+  assetPrefix: assetPrefix,
   trailingSlash: true,
   images: { unoptimized: true },
   // No server redirect: root app/page.tsx does client-side redirect to /getting-started.
