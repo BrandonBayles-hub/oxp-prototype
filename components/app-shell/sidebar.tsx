@@ -44,7 +44,7 @@ const navGroups = [
     label: "Configure",
     items: [
       activationItem,
-      { href: "/workflows", label: "Workflows", icon: GitBranch },
+      { href: "/workflows", label: "Agent Builder", icon: GitBranch },
       { href: "/trainings-sop", label: "Trainings & SOP", icon: BookOpen },
       { href: "/voice", label: "Voice & Brand", icon: Mic },
       // { href: "/tools", label: "Tools", icon: Wrench },

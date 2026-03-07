@@ -463,7 +463,7 @@ export function getPlgMessage(featureId: FeatureId, role: Role): PlgMessage | un
 export function getFeatureDisplayName(featureId: FeatureId): string {
   const names: Record<FeatureId, string> = {
     "ai-agents": "AI Agents",
-    workflows: "Workflows",
+    workflows: "Agent Builder",
     voice: "Voice",
     governance: "Governance",
     "performance-analytics": "Performance Analytics",

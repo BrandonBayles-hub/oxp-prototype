@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
   Users,
@@ -19,6 +20,8 @@ import {
 import { useRole, ROLES, type Role } from "@/lib/role-context";
 import { useR1Demo } from "@/lib/r1-demo-context";
 import { useComingSoon } from "@/lib/coming-soon-context";
+
+const DEMO_CONTROLS_KEY = "oxp-demo-controls-visible";
 
 const NAV_ITEMS = [
   { label: "OXP", active: true },
@@ -94,6 +97,22 @@ function R1DemoToggle() {
 
 export function EntrataTopNav() {
   const { role, setRole } = useRole();
+  const [showDemoControls, setShowDemoControls] = useState(true);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(DEMO_CONTROLS_KEY);
+      if (stored !== null) setShowDemoControls(stored === "true");
+    } catch { /* ignore */ }
+  }, []);
+
+  const toggleDemoControls = () => {
+    setShowDemoControls((prev) => {
+      const next = !prev;
+      try { localStorage.setItem(DEMO_CONTROLS_KEY, String(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
 
   return (
     <div className="shrink-0 select-none" style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
@@ -121,38 +140,44 @@ export function EntrataTopNav() {
         </div>
 
         {/* Role switcher + Contract view toggle */}
-        <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-3">
-          <div
-            className="flex items-center"
-            style={{ background: "#E8E8E8", borderRadius: 6, padding: 2, gap: 2 }}
-          >
-            {ROLES.map((r) => (
-              <button
-                key={r.value}
-                type="button"
-                onClick={() => setRole(r.value as Role)}
-                style={{
-                  height: 26,
-                  padding: "0 12px",
-                  borderRadius: 4,
-                  fontSize: 11,
-                  fontWeight: role === r.value ? 600 : 500,
-                  color: role === r.value ? "#1a1a1a" : "rgba(0,0,0,0.45)",
-                  background: role === r.value ? "#fff" : "transparent",
-                  boxShadow: role === r.value ? "0 1px 2px rgba(0,0,0,0.08)" : "none",
-                  transition: "all 150ms",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {r.label}
-              </button>
-            ))}
+        {showDemoControls && (
+          <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-3">
+            <div
+              className="flex items-center"
+              style={{ background: "#E8E8E8", borderRadius: 6, padding: 2, gap: 2 }}
+            >
+              {ROLES.map((r) => (
+                <button
+                  key={r.value}
+                  type="button"
+                  onClick={() => setRole(r.value as Role)}
+                  style={{
+                    height: 26,
+                    padding: "0 12px",
+                    borderRadius: 4,
+                    fontSize: 11,
+                    fontWeight: role === r.value ? 600 : 500,
+                    color: role === r.value ? "#1a1a1a" : "rgba(0,0,0,0.45)",
+                    background: role === r.value ? "#fff" : "transparent",
+                    boxShadow: role === r.value ? "0 1px 2px rgba(0,0,0,0.08)" : "none",
+                    transition: "all 150ms",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="flex items-center gap-1">
-          <ComingSoonToggle />
-          <R1DemoToggle />
+          {showDemoControls && (
+            <>
+              <ComingSoonToggle />
+              <R1DemoToggle />
+            </>
+          )}
           <button
             type="button"
             className="flex items-center justify-center rounded"
@@ -188,6 +213,20 @@ export function EntrataTopNav() {
             <Search className="h-3.5 w-3.5" />
             <span>Search</span>
           </button>
+          <label
+            title="Show/hide demo controls"
+            className="ml-1 flex cursor-pointer items-center gap-1"
+          >
+            <input
+              type="checkbox"
+              checked={showDemoControls}
+              onChange={toggleDemoControls}
+              className="h-3 w-3 rounded border-gray-300 accent-gray-500"
+            />
+            <span style={{ fontSize: 9, fontWeight: 500, color: "rgba(0,0,0,0.3)", letterSpacing: "0.3px" }}>
+              DEMO
+            </span>
+          </label>
         </div>
       </div>
 

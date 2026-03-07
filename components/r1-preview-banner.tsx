@@ -136,7 +136,7 @@ export function R1PreviewBanner() {
                   Ready to make this your live platform?
                 </p>
                 <p className="mt-0.5 text-[12px] text-[hsl(var(--muted-foreground))]">
-                  Complete the activation steps to configure agents, workflows, and governance for your organization.
+                  Complete the activation steps to configure agents, agent builders, and governance for your organization.
                 </p>
               </div>
               <Link
