@@ -53,7 +53,7 @@ const STEPS = [
   { id: "eli-essentials",      title: "Activate ELI Essentials",                          href: "/agent-roster" },
   { id: "live-conversations",  title: "Activate Live Conversations & Centralized Communications", href: "/command-center" },
   { id: "voice-brand",         title: "Configure Voice & Brand",                          href: "/voice" },
-  { id: "workflows",           title: "Set up Workflows",                                 href: "/workflows" },
+  { id: "workflows",           title: "Set up Agent Builder",                              href: "/workflows" },
   { id: "workforce",           title: "Configure Your Workforce",                         href: "/workforce" },
   { id: "governance",          title: "Set up Governance",                                 href: "/governance" },
   { id: "brief-team",          title: "Brief Your Team",                                   href: null },
@@ -99,6 +99,12 @@ export default function GettingStartedPage() {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
+
+  useEffect(() => {
+    const resetOnFocus = () => setExpandedStep(null);
+    window.addEventListener("focus", resetOnFocus);
+    return () => window.removeEventListener("focus", resetOnFocus);
+  }, []);
 
   const l4Agents = useMemo(() => agents.filter((a) => a.type === "autonomous"), [agents]);
   const l2l3Agents = useMemo(() => agents.filter((a) => a.type === "intelligence" || a.type === "efficiency"), [agents]);
@@ -527,7 +533,7 @@ function StepOpsEfficiency() {
    ═══════════════════════════════════════════════════════════════════════ */
 
 function StepEliEssentials() {
-  const { agents, updateAgent } = useAgents();
+  const { agents } = useAgents();
   const l1Agents = useMemo(() => agents.filter((a) => a.type === "operations"), [agents]);
   const activeCount = l1Agents.filter((a) => a.status === "Active").length;
 
@@ -548,15 +554,39 @@ function StepEliEssentials() {
         <>
           <SectionLabel>ELI Essentials agents</SectionLabel>
           <div className="space-y-1.5">
-            {displayAgents.map((agent) => (
-              <InlineToggle
-                key={agent.id}
-                checked={agent.status === "Active"}
-                onChange={(on) => updateAgent(agent.id, { status: on ? "Active" : "Off" })}
-                label={agent.name}
-                description={agent.description}
-              />
-            ))}
+            {displayAgents.map((agent) => {
+              const isActive = agent.status === "Active";
+              return (
+                <div
+                  key={agent.id}
+                  className="flex items-center gap-3 rounded-md border border-[hsl(var(--border))]/50 bg-white px-3 py-2.5"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src="/icon-l1-essentials.svg"
+                    alt=""
+                    width={24}
+                    height={24}
+                    className={isActive ? "" : "grayscale opacity-40"}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-[hsl(var(--foreground))]">{agent.name}</p>
+                    <p className="text-[11px] text-[hsl(var(--muted-foreground))]">
+                      L1 · ELI Essentials — {agent.description}
+                    </p>
+                  </div>
+                  <span
+                    className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                      isActive
+                        ? "bg-[#B3FFCC] text-emerald-800"
+                        : "bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]"
+                    }`}
+                  >
+                    {isActive ? "Active" : "Inactive"}
+                  </span>
+                </div>
+              );
+            })}
           </div>
           {l1Agents.length > 6 && (
             <button type="button" onClick={() => setShowAll(!showAll)} className="text-sm font-medium text-[hsl(var(--foreground))] underline underline-offset-4">
@@ -570,8 +600,16 @@ function StepEliEssentials() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-3">
-        <StepLink href="/agent-roster" label="Manage agents in Agent Roster" />
+      <div className="pt-1">
+        <Link
+          href="/agent-roster"
+          className="inline-flex items-center gap-2 rounded-lg bg-[hsl(var(--foreground))] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[hsl(var(--foreground))]/90"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/eli-cube.svg" alt="" width={16} height={16} />
+          Activate ELI Essentials
+          <ExternalLink className="h-3.5 w-3.5" />
+        </Link>
       </div>
     </div>
   );
@@ -581,44 +619,199 @@ function StepEliEssentials() {
    Step 5: Activate Live Conversations & Centralized Communications
    ═══════════════════════════════════════════════════════════════════════ */
 
-const COMM_CHANNELS = [
-  { label: "Website Chat", icon: MessageSquare, description: "Embed AI-powered chat on your property websites", configLabel: "Configure Website Chat" },
-  { label: "Voice / Phone", icon: Phone, description: "AI-assisted phone interactions and call handling", configLabel: "Configure Voice & Phone" },
-  { label: "SMS / Text", icon: Smartphone, description: "Two-way texting with residents and prospects", configLabel: "Configure SMS & Text" },
-  { label: "Contact Points", icon: Globe, description: "Resident portal, email, and additional communication touch points", configLabel: "Configure Contact Points" },
+const LIVE_CONV_PROPERTIES = [
+  { id: "harvest-peak", name: "Harvest Peak Capital", vertical: "Conventional", units: 312, eliContracted: true },
+  { id: "skyline", name: "Skyline Apartments", vertical: "Conventional", units: 198, eliContracted: false },
+  { id: "meridian", name: "The Meridian", vertical: "Affordable", units: 156, eliContracted: false },
+  { id: "azure", name: "Azure Heights", vertical: "Conventional", units: 244, eliContracted: true },
+  { id: "cambridge", name: "Cambridge Suites", vertical: "Student", units: 180, eliContracted: true },
 ];
 
 function StepLiveConversations() {
-  return (
-    <div className="space-y-4">
-      <p className="text-sm text-[hsl(var(--muted-foreground))]">
-        Enable the communication channels that your AI agents will use to handle live conversations. Once activated, the Command Center will show a centralized inbox of all live conversations across these channels, giving your team full visibility and control.
-      </p>
+  const [commStatuses, setCommStatuses] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    LIVE_CONV_PROPERTIES.forEach((p) => {
+      init[p.id] = p.id === "meridian" || p.id === "cambridge" ? "Inactive" : "Active";
+    });
+    return init;
+  });
+  const [eliStatuses, setEliStatuses] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    LIVE_CONV_PROPERTIES.forEach((p) => {
+      init[p.id] = p.id === "harvest-peak" ? "Active" : "Inactive";
+    });
+    return init;
+  });
 
-      <SectionLabel>Communication channels</SectionLabel>
-      <div className="grid gap-2 sm:grid-cols-2">
-        {COMM_CHANNELS.map(({ label, icon: ChannelIcon, description, configLabel }) => (
-          <Link
-            key={label}
-            href="/voice"
-            className="group flex items-start gap-3 rounded-lg border border-[hsl(var(--border))]/50 bg-white p-4 transition-colors hover:border-[hsl(var(--foreground))]/20 hover:bg-[hsl(var(--muted))]/30"
-          >
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[hsl(var(--muted))]">
-              <ChannelIcon className="h-4 w-4 text-[hsl(var(--muted-foreground))]" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-[hsl(var(--foreground))]">{label}</p>
-              <p className="mt-0.5 text-[11px] leading-snug text-[hsl(var(--muted-foreground))]">{description}</p>
-              <span className="mt-2 inline-flex items-center gap-1 text-[12px] font-medium text-[hsl(var(--foreground))] underline decoration-[hsl(var(--border))] underline-offset-4 transition-colors group-hover:decoration-[hsl(var(--foreground))]">
-                {configLabel}
-                <ExternalLink className="h-3 w-3" />
-              </span>
-            </div>
-          </Link>
-        ))}
+  const [deactivateModal, setDeactivateModal] = useState<{ propId: string; propName: string } | null>(null);
+
+  const commActiveCount = Object.values(commStatuses).filter((s) => s === "Active").length;
+  const eliActiveCount = Object.values(eliStatuses).filter((s) => s === "Active").length;
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <div className="flex h-5 w-5 items-center justify-center rounded bg-[hsl(var(--muted))]">
+            <Radio className="h-3.5 w-3.5 text-[hsl(var(--muted-foreground))]" />
+          </div>
+          <p className="text-sm font-semibold text-[hsl(var(--foreground))]">Live Conversations</p>
+        </div>
+        <span
+          className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+            commActiveCount > 0 || eliActiveCount > 0 ? "bg-[#B3FFCC] text-black" : "bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]"
+          }`}
+        >
+          {commActiveCount > 0 || eliActiveCount > 0
+            ? `${commActiveCount + eliActiveCount}/${LIVE_CONV_PROPERTIES.length * 2} Active`
+            : "Off"}
+        </span>
       </div>
 
-      <StepLink href="/command-center" label="View live conversations in Command Center" />
+      <p className="text-sm text-[hsl(var(--foreground))]">
+        Enable live conversations for each property in your portfolio. Start by completing Communication Setup for each property — once communication is active, you can then configure ELI+ Escalation Setup to enable escalation routing for that property.
+      </p>
+
+      {/* Properties table */}
+      <div>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-[hsl(var(--border))] text-left">
+              <th className="pb-2 font-medium text-[hsl(var(--muted-foreground))]">Property</th>
+              <th className="pb-2 font-medium text-[hsl(var(--muted-foreground))]">Status</th>
+              <th className="pb-2 text-center font-medium text-[hsl(var(--muted-foreground))]">Communication Setup</th>
+              <th className="pb-2 text-center font-medium text-[hsl(var(--muted-foreground))]">ELI+ Escalation Setup</th>
+            </tr>
+          </thead>
+          <tbody>
+            {LIVE_CONV_PROPERTIES.map((prop) => {
+              const commActive = commStatuses[prop.id] === "Active";
+              const eliActive = eliStatuses[prop.id] === "Active";
+              return (
+                <tr key={prop.id} className="border-b border-[hsl(var(--border))]/50">
+                  <td className="py-3 font-medium text-[hsl(var(--foreground))]">{prop.name}</td>
+                  <td className="py-3">
+                    {(() => {
+                      const fullyActive = prop.eliContracted ? commActive && eliActive : commActive;
+                      const partialActive = !fullyActive && commActive;
+                      return (
+                        <span
+                          className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                            fullyActive || partialActive
+                              ? "bg-[#B3FFCC] text-emerald-800"
+                              : "bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]"
+                          }`}
+                        >
+                          {fullyActive ? "Active" : partialActive ? "Partial Active" : "Inactive"}
+                        </span>
+                      );
+                    })()}
+                  </td>
+                  <td className="py-3 text-center">
+                    {commActive ? (
+                      <button
+                        type="button"
+                        onClick={() => setDeactivateModal({ propId: prop.id, propName: prop.name })}
+                        className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors bg-red-50 text-red-700 hover:bg-red-100"
+                      >
+                        Deactivate
+                      </button>
+                    ) : (
+                      <Link
+                        href={`/communications-setup?property=${prop.id}`}
+                        className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors bg-[hsl(var(--foreground))] text-white hover:bg-[hsl(var(--foreground))]/90"
+                      >
+                        Setup
+                      </Link>
+                    )}
+                  </td>
+                  <td className="py-3 text-center">
+                    {!prop.eliContracted ? (
+                      <span className="text-xs text-[hsl(var(--muted-foreground))]">Not Contracted</span>
+                    ) : !commActive ? (
+                      <div className="group/eli relative inline-block">
+                        <button
+                          type="button"
+                          disabled
+                          className="cursor-not-allowed inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] opacity-50"
+                        >
+                          Setup
+                        </button>
+                        <div className="invisible absolute left-1/2 top-full z-50 mt-1.5 -translate-x-1/2 rounded-md bg-[hsl(var(--foreground))] px-3 py-1.5 text-[11px] leading-snug text-white shadow-lg group-hover/eli:visible" style={{ width: "max-content", maxWidth: "200px" }}>
+                          Complete Communication Setup first
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 border-4 border-transparent border-b-[hsl(var(--foreground))]" />
+                        </div>
+                      </div>
+                    ) : eliActive ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setEliStatuses((prev) => ({
+                            ...prev,
+                            [prop.id]: "Inactive",
+                          }))
+                        }
+                        className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors bg-red-50 text-red-700 hover:bg-red-100"
+                      >
+                        Deactivate
+                      </button>
+                    ) : (
+                      <Link
+                        href={`/communications-setup/eli-escalation?property=${prop.id}`}
+                        className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors bg-[hsl(var(--foreground))] text-white hover:bg-[hsl(var(--foreground))]/90"
+                      >
+                        Setup
+                      </Link>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {deactivateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="fixed inset-0 bg-black/40" onClick={() => setDeactivateModal(null)} />
+          <div className="relative z-10 w-full max-w-md rounded-xl border border-[hsl(var(--border))] bg-white p-6 shadow-2xl">
+            <h3 className="text-lg font-semibold text-[hsl(var(--foreground))]">
+              Deactivate Communication Setup
+            </h3>
+            <p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">
+              {deactivateModal.propName}
+            </p>
+            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-3">
+              <p className="text-xs leading-relaxed text-amber-800">
+                Deactivating will revert your property back to sending emails through your old email relay or message center setup. You will go back to managing incoming email and SMS on the &quot;Contact Needed&quot; tabs on the Entrata dashboard.
+              </p>
+            </div>
+            <div className="mt-5 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setDeactivateModal(null)}
+                className="inline-flex items-center justify-center rounded-md border border-[hsl(var(--border))] bg-white px-4 py-2 text-sm font-medium text-[hsl(var(--foreground))] shadow-sm transition-colors hover:bg-[hsl(var(--muted))]/60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCommStatuses((prev) => ({
+                    ...prev,
+                    [deactivateModal.propId]: "Inactive",
+                  }));
+                  setDeactivateModal(null);
+                }}
+                className="inline-flex items-center justify-center gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 shadow-sm transition-colors hover:bg-red-100"
+              >
+                Deactivate
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -628,104 +821,29 @@ function StepLiveConversations() {
    ═══════════════════════════════════════════════════════════════════════ */
 
 function StepVoiceBrand() {
-  const { persona, update, configured } = useVoice();
-  const [localPersona, setLocalPersona] = useState(persona);
-
-  const handlePersonaBlur = () => {
-    if (localPersona !== persona) update({ persona: localPersona });
-  };
-
   return (
     <div className="space-y-4">
       <p className="text-sm text-[hsl(var(--muted-foreground))]">
         Define how your AI agents communicate with residents and prospects. Set your brand voice, tone, and personality guidelines so every interaction reflects your organization&apos;s identity.
       </p>
 
-      <StatusPill ok={configured} label={configured ? "Voice & brand configured" : "Not yet configured"} />
-
-      <SectionLabel>Brand persona</SectionLabel>
-      <div className="rounded-md border border-[hsl(var(--border))]/50 bg-white p-3">
-        <input
-          type="text"
-          value={localPersona}
-          onChange={(e) => setLocalPersona(e.target.value)}
-          onBlur={handlePersonaBlur}
-          placeholder="e.g. Helpful property assistant"
-          className="w-full bg-transparent text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]/60 focus:outline-none"
-        />
-        <p className="mt-1 text-[11px] text-[hsl(var(--muted-foreground))]">Describes how your agents should present themselves</p>
-      </div>
-
-      <StepLink href="/voice" label="Full voice & brand configuration" />
+      <StepLink href="/voice" label="Configure Voice & Brand" />
     </div>
   );
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   Step 7: Set up Workflows
+   Step 7: Set up Agent Builder
    ═══════════════════════════════════════════════════════════════════════ */
 
-const WORKFLOW_TEMPLATES = [
-  { name: "Lead response", description: "New lead → create task and notify leasing team", recipeName: "New lead → create task" },
-  { name: "Maintenance triage", description: "Work order → categorize, assign vendor, notify resident", recipeName: "Work order → notify resident" },
-  { name: "Lease renewal batch", description: "Upcoming expirations → generate offers and queue outreach", recipeName: "Lease renewal reminder" },
-];
-
 function StepWorkflows() {
-  const { recipes, toggleRecipe, addRecipe, atLeastOneEnabled } = useWorkflows();
-  const existingTemplates = new Set(recipes.map((r) => r.fromTemplate).filter(Boolean));
-  const enabled = recipes.filter((r) => r.enabled).length;
-
-  const handleAddTemplate = (tmpl: typeof WORKFLOW_TEMPLATES[number]) => {
-    if (existingTemplates.has(tmpl.name)) return;
-    addRecipe({ name: tmpl.recipeName, enabled: true, fromTemplate: tmpl.name });
-  };
-
   return (
     <div className="space-y-4">
       <p className="text-sm text-[hsl(var(--muted-foreground))]">
-        Workflows automate multi-step processes across your organization. Set up recipes for lead response, maintenance triage, renewals, and more to connect your agents and teams.
+        Automate multi-step processes across your organization. Set up recipes for lead response, maintenance triage, renewals, and more to connect your agents and teams.
       </p>
 
-      <div className="flex flex-wrap gap-2">
-        <StatusPill ok={atLeastOneEnabled} label={`${enabled} of ${recipes.length} workflow(s) active`} />
-      </div>
-
-      <SectionLabel>Quick setup — add from template</SectionLabel>
-      <div className="space-y-1.5">
-        {WORKFLOW_TEMPLATES.map((tmpl) => {
-          const exists = existingTemplates.has(tmpl.name);
-          return (
-            <div key={tmpl.name} className={`flex items-center gap-3 rounded-lg border bg-white p-3 ${exists ? "border-emerald-200 bg-emerald-50/30" : "border-[hsl(var(--border))]/50"}`}>
-              <Zap className="h-4 w-4 shrink-0 text-[hsl(var(--muted-foreground))]" />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-[hsl(var(--foreground))]">{tmpl.name}</p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">{tmpl.description}</p>
-              </div>
-              {exists ? (
-                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">Added</span>
-              ) : (
-                <button type="button" onClick={() => handleAddTemplate(tmpl)} className="rounded-md bg-[hsl(var(--foreground))] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[hsl(var(--foreground))]/90">
-                  Add
-                </button>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {recipes.length > 0 && (
-        <>
-          <SectionLabel>Your workflows</SectionLabel>
-          <div className="space-y-1.5">
-            {recipes.map((recipe) => (
-              <InlineToggle key={recipe.id} checked={recipe.enabled} onChange={() => toggleRecipe(recipe.id)} label={recipe.name} description={recipe.fromTemplate ? `From template: ${recipe.fromTemplate}` : undefined} />
-            ))}
-          </div>
-        </>
-      )}
-
-      <StepLink href="/workflows" label="Advanced workflow configuration" />
+      <StepLink href="/workflows" label="Set up Agent Builder" />
     </div>
   );
 }
@@ -735,44 +853,13 @@ function StepWorkflows() {
    ═══════════════════════════════════════════════════════════════════════ */
 
 function StepWorkforce() {
-  const { humanMembers, allLabels } = useWorkforce();
-  const teamCount = new Set(humanMembers.map((m) => m.team).filter(Boolean)).size;
-  const availableCount = humanMembers.filter((m) => {
-    const a = getAvailability(m);
-    return a === "available" || a === "on_shift";
-  }).length;
-
   return (
     <div className="space-y-4">
       <p className="text-sm text-[hsl(var(--muted-foreground))]">
         Configure your human workforce so the platform can route escalations, balance workloads, and pair the right team member with each task. Set up team assignments, skills/labels, availability schedules, and escalation routing rules.
       </p>
 
-      <div className="flex flex-wrap gap-2">
-        <StatusPill ok={humanMembers.length > 0} label={`${humanMembers.length} team member(s) configured`} />
-        {teamCount > 0 && <StatusPill ok label={`${teamCount} team(s)`} />}
-        <StatusPill ok={availableCount > 0} label={`${availableCount} currently available`} />
-      </div>
-
-      <SectionLabel>What to configure</SectionLabel>
-      <div className="space-y-2">
-        {[
-          { label: "Team members & org structure", description: "Add team members, set roles, and define reporting lines" },
-          { label: "Skills & labels", description: "Tag team members with skills so escalations route to the right person" },
-          { label: "Availability & schedules", description: "Set working hours, shifts, and time-off so routing is schedule-aware" },
-          { label: "Escalation routing rules", description: "Define how escalations are assigned, reassigned, and escalated to managers" },
-        ].map((item) => (
-          <div key={item.label} className="flex items-start gap-2.5 rounded-md border border-[hsl(var(--border))]/50 bg-white px-3 py-2.5">
-            <Settings className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--muted-foreground))]" />
-            <div>
-              <p className="text-sm font-medium text-[hsl(var(--foreground))]">{item.label}</p>
-              <p className="text-[11px] text-[hsl(var(--muted-foreground))]">{item.description}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <StepLink href="/workforce" label="Configure workforce" />
+      <StepLink href="/workforce" label="Configure Your Workforce" />
     </div>
   );
 }
@@ -782,59 +869,13 @@ function StepWorkforce() {
    ═══════════════════════════════════════════════════════════════════════ */
 
 function StepGovernance() {
-  const { state, updateActivity, enabledGuardrailCount } = useGovernance();
-
   return (
     <div className="space-y-4">
       <p className="text-sm text-[hsl(var(--muted-foreground))]">
         Configure guardrails for high-regulation activities. Enable approval gates and policy checks to ensure your AI agents operate within compliance boundaries and organizational policies.
       </p>
 
-      <StatusPill ok={enabledGuardrailCount > 0} label={`${enabledGuardrailCount}/${HIGH_REGULATION_ACTIVITIES.length} guardrails active`} />
-
-      <SectionLabel>Quick setup — configure guardrails</SectionLabel>
-      <div className="space-y-1.5">
-        {HIGH_REGULATION_ACTIVITIES.map((activity) => {
-          const guardrail = state.activities[activity.id];
-          if (!guardrail) return null;
-          return (
-            <div key={activity.id} className="rounded-md border border-[hsl(var(--border))]/50 bg-white px-3 py-2.5">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium text-[hsl(var(--foreground))]">{activity.label}</p>
-                    <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${RISK_COLORS[activity.risk as RiskLevel]}`}>{activity.risk}</span>
-                  </div>
-                  <p className="text-[11px] text-[hsl(var(--muted-foreground))]">{activity.description}</p>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={guardrail.enabled}
-                  onClick={() => updateActivity(activity.id, { enabled: !guardrail.enabled })}
-                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors ${guardrail.enabled ? "bg-emerald-600" : "bg-[hsl(var(--border))]"}`}
-                >
-                  <span className={`pointer-events-none block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${guardrail.enabled ? "translate-x-[18px]" : "translate-x-[3px]"}`} />
-                </button>
-              </div>
-              {guardrail.enabled && (
-                <div className="mt-2 flex gap-3 border-t border-[hsl(var(--border))]/30 pt-2">
-                  <label className="flex items-center gap-1.5 text-xs text-[hsl(var(--foreground))]">
-                    <input type="checkbox" checked={guardrail.approvalGate} onChange={() => updateActivity(activity.id, { approvalGate: !guardrail.approvalGate })} className="h-3.5 w-3.5 rounded border-[hsl(var(--border))]" />
-                    Approval gate
-                  </label>
-                  <label className="flex items-center gap-1.5 text-xs text-[hsl(var(--foreground))]">
-                    <input type="checkbox" checked={guardrail.policyCheck} onChange={() => updateActivity(activity.id, { policyCheck: !guardrail.policyCheck })} className="h-3.5 w-3.5 rounded border-[hsl(var(--border))]" />
-                    Policy check
-                  </label>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      <StepLink href="/governance" label="Full governance configuration" />
+      <StepLink href="/governance" label="Set up Governance" />
     </div>
   );
 }

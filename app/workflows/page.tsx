@@ -168,8 +168,8 @@ function WorkflowsContent() {
   return (
     <>
       <PageHeader
-        title="Workflows"
-        description="Set up workflows and automations across Entrata and your connectors."
+        title="Agent Builder"
+        description="Set up agent builders and automations across Entrata and your connectors."
       />
 
         <div className="flex gap-6">
