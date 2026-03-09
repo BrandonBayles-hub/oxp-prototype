@@ -151,38 +151,21 @@ export type SpecialtyDetail = {
 // ── Specialty list ──────────────────────────────────────────────────────────
 
 export const SPECIALTIES: Specialty[] = [
-  { id: "onsite-leasing", name: "Onsite Leasing" },
-  { id: "centralized-leasing", name: "Centralized Leasing" },
-  { id: "onsite-maintenance", name: "Onsite Maintenance" },
-  { id: "centralized-maintenance", name: "Centralized Maintenance" },
-  { id: "renewals", name: "Renewals" },
-  { id: "compliance", name: "Compliance" },
-  { id: "accounting", name: "Accounting" },
+  { id: "onsite-staff", name: "Onsite Property Staff" },
+  { id: "training-sop-approvals", name: "Training & SOP Approvals" },
 ];
 
 // ── Task templates (used by the settings-level task list) ───────────────────
 
 export const SEED_TASKS: TaskTemplate[] = [
-  { id: "t-1", name: "Manual Contact", workflow: "Leasing", specialtyId: "onsite-leasing", description: "Follow up with the lead to help them move further in the application process", system: true },
-  { id: "t-2", name: "Tour: Onsite", workflow: "Leasing", specialtyId: "onsite-leasing", description: "Give a tour of a floor plan or unit that the lead is interested in", system: true },
-  { id: "t-3", name: "Approve for Screening", workflow: "Leasing", specialtyId: "centralized-leasing", description: "Approve the application and attachments for the screening process", system: true },
-  { id: "t-4", name: "Approve Screening Results", workflow: "Leasing", specialtyId: "centralized-leasing", description: "Make a decision based on the returned screening results", system: true },
-  { id: "t-5", name: "Approve Application", workflow: "Leasing", specialtyId: "centralized-leasing", description: "Approve application to move onto the leasing stage", system: true },
-  { id: "t-6", name: "Generate Lease", workflow: "Leasing", specialtyId: "centralized-leasing", description: "Generate a lease packet for the applicant(s) to sign", system: true },
-  { id: "t-7", name: "Countersign Lease", workflow: "Leasing", specialtyId: "centralized-leasing", description: "Countersign the lease once all applicants have signed the lease", system: true },
-  { id: "t-8", name: "Emergency Work Order", workflow: "Maintenance", specialtyId: "onsite-maintenance", description: "Respond to an emergency maintenance request that requires immediate attention", system: true },
-  { id: "t-9", name: "Vendor Dispatch", workflow: "Maintenance", specialtyId: "centralized-maintenance", description: "Coordinate with an external vendor for specialized repair work", system: true },
-  { id: "t-10", name: "Unit Turn Inspection", workflow: "Maintenance", specialtyId: "onsite-maintenance", description: "Inspect a recently vacated unit and create the punch list for turn", system: true },
-  { id: "t-11", name: "Renewal Offer Review", workflow: "Renewals", specialtyId: "renewals", description: "Review and approve the renewal offer terms before sending to resident", system: true },
-  { id: "t-12", name: "Early Termination Request", workflow: "Renewals", specialtyId: "renewals", description: "Process and evaluate an early lease termination request from a resident", system: true },
-  { id: "t-13", name: "Fair Housing Review", workflow: "Compliance", specialtyId: "compliance", description: "Review flagged communication for fair housing compliance", system: true },
-  { id: "t-14", name: "Ledger Adjustment", workflow: "Accounting", specialtyId: "accounting", description: "Approve a manual ledger adjustment or credit exceeding the auto-approval threshold", system: true },
-  { id: "t-15", name: "Weekly Lead Cleanup", workflow: "Leasing", specialtyId: "onsite-leasing", description: "Review and archive stale leads that have been inactive for 30+ days", system: false },
-  { id: "t-16", name: "Monthly Compliance Audit", workflow: "Compliance", specialtyId: "compliance", description: "Perform monthly audit of fair housing documentation and agent communications", system: false },
-  { id: "t-17", name: "Vendor Invoice Review", workflow: "Accounting", specialtyId: "accounting", description: "Review and approve pending vendor invoices before payment processing", system: false },
+  { id: "t-1", name: "Review SOP Document", workflow: "Document Approval", specialtyId: "training-sop-approvals", description: "Review and approve a submitted SOP document change", system: true },
+  { id: "t-2", name: "Approve Policy Change", workflow: "Document Approval", specialtyId: "training-sop-approvals", description: "Approve updates to a property or portfolio-level policy", system: true },
+  { id: "t-3", name: "Review Training Material", workflow: "Document Approval", specialtyId: "training-sop-approvals", description: "Review submitted training material before publishing", system: true },
+  { id: "t-4", name: "Fair Housing Review", workflow: "Compliance", specialtyId: "", description: "Review flagged communication for fair housing compliance", system: true },
+  { id: "t-5", name: "Background Check Review", workflow: "Compliance", specialtyId: "", description: "Manually review a flagged background check result", system: true },
 ];
 
-export const WORKFLOWS = ["All Workflows", "Leasing", "Maintenance", "Renewals", "Compliance", "Accounting"];
+export const WORKFLOWS = ["All Workflows", "Document Approval", "Compliance", "Operations", "Leasing", "Maintenance", "Renewals", "Accounting"];
 
 export const PROPERTIES = [
   "Azure Heights",
@@ -220,30 +203,103 @@ export const ALL_WEEKDAYS: Weekday[] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"
 
 // ── Per-specialty detail seed data ──────────────────────────────────────────
 
-const LEASING_ONSITE_TASKS: SpecialtyTask[] = [
-  { id: "st-1", name: "Applicant Follow Up", workflow: "Leasing", specialtyId: "onsite-leasing", repeats: "Never", priority: "P2", dueIn: "3 Hours", source: "system" },
-  { id: "st-2", name: "Approve Application", workflow: "Leasing", specialtyId: "onsite-leasing", repeats: "Never", priority: "P1", dueIn: "1 Day", source: "system" },
-  { id: "st-3", name: "Approve for Screening", workflow: "Leasing", specialtyId: "onsite-leasing", repeats: "Never", priority: "P1", dueIn: "1 Day", source: "system" },
-  { id: "st-4", name: "Approve Screening Results", workflow: "Leasing", specialtyId: "onsite-leasing", repeats: "Never", priority: "P1", dueIn: "1 Day", source: "system" },
-  { id: "st-5", name: "Countersign Lease", workflow: "Leasing", specialtyId: "onsite-leasing", repeats: "Never", priority: "P1", dueIn: "1 Day", source: "system" },
-  { id: "st-6", name: "Generate Lease", workflow: "Leasing", specialtyId: "onsite-leasing", repeats: "Never", priority: "P1", dueIn: "1 Day", source: "system" },
-  { id: "st-7", name: "Lead Clean Up", workflow: "Custom", specialtyId: "onsite-leasing", repeats: "Weekly", priority: "P3", dueIn: "1 Week", source: "custom", weekDays: ["Mon", "Fri"], createTime: "08:00", timezone: "America/Denver" },
-  { id: "st-11", name: "Daily Property Closing", workflow: "Custom", specialtyId: "onsite-leasing", repeats: "Weekly", priority: "P2", dueIn: "1 Day", source: "custom", property: "Sun Valley", assignee: "Madelyn Dias", descriptionHtml: "<p><strong><em>What\u2019s New</em></strong></p><ul><li>Clients can now edit the text to create better descriptions</li><li>This will allow them to have better communication with their teams</li><li><span style=\"color: red\">Lots and lots of control like color and alignment</span></li></ul>", sections: { links: { enabled: false, required: false }, attachments: { enabled: false, required: false }, checklist: { enabled: true, requireAll: true, items: ["Lock the doors", "Close the windows"] } } },
-  { id: "st-8", name: "Lead Follow Up", workflow: "Leasing", specialtyId: "onsite-leasing", repeats: "Never", priority: "P3", dueIn: "3 Hours", source: "system" },
-  { id: "st-9", name: "Manual Screen Applicant", workflow: "Leasing", specialtyId: "onsite-leasing", repeats: "Never", priority: "P1", dueIn: "1 Day", source: "system" },
-  { id: "st-10", name: "Reject Applications", workflow: "Leasing", specialtyId: "onsite-leasing", repeats: "Weekly", priority: "P3", dueIn: "5 Days", source: "system", weekDays: ["Fri"], createTime: "09:00", timezone: "America/Denver" },
-];
-
-const LEASING_ONSITE_TEAMMATES: SpecialtyTeammate[] = [
-  { id: "tm-1", name: "Madelyn Dias", permission: "Admin", properties: ["Azure Heights", "Cambridge Suites", "Victoria Place"] },
-  { id: "tm-2", name: "Miracle Dias", permission: "User", properties: ["Azure Heights", "Cambridge Suites"] },
-  { id: "tm-3", name: "Omar George", permission: "User", properties: ["Gateway Arch"] },
-  { id: "tm-4", name: "Skylar Gouse", permission: "User", properties: ["Azure Heights", "Cambridge Suites"] },
-  { id: "tm-5", name: "Carla Herwitz", permission: "User", properties: ["Cambridge Suites"] },
-  { id: "tm-6", name: "Alfonso Korsgaard", permission: "User", properties: ["Cambridge Suites", "Victoria Place"] },
-  { id: "tm-7", name: "Erin Saris", permission: "User", properties: ["Sun Valley"] },
-  { id: "tm-8", name: "Jocelyn Septimus", permission: "User", properties: ["Gateway Arch"] },
-  { id: "tm-9", name: "Alfonso Schleifer", permission: "User", properties: ["Victoria Place"] },
+const ONSITE_STAFF_TASKS: SpecialtyTask[] = [
+  {
+    id: "st-1", name: "Unlock Doors & Gates", workflow: "Operations", specialtyId: "onsite-staff",
+    repeats: "Daily", priority: "P1", dueIn: "1 Hour", source: "custom",
+    createTime: "08:00", timezone: "America/Denver",
+    sections: { links: { enabled: false, required: false }, attachments: { enabled: false, required: false }, checklist: { enabled: true, requireAll: true, items: ["Main entry doors unlocked", "Amenity gates opened", "Office front door unlocked", "After-hours access switched to daytime mode"] } },
+  },
+  {
+    id: "st-2", name: "Morning Property Walk", workflow: "Operations", specialtyId: "onsite-staff",
+    repeats: "Daily", priority: "P1", dueIn: "1 Hour", source: "custom",
+    createTime: "08:00", timezone: "America/Denver",
+    descriptionHtml: "<p>Walk the full property perimeter and all buildings. Look for overnight damage, safety hazards, vandalism, or anything out of the ordinary. Log any issues found as work orders.</p>",
+  },
+  {
+    id: "st-3", name: "Common Area Inspection", workflow: "Operations", specialtyId: "onsite-staff",
+    repeats: "Daily", priority: "P2", dueIn: "3 Hours", source: "custom",
+    createTime: "08:00", timezone: "America/Denver",
+    sections: { links: { enabled: false, required: false }, attachments: { enabled: false, required: false }, checklist: { enabled: true, requireAll: true, items: ["Lobby clean and presentable", "Hallways clear of obstructions", "Stairwells clean and well-lit", "Elevator functioning properly", "Common restrooms stocked and clean"] } },
+  },
+  {
+    id: "st-4", name: "Check Overnight Messages", workflow: "Operations", specialtyId: "onsite-staff",
+    repeats: "Daily", priority: "P1", dueIn: "1 Hour", source: "custom",
+    createTime: "08:00", timezone: "America/Denver",
+    descriptionHtml: "<p>Review all voicemails, emails, and after-hours maintenance requests. Triage by urgency: safety issues (immediate), habitability (same day), convenience (48 hours), cosmetic (next available).</p>",
+  },
+  {
+    id: "st-5", name: "Office Setup", workflow: "Operations", specialtyId: "onsite-staff",
+    repeats: "Daily", priority: "P3", dueIn: "1 Hour", source: "custom",
+    createTime: "08:00", timezone: "America/Denver",
+    sections: { links: { enabled: false, required: false }, attachments: { enabled: false, required: false }, checklist: { enabled: true, requireAll: false, items: ["Computers powered on", "Printer stocked with paper and toner", "Leasing materials set out", "Office tidy and presentable for visitors", "Community coffee/water station stocked"] } },
+  },
+  {
+    id: "st-6", name: "Amenity Area Check", workflow: "Operations", specialtyId: "onsite-staff",
+    repeats: "Daily", priority: "P2", dueIn: "3 Hours", source: "custom",
+    createTime: "08:00", timezone: "America/Denver",
+    sections: { links: { enabled: false, required: false }, attachments: { enabled: false, required: false }, checklist: { enabled: true, requireAll: true, items: ["Pool area clean and safe (if applicable)", "Fitness equipment in working order", "Business center operational", "Clubroom / lounge tidy", "Dog park clean and gates secure"] } },
+  },
+  {
+    id: "st-7", name: "Trash & Recycling Areas", workflow: "Operations", specialtyId: "onsite-staff",
+    repeats: "Daily", priority: "P2", dueIn: "3 Hours", source: "custom",
+    createTime: "08:00", timezone: "America/Denver",
+    descriptionHtml: "<p>Inspect all dumpster and recycling enclosures. Check for overflow, illegal dumping, pest activity, and odor issues. Report any needed pickups or cleanups immediately.</p>",
+  },
+  {
+    id: "st-8", name: "Package Room Check", workflow: "Operations", specialtyId: "onsite-staff",
+    repeats: "Daily", priority: "P3", dueIn: "3 Hours", source: "custom",
+    createTime: "09:00", timezone: "America/Denver",
+    descriptionHtml: "<p>Check package lockers and delivery staging area. Organize loose packages, log any overflow, and post notifications for residents with packages older than 48 hours.</p>",
+  },
+  {
+    id: "st-9", name: "Parking Lot Walkthrough", workflow: "Operations", specialtyId: "onsite-staff",
+    repeats: "Daily", priority: "P2", dueIn: "3 Hours", source: "custom",
+    createTime: "08:00", timezone: "America/Denver",
+    sections: { links: { enabled: false, required: false }, attachments: { enabled: false, required: false }, checklist: { enabled: true, requireAll: false, items: ["No unauthorized or abandoned vehicles", "No visible vehicle damage or break-ins", "Handicap spaces clear and signs visible", "Speed bumps and signage intact", "No potholes or tripping hazards"] } },
+  },
+  {
+    id: "st-10", name: "Evening Property Walk", workflow: "Operations", specialtyId: "onsite-staff",
+    repeats: "Daily", priority: "P2", dueIn: "1 Hour", source: "custom",
+    createTime: "17:00", timezone: "America/Denver",
+    descriptionHtml: "<p>Final walkthrough of all grounds, common areas, and amenities. Verify everything is in order before closing. Note any issues found for next-day follow-up.</p>",
+  },
+  {
+    id: "st-11", name: "Lock Doors & Arm Security", workflow: "Operations", specialtyId: "onsite-staff",
+    repeats: "Daily", priority: "P1", dueIn: "1 Hour", source: "custom",
+    createTime: "18:00", timezone: "America/Denver",
+    sections: { links: { enabled: false, required: false }, attachments: { enabled: false, required: false }, checklist: { enabled: true, requireAll: true, items: ["Office locked and lights off", "All entry doors secured", "Amenity gates locked", "Security system armed", "After-hours access controls enabled", "Office valuables secured"] } },
+  },
+  {
+    id: "st-12", name: "Community Board Update", workflow: "Operations", specialtyId: "onsite-staff",
+    repeats: "Weekly", priority: "P3", dueIn: "1 Day", source: "custom",
+    weekDays: ["Mon"], createTime: "09:00", timezone: "America/Denver",
+    descriptionHtml: "<p>Review and refresh all community bulletin boards and digital signage. Remove expired notices, post upcoming events, and ensure emergency contact info is current.</p>",
+  },
+  {
+    id: "st-13", name: "Landscaping & Curb Appeal", workflow: "Operations", specialtyId: "onsite-staff",
+    repeats: "Weekly", priority: "P2", dueIn: "1 Day", source: "custom",
+    weekDays: ["Mon"], createTime: "08:00", timezone: "America/Denver",
+    sections: { links: { enabled: false, required: false }, attachments: { enabled: false, required: false }, checklist: { enabled: true, requireAll: false, items: ["Lawn and flower beds maintained", "Walkways clear of debris", "Entry signage clean and visible", "Exterior paint / siding in good condition", "Irrigation running properly (seasonal)"] } },
+  },
+  {
+    id: "st-14", name: "Emergency Equipment Check", workflow: "Operations", specialtyId: "onsite-staff",
+    repeats: "Weekly", priority: "P1", dueIn: "1 Day", source: "custom",
+    weekDays: ["Wed"], createTime: "09:00", timezone: "America/Denver",
+    sections: { links: { enabled: false, required: false }, attachments: { enabled: false, required: false }, checklist: { enabled: true, requireAll: true, items: ["Fire extinguishers accessible and charged", "Exit signs illuminated", "Emergency lighting functional", "AED device operational (if applicable)", "First aid kit stocked"] } },
+  },
+  {
+    id: "st-15", name: "Exterior Lighting Check", workflow: "Operations", specialtyId: "onsite-staff",
+    repeats: "Weekly", priority: "P2", dueIn: "1 Day", source: "custom",
+    weekDays: ["Thu"], createTime: "17:00", timezone: "America/Denver",
+    descriptionHtml: "<p>Inspect all exterior lighting at dusk when burnouts are most visible. Check parking lot lights, walkway fixtures, stairwell lights, building-mounted floods, and entry lighting. Submit work orders for any outages.</p>",
+  },
+  {
+    id: "st-16", name: "Vacant Unit Check", workflow: "Operations", specialtyId: "onsite-staff",
+    repeats: "Weekly", priority: "P2", dueIn: "1 Day", source: "custom",
+    weekDays: ["Fri"], createTime: "10:00", timezone: "America/Denver",
+    sections: { links: { enabled: false, required: false }, attachments: { enabled: false, required: false }, checklist: { enabled: true, requireAll: true, items: ["No signs of water leaks or moisture", "No pest activity", "HVAC running and set to appropriate temp", "No unauthorized entry or damage", "Unit is show-ready (if applicable)"] } },
+  },
 ];
 
 const DEFAULT_SMART_CONFIG: SmartDistributionConfig = {
@@ -257,7 +313,20 @@ const DEFAULT_SMART_CONFIG: SmartDistributionConfig = {
   reassignTimeoutUnit: "Day(s)",
 };
 
-const LEASING_ONSITE_ASSIGNMENT: SpecialtyAssignment = {
+const TRAINING_SOP_TASKS: SpecialtyTask[] = [
+  { id: "st-t-1", name: "Review SOP Document", workflow: "Document Approval", specialtyId: "training-sop-approvals", repeats: "Never", priority: "P1", dueIn: "1 Day", source: "system" },
+  { id: "st-t-2", name: "Approve Policy Change", workflow: "Document Approval", specialtyId: "training-sop-approvals", repeats: "Never", priority: "P1", dueIn: "2 Days", source: "system" },
+  { id: "st-t-3", name: "Review Training Material", workflow: "Document Approval", specialtyId: "training-sop-approvals", repeats: "Never", priority: "P2", dueIn: "3 Days", source: "system" },
+  { id: "st-t-4", name: "Complete Training Module", workflow: "Trainings & SOP", specialtyId: "training-sop-approvals", repeats: "Never", priority: "P2", dueIn: "1 Week", source: "system" },
+  { id: "st-t-5", name: "Acknowledge SOP Update", workflow: "Trainings & SOP", specialtyId: "training-sop-approvals", repeats: "Never", priority: "P2", dueIn: "3 Days", source: "system" },
+];
+
+const TRAINING_SOP_ASSIGNMENT: SpecialtyAssignment = {
+  mode: "smart",
+  smartConfig: { ...DEFAULT_SMART_CONFIG },
+};
+
+const ONSITE_STAFF_ASSIGNMENT: SpecialtyAssignment = {
   mode: "smart",
   smartConfig: { ...DEFAULT_SMART_CONFIG },
 };
@@ -275,10 +344,15 @@ function buildDefaultDetail(s: Specialty): SpecialtyDetail {
 }
 
 const EXPLICIT_DETAILS: Record<string, Partial<Omit<SpecialtyDetail, "specialty">>> = {
-  "onsite-leasing": {
-    tasks: LEASING_ONSITE_TASKS,
-    teammates: LEASING_ONSITE_TEAMMATES,
-    assignment: LEASING_ONSITE_ASSIGNMENT,
+  "onsite-staff": {
+    tasks: ONSITE_STAFF_TASKS,
+    teammates: [],
+    assignment: ONSITE_STAFF_ASSIGNMENT,
+  },
+  "training-sop-approvals": {
+    tasks: TRAINING_SOP_TASKS,
+    teammates: [],
+    assignment: TRAINING_SOP_ASSIGNMENT,
   },
 };
 
