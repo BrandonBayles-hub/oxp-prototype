@@ -26,6 +26,16 @@ const COMING_SOON_ROUTES: ComingSoonRoute[] = [
     title: "Performance Analytics",
     description: "Comprehensive dashboards tracking agent performance, resolution rates, response times, and ROI across your entire portfolio. Identify trends, spot opportunities, and measure the impact of your AI workforce.",
   },
+  {
+    path: "/voice",
+    title: "Voice & Brand",
+    description: "Define how your AI agents communicate with residents and prospects. Configure your brand voice, tone, and personality guidelines so every interaction — across chat, email, SMS, and phone — reflects your organization's identity and delivers a consistent, on-brand experience.",
+  },
+  {
+    path: "/governance",
+    title: "Governance & Compliance",
+    description: "Set up guardrails, approval gates, and policy checks for high-regulation activities. Ensure your AI agents operate within compliance boundaries, maintain audit trails for every action, and give your team full control over what agents can do independently versus what requires human approval.",
+  },
 ];
 
 type ComingSoonContextValue = {

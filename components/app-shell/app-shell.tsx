@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 
 const CHROMELESS_ROUTES: string[] = [];
 const FULL_BLEED_ROUTES = ["/conversations"];
-const NAV_ONLY_ROUTES = ["/escalations/settings"];
+const NAV_ONLY_ROUTES = ["/escalations/settings", "/communications-setup/custom-email"];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -34,7 +34,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return (
       <div className="flex h-screen flex-col overflow-hidden">
         <EntrataTopNav />
-        <main className="flex-1 flex flex-col overflow-hidden bg-background">
+        <main className="flex-1 overflow-y-auto bg-background">
           <RouteGuard>{children}</RouteGuard>
         </main>
         <NotificationToast />
