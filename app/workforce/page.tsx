@@ -88,7 +88,7 @@ export default function WorkforcePage() {
   const [orgView, setOrgView] = useState<"tree" | "table">("tree");
   const [searchQuery, setSearchQuery] = useState("");
   const [propertyFilters, setPropertyFilters] = useState<Set<string>>(new Set());
-  const [labelFilters, setLabelFilters] = useState<Set<string>>(new Set());
+  const [specialtyFilters, setSpecialtyFilters] = useState<Set<string>>(new Set());
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
 
@@ -118,7 +118,15 @@ export default function WorkforcePage() {
     return Array.from(set).sort();
   }, [members]);
 
-  const hasActiveFilters = searchQuery.trim() !== "" || propertyFilters.size > 0 || labelFilters.size > 0;
+  const allSpecialties = useMemo(() => {
+    const set = new Set<string>();
+    for (const m of members) {
+      for (const s of m.specialties ?? []) set.add(s);
+    }
+    return Array.from(set).sort();
+  }, [members]);
+
+  const hasActiveFilters = searchQuery.trim() !== "" || propertyFilters.size > 0 || specialtyFilters.size > 0;
 
   const filteredMembers = useMemo(() => {
     let result = members;
@@ -138,14 +146,14 @@ export default function WorkforcePage() {
         return props.some((p) => propertyFilters.has(p));
       });
     }
-    if (labelFilters.size > 0) {
+    if (specialtyFilters.size > 0) {
       result = result.filter((m) => {
-        const mLabels = m.labels ?? [];
-        return mLabels.some((l) => labelFilters.has(l));
+        const specs = m.specialties ?? [];
+        return specs.some((s) => specialtyFilters.has(s));
       });
     }
     return result;
-  }, [members, searchQuery, propertyFilters, labelFilters]);
+  }, [members, searchQuery, propertyFilters, specialtyFilters]);
 
   /* ── Stats ── */
 
@@ -358,19 +366,19 @@ export default function WorkforcePage() {
               })}
             />
             <FilterDropdown
-              label="Label"
-              options={allLabels}
-              selected={labelFilters}
-              onToggle={(l) => setLabelFilters((prev) => {
+              label="Specialty"
+              options={allSpecialties}
+              selected={specialtyFilters}
+              onToggle={(s) => setSpecialtyFilters((prev) => {
                 const next = new Set(prev);
-                if (next.has(l)) next.delete(l); else next.add(l);
+                if (next.has(s)) next.delete(s); else next.add(s);
                 return next;
               })}
             />
             {hasActiveFilters && (
               <button
                 type="button"
-                onClick={() => { setSearchQuery(""); setPropertyFilters(new Set()); setLabelFilters(new Set()); }}
+                onClick={() => { setSearchQuery(""); setPropertyFilters(new Set()); setSpecialtyFilters(new Set()); }}
                 className="flex h-9 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
               >
                 <X className="h-3.5 w-3.5" /> Clear

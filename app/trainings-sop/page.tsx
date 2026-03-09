@@ -997,9 +997,12 @@ function TrainingsSopContent() {
                               <MoreVertical className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-44">
-                            <DropdownMenuItem onClick={() => setEditingId(row.id)}>
+                          <DropdownMenuContent align="end" className="w-52">
+                            <DropdownMenuItem onClick={() => router.push(`/trainings-sop/${row.id}?action=edit`)}>
                               <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => router.push(`/trainings-sop/${row.id}?action=upload`)} className="whitespace-nowrap">
+                              <Upload className="mr-2 h-3.5 w-3.5 shrink-0" /> Upload New Version
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => setMoveDocId(row.id)}>
                               <CornerDownRight className="mr-2 h-3.5 w-3.5" /> Move

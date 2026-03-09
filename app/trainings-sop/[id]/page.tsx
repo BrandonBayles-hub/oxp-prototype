@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { TrainingsSopDetailClient } from "./TrainingsSopDetailClient";
 
 // Document ids from vault seed data (lib/vault-context INITIAL_DOCS). Required for static export.
@@ -12,5 +13,9 @@ type PageProps = {
 };
 
 export default function TrainingsSopDetailPage(_props: PageProps) {
-  return <TrainingsSopDetailClient />;
+  return (
+    <Suspense fallback={<div className="p-6 text-muted-foreground">Loading…</div>}>
+      <TrainingsSopDetailClient />
+    </Suspense>
+  );
 }
