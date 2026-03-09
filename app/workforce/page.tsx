@@ -296,12 +296,12 @@ export default function WorkforcePage() {
           { label: "ELI+ agents", value: totalAI },
           { label: "Teams with AI", value: `${teamsWithAI}/${TEAMS.length}` },
           { label: "Open escalations", value: openEscalations },
-        ].map((s) => (
+        ].map((s: { label: string; value: string | number; sub?: string }) => (
           <Card key={s.label}>
             <CardContent className="py-3">
               <p className="text-2xl font-bold text-foreground">{s.value}</p>
               <p className="text-xs text-muted-foreground">{s.label}</p>
-              {"sub" in s && s.sub && <p className="mt-0.5 text-[10px] text-muted-foreground">{s.sub}</p>}
+              {s.sub && <p className="mt-0.5 text-[10px] text-muted-foreground">{s.sub}</p>}
             </CardContent>
           </Card>
         ))}
