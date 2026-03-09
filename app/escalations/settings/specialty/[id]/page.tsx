@@ -2,13 +2,8 @@ import { SpecialtyDetailClient } from "./SpecialtyDetailClient";
 
 // Specialty ids from lib/specialties-data SPECIALTIES. Required for static export.
 const STATIC_SPECIALTY_IDS = [
-  "onsite-leasing",
-  "centralized-leasing",
-  "onsite-maintenance",
-  "centralized-maintenance",
-  "renewals",
-  "compliance",
-  "accounting",
+  "onsite-staff",
+  "training-sop-approvals",
 ];
 
 export function generateStaticParams() {

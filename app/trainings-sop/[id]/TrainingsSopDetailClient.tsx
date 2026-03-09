@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useState, useEffect, useMemo, useRef } from "react";
 import {
@@ -23,9 +23,10 @@ import {
   Printer,
   Shield,
   Users,
+  Upload,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
-import { useVault, COMPLIANCE_ITEMS, SUGGESTED_PROPERTY_TAGS, SUGGESTED_SUBJECT_TAGS, type VaultItem, type VaultDocumentType, type DocumentHistoryEntry, type AgentTrainingStatus } from "@/lib/vault-context";
+import { useVault, COMPLIANCE_ITEMS, SUGGESTED_PROPERTY_TAGS, SUGGESTED_SUBJECT_TAGS, type VaultItem, type VaultDocumentType, type DocumentHistoryEntry, type DocumentVersion, type AgentTrainingStatus } from "@/lib/vault-context";
 import { useAgents } from "@/lib/agents-context";
 import { useWorkforce } from "@/lib/workforce-context";
 import dynamic from "next/dynamic";
@@ -150,6 +151,7 @@ function AgentLinkCombobox({
 export function TrainingsSopDetailClient() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const id = typeof params.id === "string" ? params.id : params.id?.[0];
   const {
     documents, updateDocument, approveDocument, markAgentTrained, addActivity,
@@ -177,6 +179,11 @@ export function TrainingsSopDetailClient() {
   const [versionsDialogOpen, setVersionsDialogOpen] = useState(false);
   const [selectedVersionIdx, setSelectedVersionIdx] = useState<number | null>(null);
   const createdApprovalEscalationForDocRef = useRef<string | null>(null);
+
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadChangeSummary, setUploadChangeSummary] = useState("");
+  const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editStep, setEditStep] = useState<1 | 2>(1);
@@ -318,6 +325,18 @@ export function TrainingsSopDetailClient() {
     }
   }, [editDialogOpen, doc?.id, doc?.body]);
 
+  useEffect(() => {
+    if (!doc) return;
+    const action = searchParams.get("action");
+    if (action === "edit") {
+      setEditDialogOpen(true);
+      router.replace(`/trainings-sop/${id}`, { scroll: false });
+    } else if (action === "upload") {
+      setUploadDialogOpen(true);
+      router.replace(`/trainings-sop/${id}`, { scroll: false });
+    }
+  }, [doc?.id, searchParams, id, router]);
+
   if (!id) {
     return (
       <div className="space-y-4">
@@ -380,6 +399,71 @@ export function TrainingsSopDetailClient() {
     });
     setDialogChangeSummary("");
     setEditDialogOpen(false);
+  };
+
+  const handleUploadNewVersion = () => {
+    if (!uploadFile) return;
+    const summary = uploadChangeSummary.trim() || `Uploaded new file: ${uploadFile.name}`;
+    const existingHistory = doc.history ?? [];
+    const currentVersion = doc.version ?? "1.0";
+
+    const currentVersionSnapshot: DocumentVersion = {
+      version: currentVersion,
+      body: doc.body ?? "",
+      approvedAt: new Date().toISOString(),
+      approvedBy: doc.owner,
+      changeSummary: `Snapshot before upload of ${uploadFile.name}`,
+    };
+    const existingVersions = doc.versions ?? [];
+
+    const parts = currentVersion.split(".");
+    const nextVersion = `${parseInt(parts[0], 10) + 1}.0`;
+
+    const submittedEntry: DocumentHistoryEntry = {
+      at: new Date().toISOString(),
+      action: "submitted" as const,
+      by: doc.owner,
+      summary: `New version uploaded (${uploadFile.name}). ${summary}`,
+    };
+
+    updateDocument(id, {
+      approvalStatus: "review",
+      version: nextVersion,
+      history: [...existingHistory, submittedEntry],
+      versions: [...existingVersions, currentVersionSnapshot],
+      modified: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+    });
+
+    addEscalation({
+      type: "approval",
+      name: `Document review: ${doc.fileName} v${nextVersion}`,
+      summary: `New version uploaded (${uploadFile.name}). ${summary}`,
+      category: doc.documentType === "sop" ? "Compliance" : "Leasing",
+      property: doc.property,
+      status: "Open",
+      assignee: "",
+      linkToSource: `/trainings-sop/${id}`,
+      labels: [...(doc.tags ?? [])],
+      documentApprovalContext: {
+        documentId: id,
+        documentName: doc.fileName,
+        changeSummary: `New version uploaded (${uploadFile.name}). ${summary}`,
+        proposedBody: doc.body ?? "",
+        previousBody: doc.body ?? "",
+      },
+    });
+
+    addActivity({
+      action: "New version uploaded",
+      by: doc.owner,
+      documentId: id,
+      documentName: doc.fileName,
+      detail: `Uploaded ${uploadFile.name} as v${nextVersion}. Submitted for approval.`,
+    });
+
+    setUploadFile(null);
+    setUploadChangeSummary("");
+    setUploadDialogOpen(false);
   };
 
   const shareUrl = typeof window !== "undefined" ? `${window.location.origin}/trainings-sop/${id}` : "";
@@ -647,6 +731,74 @@ export function TrainingsSopDetailClient() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={uploadDialogOpen} onOpenChange={(open) => { setUploadDialogOpen(open); if (!open) { setUploadFile(null); setUploadChangeSummary(""); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Upload New Version</DialogTitle>
+            <DialogDescription>
+              Upload a new file (e.g. PDF, DOCX) to replace the current version. This will create a new approval request for review.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-foreground">File</label>
+              <input
+                ref={uploadInputRef}
+                type="file"
+                accept=".pdf,.doc,.docx,.txt,.rtf,.odt,.xlsx,.xls,.csv"
+                onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
+                className="hidden"
+              />
+              <div
+                onClick={() => uploadInputRef.current?.click()}
+                className="cursor-pointer rounded-lg border-2 border-dashed border-border bg-muted/30 px-4 py-6 text-center transition-colors hover:border-primary/40 hover:bg-muted/50"
+              >
+                {uploadFile ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <FileText className="h-5 w-5 text-primary" />
+                    <div className="text-left">
+                      <p className="text-sm font-medium text-foreground">{uploadFile.name}</p>
+                      <p className="text-xs text-muted-foreground">{(uploadFile.size / 1024).toFixed(1)} KB</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setUploadFile(null); if (uploadInputRef.current) uploadInputRef.current.value = ""; }}
+                      className="ml-2 rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                      aria-label="Remove file"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <Upload className="mx-auto h-6 w-6 text-muted-foreground" />
+                    <p className="mt-2 text-sm font-medium text-foreground">Click to select a file</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">PDF, DOCX, TXT, and other document formats</p>
+                  </>
+                )}
+              </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-foreground">What changed in this version?</label>
+              <textarea
+                value={uploadChangeSummary}
+                onChange={(e) => setUploadChangeSummary(e.target.value)}
+                placeholder="Describe what's different (e.g. Updated late fee schedule, revised move-out procedures)"
+                rows={3}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUploadDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleUploadNewVersion} disabled={!uploadFile}>
+              <Send className="h-4 w-4" />
+              Upload &amp; Submit for Approval
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="grid gap-6 lg:grid-cols-[minmax(0,340px)_1fr]">
         {/* Left: Document details */}
         <div className="space-y-6">
@@ -736,7 +888,7 @@ export function TrainingsSopDetailClient() {
               </div>
               <div>
                 <span className="text-muted-foreground">Approval</span>
-                <p>
+                <div className="flex items-center gap-2 mt-0.5">
                   <span
                     className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
                       doc.approvalStatus === "approved"
@@ -748,7 +900,16 @@ export function TrainingsSopDetailClient() {
                   >
                     {doc.approvalStatus}
                   </span>
-                </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1 text-xs"
+                    onClick={() => setUploadDialogOpen(true)}
+                  >
+                    <Upload className="h-3 w-3" />
+                    Upload New Version
+                  </Button>
+                </div>
               </div>
               {doc.documentType === "sop" && approvalEscalations.length > 0 && (
                 <div className="space-y-2">

@@ -24,6 +24,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: "p-comms-reporting", capability: "See Comms Reporting", description: "Ability to view reporting for communications", section: "Command Center" },
 
   // ── Escalations ──
+  { id: "p-tasks-view", capability: "View Escalations", description: "Access the Escalations page and view assigned escalations", section: "Escalations" },
   { id: "p-tasks-edit-specialty", capability: "Edit Specialty", description: "Modify the escalations and users associated with a Specialty", section: "Escalations" },
   { id: "p-tasks-view-all", capability: "View All Escalations", description: "View and edit all Escalations", section: "Escalations" },
   { id: "p-tasks-create-custom", capability: "Create Custom Escalations", description: "Create new custom escalation types", section: "Escalations" },
@@ -40,6 +41,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: "p-report-workforce", capability: "View Workforce Analytics", description: "Access workforce utilization and capacity metrics", section: "Performance" },
 
   // ── Agent Roster ──
+  { id: "p-agents-view", capability: "View Agent Roster", description: "Access the Agent Roster page and view AI Agents", section: "Agent Roster" },
   { id: "p-agents-operational", capability: "Operational Agents", description: "Enable and disable operational AI Agents", section: "Agent Roster" },
   { id: "p-agents-create", capability: "Create Agents", description: "Create and edit AI Agents they can deploy for different tasks", section: "Agent Roster" },
   { id: "p-agents-edit-eli", capability: "Edit ELI+ Agents", description: "Edit and modify the functions of ELI+ Agents", section: "Agent Roster" },
@@ -58,6 +60,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: "p-activation-integrations", capability: "Manage Integrations", description: "Connect and configure third-party integrations", section: "Activation" },
 
   // ── Workflows ──
+  { id: "p-workflows-view", capability: "View Workflows", description: "Access the Workflows page and view configured workflows", section: "Workflows" },
   { id: "p-wf-create", capability: "Create Workflows", description: "Create and configure automated workflows", section: "Workflows" },
   { id: "p-wf-edit", capability: "Edit Workflows", description: "Modify existing workflow recipes and triggers", section: "Workflows" },
   { id: "p-wf-toggle", capability: "Enable/Disable Workflows", description: "Turn workflows on or off", section: "Workflows" },
@@ -86,41 +89,56 @@ export const PERMISSION_SECTIONS = [
   "Activation", "Workflows", "Trainings & SOP", "Voice", "Governance",
 ];
 
+export const SECTION_VIEW_PERMISSION: Record<string, string> = {
+  "Command Center": "p-cc-view",
+  "Escalations": "p-tasks-view",
+  "Performance": "p-report-performance",
+  "Agent Roster": "p-agents-view",
+  "Workforce": "p-wf-members-view",
+  "Activation": "p-activation-view",
+  "Workflows": "p-workflows-view",
+  "Trainings & SOP": "p-training-view",
+  "Voice": "p-voice-view",
+  "Governance": "p-gov-view",
+};
+
 export const DEFAULT_ROLE_PERMISSIONS: Record<string, Set<string>> = {
   admin: new Set(ALL_PERMISSIONS.map((p) => p.id)),
   regional: new Set([
     "p-cc-view", "p-comms-create-inbox", "p-comms-edit-inbox-props", "p-comms-edit-inbox-labels",
     "p-comms-edit-inbox-users", "p-comms-add-labels", "p-comms-edit-labels", "p-comms-reporting",
-    "p-tasks-edit-specialty", "p-tasks-view-all", "p-tasks-bulk-actions",
+    "p-tasks-view", "p-tasks-edit-specialty", "p-tasks-view-all", "p-tasks-bulk-actions",
     "p-playbooks-view", "p-playbooks-launch", "p-playbooks-manage", "p-playbooks-assign",
     "p-report-performance", "p-report-export", "p-report-workforce",
-    "p-agents-operational", "p-agents-view-logs",
+    "p-agents-view", "p-agents-operational", "p-agents-view-logs",
     "p-wf-members-view", "p-wf-members-edit", "p-wf-groups",
     "p-activation-view", "p-activation-complete",
-    "p-wf-edit", "p-wf-toggle",
+    "p-workflows-view", "p-wf-edit", "p-wf-toggle",
     "p-training-view", "p-training-create", "p-training-assign",
     "p-voice-view", "p-voice-logs",
     "p-gov-view", "p-gov-audit",
   ]),
   property: new Set([
     "p-cc-view", "p-comms-edit-inbox-props", "p-comms-edit-inbox-users", "p-comms-add-labels", "p-comms-reporting",
-    "p-tasks-view-all", "p-tasks-bulk-actions",
+    "p-tasks-view", "p-tasks-view-all", "p-tasks-bulk-actions",
     "p-playbooks-view", "p-playbooks-launch", "p-playbooks-assign",
     "p-report-performance",
-    "p-agents-operational",
+    "p-agents-view", "p-agents-operational",
     "p-wf-members-view",
     "p-activation-view",
-    "p-wf-toggle",
+    "p-workflows-view", "p-wf-toggle",
     "p-training-view",
     "p-voice-view", "p-voice-logs",
     "p-gov-view",
   ]),
   ic: new Set([
     "p-cc-view",
-    "p-tasks-view-all",
+    "p-tasks-view", "p-tasks-view-all",
     "p-playbooks-view",
     "p-comms-reporting",
     "p-report-performance",
+    "p-agents-view",
+    "p-workflows-view",
     "p-training-view",
     "p-voice-view",
     "p-gov-view",

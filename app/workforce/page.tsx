@@ -22,6 +22,8 @@ import {
 } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { SPECIALTIES as SPECIALTY_LIST } from "@/lib/specialties-data";
 import {
   Network, Tag, ChevronRight, ChevronDown, Award,
   X, Plus, Building2, MapPin, Search, Check, List, Trash2, Users,
@@ -86,7 +88,7 @@ export default function WorkforcePage() {
   const [orgView, setOrgView] = useState<"tree" | "table">("tree");
   const [searchQuery, setSearchQuery] = useState("");
   const [propertyFilters, setPropertyFilters] = useState<Set<string>>(new Set());
-  const [labelFilters, setLabelFilters] = useState<Set<string>>(new Set());
+  const [specialtyFilters, setSpecialtyFilters] = useState<Set<string>>(new Set());
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
 
@@ -116,7 +118,15 @@ export default function WorkforcePage() {
     return Array.from(set).sort();
   }, [members]);
 
-  const hasActiveFilters = searchQuery.trim() !== "" || propertyFilters.size > 0 || labelFilters.size > 0;
+  const allSpecialties = useMemo(() => {
+    const set = new Set<string>();
+    for (const m of members) {
+      for (const s of m.specialties ?? []) set.add(s);
+    }
+    return Array.from(set).sort();
+  }, [members]);
+
+  const hasActiveFilters = searchQuery.trim() !== "" || propertyFilters.size > 0 || specialtyFilters.size > 0;
 
   const filteredMembers = useMemo(() => {
     let result = members;
@@ -136,14 +146,14 @@ export default function WorkforcePage() {
         return props.some((p) => propertyFilters.has(p));
       });
     }
-    if (labelFilters.size > 0) {
+    if (specialtyFilters.size > 0) {
       result = result.filter((m) => {
-        const mLabels = m.labels ?? [];
-        return mLabels.some((l) => labelFilters.has(l));
+        const specs = m.specialties ?? [];
+        return specs.some((s) => specialtyFilters.has(s));
       });
     }
     return result;
-  }, [members, searchQuery, propertyFilters, labelFilters]);
+  }, [members, searchQuery, propertyFilters, specialtyFilters]);
 
   /* ── Stats ── */
 
@@ -281,17 +291,17 @@ export default function WorkforcePage() {
       {/* Overview stats */}
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
         {[
-          { label: "Total workforce", value: totalMembers, sub: `${totalHumans} staff · ${totalAI} ELI+ agents` },
+          { label: "Total workforce", value: totalMembers },
           { label: "Human staff", value: totalHumans },
           { label: "ELI+ agents", value: totalAI },
           { label: "Teams with AI", value: `${teamsWithAI}/${TEAMS.length}` },
           { label: "Open escalations", value: openEscalations },
-        ].map((s) => (
+        ].map((s: { label: string; value: string | number; sub?: string }) => (
           <Card key={s.label}>
             <CardContent className="py-3">
               <p className="text-2xl font-bold text-foreground">{s.value}</p>
               <p className="text-xs text-muted-foreground">{s.label}</p>
-              {"sub" in s && s.sub && <p className="mt-0.5 text-[10px] text-muted-foreground">{s.sub}</p>}
+              {s.sub && <p className="mt-0.5 text-[10px] text-muted-foreground">{s.sub}</p>}
             </CardContent>
           </Card>
         ))}
@@ -356,19 +366,19 @@ export default function WorkforcePage() {
               })}
             />
             <FilterDropdown
-              label="Label"
-              options={allLabels}
-              selected={labelFilters}
-              onToggle={(l) => setLabelFilters((prev) => {
+              label="Specialty"
+              options={allSpecialties}
+              selected={specialtyFilters}
+              onToggle={(s) => setSpecialtyFilters((prev) => {
                 const next = new Set(prev);
-                if (next.has(l)) next.delete(l); else next.add(l);
+                if (next.has(s)) next.delete(s); else next.add(s);
                 return next;
               })}
             />
             {hasActiveFilters && (
               <button
                 type="button"
-                onClick={() => { setSearchQuery(""); setPropertyFilters(new Set()); setLabelFilters(new Set()); }}
+                onClick={() => { setSearchQuery(""); setPropertyFilters(new Set()); setSpecialtyFilters(new Set()); }}
                 className="flex h-9 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
               >
                 <X className="h-3.5 w-3.5" /> Clear
@@ -479,7 +489,8 @@ export default function WorkforcePage() {
 
 /* ──────────────────────────── Roles & Access ────────────────────── */
 
-import { ALL_PERMISSIONS, PERMISSION_SECTIONS, usePermissions } from "@/lib/permissions-context";
+import { ALL_PERMISSIONS, PERMISSION_SECTIONS, SECTION_VIEW_PERMISSION, usePermissions } from "@/lib/permissions-context";
+import { Switch } from "@/components/ui/switch";
 
 type RoleTab = { key: string; label: string; builtin: boolean };
 
@@ -583,6 +594,26 @@ function RolesAccessPanel({ humanMembers }: { humanMembers: WorkforceMember[] })
       const set = new Set(next[activeRole] ?? []);
       if (set.has(permId)) set.delete(permId);
       else set.add(permId);
+      next[activeRole] = set;
+      return next;
+    });
+  };
+
+  const toggleSectionMaster = (section: string, currentlyOn: boolean) => {
+    if (isAdmin) return;
+    const viewPermId = SECTION_VIEW_PERMISSION[section];
+    if (!viewPermId) return;
+    setPermissions((prev) => {
+      const next = { ...prev };
+      const set = new Set(next[activeRole] ?? []);
+      if (currentlyOn) {
+        const sectionPermIds = ALL_PERMISSIONS
+          .filter((p) => p.section === section)
+          .map((p) => p.id);
+        for (const id of sectionPermIds) set.delete(id);
+      } else {
+        set.add(viewPermId);
+      }
       next[activeRole] = set;
       return next;
     });
@@ -883,12 +914,39 @@ function RolesAccessPanel({ humanMembers }: { humanMembers: WorkforceMember[] })
 
       <div className="space-y-8">
         {PERMISSION_SECTIONS.map((section) => {
+          const viewPermId = SECTION_VIEW_PERMISSION[section];
           const sectionPerms = ALL_PERMISSIONS.filter((p) => p.section === section);
+          const childPerms = sectionPerms.filter((p) => p.id !== viewPermId);
+          const viewPerm = sectionPerms.find((p) => p.id === viewPermId);
           if (sectionPerms.length === 0) return null;
+          const masterOn = isAdmin || currentPerms.has(viewPermId);
           return (
             <div key={section}>
-              <h3 className="text-base font-semibold text-foreground mb-3">{section}</h3>
-              <div className="rounded-lg border border-border">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <h3 className="text-base font-semibold text-foreground">{section}</h3>
+                  {!isAdmin && viewPerm && (
+                    <span className={cn(
+                      "text-xs font-medium transition-colors",
+                      masterOn ? "text-primary" : "text-muted-foreground"
+                    )}>
+                      {masterOn ? "Enabled" : "Disabled"}
+                    </span>
+                  )}
+                </div>
+                {isAdmin ? (
+                  <span className="text-xs text-muted-foreground italic">Always on</span>
+                ) : viewPerm ? (
+                  <Switch
+                    checked={masterOn}
+                    onCheckedChange={() => toggleSectionMaster(section, masterOn)}
+                  />
+                ) : null}
+              </div>
+              <div className={cn(
+                "rounded-lg border border-border transition-opacity",
+                !masterOn && !isAdmin && "opacity-40 pointer-events-none"
+              )}>
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-border bg-muted/30">
@@ -898,7 +956,7 @@ function RolesAccessPanel({ humanMembers }: { humanMembers: WorkforceMember[] })
                     </tr>
                   </thead>
                   <tbody>
-                    {sectionPerms.map((perm) => {
+                    {childPerms.map((perm) => {
                       const enabled = currentPerms.has(perm.id);
                       return (
                         <tr key={perm.id} className="border-b border-border last:border-b-0">
@@ -1748,9 +1806,13 @@ function MemberDetailSheet({
   updateMember: (id: string, updates: Partial<Omit<WorkforceMember, "id">>) => void;
   onMemberClick: (id: string) => void;
 }) {
+  const { hasPermission } = usePermissions();
+  const canEdit = hasPermission("p-wf-members-edit");
   const [newLabel, setNewLabel] = useState("");
   const [newProperty, setNewProperty] = useState("");
   const [newSpecialty, setNewSpecialty] = useState("");
+  const [reportSearch, setReportSearch] = useState("");
+  const [managerSearch, setManagerSearch] = useState("");
 
   if (!member) return null;
 
@@ -1811,6 +1873,31 @@ function MemberDetailSheet({
     updateMember(member.id, { specialties: specialties.filter((e) => e !== s) });
   };
 
+  const hasHris = !!member.hris;
+  const canEditReports = canEdit && !hasHris;
+
+  const addDirectReport = (reportId: string) => {
+    updateMember(reportId, { reportsTo: member.id });
+    setReportSearch("");
+  };
+
+  const removeDirectReport = (reportId: string) => {
+    updateMember(reportId, { reportsTo: undefined });
+  };
+
+  const changeManager = (managerId: string | undefined) => {
+    updateMember(member.id, { reportsTo: managerId });
+    setManagerSearch("");
+  };
+
+  const availableForReport = members.filter(
+    (m) => m.id !== member.id && m.reportsTo !== member.id && (!reportSearch || m.name.toLowerCase().includes(reportSearch.toLowerCase())),
+  );
+
+  const availableManagers = members.filter(
+    (m) => m.id !== member.id && (!managerSearch || m.name.toLowerCase().includes(managerSearch.toLowerCase())),
+  );
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="overflow-y-auto sm:max-w-md">
@@ -1857,62 +1944,160 @@ function MemberDetailSheet({
                 <p className={cn("mt-0.5 text-sm font-semibold", metric.highlight && "text-green-600 dark:text-green-400")}>{metric.value}</p>
               </div>
             )}
-            {reportsTo && (
-              <div className="rounded-lg border border-border p-3">
-                <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Reports to</p>
-                <button
-                  type="button"
-                  onClick={() => onMemberClick(reportsTo.id)}
-                  className="mt-0.5 text-sm font-medium text-primary hover:underline"
-                >
-                  {reportsTo.name}
-                </button>
-              </div>
-            )}
+            <div className="rounded-lg border border-border p-3">
+              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Reports to</p>
+              {reportsTo ? (
+                <div className="mt-0.5 flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => onMemberClick(reportsTo.id)}
+                    className="text-sm font-medium text-primary hover:underline"
+                  >
+                    {reportsTo.name}
+                  </button>
+                  {canEditReports && (
+                    <button
+                      type="button"
+                      onClick={() => changeManager(undefined)}
+                      className="rounded-full p-0.5 text-muted-foreground/50 transition-colors hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              ) : canEditReports ? (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button type="button" className="mt-0.5 inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                      <Plus className="h-3 w-3" /> Assign manager
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-64 p-2">
+                    <div className="relative mb-2">
+                      <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        type="text"
+                        placeholder="Search members…"
+                        value={managerSearch}
+                        onChange={(e) => setManagerSearch(e.target.value)}
+                        className="h-8 w-full rounded-md border border-input bg-background pl-7 pr-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      />
+                    </div>
+                    <div className="max-h-48 overflow-y-auto">
+                      {availableManagers.slice(0, 20).map((m) => (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => changeManager(m.id)}
+                          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted"
+                        >
+                          <span className="font-medium">{m.name}</span>
+                          <span className="text-muted-foreground">{m.role}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              ) : (
+                <p className="mt-0.5 text-sm text-muted-foreground italic">None</p>
+              )}
+            </div>
           </div>
 
           {/* ── Direct Reports ── */}
-          {directReports.length > 0 && (
-            <div>
-              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-2">
-                Direct reports ({directReports.length})
-              </p>
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  Direct reports ({directReports.length})
+                </p>
+              </div>
+              {canEditReports && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button type="button" className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-primary hover:bg-muted">
+                      <Plus className="h-3 w-3" /> Add
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-64 p-2">
+                    <div className="relative mb-2">
+                      <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        type="text"
+                        placeholder="Search members…"
+                        value={reportSearch}
+                        onChange={(e) => setReportSearch(e.target.value)}
+                        className="h-8 w-full rounded-md border border-input bg-background pl-7 pr-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      />
+                    </div>
+                    <div className="max-h-48 overflow-y-auto">
+                      {availableForReport.slice(0, 20).map((m) => (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => addDirectReport(m.id)}
+                          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted"
+                        >
+                          <span className="font-medium">{m.name}</span>
+                          <span className="text-muted-foreground">{m.role}</span>
+                        </button>
+                      ))}
+                      {availableForReport.length === 0 && (
+                        <p className="px-2 py-3 text-center text-xs text-muted-foreground">No members available</p>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
+            </div>
+            {directReports.length > 0 ? (
               <div className="space-y-1">
                 {directReports.map((dr) => {
                   const drIsAgent = dr.type === "agent";
                   const drInitials = dr.name.split(" ").map((w) => w[0]).join("").slice(0, 2);
                   return (
-                    <button
+                    <div
                       key={dr.id}
-                      type="button"
-                      onClick={() => onMemberClick(dr.id)}
-                      className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left transition-colors hover:bg-muted"
+                      className="group flex w-full items-center gap-2.5 rounded-md px-2 py-2 transition-colors hover:bg-muted"
                     >
-                      {drIsAgent ? (
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src="/eli-cube.svg" alt="" className="h-3.5 w-3.5" />
+                      <button
+                        type="button"
+                        onClick={() => onMemberClick(dr.id)}
+                        className="flex flex-1 items-center gap-2.5 text-left"
+                      >
+                        {drIsAgent ? (
+                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src="/eli-cube.svg" alt="" className="h-3.5 w-3.5" />
+                          </div>
+                        ) : (
+                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold">
+                            {drInitials}
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-medium">{dr.name}</p>
+                          <p className="truncate text-[10px] text-muted-foreground">{dr.role}</p>
                         </div>
-                      ) : (
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold">
-                          {drInitials}
-                        </div>
+                      </button>
+                      {canEditReports && (
+                        <button
+                          type="button"
+                          onClick={() => removeDirectReport(dr.id)}
+                          className="shrink-0 rounded-full p-1 text-muted-foreground/0 transition-colors group-hover:text-muted-foreground hover:!bg-destructive/10 hover:!text-destructive"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
                       )}
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-medium">{dr.name}</p>
-                        <p className="truncate text-[10px] text-muted-foreground">{dr.role}</p>
-                      </div>
-                      {drIsAgent && (
-                        <span className="inline-flex items-center rounded bg-muted px-1 py-0.5 text-[9px] font-medium leading-3 text-muted-foreground">
-                          {dr.role}
-                        </span>
-                      )}
-                    </button>
+                    </div>
                   );
                 })}
               </div>
-            </div>
-          )}
+            ) : (
+              <p className="text-xs text-muted-foreground italic px-2">No direct reports</p>
+            )}
+          </div>
 
           {/* ── Properties ── */}
           <div>
@@ -1959,128 +2144,84 @@ function MemberDetailSheet({
           {/* ── Specialties ── */}
           {!isAgent && (
             <div>
-              <div className="flex items-center gap-2 mb-2">
-                <Award className="h-3.5 w-3.5 text-muted-foreground" />
-                <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Specialties</p>
-              </div>
-              <p className="mb-2 text-[11px] text-muted-foreground">
-                Subject-matter expertise areas. Helps match the right person to escalations.
-              </p>
-              {specialties.length === 0 && (
-                <p className="text-xs text-muted-foreground italic">No specialties added</p>
-              )}
-              <div className="flex flex-wrap gap-1.5">
-                {specialties.map((s) => (
-                  <span
-                    key={s}
-                    className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700 dark:text-amber-400"
-                  >
-                    <Award className="h-3 w-3" />
-                    {s}
-                    <button
-                      type="button"
-                      onClick={() => removeSpecialty(s)}
-                      className="ml-0.5 rounded-full p-0.5 text-amber-600/60 hover:bg-amber-500/20 hover:text-amber-700 dark:text-amber-400/60 dark:hover:text-amber-400"
-                    >
-                      <X className="h-3 w-3" />
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Award className="h-3.5 w-3.5 text-muted-foreground" />
+                  <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Specialties</p>
+                </div>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button type="button" className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-primary hover:bg-muted">
+                      <Plus className="h-3 w-3" /> Add
                     </button>
-                  </span>
-                ))}
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-64 p-2">
+                    <div className="relative mb-2">
+                      <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        type="text"
+                        placeholder="Search or add specialty…"
+                        value={newSpecialty}
+                        onChange={(e) => setNewSpecialty(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && newSpecialty.trim()) {
+                            addSpecialty(newSpecialty);
+                            setNewSpecialty("");
+                          }
+                        }}
+                        className="h-8 w-full rounded-md border border-input bg-background pl-7 pr-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      />
+                    </div>
+                    <div className="max-h-48 overflow-y-auto">
+                      {SPECIALTY_LIST
+                        .filter((s) => !specialties.some((e) => e.toLowerCase() === s.name.toLowerCase()))
+                        .filter((s) => !newSpecialty || s.name.toLowerCase().includes(newSpecialty.toLowerCase()))
+                        .map((s) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => { addSpecialty(s.name); setNewSpecialty(""); }}
+                            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted"
+                          >
+                            <Award className="h-3 w-3 text-muted-foreground" />
+                            <span className="font-medium">{s.name}</span>
+                          </button>
+                        ))}
+                      {newSpecialty.trim() && !SPECIALTY_LIST.some((s) => s.name.toLowerCase() === newSpecialty.trim().toLowerCase()) && !specialties.some((s) => s.toLowerCase() === newSpecialty.trim().toLowerCase()) && (
+                        <button
+                          type="button"
+                          onClick={() => { addSpecialty(newSpecialty); setNewSpecialty(""); }}
+                          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-primary hover:bg-muted"
+                        >
+                          <Plus className="h-3 w-3" />
+                          <span>Create &ldquo;{newSpecialty.trim()}&rdquo;</span>
+                        </button>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
-              <div className="mt-2 flex gap-2">
-                <Input
-                  value={newSpecialty}
-                  onChange={(e) => setNewSpecialty(e.target.value)}
-                  placeholder="Add specialty..."
-                  className="h-8 text-xs"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && newSpecialty.trim()) {
-                      addSpecialty(newSpecialty);
-                      setNewSpecialty("");
-                    }
-                  }}
-                />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 shrink-0"
-                  onClick={() => { addSpecialty(newSpecialty); setNewSpecialty(""); }}
-                  disabled={!newSpecialty.trim()}
-                >
-                  <Plus className="mr-1 h-3 w-3" /> Add
-                </Button>
-              </div>
+              {specialties.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">No specialties assigned</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {specialties.map((s) => (
+                    <Badge key={s} variant="secondary" className="gap-1 pr-1 font-medium">
+                      {s}
+                      <button
+                        type="button"
+                        onClick={() => removeSpecialty(s)}
+                        className="ml-0.5 rounded-full p-0.5 text-muted-foreground/60 transition-colors hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
-          {/* ── Routing Labels ── */}
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <Tag className="h-3.5 w-3.5 text-muted-foreground" />
-              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Routing labels</p>
-            </div>
-            <p className="mb-2 text-[11px] text-muted-foreground">
-              Escalations with matching labels get routed to this person. More label overlap = higher priority.
-            </p>
-            {labels.length === 0 && (
-              <p className="text-xs text-muted-foreground italic">No labels — this person won&apos;t receive label-routed work</p>
-            )}
-            <div className="flex flex-wrap gap-1.5">
-              {labels.map((l) => (
-                <span
-                  key={l}
-                  className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary"
-                >
-                  <Tag className="h-3 w-3" />
-                  {l}
-                  <button
-                    type="button"
-                    onClick={() => removeLabel(l)}
-                    className="ml-0.5 rounded-full p-0.5 text-primary/60 hover:bg-primary/20 hover:text-primary"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
-              ))}
-            </div>
-            {unusedLabels.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {unusedLabels.map((l) => (
-                  <button
-                    key={l}
-                    type="button"
-                    onClick={() => addLabel(l)}
-                    className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary"
-                  >
-                    <Plus className="h-3 w-3" /> {l}
-                  </button>
-                ))}
-              </div>
-            )}
-            <div className="mt-2 flex gap-2">
-              <Input
-                value={newLabel}
-                onChange={(e) => setNewLabel(e.target.value)}
-                placeholder="Custom label..."
-                className="h-8 text-xs"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && newLabel.trim()) {
-                    addLabel(newLabel);
-                    setNewLabel("");
-                  }
-                }}
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 shrink-0"
-                onClick={() => { addLabel(newLabel); setNewLabel(""); }}
-                disabled={!newLabel.trim()}
-              >
-                Add
-              </Button>
-            </div>
-          </div>
 
         </div>
       </SheetContent>
