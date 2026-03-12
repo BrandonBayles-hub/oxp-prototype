@@ -5,6 +5,7 @@ import { SetupProvider } from "@/lib/setup-context";
 import { VaultProvider } from "@/lib/vault-context";
 import { AgentsProvider } from "@/lib/agents-context";
 import { WorkflowsProvider } from "@/lib/workflows-context";
+import { AgentBuilderProvider } from "@/lib/agent-builder-context";
 import { VoiceProvider } from "@/lib/voice-context";
 import { EscalationsProvider } from "@/lib/escalations-context";
 import { WorkforceProvider } from "@/lib/workforce-context";
@@ -18,6 +19,7 @@ import { FeatureEntitlementsProvider } from "@/lib/feature-entitlements-context"
 import { PermissionsProvider } from "@/lib/permissions-context";
 import { PlaybooksProvider } from "@/lib/playbooks-context";
 import { R1DemoProvider } from "@/lib/r1-demo-context";
+import { R1ReleaseProvider } from "@/lib/r1-release-context";
 import { ComingSoonProvider } from "@/lib/coming-soon-context";
 
 export const metadata: Metadata = {
@@ -67,6 +69,7 @@ export default function RootLayout({
       </head>
       <body className="min-h-screen antialiased font-sans">
         <R1DemoProvider>
+        <R1ReleaseProvider>
         <ComingSoonProvider>
         <RoleProvider>
         <PermissionsProvider>
@@ -76,6 +79,7 @@ export default function RootLayout({
             <AgentsProvider>
               <WorkforceProvider>
                 <WorkflowsProvider>
+                <AgentBuilderProvider>
                   <VoiceProvider>
                     <EscalationsProvider>
                     <ConversationsProvider>
@@ -93,6 +97,7 @@ export default function RootLayout({
                     </ConversationsProvider>
                     </EscalationsProvider>
                   </VoiceProvider>
+                </AgentBuilderProvider>
                 </WorkflowsProvider>
               </WorkforceProvider>
             </AgentsProvider>
@@ -102,6 +107,7 @@ export default function RootLayout({
         </PermissionsProvider>
         </RoleProvider>
         </ComingSoonProvider>
+        </R1ReleaseProvider>
         </R1DemoProvider>
       </body>
     </html>

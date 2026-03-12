@@ -4,12 +4,12 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 
 export type Recipe = { id: string; name: string; enabled: boolean; fromTemplate?: string };
 
-const STORAGE_KEY = "janet-poc-workflows";
+const STORAGE_KEY = "janet-poc-workflows-v2";
 
 const INITIAL_RECIPES: Recipe[] = [
-  { id: "1", name: "New lead → create task", enabled: true, fromTemplate: "Lead response" },
+  { id: "1", name: "New lead → create task", enabled: false, fromTemplate: "Lead response" },
   { id: "2", name: "Lease renewal reminder", enabled: false },
-  { id: "3", name: "Work order → notify resident", enabled: true, fromTemplate: "Maintenance triage" },
+  { id: "3", name: "Work order → notify resident", enabled: false, fromTemplate: "Maintenance triage" },
 ];
 
 type WorkflowsContextValue = {

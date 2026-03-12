@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { COMPLIANCE_ITEMS } from "@/lib/vault-context";
 
-export const GOV_STORAGE = "janet-poc-governance-v2";
+export const GOV_STORAGE = "janet-poc-governance-v3";
 
 export const HIGH_REGULATION_ACTIVITIES = [
   {
@@ -185,7 +185,7 @@ export function buildDefaultState(): GovState {
   const activities: Record<string, ActivityGuardrail> = {};
   for (const a of HIGH_REGULATION_ACTIVITIES) {
     activities[a.id] = {
-      enabled: true,
+      enabled: false,
       approvalGate: a.defaultApprovalGate,
       policyCheck: a.defaultPolicyCheck,
       requiredDocs: [...a.defaultRequiredDocs],

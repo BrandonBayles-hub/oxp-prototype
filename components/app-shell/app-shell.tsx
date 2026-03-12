@@ -9,6 +9,7 @@ import { R1PreviewBanner } from "@/components/r1-preview-banner";
 import { ComingSoonOverlay } from "@/components/coming-soon-overlay";
 import { RouteGuard } from "@/components/route-guard";
 import { cn } from "@/lib/utils";
+import { R1ScheduleCta } from "@/components/r1-schedule-cta";
 
 const CHROMELESS_ROUTES: string[] = [];
 const FULL_BLEED_ROUTES = ["/conversations"];
@@ -26,6 +27,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <main className="flex-1 overflow-y-auto bg-background">
           <RouteGuard>{children}</RouteGuard>
         </main>
+        <R1ScheduleCta />
       </div>
     );
   }
@@ -38,6 +40,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <RouteGuard>{children}</RouteGuard>
         </main>
         <NotificationToast />
+        <R1ScheduleCta />
       </div>
     );
   }
@@ -69,6 +72,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </main>
       </div>
       <NotificationToast />
+      <R1ScheduleCta />
     </div>
   );
 }

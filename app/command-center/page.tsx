@@ -11,8 +11,12 @@ import {
   Clock,
   CornerDownRight,
   DollarSign,
+  FileCheck,
+  FileText as FileTextIcon,
   Gauge,
   Lightbulb,
+  ReceiptText,
+  Search,
   MessageSquare,
   RefreshCw,
   StickyNote,
@@ -41,6 +45,7 @@ import { useConversations } from "@/lib/conversations-context";
 import { useAgents } from "@/lib/agents-context";
 import { useWorkforce } from "@/lib/workforce-context";
 import { useRole, matchesRoleProperties } from "@/lib/role-context";
+import { useR1Release } from "@/lib/r1-release-context";
 import { EscalationDetailSheet } from "@/components/escalation-detail-sheet";
 import { ValueYoureMissingBanner } from "@/components/value-youre-missing-banner";
 import { MetricDetailDialog, type MetricDetailConfig } from "@/components/metric-detail-dialog";
@@ -50,7 +55,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
+import { cn, assetPath } from "@/lib/utils";
 
 /* ═══════════════════════════════════════════════════════════════════════
    Shared types & data
@@ -376,6 +381,7 @@ function AdminCommandCenter() {
   const { humanMembers } = useWorkforce();
   const { role, roleProperties } = useRole();
   const isPropertyRole = role === "property";
+  const { isR1Release } = useR1Release();
 
   const derivedKpis = useMemo(() => {
     const autonomousAgents = agents.filter((a) => a.type === "autonomous");
@@ -435,7 +441,7 @@ function AdminCommandCenter() {
   const dismissInsight = (id: string) => setInsights((prev) => prev.filter((i) => i.id !== id));
 
   const [convoId, setConvoId] = useState<string | null>(null);
-  const convoItem = convoId ? conversations.find((c) => c.id === convoId) : null;
+  const convoItem = convoId ? conversations.find((c) => c.id === convoId) ?? null : null;
 
   const [activeMetric, setActiveMetric] = useState<string | null>(null);
   const [agentCtaOpen, setAgentCtaOpen] = useState<string | null>(null);
@@ -446,6 +452,36 @@ function AdminCommandCenter() {
     capabilities: string[];
     impactMetrics: { value: string; label: string }[];
   }> = {
+    "Leasing AI": {
+      title: "ELI+ Leasing AI",
+      description: "Autonomous lead engagement and leasing for your properties",
+      capabilities: [
+        "Engages every lead instantly via chat, SMS, and voice — 24/7",
+        "Answers prospect questions about units, pricing, amenities, and policies",
+        "Books and confirms tours automatically based on availability",
+        "Guides qualified prospects through the application process to signed leases",
+      ],
+      impactMetrics: [
+        { value: "2x", label: "More tour bookings" },
+        { value: "34%", label: "Tour-to-lease rate" },
+        { value: "2.3 min", label: "Avg booking time" },
+      ],
+    },
+    "Renewals AI": {
+      title: "ELI+ Renewals AI",
+      description: "Autonomous lease renewal management for your properties",
+      capabilities: [
+        "Proactively contacts residents with personalized renewal offers",
+        "Negotiates rent increases based on market data and portfolio strategy",
+        "Handles resident questions about renewal terms, timing, and options",
+        "Escalates at-risk renewals to staff before residents decide to leave",
+      ],
+      impactMetrics: [
+        { value: "92%", label: "Retention rate" },
+        { value: "$289", label: "Avg rent increase" },
+        { value: "15%", label: "Higher retention" },
+      ],
+    },
     "Maintenance AI": {
       title: "ELI+ Maintenance AI",
       description: "Autonomous work order management for your properties",
@@ -1062,95 +1098,103 @@ function AdminCommandCenter() {
       />
       <ValueYoureMissingBanner />
 
-      {/* Top KPI Cards */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {topKpis.map(({ label, value, icon: Icon, trendText, trendVariant }) => (
-          <button key={label} type="button" className="text-left" onClick={() => setActiveMetric(label)}>
-            <Card className="h-full cursor-pointer transition-colors hover:border-primary/40 hover:bg-muted/30">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 px-4 pb-0 pt-4">
-                <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
-                <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-              </CardHeader>
-              <CardContent className="px-4 py-1.5">
-                <p className={cn(
-                  "text-xl font-semibold",
-                  trendVariant === "positive" && "text-green-600 dark:text-green-400",
-                  trendVariant === "negative" && "text-red-600 dark:text-red-400",
-                  trendVariant === "neutral" && "text-muted-foreground"
-                )}>
-                  {trendText}
-                </p>
-              </CardContent>
-              <CardFooter className="px-4 pb-4 pt-0">
-                <span className="text-sm font-semibold text-foreground">{value}</span>
-              </CardFooter>
-            </Card>
-          </button>
-        ))}
-      </div>
+      {!isR1Release && (
+        <>
+        {/* Top KPI Cards */}
+        <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {topKpis.map(({ label, value, icon: Icon, trendText, trendVariant }) => (
+            <button key={label} type="button" className="text-left" onClick={() => setActiveMetric(label)}>
+              <Card className="h-full cursor-pointer transition-colors hover:border-primary/40 hover:bg-muted/30">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 px-4 pb-0 pt-4">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
+                  <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                </CardHeader>
+                <CardContent className="px-4 py-1.5">
+                  <p className={cn(
+                    "text-xl font-semibold",
+                    trendVariant === "positive" && "text-green-600 dark:text-green-400",
+                    trendVariant === "negative" && "text-red-600 dark:text-red-400",
+                    trendVariant === "neutral" && "text-muted-foreground"
+                  )}>
+                    {trendText}
+                  </p>
+                </CardContent>
+                <CardFooter className="px-4 pb-4 pt-0">
+                  <span className="text-sm font-semibold text-foreground">{value}</span>
+                </CardFooter>
+              </Card>
+            </button>
+          ))}
+        </div>
+        </>
+      )}
 
       {/* Outcomes Achieved by AI Agents */}
-      <div className="mb-8">
-        <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Outcomes Achieved by AI Agents
-        </p>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-          {outcomeCards.map((card) => {
-            const agent = card.agentName
-              ? agents.find((a) => a.name === card.agentName && a.type === "autonomous")
-              : null;
-            const isEnabled = !card.agentName || (agent && agent.status !== "Off");
-            const Icon = card.icon;
+      {isR1Release ? (
+        <R1OutcomesSection />
+      ) : (
+        <div className="mb-8">
+          <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Outcomes Achieved by AI Agents
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            {outcomeCards.map((card) => {
+              const agent = card.agentName
+                ? agents.find((a) => a.name === card.agentName && a.type === "autonomous")
+                : null;
+              const isEnabled = !card.agentName || (agent && agent.status !== "Off");
+              const Icon = card.icon;
 
-            if (!isEnabled && card.agentName) {
+              if (!isEnabled && card.agentName) {
+                return (
+                  <Card key={card.label} className="flex h-full flex-col border-border">
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 px-4 pb-0 pt-4">
+                      <CardTitle className="text-sm font-medium text-muted-foreground">{card.label}</CardTitle>
+                      <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent className="flex-1 px-4 py-3">
+                      <div className="mb-2 flex items-center gap-1.5">
+                        <img src="/eli-cube.svg" alt="" width={16} height={16} />
+                        <span className="text-xs font-semibold">ELI+ {card.agentName}</span>
+                      </div>
+                      <p className="text-xs leading-relaxed text-muted-foreground">{card.ctaText}</p>
+                    </CardContent>
+                    <CardFooter className="px-4 pb-4 pt-0">
+                      <Button size="sm" className="w-full text-xs" onClick={() => setAgentCtaOpen(card.agentName!)}>
+                        Enable {card.agentName}
+                      </Button>
+                    </CardFooter>
+                  </Card>
+                );
+              }
+
               return (
-                <Card key={card.label} className="flex h-full flex-col border-border">
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 px-4 pb-0 pt-4">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">{card.label}</CardTitle>
-                    <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent className="flex-1 px-4 py-3">
-                    <div className="mb-2 flex items-center gap-1.5">
-                      <img src="/eli-cube.svg" alt="" width={16} height={16} />
-                      <span className="text-xs font-semibold">ELI+ {card.agentName}</span>
-                    </div>
-                    <p className="text-xs leading-relaxed text-muted-foreground">{card.ctaText}</p>
-                  </CardContent>
-                  <CardFooter className="px-4 pb-4 pt-0">
-                    <Button size="sm" className="w-full text-xs" onClick={() => setAgentCtaOpen(card.agentName!)}>
-                      Enable {card.agentName}
-                    </Button>
-                  </CardFooter>
-                </Card>
+                <button key={card.label} type="button" className="text-left" onClick={() => setActiveMetric(card.label)}>
+                  <Card className="h-full cursor-pointer transition-colors hover:border-primary/40 hover:bg-muted/30">
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 px-4 pb-0 pt-4">
+                      <CardTitle className="text-sm font-medium text-muted-foreground">{card.label}</CardTitle>
+                      <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent className="px-4 py-1.5">
+                      <p className={cn(
+                        "text-base font-semibold",
+                        card.trendVariant === "positive" && "text-green-600 dark:text-green-400",
+                        card.trendVariant === "negative" && "text-red-600 dark:text-red-400",
+                        card.trendVariant === "neutral" && "text-muted-foreground"
+                      )}>
+                        {card.trendText}
+                      </p>
+                    </CardContent>
+                    <CardFooter className="px-4 pb-4 pt-0">
+                      <span className="text-sm font-semibold text-foreground">{card.value}</span>
+                    </CardFooter>
+                  </Card>
+                </button>
               );
-            }
-
-            return (
-              <button key={card.label} type="button" className="text-left" onClick={() => setActiveMetric(card.label)}>
-                <Card className="h-full cursor-pointer transition-colors hover:border-primary/40 hover:bg-muted/30">
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 px-4 pb-0 pt-4">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">{card.label}</CardTitle>
-                    <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent className="px-4 py-1.5">
-                    <p className={cn(
-                      "text-base font-semibold",
-                      card.trendVariant === "positive" && "text-green-600 dark:text-green-400",
-                      card.trendVariant === "negative" && "text-red-600 dark:text-red-400",
-                      card.trendVariant === "neutral" && "text-muted-foreground"
-                    )}>
-                      {card.trendText}
-                    </p>
-                  </CardContent>
-                  <CardFooter className="px-4 pb-4 pt-0">
-                    <span className="text-sm font-semibold text-foreground">{card.value}</span>
-                  </CardFooter>
-                </Card>
-              </button>
-            );
-          })}
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Agent Enable CTA Dialog */}
       <Dialog open={!!agentCtaOpen} onOpenChange={(o) => !o && setAgentCtaOpen(null)}>
@@ -1210,9 +1254,12 @@ function AdminCommandCenter() {
 
       <div className="grid items-stretch gap-6 lg:grid-cols-2">
         {/* Needs Attention */}
-        <Card>
+        <Card className={isR1Release ? "lg:col-span-2" : ""}>
           <CardHeader className="pb-3">
             <CardTitle>Needs Attention</CardTitle>
+            {isR1Release && (
+              <p className="text-xs text-muted-foreground">Escalations and tasks that need review and action from your staff</p>
+            )}
             <CardDescription>
               {openCount} open
               {urgentCount > 0 && (
@@ -1285,7 +1332,7 @@ function AdminCommandCenter() {
         </Card>
 
         {/* Live Conversations */}
-        <Card>
+        {!isR1Release && <Card>
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2">
               <span className="relative flex h-2.5 w-2.5">
@@ -1348,7 +1395,7 @@ function AdminCommandCenter() {
               </Button>
             </CardFooter>
           )}
-        </Card>
+        </Card>}
 
         {/* Your Team */}
         <Card className="lg:col-span-2">
@@ -1453,89 +1500,164 @@ function AdminCommandCenter() {
           </CardFooter>
         </Card>
 
-        {/* Insights & Recommendations */}
-        <Card className="lg:col-span-2">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
+        {/* Insights & Recommendations — or Coming Soon when R1 */}
+        {isR1Release ? (
+          <Card className="lg:col-span-2">
+            <CardHeader className="pb-2">
+              <div className="flex items-center gap-2">
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-100 dark:bg-amber-900/30">
+                  <Zap className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                </span>
+                <CardTitle>Coming Soon</CardTitle>
+              </div>
+              <CardDescription className="mt-2 text-sm leading-relaxed">
+                The OXP Studio Command Center will continue to expand with powerful new capabilities that give you deeper visibility into your portfolio and the intelligence to act on it. Here&apos;s what&apos;s next.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="pt-2">
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="rounded-xl border border-border bg-gradient-to-b from-muted/60 to-background p-5">
+                  <div className="mb-3 flex items-center gap-2.5">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 dark:border-emerald-800/40 dark:bg-emerald-900/20">
+                      <Lightbulb className="h-4.5 w-4.5 text-emerald-600 dark:text-emerald-400" />
+                    </span>
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">AI Insights &amp; Recommendations</p>
+                      <p className="text-[11px] text-muted-foreground">Intelligence-driven actions</p>
+                    </div>
+                  </div>
+                  <p className="text-[13px] leading-relaxed text-muted-foreground">
+                    Intelligence agents continuously analyze activity across your portfolio — identifying revenue opportunities, compliance risks, spending anomalies, and operational gaps. Actionable recommendations surface directly in your Command Center so you can focus effort where it matters most.
+                  </p>
+                  <ul className="mt-3 space-y-1.5">
+                    {[
+                      "Recoverable revenue and pricing opportunities flagged automatically",
+                      "Compliance deadlines and regulatory risks surfaced before they escalate",
+                      "Vendor spend anomalies detected across properties",
+                      "Each insight traced back to the agent that found it",
+                    ].map((item) => (
+                      <li key={item} className="flex items-start gap-2 text-xs text-muted-foreground">
+                        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="rounded-xl border border-border bg-gradient-to-b from-muted/60 to-background p-5">
+                  <div className="mb-3 flex items-center gap-2.5">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800/40 dark:bg-blue-900/20">
+                      <MessageSquare className="h-4.5 w-4.5 text-blue-600 dark:text-blue-400" />
+                    </span>
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">Live Conversations</p>
+                      <p className="text-[11px] text-muted-foreground">Unified communication hub</p>
+                    </div>
+                  </div>
+                  <p className="text-[13px] leading-relaxed text-muted-foreground">
+                    Every conversation happening across your portfolio — between AI agents and residents, property staff and agents, across chat, SMS, voice, and portal — centralized in a single, real-time view. Monitor live interactions, review full transcripts, and seamlessly step in when a human touch is needed.
+                  </p>
+                  <ul className="mt-3 space-y-1.5">
+                    {[
+                      "All channels in one place — chat, SMS, voice, and resident portal",
+                      "Real-time visibility into every active AI-handled conversation",
+                      "Seamless handoff when staff need to step in directly",
+                      "Full transcript history for compliance, training, and quality review",
+                    ].map((item) => (
+                      <li key={item} className="flex items-start gap-2 text-xs text-muted-foreground">
+                        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="lg:col-span-2">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  {insights.length > 0 && (
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
+                    </span>
+                  )}
+                  AI Insights &amp; Recommendations
+                </CardTitle>
                 {insights.length > 0 && (
-                  <span className="relative flex h-2.5 w-2.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
-                  </span>
+                  <Badge variant="secondary" className="text-[10px]">
+                    {insights.length} pending
+                  </Badge>
                 )}
-                Insights &amp; Recommendations
-              </CardTitle>
-              {insights.length > 0 && (
-                <Badge variant="secondary" className="text-[10px]">
-                  {insights.length} pending
-                </Badge>
-              )}
-            </div>
-            <CardDescription>Intelligence agents have surfaced items that need your attention</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {insights.length > 0 ? (
-              <div className="scrollbar-hide overflow-y-auto" style={{ maxHeight: "340px" }}>
-                <ul className="flex flex-col gap-2">
-                  {insights.map((insight) => {
-                    const IconComp = insight.icon;
-                    return (
-                      <li key={insight.id} className="rounded-lg border border-border bg-muted/50 p-3 transition-colors hover:border-primary/40 hover:bg-muted dark:bg-muted/50 dark:hover:bg-muted">
-                        <div className="flex gap-3">
-                          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background">
-                            <IconComp className={cn("h-4 w-4", insight.iconColor)} />
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-foreground">{insight.title}</p>
-                            <p className="mt-0.5 text-xs text-muted-foreground">
-                              {insight.agent}
-                              <span className="mx-1.5" aria-hidden>·</span>
-                              {insight.time}
-                              <span className="mx-1.5" aria-hidden>·</span>
-                              {insight.category}
-                            </p>
-                            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                              {insight.actions.map((action) =>
-                                action.label === "Dismiss" ? (
-                                  <Button
-                                    key={action.label}
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-6 px-2 text-[11px] text-muted-foreground"
-                                    onClick={() => dismissInsight(insight.id)}
-                                  >
-                                    Dismiss
-                                  </Button>
-                                ) : (
-                                  <Button
-                                    key={action.label}
-                                    asChild
-                                    variant={action.primary ? "outline" : "ghost"}
-                                    size="sm"
-                                    className="h-6 px-2 text-[11px]"
-                                  >
-                                    <Link href={action.href}>{action.label}</Link>
-                                  </Button>
-                                )
-                              )}
+              </div>
+              <CardDescription>Intelligence agents have surfaced items that need your attention</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {insights.length > 0 ? (
+                <div className="scrollbar-hide overflow-y-auto" style={{ maxHeight: "340px" }}>
+                  <ul className="flex flex-col gap-2">
+                    {insights.map((insight) => {
+                      const IconComp = insight.icon;
+                      return (
+                        <li key={insight.id} className="rounded-lg border border-border bg-muted/50 p-3 transition-colors hover:border-primary/40 hover:bg-muted dark:bg-muted/50 dark:hover:bg-muted">
+                          <div className="flex gap-3">
+                            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background">
+                              <IconComp className={cn("h-4 w-4", insight.iconColor)} />
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-foreground">{insight.title}</p>
+                              <p className="mt-0.5 text-xs text-muted-foreground">
+                                {insight.agent}
+                                <span className="mx-1.5" aria-hidden>·</span>
+                                {insight.time}
+                                <span className="mx-1.5" aria-hidden>·</span>
+                                {insight.category}
+                              </p>
+                              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                                {insight.actions.map((action) =>
+                                  action.label === "Dismiss" ? (
+                                    <Button
+                                      key={action.label}
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 px-2 text-[11px] text-muted-foreground"
+                                      onClick={() => dismissInsight(insight.id)}
+                                    >
+                                      Dismiss
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      key={action.label}
+                                      asChild
+                                      variant={action.primary ? "outline" : "ghost"}
+                                      size="sm"
+                                      className="h-6 px-2 text-[11px]"
+                                    >
+                                      <Link href={action.href}>{action.label}</Link>
+                                    </Button>
+                                  )
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <CheckCircle2 className="mb-3 h-8 w-8 text-green-500" />
-                <p className="text-sm font-medium text-foreground">All caught up</p>
-                <p className="mt-1 text-xs text-muted-foreground">No pending insights right now. Intelligence agents will surface new recommendations as they find them.</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <CheckCircle2 className="mb-3 h-8 w-8 text-green-500" />
+                  <p className="text-sm font-medium text-foreground">All caught up</p>
+                  <p className="mt-1 text-xs text-muted-foreground">No pending insights right now. Intelligence agents will surface new recommendations as they find them.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       <EscalationDetailSheet
@@ -1545,7 +1667,7 @@ function AdminCommandCenter() {
       />
 
       <ConversationSheet
-        convoItem={convoItem ?? null}
+        convoItem={convoItem}
         open={!!convoId}
         onClose={() => setConvoId(null)}
         agentsByName={agentsByName}
@@ -1559,6 +1681,313 @@ function AdminCommandCenter() {
       />
 
     </>
+  );
+}
+
+const R1_AGENT_CARDS: {
+  name: string;
+  outcome: string;
+  description: string;
+  valueProp?: string;
+  icon: React.ComponentType<{ className?: string }>;
+  tier: "ELI+" | "Operational";
+  active: boolean;
+}[] = [
+  {
+    name: "Leasing AI",
+    outcome: "Tours Scheduled & Leases Signed",
+    description: "Engages leads 24/7, books tours, answers questions, and guides prospects through the application process to signed leases.",
+    valueProp: "Clients with Leasing AI see up to 2x more tour bookings and 30% higher lead-to-lease conversion",
+    icon: CalendarDays,
+    tier: "ELI+",
+    active: true,
+  },
+  {
+    name: "Renewals AI",
+    outcome: "Renewals Generated",
+    description: "Proactively reaches out to expiring leases with personalized renewal offers, driving retention and rent growth.",
+    valueProp: "Clients with Renewals AI see up to 15% higher retention rates and increased rent growth",
+    icon: RefreshCw,
+    tier: "ELI+",
+    active: true,
+  },
+  {
+    name: "Maintenance AI",
+    outcome: "Work Orders Closed",
+    description: "Handles work order intake, triages urgency, dispatches vendors, and follows up with residents through resolution.",
+    valueProp: "Clients with Maintenance AI see up to 10% faster work order resolution time",
+    icon: Wrench,
+    tier: "ELI+",
+    active: false,
+  },
+  {
+    name: "Payments AI",
+    outcome: "Rent Collected",
+    description: "Sends payment reminders, processes payment plans, answers balance questions, and reduces delinquency across your portfolio.",
+    valueProp: "Clients with Payments AI collect rent up to 18% faster",
+    icon: DollarSign,
+    tier: "ELI+",
+    active: false,
+  },
+  {
+    name: "Approve Applications",
+    outcome: "Application Approvals",
+    description: "Automates the review and approval of rental applications — screening criteria, verifications, and decisioning without manual effort.",
+    icon: ClipboardCheck,
+    tier: "Operational",
+    active: false,
+  },
+  {
+    name: "Renewal Offer Generation",
+    outcome: "Renewal Offers",
+    description: "Automatically generates and sends renewal offers based on market data, lease terms, and portfolio strategy — no manual pricing required.",
+    icon: FileTextIcon,
+    tier: "Operational",
+    active: false,
+  },
+  {
+    name: "Post Late Fees",
+    outcome: "Late Fee Posting",
+    description: "Automates the posting of late fees according to lease terms and compliance rules — consistent, accurate, and hands-free.",
+    icon: ReceiptText,
+    tier: "Operational",
+    active: false,
+  },
+  {
+    name: "Move-in Reviews",
+    outcome: "Move-in Readiness",
+    description: "Automates the review of move-in details — verifying deposits, lease execution, unit readiness, and checklist completion before move-in day.",
+    icon: Search,
+    tier: "Operational",
+    active: false,
+  },
+];
+
+function R1OutcomesSection() {
+  const [ctaOpen, setCtaOpen] = useState<string | null>(null);
+
+  const r1AgentCtaConfigs: Record<string, {
+    title: string;
+    description: string;
+    capabilities: string[];
+    impactMetrics: { value: string; label: string }[];
+  }> = {
+    "Leasing AI": {
+      title: "ELI+ Leasing AI",
+      description: "Autonomous lead engagement and leasing for your properties",
+      capabilities: [
+        "Engages every lead instantly via chat, SMS, and voice — 24/7",
+        "Answers prospect questions about units, pricing, amenities, and policies",
+        "Books and confirms tours automatically based on availability",
+        "Guides qualified prospects through the application process to signed leases",
+      ],
+      impactMetrics: [
+        { value: "2x", label: "More tour bookings" },
+        { value: "34%", label: "Tour-to-lease rate" },
+        { value: "2.3 min", label: "Avg booking time" },
+      ],
+    },
+    "Renewals AI": {
+      title: "ELI+ Renewals AI",
+      description: "Autonomous lease renewal management for your properties",
+      capabilities: [
+        "Proactively contacts residents with personalized renewal offers",
+        "Negotiates rent increases based on market data and portfolio strategy",
+        "Handles resident questions about renewal terms, timing, and options",
+        "Escalates at-risk renewals to staff before residents decide to leave",
+      ],
+      impactMetrics: [
+        { value: "92%", label: "Retention rate" },
+        { value: "$289", label: "Avg rent increase" },
+        { value: "15%", label: "Higher retention" },
+      ],
+    },
+    "Maintenance AI": {
+      title: "ELI+ Maintenance AI",
+      description: "Autonomous work order management for your properties",
+      capabilities: [
+        "Automatically triages and dispatches work orders to the right vendor",
+        "Follows up with residents on scheduling and completion",
+        "Tracks SLA compliance and escalates overdue orders",
+        "Handles resident communication via chat and voice 24/7",
+      ],
+      impactMetrics: [
+        { value: "15%", label: "Faster resolution" },
+        { value: "4.2 hr", label: "Avg resolve time" },
+        { value: "92%", label: "Resident satisfaction" },
+      ],
+    },
+    "Payments AI": {
+      title: "ELI+ Payments AI",
+      description: "Autonomous rent collection and payment management for your properties",
+      capabilities: [
+        "Sends automated payment reminders and follow-ups to residents",
+        "Processes payment plans and manages delinquency workflows",
+        "Answers resident questions about balances, fees, and payment options 24/7",
+        "Escalates high-risk accounts and coordinates with on-site staff",
+      ],
+      impactMetrics: [
+        { value: "20%", label: "Faster collection" },
+        { value: "3.1%", label: "Lower delinquency" },
+        { value: "96%", label: "Payment accuracy" },
+      ],
+    },
+  };
+
+  const ctaCfg = ctaOpen ? r1AgentCtaConfigs[ctaOpen] : null;
+
+  return (
+    <div className="mb-8">
+      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Key Outcomes Achieved by Agents
+      </p>
+      <p className="mb-4 text-sm text-muted-foreground">
+        These agents are recommended for your portfolio. Activate them to start capturing value.
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {R1_AGENT_CARDS.map((card) => {
+          const Icon = card.icon;
+          const hasCtaConfig = card.tier === "ELI+" && !!r1AgentCtaConfigs[card.name];
+          const isActiveEliPlus = card.active && card.tier === "ELI+";
+          const eliPlusSettingsUrl = "#eli-plus-settings";
+
+          const cardContent = (
+            <Card key={card.name} className={cn(
+              "flex h-full flex-col",
+              !card.active && "border-dashed",
+              isActiveEliPlus && "cursor-pointer transition-colors hover:border-primary/40 hover:bg-muted/30"
+            )}>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 px-4 pb-0 pt-4">
+                <CardTitle className="text-xs font-medium text-muted-foreground">{card.outcome}</CardTitle>
+                <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+              </CardHeader>
+              <CardContent className="flex-1 px-4 py-3">
+                <div className="mb-2 flex items-center gap-1.5">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={assetPath("/eli-cube.svg")}
+                    alt=""
+                    width={16}
+                    height={16}
+                    className="shrink-0"
+                  />
+                  <span className="min-w-0 truncate text-sm font-semibold text-foreground">{card.name}</span>
+                  <Badge
+                    variant={card.active ? "default" : "outline"}
+                    className={cn(
+                      "ml-auto shrink-0 whitespace-nowrap text-[9px] px-1.5 py-0",
+                      card.active && "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border-green-200 dark:border-green-800/40"
+                    )}
+                  >
+                    {card.active ? "Active" : "Not Active"}
+                  </Badge>
+                </div>
+                <p className="text-xs leading-relaxed text-muted-foreground line-clamp-2">{card.description}</p>
+                {!card.active && card.valueProp && (
+                  <div className="mt-2 flex items-start gap-1.5">
+                    <Zap className="mt-0.5 h-3 w-3 shrink-0 text-amber-500" />
+                    <p className="text-xs font-medium text-foreground">{card.valueProp}</p>
+                  </div>
+                )}
+              </CardContent>
+              {!card.active && (
+                <CardFooter className="px-4 pb-4 pt-0">
+                  {hasCtaConfig ? (
+                    <Button
+                      size="sm"
+                      className="w-full text-xs"
+                      onClick={() => setCtaOpen(card.name)}
+                    >
+                      Activate Agent
+                      <ArrowRight className="ml-1 h-3 w-3" />
+                    </Button>
+                  ) : (
+                    <Button asChild size="sm" className="w-full text-xs">
+                      <Link href="/agent-roster">
+                        Activate Agent
+                        <ArrowRight className="ml-1 h-3 w-3" />
+                      </Link>
+                    </Button>
+                  )}
+                </CardFooter>
+              )}
+            </Card>
+          );
+
+          return isActiveEliPlus ? (
+            <a key={card.name} href={eliPlusSettingsUrl} className="text-left no-underline">
+              {cardContent}
+            </a>
+          ) : (
+            <div key={card.name}>{cardContent}</div>
+          );
+        })}
+      </div>
+
+      <div className="mt-4 flex justify-center">
+        <Button asChild variant="default" size="sm">
+          <Link href="/agent-roster">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={assetPath("/eli-cube.svg")} alt="" width={14} height={14} />
+            Explore all 100+ agents
+            <ArrowRight className="ml-1 h-3.5 w-3.5" />
+          </Link>
+        </Button>
+      </div>
+
+      <Dialog open={!!ctaOpen} onOpenChange={(o) => !o && setCtaOpen(null)}>
+        {ctaCfg && (
+          <DialogContent className="max-w-md p-0">
+            <div className="p-6 pb-0">
+              <div className="flex items-center gap-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/eli-cube.svg" alt="" width={32} height={32} />
+                <div>
+                  <DialogTitle className="text-base font-semibold">{ctaCfg.title}</DialogTitle>
+                  <DialogDescription className="text-sm text-muted-foreground">
+                    {ctaCfg.description}
+                  </DialogDescription>
+                </div>
+              </div>
+            </div>
+
+            <div className="px-6 pt-4">
+              <div className="rounded-lg border border-border p-4">
+                <p className="mb-3 text-sm font-semibold text-foreground">What {ctaOpen} does</p>
+                <ul className="space-y-2">
+                  {ctaCfg.capabilities.map((item) => (
+                    <li key={item} className="flex items-start gap-2">
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
+                      <span className="text-sm text-muted-foreground">{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            <div className="px-6 pt-4">
+              <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4 dark:border-amber-800/40 dark:bg-amber-950/20">
+                <p className="mb-3 text-sm font-semibold text-foreground">Impact from similar properties</p>
+                <div className="grid grid-cols-3 gap-4 text-center">
+                  {ctaCfg.impactMetrics.map((m) => (
+                    <div key={m.label}>
+                      <p className="text-xl font-bold text-foreground">{m.value}</p>
+                      <p className="text-xs text-muted-foreground">{m.label}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6">
+              <Button className="w-full" onClick={() => setCtaOpen(null)}>
+                Set Up {ctaCfg.title}
+              </Button>
+            </div>
+          </DialogContent>
+        )}
+      </Dialog>
+    </div>
   );
 }
 

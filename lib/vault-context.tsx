@@ -89,7 +89,7 @@ export const COMPLIANCE_ITEMS = [
 export const SUGGESTED_PROPERTY_TAGS = ["Portfolio", "Property A", "Property B", "Property C"];
 export const SUGGESTED_SUBJECT_TAGS = ["Leasing", "Maintenance", "Compliance", "Payments", "Policy", "Resident relations", "Operations"];
 
-const STORAGE_KEY = "janet-poc-vault";
+const STORAGE_KEY = "janet-poc-vault-v3";
 
 const LEASING_SOP_BODY = `ENTRATA | GO DARK STEPS
 The steps below must be completed prior to migration/transition to the new

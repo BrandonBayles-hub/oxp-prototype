@@ -57,7 +57,7 @@ export type WorkforceMember = {
   specialties?: string[];
 };
 
-const STORAGE_KEY = "janet-poc-workforce-v4";
+const STORAGE_KEY = "janet-poc-workforce-v6";
 const LEGACY_KEY = "janet-poc-workforce";
 
 const TEAMS = [
@@ -148,7 +148,6 @@ const INITIAL: WorkforceMember[] = [
 
   // ── Compliance & Legal (reports to Director of Compliance) ──
   { id: "h-comp-1", name: "David Kim", role: "Compliance Analyst", type: "human", team: "Compliance & Legal", jtbd: "Fair housing audits, screening consistency reviews, accommodation processing, SOP maintenance", labels: ["Compliance", "Policy"], tier: "specialist", reportsTo: "h-comp-dir", properties: ["All properties"], hris: hrisWorkday("WD-1012"), schedule: WEEKDAY_SCHEDULE },
-
 ];
 
 function normalizeLabel(l: string): string {

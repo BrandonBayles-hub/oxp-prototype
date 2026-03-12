@@ -2,10 +2,11 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { Zap } from "lucide-react";
+import { ArrowRight, Zap } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useAgents } from "@/lib/agents-context";
+import { useR1Release } from "@/lib/r1-release-context";
 
 /**
  * Banner that surfaces "value you're missing" when autonomous agents are off
@@ -14,8 +15,33 @@ import { useAgents } from "@/lib/agents-context";
  */
 export function ValueYoureMissingBanner() {
   const { agents } = useAgents();
+  const { isR1Release } = useR1Release();
 
-  const { headline, description, suggestions } = useMemo(() => {
+  const { headline, description, extra, suggestions, ctaLabel } = useMemo(() => {
+    if (isR1Release) {
+      return {
+        headline: "You\u2019re missing value \u2014 here\u2019s where to focus",
+        description:
+          "Similar properties see significantly better outcomes with AI agents. Entrata has 100+ agents ready to deploy across your portfolio.",
+        extra: null,
+        suggestions: [
+          {
+            label: "ELI+ Conversational Agents",
+            text: "\u2014 Own key workflows end-to-end: leasing, renewals, maintenance & payments.",
+          },
+          {
+            label: "Operational & Efficiency Agents",
+            text: "\u2014 Automate hundreds of day-to-day workflows and reduce manual effort.",
+          },
+          {
+            label: "ELI Essentials",
+            text: "\u2014 On-demand AI assistance: answers, drafts, summaries & explanations.",
+          },
+        ],
+        ctaLabel: "Explore & configure all agents",
+      };
+    }
+
     const autonomous = agents.filter((a) => a.type === "autonomous");
     const inactive = autonomous.filter((a) => a.status !== "Active");
     const active = autonomous.filter((a) => a.status === "Active");
@@ -42,6 +68,7 @@ export function ValueYoureMissingBanner() {
         headline: "You\u2019re missing value \u2014 here\u2019s where to focus",
         description:
           `Similar properties see significantly better outcomes when ${nameStr} ${inactive.length === 1 ? "is" : "are"} enabled. Activate ${inactive.length === 1 ? "this agent" : "these agents"} to capture that value.`,
+        extra: null,
         suggestions: [
           {
             label: "Suggested focus:",
@@ -54,6 +81,7 @@ export function ValueYoureMissingBanner() {
               : `Enable ${names[0]} to start capturing value immediately.`,
           },
         ],
+        ctaLabel: "Configure agents",
       };
     }
 
@@ -65,6 +93,7 @@ export function ValueYoureMissingBanner() {
       headline: "You\u2019re missing value \u2014 here\u2019s where to focus",
       description:
         `All ${active.length} autonomous agents are active. Look for tuning opportunities to increase impact.`,
+      extra: null,
       suggestions: [
         {
           label: "Suggested focus:",
@@ -77,8 +106,9 @@ export function ValueYoureMissingBanner() {
           text: `Occupancy is down at Property A (92%); review leasing agent configuration or enable additional coverage there.`,
         },
       ],
+      ctaLabel: "Configure agents",
     };
-  }, [agents]);
+  }, [agents, isR1Release]);
 
   return (
     <Card className="mb-6 border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30">
@@ -90,6 +120,9 @@ export function ValueYoureMissingBanner() {
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-foreground">{headline}</p>
             <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+            {extra && (
+              <p className="mt-2 text-sm text-muted-foreground">{extra}</p>
+            )}
             <ul className="mt-3 space-y-1.5 text-sm text-muted-foreground">
               {suggestions.map((s) => (
                 <li key={s.label} className="flex gap-1">
@@ -105,7 +138,8 @@ export function ValueYoureMissingBanner() {
               <Link href="/agent-roster">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/eli-cube.svg" alt="" width={14} height={14} />
-                Configure agents
+                {ctaLabel}
+                {isR1Release && <ArrowRight className="ml-1 h-3.5 w-3.5" />}
               </Link>
             </Button>
           </div>
