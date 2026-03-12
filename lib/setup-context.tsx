@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 
-const STORAGE_KEY = "janet-poc-go-live";
+const STORAGE_KEY = "janet-poc-go-live-v2";
 
 type SetupContextValue = {
   goLiveComplete: boolean;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   LayoutDashboard,
   Users,
@@ -14,14 +14,13 @@ import {
   Bell,
   CircleHelp,
   UserCircle,
-  Rocket,
-  Clock,
+  ChevronDown,
+  Beaker,
 } from "lucide-react";
 import { useRole, ROLES, type Role } from "@/lib/role-context";
 import { useR1Demo } from "@/lib/r1-demo-context";
+import { useR1Release } from "@/lib/r1-release-context";
 import { useComingSoon } from "@/lib/coming-soon-context";
-
-const DEMO_CONTROLS_KEY = "oxp-demo-controls-visible";
 
 const NAV_ITEMS = [
   { label: "OXP", active: true },
@@ -37,82 +36,24 @@ const NAV_ITEMS = [
   { label: "Settings", icon: Settings },
 ] as const;
 
-function ComingSoonToggle() {
-  const { isComingSoonEnabled, toggleComingSoon } = useComingSoon();
-
-  return (
-    <button
-      type="button"
-      onClick={toggleComingSoon}
-      title="Demo control — toggle coming soon overlay on unreleased pages"
-      className="flex items-center gap-1.5 rounded-md transition-all"
-      style={{
-        height: 28,
-        padding: "0 10px",
-        fontSize: 11,
-        fontWeight: 600,
-        letterSpacing: "0.3px",
-        color: isComingSoonEnabled ? "#fff" : "rgba(0,0,0,0.5)",
-        background: isComingSoonEnabled
-          ? "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)"
-          : "rgba(0,0,0,0.04)",
-        border: isComingSoonEnabled ? "1px solid rgba(245,158,11,0.3)" : "1px solid rgba(0,0,0,0.1)",
-        boxShadow: isComingSoonEnabled ? "0 1px 4px rgba(245,158,11,0.3)" : "none",
-      }}
-    >
-      <Clock style={{ width: 12, height: 12, strokeWidth: 2 }} />
-      Coming Soon
-    </button>
-  );
-}
-
-function R1DemoToggle() {
-  const { isR1Preview, toggleR1Preview } = useR1Demo();
-
-  return (
-    <button
-      type="button"
-      onClick={toggleR1Preview}
-      title="Demo control — toggle R1 release preview"
-      className="flex items-center gap-1.5 rounded-md transition-all"
-      style={{
-        height: 28,
-        padding: "0 10px",
-        fontSize: 11,
-        fontWeight: 600,
-        letterSpacing: "0.5px",
-        color: isR1Preview ? "#fff" : "rgba(0,0,0,0.5)",
-        background: isR1Preview
-          ? "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)"
-          : "rgba(0,0,0,0.04)",
-        border: isR1Preview ? "1px solid rgba(99,102,241,0.3)" : "1px solid rgba(0,0,0,0.1)",
-        boxShadow: isR1Preview ? "0 1px 4px rgba(99,102,241,0.3)" : "none",
-      }}
-    >
-      <Rocket style={{ width: 12, height: 12, strokeWidth: 2 }} />
-      R1
-    </button>
-  );
-}
-
 export function EntrataTopNav() {
   const { role, setRole } = useRole();
-  const [showDemoControls, setShowDemoControls] = useState(true);
+  const { isR1Release, toggleR1Release } = useR1Release();
+  const { isR1Preview, toggleR1Preview } = useR1Demo();
+  const { isComingSoonEnabled, toggleComingSoon } = useComingSoon();
+  const [demoOpen, setDemoOpen] = useState(false);
+  const demoRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(DEMO_CONTROLS_KEY);
-      if (stored !== null) setShowDemoControls(stored === "true");
-    } catch { /* ignore */ }
-  }, []);
+    if (!demoOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (demoRef.current && !demoRef.current.contains(e.target as Node)) setDemoOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [demoOpen]);
 
-  const toggleDemoControls = () => {
-    setShowDemoControls((prev) => {
-      const next = !prev;
-      try { localStorage.setItem(DEMO_CONTROLS_KEY, String(next)); } catch { /* ignore */ }
-      return next;
-    });
-  };
+  const anyDemoActive = isR1Release || isR1Preview || isComingSoonEnabled;
 
   return (
     <div className="shrink-0 select-none" style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
@@ -139,45 +80,7 @@ export function EntrataTopNav() {
           <span style={{ color: "#333", fontSize: 13, fontWeight: 400 }}>Harvest Peak Capital</span>
         </div>
 
-        {/* Role switcher + Contract view toggle */}
-        {showDemoControls && (
-          <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-3">
-            <div
-              className="flex items-center"
-              style={{ background: "#E8E8E8", borderRadius: 6, padding: 2, gap: 2 }}
-            >
-              {ROLES.map((r) => (
-                <button
-                  key={r.value}
-                  type="button"
-                  onClick={() => setRole(r.value as Role)}
-                  style={{
-                    height: 26,
-                    padding: "0 12px",
-                    borderRadius: 4,
-                    fontSize: 11,
-                    fontWeight: role === r.value ? 600 : 500,
-                    color: role === r.value ? "#1a1a1a" : "rgba(0,0,0,0.45)",
-                    background: role === r.value ? "#fff" : "transparent",
-                    boxShadow: role === r.value ? "0 1px 2px rgba(0,0,0,0.08)" : "none",
-                    transition: "all 150ms",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {r.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
         <div className="flex items-center gap-1">
-          {showDemoControls && (
-            <>
-              <ComingSoonToggle />
-              <R1DemoToggle />
-            </>
-          )}
           <button
             type="button"
             className="flex items-center justify-center rounded"
@@ -213,20 +116,205 @@ export function EntrataTopNav() {
             <Search className="h-3.5 w-3.5" />
             <span>Search</span>
           </button>
-          <label
-            title="Show/hide demo controls"
-            className="ml-1 flex cursor-pointer items-center gap-1"
-          >
-            <input
-              type="checkbox"
-              checked={showDemoControls}
-              onChange={toggleDemoControls}
-              className="h-3 w-3 rounded border-gray-300 accent-gray-500"
-            />
-            <span style={{ fontSize: 9, fontWeight: 500, color: "rgba(0,0,0,0.3)", letterSpacing: "0.3px" }}>
-              DEMO
-            </span>
-          </label>
+
+          {/* Demo dropdown */}
+          <div ref={demoRef} className="relative ml-1">
+            <button
+              type="button"
+              onClick={() => setDemoOpen((prev) => !prev)}
+              className="flex items-center gap-1.5 rounded-md transition-all"
+              style={{
+                height: 28,
+                padding: "0 8px 0 10px",
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: "0.3px",
+                color: anyDemoActive ? "#fff" : "rgba(0,0,0,0.45)",
+                background: anyDemoActive
+                  ? "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)"
+                  : "rgba(0,0,0,0.04)",
+                border: anyDemoActive ? "1px solid rgba(99,102,241,0.3)" : "1px solid rgba(0,0,0,0.1)",
+                boxShadow: anyDemoActive ? "0 1px 4px rgba(99,102,241,0.3)" : "none",
+              }}
+            >
+              <Beaker style={{ width: 12, height: 12, strokeWidth: 2 }} />
+              Demo
+              <ChevronDown style={{ width: 10, height: 10, strokeWidth: 2, marginLeft: 1, transform: demoOpen ? "rotate(180deg)" : "none", transition: "transform 150ms" }} />
+            </button>
+
+            {demoOpen && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 6px)",
+                  right: 0,
+                  width: 320,
+                  background: "#fff",
+                  borderRadius: 10,
+                  border: "1px solid #E0E0E0",
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08)",
+                  zIndex: 100,
+                  padding: "12px 0",
+                }}
+              >
+                {/* Demo Controls */}
+                <div style={{ padding: "0 14px 10px" }}>
+                  <p style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.35)", letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: 8 }}>
+                    Demo Controls
+                  </p>
+                  <div className="flex flex-col gap-1.5">
+                    <button
+                      type="button"
+                      onClick={toggleR1Release}
+                      className="flex items-center gap-2.5 rounded-md px-2.5 py-2 transition-colors"
+                      style={{ background: isR1Release ? "rgba(99,102,241,0.08)" : "transparent" }}
+                    >
+                      <div
+                        style={{
+                          width: 30,
+                          height: 17,
+                          borderRadius: 9,
+                          background: isR1Release ? "#6366f1" : "#D4D4D4",
+                          position: "relative",
+                          transition: "background 150ms",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <div style={{
+                          width: 13,
+                          height: 13,
+                          borderRadius: "50%",
+                          background: "#fff",
+                          position: "absolute",
+                          top: 2,
+                          left: isR1Release ? 15 : 2,
+                          transition: "left 150ms",
+                          boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
+                        }} />
+                      </div>
+                      <div className="text-left">
+                        <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>R1 Release State</p>
+                        <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>R1 release view with updated command center</p>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={toggleR1Preview}
+                      className="flex items-center gap-2.5 rounded-md px-2.5 py-2 transition-colors"
+                      style={{ background: isR1Preview ? "rgba(99,102,241,0.08)" : "transparent" }}
+                    >
+                      <div
+                        style={{
+                          width: 30,
+                          height: 17,
+                          borderRadius: 9,
+                          background: isR1Preview ? "#6366f1" : "#D4D4D4",
+                          position: "relative",
+                          transition: "background 150ms",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <div style={{
+                          width: 13,
+                          height: 13,
+                          borderRadius: "50%",
+                          background: "#fff",
+                          position: "absolute",
+                          top: 2,
+                          left: isR1Preview ? 15 : 2,
+                          transition: "left 150ms",
+                          boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
+                        }} />
+                      </div>
+                      <div className="text-left">
+                        <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>OXP Full State Demo</p>
+                        <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>Show R1 activation banner</p>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={toggleComingSoon}
+                      className="flex items-center gap-2.5 rounded-md px-2.5 py-2 transition-colors"
+                      style={{ background: isComingSoonEnabled ? "rgba(245,158,11,0.08)" : "transparent" }}
+                    >
+                      <div
+                        style={{
+                          width: 30,
+                          height: 17,
+                          borderRadius: 9,
+                          background: isComingSoonEnabled ? "#f59e0b" : "#D4D4D4",
+                          position: "relative",
+                          transition: "background 150ms",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <div style={{
+                          width: 13,
+                          height: 13,
+                          borderRadius: "50%",
+                          background: "#fff",
+                          position: "absolute",
+                          top: 2,
+                          left: isComingSoonEnabled ? 15 : 2,
+                          transition: "left 150ms",
+                          boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
+                        }} />
+                      </div>
+                      <div className="text-left">
+                        <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>Coming Soon</p>
+                        <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>Overlay on unreleased pages</p>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Role Switcher */}
+                <div style={{ borderTop: "1px solid #F0F0F0", margin: "0 14px", paddingTop: 10 }}>
+                  <p style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.35)", letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: 6 }}>
+                    Role
+                  </p>
+                  <div className="flex flex-col gap-0.5">
+                    {ROLES.map((r) => {
+                      const isActive = role === r.value;
+                      return (
+                        <button
+                          key={r.value}
+                          type="button"
+                          onClick={() => setRole(r.value as Role)}
+                          className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors"
+                          style={{ background: isActive ? "rgba(0,0,0,0.05)" : "transparent" }}
+                        >
+                          <div
+                            style={{
+                              width: 16,
+                              height: 16,
+                              borderRadius: "50%",
+                              border: isActive ? "none" : "2px solid #D4D4D4",
+                              background: isActive ? "#6366f1" : "transparent",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              flexShrink: 0,
+                              transition: "all 150ms",
+                            }}
+                          >
+                            {isActive && (
+                              <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#fff" }} />
+                            )}
+                          </div>
+                          <p style={{ fontSize: 12, fontWeight: isActive ? 600 : 500, color: isActive ? "#1a1a1a" : "rgba(0,0,0,0.55)" }}>
+                            {r.label}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 
-const STORAGE_KEY = "janet-poc-voice-v2";
+const STORAGE_KEY = "janet-poc-voice-v3";
 
 export type PhrasingRule = {
   id: string;
@@ -67,7 +67,7 @@ export type VoiceState = {
 
 const DEFAULT_STATE: VoiceState = {
   unified: true,
-  brandingTone: "Professional, friendly, and empathetic. Always identify as an assistant for the property. Use the resident's first name when known.",
+  brandingTone: "",
   persona: "Helpful property assistant",
   toneFormality: 65,
   toneWarmth: 75,
@@ -82,7 +82,7 @@ const DEFAULT_STATE: VoiceState = {
     "Make promises about timelines",
     "Discuss other residents' situations",
   ],
-  channels: { voice: true, chat: true, sms: false, portal: true },
+  channels: { voice: false, chat: false, sms: false, portal: false },
   channelAgent: { voice: "Leasing AI", chat: "Leasing AI", sms: "Leasing AI", portal: "Leasing AI" },
   channelAgentId: { voice: "4", chat: "4", sms: "4", portal: "4" },
   channelSettings: {

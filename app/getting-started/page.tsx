@@ -40,6 +40,7 @@ import {
   Radio,
   Download,
   Mail,
+  ClipboardList,
 } from "lucide-react";
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -47,28 +48,30 @@ import {
    ═══════════════════════════════════════════════════════════════════════ */
 
 const STEPS = [
-  { id: "train-workforce",     title: "Train Your Workforce — Upload Documents & SOPs", href: "/trainings-sop" },
-  { id: "eli-plus",            title: "Activate ELI Plus Agents",                        href: "/agent-roster" },
-  { id: "ops-efficiency",      title: "Activate Operational & Efficiency Agents",         href: "/agent-roster" },
-  { id: "eli-essentials",      title: "Activate ELI Essentials",                          href: "/agent-roster" },
-  { id: "live-conversations",  title: "Activate Live Conversations & Centralized Communications", href: "/command-center" },
-  { id: "voice-brand",         title: "Configure Voice & Brand",                          href: "/voice" },
-  { id: "workflows",           title: "Set up Agent Builder",                              href: "/workflows" },
-  { id: "workforce",           title: "Configure Your Workforce",                         href: "/workforce" },
-  { id: "governance",          title: "Set up Governance",                                 href: "/governance" },
-  { id: "brief-team",          title: "Brief Your Team",                                   href: null },
-  { id: "review-golive",       title: "Review & Go Live",                                  href: null },
+  { id: "eli-essentials",      title: "Activate ELI Essentials",                                    href: "/agent-roster" },
+  { id: "ops-efficiency",      title: "Activate Operational & Efficiency Agents",                   href: "/agent-roster" },
+  { id: "train-workforce",     title: "Train Your Workforce — Upload Documents & SOPs",             href: "/trainings-sop" },
+  { id: "playbooks-tasks",     title: "Create Playbooks & Tasks",                                   href: "/escalations" },
+  { id: "workforce",           title: "Configure Your Workforce",                                   href: "/workforce" },
+  { id: "live-conversations",  title: "Activate Live Conversations & Centralized Communications",   href: "/command-center" },
+  { id: "eli-plus",            title: "Activate ELI Plus Agents",                                    href: "/agent-roster" },
+  { id: "workflows",           title: "Set up Agent Builder",                                        href: "/workflows" },
+  { id: "voice-brand",         title: "Configure Voice & Brand",                                     href: "/voice" },
+  { id: "governance",          title: "Set up Governance",                                           href: "/governance" },
+  { id: "brief-team",          title: "Brief Your Team",                                             href: null },
+  { id: "review-golive",       title: "Review & Go Live",                                            href: null },
 ] as const;
 
 const STEP_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  "train-workforce":    FileText,
-  "eli-plus":           Bot,
-  "ops-efficiency":     Cpu,
   "eli-essentials":     Zap,
-  "live-conversations": Radio,
-  "voice-brand":        Mic,
-  workflows:            GitBranch,
+  "ops-efficiency":     Cpu,
+  "train-workforce":    FileText,
+  "playbooks-tasks":    ClipboardList,
   workforce:            Users,
+  "live-conversations": Radio,
+  "eli-plus":           Bot,
+  workflows:            GitBranch,
+  "voice-brand":        Mic,
   governance:           Shield,
   "brief-team":         Megaphone,
   "review-golive":      Rocket,
@@ -111,14 +114,15 @@ export default function GettingStartedPage() {
   const l1Agents = useMemo(() => agents.filter((a) => a.type === "operations"), [agents]);
 
   const autoDetected: Record<string, boolean> = useMemo(() => ({
-    "train-workforce":   docCount > 0,
-    "eli-plus":          l4Agents.some((a) => a.status === "Active"),
-    "ops-efficiency":    l2l3Agents.some((a) => a.status === "Active"),
     "eli-essentials":    l1Agents.some((a) => a.status === "Active"),
+    "ops-efficiency":    l2l3Agents.some((a) => a.status === "Active"),
+    "train-workforce":   false,
+    "playbooks-tasks":   false,
+    workforce:           false,
     "live-conversations": false,
-    "voice-brand":       voiceConfigured,
+    "eli-plus":          l4Agents.some((a) => a.status === "Active"),
     workflows:           atLeastOneEnabled,
-    workforce:           humanMembers.length > 0,
+    "voice-brand":       voiceConfigured,
     governance:          enabledGuardrailCount > 0,
     "brief-team":        false,
     "review-golive":     false,
@@ -134,7 +138,7 @@ export default function GettingStartedPage() {
     opsAgents: l2l3Agents.some((a) => a.status === "Active"),
     essentials: l1Agents.some((a) => a.status === "Active"),
     voiceOrChannel: voiceConfigured,
-    governance: enabledGuardrailCount > 0 || completedSteps.includes(8),
+    governance: enabledGuardrailCount > 0 || completedSteps.includes(9),
     testRun: testRunDone,
   };
   const goLiveSatisfied = Object.values(goLiveChecklist).every(Boolean);
@@ -214,14 +218,15 @@ export default function GettingStartedPage() {
 
               {isExpanded && (
                 <div className="border-t border-[hsl(var(--border))]/30 bg-[hsl(var(--muted))]/20 px-4 pb-6 pl-[3.25rem] pr-6 pt-4">
-                  {step.id === "train-workforce" && <StepTrainWorkforce />}
-                  {step.id === "eli-plus" && <StepEliPlus />}
-                  {step.id === "ops-efficiency" && <StepOpsEfficiency />}
                   {step.id === "eli-essentials" && <StepEliEssentials />}
-                  {step.id === "live-conversations" && <StepLiveConversations />}
-                  {step.id === "voice-brand" && <StepVoiceBrand />}
-                  {step.id === "workflows" && <StepWorkflows />}
+                  {step.id === "ops-efficiency" && <StepOpsEfficiency />}
+                  {step.id === "train-workforce" && <StepTrainWorkforce />}
+                  {step.id === "playbooks-tasks" && <StepPlaybooksTasks />}
                   {step.id === "workforce" && <StepWorkforce />}
+                  {step.id === "live-conversations" && <StepLiveConversations />}
+                  {step.id === "eli-plus" && <StepEliPlus />}
+                  {step.id === "workflows" && <StepWorkflows />}
+                  {step.id === "voice-brand" && <StepVoiceBrand />}
                   {step.id === "governance" && <StepGovernance />}
                   {step.id === "brief-team" && <StepBriefTeam />}
                   {step.id === "review-golive" && (
@@ -358,7 +363,46 @@ function StepTrainWorkforce() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   Step 2: Activate ELI Plus Agents (L4)
+   Step 4: Create Playbooks & Tasks
+   ═══════════════════════════════════════════════════════════════════════ */
+
+function StepPlaybooksTasks() {
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-[hsl(var(--muted-foreground))]">
+        Playbooks define how your team and AI agents handle specific escalation scenarios — from maintenance emergencies to lease violations and resident complaints. Tasks are the individual action items that get created and assigned when a playbook is triggered.
+      </p>
+
+      <div className="rounded-lg border border-[hsl(var(--border))]/50 bg-white p-4">
+        <SectionLabel>Why this matters</SectionLabel>
+        <ul className="mt-2 space-y-2">
+          {[
+            "Playbooks ensure consistent, repeatable responses to common escalation types so nothing falls through the cracks.",
+            "Tasks are automatically created and routed to the right team members or AI agents based on playbook rules, reducing manual coordination.",
+            "Every escalation gets a clear resolution path with defined steps, owners, and SLAs — giving leadership full visibility into response quality.",
+          ].map((item) => (
+            <li key={item} className="flex items-start gap-2.5">
+              <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
+              <span className="text-[13px] text-[hsl(var(--foreground))]">{item}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <Link
+        href="/escalations"
+        className="inline-flex items-center gap-2 rounded-lg bg-[hsl(var(--foreground))] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[hsl(var(--foreground))]/90"
+      >
+        <ClipboardList className="h-4 w-4" />
+        Go to Escalations Setup
+        <ExternalLink className="h-3.5 w-3.5" />
+      </Link>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Activate ELI Plus Agents (L4)
    ═══════════════════════════════════════════════════════════════════════ */
 
 function StepEliPlus() {
