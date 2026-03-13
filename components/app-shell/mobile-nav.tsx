@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { useRole } from "@/lib/role-context";
+import { useR1Release } from "@/lib/r1-release-context";
 import { useNavBadges, type NavBadge } from "@/lib/use-nav-badges";
 import {
   Rocket,
@@ -87,13 +88,17 @@ export function MobileNav() {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   const { isRouteAllowed } = useRole();
+  const { isR1Release } = useR1Release();
   const { badges, activation } = useNavBadges();
+
+  const r1HiddenRoutes = ["/performance", "/voice", "/governance"];
 
   const navGroupsWithVisibility = navGroups
     .map((group) => ({
       ...group,
       items: group.items
-        .filter((item) => isRouteAllowed(item.href)),
+        .filter((item) => isRouteAllowed(item.href))
+        .filter((item) => !(isR1Release && r1HiddenRoutes.includes(item.href))),
     }))
     .filter((group) => group.items.length > 0);
 

@@ -6,6 +6,7 @@ import { ComingSoon } from "@/components/coming-soon";
 import { useWorkforce, TEAMS, type WorkforceMember, type WorkforceTier } from "@/lib/workforce-context";
 import { useAgents, type Agent } from "@/lib/agents-context";
 import { useEscalations, type EscalationRoutingRule, type EscalationType } from "@/lib/escalations-context";
+import { useR1Release } from "@/lib/r1-release-context";
 import { useConversations } from "@/lib/conversations-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -84,6 +85,7 @@ export default function WorkforcePage() {
     routingRules, addRoutingRule, removeRoutingRule, updateRoutingRule,
   } = useEscalations();
   const { items: conversations } = useConversations();
+  const { isR1Release } = useR1Release();
   const [activeTab, setActiveTab] = useState("org");
   const [orgView, setOrgView] = useState<"tree" | "table">("tree");
   const [searchQuery, setSearchQuery] = useState("");
@@ -312,7 +314,7 @@ export default function WorkforcePage() {
           <TabsTrigger value="org">Org Structure</TabsTrigger>
           <TabsTrigger value="routing" className="hidden">Routing</TabsTrigger>
           <TabsTrigger value="roles">Roles &amp; Access</TabsTrigger>
-          <TabsTrigger value="compliance">Compliance</TabsTrigger>
+          {!isR1Release && <TabsTrigger value="compliance">Compliance</TabsTrigger>}
         </TabsList>
 
         {/* ───── TAB 1: Org Structure ───── */}
@@ -465,9 +467,11 @@ export default function WorkforcePage() {
         </TabsContent>
 
         {/* ───── TAB 4: Compliance ───── */}
-        <TabsContent value="compliance">
-          <ComingSoon feature="Compliance tracking" />
-        </TabsContent>
+        {!isR1Release && (
+          <TabsContent value="compliance">
+            <ComingSoon feature="Compliance tracking" />
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* ───── Member Detail Sheet ───── */}
