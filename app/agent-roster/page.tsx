@@ -26,15 +26,16 @@ import { Input } from "@/components/ui/input";
 import { useTools } from "@/lib/tools-context";
 import { useGovernance } from "@/lib/governance-context";
 import { useAgentCompliance } from "@/lib/use-agent-compliance";
+import { useR1Release } from "@/lib/r1-release-context";
 import { Tag, X, DollarSign, Megaphone, Users, Wrench, ShieldCheck, Power, Activity, AlertCircle, Play, Clock, CheckCircle, CheckCircle2, XCircle, Calendar, Lightbulb, Target, Database, BarChart3, Pencil, Save, ArrowLeft, ArrowRight, Sparkles, BookOpen, Cog, Bot, Box, MessageSquare, Shield, Zap, Eye, EyeOff, Globe, Mail, Phone, Volume2, History, RotateCcw, Lock, ExternalLink } from "lucide-react";
 import { Chat, type ChatMessage, type ChatSource, type ChatToolCall } from "@/components/ui/chat";
 
 const AGENT_TYPE_ICON: Record<AgentType, string> = {
-  operations: "/icon-l1-essentials.svg",
-  intelligence: "/icon-l2-operational.svg",
-  efficiency: "/icon-l3-efficiency.svg",
+  operations: "/eli-cube.svg",
+  intelligence: "/eli-cube.svg",
+  efficiency: "/eli-cube.svg",
   autonomous: "/eli-cube.svg",
-  fully_autonomous: "/icon-l5-autonomous.svg",
+  fully_autonomous: "/eli-cube.svg",
 };
 import { useFeedback } from "@/lib/feedback-context";
 
@@ -211,13 +212,14 @@ function AgentRosterContent() {
     }
   };
   const [bucketFilter, setBucketFilter] = useState("All");
+  const { isR1Release } = useR1Release();
   const [statusFilter, setStatusFilter] = useState("All");
   const [typeFilter, setTypeFilter] = useState<AgentType | "All">("All");
   const [showTypeSelector, setShowTypeSelector] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showCreateAuto, setShowCreateAuto] = useState(false);
   const [showComingSoon, setShowComingSoon] = useState(false);
-  const [showEliPlusActivate, setShowEliPlusActivate] = useState(false);
+  const [eliPlusActivateAgent, setEliPlusActivateAgent] = useState<string | null>(null);
   const [opsAgentId, setOpsAgentId] = useState<string | null>(null);
   const [intelAgentId, setIntelAgentId] = useState<string | null>(null);
   const [autoAgentId, setAutoAgentId] = useState<string | null>(null);
@@ -295,20 +297,22 @@ function AgentRosterContent() {
             <option value="Off">Off</option>
           </select>
         </div>
-        <Button onClick={() => setShowComingSoon(true)}>
-          <img src="/eli-cube.svg" alt="" width={16} height={16} className="mr-1" /> Create Agent
-        </Button>
+        {!isR1Release && (
+          <Button onClick={() => setShowComingSoon(true)}>
+            <img src="/eli-cube.svg" alt="" width={16} height={16} className="mr-1" /> Create Agent
+          </Button>
+        )}
       </div>
 
       <div>
         {typeFilter === "fully_autonomous" && (
-          <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-amber-300 bg-amber-50/50 py-16 text-center dark:border-amber-800/40 dark:bg-amber-950/10">
-            <img src="/icon-l5-autonomous.svg" alt="" width={48} height={48} className="mb-4" />
+          <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-purple-300 bg-purple-50/50 py-16 text-center dark:border-purple-800/40 dark:bg-purple-950/10">
+            <img src="/eli-cube.svg" alt="" width={48} height={48} className="mb-4" />
             <h3 className="text-lg font-semibold text-foreground">L5 · Autonomous Agents</h3>
             <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
               Fully autonomous agents that independently manage end-to-end workflows, make decisions, and take action across your portfolio with minimal human oversight.
             </p>
-            <Badge variant="outline" className="mt-4 border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+            <Badge variant="outline" className="mt-4 border-purple-300 bg-purple-100 text-purple-800 dark:border-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
               Coming Soon
             </Badge>
           </div>
@@ -357,7 +361,7 @@ function AgentRosterContent() {
                             </div>
                           </div>
                           <div className="flex shrink-0 items-center gap-3">
-                            {!isOffEliPlus && complianceWarnings[agent.id] && (
+                            {!isR1Release && !isOffEliPlus && complianceWarnings[agent.id] && (
                               <span
                                 className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-red-500 text-white dark:bg-red-900/30 dark:text-red-300"
                                 title={complianceWarnings[agent.id].map((w) => w.message).join("; ")}
@@ -370,7 +374,7 @@ function AgentRosterContent() {
                               <Button
                                 size="sm"
                                 className="shrink-0 gap-1.5 bg-primary text-primary-foreground shadow-md opacity-100 hover:bg-primary/90"
-                                onClick={(e) => { e.stopPropagation(); setShowEliPlusActivate(true); }}
+                                onClick={(e) => { e.stopPropagation(); setEliPlusActivateAgent(agent.name); }}
                               >
                                 <Lock className="h-3 w-3" />
                                 Unlock ELI+ Agents
@@ -474,67 +478,127 @@ function AgentRosterContent() {
         </DialogContent>
       </Dialog>
 
-      {/* ELI+ Agents Activation Dialog */}
-      <Dialog open={showEliPlusActivate} onOpenChange={setShowEliPlusActivate}>
-        <DialogContent className="max-w-md p-0">
-          <div className="p-6 pb-0">
-            <div className="flex items-center gap-3">
-              <img src="/eli-cube.svg" alt="" width={32} height={32} />
-              <div>
-                <DialogTitle className="text-base font-semibold">ELI+ Agents</DialogTitle>
-                <DialogDescription className="text-sm text-muted-foreground">
-                  Autonomous AI agents for your properties
-                </DialogDescription>
+      {/* ELI+ Agent-Specific Activation Dialog */}
+      <Dialog open={!!eliPlusActivateAgent} onOpenChange={(o) => !o && setEliPlusActivateAgent(null)}>
+        {(() => {
+          const eliPlusCtaConfigs: Record<string, {
+            title: string;
+            description: string;
+            capabilities: string[];
+            impactMetrics: { value: string; label: string }[];
+          }> = {
+            "Leasing AI": {
+              title: "ELI+ Leasing AI",
+              description: "Autonomous lead engagement and leasing for your properties",
+              capabilities: [
+                "Engages every lead instantly via chat, SMS, and voice — 24/7",
+                "Answers prospect questions about units, pricing, amenities, and policies",
+                "Books and confirms tours automatically based on availability",
+                "Guides qualified prospects through the application process to signed leases",
+              ],
+              impactMetrics: [
+                { value: "49%", label: "Reduction in cancelled applications" },
+                { value: "38%", label: "Increase in applications by early adopters" },
+                { value: "99%", label: "Conversations handled autonomously" },
+              ],
+            },
+            "Renewals AI": {
+              title: "ELI+ Renewals AI",
+              description: "Autonomous lease renewal management for your properties",
+              capabilities: [
+                "Proactively contacts residents with personalized renewal offers",
+                "Negotiates rent increases based on market data and portfolio strategy",
+                "Handles resident questions about renewal terms, timing, and options",
+                "Escalates at-risk renewals to staff before residents decide to leave",
+              ],
+              impactMetrics: [
+                { value: "10%", label: "Increase in renewal conversion rates" },
+                { value: "24 days", label: "Earlier renewals signed on average" },
+                { value: "80%", label: "Reduction in manual renewal management" },
+              ],
+            },
+            "Maintenance AI": {
+              title: "ELI+ Maintenance AI",
+              description: "Autonomous work order management for your properties",
+              capabilities: [
+                "Automatically triages and dispatches work orders to the right vendor",
+                "Follows up with residents on scheduling and completion",
+                "Tracks SLA compliance and escalates overdue orders",
+                "Handles resident communication via chat and voice 24/7",
+              ],
+              impactMetrics: [
+                { value: "10%", label: "Faster work order resolution time" },
+                { value: "58%", label: "Improvement in work order resolutions by early adopters" },
+              ],
+            },
+            "Payments AI": {
+              title: "ELI+ Payments AI",
+              description: "Autonomous rent collection and payment management for your properties",
+              capabilities: [
+                "Sends automated payment reminders and follow-ups to residents",
+                "Processes payment plans and manages delinquency workflows",
+                "Answers resident questions about balances, fees, and payment options 24/7",
+                "Escalates high-risk accounts and coordinates with on-site staff",
+              ],
+              impactMetrics: [
+                { value: "7.5%", label: "Increase in on-time rent payments, on average, portfolio-wide" },
+                { value: "40%", label: "Increase in portfolio-wide collections for adopters" },
+              ],
+            },
+          };
+          const cfg = eliPlusActivateAgent ? eliPlusCtaConfigs[eliPlusActivateAgent] : null;
+          if (!cfg) return null;
+          return (
+            <DialogContent className="max-w-md p-0">
+              <div className="p-6 pb-0">
+                <div className="flex items-center gap-3">
+                  <img src="/eli-cube.svg" alt="" width={32} height={32} />
+                  <div>
+                    <DialogTitle className="text-base font-semibold">{cfg.title}</DialogTitle>
+                    <DialogDescription className="text-sm text-muted-foreground">
+                      {cfg.description}
+                    </DialogDescription>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
 
-          <div className="px-6 pt-4">
-            <div className="rounded-lg border border-border p-4">
-              <p className="mb-3 text-sm font-semibold text-foreground">What ELI+ agents do</p>
-              <ul className="space-y-2">
-                {[
-                  "Handle resident conversations autonomously across chat, SMS, and voice",
-                  "Schedule tours, process applications, and sign leases automatically",
-                  "Collect rent, follow up on late payments, and manage renewals",
-                  "Escalate complex issues to your team with full context",
-                ].map((item) => (
-                  <li key={item} className="flex items-start gap-2">
-                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
-                    <span className="text-sm text-muted-foreground">{item}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-
-          <div className="px-6 pt-4">
-            <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4 dark:border-amber-800/40 dark:bg-amber-950/20">
-              <p className="mb-3 text-sm font-semibold text-foreground">Impact from similar properties</p>
-              <div className="grid grid-cols-3 gap-4 text-center">
-                <div>
-                  <p className="text-xl font-bold text-foreground">386 hrs</p>
-                  <p className="text-xs text-muted-foreground">Staff hours saved</p>
-                </div>
-                <div>
-                  <p className="text-xl font-bold text-foreground">$42K</p>
-                  <p className="text-xs text-muted-foreground">Revenue impact</p>
-                </div>
-                <div>
-                  <p className="text-xl font-bold text-foreground">89%</p>
-                  <p className="text-xs text-muted-foreground">Resolution rate</p>
+              <div className="px-6 pt-4">
+                <div className="rounded-lg border border-border p-4">
+                  <p className="mb-3 text-sm font-semibold text-foreground">What {eliPlusActivateAgent} does</p>
+                  <ul className="space-y-2">
+                    {cfg.capabilities.map((item) => (
+                      <li key={item} className="flex items-start gap-2">
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
+                        <span className="text-sm text-muted-foreground">{item}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               </div>
-            </div>
-          </div>
 
-          <div className="p-6">
-            <Button className="w-full gap-2" onClick={() => setShowEliPlusActivate(false)}>
-              Request Access to ELI+ Agents
-              <ExternalLink className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        </DialogContent>
+              <div className="px-6 pt-4">
+                <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4 dark:border-amber-800/40 dark:bg-amber-950/20">
+                  <p className="mb-3 text-sm font-semibold text-foreground">Impact from similar properties</p>
+                  <div className={`grid gap-4 text-center ${cfg.impactMetrics.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
+                    {cfg.impactMetrics.map((m) => (
+                      <div key={m.label}>
+                        <p className="text-xs text-muted-foreground/60 mb-0.5">up to</p>
+                        <p className="text-xl font-bold text-foreground">{m.value}</p>
+                        <p className="text-xs text-muted-foreground">{m.label}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6">
+                <Button className="w-full" onClick={() => setEliPlusActivateAgent(null)}>
+                  Set Up {cfg.title}
+                </Button>
+              </div>
+            </DialogContent>
+          );
+        })()}
       </Dialog>
 
       {autoAgentId && (() => {
