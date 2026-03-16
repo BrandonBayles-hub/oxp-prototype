@@ -27,7 +27,7 @@ import { useTools } from "@/lib/tools-context";
 import { useGovernance } from "@/lib/governance-context";
 import { useAgentCompliance } from "@/lib/use-agent-compliance";
 import { useR1Release } from "@/lib/r1-release-context";
-import { Tag, X, DollarSign, Megaphone, Users, Wrench, ShieldCheck, Power, Activity, AlertCircle, Play, Clock, CheckCircle, CheckCircle2, XCircle, Calendar, Lightbulb, Target, Database, BarChart3, Pencil, Save, ArrowLeft, ArrowRight, Sparkles, BookOpen, Cog, Bot, Box, MessageSquare, Shield, Zap, Eye, EyeOff, Globe, Mail, Phone, Volume2, History, RotateCcw, Lock, ExternalLink } from "lucide-react";
+import { Tag, X, DollarSign, Megaphone, Users, Wrench, ShieldCheck, Power, Activity, AlertCircle, Play, Clock, CheckCircle, CheckCircle2, XCircle, Calendar, Lightbulb, Target, Database, BarChart3, Pencil, Save, ArrowLeft, ArrowRight, Sparkles, BookOpen, Cog, Bot, Box, MessageSquare, Shield, Zap, Eye, EyeOff, Globe, Mail, Phone, Volume2, History, RotateCcw, Lock, ExternalLink, CirclePlay } from "lucide-react";
 import { Chat, type ChatMessage, type ChatSource, type ChatToolCall } from "@/components/ui/chat";
 
 const AGENT_TYPE_ICON: Record<AgentType, string> = {
@@ -224,6 +224,7 @@ function AgentRosterContent() {
   const [intelAgentId, setIntelAgentId] = useState<string | null>(null);
   const [autoAgentId, setAutoAgentId] = useState<string | null>(null);
   const [expandedBucket, setExpandedBucket] = useState<string | null>(null);
+  const [videoAgentName, setVideoAgentName] = useState<string | null>(null);
 
   const selectedId = opsAgentId ?? intelAgentId ?? autoAgentId;
 
@@ -381,6 +382,16 @@ function AgentRosterContent() {
                               </Button>
                             ) : (
                               <>
+                                {agent.type === "intelligence" && (
+                                  <button
+                                    type="button"
+                                    title="Watch agent walkthrough"
+                                    className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                                    onClick={(e) => { e.stopPropagation(); setVideoAgentName(agent.name); }}
+                                  >
+                                    <CirclePlay className="h-4 w-4" />
+                                  </button>
+                                )}
                                 <span className="text-[length:var(--text-caption)] text-[hsl(var(--muted-foreground))]">
                                   {AGENT_TYPES.find((t) => t.value === agent.type)?.label ?? "L1 · ELI Essentials"}
                                 </span>
@@ -417,6 +428,7 @@ function AgentRosterContent() {
             open
             onOpenChange={(open) => { if (!open) setOpsAgentId(null); }}
             onToggle={(status) => updateAgent(opsAgent.id, { status })}
+            onVideoClick={setVideoAgentName}
           />
         );
       })()}
@@ -599,6 +611,25 @@ function AgentRosterContent() {
             </DialogContent>
           );
         })()}
+      </Dialog>
+
+      {/* Agent Walkthrough Video Dialog */}
+      <Dialog open={!!videoAgentName} onOpenChange={(o) => !o && setVideoAgentName(null)}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{videoAgentName}</DialogTitle>
+            <DialogDescription>Agent walkthrough video</DialogDescription>
+          </DialogHeader>
+          <div className="flex aspect-video w-full items-center justify-center rounded-lg bg-muted/50 border border-border">
+            <div className="flex flex-col items-center gap-3 text-muted-foreground">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+                <CirclePlay className="h-8 w-8" />
+              </div>
+              <p className="text-sm font-medium">Video coming soon</p>
+              <p className="text-xs text-muted-foreground/70">A walkthrough demo of this agent will be available here</p>
+            </div>
+          </div>
+        </DialogContent>
       </Dialog>
 
       {autoAgentId && (() => {
@@ -1060,11 +1091,13 @@ function OperationsAgentSheet({
   open,
   onOpenChange,
   onToggle,
+  onVideoClick,
 }: {
   agent: Agent;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onToggle: (status: string) => void;
+  onVideoClick?: (agentName: string) => void;
 }) {
   const isActive = agent.status === "Active";
   const hasRuns = (agent.runsCompleted ?? 0) > 0;
@@ -1099,6 +1132,22 @@ function OperationsAgentSheet({
 
         <div className="mt-6 space-y-6">
           <p className="text-sm text-foreground">{agent.description}</p>
+
+          {agent.type === "intelligence" && onVideoClick && (
+            <button
+              type="button"
+              className="flex w-full items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 text-left transition-colors hover:bg-muted/50"
+              onClick={() => onVideoClick(agent.name)}
+            >
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                <CirclePlay className="h-4.5 w-4.5 text-primary" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-foreground">Watch Agent Walkthrough</p>
+                <p className="text-xs text-muted-foreground">See how this agent works step by step</p>
+              </div>
+            </button>
+          )}
 
           {/* Open Agent/ELI Essentials Settings link */}
           <button
@@ -2793,7 +2842,6 @@ function AutonomousAgentSheet({
                   <th className="pb-2 font-medium text-muted-foreground">Status</th>
                   <th className="pb-2 font-medium text-muted-foreground">Vertical</th>
                   <th className="pb-2 font-medium text-muted-foreground">Complete</th>
-                  <th className="pb-2 w-8"></th>
                 </tr>
               </thead>
               <tbody>
@@ -2816,9 +2864,6 @@ function AutonomousAgentSheet({
                         </div>
                         <span className="text-muted-foreground">{prop.complete}%</span>
                       </div>
-                    </td>
-                    <td className="py-3">
-                      <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
                     </td>
                   </tr>
                 ))}
