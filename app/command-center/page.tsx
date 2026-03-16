@@ -56,6 +56,8 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { cn, assetPath } from "@/lib/utils";
+import { AutonomousAgentSheet } from "@/components/autonomous-agent-sheet";
+import { OperationsAgentSheet } from "@/components/operations-agent-sheet";
 
 /* ═══════════════════════════════════════════════════════════════════════
    Shared types & data
@@ -1693,6 +1695,8 @@ const R1_AGENT_CARDS: {
 
 function R1OutcomesSection() {
   const [ctaOpen, setCtaOpen] = useState<string | null>(null);
+  const [flyoutAgentName, setFlyoutAgentName] = useState<string | null>(null);
+  const { agents, updateAgent } = useAgents();
 
   const r1AgentCtaConfigs: Record<string, {
     title: string;
@@ -1846,9 +1850,9 @@ function R1OutcomesSection() {
           );
 
           return card.active ? (
-            <Link key={card.name} href="/agent-roster" className="text-left no-underline">
+            <div key={card.name} className="text-left cursor-pointer" onClick={() => setFlyoutAgentName(card.name)}>
               {cardContent}
-            </Link>
+            </div>
           ) : (
             <div key={card.name}>{cardContent}</div>
           );
@@ -1863,9 +1867,8 @@ function R1OutcomesSection() {
           const Icon = card.icon;
           const cardContent = (
             <Card key={card.name} className={cn(
-              "flex h-full flex-col",
+              "flex h-full flex-col cursor-pointer transition-colors hover:border-primary/40 hover:bg-muted/30",
               !card.active && "border-dashed",
-              card.active && "cursor-pointer transition-colors hover:border-primary/40 hover:bg-muted/30"
             )}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 px-4 pb-0 pt-4">
                 <CardTitle className="text-xs font-medium text-muted-foreground">{card.outcome}</CardTitle>
@@ -1902,11 +1905,9 @@ function R1OutcomesSection() {
               </CardContent>
               {!card.active ? (
                 <CardFooter className="px-4 pb-4 pt-0">
-                  <Button asChild size="sm" className="w-full text-xs">
-                    <Link href="/agent-roster">
-                      Activate Agent
-                      <ArrowRight className="ml-1 h-3 w-3" />
-                    </Link>
+                  <Button size="sm" className="w-full text-xs" onClick={(e) => { e.stopPropagation(); setFlyoutAgentName(card.name); }}>
+                    Activate Agent
+                    <ArrowRight className="ml-1 h-3 w-3" />
                   </Button>
                 </CardFooter>
               ) : (
@@ -1916,12 +1917,10 @@ function R1OutcomesSection() {
               )}
             </Card>
           );
-          return card.active ? (
-            <Link key={card.name} href="/agent-roster" className="text-left no-underline">
+          return (
+            <div key={card.name} className="text-left cursor-pointer" onClick={() => setFlyoutAgentName(card.name)}>
               {cardContent}
-            </Link>
-          ) : (
-            <div key={card.name}>{cardContent}</div>
+            </div>
           );
         })}
       </div>
@@ -1990,6 +1989,32 @@ function R1OutcomesSection() {
           </DialogContent>
         )}
       </Dialog>
+
+      {(() => {
+        if (!flyoutAgentName) return null;
+        const cardToAgentName: Record<string, string> = { "Renewals AI": "Renewal AI", "Move-in Reviews": "Move-In Reviews Auto-Process" };
+        const agentName = cardToAgentName[flyoutAgentName] ?? flyoutAgentName;
+        const flyoutAgent = agents.find((a) => a.name === agentName);
+        if (!flyoutAgent) return null;
+        if (flyoutAgent.type === "autonomous") {
+          return (
+            <AutonomousAgentSheet
+              agent={flyoutAgent}
+              open
+              onOpenChange={(o) => { if (!o) setFlyoutAgentName(null); }}
+              onUpdate={(updates) => updateAgent(flyoutAgent.id, updates)}
+            />
+          );
+        }
+        return (
+          <OperationsAgentSheet
+            agent={flyoutAgent}
+            open
+            onOpenChange={(o) => { if (!o) setFlyoutAgentName(null); }}
+            onToggle={(status) => updateAgent(flyoutAgent.id, { status })}
+          />
+        );
+      })()}
     </div>
   );
 }
