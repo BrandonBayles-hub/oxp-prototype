@@ -21,6 +21,7 @@ import { PlaybooksProvider } from "@/lib/playbooks-context";
 import { R1DemoProvider } from "@/lib/r1-demo-context";
 import { R1ReleaseProvider } from "@/lib/r1-release-context";
 import { ComingSoonProvider } from "@/lib/coming-soon-context";
+import { EliEmailsProvider } from "@/lib/eli-emails-context";
 
 export const metadata: Metadata = {
   title: "OXP Studio",
@@ -88,7 +89,9 @@ export default function RootLayout({
                     <FeedbackProvider>
                     <PlaybooksProvider>
                     <NotificationsProvider>
+                    <EliEmailsProvider>
                     <AppShell>{children}</AppShell>
+                    </EliEmailsProvider>
                     </NotificationsProvider>
                     </PlaybooksProvider>
                     </FeedbackProvider>
