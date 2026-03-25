@@ -37,7 +37,7 @@ import {
 
 const DOC_TYPES = ["All", "sop", "policy", "lease", "other"] as const;
 const APPROVAL_STATUSES = ["All", "review", "approved", "needs_review"] as const;
-const PROPERTIES = ["All", "Portfolio", "Property A", "Property B", "Property C"];
+const PROPERTIES = ["All", "Portfolio", "Hillside Living", "Jamison Apartments", "Property C"];
 
 const TRAIN_SOP_METRICS_STORAGE_KEY = "janet-poc-trainings-sop-metrics-prev";
 

@@ -2218,7 +2218,7 @@ function CreateAutonomousAgentDialog({
               {scope === "Custom" && (
                 <Input
                   className="mt-2"
-                  placeholder="e.g. Property A, Property B"
+                  placeholder="e.g. Hillside Living, Jamison Apartments"
                   onChange={(e) => setScope(e.target.value || "Custom")}
                 />
               )}

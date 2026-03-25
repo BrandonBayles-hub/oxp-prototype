@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -33,6 +33,8 @@ import {
   CheckCircle2,
   XCircle,
   MinusCircle,
+  FileText,
+  Image as ImageIcon,
   ChevronLeft,
   ChevronRight,
   Bell,
@@ -56,10 +58,30 @@ import {
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@/components/ui/select";
-import { useConversations, type ConversationItem } from "@/lib/conversations-context";
+import {
+  useConversations,
+  type ConversationItem,
+  type EmailAttachmentRef,
+  isConversationUnattended,
+  isWaitingOnResidentPublicReply,
+  satisfiesEscalatedPropertyInboxLabels,
+  conversationHasCurrentUserPrivateNoteMention,
+} from "@/lib/conversations-context";
 import { useAgents } from "@/lib/agents-context";
 import { useWorkforce } from "@/lib/workforce-context";
 import { cn } from "@/lib/utils";
+import {
+  buildStaffEmailSignatureBody,
+  getEmailThreadRoutingAddresses,
+  getVoiceOrSmsThreadRoutingNumbers,
+} from "@/lib/email-signature";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { ConversationThreadActivityRow } from "@/components/conversation-thread-activity-row";
 
 const AVATAR_COLORS = [
   "bg-emerald-100 text-emerald-700",
@@ -82,12 +104,110 @@ function initials(name: string) {
   return name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 }
 
+/** Matches @mentions in private notes (e.g. Abe Kashiwagi → abekashiwagi). */
+function staffMentionHandle(displayName: string): string {
+  return displayName.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+type PrivateNoteMentionActive = { triggerIndex: number; query: string };
+
+function getActivePrivateNoteMention(text: string, caret: number): PrivateNoteMentionActive | null {
+  if (caret < 1) return null;
+  const end = caret;
+  let i = end - 1;
+  while (i >= 0 && text[i] !== "@") {
+    if (/\s/.test(text[i])) return null;
+    i -= 1;
+  }
+  if (i < 0 || text[i] !== "@") return null;
+  if (i > 0 && !/\s/.test(text[i - 1])) return null;
+  const query = text.slice(i + 1, end);
+  if (/\s/.test(query)) return null;
+  return { triggerIndex: i, query };
+}
+
+/** Canonical property id → sidebar inbox name (filter value stays canonical). */
+const PROPERTY_INBOX_SIDEBAR_LABELS: Record<string, string> = {
+  "Hillside Living": "Escalated Hillside Living",
+  "Jamison Apartments": "Escalated Jamison Apartments",
+};
+
+function propertyInboxSidebarLabel(property: string) {
+  return PROPERTY_INBOX_SIDEBAR_LABELS[property] ?? property;
+}
+
+/** Live AI lane labels (no * AI Escalation); inbox also requires read + waiting on resident. */
+const LIVE_AI_PROPERTY_ALLOWED = new Set([
+  "Leasing AI",
+  "Maintenance AI",
+  "Renewal AI",
+  "Renewals AI",
+  "Payments AI",
+]);
+
+const LIVE_AI_PROPERTY_FORBIDDEN = new Set([
+  "Leasing AI Escalation",
+  "Maintenance AI Escalation",
+  "Renewal AI Escalation",
+  "Payments AI Escalation",
+]);
+
+/** Logged-in user for the My Inbox tab (human assignee name). */
+const MY_INBOX_ASSIGNEE = "Abe Kashiwagi";
+
+type ChannelOptChoice = "opt-in" | "opt-out" | "no-indication";
+
+function staffEmailSignatureForConversation(
+  convo: ConversationItem,
+  humanNameSet: Set<string>,
+  humanMembers: { name: string; role: string }[]
+): string | undefined {
+  if (convo.channel !== "Email") return undefined;
+  const staffName = humanNameSet.has(convo.assignee) ? convo.assignee : MY_INBOX_ASSIGNEE;
+  const staffTitle = humanMembers.find((m) => m.name === staffName)?.role ?? "Leasing Specialist";
+  return buildStaffEmailSignatureBody({
+    staffName,
+    staffTitle,
+    propertyName: convo.property,
+  });
+}
+
+/** AI Activated + phone/email opt-in for primary ELI lanes (Renewals AI = renewal lane in data). */
+const AI_ACTIVATION_OPT_IN_LABELS = new Set([
+  "Leasing AI",
+  "Maintenance AI",
+  "Payments AI",
+  "Renewal AI",
+  "Renewals AI",
+]);
+
+function isLiveAiPropertyInbox(c: ConversationItem, property: string): boolean {
+  if (c.property !== property) return false;
+  if (c.labels.some((l) => LIVE_AI_PROPERTY_FORBIDDEN.has(l))) return false;
+  return c.labels.some((l) => LIVE_AI_PROPERTY_ALLOWED.has(l));
+}
+
+/** Live AI: primary lane, no escalation labels, fully read, waiting on lead/resident to reply. */
+function isLiveAiJamisonConversation(c: ConversationItem): boolean {
+  if (!isLiveAiPropertyInbox(c, "Jamison Apartments")) return false;
+  if (c.hasUnread) return false;
+  return isWaitingOnResidentPublicReply(c);
+}
+
+function isLiveAiHillsideConversation(c: ConversationItem): boolean {
+  if (!isLiveAiPropertyInbox(c, "Hillside Living")) return false;
+  if (c.hasUnread) return false;
+  return isWaitingOnResidentPublicReply(c);
+}
+
 type SidebarFilter =
   | "all"
   | "mentions"
   | "unattended"
   | { type: "label"; value: string }
-  | { type: "property"; value: string };
+  | { type: "property"; value: string }
+  | { type: "live-ai-jamison" }
+  | { type: "live-ai-hillside" };
 
 function ConversationsContent() {
   const {
@@ -96,6 +216,7 @@ function ConversationsContent() {
     updateAssignee,
     resolveConversation,
     reopenConversation,
+    recordThreadActivity,
     addLabel,
     removeLabel,
     markRead,
@@ -122,6 +243,18 @@ function ConversationsContent() {
   );
   const isHumanAssignee = (assignee: string) => humanNameSet.has(assignee);
 
+  const privateNoteMentionCandidates = useMemo(
+    () =>
+      humanMembers
+        .map((m) => ({
+          name: m.name,
+          handle: staffMentionHandle(m.name),
+          role: m.role,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [humanMembers]
+  );
+
   const autonomousAgents = useMemo(
     () => agents.filter((a) => a.type === "autonomous"),
     [agents]
@@ -144,31 +277,83 @@ function ConversationsContent() {
 
   const isEscalationLabel = (label: string) => label.endsWith("Escalation");
 
-  const escalationCount = useMemo(
-    () => conversations.filter((c) => c.labels.some(isEscalationLabel)).length,
+  /** Unread threads across everything the user’s role can access (filteredItems). */
+  const allThreadsUnreadCount = useMemo(
+    () => conversations.filter((c) => c.hasUnread).length,
+    [conversations]
+  );
+
+  const mentionsInboxCount = useMemo(
+    () => conversations.filter((c) => conversationHasCurrentUserPrivateNoteMention(c)).length,
+    [conversations]
+  );
+
+  const unattendedInboxCount = useMemo(
+    () => conversations.filter((c) => isConversationUnattended(c)).length,
+    [conversations]
+  );
+
+  /** Sidebar badges: unread threads in that inbox’s conversation list (hasUnread). */
+  const escalationUnreadCount = useMemo(
+    () =>
+      conversations.filter((c) => c.labels.some(isEscalationLabel) && c.hasUnread).length,
+    [conversations]
+  );
+
+  const liveAiJamisonUnreadCount = useMemo(
+    () => conversations.filter((c) => isLiveAiJamisonConversation(c) && c.hasUnread).length,
+    [conversations]
+  );
+
+  const liveAiHillsideUnreadCount = useMemo(
+    () => conversations.filter((c) => isLiveAiHillsideConversation(c) && c.hasUnread).length,
     [conversations]
   );
 
   const properties = useMemo(() => {
-    const map = new Map<string, number>();
+    const unreadByProp = new Map<string, number>();
+    const seenProp = new Set<string>();
     for (const c of conversations) {
-      map.set(c.property, (map.get(c.property) ?? 0) + 1);
+      if (
+        (c.property === "Hillside Living" || c.property === "Jamison Apartments") &&
+        !satisfiesEscalatedPropertyInboxLabels(c)
+      ) {
+        continue;
+      }
+      seenProp.add(c.property);
+      if (c.hasUnread) {
+        unreadByProp.set(c.property, (unreadByProp.get(c.property) ?? 0) + 1);
+      }
     }
-    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+    return Array.from(seenProp)
+      .sort((a, b) => a.localeCompare(b))
+      .map((prop) => [prop, unreadByProp.get(prop) ?? 0] as [string, number]);
   }, [conversations]);
 
   const sidebarFiltered = useMemo(() => {
     return conversations.filter((c) => {
       if (sidebarFilter === "all") return true;
-      if (sidebarFilter === "mentions") return false;
-      if (sidebarFilter === "unattended") return c.assignee.startsWith("ELI+");
+      if (sidebarFilter === "mentions") return conversationHasCurrentUserPrivateNoteMention(c);
+      if (sidebarFilter === "unattended") return isConversationUnattended(c);
       if (typeof sidebarFilter === "object" && sidebarFilter.type === "label") {
         if (sidebarFilter.value === "__escalation__")
           return c.labels.some(isEscalationLabel);
         return c.labels.includes(sidebarFilter.value);
       }
-      if (typeof sidebarFilter === "object" && sidebarFilter.type === "property")
-        return c.property === sidebarFilter.value;
+      if (typeof sidebarFilter === "object" && sidebarFilter.type === "property") {
+        if (c.property !== sidebarFilter.value) return false;
+        if (
+          sidebarFilter.value === "Hillside Living" ||
+          sidebarFilter.value === "Jamison Apartments"
+        ) {
+          return satisfiesEscalatedPropertyInboxLabels(c);
+        }
+        return true;
+      }
+      if (typeof sidebarFilter === "object" && sidebarFilter.type === "live-ai-jamison")
+        return isLiveAiJamisonConversation(c);
+      if (typeof sidebarFilter === "object" && sidebarFilter.type === "live-ai-hillside")
+        return isLiveAiHillsideConversation(c);
       return true;
     });
   }, [conversations, sidebarFilter]);
@@ -176,7 +361,7 @@ function ConversationsContent() {
   const tabFiltered = useMemo(() => {
     return sidebarFiltered.filter((c) => {
       if (inboxTab === "all") return true;
-      if (inboxTab === "mine") return isHumanAssignee(c.assignee);
+      if (inboxTab === "mine") return c.assignee === MY_INBOX_ASSIGNEE;
       if (inboxTab === "unassigned") return c.assignee.startsWith("ELI+");
       return true;
     });
@@ -193,8 +378,9 @@ function ConversationsContent() {
     );
   }, [tabFiltered, searchQuery]);
 
-  const myInboxCount = useMemo(
-    () => sidebarFiltered.filter((c) => isHumanAssignee(c.assignee)).length,
+  const myInboxUnreadCount = useMemo(
+    () =>
+      sidebarFiltered.filter((c) => c.assignee === MY_INBOX_ASSIGNEE && c.hasUnread).length,
     [sidebarFiltered]
   );
 
@@ -224,6 +410,11 @@ function ConversationsContent() {
     ? filtered.find((c) => c.id === selectedId) ?? null
     : null;
 
+  const selectedEmailRouting =
+    selected?.channel === "Email"
+      ? getEmailThreadRoutingAddresses(selected.resident, selected.property)
+      : null;
+
   // scroll to bottom on message change
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -232,9 +423,36 @@ function ConversationsContent() {
   // --- Chat input ---
   const [inputMode, setInputMode] = useState<"message" | "private_note">("message");
   const [draft, setDraft] = useState("");
+  const chatTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const [privateNoteMention, setPrivateNoteMention] = useState<PrivateNoteMentionActive | null>(null);
+  const [privateNoteMentionIndex, setPrivateNoteMentionIndex] = useState(0);
+
+  const privateNoteMentionFiltered = useMemo(() => {
+    if (!privateNoteMention) return [];
+    const q = privateNoteMention.query.toLowerCase();
+    return privateNoteMentionCandidates
+      .filter(
+        (c) =>
+          q === "" ||
+          c.name.toLowerCase().includes(q) ||
+          c.handle.includes(q)
+      )
+      .slice(0, 8);
+  }, [privateNoteMention, privateNoteMentionCandidates]);
+
+  useEffect(() => {
+    setPrivateNoteMentionIndex(0);
+  }, [privateNoteMention?.triggerIndex, privateNoteMention?.query]);
+
+  useEffect(() => {
+    if (privateNoteMentionFiltered.length === 0) return;
+    setPrivateNoteMentionIndex((i) => Math.min(i, privateNoteMentionFiltered.length - 1));
+  }, [privateNoteMentionFiltered.length]);
+
   const [newLabelText, setNewLabelText] = useState("");
   const [addLabelOpen, setAddLabelOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [emailAttachmentPreview, setEmailAttachmentPreview] = useState<EmailAttachmentRef | null>(null);
   const [threadsPanelOpen, setThreadsPanelOpen] = useState(false);
   const [threadsFilter, setThreadsFilter] = useState<"active" | "closed">("active");
   const [openThreadIdx, setOpenThreadIdx] = useState<number | null>(null);
@@ -319,6 +537,41 @@ function ConversationsContent() {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [conversations]);
 
+  const applyPrivateNoteMention = (
+    candidate: (typeof privateNoteMentionCandidates)[number]
+  ) => {
+    const el = chatTextareaRef.current;
+    if (!el) return;
+    const caret = el.selectionStart ?? el.value.length;
+    const m = getActivePrivateNoteMention(el.value, caret);
+    if (!m) return;
+    const before = el.value.slice(0, m.triggerIndex);
+    const after = el.value.slice(caret);
+    const insert = `@${candidate.handle} `;
+    const next = before + insert + after;
+    setDraft(next);
+    setPrivateNoteMention(null);
+    const pos = before.length + insert.length;
+    queueMicrotask(() => {
+      el.setSelectionRange(pos, pos);
+      el.focus();
+    });
+  };
+
+  const syncPrivateNoteMentionFromTextarea = (el: HTMLTextAreaElement) => {
+    if (inputMode !== "private_note") {
+      setPrivateNoteMention(null);
+      return;
+    }
+    const caret = el.selectionStart ?? el.value.length;
+    setPrivateNoteMention(getActivePrivateNoteMention(el.value, caret));
+  };
+
+  const handleComposerDraftChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setDraft(e.target.value);
+    syncPrivateNoteMentionFromTextarea(e.target);
+  };
+
   const handleSend = () => {
     if (!draft.trim() || !selected) return;
     const now = new Date();
@@ -331,20 +584,67 @@ function ConversationsContent() {
       hour12: true,
       timeZoneName: "short",
     });
+    const emailSignature =
+      selected.channel === "Email" && inputMode === "message"
+        ? staffEmailSignatureForConversation(selected, humanNameSet, humanMembers)
+        : undefined;
     addMessage(selected.id, {
       role: "staff",
       text: draft.trim(),
       timestamp,
       type: inputMode,
+      ...(emailSignature ? { emailSignature } : {}),
+      ...(inputMode === "private_note" ? { privateNoteAuthor: MY_INBOX_ASSIGNEE } : {}),
     });
     setDraft("");
+    setPrivateNoteMention(null);
+  };
+
+  const handleComposerKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (inputMode === "private_note" && privateNoteMention && privateNoteMentionFiltered.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setPrivateNoteMentionIndex((i) => Math.min(i + 1, privateNoteMentionFiltered.length - 1));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setPrivateNoteMentionIndex((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setPrivateNoteMention(null);
+        return;
+      }
+      if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey) {
+        e.preventDefault();
+        applyPrivateNoteMention(privateNoteMentionFiltered[privateNoteMentionIndex]);
+        return;
+      }
+    }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
   };
 
   const isSidebarActive = (filter: SidebarFilter) => {
     if (typeof sidebarFilter === "string" && typeof filter === "string")
       return sidebarFilter === filter;
-    if (typeof sidebarFilter === "object" && typeof filter === "object")
-      return sidebarFilter.type === filter.type && sidebarFilter.value === filter.value;
+    if (typeof sidebarFilter === "object" && typeof filter === "object") {
+      if (sidebarFilter.type !== filter.type) return false;
+      if (
+        sidebarFilter.type === "live-ai-jamison" ||
+        sidebarFilter.type === "live-ai-hillside"
+      )
+        return true;
+      return (
+        "value" in sidebarFilter &&
+        "value" in filter &&
+        sidebarFilter.value === filter.value
+      );
+    }
     return false;
   };
 
@@ -358,7 +658,7 @@ function ConversationsContent() {
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>
-          <span className="text-sm font-semibold">Inbox</span>
+          <span className="text-sm font-semibold">Back</span>
         </div>
 
         <nav className="flex-1 overflow-y-auto px-2 py-2">
@@ -378,7 +678,22 @@ function ConversationsContent() {
                   onClick={() => setSidebarFilter(item.id)}
                 >
                   <item.icon className="h-4 w-4 shrink-0" />
-                  {item.label}
+                  <span className="min-w-0 flex-1 text-left">{item.label}</span>
+                  {item.id === "all" && allThreadsUnreadCount > 0 && (
+                    <Badge variant="destructive" className="h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">
+                      {allThreadsUnreadCount}
+                    </Badge>
+                  )}
+                  {item.id === "mentions" && mentionsInboxCount > 0 && (
+                    <Badge variant="destructive" className="h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">
+                      {mentionsInboxCount}
+                    </Badge>
+                  )}
+                  {item.id === "unattended" && unattendedInboxCount > 0 && (
+                    <Badge variant="destructive" className="h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">
+                      {unattendedInboxCount}
+                    </Badge>
+                  )}
                 </Button>
               </li>
             ))}
@@ -391,35 +706,83 @@ function ConversationsContent() {
               <Button
                 variant={isSidebarActive({ type: "label", value: "__escalation__" }) ? "secondary" : "ghost"}
                 className={cn(
-                  "w-full justify-start gap-2.5 font-normal",
+                  "h-auto min-h-9 w-full items-start justify-start gap-2.5 whitespace-normal py-2 font-normal",
                   isSidebarActive({ type: "label", value: "__escalation__" }) && "font-medium"
                 )}
                 onClick={() => setSidebarFilter({ type: "label", value: "__escalation__" })}
               >
-                <span className="flex-1 text-left">AI Escalations</span>
-                {escalationCount > 0 && (
-                  <Badge variant="destructive" className="ml-auto h-5 min-w-5 justify-center px-1.5 text-[10px]">
-                    {escalationCount}
+                <span className="min-w-0 flex-1 text-left leading-snug break-words">AI Escalations</span>
+                {escalationUnreadCount > 0 && (
+                  <Badge variant="destructive" className="mt-0.5 h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">
+                    {escalationUnreadCount}
                   </Badge>
                 )}
               </Button>
             </li>
-            {properties.map(([prop, count]) => (
-              <li key={prop}>
-                <Button
-                  variant={isSidebarActive({ type: "property", value: prop }) ? "secondary" : "ghost"}
-                  className={cn(
-                    "w-full justify-start gap-2.5 font-normal",
-                    isSidebarActive({ type: "property", value: prop }) && "font-medium"
-                  )}
-                  onClick={() => setSidebarFilter({ type: "property", value: prop })}
-                >
-                  <span className="flex-1 text-left">{prop}</span>
-                  <Badge variant="secondary" className="ml-auto h-5 min-w-5 justify-center px-1.5 text-[10px]">
-                    {count}
-                  </Badge>
-                </Button>
-              </li>
+            {properties.map(([prop, unreadCount]) => (
+              <Fragment key={prop}>
+                <li>
+                  <Button
+                    variant={isSidebarActive({ type: "property", value: prop }) ? "secondary" : "ghost"}
+                    className={cn(
+                      "h-auto min-h-9 w-full items-start justify-start gap-2.5 whitespace-normal py-2 font-normal",
+                      isSidebarActive({ type: "property", value: prop }) && "font-medium"
+                    )}
+                    onClick={() => setSidebarFilter({ type: "property", value: prop })}
+                  >
+                    <span className="min-w-0 flex-1 text-left leading-snug break-words">
+                      {propertyInboxSidebarLabel(prop)}
+                    </span>
+                    {unreadCount > 0 && (
+                      <Badge variant="destructive" className="mt-0.5 h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">
+                        {unreadCount}
+                      </Badge>
+                    )}
+                  </Button>
+                </li>
+                {prop === "Hillside Living" && (
+                  <li>
+                    <Button
+                      variant={isSidebarActive({ type: "live-ai-hillside" }) ? "secondary" : "ghost"}
+                      className={cn(
+                        "h-auto min-h-9 w-full items-start justify-start gap-2.5 whitespace-normal py-2 font-normal",
+                        isSidebarActive({ type: "live-ai-hillside" }) && "font-medium"
+                      )}
+                      onClick={() => setSidebarFilter({ type: "live-ai-hillside" })}
+                    >
+                      <span className="min-w-0 flex-1 text-left leading-snug break-words">
+                        Live AI Hillside Living
+                      </span>
+                      {liveAiHillsideUnreadCount > 0 && (
+                        <Badge variant="destructive" className="mt-0.5 h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">
+                          {liveAiHillsideUnreadCount}
+                        </Badge>
+                      )}
+                    </Button>
+                  </li>
+                )}
+                {prop === "Jamison Apartments" && (
+                  <li>
+                    <Button
+                      variant={isSidebarActive({ type: "live-ai-jamison" }) ? "secondary" : "ghost"}
+                      className={cn(
+                        "h-auto min-h-9 w-full items-start justify-start gap-2.5 whitespace-normal py-2 font-normal",
+                        isSidebarActive({ type: "live-ai-jamison" }) && "font-medium"
+                      )}
+                      onClick={() => setSidebarFilter({ type: "live-ai-jamison" })}
+                    >
+                      <span className="min-w-0 flex-1 text-left leading-snug break-words">
+                        Live AI Jamison Apartments
+                      </span>
+                      {liveAiJamisonUnreadCount > 0 && (
+                        <Badge variant="destructive" className="mt-0.5 h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">
+                          {liveAiJamisonUnreadCount}
+                        </Badge>
+                      )}
+                    </Button>
+                  </li>
+                )}
+              </Fragment>
             ))}
           </ul>
 
@@ -453,9 +816,9 @@ function ConversationsContent() {
             <TabsList className="w-full">
               <TabsTrigger value="mine" className="flex-1 gap-1.5">
                 My Inbox
-                {myInboxCount > 0 && (
+                {myInboxUnreadCount > 0 && (
                   <Badge variant="destructive" className="h-5 min-w-5 justify-center px-1.5 text-[10px]">
-                    {myInboxCount}
+                    {myInboxUnreadCount}
                   </Badge>
                 )}
               </TabsTrigger>
@@ -479,29 +842,107 @@ function ConversationsContent() {
         </div>
 
         {/* List */}
-        <div className="flex-1 overflow-y-auto scrollbar-hover">
-          {filtered.length > 0 ? (
-            <ul>
-              {filtered.map((convo) => {
-                const isActive = convo.id === selectedId;
-                return (
-                  <li key={convo.id}>
-                    <button
-                      type="button"
-                      onClick={() => { setSelectedId(convo.id); markRead(convo.id); }}
-                      className={cn(
-                        "relative flex w-full flex-col gap-1 py-3 pl-4 pr-4 text-left transition-colors",
-                        isActive
-                          ? "border-l-2 border-l-primary bg-accent"
-                          : "hover:bg-accent/50"
-                      )}
-                    >
-                      {convo.hasUnread && !isActive && (
-                        <span className="absolute left-1.5 top-4 h-2 w-2 rounded-full bg-destructive" />
-                      )}
-                      <span className="text-[10px] font-medium tracking-wide text-muted-foreground">
-                        {convo.property}
-                      </span>
+        <TooltipProvider delayDuration={250}>
+          <div className="flex-1 overflow-y-auto scrollbar-hover">
+            {filtered.length > 0 ? (
+              <ul>
+                {filtered.map((convo) => {
+                  const isActive = convo.id === selectedId;
+                  const emailRouting =
+                    convo.channel === "Email"
+                      ? getEmailThreadRoutingAddresses(convo.resident, convo.property)
+                      : null;
+                  const phoneRouting = emailRouting
+                    ? null
+                    : getVoiceOrSmsThreadRoutingNumbers(convo.resident, convo.property);
+                  return (
+                    <li key={convo.id}>
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedId(convo.id); markRead(convo.id, MY_INBOX_ASSIGNEE); }}
+                        className={cn(
+                          "relative flex w-full flex-col gap-1 py-3 pl-4 pr-4 text-left transition-colors",
+                          isActive
+                            ? "border-l-2 border-l-primary bg-accent"
+                            : "hover:bg-accent/50"
+                        )}
+                      >
+                        {convo.hasUnread && !isActive && (
+                          <span className="absolute left-1.5 top-4 h-2 w-2 rounded-full bg-destructive" />
+                        )}
+                        <span className="flex items-center gap-1.5 text-[10px] font-medium tracking-wide text-muted-foreground">
+                          {emailRouting ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="cursor-default border-b border-dotted border-muted-foreground/50 hover:border-muted-foreground hover:text-foreground">
+                                  {convo.property}
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="bottom" align="start" className="max-w-[min(280px,calc(100vw-2rem))] p-0">
+                                <div className="space-y-2 px-3 py-2">
+                                  <div>
+                                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      From (resident)
+                                    </p>
+                                    <p className="break-all text-[11px] leading-snug text-foreground">
+                                      {emailRouting.residentEmail}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      To (property)
+                                    </p>
+                                    <p className="break-all text-[11px] leading-snug text-foreground">
+                                      {emailRouting.propertyInboxEmail}
+                                    </p>
+                                  </div>
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : phoneRouting?.propertyLine ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="cursor-default border-b border-dotted border-muted-foreground/50 hover:border-muted-foreground hover:text-foreground">
+                                  {convo.property}
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="bottom" align="start" className="max-w-[min(280px,calc(100vw-2rem))] p-0">
+                                <div className="space-y-2 px-3 py-2">
+                                  <div>
+                                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      From (resident)
+                                    </p>
+                                    <p className="font-mono text-[11px] tabular-nums leading-snug text-foreground">
+                                      {phoneRouting.residentPhone}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      To (property)
+                                    </p>
+                                    <p className="font-mono text-[11px] tabular-nums leading-snug text-foreground">
+                                      {phoneRouting.propertyLine}
+                                    </p>
+                                  </div>
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            convo.property
+                          )}
+                          {convo.channel === "Email" && (
+                            <span className="inline-flex items-center gap-0.5 font-normal text-muted-foreground/90">
+                              <Mail className="h-3 w-3 shrink-0" />
+                              Email
+                            </span>
+                          )}
+                          {convo.channel === "SMS" && (
+                            <span className="inline-flex items-center gap-0.5 font-normal text-muted-foreground/90">
+                              <Phone className="h-3 w-3 shrink-0" />
+                              SMS
+                            </span>
+                          )}
+                        </span>
                       <div className="flex items-center justify-between gap-2">
                         <span className={cn("truncate text-sm", convo.hasUnread ? "font-bold" : "font-semibold")}>{convo.resident}</span>
                         <span className="shrink-0 text-[10px] text-muted-foreground">{convo.time}</span>
@@ -520,17 +961,18 @@ function ConversationsContent() {
                           ))}
                         </div>
                       )}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <div className="flex h-full items-center justify-center p-6">
-              <p className="text-sm text-muted-foreground">No conversations match the filters.</p>
-            </div>
-          )}
-        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <div className="flex h-full items-center justify-center p-6">
+                <p className="text-sm text-muted-foreground">No conversations match the filters.</p>
+              </div>
+            )}
+          </div>
+        </TooltipProvider>
       </div>
 
       {/* ===== CONVERSATION DETAIL ===== */}
@@ -549,7 +991,27 @@ function ConversationsContent() {
                   >
                     {selected.resident}
                   </button>
-                  <span className="text-sm text-muted-foreground">{selected.property}</span>
+                  <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                    {selected.property}
+                    {selected.channel === "Email" && (
+                      <>
+                        <span className="text-muted-foreground/50">·</span>
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground">
+                          <Mail className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                          Email
+                        </span>
+                      </>
+                    )}
+                    {selected.channel === "SMS" && (
+                      <>
+                        <span className="text-muted-foreground/50">·</span>
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground">
+                          <Phone className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                          SMS
+                        </span>
+                      </>
+                    )}
+                  </span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Popover>
@@ -571,7 +1033,7 @@ function ConversationsContent() {
                       <AssigneePicker
                         groupedAssignees={groupedAssignees}
                         currentAssignee={selected.assignee}
-                        onSelect={(value) => updateAssignee(selected.id, value)}
+                        onSelect={(value) => updateAssignee(selected.id, value, MY_INBOX_ASSIGNEE)}
                       />
                     </PopoverContent>
                   </Popover>
@@ -580,7 +1042,7 @@ function ConversationsContent() {
                       <Button
                         size="sm"
                         className="gap-1 rounded-r-none px-2.5 h-7 text-xs"
-                        onClick={() => resolveConversation(selected.id)}
+                        onClick={() => resolveConversation(selected.id, MY_INBOX_ASSIGNEE)}
                       >
                         <Check className="h-3 w-3" />
                         Resolve
@@ -595,7 +1057,7 @@ function ConversationsContent() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-48">
-                          <DropdownMenuItem onClick={() => resolveConversation(selected.id)}>
+                          <DropdownMenuItem onClick={() => resolveConversation(selected.id, MY_INBOX_ASSIGNEE)}>
                             <Check className="mr-2 h-3.5 w-3.5" />
                             Mark as Resolved
                           </DropdownMenuItem>
@@ -607,7 +1069,7 @@ function ConversationsContent() {
                       size="sm"
                       variant="outline"
                       className="gap-1.5"
-                      onClick={() => reopenConversation(selected.id)}
+                      onClick={() => reopenConversation(selected.id, MY_INBOX_ASSIGNEE)}
                     >
                       Reopen
                     </Button>
@@ -657,7 +1119,7 @@ function ConversationsContent() {
                         onChange={(e) => setNewLabelText(e.target.value)}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" && newLabelText.trim()) {
-                            addLabel(selected.id, newLabelText.trim());
+                            addLabel(selected.id, newLabelText.trim(), MY_INBOX_ASSIGNEE);
                             setNewLabelText("");
                             setAddLabelOpen(false);
                           }
@@ -680,7 +1142,7 @@ function ConversationsContent() {
                                 if (applied) {
                                   removeLabel(selected.id, label);
                                 } else {
-                                  addLabel(selected.id, label);
+                                  addLabel(selected.id, label, MY_INBOX_ASSIGNEE);
                                 }
                               }}
                             >
@@ -694,7 +1156,7 @@ function ConversationsContent() {
                           type="button"
                           className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent transition-colors text-muted-foreground"
                           onClick={() => {
-                            addLabel(selected.id, newLabelText.trim());
+                            addLabel(selected.id, newLabelText.trim(), MY_INBOX_ASSIGNEE);
                             setNewLabelText("");
                             setAddLabelOpen(false);
                           }}
@@ -708,122 +1170,379 @@ function ConversationsContent() {
                 </Popover>
               </div>
 
-              {/* Row 3: AI Activated toggle */}
-              <div className="mt-3 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
-                <div className="flex items-center gap-2.5">
-                  <Switch
-                    checked={aiActivated}
-                    onCheckedChange={(checked) => {
-                      setAiActivated(checked);
-                      if (checked) {
-                        setReactivationDate(null);
-                        setNoLimit(false);
-                        setShowDatePicker(false);
-                      } else {
-                        setShowDatePicker(true);
-                      }
-                    }}
-                  />
-                  <span className="text-sm font-medium text-foreground whitespace-nowrap">
-                    AI Activated
-                  </span>
-                  {!aiActivated && (reactivationDate || noLimit) && (
-                    <span className="ml-auto text-xs text-muted-foreground truncate">
-                      {noLimit
-                        ? "Will not reactivate"
-                        : `Reactivates ${reactivationDate!.toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          })}`}
-                    </span>
-                  )}
-                </div>
-                {!aiActivated && (
-                  <div className="mt-2 flex items-center gap-2 pl-[46px]">
-                    <label className="text-xs text-muted-foreground whitespace-nowrap">
-                      Deactivation up to:
-                    </label>
-                    {noLimit ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setNoLimit(false);
-                          setShowDatePicker(true);
+              {selected.labels.some((label) => AI_ACTIVATION_OPT_IN_LABELS.has(label)) && (
+                <>
+                  {/* Row 3: AI Activated toggle */}
+                  <div className="mt-3 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
+                    <div className="flex items-center gap-2.5">
+                      <Switch
+                        checked={aiActivated}
+                        onCheckedChange={(checked) => {
+                          setAiActivated(checked);
+                          recordThreadActivity(selected.id, {
+                            kind: "ai_activation",
+                            active: checked,
+                            actor: MY_INBOX_ASSIGNEE,
+                          });
+                          if (checked) {
+                            setReactivationDate(null);
+                            setNoLimit(false);
+                            setShowDatePicker(false);
+                          } else {
+                            setShowDatePicker(true);
+                          }
                         }}
-                        className="flex items-center gap-1.5 rounded-md border border-input bg-background px-2.5 py-1 text-xs transition-colors hover:bg-accent"
-                      >
-                        No Limit
-                      </button>
-                    ) : (
-                      <Popover open={showDatePicker} onOpenChange={setShowDatePicker}>
-                        <PopoverTrigger asChild>
+                      />
+                      <span className="text-sm font-medium text-foreground whitespace-nowrap">
+                        AI Activated
+                      </span>
+                      {!aiActivated && (reactivationDate || noLimit) && (
+                        <span className="ml-auto text-xs text-muted-foreground truncate">
+                          {noLimit
+                            ? "Will not reactivate"
+                            : `Reactivates ${reactivationDate!.toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                              })}`}
+                        </span>
+                      )}
+                    </div>
+                    {!aiActivated && (
+                      <div className="mt-2 flex items-center gap-2 pl-[46px]">
+                        <label className="text-xs text-muted-foreground whitespace-nowrap">
+                          Deactivation up to:
+                        </label>
+                        {noLimit ? (
                           <button
                             type="button"
+                            onClick={() => {
+                              setNoLimit(false);
+                              setShowDatePicker(true);
+                            }}
                             className="flex items-center gap-1.5 rounded-md border border-input bg-background px-2.5 py-1 text-xs transition-colors hover:bg-accent"
                           >
-                            <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                            {reactivationDate
-                              ? reactivationDate.toLocaleDateString("en-US", {
-                                  month: "short",
-                                  day: "numeric",
-                                  year: "numeric",
-                                })
-                              : "Select date"}
+                            No Limit
                           </button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <MiniCalendar
-                            selected={reactivationDate}
-                            onSelect={(date) => {
-                              setReactivationDate(date);
-                              setNoLimit(false);
-                              setShowDatePicker(false);
-                            }}
-                            onNoLimit={() => {
-                              setReactivationDate(null);
-                              setNoLimit(true);
-                              setShowDatePicker(false);
-                            }}
-                          />
-                        </PopoverContent>
-                      </Popover>
+                        ) : (
+                          <Popover open={showDatePicker} onOpenChange={setShowDatePicker}>
+                            <PopoverTrigger asChild>
+                              <button
+                                type="button"
+                                className="flex items-center gap-1.5 rounded-md border border-input bg-background px-2.5 py-1 text-xs transition-colors hover:bg-accent"
+                              >
+                                <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                                {reactivationDate
+                                  ? reactivationDate.toLocaleDateString("en-US", {
+                                      month: "short",
+                                      day: "numeric",
+                                      year: "numeric",
+                                    })
+                                  : "Select date"}
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="start">
+                              <MiniCalendar
+                                selected={reactivationDate}
+                                onSelect={(date) => {
+                                  setReactivationDate(date);
+                                  setNoLimit(false);
+                                  setShowDatePicker(false);
+                                }}
+                                onNoLimit={() => {
+                                  setReactivationDate(null);
+                                  setNoLimit(true);
+                                  setShowDatePicker(false);
+                                }}
+                              />
+                            </PopoverContent>
+                          </Popover>
+                        )}
+                      </div>
                     )}
                   </div>
-                )}
-              </div>
 
-              {/* Row 4: Phone / Email opt-in */}
-              <div className="mt-3 flex gap-3">
-                <div className="flex-1 min-w-0">
-                  <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Phone</label>
-                  <Select value={phoneOpt} onValueChange={setPhoneOpt}>
-                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
-                      <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
-                      <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Email</label>
-                  <Select value={emailOpt} onValueChange={setEmailOpt}>
-                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
-                      <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
-                      <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+                  {/* Row 4: Phone / Email opt-in */}
+                  <div className="mt-3 flex gap-3">
+                    <div className="flex-1 min-w-0">
+                      <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Phone</label>
+                      <Select
+                        value={phoneOpt}
+                        onValueChange={(v) => {
+                          const choice = v as ChannelOptChoice;
+                          setPhoneOpt(choice);
+                          recordThreadActivity(selected.id, {
+                            kind: "channel_opt",
+                            channel: "phone",
+                            choice,
+                            actor: MY_INBOX_ASSIGNEE,
+                          });
+                        }}
+                      >
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
+                          <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
+                          <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Email</label>
+                      <Select
+                        value={emailOpt}
+                        onValueChange={(v) => {
+                          const choice = v as ChannelOptChoice;
+                          setEmailOpt(choice);
+                          recordThreadActivity(selected.id, {
+                            kind: "channel_opt",
+                            channel: "email",
+                            choice,
+                            actor: MY_INBOX_ASSIGNEE,
+                          });
+                        }}
+                      >
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
+                          <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
+                          <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Messages */}
             <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-hover bg-muted/30 px-5 py-4">
               <div className="space-y-4">
-                {selected.messages.map((msg, idx) => {
+                {selected.channel === "Email" && (
+                  <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+                    <div className="border-b border-border bg-muted/50 px-4 py-3">
+                      <div className="flex items-start gap-2.5">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background border border-border">
+                          <Mail className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                        <div className="min-w-0 flex-1 space-y-2">
+                          <div>
+                            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                              Subject
+                            </p>
+                            <p className="text-sm font-semibold text-foreground leading-snug">
+                              {selected.emailSubject ?? selected.preview}
+                            </p>
+                          </div>
+                          <div className="grid gap-1.5 text-xs">
+                            <p>
+                              <span className="text-muted-foreground">From:</span>{" "}
+                              <span className="font-medium text-foreground">
+                                {selected.resident} &lt;
+                                {selectedEmailRouting?.residentEmail}
+                                &gt;
+                              </span>
+                            </p>
+                            <p>
+                              <span className="text-muted-foreground">To:</span>{" "}
+                              <span className="font-medium text-foreground">
+                                {selected.property} Leasing &lt;
+                                {selectedEmailRouting?.propertyInboxEmail}
+                                &gt;
+                              </span>
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="space-y-4 bg-background px-4 py-4">
+                      {selected.messages.map((msg, idx) => {
+                        if (msg.type === "handoff") {
+                          return (
+                            <div key={idx} className="flex items-center justify-center gap-2 py-1">
+                              <CornerDownRight className="h-3 w-3 text-muted-foreground" />
+                              <span className="text-[11px] text-muted-foreground">
+                                Handoff {isHumanAssignee(selected.assignee) ? selected.assignee : "Staff"} · {msg.timestamp}
+                              </span>
+                            </div>
+                          );
+                        }
+                        if (msg.type === "thread_activity" && msg.threadActivity) {
+                          return <ConversationThreadActivityRow key={idx} message={msg} />;
+                        }
+                        if (msg.type === "label_activity" && msg.labelActivity) {
+                          const { actor, labelsAdded } = msg.labelActivity;
+                          return (
+                            <div
+                              key={idx}
+                              className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/70 bg-muted/25 py-2.5 px-3"
+                            >
+                              <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                              <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
+                                <span className="font-medium text-foreground">{actor}</span>
+                                {" added "}
+                                {labelsAdded.length === 1 ? "label " : "labels "}
+                                <span className="font-medium text-foreground">{labelsAdded.join(", ")}</span>
+                                {msg.timestamp && (
+                                  <>
+                                    <span className="text-muted-foreground/70"> · </span>
+                                    <span>{msg.timestamp}</span>
+                                  </>
+                                )}
+                              </p>
+                            </div>
+                          );
+                        }
+                        if (msg.type === "private_note") {
+                          return (
+                            <div key={idx} className="space-y-1">
+                              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                                <Avatar className="h-5 w-5">
+                                  <AvatarFallback
+                                    className={cn(
+                                      "text-[8px]",
+                                      msg.privateNoteAuthor
+                                        ? avatarColor(msg.privateNoteAuthor)
+                                        : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                                    )}
+                                  >
+                                    {msg.privateNoteAuthor ? (
+                                      initials(msg.privateNoteAuthor)
+                                    ) : (
+                                      <StickyNote className="h-2.5 w-2.5" />
+                                    )}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                                  Private Note
+                                  {msg.privateNoteAuthor ? (
+                                    <>
+                                      <span className="font-normal text-muted-foreground"> · </span>
+                                      <span className="font-medium text-amber-800 dark:text-amber-200">
+                                        {msg.privateNoteAuthor}
+                                      </span>
+                                    </>
+                                  ) : null}
+                                </span>
+                                {msg.timestamp && <span className="text-[10px] text-muted-foreground">{msg.timestamp}</span>}
+                              </div>
+                              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+                                {msg.text}
+                              </div>
+                            </div>
+                          );
+                        }
+                        const isAgent = msg.role === "agent";
+                        const isStaff = msg.role === "staff";
+                        return (
+                          <div key={idx} className="space-y-2 border-l-2 border-l-primary/25 pl-4">
+                            <div className="flex items-center gap-2">
+                              <Avatar className={cn(isAgent || isStaff ? "h-8 w-8" : "h-5 w-5")}>
+                                {isAgent ? (
+                                  <AvatarImage src="/eli-cube.svg" alt="ELI" className="p-1" />
+                                ) : null}
+                                <AvatarFallback
+                                  className={cn(
+                                    (isAgent || isStaff)
+                                      ? "bg-muted text-[10px] text-foreground"
+                                      : "bg-muted text-[8px] text-muted-foreground"
+                                  )}
+                                >
+                                  {isStaff
+                                    ? initials(isHumanAssignee(selected.assignee) ? selected.assignee : "Staff")
+                                    : <User className="h-2.5 w-2.5" />}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div className="flex flex-col">
+                                <span className="text-xs font-semibold text-foreground">
+                                  {isAgent
+                                    ? resolveAgentLabel(selected.agent)
+                                    : isStaff
+                                      ? (isHumanAssignee(selected.assignee) ? selected.assignee : "Staff")
+                                      : selected.resident}
+                                </span>
+                                {msg.timestamp && <span className="text-[10px] text-muted-foreground">{msg.timestamp}</span>}
+                              </div>
+                            </div>
+                            <div className="rounded-md border border-border bg-muted/30 px-4 py-3 text-sm leading-relaxed text-foreground">
+                              {msg.text.split("\n").map((line, li) => (
+                                <span key={li}>
+                                  {line}
+                                  {li < msg.text.split("\n").length - 1 && <br />}
+                                </span>
+                              ))}
+                            </div>
+                            {msg.emailAttachments && msg.emailAttachments.length > 0 && (
+                              <div className="space-y-2 pt-1">
+                                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                  Attachments
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                  {msg.emailAttachments.map((att, ai) =>
+                                    att.kind === "image" ? (
+                                      <button
+                                        key={`${att.name}-${ai}`}
+                                        type="button"
+                                        onClick={() => setEmailAttachmentPreview(att)}
+                                        className="flex w-[min(100%,12rem)] flex-col gap-1.5 rounded-md border border-border bg-card p-2 text-left shadow-sm transition-colors hover:bg-muted/50 hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                      >
+                                        <div className="flex aspect-[4/3] w-full items-center justify-center rounded border border-dashed border-border bg-gradient-to-br from-muted/80 to-muted/40">
+                                          <ImageIcon className="h-6 w-6 text-muted-foreground/70" aria-hidden />
+                                        </div>
+                                        <span className="truncate text-[11px] font-medium text-foreground" title={att.name}>
+                                          {att.name}
+                                        </span>
+                                      </button>
+                                    ) : (
+                                      <button
+                                        key={`${att.name}-${ai}`}
+                                        type="button"
+                                        onClick={() => setEmailAttachmentPreview(att)}
+                                        className="flex max-w-[14rem] items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-left shadow-sm transition-colors hover:bg-muted/50 hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                      >
+                                        <FileText className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                                        <span className="truncate text-[11px] font-medium text-foreground" title={att.name}>
+                                          {att.name}
+                                        </span>
+                                      </button>
+                                    )
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                            {msg.emailSignature?.trim() && (
+                              <div className="mt-3 border-t border-border pt-3">
+                                <div className="flex gap-3">
+                                  {(isStaff || msg.role === "resident") && (
+                                    <Avatar className="mt-0.5 h-10 w-10 shrink-0 border border-border bg-background">
+                                      <AvatarFallback
+                                        className={cn(
+                                          "text-[10px]",
+                                          isStaff ? avatarColor(selected.assignee) : "bg-muted text-muted-foreground"
+                                        )}
+                                      >
+                                        {isStaff
+                                          ? isHumanAssignee(selected.assignee)
+                                            ? initials(selected.assignee)
+                                            : "ST"
+                                          : initials(selected.resident)}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                  )}
+                                  <p className="min-w-0 whitespace-pre-line text-xs leading-relaxed text-muted-foreground">
+                                    {msg.emailSignature}
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                {selected.channel !== "Email" &&
+                selected.messages.map((msg, idx) => {
                   if (msg.type === "handoff") {
                     return (
                       <div key={idx} className="flex items-center justify-center gap-2 py-1">
@@ -835,16 +1554,65 @@ function ConversationsContent() {
                     );
                   }
 
+                  if (msg.type === "thread_activity" && msg.threadActivity) {
+                    return <ConversationThreadActivityRow key={idx} message={msg} />;
+                  }
+
+                  if (msg.type === "label_activity" && msg.labelActivity) {
+                    const { actor, labelsAdded } = msg.labelActivity;
+                    return (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/70 bg-muted/25 py-2.5 px-3"
+                      >
+                        <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                        <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
+                          <span className="font-medium text-foreground">{actor}</span>
+                          {" added "}
+                          {labelsAdded.length === 1 ? "label " : "labels "}
+                          <span className="font-medium text-foreground">{labelsAdded.join(", ")}</span>
+                          {msg.timestamp && (
+                            <>
+                              <span className="text-muted-foreground/70"> · </span>
+                              <span>{msg.timestamp}</span>
+                            </>
+                          )}
+                        </p>
+                      </div>
+                    );
+                  }
+
                   if (msg.type === "private_note") {
                     return (
                       <div key={idx} className="space-y-1">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                           <Avatar className="h-5 w-5">
-                            <AvatarFallback className="bg-amber-100 text-[8px] text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
-                              <StickyNote className="h-2.5 w-2.5" />
+                            <AvatarFallback
+                              className={cn(
+                                "text-[8px]",
+                                msg.privateNoteAuthor
+                                  ? avatarColor(msg.privateNoteAuthor)
+                                  : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                              )}
+                            >
+                              {msg.privateNoteAuthor ? (
+                                initials(msg.privateNoteAuthor)
+                              ) : (
+                                <StickyNote className="h-2.5 w-2.5" />
+                              )}
                             </AvatarFallback>
                           </Avatar>
-                          <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">Private Note</span>
+                          <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                            Private Note
+                            {msg.privateNoteAuthor ? (
+                              <>
+                                <span className="font-normal text-muted-foreground"> · </span>
+                                <span className="font-medium text-amber-800 dark:text-amber-200">
+                                  {msg.privateNoteAuthor}
+                                </span>
+                              </>
+                            ) : null}
+                          </span>
                           {msg.timestamp && <span className="text-[10px] text-muted-foreground">{msg.timestamp}</span>}
                         </div>
                         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
@@ -915,7 +1683,10 @@ function ConversationsContent() {
                   variant={inputMode === "message" ? "default" : "ghost"}
                   size="sm"
                   className="gap-1.5 rounded-full text-xs"
-                  onClick={() => setInputMode("message")}
+                  onClick={() => {
+                    setInputMode("message");
+                    setPrivateNoteMention(null);
+                  }}
                 >
                   <MessageSquare className="h-3.5 w-3.5" />
                   Message
@@ -938,25 +1709,80 @@ function ConversationsContent() {
               <div className="px-5 pb-4">
                 <div
                   className={cn(
-                    "flex flex-col rounded-xl border transition-colors focus-within:ring-1 focus-within:ring-ring",
+                    "relative flex flex-col rounded-xl border transition-colors focus-within:ring-1 focus-within:ring-ring",
                     inputMode === "private_note"
                       ? "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20"
                       : "border-input bg-background"
                   )}
                 >
+                  {inputMode === "private_note" &&
+                    privateNoteMention &&
+                    (privateNoteMentionFiltered.length > 0 ? (
+                      <div
+                        className="absolute bottom-full left-0 right-0 z-50 mb-1 overflow-hidden rounded-md border border-border bg-popover shadow-md"
+                        role="listbox"
+                        aria-label="Mention a teammate"
+                      >
+                        <ul className="max-h-48 overflow-y-auto py-1">
+                          {privateNoteMentionFiltered.map((c, idx) => (
+                            <li key={c.handle} role="option" aria-selected={idx === privateNoteMentionIndex}>
+                              <button
+                                type="button"
+                                className={cn(
+                                  "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-accent",
+                                  idx === privateNoteMentionIndex && "bg-accent"
+                                )}
+                                onMouseDown={(e) => e.preventDefault()}
+                                onMouseEnter={() => setPrivateNoteMentionIndex(idx)}
+                                onClick={() => applyPrivateNoteMention(c)}
+                              >
+                                <Avatar className="h-7 w-7">
+                                  <AvatarFallback className={cn("text-[10px]", avatarColor(c.name))}>
+                                    {initials(c.name)}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate font-medium text-foreground">{c.name}</p>
+                                  <p className="truncate text-xs text-muted-foreground">
+                                    @{c.handle} · {c.role}
+                                  </p>
+                                </div>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : privateNoteMention.query.length > 0 ? (
+                      <div className="absolute bottom-full left-0 right-0 z-50 mb-1 rounded-md border border-border bg-popover px-3 py-2 text-xs text-muted-foreground shadow-md">
+                        No matching staff
+                      </div>
+                    ) : null)}
                   <textarea
+                    ref={chatTextareaRef}
                     value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSend();
+                    onChange={handleComposerDraftChange}
+                    onSelect={(e) => {
+                      if (inputMode === "private_note") {
+                        syncPrivateNoteMentionFromTextarea(e.currentTarget);
                       }
                     }}
+                    onKeyUp={(e) => {
+                      if (inputMode === "private_note") {
+                        syncPrivateNoteMentionFromTextarea(e.currentTarget);
+                      }
+                    }}
+                    onKeyDown={handleComposerKeyDown}
                     placeholder={inputMode === "private_note" ? "Write a private note…" : "Write a message…"}
                     rows={2}
                     className="w-full resize-none bg-transparent px-4 pt-3 pb-1 text-sm placeholder:text-muted-foreground focus-visible:outline-none"
                     aria-label={inputMode === "private_note" ? "Private note" : "Message"}
+                    aria-autocomplete={inputMode === "private_note" ? "list" : undefined}
+                    aria-haspopup={inputMode === "private_note" ? "listbox" : undefined}
+                    aria-expanded={
+                      inputMode === "private_note" && !!privateNoteMention
+                        ? privateNoteMentionFiltered.length > 0 || privateNoteMention.query.length > 0
+                        : undefined
+                    }
                   />
                   <div className="flex items-center justify-between px-3 pb-2">
                     <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-muted-foreground">
@@ -1571,6 +2397,66 @@ function ConversationsContent() {
           </div>}
         </div>
       )}
+
+      <Dialog open={emailAttachmentPreview !== null} onOpenChange={(open) => { if (!open) setEmailAttachmentPreview(null); }}>
+        <DialogContent className="flex max-h-[min(90vh,760px)] max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+          <DialogHeader className="shrink-0 space-y-1 border-b border-border px-6 py-4 text-left">
+            <DialogTitle className="pr-8 text-base font-semibold leading-snug">
+              {emailAttachmentPreview?.name ?? "Attachment"}
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              Preview of the selected email attachment. Prototype sample; not a live file.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto bg-muted/40 p-6">
+            {emailAttachmentPreview?.kind === "image" ? (
+              <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=1400&q=80"
+                  alt=""
+                  className="block h-auto w-full max-h-[min(65vh,520px)] object-cover"
+                />
+                <p className="border-t border-border px-4 py-2.5 text-center text-[11px] text-muted-foreground">
+                  Sample preview for prototype — stand-in image for the attachment.
+                </p>
+              </div>
+            ) : emailAttachmentPreview ? (
+              <div className="mx-auto max-w-xl rounded-lg border border-border bg-background shadow-sm">
+                <div className="flex items-center gap-2 border-b border-border bg-muted/50 px-4 py-2">
+                  <FileText className="h-4 w-4 text-muted-foreground" aria-hidden />
+                  <span className="truncate text-xs font-medium text-foreground">{emailAttachmentPreview.name}</span>
+                </div>
+                <div className="space-y-4 p-6">
+                  <div className="mx-auto flex max-w-[240px] flex-col gap-2">
+                    <div className="flex flex-wrap gap-2">
+                      {/* Simple floor-plan style mock */}
+                      <div className="h-14 w-14 rounded-sm border-2 border-foreground/25 bg-muted/60" />
+                      <div className="flex flex-1 flex-col justify-between gap-2 min-w-[100px]">
+                        <div className="h-6 rounded-sm border border-foreground/20 bg-muted/40" />
+                        <div className="h-8 rounded-sm border border-foreground/20 bg-muted/30" />
+                      </div>
+                    </div>
+                    <div className="h-20 rounded-sm border border-dashed border-foreground/15 bg-muted/20" />
+                  </div>
+                  <div className="space-y-2">
+                    {[85, 100, 72, 95, 88, 100].map((w, i) => (
+                      <div
+                        key={i}
+                        className="h-2 rounded-full bg-muted-foreground/15"
+                        style={{ width: `${w}%` }}
+                      />
+                    ))}
+                  </div>
+                  <p className="text-center text-[11px] text-muted-foreground">
+                    Sample document preview for prototype — not the real PDF.
+                  </p>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );

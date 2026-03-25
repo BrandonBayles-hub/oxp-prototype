@@ -150,8 +150,8 @@ export function MetricDetailDialog({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Properties</SelectItem>
-              <SelectItem value="a">Property A</SelectItem>
-              <SelectItem value="b">Property B</SelectItem>
+              <SelectItem value="a">Hillside Living</SelectItem>
+              <SelectItem value="b">Jamison Apartments</SelectItem>
               <SelectItem value="c">Property C</SelectItem>
             </SelectContent>
           </Select>

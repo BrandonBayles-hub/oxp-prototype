@@ -20,9 +20,9 @@ const ALLOWED_ROUTES: Record<Role, string[] | "all"> = {
 
 const ROLE_PROPERTIES: Record<Role, string[] | "all"> = {
   admin: "all",
-  regional: ["Property A", "Property B"],
-  property: ["Property A"],
-  ic: ["Property A"],
+  regional: ["Hillside Living", "Jamison Apartments"],
+  property: ["Hillside Living"],
+  ic: ["Hillside Living"],
 };
 
 export function matchesRoleProperties(

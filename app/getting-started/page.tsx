@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { useSetup } from "@/lib/setup-context";
-import { useEliEmails } from "@/lib/eli-emails-context";
 import { useVault } from "@/lib/vault-context";
 import { useAgents } from "@/lib/agents-context";
 import { useWorkflows } from "@/lib/workflows-context";
@@ -758,25 +757,23 @@ function StepEliEssentials() {
    ═══════════════════════════════════════════════════════════════════════ */
 
 const LIVE_CONV_PROPERTIES = [
-  { id: "harvest-peak", name: "Harvest Peak Capital", vertical: "Conventional", units: 312, eliPlus: true },
-  { id: "skyline", name: "Skyline Apartments", vertical: "Conventional", units: 198, eliPlus: true },
-  { id: "meridian", name: "The Meridian", vertical: "Affordable", units: 156, eliPlus: true },
-  { id: "azure", name: "Azure Heights", vertical: "Conventional", units: 244, eliPlus: true },
-  { id: "cambridge", name: "Cambridge Suites", vertical: "Student", units: 180, eliPlus: true },
-  { id: "willow-creek", name: "Willow Creek Residences", vertical: "Conventional", units: 276, eliPlus: true },
-  { id: "summit-view", name: "Summit View Towers", vertical: "Conventional", units: 340, eliPlus: true },
-  { id: "lakeside", name: "Lakeside Commons", vertical: "Affordable", units: 128, eliPlus: true },
-  { id: "parkway", name: "Parkway Terrace", vertical: "Student", units: 210, eliPlus: true },
-  { id: "cedar-ridge", name: "Cedar Ridge Estates", vertical: "Conventional", units: 165, eliPlus: true },
-  { id: "riverstone", name: "Riverstone Landing", vertical: "Conventional", units: 290, eliPlus: true },
-  { id: "magnolia", name: "Magnolia Gardens", vertical: "Affordable", units: 142, eliPlus: true },
-  { id: "ironwood", name: "Ironwood Flats", vertical: "Conventional", units: 188, eliPlus: true },
-  { id: "brookhaven", name: "Brookhaven Place", vertical: "Student", units: 224, eliPlus: true },
-  { id: "silver-oaks", name: "Silver Oaks Village", vertical: "Conventional", units: 310, eliPlus: true },
-  { id: "aspen-grove", name: "Aspen Grove Lofts", vertical: "Conventional", units: 175, eliPlus: true },
+  { id: "harvest-peak", name: "Harvest Peak Capital", vertical: "Conventional", units: 312 },
+  { id: "skyline", name: "Skyline Apartments", vertical: "Conventional", units: 198 },
+  { id: "meridian", name: "The Meridian", vertical: "Affordable", units: 156 },
+  { id: "azure", name: "Azure Heights", vertical: "Conventional", units: 244 },
+  { id: "cambridge", name: "Cambridge Suites", vertical: "Student", units: 180 },
+  { id: "willow-creek", name: "Willow Creek Residences", vertical: "Conventional", units: 276 },
+  { id: "summit-view", name: "Summit View Towers", vertical: "Conventional", units: 340 },
+  { id: "lakeside", name: "Lakeside Commons", vertical: "Affordable", units: 128 },
+  { id: "parkway", name: "Parkway Terrace", vertical: "Student", units: 210 },
+  { id: "cedar-ridge", name: "Cedar Ridge Estates", vertical: "Conventional", units: 165 },
+  { id: "riverstone", name: "Riverstone Landing", vertical: "Conventional", units: 290 },
+  { id: "magnolia", name: "Magnolia Gardens", vertical: "Affordable", units: 142 },
+  { id: "ironwood", name: "Ironwood Flats", vertical: "Conventional", units: 188 },
+  { id: "brookhaven", name: "Brookhaven Place", vertical: "Student", units: 224 },
+  { id: "silver-oaks", name: "Silver Oaks Village", vertical: "Conventional", units: 310 },
+  { id: "aspen-grove", name: "Aspen Grove Lofts", vertical: "Conventional", units: 175 },
 ];
-
-const ELI_PLUS_PROPERTIES = LIVE_CONV_PROPERTIES.filter((p) => p.eliPlus);
 
 function TablePagination({ total, page, pageSize, onPageChange, onPageSizeChange }: { total: number; page: number; pageSize: number; onPageChange: (p: number) => void; onPageSizeChange: (s: number) => void }) {
   const totalPages = Math.ceil(total / pageSize);
@@ -832,44 +829,7 @@ function TablePagination({ total, page, pageSize, onPageChange, onPageSizeChange
   );
 }
 
-const ELI_COLUMNS = ["leasing", "maintenance", "payments", "renewals"] as const;
-type EliColumn = typeof ELI_COLUMNS[number];
-const ELI_COL_LABELS: Record<EliColumn, string> = {
-  leasing: "Leasing AI",
-  maintenance: "Maintenance AI",
-  payments: "Payments AI",
-  renewals: "Renewals AI",
-};
-
-const SERVICE_TYPE_TO_COL: Record<string, EliColumn> = {
-  "ELI+ Leasing AI": "leasing",
-  "ELI+ Maintenance AI": "maintenance",
-  "ELI+ Payments AI": "payments",
-  "ELI+ Renewals AI": "renewals",
-};
-
-const CONTRACTED_SERVICES: Record<string, EliColumn[]> = {
-  "Harvest Peak Capital": ["leasing", "maintenance", "payments", "renewals"],
-  "Skyline Apartments": ["leasing", "maintenance", "payments", "renewals"],
-  "The Meridian": ["leasing", "maintenance", "payments"],
-  "Azure Heights": ["leasing", "maintenance"],
-  "Cambridge Suites": ["leasing", "payments", "renewals"],
-  "Willow Creek Residences": ["leasing"],
-  "Summit View Towers": ["leasing", "maintenance", "renewals"],
-  "Lakeside Commons": ["leasing", "payments"],
-  "Parkway Terrace": ["leasing", "maintenance", "payments", "renewals"],
-  "Cedar Ridge Estates": ["leasing"],
-  "Riverstone Landing": ["leasing", "maintenance"],
-  "Magnolia Gardens": ["leasing", "renewals"],
-  "Ironwood Flats": ["leasing", "maintenance", "payments"],
-  "Brookhaven Place": ["leasing"],
-  "Silver Oaks Village": ["leasing", "maintenance", "payments", "renewals"],
-  "Aspen Grove Lofts": ["leasing", "payments"],
-};
-
 function StepLiveConversations() {
-  const { getEmailForProperty } = useEliEmails();
-
   const [commStatuses, setCommStatuses] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {};
     LIVE_CONV_PROPERTIES.forEach((p) => {
@@ -878,27 +838,11 @@ function StepLiveConversations() {
     return init;
   });
   const [commModal, setCommModal] = useState<{ propId: string; propName: string; action: "on" | "off" } | null>(null);
-  const [eliGoLive, setEliGoLive] = useState(false);
-
-  const eliColumnComplete = (propName: string, col: EliColumn): boolean => {
-    const email = getEmailForProperty(propName);
-    if (!email) return false;
-    return email.serviceTypes.some((svc) => SERVICE_TYPE_TO_COL[svc] === col);
-  };
-
-  const getContracted = (propName: string): EliColumn[] =>
-    CONTRACTED_SERVICES[propName] ?? ["leasing"];
-
-  const eliPropertyComplete = (propName: string) =>
-    getContracted(propName).every((col) => eliColumnComplete(propName, col));
 
   const [commPage, setCommPage] = useState(1);
   const [commPageSize, setCommPageSize] = useState(5);
 
   const commActiveCount = Object.values(commStatuses).filter((s) => s === "Active").length;
-  const eliCompletedCount = ELI_PLUS_PROPERTIES.filter((p) => eliPropertyComplete(p.name)).length;
-  const eliTotal = ELI_PLUS_PROPERTIES.length;
-  const allEliCompleted = eliCompletedCount === eliTotal;
 
   const commPaged = LIVE_CONV_PROPERTIES.slice((commPage - 1) * commPageSize, commPage * commPageSize);
 
@@ -982,106 +926,6 @@ function StepLiveConversations() {
           </tbody>
         </table>
         <TablePagination total={LIVE_CONV_PROPERTIES.length} page={commPage} pageSize={commPageSize} onPageChange={setCommPage} onPageSizeChange={setCommPageSize} />
-      </div>
-
-      {/* ── ELI+ Integration Section ── */}
-      <div className="mt-8 border-t border-[hsl(var(--border))] pt-6">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <div className="flex h-5 w-5 items-center justify-center rounded bg-violet-100">
-              <Zap className="h-3.5 w-3.5 text-violet-600" />
-            </div>
-            <p className="text-sm font-semibold text-[hsl(var(--foreground))]">
-              Integrate ELI+ to OXP Communication
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <span
-              className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold tabular-nums ${
-                allEliCompleted
-                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                  : "bg-amber-50 text-amber-700 border border-amber-200"
-              }`}
-            >
-              {eliCompletedCount}/{eliTotal} Completed
-            </span>
-            <span
-              className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                eliGoLive ? "bg-[#B3FFCC] text-black" : "bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]"
-              }`}
-            >
-              {eliGoLive ? "Live" : "Not Active"}
-            </span>
-          </div>
-        </div>
-
-        <p className="mt-3 text-sm text-[hsl(var(--foreground))]">
-          Set up and connect email addresses for each ELI+ property before going live. All properties must have a fully configured email with the required service types before you can activate.
-        </p>
-
-        <div className="mt-4 rounded-lg border border-[hsl(var(--border))] bg-white px-5 py-4 space-y-4">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm font-semibold text-[hsl(var(--foreground))]">Activate ELI+ to OXP Communication</p>
-              <p className="mt-0.5 text-xs text-[hsl(var(--muted-foreground))]">
-                {eliGoLive
-                  ? "ELI+ is integrated with OXP Communication. All escalated conversations appear in the new inbox."
-                  : allEliCompleted
-                    ? "All properties have completed email setup. You can now activate."
-                    : `${eliCompletedCount}/${eliTotal} properties completed. All ELI+ properties must have a connected email with the required service types before you can activate.`}
-              </p>
-            </div>
-            <div className="group/golive relative">
-              <button
-                type="button"
-                onClick={() => !eliGoLive && allEliCompleted && setEliGoLive(true)}
-                disabled={!allEliCompleted || eliGoLive}
-                className={`inline-flex items-center gap-2 rounded-md px-5 py-2.5 text-sm font-semibold shadow-sm transition-colors whitespace-nowrap ${
-                  eliGoLive
-                    ? "bg-emerald-600 text-white cursor-default"
-                    : allEliCompleted
-                      ? "bg-violet-600 text-white hover:bg-violet-700 cursor-pointer"
-                      : "bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] cursor-not-allowed opacity-60"
-                }`}
-              >
-                <Rocket className="h-4 w-4" />
-                {eliGoLive ? "Live" : "Activate"}
-              </button>
-              {!allEliCompleted && !eliGoLive && (
-                <div className="invisible absolute right-0 top-full z-50 mt-1.5 rounded-md bg-[hsl(var(--foreground))] px-3 py-2 text-[11px] leading-snug text-white shadow-lg group-hover/golive:visible" style={{ width: "max-content", maxWidth: "300px" }}>
-                  All ELI+ properties must have a connected email with the required service types. ({eliCompletedCount}/{eliTotal} completed)
-                  <div className="absolute bottom-full right-4 border-4 border-transparent border-b-[hsl(var(--foreground))]" />
-                </div>
-              )}
-            </div>
-          </div>
-
-          {!eliGoLive && (
-            <Link
-              href="/communications-setup/custom-email"
-              className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50/60 px-4 py-3 transition-colors hover:bg-blue-100/60"
-            >
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600">
-                <Mail className="h-4 w-4 text-white" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-blue-900">Setup Email Integration for Communications</p>
-                <p className="text-xs text-blue-700/80">Connect and configure email addresses for your ELI+ properties and service types</p>
-              </div>
-              <ExternalLink className="h-4 w-4 shrink-0 text-blue-400" />
-            </Link>
-          )}
-
-          {eliGoLive && (
-            <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/60 px-4 py-3">
-              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-              <span className="text-sm font-medium text-emerald-700">
-                ELI+ is now integrated with OXP Communication. All escalated conversations appear in the new inbox and conversation panel.
-              </span>
-            </div>
-          )}
-        </div>
-
       </div>
 
       {/* Confirmation modal for toggling Communication Inbox On/Off */}
