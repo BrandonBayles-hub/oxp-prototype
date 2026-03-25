@@ -86,7 +86,7 @@ export const COMPLIANCE_ITEMS = [
   "Reasonable accommodation process",
 ];
 
-export const SUGGESTED_PROPERTY_TAGS = ["Portfolio", "Property A", "Property B", "Property C"];
+export const SUGGESTED_PROPERTY_TAGS = ["Portfolio", "Hillside Living", "Jamison Apartments", "Property C"];
 export const SUGGESTED_SUBJECT_TAGS = ["Leasing", "Maintenance", "Compliance", "Payments", "Policy", "Resident relations", "Operations"];
 
 const STORAGE_KEY = "janet-poc-vault-v3";
@@ -221,7 +221,7 @@ const INITIAL_DOCS: VaultItem[] = [
   { id: "1", fileName: "Leasing SOP", documentType: "sop", property: "Portfolio", approvalStatus: "approved", trainedOn: "Yes", modified: "Feb 18, 2025", owner: "Admin", type: "file", version: "2.1", source: "upload", effectiveDate: "2025-02-01", body: LEASING_SOP_BODY },
   { id: "2", fileName: "Maintenance escalation", documentType: "sop", property: "Portfolio", approvalStatus: "approved", trainedOn: "Yes", modified: "Feb 15, 2025", owner: "Admin", type: "file", version: "1.0", source: "upload" },
   { id: "3", fileName: "Fair housing policy", documentType: "policy", property: "Portfolio", approvalStatus: "approved", trainedOn: "Yes", modified: "Feb 10, 2025", owner: "Admin", type: "file", source: "upload", tags: ["compliance"] },
-  { id: "4", fileName: "Lease template", documentType: "lease", property: "Property A", approvalStatus: "review", trainedOn: "No", modified: "Feb 5, 2025", owner: "Admin", type: "file", source: "upload" },
+  { id: "4", fileName: "Lease template", documentType: "lease", property: "Hillside Living", approvalStatus: "review", trainedOn: "No", modified: "Feb 5, 2025", owner: "Admin", type: "file", source: "upload" },
   { id: "5", fileName: "Refund policy", documentType: "sop", property: "Portfolio", approvalStatus: "review", trainedOn: "No", modified: "Feb 20, 2025", owner: "Admin", type: "file", version: "1.0", source: "upload", body: REFUND_POLICY_BODY },
 ];
 

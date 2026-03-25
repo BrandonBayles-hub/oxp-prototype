@@ -20,6 +20,7 @@ import {
   MessageSquare,
   RefreshCw,
   StickyNote,
+  Tag,
   Target,
   User,
   Users,
@@ -47,6 +48,7 @@ import { useWorkforce } from "@/lib/workforce-context";
 import { useRole, matchesRoleProperties } from "@/lib/role-context";
 import { useR1Release } from "@/lib/r1-release-context";
 import { EscalationDetailSheet } from "@/components/escalation-detail-sheet";
+import { ConversationThreadActivityRow } from "@/components/conversation-thread-activity-row";
 import { ValueYoureMissingBanner } from "@/components/value-youre-missing-banner";
 import { MetricDetailDialog, type MetricDetailConfig } from "@/components/metric-detail-dialog";
 import {
@@ -585,7 +587,7 @@ function AdminCommandCenter() {
             type: "list", title: "Revenue by Property",
             items: [
               { name: "Property A", detail: "120 units \u00b7 94% occupancy", value: "$18.6K", trend: "+11%", trendVariant: "positive" },
-              { name: "Property B", detail: "95 units \u00b7 91% occupancy", value: "$14.2K", trend: "+7%", trendVariant: "positive" },
+              { name: "Jamison Apartments", detail: "95 units \u00b7 91% occupancy", value: "$14.2K", trend: "+7%", trendVariant: "positive" },
               { name: "Property C", detail: "80 units \u00b7 88% occupancy", value: "$9.2K", trend: "+4%", trendVariant: "positive" },
             ],
           },
@@ -608,8 +610,8 @@ function AdminCommandCenter() {
             { label: "Avg Resolution Rate", value: "93%", subtext: "Weighted average", subtextVariant: "positive" },
           ]},
           b: { summaryCards: [
-            { label: "Total Active", value: String(agentsEnabledCount), subtext: "Serving Property B" },
-            { label: "Total Conversations", value: "162", subtext: "Property B only" },
+            { label: "Total Active", value: String(agentsEnabledCount), subtext: "Serving Jamison Apartments" },
+            { label: "Total Conversations", value: "162", subtext: "Jamison Apartments only" },
             { label: "Avg Resolution Rate", value: "91%", subtext: "Weighted average" },
           ]},
           c: { summaryCards: [
@@ -640,7 +642,7 @@ function AdminCommandCenter() {
           ]},
           b: { chartMultiplier: 0.33, summaryCards: [
             { label: "Total Hours Saved", value: "128 hrs", subtext: "+14 hrs from last week", subtextVariant: "positive" },
-            { label: "Avg per Agent", value: "4.6 hrs", subtext: "Property B agents" },
+            { label: "Avg per Agent", value: "4.6 hrs", subtext: "Jamison Apartments agents" },
             { label: "Cost Savings", value: "$6.4K", subtext: "Based on avg staff cost", subtextVariant: "positive" },
             { label: "Efficiency Rate", value: "94%", subtext: "Tasks completed without staff" },
           ]},
@@ -743,7 +745,7 @@ function AdminCommandCenter() {
           type: "property-grid",
           items: [
             { name: "Property A", stats: [{ label: "Tours", value: "52" }, { label: "Show rate", value: "82%" }, { label: "Conversion", value: "38%" }] },
-            { name: "Property B", stats: [{ label: "Tours", value: "41" }, { label: "Show rate", value: "76%" }, { label: "Conversion", value: "32%" }] },
+            { name: "Jamison Apartments", stats: [{ label: "Tours", value: "41" }, { label: "Show rate", value: "76%" }, { label: "Conversion", value: "32%" }] },
             { name: "Property C", highlight: "Needs attention", stats: [{ label: "Tours", value: "31" }, { label: "Show rate", value: "74%" }, { label: "Conversion", value: "29%" }] },
           ],
         }],
@@ -793,7 +795,7 @@ function AdminCommandCenter() {
           type: "property-grid",
           items: [
             { name: "Property A", stats: [{ label: "Leases", value: "16" }, { label: "Avg rent", value: "$1,520" }, { label: "Conversion", value: "38%" }] },
-            { name: "Property B", stats: [{ label: "Leases", value: "12" }, { label: "Avg rent", value: "$1,410" }, { label: "Conversion", value: "32%" }] },
+            { name: "Jamison Apartments", stats: [{ label: "Leases", value: "12" }, { label: "Avg rent", value: "$1,410" }, { label: "Conversion", value: "32%" }] },
             { name: "Property C", stats: [{ label: "Leases", value: "9" }, { label: "Avg rent", value: "$1,380" }, { label: "Conversion", value: "29%" }] },
           ],
         }],
@@ -843,7 +845,7 @@ function AdminCommandCenter() {
           type: "property-grid",
           items: [
             { name: "Property A", stats: [{ label: "Renewals", value: "12" }, { label: "Retention", value: "95%" }, { label: "Avg increase", value: "$310" }] },
-            { name: "Property B", stats: [{ label: "Renewals", value: "10" }, { label: "Retention", value: "91%" }, { label: "Avg increase", value: "$275" }] },
+            { name: "Jamison Apartments", stats: [{ label: "Renewals", value: "10" }, { label: "Retention", value: "91%" }, { label: "Avg increase", value: "$275" }] },
             { name: "Property C", stats: [{ label: "Renewals", value: "6" }, { label: "Retention", value: "88%" }, { label: "Avg increase", value: "$268" }] },
           ],
         }],
@@ -893,7 +895,7 @@ function AdminCommandCenter() {
           type: "property-grid",
           items: [
             { name: "Property A", stats: [{ label: "Closed", value: "64" }, { label: "Avg time", value: "3.8 hrs" }, { label: "Satisfaction", value: "4.8/5" }] },
-            { name: "Property B", stats: [{ label: "Closed", value: "52" }, { label: "Avg time", value: "4.2 hrs" }, { label: "Satisfaction", value: "4.7/5" }] },
+            { name: "Jamison Apartments", stats: [{ label: "Closed", value: "52" }, { label: "Avg time", value: "4.2 hrs" }, { label: "Satisfaction", value: "4.7/5" }] },
             { name: "Property C", stats: [{ label: "Closed", value: "40" }, { label: "Avg time", value: "4.5 hrs" }, { label: "Satisfaction", value: "4.5/5" }] },
           ],
         }],
@@ -959,7 +961,7 @@ function AdminCommandCenter() {
           type: "property-grid",
           items: [
             { name: "Property A", stats: [{ label: "Collected", value: "$86K" }, { label: "Rate", value: "93.2%" }, { label: "Outstanding", value: "$6.2K" }] },
-            { name: "Property B", stats: [{ label: "Collected", value: "$74K" }, { label: "Rate", value: "91.8%" }, { label: "Outstanding", value: "$6.5K" }] },
+            { name: "Jamison Apartments", stats: [{ label: "Collected", value: "$74K" }, { label: "Rate", value: "91.8%" }, { label: "Outstanding", value: "$6.5K" }] },
             { name: "Property C", highlight: "Needs attention", stats: [{ label: "Collected", value: "$58K" }, { label: "Rate", value: "85.4%" }, { label: "Outstanding", value: "$10.3K" }] },
           ],
         }],
@@ -2105,16 +2107,63 @@ function ConversationSheet({
                 );
               }
 
+              if (msg.type === "thread_activity" && msg.threadActivity) {
+                return <ConversationThreadActivityRow key={idx} message={msg} />;
+              }
+
+              if (msg.type === "label_activity" && msg.labelActivity) {
+                const { actor, labelsAdded } = msg.labelActivity;
+                return (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/70 bg-muted/25 py-2.5 px-3"
+                  >
+                    <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                    <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
+                      <span className="font-medium text-foreground">{actor}</span>
+                      {" added "}
+                      {labelsAdded.length === 1 ? "label " : "labels "}
+                      <span className="font-medium text-foreground">{labelsAdded.join(", ")}</span>
+                      {msg.timestamp && (
+                        <>
+                          <span className="text-muted-foreground/70"> · </span>
+                          <span>{msg.timestamp}</span>
+                        </>
+                      )}
+                    </p>
+                  </div>
+                );
+              }
+
               if (msg.type === "private_note") {
                 return (
                   <div key={idx} className="space-y-1">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                       <Avatar className="h-5 w-5">
                         <AvatarFallback className="bg-amber-100 text-[8px] text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
-                          <StickyNote className="h-2.5 w-2.5" />
+                          {msg.privateNoteAuthor ? (
+                            msg.privateNoteAuthor
+                              .split(" ")
+                              .map((w) => w[0])
+                              .join("")
+                              .slice(0, 2)
+                              .toUpperCase()
+                          ) : (
+                            <StickyNote className="h-2.5 w-2.5" />
+                          )}
                         </AvatarFallback>
                       </Avatar>
-                      <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">Private Note</span>
+                      <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                        Private Note
+                        {msg.privateNoteAuthor ? (
+                          <>
+                            <span className="font-normal text-muted-foreground"> · </span>
+                            <span className="font-medium text-amber-800 dark:text-amber-200">
+                              {msg.privateNoteAuthor}
+                            </span>
+                          </>
+                        ) : null}
+                      </span>
                       {msg.timestamp && <span className="text-[10px] text-muted-foreground">{msg.timestamp}</span>}
                     </div>
                     <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">

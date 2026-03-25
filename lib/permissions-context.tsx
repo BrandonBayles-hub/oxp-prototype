@@ -13,6 +13,53 @@ export type Permission = {
 export const ALL_PERMISSIONS: Permission[] = [
   // ── Command Center ──
   { id: "p-cc-view", capability: "View Command Center", description: "Access the Command Center dashboard", section: "Command Center" },
+  {
+    id: "p-comms-omnichannel-panel",
+    capability: "Omni-Channel Conversation Panel",
+    description:
+      "Ability to see the conversation panel in lead and resident profiles with access to the OXP communication inboxes.",
+    section: "Command Center",
+  },
+  {
+    id: "p-comms-send-email",
+    capability: "Send Emails",
+    description: "Ability to send email messages from the conversation panel in lead and resident profiles.",
+    section: "Command Center",
+  },
+  {
+    id: "p-comms-send-sms",
+    capability: "Send SMS",
+    description: "Ability to send SMS messages from the conversation panel in lead and resident profiles.",
+    section: "Command Center",
+  },
+  {
+    id: "p-comms-apply-labels",
+    capability: "Apply Conversation Labels",
+    description:
+      "Tag conversation threads from the panel using existing labels. Separate from creating or editing global custom labels.",
+    section: "Command Center",
+  },
+  {
+    id: "p-comms-assign-conversation",
+    capability: "Assign or Reassign Conversation",
+    description:
+      "Hand off a conversation thread to another user, including claiming conversations from a shared queue.",
+    section: "Command Center",
+  },
+  {
+    id: "p-comms-resolve-threads",
+    capability: "Resolve Threads",
+    description:
+      "Mark conversation threads as resolved from the panel without full inbox administration access.",
+    section: "Command Center",
+  },
+  {
+    id: "p-comms-reopen-threads",
+    capability: "Reopen Threads",
+    description:
+      "Reopen closed or resolved conversation threads from the panel without full inbox administration access.",
+    section: "Command Center",
+  },
   { id: "p-comms-create-inbox", capability: "Create Custom Inboxes", description: "Create Custom Inboxes", section: "Command Center" },
   { id: "p-comms-delete-inbox", capability: "Delete Custom Inboxes", description: "Ability to delete custom inboxes", section: "Command Center" },
   { id: "p-comms-edit-inbox-props", capability: "Edit Properties In Inbox", description: "Modify properties that are routed to custom inboxes", section: "Command Center" },
@@ -105,7 +152,15 @@ export const SECTION_VIEW_PERMISSION: Record<string, string> = {
 export const DEFAULT_ROLE_PERMISSIONS: Record<string, Set<string>> = {
   admin: new Set(ALL_PERMISSIONS.map((p) => p.id)),
   regional: new Set([
-    "p-cc-view", "p-comms-create-inbox", "p-comms-edit-inbox-props", "p-comms-edit-inbox-labels",
+    "p-cc-view",
+    "p-comms-omnichannel-panel",
+    "p-comms-send-email",
+    "p-comms-send-sms",
+    "p-comms-apply-labels",
+    "p-comms-assign-conversation",
+    "p-comms-resolve-threads",
+    "p-comms-reopen-threads",
+    "p-comms-create-inbox", "p-comms-edit-inbox-props", "p-comms-edit-inbox-labels",
     "p-comms-edit-inbox-users", "p-comms-add-labels", "p-comms-edit-labels", "p-comms-reporting",
     "p-tasks-view", "p-tasks-edit-specialty", "p-tasks-view-all", "p-tasks-bulk-actions",
     "p-playbooks-view", "p-playbooks-launch", "p-playbooks-manage", "p-playbooks-assign",
@@ -119,7 +174,15 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Set<string>> = {
     "p-gov-view", "p-gov-audit",
   ]),
   property: new Set([
-    "p-cc-view", "p-comms-edit-inbox-props", "p-comms-edit-inbox-users", "p-comms-add-labels", "p-comms-reporting",
+    "p-cc-view",
+    "p-comms-omnichannel-panel",
+    "p-comms-send-email",
+    "p-comms-send-sms",
+    "p-comms-apply-labels",
+    "p-comms-assign-conversation",
+    "p-comms-resolve-threads",
+    "p-comms-reopen-threads",
+    "p-comms-edit-inbox-props", "p-comms-edit-inbox-users", "p-comms-add-labels", "p-comms-reporting",
     "p-tasks-view", "p-tasks-view-all", "p-tasks-bulk-actions",
     "p-playbooks-view", "p-playbooks-launch", "p-playbooks-assign",
     "p-report-performance",
@@ -133,6 +196,13 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Set<string>> = {
   ]),
   ic: new Set([
     "p-cc-view",
+    "p-comms-omnichannel-panel",
+    "p-comms-send-email",
+    "p-comms-send-sms",
+    "p-comms-apply-labels",
+    "p-comms-assign-conversation",
+    "p-comms-resolve-threads",
+    "p-comms-reopen-threads",
     "p-tasks-view", "p-tasks-view-all",
     "p-playbooks-view",
     "p-comms-reporting",

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -29,6 +29,20 @@ import {
   Mail,
   Building,
   Hash,
+  CalendarIcon,
+  CheckCircle2,
+  XCircle,
+  MinusCircle,
+  FileText,
+  Image as ImageIcon,
+  ChevronLeft,
+  ChevronRight,
+  Bell,
+  Smile,
+  Mic,
+  SendHorizontal,
+  Sparkles,
+  PlayCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,17 +53,161 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { useConversations, type ConversationItem } from "@/lib/conversations-context";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@/components/ui/select";
+import {
+  useConversations,
+  type ConversationItem,
+  type EmailAttachmentRef,
+  isConversationUnattended,
+  isWaitingOnResidentPublicReply,
+  satisfiesEscalatedPropertyInboxLabels,
+  conversationHasCurrentUserPrivateNoteMention,
+} from "@/lib/conversations-context";
 import { useAgents } from "@/lib/agents-context";
 import { useWorkforce } from "@/lib/workforce-context";
 import { cn } from "@/lib/utils";
+import {
+  buildStaffEmailSignatureBody,
+  getEmailThreadRoutingAddresses,
+  getVoiceOrSmsThreadRoutingNumbers,
+} from "@/lib/email-signature";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { ConversationThreadActivityRow } from "@/components/conversation-thread-activity-row";
+
+const AVATAR_COLORS = [
+  "bg-emerald-100 text-emerald-700",
+  "bg-blue-100 text-blue-700",
+  "bg-purple-100 text-purple-700",
+  "bg-amber-100 text-amber-700",
+  "bg-rose-100 text-rose-700",
+  "bg-cyan-100 text-cyan-700",
+  "bg-indigo-100 text-indigo-700",
+  "bg-teal-100 text-teal-700",
+];
+
+function avatarColor(name: string) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+function initials(name: string) {
+  return name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+}
+
+/** Matches @mentions in private notes (e.g. Abe Kashiwagi → abekashiwagi). */
+function staffMentionHandle(displayName: string): string {
+  return displayName.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+type PrivateNoteMentionActive = { triggerIndex: number; query: string };
+
+function getActivePrivateNoteMention(text: string, caret: number): PrivateNoteMentionActive | null {
+  if (caret < 1) return null;
+  const end = caret;
+  let i = end - 1;
+  while (i >= 0 && text[i] !== "@") {
+    if (/\s/.test(text[i])) return null;
+    i -= 1;
+  }
+  if (i < 0 || text[i] !== "@") return null;
+  if (i > 0 && !/\s/.test(text[i - 1])) return null;
+  const query = text.slice(i + 1, end);
+  if (/\s/.test(query)) return null;
+  return { triggerIndex: i, query };
+}
+
+/** Canonical property id → sidebar inbox name (filter value stays canonical). */
+const PROPERTY_INBOX_SIDEBAR_LABELS: Record<string, string> = {
+  "Hillside Living": "Escalated Hillside Living",
+  "Jamison Apartments": "Escalated Jamison Apartments",
+};
+
+function propertyInboxSidebarLabel(property: string) {
+  return PROPERTY_INBOX_SIDEBAR_LABELS[property] ?? property;
+}
+
+/** Live AI lane labels (no * AI Escalation); inbox also requires read + waiting on resident. */
+const LIVE_AI_PROPERTY_ALLOWED = new Set([
+  "Leasing AI",
+  "Maintenance AI",
+  "Renewal AI",
+  "Renewals AI",
+  "Payments AI",
+]);
+
+const LIVE_AI_PROPERTY_FORBIDDEN = new Set([
+  "Leasing AI Escalation",
+  "Maintenance AI Escalation",
+  "Renewal AI Escalation",
+  "Payments AI Escalation",
+]);
+
+/** Logged-in user for the My Inbox tab (human assignee name). */
+const MY_INBOX_ASSIGNEE = "Abe Kashiwagi";
+
+type ChannelOptChoice = "opt-in" | "opt-out" | "no-indication";
+
+function staffEmailSignatureForConversation(
+  convo: ConversationItem,
+  humanNameSet: Set<string>,
+  humanMembers: { name: string; role: string }[]
+): string | undefined {
+  if (convo.channel !== "Email") return undefined;
+  const staffName = humanNameSet.has(convo.assignee) ? convo.assignee : MY_INBOX_ASSIGNEE;
+  const staffTitle = humanMembers.find((m) => m.name === staffName)?.role ?? "Leasing Specialist";
+  return buildStaffEmailSignatureBody({
+    staffName,
+    staffTitle,
+    propertyName: convo.property,
+  });
+}
+
+/** AI Activated + phone/email opt-in for primary ELI lanes (Renewals AI = renewal lane in data). */
+const AI_ACTIVATION_OPT_IN_LABELS = new Set([
+  "Leasing AI",
+  "Maintenance AI",
+  "Payments AI",
+  "Renewal AI",
+  "Renewals AI",
+]);
+
+function isLiveAiPropertyInbox(c: ConversationItem, property: string): boolean {
+  if (c.property !== property) return false;
+  if (c.labels.some((l) => LIVE_AI_PROPERTY_FORBIDDEN.has(l))) return false;
+  return c.labels.some((l) => LIVE_AI_PROPERTY_ALLOWED.has(l));
+}
+
+/** Live AI: primary lane, no escalation labels, fully read, waiting on lead/resident to reply. */
+function isLiveAiJamisonConversation(c: ConversationItem): boolean {
+  if (!isLiveAiPropertyInbox(c, "Jamison Apartments")) return false;
+  if (c.hasUnread) return false;
+  return isWaitingOnResidentPublicReply(c);
+}
+
+function isLiveAiHillsideConversation(c: ConversationItem): boolean {
+  if (!isLiveAiPropertyInbox(c, "Hillside Living")) return false;
+  if (c.hasUnread) return false;
+  return isWaitingOnResidentPublicReply(c);
+}
 
 type SidebarFilter =
   | "all"
   | "mentions"
   | "unattended"
   | { type: "label"; value: string }
-  | { type: "property"; value: string };
+  | { type: "property"; value: string }
+  | { type: "live-ai-jamison" }
+  | { type: "live-ai-hillside" };
 
 function ConversationsContent() {
   const {
@@ -58,6 +216,7 @@ function ConversationsContent() {
     updateAssignee,
     resolveConversation,
     reopenConversation,
+    recordThreadActivity,
     addLabel,
     removeLabel,
     markRead,
@@ -84,6 +243,18 @@ function ConversationsContent() {
   );
   const isHumanAssignee = (assignee: string) => humanNameSet.has(assignee);
 
+  const privateNoteMentionCandidates = useMemo(
+    () =>
+      humanMembers
+        .map((m) => ({
+          name: m.name,
+          handle: staffMentionHandle(m.name),
+          role: m.role,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [humanMembers]
+  );
+
   const autonomousAgents = useMemo(
     () => agents.filter((a) => a.type === "autonomous"),
     [agents]
@@ -104,28 +275,85 @@ function ConversationsContent() {
   const [inboxTab, setInboxTab] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const escalationCount = useMemo(
-    () => conversations.filter((c) => c.labels.includes("AI Escalation")).length,
+  const isEscalationLabel = (label: string) => label.endsWith("Escalation");
+
+  /** Unread threads across everything the user’s role can access (filteredItems). */
+  const allThreadsUnreadCount = useMemo(
+    () => conversations.filter((c) => c.hasUnread).length,
+    [conversations]
+  );
+
+  const mentionsInboxCount = useMemo(
+    () => conversations.filter((c) => conversationHasCurrentUserPrivateNoteMention(c)).length,
+    [conversations]
+  );
+
+  const unattendedInboxCount = useMemo(
+    () => conversations.filter((c) => isConversationUnattended(c)).length,
+    [conversations]
+  );
+
+  /** Sidebar badges: unread threads in that inbox’s conversation list (hasUnread). */
+  const escalationUnreadCount = useMemo(
+    () =>
+      conversations.filter((c) => c.labels.some(isEscalationLabel) && c.hasUnread).length,
+    [conversations]
+  );
+
+  const liveAiJamisonUnreadCount = useMemo(
+    () => conversations.filter((c) => isLiveAiJamisonConversation(c) && c.hasUnread).length,
+    [conversations]
+  );
+
+  const liveAiHillsideUnreadCount = useMemo(
+    () => conversations.filter((c) => isLiveAiHillsideConversation(c) && c.hasUnread).length,
     [conversations]
   );
 
   const properties = useMemo(() => {
-    const map = new Map<string, number>();
+    const unreadByProp = new Map<string, number>();
+    const seenProp = new Set<string>();
     for (const c of conversations) {
-      map.set(c.property, (map.get(c.property) ?? 0) + 1);
+      if (
+        (c.property === "Hillside Living" || c.property === "Jamison Apartments") &&
+        !satisfiesEscalatedPropertyInboxLabels(c)
+      ) {
+        continue;
+      }
+      seenProp.add(c.property);
+      if (c.hasUnread) {
+        unreadByProp.set(c.property, (unreadByProp.get(c.property) ?? 0) + 1);
+      }
     }
-    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+    return Array.from(seenProp)
+      .sort((a, b) => a.localeCompare(b))
+      .map((prop) => [prop, unreadByProp.get(prop) ?? 0] as [string, number]);
   }, [conversations]);
 
   const sidebarFiltered = useMemo(() => {
     return conversations.filter((c) => {
       if (sidebarFilter === "all") return true;
-      if (sidebarFilter === "mentions") return false;
-      if (sidebarFilter === "unattended") return c.assignee.startsWith("ELI+");
-      if (typeof sidebarFilter === "object" && sidebarFilter.type === "label")
+      if (sidebarFilter === "mentions") return conversationHasCurrentUserPrivateNoteMention(c);
+      if (sidebarFilter === "unattended") return isConversationUnattended(c);
+      if (typeof sidebarFilter === "object" && sidebarFilter.type === "label") {
+        if (sidebarFilter.value === "__escalation__")
+          return c.labels.some(isEscalationLabel);
         return c.labels.includes(sidebarFilter.value);
-      if (typeof sidebarFilter === "object" && sidebarFilter.type === "property")
-        return c.property === sidebarFilter.value;
+      }
+      if (typeof sidebarFilter === "object" && sidebarFilter.type === "property") {
+        if (c.property !== sidebarFilter.value) return false;
+        if (
+          sidebarFilter.value === "Hillside Living" ||
+          sidebarFilter.value === "Jamison Apartments"
+        ) {
+          return satisfiesEscalatedPropertyInboxLabels(c);
+        }
+        return true;
+      }
+      if (typeof sidebarFilter === "object" && sidebarFilter.type === "live-ai-jamison")
+        return isLiveAiJamisonConversation(c);
+      if (typeof sidebarFilter === "object" && sidebarFilter.type === "live-ai-hillside")
+        return isLiveAiHillsideConversation(c);
       return true;
     });
   }, [conversations, sidebarFilter]);
@@ -133,7 +361,7 @@ function ConversationsContent() {
   const tabFiltered = useMemo(() => {
     return sidebarFiltered.filter((c) => {
       if (inboxTab === "all") return true;
-      if (inboxTab === "mine") return isHumanAssignee(c.assignee);
+      if (inboxTab === "mine") return c.assignee === MY_INBOX_ASSIGNEE;
       if (inboxTab === "unassigned") return c.assignee.startsWith("ELI+");
       return true;
     });
@@ -150,8 +378,9 @@ function ConversationsContent() {
     );
   }, [tabFiltered, searchQuery]);
 
-  const myInboxCount = useMemo(
-    () => sidebarFiltered.filter((c) => isHumanAssignee(c.assignee)).length,
+  const myInboxUnreadCount = useMemo(
+    () =>
+      sidebarFiltered.filter((c) => c.assignee === MY_INBOX_ASSIGNEE && c.hasUnread).length,
     [sidebarFiltered]
   );
 
@@ -181,6 +410,11 @@ function ConversationsContent() {
     ? filtered.find((c) => c.id === selectedId) ?? null
     : null;
 
+  const selectedEmailRouting =
+    selected?.channel === "Email"
+      ? getEmailThreadRoutingAddresses(selected.resident, selected.property)
+      : null;
+
   // scroll to bottom on message change
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -189,14 +423,154 @@ function ConversationsContent() {
   // --- Chat input ---
   const [inputMode, setInputMode] = useState<"message" | "private_note">("message");
   const [draft, setDraft] = useState("");
+  const chatTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const [privateNoteMention, setPrivateNoteMention] = useState<PrivateNoteMentionActive | null>(null);
+  const [privateNoteMentionIndex, setPrivateNoteMentionIndex] = useState(0);
+
+  const privateNoteMentionFiltered = useMemo(() => {
+    if (!privateNoteMention) return [];
+    const q = privateNoteMention.query.toLowerCase();
+    return privateNoteMentionCandidates
+      .filter(
+        (c) =>
+          q === "" ||
+          c.name.toLowerCase().includes(q) ||
+          c.handle.includes(q)
+      )
+      .slice(0, 8);
+  }, [privateNoteMention, privateNoteMentionCandidates]);
+
+  useEffect(() => {
+    setPrivateNoteMentionIndex(0);
+  }, [privateNoteMention?.triggerIndex, privateNoteMention?.query]);
+
+  useEffect(() => {
+    if (privateNoteMentionFiltered.length === 0) return;
+    setPrivateNoteMentionIndex((i) => Math.min(i, privateNoteMentionFiltered.length - 1));
+  }, [privateNoteMentionFiltered.length]);
+
   const [newLabelText, setNewLabelText] = useState("");
   const [addLabelOpen, setAddLabelOpen] = useState(false);
+  const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [emailAttachmentPreview, setEmailAttachmentPreview] = useState<EmailAttachmentRef | null>(null);
+  const [threadsPanelOpen, setThreadsPanelOpen] = useState(false);
+  const [threadsFilter, setThreadsFilter] = useState<"active" | "closed">("active");
+  const [openThreadIdx, setOpenThreadIdx] = useState<number | null>(null);
+  const [threadInputMode, setThreadInputMode] = useState<"message" | "private_note">("message");
+  const [threadDraft, setThreadDraft] = useState("");
+  const [threadAssignments, setThreadAssignments] = useState<Record<number, string | null>>({});
+  const [messageIntroDismissed, setMessageIntroDismissed] = useState(false);
+  const [showMessageIntro, setShowMessageIntro] = useState(false);
+
+  const THREAD_AGENTS = [
+    "Hillary Avates",
+    "Omar Bates",
+    "Tiffany Courtland",
+    "Diego Diaz",
+    "Travis Eggers",
+  ];
+
+  const getThreadAssignee = (globalIdx: number) =>
+    globalIdx in threadAssignments ? threadAssignments[globalIdx] : THREAD_DATA[globalIdx]?.assignee ?? null;
+
+  const assignThread = (globalIdx: number, name: string | null) =>
+    setThreadAssignments((prev) => ({ ...prev, [globalIdx]: name }));
+  const [aiActivated, setAiActivated] = useState(true);
+  const [reactivationDate, setReactivationDate] = useState<Date | null>(null);
+  const [noLimit, setNoLimit] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [phoneOpt, setPhoneOpt] = useState("opt-in");
+  const [emailOpt, setEmailOpt] = useState("opt-in");
+
+  const THREAD_DATA = [
+    {
+      property: "Sun Valley", type: "Facilities", channel: "SMS", status: "active" as const, assignee: "Court White",
+      messages: [
+        { role: "user" as const, text: "Hi, my kitchen sink has been leaking for two days now. Can someone come take a look?", timestamp: "Sep 15 2025 · 3:12pm" },
+        { role: "agent" as const, text: "I'm sorry to hear that! I've submitted a work order for your kitchen sink leak. A maintenance technician will reach out to schedule a time.", timestamp: "Sep 15 2025 · 3:14pm" },
+        { role: "user" as const, text: "Thank you. Is there anything I should do in the meantime?", timestamp: "Sep 15 2025 · 3:15pm" },
+        { role: "agent" as const, text: "If it's a slow drip, placing a bucket underneath should be fine. If it worsens, please call our emergency maintenance line.", timestamp: "Sep 15 2025 · 3:16pm" },
+      ],
+    },
+    {
+      property: "Sun Valley", type: "Office", channel: "SMS", status: "active" as const, assignee: null as string | null,
+      messages: [
+        { role: "user" as const, text: "I noticed a late fee on my account but I paid rent on time. Can you look into this?", timestamp: "Sep 14 2025 · 10:05am" },
+        { role: "staff" as const, text: "Let me pull up your payment history. One moment please.", timestamp: "Sep 14 2025 · 10:08am" },
+        { role: "staff" as const, text: "It looks like your payment was processed on the 4th but didn't clear until the 6th due to a bank delay. I've removed the late fee from your ledger.", timestamp: "Sep 14 2025 · 10:12am" },
+        { role: "user" as const, text: "Great, thank you for fixing that so quickly!", timestamp: "Sep 14 2025 · 10:13am" },
+      ],
+    },
+    {
+      property: "Sun Valley", type: "Facilities", channel: "SMS", status: "active" as const, assignee: "Jane Doe",
+      messages: [
+        { role: "user" as const, text: "The A/C in my unit isn't blowing cold air. It's been warm all day.", timestamp: "Sep 13 2025 · 1:30pm" },
+        { role: "agent" as const, text: "I'm sorry about the discomfort. I've created a work order for your A/C unit. Our maintenance team will be in touch to schedule a visit.", timestamp: "Sep 13 2025 · 1:32pm" },
+        { role: "user" as const, text: "Any idea when they can come? It's really hot in here.", timestamp: "Sep 13 2025 · 1:33pm" },
+        { role: "staff" as const, text: "Hi, this is Jane from maintenance. I can come by tomorrow between 9-11am. Does that work for you?", timestamp: "Sep 13 2025 · 2:15pm" },
+        { role: "user" as const, text: "Yes, that works. Thank you Jane!", timestamp: "Sep 13 2025 · 2:17pm" },
+      ],
+    },
+    {
+      property: "Sun Valley", type: "Leasing", channel: "Email", status: "closed" as const, assignee: "Court White",
+      messages: [
+        { role: "user" as const, text: "Hi, I'm interested in renewing my lease. What are the renewal options?", timestamp: "Aug 20 2025 · 9:00am" },
+        { role: "agent" as const, text: "Great to hear you'd like to stay! We have 6-month and 12-month renewal options available. I'll have our leasing team send over the details.", timestamp: "Aug 20 2025 · 9:03am" },
+        { role: "staff" as const, text: "Hi! I've attached the renewal offer to your resident portal. The 12-month option includes a rate lock. Let me know if you have questions.", timestamp: "Aug 20 2025 · 11:30am" },
+        { role: "user" as const, text: "I'll go with the 12-month renewal. Thanks!", timestamp: "Aug 21 2025 · 8:45am" },
+        { role: "staff" as const, text: "Wonderful! Your renewal has been processed. Welcome back for another year!", timestamp: "Aug 21 2025 · 9:10am" },
+      ],
+    },
+    {
+      property: "Sun Valley", type: "Office", channel: "SMS", status: "closed" as const, assignee: "Court White",
+      messages: [
+        { role: "user" as const, text: "I need a copy of my payment history for the last 6 months for my tax filing.", timestamp: "Aug 10 2025 · 2:00pm" },
+        { role: "staff" as const, text: "Of course! I've generated a ledger statement for the past 6 months and uploaded it to your resident portal under Documents.", timestamp: "Aug 10 2025 · 2:15pm" },
+        { role: "user" as const, text: "Perfect, I see it. Thank you!", timestamp: "Aug 10 2025 · 2:20pm" },
+      ],
+    },
+  ];
 
   const allLabels = useMemo(() => {
     const set = new Set<string>();
     conversations.forEach((c) => c.labels.forEach((l) => set.add(l)));
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [conversations]);
+
+  const applyPrivateNoteMention = (
+    candidate: (typeof privateNoteMentionCandidates)[number]
+  ) => {
+    const el = chatTextareaRef.current;
+    if (!el) return;
+    const caret = el.selectionStart ?? el.value.length;
+    const m = getActivePrivateNoteMention(el.value, caret);
+    if (!m) return;
+    const before = el.value.slice(0, m.triggerIndex);
+    const after = el.value.slice(caret);
+    const insert = `@${candidate.handle} `;
+    const next = before + insert + after;
+    setDraft(next);
+    setPrivateNoteMention(null);
+    const pos = before.length + insert.length;
+    queueMicrotask(() => {
+      el.setSelectionRange(pos, pos);
+      el.focus();
+    });
+  };
+
+  const syncPrivateNoteMentionFromTextarea = (el: HTMLTextAreaElement) => {
+    if (inputMode !== "private_note") {
+      setPrivateNoteMention(null);
+      return;
+    }
+    const caret = el.selectionStart ?? el.value.length;
+    setPrivateNoteMention(getActivePrivateNoteMention(el.value, caret));
+  };
+
+  const handleComposerDraftChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setDraft(e.target.value);
+    syncPrivateNoteMentionFromTextarea(e.target);
+  };
 
   const handleSend = () => {
     if (!draft.trim() || !selected) return;
@@ -210,30 +584,69 @@ function ConversationsContent() {
       hour12: true,
       timeZoneName: "short",
     });
+    const emailSignature =
+      selected.channel === "Email" && inputMode === "message"
+        ? staffEmailSignatureForConversation(selected, humanNameSet, humanMembers)
+        : undefined;
     addMessage(selected.id, {
       role: "staff",
       text: draft.trim(),
       timestamp,
       type: inputMode,
+      ...(emailSignature ? { emailSignature } : {}),
+      ...(inputMode === "private_note" ? { privateNoteAuthor: MY_INBOX_ASSIGNEE } : {}),
     });
     setDraft("");
+    setPrivateNoteMention(null);
+  };
+
+  const handleComposerKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (inputMode === "private_note" && privateNoteMention && privateNoteMentionFiltered.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setPrivateNoteMentionIndex((i) => Math.min(i + 1, privateNoteMentionFiltered.length - 1));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setPrivateNoteMentionIndex((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setPrivateNoteMention(null);
+        return;
+      }
+      if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey) {
+        e.preventDefault();
+        applyPrivateNoteMention(privateNoteMentionFiltered[privateNoteMentionIndex]);
+        return;
+      }
+    }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
   };
 
   const isSidebarActive = (filter: SidebarFilter) => {
     if (typeof sidebarFilter === "string" && typeof filter === "string")
       return sidebarFilter === filter;
-    if (typeof sidebarFilter === "object" && typeof filter === "object")
-      return sidebarFilter.type === filter.type && sidebarFilter.value === filter.value;
+    if (typeof sidebarFilter === "object" && typeof filter === "object") {
+      if (sidebarFilter.type !== filter.type) return false;
+      if (
+        sidebarFilter.type === "live-ai-jamison" ||
+        sidebarFilter.type === "live-ai-hillside"
+      )
+        return true;
+      return (
+        "value" in sidebarFilter &&
+        "value" in filter &&
+        sidebarFilter.value === filter.value
+      );
+    }
     return false;
   };
-
-  const initials = (name: string) =>
-    name
-      .split(" ")
-      .map((w) => w[0])
-      .join("")
-      .slice(0, 2)
-      .toUpperCase();
 
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -245,7 +658,7 @@ function ConversationsContent() {
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>
-          <span className="text-sm font-semibold">Inbox</span>
+          <span className="text-sm font-semibold">Back</span>
         </div>
 
         <nav className="flex-1 overflow-y-auto px-2 py-2">
@@ -265,7 +678,22 @@ function ConversationsContent() {
                   onClick={() => setSidebarFilter(item.id)}
                 >
                   <item.icon className="h-4 w-4 shrink-0" />
-                  {item.label}
+                  <span className="min-w-0 flex-1 text-left">{item.label}</span>
+                  {item.id === "all" && allThreadsUnreadCount > 0 && (
+                    <Badge variant="destructive" className="h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">
+                      {allThreadsUnreadCount}
+                    </Badge>
+                  )}
+                  {item.id === "mentions" && mentionsInboxCount > 0 && (
+                    <Badge variant="destructive" className="h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">
+                      {mentionsInboxCount}
+                    </Badge>
+                  )}
+                  {item.id === "unattended" && unattendedInboxCount > 0 && (
+                    <Badge variant="destructive" className="h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">
+                      {unattendedInboxCount}
+                    </Badge>
+                  )}
                 </Button>
               </li>
             ))}
@@ -276,48 +704,104 @@ function ConversationsContent() {
           <ul className="space-y-0.5">
             <li>
               <Button
-                variant={isSidebarActive({ type: "label", value: "AI Escalation" }) ? "secondary" : "ghost"}
+                variant={isSidebarActive({ type: "label", value: "__escalation__" }) ? "secondary" : "ghost"}
                 className={cn(
-                  "w-full justify-start gap-2.5 font-normal",
-                  isSidebarActive({ type: "label", value: "AI Escalation" }) && "font-medium"
+                  "h-auto min-h-9 w-full items-start justify-start gap-2.5 whitespace-normal py-2 font-normal",
+                  isSidebarActive({ type: "label", value: "__escalation__" }) && "font-medium"
                 )}
-                onClick={() => setSidebarFilter({ type: "label", value: "AI Escalation" })}
+                onClick={() => setSidebarFilter({ type: "label", value: "__escalation__" })}
               >
-                <span className="flex-1 text-left">AI Escalations</span>
-                {escalationCount > 0 && (
-                  <Badge variant="destructive" className="ml-auto h-5 min-w-5 justify-center px-1.5 text-[10px]">
-                    {escalationCount}
+                <span className="min-w-0 flex-1 text-left leading-snug break-words">AI Escalations</span>
+                {escalationUnreadCount > 0 && (
+                  <Badge variant="destructive" className="mt-0.5 h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">
+                    {escalationUnreadCount}
                   </Badge>
                 )}
               </Button>
             </li>
-            {properties.map(([prop, count]) => (
-              <li key={prop}>
-                <Button
-                  variant={isSidebarActive({ type: "property", value: prop }) ? "secondary" : "ghost"}
-                  className={cn(
-                    "w-full justify-start gap-2.5 font-normal",
-                    isSidebarActive({ type: "property", value: prop }) && "font-medium"
-                  )}
-                  onClick={() => setSidebarFilter({ type: "property", value: prop })}
-                >
-                  <span className="flex-1 text-left">{prop}</span>
-                  <Badge variant="secondary" className="ml-auto h-5 min-w-5 justify-center px-1.5 text-[10px]">
-                    {count}
-                  </Badge>
-                </Button>
-              </li>
+            {properties.map(([prop, unreadCount]) => (
+              <Fragment key={prop}>
+                <li>
+                  <Button
+                    variant={isSidebarActive({ type: "property", value: prop }) ? "secondary" : "ghost"}
+                    className={cn(
+                      "h-auto min-h-9 w-full items-start justify-start gap-2.5 whitespace-normal py-2 font-normal",
+                      isSidebarActive({ type: "property", value: prop }) && "font-medium"
+                    )}
+                    onClick={() => setSidebarFilter({ type: "property", value: prop })}
+                  >
+                    <span className="min-w-0 flex-1 text-left leading-snug break-words">
+                      {propertyInboxSidebarLabel(prop)}
+                    </span>
+                    {unreadCount > 0 && (
+                      <Badge variant="destructive" className="mt-0.5 h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">
+                        {unreadCount}
+                      </Badge>
+                    )}
+                  </Button>
+                </li>
+                {prop === "Hillside Living" && (
+                  <li>
+                    <Button
+                      variant={isSidebarActive({ type: "live-ai-hillside" }) ? "secondary" : "ghost"}
+                      className={cn(
+                        "h-auto min-h-9 w-full items-start justify-start gap-2.5 whitespace-normal py-2 font-normal",
+                        isSidebarActive({ type: "live-ai-hillside" }) && "font-medium"
+                      )}
+                      onClick={() => setSidebarFilter({ type: "live-ai-hillside" })}
+                    >
+                      <span className="min-w-0 flex-1 text-left leading-snug break-words">
+                        Live AI Hillside Living
+                      </span>
+                      {liveAiHillsideUnreadCount > 0 && (
+                        <Badge variant="destructive" className="mt-0.5 h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">
+                          {liveAiHillsideUnreadCount}
+                        </Badge>
+                      )}
+                    </Button>
+                  </li>
+                )}
+                {prop === "Jamison Apartments" && (
+                  <li>
+                    <Button
+                      variant={isSidebarActive({ type: "live-ai-jamison" }) ? "secondary" : "ghost"}
+                      className={cn(
+                        "h-auto min-h-9 w-full items-start justify-start gap-2.5 whitespace-normal py-2 font-normal",
+                        isSidebarActive({ type: "live-ai-jamison" }) && "font-medium"
+                      )}
+                      onClick={() => setSidebarFilter({ type: "live-ai-jamison" })}
+                    >
+                      <span className="min-w-0 flex-1 text-left leading-snug break-words">
+                        Live AI Jamison Apartments
+                      </span>
+                      {liveAiJamisonUnreadCount > 0 && (
+                        <Badge variant="destructive" className="mt-0.5 h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">
+                          {liveAiJamisonUnreadCount}
+                        </Badge>
+                      )}
+                    </Button>
+                  </li>
+                )}
+              </Fragment>
             ))}
           </ul>
 
           <div className="my-3 h-px bg-border" />
 
           <ul className="space-y-0.5">
-            {(["Reporting", "Manage Inboxes", "Manage Labels"]).map((label) => (
+            {(["Email Integration", "Manage Inboxes", "Manage Labels", "Reporting"]).map((label) => (
               <li key={label}>
-                <Button variant="ghost" className="w-full justify-start font-normal">
-                  {label}
-                </Button>
+                {label === "Email Integration" ? (
+                  <Link href="/communications-setup/custom-email">
+                    <Button variant="ghost" className="w-full justify-start font-normal">
+                      {label}
+                    </Button>
+                  </Link>
+                ) : (
+                  <Button variant="ghost" className="w-full justify-start font-normal">
+                    {label}
+                  </Button>
+                )}
               </li>
             ))}
           </ul>
@@ -332,9 +816,9 @@ function ConversationsContent() {
             <TabsList className="w-full">
               <TabsTrigger value="mine" className="flex-1 gap-1.5">
                 My Inbox
-                {myInboxCount > 0 && (
+                {myInboxUnreadCount > 0 && (
                   <Badge variant="destructive" className="h-5 min-w-5 justify-center px-1.5 text-[10px]">
-                    {myInboxCount}
+                    {myInboxUnreadCount}
                   </Badge>
                 )}
               </TabsTrigger>
@@ -358,29 +842,107 @@ function ConversationsContent() {
         </div>
 
         {/* List */}
-        <div className="flex-1 overflow-y-auto scrollbar-hover">
-          {filtered.length > 0 ? (
-            <ul>
-              {filtered.map((convo) => {
-                const isActive = convo.id === selectedId;
-                return (
-                  <li key={convo.id}>
-                    <button
-                      type="button"
-                      onClick={() => { setSelectedId(convo.id); markRead(convo.id); }}
-                      className={cn(
-                        "relative flex w-full flex-col gap-1 py-3 pl-4 pr-4 text-left transition-colors",
-                        isActive
-                          ? "border-l-2 border-l-primary bg-accent"
-                          : "hover:bg-accent/50"
-                      )}
-                    >
-                      {convo.hasUnread && !isActive && (
-                        <span className="absolute left-1.5 top-4 h-2 w-2 rounded-full bg-destructive" />
-                      )}
-                      <span className="text-[10px] font-medium tracking-wide text-muted-foreground">
-                        {convo.property}
-                      </span>
+        <TooltipProvider delayDuration={250}>
+          <div className="flex-1 overflow-y-auto scrollbar-hover">
+            {filtered.length > 0 ? (
+              <ul>
+                {filtered.map((convo) => {
+                  const isActive = convo.id === selectedId;
+                  const emailRouting =
+                    convo.channel === "Email"
+                      ? getEmailThreadRoutingAddresses(convo.resident, convo.property)
+                      : null;
+                  const phoneRouting = emailRouting
+                    ? null
+                    : getVoiceOrSmsThreadRoutingNumbers(convo.resident, convo.property);
+                  return (
+                    <li key={convo.id}>
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedId(convo.id); markRead(convo.id, MY_INBOX_ASSIGNEE); }}
+                        className={cn(
+                          "relative flex w-full flex-col gap-1 py-3 pl-4 pr-4 text-left transition-colors",
+                          isActive
+                            ? "border-l-2 border-l-primary bg-accent"
+                            : "hover:bg-accent/50"
+                        )}
+                      >
+                        {convo.hasUnread && !isActive && (
+                          <span className="absolute left-1.5 top-4 h-2 w-2 rounded-full bg-destructive" />
+                        )}
+                        <span className="flex items-center gap-1.5 text-[10px] font-medium tracking-wide text-muted-foreground">
+                          {emailRouting ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="cursor-default border-b border-dotted border-muted-foreground/50 hover:border-muted-foreground hover:text-foreground">
+                                  {convo.property}
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="bottom" align="start" className="max-w-[min(280px,calc(100vw-2rem))] p-0">
+                                <div className="space-y-2 px-3 py-2">
+                                  <div>
+                                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      From (resident)
+                                    </p>
+                                    <p className="break-all text-[11px] leading-snug text-foreground">
+                                      {emailRouting.residentEmail}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      To (property)
+                                    </p>
+                                    <p className="break-all text-[11px] leading-snug text-foreground">
+                                      {emailRouting.propertyInboxEmail}
+                                    </p>
+                                  </div>
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : phoneRouting?.propertyLine ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="cursor-default border-b border-dotted border-muted-foreground/50 hover:border-muted-foreground hover:text-foreground">
+                                  {convo.property}
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="bottom" align="start" className="max-w-[min(280px,calc(100vw-2rem))] p-0">
+                                <div className="space-y-2 px-3 py-2">
+                                  <div>
+                                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      From (resident)
+                                    </p>
+                                    <p className="font-mono text-[11px] tabular-nums leading-snug text-foreground">
+                                      {phoneRouting.residentPhone}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      To (property)
+                                    </p>
+                                    <p className="font-mono text-[11px] tabular-nums leading-snug text-foreground">
+                                      {phoneRouting.propertyLine}
+                                    </p>
+                                  </div>
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            convo.property
+                          )}
+                          {convo.channel === "Email" && (
+                            <span className="inline-flex items-center gap-0.5 font-normal text-muted-foreground/90">
+                              <Mail className="h-3 w-3 shrink-0" />
+                              Email
+                            </span>
+                          )}
+                          {convo.channel === "SMS" && (
+                            <span className="inline-flex items-center gap-0.5 font-normal text-muted-foreground/90">
+                              <Phone className="h-3 w-3 shrink-0" />
+                              SMS
+                            </span>
+                          )}
+                        </span>
                       <div className="flex items-center justify-between gap-2">
                         <span className={cn("truncate text-sm", convo.hasUnread ? "font-bold" : "font-semibold")}>{convo.resident}</span>
                         <span className="shrink-0 text-[10px] text-muted-foreground">{convo.time}</span>
@@ -391,7 +953,7 @@ function ConversationsContent() {
                           {convo.labels.map((label) => (
                             <Badge
                               key={label}
-                              variant={label === "AI Escalation" ? "destructive" : "secondary"}
+                              variant={isEscalationLabel(label) ? "destructive" : "secondary"}
                               className="h-auto px-1.5 py-0 text-[10px]"
                             >
                               {label}
@@ -399,17 +961,18 @@ function ConversationsContent() {
                           ))}
                         </div>
                       )}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <div className="flex h-full items-center justify-center p-6">
-              <p className="text-sm text-muted-foreground">No conversations match the filters.</p>
-            </div>
-          )}
-        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <div className="flex h-full items-center justify-center p-6">
+                <p className="text-sm text-muted-foreground">No conversations match the filters.</p>
+              </div>
+            )}
+          </div>
+        </TooltipProvider>
       </div>
 
       {/* ===== CONVERSATION DETAIL ===== */}
@@ -418,63 +981,85 @@ function ConversationsContent() {
           <>
             {/* Header */}
             <div className="shrink-0 border-b border-border bg-card px-5 py-3">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <h2 className="text-base font-semibold leading-tight">{selected.resident}</h2>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{selected.property}</p>
+              {/* Row 1: Name + Assignee + Resolve */}
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => setProfileModalOpen(true)}
+                    className="text-base font-semibold leading-tight hover:underline hover:text-blue-600 transition-colors cursor-pointer"
+                  >
+                    {selected.resident}
+                  </button>
+                  <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                    {selected.property}
+                    {selected.channel === "Email" && (
+                      <>
+                        <span className="text-muted-foreground/50">·</span>
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground">
+                          <Mail className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                          Email
+                        </span>
+                      </>
+                    )}
+                    {selected.channel === "SMS" && (
+                      <>
+                        <span className="text-muted-foreground/50">·</span>
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground">
+                          <Phone className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                          SMS
+                        </span>
+                      </>
+                    )}
+                  </span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Popover>
                     <PopoverTrigger asChild>
                       <button
-                        className="flex items-center gap-1.5 rounded-full border border-transparent px-1 py-0.5 transition-colors hover:border-border hover:bg-muted"
+                        className="flex items-center gap-1 rounded-full border border-transparent px-1 py-0.5 transition-colors hover:border-border hover:bg-muted"
                         aria-label="Change assignee"
                       >
                         <Avatar className="h-7 w-7">
-                          <AvatarFallback className="text-[10px]">
+                          <AvatarFallback className={cn("text-[10px]", avatarColor(selected.assignee))}>
                             {isHumanAssignee(selected.assignee)
                               ? initials(selected.assignee)
                               : "AI"}
                           </AvatarFallback>
                         </Avatar>
-                        <ChevronDown className="h-3 w-3 text-muted-foreground" />
                       </button>
                     </PopoverTrigger>
                     <PopoverContent className="w-64 p-0" align="end">
                       <AssigneePicker
                         groupedAssignees={groupedAssignees}
                         currentAssignee={selected.assignee}
-                        onSelect={(value) => updateAssignee(selected.id, value)}
+                        onSelect={(value) => updateAssignee(selected.id, value, MY_INBOX_ASSIGNEE)}
                       />
                     </PopoverContent>
                   </Popover>
                   {selected.status === "open" ? (
-                    <div className="flex items-center">
+                    <div className="flex items-center shrink-0">
                       <Button
                         size="sm"
-                        className="gap-1.5 rounded-r-none"
-                        onClick={() => resolveConversation(selected.id)}
+                        className="gap-1 rounded-r-none px-2.5 h-7 text-xs"
+                        onClick={() => resolveConversation(selected.id, MY_INBOX_ASSIGNEE)}
                       >
-                        <Check className="h-3.5 w-3.5" />
-                        Mark as Resolved
+                        <Check className="h-3 w-3" />
+                        Resolve
                       </Button>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
                             size="sm"
-                            className="rounded-l-none border-l border-primary-foreground/20 px-2"
+                            className="rounded-l-none border-l border-primary-foreground/20 px-1.5 h-7"
                           >
-                            <ChevronDown className="h-3.5 w-3.5" />
+                            <ChevronDown className="h-3 w-3" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-48">
-                          <DropdownMenuItem onClick={() => resolveConversation(selected.id)}>
+                          <DropdownMenuItem onClick={() => resolveConversation(selected.id, MY_INBOX_ASSIGNEE)}>
                             <Check className="mr-2 h-3.5 w-3.5" />
                             Mark as Resolved
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => reopenConversation(selected.id)}>
-                            <Clock className="mr-2 h-3.5 w-3.5" />
-                            Mark as Pending
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -484,7 +1069,7 @@ function ConversationsContent() {
                       size="sm"
                       variant="outline"
                       className="gap-1.5"
-                      onClick={() => reopenConversation(selected.id)}
+                      onClick={() => reopenConversation(selected.id, MY_INBOX_ASSIGNEE)}
                     >
                       Reopen
                     </Button>
@@ -492,20 +1077,24 @@ function ConversationsContent() {
                 </div>
               </div>
 
-              {/* Labels */}
+              {/* Row 2: Labels */}
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 {selected.labels.map((label) => (
                   <Badge
                     key={label}
-                    variant={label === "AI Escalation" ? "destructive" : "secondary"}
-                    className="gap-1"
+                    variant={label.includes("Escalation") ? "destructive" : "outline"}
+                    className={cn(
+                      "gap-1 rounded-md text-xs font-normal",
+                      label.includes("Escalation")
+                        ? "border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
+                        : "border-border"
+                    )}
                   >
                     {label}
                     <button
                       type="button"
                       onClick={() => removeLabel(selected.id, label)}
-                      className="ml-0.5 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100"
-                      aria-label={`Remove ${label} label`}
+                      className="ml-0.5 rounded-sm opacity-60 transition-opacity hover:opacity-100"
                     >
                       <X className="h-3 w-3" />
                     </button>
@@ -530,7 +1119,7 @@ function ConversationsContent() {
                         onChange={(e) => setNewLabelText(e.target.value)}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" && newLabelText.trim()) {
-                            addLabel(selected.id, newLabelText.trim());
+                            addLabel(selected.id, newLabelText.trim(), MY_INBOX_ASSIGNEE);
                             setNewLabelText("");
                             setAddLabelOpen(false);
                           }
@@ -553,7 +1142,7 @@ function ConversationsContent() {
                                 if (applied) {
                                   removeLabel(selected.id, label);
                                 } else {
-                                  addLabel(selected.id, label);
+                                  addLabel(selected.id, label, MY_INBOX_ASSIGNEE);
                                 }
                               }}
                             >
@@ -567,7 +1156,7 @@ function ConversationsContent() {
                           type="button"
                           className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent transition-colors text-muted-foreground"
                           onClick={() => {
-                            addLabel(selected.id, newLabelText.trim());
+                            addLabel(selected.id, newLabelText.trim(), MY_INBOX_ASSIGNEE);
                             setNewLabelText("");
                             setAddLabelOpen(false);
                           }}
@@ -580,12 +1169,380 @@ function ConversationsContent() {
                   </PopoverContent>
                 </Popover>
               </div>
+
+              {selected.labels.some((label) => AI_ACTIVATION_OPT_IN_LABELS.has(label)) && (
+                <>
+                  {/* Row 3: AI Activated toggle */}
+                  <div className="mt-3 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
+                    <div className="flex items-center gap-2.5">
+                      <Switch
+                        checked={aiActivated}
+                        onCheckedChange={(checked) => {
+                          setAiActivated(checked);
+                          recordThreadActivity(selected.id, {
+                            kind: "ai_activation",
+                            active: checked,
+                            actor: MY_INBOX_ASSIGNEE,
+                          });
+                          if (checked) {
+                            setReactivationDate(null);
+                            setNoLimit(false);
+                            setShowDatePicker(false);
+                          } else {
+                            setShowDatePicker(true);
+                          }
+                        }}
+                      />
+                      <span className="text-sm font-medium text-foreground whitespace-nowrap">
+                        AI Activated
+                      </span>
+                      {!aiActivated && (reactivationDate || noLimit) && (
+                        <span className="ml-auto text-xs text-muted-foreground truncate">
+                          {noLimit
+                            ? "Will not reactivate"
+                            : `Reactivates ${reactivationDate!.toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                              })}`}
+                        </span>
+                      )}
+                    </div>
+                    {!aiActivated && (
+                      <div className="mt-2 flex items-center gap-2 pl-[46px]">
+                        <label className="text-xs text-muted-foreground whitespace-nowrap">
+                          Deactivation up to:
+                        </label>
+                        {noLimit ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNoLimit(false);
+                              setShowDatePicker(true);
+                            }}
+                            className="flex items-center gap-1.5 rounded-md border border-input bg-background px-2.5 py-1 text-xs transition-colors hover:bg-accent"
+                          >
+                            No Limit
+                          </button>
+                        ) : (
+                          <Popover open={showDatePicker} onOpenChange={setShowDatePicker}>
+                            <PopoverTrigger asChild>
+                              <button
+                                type="button"
+                                className="flex items-center gap-1.5 rounded-md border border-input bg-background px-2.5 py-1 text-xs transition-colors hover:bg-accent"
+                              >
+                                <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                                {reactivationDate
+                                  ? reactivationDate.toLocaleDateString("en-US", {
+                                      month: "short",
+                                      day: "numeric",
+                                      year: "numeric",
+                                    })
+                                  : "Select date"}
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="start">
+                              <MiniCalendar
+                                selected={reactivationDate}
+                                onSelect={(date) => {
+                                  setReactivationDate(date);
+                                  setNoLimit(false);
+                                  setShowDatePicker(false);
+                                }}
+                                onNoLimit={() => {
+                                  setReactivationDate(null);
+                                  setNoLimit(true);
+                                  setShowDatePicker(false);
+                                }}
+                              />
+                            </PopoverContent>
+                          </Popover>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Row 4: Phone / Email opt-in */}
+                  <div className="mt-3 flex gap-3">
+                    <div className="flex-1 min-w-0">
+                      <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Phone</label>
+                      <Select
+                        value={phoneOpt}
+                        onValueChange={(v) => {
+                          const choice = v as ChannelOptChoice;
+                          setPhoneOpt(choice);
+                          recordThreadActivity(selected.id, {
+                            kind: "channel_opt",
+                            channel: "phone",
+                            choice,
+                            actor: MY_INBOX_ASSIGNEE,
+                          });
+                        }}
+                      >
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
+                          <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
+                          <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Email</label>
+                      <Select
+                        value={emailOpt}
+                        onValueChange={(v) => {
+                          const choice = v as ChannelOptChoice;
+                          setEmailOpt(choice);
+                          recordThreadActivity(selected.id, {
+                            kind: "channel_opt",
+                            channel: "email",
+                            choice,
+                            actor: MY_INBOX_ASSIGNEE,
+                          });
+                        }}
+                      >
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
+                          <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
+                          <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Messages */}
             <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-hover bg-muted/30 px-5 py-4">
               <div className="space-y-4">
-                {selected.messages.map((msg, idx) => {
+                {selected.channel === "Email" && (
+                  <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+                    <div className="border-b border-border bg-muted/50 px-4 py-3">
+                      <div className="flex items-start gap-2.5">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background border border-border">
+                          <Mail className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                        <div className="min-w-0 flex-1 space-y-2">
+                          <div>
+                            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                              Subject
+                            </p>
+                            <p className="text-sm font-semibold text-foreground leading-snug">
+                              {selected.emailSubject ?? selected.preview}
+                            </p>
+                          </div>
+                          <div className="grid gap-1.5 text-xs">
+                            <p>
+                              <span className="text-muted-foreground">From:</span>{" "}
+                              <span className="font-medium text-foreground">
+                                {selected.resident} &lt;
+                                {selectedEmailRouting?.residentEmail}
+                                &gt;
+                              </span>
+                            </p>
+                            <p>
+                              <span className="text-muted-foreground">To:</span>{" "}
+                              <span className="font-medium text-foreground">
+                                {selected.property} Leasing &lt;
+                                {selectedEmailRouting?.propertyInboxEmail}
+                                &gt;
+                              </span>
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="space-y-4 bg-background px-4 py-4">
+                      {selected.messages.map((msg, idx) => {
+                        if (msg.type === "handoff") {
+                          return (
+                            <div key={idx} className="flex items-center justify-center gap-2 py-1">
+                              <CornerDownRight className="h-3 w-3 text-muted-foreground" />
+                              <span className="text-[11px] text-muted-foreground">
+                                Handoff {isHumanAssignee(selected.assignee) ? selected.assignee : "Staff"} · {msg.timestamp}
+                              </span>
+                            </div>
+                          );
+                        }
+                        if (msg.type === "thread_activity" && msg.threadActivity) {
+                          return <ConversationThreadActivityRow key={idx} message={msg} />;
+                        }
+                        if (msg.type === "label_activity" && msg.labelActivity) {
+                          const { actor, labelsAdded } = msg.labelActivity;
+                          return (
+                            <div
+                              key={idx}
+                              className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/70 bg-muted/25 py-2.5 px-3"
+                            >
+                              <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                              <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
+                                <span className="font-medium text-foreground">{actor}</span>
+                                {" added "}
+                                {labelsAdded.length === 1 ? "label " : "labels "}
+                                <span className="font-medium text-foreground">{labelsAdded.join(", ")}</span>
+                                {msg.timestamp && (
+                                  <>
+                                    <span className="text-muted-foreground/70"> · </span>
+                                    <span>{msg.timestamp}</span>
+                                  </>
+                                )}
+                              </p>
+                            </div>
+                          );
+                        }
+                        if (msg.type === "private_note") {
+                          return (
+                            <div key={idx} className="space-y-1">
+                              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                                <Avatar className="h-5 w-5">
+                                  <AvatarFallback
+                                    className={cn(
+                                      "text-[8px]",
+                                      msg.privateNoteAuthor
+                                        ? avatarColor(msg.privateNoteAuthor)
+                                        : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                                    )}
+                                  >
+                                    {msg.privateNoteAuthor ? (
+                                      initials(msg.privateNoteAuthor)
+                                    ) : (
+                                      <StickyNote className="h-2.5 w-2.5" />
+                                    )}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                                  Private Note
+                                  {msg.privateNoteAuthor ? (
+                                    <>
+                                      <span className="font-normal text-muted-foreground"> · </span>
+                                      <span className="font-medium text-amber-800 dark:text-amber-200">
+                                        {msg.privateNoteAuthor}
+                                      </span>
+                                    </>
+                                  ) : null}
+                                </span>
+                                {msg.timestamp && <span className="text-[10px] text-muted-foreground">{msg.timestamp}</span>}
+                              </div>
+                              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+                                {msg.text}
+                              </div>
+                            </div>
+                          );
+                        }
+                        const isAgent = msg.role === "agent";
+                        const isStaff = msg.role === "staff";
+                        return (
+                          <div key={idx} className="space-y-2 border-l-2 border-l-primary/25 pl-4">
+                            <div className="flex items-center gap-2">
+                              <Avatar className={cn(isAgent || isStaff ? "h-8 w-8" : "h-5 w-5")}>
+                                {isAgent ? (
+                                  <AvatarImage src="/eli-cube.svg" alt="ELI" className="p-1" />
+                                ) : null}
+                                <AvatarFallback
+                                  className={cn(
+                                    (isAgent || isStaff)
+                                      ? "bg-muted text-[10px] text-foreground"
+                                      : "bg-muted text-[8px] text-muted-foreground"
+                                  )}
+                                >
+                                  {isStaff
+                                    ? initials(isHumanAssignee(selected.assignee) ? selected.assignee : "Staff")
+                                    : <User className="h-2.5 w-2.5" />}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div className="flex flex-col">
+                                <span className="text-xs font-semibold text-foreground">
+                                  {isAgent
+                                    ? resolveAgentLabel(selected.agent)
+                                    : isStaff
+                                      ? (isHumanAssignee(selected.assignee) ? selected.assignee : "Staff")
+                                      : selected.resident}
+                                </span>
+                                {msg.timestamp && <span className="text-[10px] text-muted-foreground">{msg.timestamp}</span>}
+                              </div>
+                            </div>
+                            <div className="rounded-md border border-border bg-muted/30 px-4 py-3 text-sm leading-relaxed text-foreground">
+                              {msg.text.split("\n").map((line, li) => (
+                                <span key={li}>
+                                  {line}
+                                  {li < msg.text.split("\n").length - 1 && <br />}
+                                </span>
+                              ))}
+                            </div>
+                            {msg.emailAttachments && msg.emailAttachments.length > 0 && (
+                              <div className="space-y-2 pt-1">
+                                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                  Attachments
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                  {msg.emailAttachments.map((att, ai) =>
+                                    att.kind === "image" ? (
+                                      <button
+                                        key={`${att.name}-${ai}`}
+                                        type="button"
+                                        onClick={() => setEmailAttachmentPreview(att)}
+                                        className="flex w-[min(100%,12rem)] flex-col gap-1.5 rounded-md border border-border bg-card p-2 text-left shadow-sm transition-colors hover:bg-muted/50 hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                      >
+                                        <div className="flex aspect-[4/3] w-full items-center justify-center rounded border border-dashed border-border bg-gradient-to-br from-muted/80 to-muted/40">
+                                          <ImageIcon className="h-6 w-6 text-muted-foreground/70" aria-hidden />
+                                        </div>
+                                        <span className="truncate text-[11px] font-medium text-foreground" title={att.name}>
+                                          {att.name}
+                                        </span>
+                                      </button>
+                                    ) : (
+                                      <button
+                                        key={`${att.name}-${ai}`}
+                                        type="button"
+                                        onClick={() => setEmailAttachmentPreview(att)}
+                                        className="flex max-w-[14rem] items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-left shadow-sm transition-colors hover:bg-muted/50 hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                      >
+                                        <FileText className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                                        <span className="truncate text-[11px] font-medium text-foreground" title={att.name}>
+                                          {att.name}
+                                        </span>
+                                      </button>
+                                    )
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                            {msg.emailSignature?.trim() && (
+                              <div className="mt-3 border-t border-border pt-3">
+                                <div className="flex gap-3">
+                                  {(isStaff || msg.role === "resident") && (
+                                    <Avatar className="mt-0.5 h-10 w-10 shrink-0 border border-border bg-background">
+                                      <AvatarFallback
+                                        className={cn(
+                                          "text-[10px]",
+                                          isStaff ? avatarColor(selected.assignee) : "bg-muted text-muted-foreground"
+                                        )}
+                                      >
+                                        {isStaff
+                                          ? isHumanAssignee(selected.assignee)
+                                            ? initials(selected.assignee)
+                                            : "ST"
+                                          : initials(selected.resident)}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                  )}
+                                  <p className="min-w-0 whitespace-pre-line text-xs leading-relaxed text-muted-foreground">
+                                    {msg.emailSignature}
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                {selected.channel !== "Email" &&
+                selected.messages.map((msg, idx) => {
                   if (msg.type === "handoff") {
                     return (
                       <div key={idx} className="flex items-center justify-center gap-2 py-1">
@@ -597,16 +1554,65 @@ function ConversationsContent() {
                     );
                   }
 
+                  if (msg.type === "thread_activity" && msg.threadActivity) {
+                    return <ConversationThreadActivityRow key={idx} message={msg} />;
+                  }
+
+                  if (msg.type === "label_activity" && msg.labelActivity) {
+                    const { actor, labelsAdded } = msg.labelActivity;
+                    return (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/70 bg-muted/25 py-2.5 px-3"
+                      >
+                        <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                        <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
+                          <span className="font-medium text-foreground">{actor}</span>
+                          {" added "}
+                          {labelsAdded.length === 1 ? "label " : "labels "}
+                          <span className="font-medium text-foreground">{labelsAdded.join(", ")}</span>
+                          {msg.timestamp && (
+                            <>
+                              <span className="text-muted-foreground/70"> · </span>
+                              <span>{msg.timestamp}</span>
+                            </>
+                          )}
+                        </p>
+                      </div>
+                    );
+                  }
+
                   if (msg.type === "private_note") {
                     return (
                       <div key={idx} className="space-y-1">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                           <Avatar className="h-5 w-5">
-                            <AvatarFallback className="bg-amber-100 text-[8px] text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
-                              <StickyNote className="h-2.5 w-2.5" />
+                            <AvatarFallback
+                              className={cn(
+                                "text-[8px]",
+                                msg.privateNoteAuthor
+                                  ? avatarColor(msg.privateNoteAuthor)
+                                  : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                              )}
+                            >
+                              {msg.privateNoteAuthor ? (
+                                initials(msg.privateNoteAuthor)
+                              ) : (
+                                <StickyNote className="h-2.5 w-2.5" />
+                              )}
                             </AvatarFallback>
                           </Avatar>
-                          <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">Private Note</span>
+                          <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                            Private Note
+                            {msg.privateNoteAuthor ? (
+                              <>
+                                <span className="font-normal text-muted-foreground"> · </span>
+                                <span className="font-medium text-amber-800 dark:text-amber-200">
+                                  {msg.privateNoteAuthor}
+                                </span>
+                              </>
+                            ) : null}
+                          </span>
                           {msg.timestamp && <span className="text-[10px] text-muted-foreground">{msg.timestamp}</span>}
                         </div>
                         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
@@ -677,7 +1683,10 @@ function ConversationsContent() {
                   variant={inputMode === "message" ? "default" : "ghost"}
                   size="sm"
                   className="gap-1.5 rounded-full text-xs"
-                  onClick={() => setInputMode("message")}
+                  onClick={() => {
+                    setInputMode("message");
+                    setPrivateNoteMention(null);
+                  }}
                 >
                   <MessageSquare className="h-3.5 w-3.5" />
                   Message
@@ -700,25 +1709,80 @@ function ConversationsContent() {
               <div className="px-5 pb-4">
                 <div
                   className={cn(
-                    "flex flex-col rounded-xl border transition-colors focus-within:ring-1 focus-within:ring-ring",
+                    "relative flex flex-col rounded-xl border transition-colors focus-within:ring-1 focus-within:ring-ring",
                     inputMode === "private_note"
                       ? "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20"
                       : "border-input bg-background"
                   )}
                 >
+                  {inputMode === "private_note" &&
+                    privateNoteMention &&
+                    (privateNoteMentionFiltered.length > 0 ? (
+                      <div
+                        className="absolute bottom-full left-0 right-0 z-50 mb-1 overflow-hidden rounded-md border border-border bg-popover shadow-md"
+                        role="listbox"
+                        aria-label="Mention a teammate"
+                      >
+                        <ul className="max-h-48 overflow-y-auto py-1">
+                          {privateNoteMentionFiltered.map((c, idx) => (
+                            <li key={c.handle} role="option" aria-selected={idx === privateNoteMentionIndex}>
+                              <button
+                                type="button"
+                                className={cn(
+                                  "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-accent",
+                                  idx === privateNoteMentionIndex && "bg-accent"
+                                )}
+                                onMouseDown={(e) => e.preventDefault()}
+                                onMouseEnter={() => setPrivateNoteMentionIndex(idx)}
+                                onClick={() => applyPrivateNoteMention(c)}
+                              >
+                                <Avatar className="h-7 w-7">
+                                  <AvatarFallback className={cn("text-[10px]", avatarColor(c.name))}>
+                                    {initials(c.name)}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate font-medium text-foreground">{c.name}</p>
+                                  <p className="truncate text-xs text-muted-foreground">
+                                    @{c.handle} · {c.role}
+                                  </p>
+                                </div>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : privateNoteMention.query.length > 0 ? (
+                      <div className="absolute bottom-full left-0 right-0 z-50 mb-1 rounded-md border border-border bg-popover px-3 py-2 text-xs text-muted-foreground shadow-md">
+                        No matching staff
+                      </div>
+                    ) : null)}
                   <textarea
+                    ref={chatTextareaRef}
                     value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSend();
+                    onChange={handleComposerDraftChange}
+                    onSelect={(e) => {
+                      if (inputMode === "private_note") {
+                        syncPrivateNoteMentionFromTextarea(e.currentTarget);
                       }
                     }}
+                    onKeyUp={(e) => {
+                      if (inputMode === "private_note") {
+                        syncPrivateNoteMentionFromTextarea(e.currentTarget);
+                      }
+                    }}
+                    onKeyDown={handleComposerKeyDown}
                     placeholder={inputMode === "private_note" ? "Write a private note…" : "Write a message…"}
                     rows={2}
                     className="w-full resize-none bg-transparent px-4 pt-3 pb-1 text-sm placeholder:text-muted-foreground focus-visible:outline-none"
                     aria-label={inputMode === "private_note" ? "Private note" : "Message"}
+                    aria-autocomplete={inputMode === "private_note" ? "list" : undefined}
+                    aria-haspopup={inputMode === "private_note" ? "listbox" : undefined}
+                    aria-expanded={
+                      inputMode === "private_note" && !!privateNoteMention
+                        ? privateNoteMentionFiltered.length > 0 || privateNoteMention.query.length > 0
+                        : undefined
+                    }
                   />
                   <div className="flex items-center justify-between px-3 pb-2">
                     <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-muted-foreground">
@@ -750,7 +1814,649 @@ function ConversationsContent() {
         )}
       </div>
 
-      {/* Right sidebar removed to give the chat more room */}
+      {/* Instructional video modal for Message panel */}
+      <Dialog open={showMessageIntro} onOpenChange={setShowMessageIntro}>
+        <DialogContent className="sm:max-w-[640px] p-0 gap-0 overflow-hidden z-[80]">
+          <DialogHeader className="px-6 pt-6 pb-4">
+            <DialogTitle className="text-lg font-semibold">How to Use the Conversation Panel</DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground">
+              Watch this short walkthrough to learn how to message residents, manage threads, and assign conversations.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="relative w-full bg-gray-900 aspect-video flex items-center justify-center">
+            <div className="absolute inset-0 bg-gradient-to-br from-blue-900/40 to-gray-900/80" />
+            <div className="relative z-10 flex flex-col items-center gap-4">
+              <div className="flex h-20 w-20 items-center justify-center rounded-full bg-white/15 backdrop-blur-sm transition-transform hover:scale-110 cursor-pointer">
+                <PlayCircle className="h-12 w-12 text-white" strokeWidth={1.2} />
+              </div>
+              <p className="text-white/70 text-sm font-medium">1:42 &mdash; Quick Start Guide</p>
+            </div>
+
+            <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20">
+              <div className="h-full w-0 bg-blue-500 rounded-full" />
+            </div>
+          </div>
+
+          <div className="px-6 py-5 flex flex-col gap-4 border-t border-gray-100">
+            <div className="flex flex-col gap-1.5">
+              <p className="text-[13px] font-semibold text-gray-900">What you&apos;ll learn:</p>
+              <ul className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[12px] text-gray-600">
+                <li className="flex items-center gap-2">
+                  <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                  Open &amp; navigate conversation threads
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                  Send messages &amp; private notes
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                  Assign agents to threads
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                  Filter active &amp; closed threads
+                </li>
+              </ul>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-[12px]"
+                onClick={() => {
+                  setShowMessageIntro(false);
+                  setThreadsPanelOpen(true);
+                }}
+              >
+                Skip for now
+              </Button>
+              <Button
+                size="sm"
+                className="gap-2 text-[12px] bg-blue-600 hover:bg-blue-700"
+                onClick={() => {
+                  setMessageIntroDismissed(true);
+                  setShowMessageIntro(false);
+                  setThreadsPanelOpen(true);
+                }}
+              >
+                Don&apos;t show this again
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Resident Profile Curtain Overlay */}
+      {profileModalOpen && selected && (
+        <div className="fixed inset-0 z-[60] flex">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setProfileModalOpen(false)} />
+          <div className="relative z-10 flex flex-1 flex-col animate-in slide-in-from-top duration-300 bg-white">
+            {/* Entrata brand bar — full width */}
+            <div className="flex items-center justify-between bg-[#b71c1c] px-4 py-2.5 shrink-0">
+              <span className="text-[16px] font-semibold italic text-white/90 tracking-wide">entrata</span>
+              <div className="flex items-center gap-4">
+                <button
+                  type="button"
+                  onClick={() => setProfileModalOpen(false)}
+                  className="flex items-center gap-1.5 text-[14px] font-medium text-white/90 hover:text-white transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                  Close
+                </button>
+              </div>
+            </div>
+
+            {/* Content row below brand bar */}
+            <div className="flex flex-1 min-h-0">
+            {/* LEFT: Entrata profile (header + tabs + ledger) */}
+            <div className="flex flex-1 min-w-0 flex-col bg-white">
+              {/* Profile header row */}
+              <div className="flex items-center bg-white px-5 py-5 shrink-0 border-b border-gray-200">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#2e7d32] text-sm font-bold text-white shrink-0">
+                    {initials(selected.resident)}
+                  </div>
+                  <div className="min-w-0">
+                    <span className="text-[15px] font-bold text-gray-900">{selected.resident}</span>
+                    <p className="text-[12px] text-gray-500">{selected.property} | #32</p>
+                  </div>
+                </div>
+                <span className="mx-4 text-gray-300">·</span>
+                <div className="ml-auto flex items-center gap-1.5">
+                  {[
+                    { label: "Message", Icon: MessageCircle, action: () => {
+                        if (!messageIntroDismissed) {
+                          setShowMessageIntro(true);
+                        } else {
+                          setThreadsPanelOpen(v => !v);
+                        }
+                      }},
+                    { label: "SMS", Icon: MessageSquare },
+                    { label: "Email", Icon: Mail },
+                    { label: "Appointment", Icon: CalendarIcon },
+                    { label: "Schedule Manual Contact", Icon: Phone },
+                  ].map((btn) => (
+                    <div key={btn.label} className="relative">
+                      {btn.label === "Message" && !threadsPanelOpen && !messageIntroDismissed && (
+                        <>
+                          <span className="absolute -top-2 -right-2 z-10 flex items-center rounded-full bg-blue-600 px-1.5 py-0.5 text-[8px] font-bold text-white shadow-sm animate-bounce" style={{ animationDuration: "2s" }}>
+                            NEW
+                          </span>
+                          <span className="absolute inset-0 rounded-md animate-pulse ring-2 ring-blue-400/50" style={{ animationDuration: "2s" }} />
+                        </>
+                      )}
+                    <button
+                      onClick={btn.action}
+                      className={`relative flex items-center gap-1.5 rounded-md border bg-white px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-gray-50 ${
+                        btn.label === "Message" && threadsPanelOpen
+                          ? "border-blue-400 text-blue-600"
+                          : btn.label === "Message"
+                            ? "border-blue-300 text-blue-600 shadow-[0_0_8px_rgba(59,130,246,0.3)]"
+                            : "border-gray-200 text-gray-600"
+                      }`}
+                    >
+                      <btn.Icon className={`h-3.5 w-3.5 shrink-0 ${btn.label === "Message" ? "text-blue-400" : "text-gray-400"}`} strokeWidth={1.5} />
+                      {btn.label}
+                    </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {/* Profile tabs */}
+              <div className="flex items-center gap-0 border-b border-gray-200 bg-[#f5f5f5] px-2 shrink-0">
+                {["Financial", "Household", "Lease", "Utilities", "Documents", "Maintenance", "Activity Log"].map((tab, i) => (
+                  <button
+                    key={tab}
+                    className={`px-3 py-2 text-[11px] font-medium transition-colors rounded-t ${
+                      i === 0
+                        ? "bg-white text-[#c0392b] border border-gray-200 border-b-white -mb-px relative z-10"
+                        : "text-gray-500 hover:text-gray-700 hover:bg-gray-100"
+                    }`}
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
+              {/* Sub-tabs */}
+              <div className="flex items-center gap-0 border-b border-gray-200 bg-white px-3 shrink-0">
+                {["Ledger", "Recurring Charges and Credits", "One Time Charges and Credits", "Recurring Payments", "MoneyGram", "Customer Invoices", "Payment Methods"].map((tab, i) => (
+                  <button
+                    key={tab}
+                    className={`px-2.5 py-2 text-[10px] font-medium transition-colors border-b-2 ${
+                      i === 0
+                        ? "text-[#333] border-[#c0392b]"
+                        : "text-gray-400 border-transparent hover:text-gray-600"
+                    }`}
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
+              {/* Main ledger area */}
+              <div className="flex flex-1 min-h-0">
+                {/* Ledger sidebar */}
+                <div className="w-[130px] shrink-0 border-r border-gray-200 bg-white p-3 space-y-3 text-[10px]">
+                  <div><span className="text-gray-700 font-semibold">Resident:</span> <span className="text-gray-700">$3,482.35</span></div>
+                  <div className="text-gray-400">Group: $0</div>
+                  <div className="text-gray-400">Harris/Ledger: $0</div>
+                  <div className="text-gray-400">HP/Ledger: $0</div>
+                  <div className="text-gray-400">Subsidy ledger custom: $0</div>
+                  <div className="text-gray-400">Deposits Held: $390</div>
+                </div>
+                {/* Ledger table area */}
+                <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                  <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-2 shrink-0">
+                    <button className="rounded border border-gray-300 bg-white px-2.5 py-1 text-[10px] font-medium text-gray-600 hover:bg-gray-50 flex items-center gap-1"><span className="text-gray-400">▾</span> Add</button>
+                    <button className="rounded border border-gray-300 bg-white px-2.5 py-1 text-[10px] font-medium text-gray-600 hover:bg-gray-50 flex items-center gap-1"><span className="text-gray-400">▾</span> Filter</button>
+                    <div className="flex-1" />
+                    <button className="rounded border border-gray-300 bg-white px-2.5 py-1 text-[10px] font-medium text-gray-600 hover:bg-gray-50">Generate Statement</button>
+                  </div>
+                  <div className="flex items-center gap-2 px-4 py-1.5 border-b border-gray-100 shrink-0">
+                    <button className="rounded bg-gray-200 px-2.5 py-0.5 text-[10px] font-medium text-gray-700">Open Items</button>
+                    <button className="rounded px-2.5 py-0.5 text-[10px] font-medium text-gray-400 hover:bg-gray-100">Full Ledger</button>
+                    <label className="flex items-center gap-1 text-[10px] text-gray-400 ml-3">Resident Friendly Mode: <input type="checkbox" className="h-3 w-3 accent-gray-500" /></label>
+                  </div>
+                  <div className="flex-1 overflow-auto">
+                    <table className="w-full text-[10px]">
+                      <thead className="sticky top-0 z-10">
+                        <tr className="border-b border-gray-200 bg-gray-50 text-left text-[9px] text-gray-500 uppercase tracking-wide">
+                          <th className="px-2 py-1.5 font-medium w-6"><input type="checkbox" className="h-3 w-3" /></th>
+                          <th className="px-2 py-1.5 font-medium">Post Date</th>
+                          <th className="px-2 py-1.5 font-medium">Due Date</th>
+                          <th className="px-2 py-1.5 font-medium">Post Mon</th>
+                          <th className="px-2 py-1.5 font-medium">Created On</th>
+                          <th className="px-2 py-1.5 font-medium">Trans ID</th>
+                          <th className="px-2 py-1.5 font-medium">Invoice</th>
+                          <th className="px-2 py-1.5 font-medium">Charge Code</th>
+                          <th className="px-2 py-1.5 font-medium">Memo</th>
+                          <th className="px-2 py-1.5 font-medium text-right">Charges</th>
+                          <th className="px-2 py-1.5 font-medium text-right">Unapplied</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[
+                          { postDate: "Jun 08, 2024", dueDate: "Jun 08, 2024", postMon: "06/2024", createdOn: "Jun 08, 2024 06:1", transId: "504369305", charge: "$5", unapplied: "$5", memo: "live testing", code: "live testing" },
+                          { postDate: "Jun 07, 2024", dueDate: "Jun 07, 2024", postMon: "06/2024", createdOn: "Jun 07, 2024 06:0", transId: "604381115", charge: "$15", unapplied: "$15", memo: "live testing", code: "live testing" },
+                          { postDate: "Jun 06, 2024", dueDate: "Jun 05, 2024", postMon: "06/2024", createdOn: "Jun 06, 2024 06:0", transId: "604184319", charge: "$15", unapplied: "$15", memo: "live testing", code: "live testing" },
+                          { postDate: "Jun 05, 2024", dueDate: "Jun 05, 2024", postMon: "06/2024", createdOn: "Jun 05, 2024 06:0", transId: "503983188", charge: "$15", unapplied: "$15", memo: "live testing", code: "live testing" },
+                          { postDate: "Jun 04, 2024", dueDate: "Jun 04, 2024", postMon: "06/2024", createdOn: "Jun 04, 2024 06:1", transId: "503980039", charge: "$15", unapplied: "$15", memo: "live testing", code: "live testing" },
+                          { postDate: "Jun 03, 2024", dueDate: "Jun 03, 2024", postMon: "06/2024", createdOn: "Jun 03, 2024 06:2", transId: "503905723", charge: "$15", unapplied: "$15", memo: "live testing", code: "live testing" },
+                          { postDate: "Jun 02, 2024", dueDate: "Jun 02, 2024", postMon: "06/2024", createdOn: "Jun 02, 2024 06:1", transId: "502313004", charge: "$20", unapplied: "$20", memo: "live testing", code: "live testing", highlight: true },
+                          { postDate: "Jun 01, 2024", dueDate: "Jun 01, 2024", postMon: "06/2024", createdOn: "May 31, 2024 11:2", transId: "502049706", charge: "$120", unapplied: "$120", memo: "Monthly Credit", code: "Credit Fees", bold: true },
+                          { postDate: "Jun 01, 2024", dueDate: "Jun 01, 2024", postMon: "06/2024", createdOn: "May 31, 2024 11:2", transId: "502049722", charge: "$500", unapplied: "$500", memo: "Monthly Admin", code: "Admin Fee", bold: true },
+                          { postDate: "May 08, 2024", dueDate: "May 08, 2024", postMon: "05/2024", createdOn: "May 08, 2024 06:1", transId: "498473699", charge: "$5", unapplied: "$5", memo: "live testing", code: "live testing" },
+                          { postDate: "May 07, 2024", dueDate: "May 07, 2024", postMon: "05/2024", createdOn: "May 07, 2024 06:1", transId: "498293910", charge: "$15", unapplied: "$15", memo: "live testing", code: "live testing" },
+                          { postDate: "May 06, 2024", dueDate: "May 06, 2024", postMon: "05/2024", createdOn: "May 06, 2024 06:1", transId: "498108783", charge: "$15", unapplied: "$15", memo: "live testing", code: "live testing" },
+                          { postDate: "May 05, 2024", dueDate: "May 05, 2024", postMon: "05/2024", createdOn: "May 05, 2024 06:1", transId: "498010055", charge: "$15", unapplied: "$15", memo: "live testing", code: "live testing" },
+                          { postDate: "May 04, 2024", dueDate: "May 04, 2024", postMon: "05/2024", createdOn: "May 04, 2024 06:1", transId: "497940941", charge: "$15", unapplied: "$15", memo: "live testing", code: "live testing" },
+                          { postDate: "May 03, 2024", dueDate: "May 03, 2024", postMon: "05/2024", createdOn: "May 03, 2024 06:1", transId: "497697662", charge: "$15", unapplied: "$15", memo: "live testing", code: "live testing" },
+                          { postDate: "May 02, 2024", dueDate: "May 02, 2024", postMon: "05/2024", createdOn: "May 02, 2024 06:1", transId: "497477395", charge: "$20", unapplied: "$20", memo: "live testing", code: "live testing" },
+                          { postDate: "May 01, 2024", dueDate: "May 01, 2024", postMon: "05/2024", createdOn: "Apr 30, 2024 11:3", transId: "497101603", charge: "$120", unapplied: "$120", memo: "Monthly Credit", code: "Credit Fees", bold: true },
+                          { postDate: "May 01, 2024", dueDate: "May 01, 2024", postMon: "05/2024", createdOn: "Apr 30, 2024 11:3", transId: "497101655", charge: "$500", unapplied: "$500", memo: "Monthly Admin", code: "Admin Fee", bold: true },
+                          { postDate: "Apr 25, 2024", dueDate: "Apr 25, 2024", postMon: "04/2024", createdOn: "Apr 25, 2024 06:1", transId: "496188940", charge: "$5", unapplied: "$5", memo: "live testing", code: "live testing" },
+                        ].map((row, i) => (
+                          <tr key={i} className={`border-b border-gray-100 ${(row as { highlight?: boolean }).highlight ? "bg-yellow-50" : ""}`}>
+                            <td className="px-2 py-1.5"><input type="checkbox" className="h-3 w-3" /></td>
+                            <td className="px-2 py-1.5 text-gray-700 whitespace-nowrap">{row.postDate}</td>
+                            <td className="px-2 py-1.5 text-gray-500 whitespace-nowrap">{row.dueDate}</td>
+                            <td className="px-2 py-1.5 text-gray-500">{row.postMon}</td>
+                            <td className="px-2 py-1.5 text-gray-500 whitespace-nowrap">{row.createdOn}</td>
+                            <td className="px-2 py-1.5 text-gray-500">{row.transId}</td>
+                            <td className="px-2 py-1.5 text-blue-600 cursor-pointer hover:underline">Generate</td>
+                            <td className="px-2 py-1.5 text-gray-700">{row.code}</td>
+                            <td className={`px-2 py-1.5 ${(row as { bold?: boolean }).bold ? "text-blue-600 font-semibold cursor-pointer hover:underline" : "text-blue-600 cursor-pointer hover:underline"}`}>{row.memo}</td>
+                            <td className="px-2 py-1.5 text-right text-gray-700">{row.charge}</td>
+                            <td className="px-2 py-1.5 text-right text-gray-700">{row.unapplied}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* MIDDLE: Quick View sidebar — full height from top to bottom */}
+            <div className="w-[190px] shrink-0 border-l border-gray-200 bg-white overflow-y-auto">
+              <div className="border-b border-gray-200 px-3 py-2.5">
+                <div className="rounded border border-gray-200 bg-gray-50 px-3 py-2.5 text-center">
+                  <p className="text-[9px] font-medium text-gray-500 leading-tight">Lease Status: Current -</p>
+                  <p className="text-[9px] text-gray-500 leading-tight">Month To Month</p>
+                  <p className="mt-1.5 text-[10px] font-medium text-gray-700">Balance: <span className="text-[#c0392b] font-semibold">$3,482.35</span></p>
+                </div>
+                <button className="mt-2 w-full text-center text-[10px] text-blue-600 hover:underline">More Actions</button>
+              </div>
+              <div className="border-b border-gray-200 px-3 py-2.5">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-semibold text-gray-700">Quick View</span>
+                  <button className="text-[10px] text-blue-600 hover:underline">Edit</button>
+                </div>
+                <div className="space-y-1.5 text-[9px] leading-tight">
+                  <div><span className="text-gray-400 font-medium">Primary Ph:</span><br /><span className="text-gray-700">+1 554-444-1111 · Mobile</span></div>
+                  <div><span className="text-gray-400 font-medium">Email:</span><br /><span className="text-gray-700">rgadkar345@entrat...</span></div>
+                  <div className="pt-1.5 border-t border-gray-100">
+                    <span className="text-gray-400 font-medium">Transferred</span><br />
+                    <span className="text-gray-400 font-medium">From:</span> <span className="text-blue-600 cursor-pointer hover:underline">629</span>
+                  </div>
+                  <div><span className="text-gray-400 font-medium">Move-in Date:</span> <span className="text-gray-700">Aug 19, 2014</span> <span className="text-gray-300 ml-0.5">📅</span></div>
+                  <div><span className="text-gray-400 font-medium">Lease Start:</span> <span className="text-gray-700">Dec 06, 2023</span></div>
+                  <div><span className="text-gray-400 font-medium">Lease End:</span> <span className="text-gray-700">Mar 05, 2024</span></div>
+                  <div className="pt-1.5 border-t border-gray-100">
+                    <span className="text-gray-400 font-medium">Late Payments:</span> <span className="text-blue-600 cursor-pointer hover:underline">9</span>
+                  </div>
+                  <div><span className="text-gray-400 font-medium">Returned</span><br /><span className="text-gray-400 font-medium">Payments:</span> <span className="text-blue-600 cursor-pointer hover:underline">0</span></div>
+                  <div><span className="text-gray-400 font-medium">MTM Start:</span> <span className="text-gray-700">Mar 06, 2024</span></div>
+                </div>
+                <button className="mt-2 text-[10px] text-blue-600 hover:underline">Resident Login</button>
+              </div>
+              <div className="border-b border-gray-200 px-3 py-2.5">
+                <p className="text-[10px] font-semibold text-gray-700 mb-1.5">Add Activity</p>
+                <div className="flex items-center gap-1">
+                  <button className="rounded border border-gray-200 p-1 text-gray-400 hover:bg-gray-50">
+                    <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+                  </button>
+                  <input className="flex-1 rounded border border-gray-200 px-2 py-1 text-[10px] text-gray-500 placeholder:text-gray-300" placeholder="Add Note" />
+                </div>
+              </div>
+              <div className="px-3 py-2.5">
+                <p className="text-[10px] font-semibold text-gray-700 mb-2">Open Work Orders</p>
+                <button className="mb-2.5 flex items-center gap-1 rounded border border-gray-200 bg-white px-2 py-1 text-[10px] text-gray-600 hover:bg-gray-50">
+                  <span className="text-green-600">⊕</span> Create Work Order
+                </button>
+                <div className="space-y-0 text-[9px]">
+                  <div className="flex items-center justify-between py-1 border-b border-gray-100">
+                    <span className="text-gray-400 font-medium">Location</span>
+                    <span className="text-gray-400 font-medium">Submitted</span>
+                  </div>
+                  {[
+                    { loc: "Unit Wide fvf", date: "Mar 28, 2018" },
+                    { loc: "Unit Wide fvf", date: "Mar 28, 2018" },
+                    { loc: "00fresh kooldid", date: "Mar 21, 2018" },
+                    { loc: "Unit Wide fvf", date: "Mar 21, 2018" },
+                    { loc: "Unit Wide fvf", date: "Mar 14, 2018" },
+                  ].map((wo, i) => (
+                    <div key={i} className="flex items-center justify-between py-1 border-b border-gray-50">
+                      <span className="text-gray-600">{wo.loc}</span>
+                      <span className="text-gray-400">{wo.date}</span>
+                    </div>
+                  ))}
+                </div>
+                <button className="mt-2.5 w-full text-center text-[10px] font-medium text-blue-600 hover:underline tracking-wide">VIEW ALL WORK ORDERS</button>
+              </div>
+            </div>
+
+            </div>
+          </div>
+
+          {/* RIGHT: Conversation Threads panel — slides in from right */}
+          {threadsPanelOpen && <div className="relative z-10 w-[320px] shrink-0 border-l border-gray-200 flex flex-col bg-white animate-in slide-in-from-right duration-200">
+
+            {openThreadIdx !== null ? (
+              /* ===== CONVERSATION THREAD VIEW ===== */
+              <>
+                {/* Thread header */}
+                <div className="flex items-center gap-3 border-b border-gray-200 px-4 py-3 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setOpenThreadIdx(null)}
+                    className="text-gray-500 hover:text-gray-800 transition-colors"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </button>
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#2e7d32] text-[11px] font-bold text-white shrink-0">
+                    {initials(selected.resident)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-semibold text-gray-900">{selected.resident}</p>
+                    <p className="text-[11px] text-gray-500">{THREAD_DATA[openThreadIdx]?.property}: {THREAD_DATA[openThreadIdx]?.type}</p>
+                  </div>
+                  <button className="text-gray-400 hover:text-gray-600 transition-colors">
+                    <ChevronDown className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setOpenThreadIdx(null); setThreadsPanelOpen(false); }}
+                    className="text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                {/* Messages area — same style as inbox conversation panel */}
+                <div className="flex-1 overflow-y-auto bg-muted/30 px-4 py-4">
+                  <div className="space-y-4">
+                    {(openThreadIdx >= 0 ? THREAD_DATA[openThreadIdx]?.messages ?? [] : []).map((msg, idx) => {
+                      const isAgent = msg.role === "agent";
+                      const isStaff = msg.role === "staff";
+                      const threadData = THREAD_DATA[openThreadIdx];
+                      const assigneeName = threadData?.assignee ?? "Staff";
+
+                      return (
+                        <div key={idx} className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Avatar className={cn(isAgent || isStaff ? "h-7 w-7" : "h-5 w-5")}>
+                              {isAgent ? (
+                                <AvatarImage src="/eli-cube.svg" alt="ELI" className="p-1" />
+                              ) : null}
+                              <AvatarFallback
+                                className={cn(
+                                  (isAgent || isStaff)
+                                    ? "bg-blue-100 text-[9px] text-blue-700"
+                                    : "bg-muted text-[8px] text-muted-foreground"
+                                )}
+                              >
+                                {isStaff
+                                  ? initials(assigneeName)
+                                  : isAgent ? "AI" : initials(selected.resident)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="flex flex-col">
+                              <span className="text-[11px] font-semibold text-foreground">
+                                {isAgent
+                                  ? `ELI+ ${threadData?.type ?? ""} AI`
+                                  : isStaff
+                                    ? assigneeName
+                                    : selected.resident}
+                              </span>
+                              {msg.timestamp && <span className="text-[9px] text-muted-foreground">{msg.timestamp}</span>}
+                            </div>
+                          </div>
+                          <div
+                            className={cn(
+                              "max-w-[85%] rounded-2xl px-3.5 py-2 text-[12px] leading-relaxed",
+                              (isAgent || isStaff) && "bg-blue-500 text-white",
+                              !isAgent && !isStaff && "border border-border bg-card text-card-foreground shadow-sm"
+                            )}
+                          >
+                            {msg.text}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Chat input — same style as inbox */}
+                <div className="shrink-0 bg-muted/50">
+                  <div className="flex items-center gap-1 px-4 pt-2 pb-1">
+                    <Button
+                      variant={threadInputMode === "message" ? "default" : "ghost"}
+                      size="sm"
+                      className="gap-1.5 rounded-full text-[11px] h-7"
+                      onClick={() => setThreadInputMode("message")}
+                    >
+                      <MessageSquare className="h-3 w-3" />
+                      Message
+                    </Button>
+                    <Button
+                      variant={threadInputMode === "private_note" ? "secondary" : "ghost"}
+                      size="sm"
+                      className={cn(
+                        "gap-1.5 rounded-full text-[11px] h-7",
+                        threadInputMode === "private_note" && "bg-amber-100 text-amber-800 hover:bg-amber-200"
+                      )}
+                      onClick={() => setThreadInputMode("private_note")}
+                    >
+                      <StickyNote className="h-3 w-3" />
+                      Private Note
+                    </Button>
+                  </div>
+                  <div className="px-4 pb-3">
+                    <div
+                      className={cn(
+                        "flex flex-col rounded-xl border transition-colors focus-within:ring-1 focus-within:ring-ring",
+                        threadInputMode === "private_note"
+                          ? "border-amber-200 bg-amber-50"
+                          : "border-input bg-background"
+                      )}
+                    >
+                      <textarea
+                        value={threadDraft}
+                        onChange={(e) => setThreadDraft(e.target.value)}
+                        placeholder={threadInputMode === "private_note" ? "Write a private note…" : "Write a message…"}
+                        rows={2}
+                        className="w-full resize-none bg-transparent px-3 pt-2.5 pb-1 text-[12px] placeholder:text-muted-foreground focus-visible:outline-none"
+                      />
+                      <div className="flex items-center justify-between px-2 pb-1.5">
+                        <Button variant="ghost" size="sm" className="gap-1 text-[10px] text-muted-foreground h-7">
+                          <Paperclip className="h-3 w-3" />
+                          Attach
+                        </Button>
+                        <Button
+                          size="icon"
+                          className={cn(
+                            "h-7 w-7 rounded-full",
+                            threadInputMode === "private_note" && "bg-amber-600 hover:bg-amber-700"
+                          )}
+                          disabled={!threadDraft.trim()}
+                        >
+                          <ArrowUp className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : (
+              /* ===== THREADS LIST VIEW ===== */
+              <>
+                {/* Header */}
+                <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4 shrink-0">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-200 text-[11px] font-bold text-gray-600">
+                      {initials(selected.resident)}
+                    </div>
+                    <span className="text-sm font-semibold text-gray-900">{selected.resident}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setThreadsPanelOpen(false)}
+                    className="text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+
+                {/* Threads */}
+                <div className="flex-1 overflow-y-auto px-5 py-4">
+                  <h3 className="text-lg font-bold text-gray-900 mb-4">Threads</h3>
+                  {/* Active / Closed toggle */}
+                  <div className="mb-4 inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+                    {(["active", "closed"] as const).map((tab) => (
+                      <button
+                        key={tab}
+                        onClick={() => setThreadsFilter(tab)}
+                        className={`rounded-md px-4 py-1.5 text-[12px] font-medium transition-colors ${
+                          threadsFilter === tab
+                            ? "bg-white text-gray-900 shadow-sm"
+                            : "text-gray-500 hover:text-gray-700"
+                        }`}
+                      >
+                        {tab === "active" ? "Active" : "Closed"}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="space-y-5">
+                    {THREAD_DATA.filter((t) => t.status === threadsFilter).map((thread, i) => {
+                      const globalIdx = THREAD_DATA.indexOf(thread);
+                      return (
+                      <div
+                        key={i}
+                        className="flex items-start gap-3 cursor-pointer rounded-lg p-1.5 -mx-1.5 transition-colors hover:bg-gray-50"
+                        onClick={() => setOpenThreadIdx(globalIdx)}
+                      >
+                        <div className="mt-0.5 flex items-center">
+                          <span className={`inline-block h-2 w-2 rounded-full ${thread.status === "active" ? "bg-blue-500" : "bg-transparent"}`} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[13px] font-semibold text-gray-900">{thread.property}: {thread.type}</p>
+                          {getThreadAssignee(globalIdx) && <p className="text-[11px] text-gray-500 mt-0.5">Active: {getThreadAssignee(globalIdx)}</p>}
+                          <span className="mt-1 inline-block rounded bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">{thread.channel}</span>
+                        </div>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <button
+                              className={
+                                getThreadAssignee(globalIdx)
+                                  ? `flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold transition-colors hover:ring-2 hover:ring-gray-300 ${avatarColor(getThreadAssignee(globalIdx)!)}`
+                                  : "shrink-0 flex h-8 w-8 items-center justify-center rounded-full border border-dashed border-gray-300 text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
+                              }
+                              title={getThreadAssignee(globalIdx) ? `Assigned to ${getThreadAssignee(globalIdx)}. Click to reassign.` : "Assign someone to this thread"}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {getThreadAssignee(globalIdx) ? initials(getThreadAssignee(globalIdx)!) : <Plus className="h-4 w-4" />}
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent className="z-[70] w-[280px] p-0" align="end" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+                            <ThreadAssignPicker
+                              agents={THREAD_AGENTS}
+                              currentAssignee={getThreadAssignee(globalIdx)}
+                              onAssign={(name) => assignThread(globalIdx, name)}
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                      );
+                    })}
+                  </div>
+                  {/* New Thread button */}
+                  <button
+                    className="mt-5 inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-5 py-1.5 text-[13px] font-medium text-gray-600 transition-colors hover:bg-gray-50"
+                    onClick={() => setOpenThreadIdx(-1)}
+                  >
+                    New Thread
+                    <Plus className="h-3.5 w-3.5 text-gray-400" strokeWidth={1.5} />
+                  </button>
+                </div>
+              </>
+            )}
+          </div>}
+        </div>
+      )}
+
+      <Dialog open={emailAttachmentPreview !== null} onOpenChange={(open) => { if (!open) setEmailAttachmentPreview(null); }}>
+        <DialogContent className="flex max-h-[min(90vh,760px)] max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+          <DialogHeader className="shrink-0 space-y-1 border-b border-border px-6 py-4 text-left">
+            <DialogTitle className="pr-8 text-base font-semibold leading-snug">
+              {emailAttachmentPreview?.name ?? "Attachment"}
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              Preview of the selected email attachment. Prototype sample; not a live file.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto bg-muted/40 p-6">
+            {emailAttachmentPreview?.kind === "image" ? (
+              <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=1400&q=80"
+                  alt=""
+                  className="block h-auto w-full max-h-[min(65vh,520px)] object-cover"
+                />
+                <p className="border-t border-border px-4 py-2.5 text-center text-[11px] text-muted-foreground">
+                  Sample preview for prototype — stand-in image for the attachment.
+                </p>
+              </div>
+            ) : emailAttachmentPreview ? (
+              <div className="mx-auto max-w-xl rounded-lg border border-border bg-background shadow-sm">
+                <div className="flex items-center gap-2 border-b border-border bg-muted/50 px-4 py-2">
+                  <FileText className="h-4 w-4 text-muted-foreground" aria-hidden />
+                  <span className="truncate text-xs font-medium text-foreground">{emailAttachmentPreview.name}</span>
+                </div>
+                <div className="space-y-4 p-6">
+                  <div className="mx-auto flex max-w-[240px] flex-col gap-2">
+                    <div className="flex flex-wrap gap-2">
+                      {/* Simple floor-plan style mock */}
+                      <div className="h-14 w-14 rounded-sm border-2 border-foreground/25 bg-muted/60" />
+                      <div className="flex flex-1 flex-col justify-between gap-2 min-w-[100px]">
+                        <div className="h-6 rounded-sm border border-foreground/20 bg-muted/40" />
+                        <div className="h-8 rounded-sm border border-foreground/20 bg-muted/30" />
+                      </div>
+                    </div>
+                    <div className="h-20 rounded-sm border border-dashed border-foreground/15 bg-muted/20" />
+                  </div>
+                  <div className="space-y-2">
+                    {[85, 100, 72, 95, 88, 100].map((w, i) => (
+                      <div
+                        key={i}
+                        className="h-2 rounded-full bg-muted-foreground/15"
+                        style={{ width: `${w}%` }}
+                      />
+                    ))}
+                  </div>
+                  <p className="text-center text-[11px] text-muted-foreground">
+                    Sample document preview for prototype — not the real PDF.
+                  </p>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );
@@ -839,6 +2545,208 @@ function AssigneePicker({
             )}
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+function ThreadAssignPicker({
+  agents,
+  currentAssignee,
+  onAssign,
+}: {
+  agents: string[];
+  currentAssignee: string | null;
+  onAssign: (name: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const q = query.toLowerCase().trim();
+  const filtered = agents.filter((a) => !q || a.toLowerCase().includes(q));
+
+  return (
+    <div>
+      <div className="p-3 border-b border-gray-200">
+        <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2">
+          <Search className="h-4 w-4 text-gray-400 shrink-0" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search for Agent or Queue"
+            className="flex-1 text-[13px] bg-transparent outline-none placeholder:text-gray-400"
+          />
+        </div>
+      </div>
+      <div className="max-h-[300px] overflow-y-auto">
+        {filtered.map((name) => {
+          const isAssigned = currentAssignee === name;
+          return (
+            <div
+              key={name}
+              className="flex items-center gap-3 border-b border-gray-100 px-4 py-3 last:border-0 hover:bg-gray-50 transition-colors cursor-pointer"
+              onClick={() => onAssign(name)}
+            >
+              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[12px] font-bold ${isAssigned ? "bg-[#2e7d32] text-white" : avatarColor(name)}`}>
+                {initials(name)}
+              </div>
+              <span className="flex-1 text-[14px] font-medium text-gray-800">{name}</span>
+              {isAssigned ? (
+                <span className="text-[13px] font-bold text-gray-900">Assigned</span>
+              ) : (
+                <span className="text-[13px] font-medium text-blue-600">Assign</span>
+              )}
+            </div>
+          );
+        })}
+        {filtered.length === 0 && (
+          <p className="px-4 py-6 text-center text-[12px] text-gray-400">No agents found</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MiniCalendar({
+  selected,
+  onSelect,
+  onNoLimit,
+}: {
+  selected: Date | null;
+  onSelect: (date: Date) => void;
+  onNoLimit: () => void;
+}) {
+  const today = new Date();
+  const [viewMonth, setViewMonth] = useState(
+    selected?.getMonth() ?? today.getMonth()
+  );
+  const [viewYear, setViewYear] = useState(
+    selected?.getFullYear() ?? today.getFullYear()
+  );
+
+  const MONTH_NAMES = [
+    "January","February","March","April","May","June",
+    "July","August","September","October","November","December",
+  ];
+  const MONTHS_SHORT = [
+    "JAN","FEB","MAR","APR","MAY","JUN",
+    "JUL","AUG","SEP","OCT","NOV","DEC",
+  ];
+  const DAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const firstDayOfWeek = new Date(viewYear, viewMonth, 1).getDay();
+
+  const prevMonth = () => {
+    if (viewMonth === 0) { setViewMonth(11); setViewYear(viewYear - 1); }
+    else setViewMonth(viewMonth - 1);
+  };
+  const nextMonth = () => {
+    if (viewMonth === 11) { setViewMonth(0); setViewYear(viewYear + 1); }
+    else setViewMonth(viewMonth + 1);
+  };
+
+  const isSameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+
+  const isBeforeToday = (day: number) => {
+    const d = new Date(viewYear, viewMonth, day);
+    const t = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    return d < t;
+  };
+
+  const [pendingDate, setPendingDate] = useState<Date | null>(selected);
+
+  return (
+    <div className="w-[280px]">
+      <div className="flex items-center justify-between px-4 pt-3 pb-2">
+        <button
+          type="button"
+          className="text-sm font-semibold text-foreground flex items-center gap-1"
+        >
+          {MONTH_NAMES[viewMonth].toUpperCase()} {viewYear}{" "}
+          <ChevronDown className="h-3 w-3" />
+        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={prevMonth}
+            className="rounded p-1 hover:bg-accent transition-colors"
+          >
+            <ChevronLeft className="h-4 w-4 text-muted-foreground" />
+          </button>
+          <button
+            type="button"
+            onClick={nextMonth}
+            className="rounded p-1 hover:bg-accent transition-colors"
+          >
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-7 px-3">
+        {DAYS.map((d) => (
+          <div
+            key={d}
+            className="flex h-8 items-center justify-center text-[11px] font-medium text-muted-foreground"
+          >
+            {d}
+          </div>
+        ))}
+      </div>
+
+      <div className="px-4 pb-1">
+        <span className="text-[11px] font-semibold text-muted-foreground">
+          {MONTHS_SHORT[viewMonth]}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-7 px-3 pb-2">
+        {Array.from({ length: firstDayOfWeek }).map((_, i) => (
+          <div key={`empty-${i}`} className="h-8" />
+        ))}
+        {Array.from({ length: daysInMonth }).map((_, i) => {
+          const day = i + 1;
+          const date = new Date(viewYear, viewMonth, day);
+          const isToday = isSameDay(date, today);
+          const isSelected = pendingDate && isSameDay(date, pendingDate);
+          const disabled = isBeforeToday(day);
+          return (
+            <button
+              key={day}
+              type="button"
+              disabled={disabled}
+              onClick={() => setPendingDate(date)}
+              className={cn(
+                "flex h-8 w-8 items-center justify-center rounded-full text-sm transition-colors mx-auto",
+                disabled && "text-muted-foreground/40 cursor-not-allowed",
+                !disabled && !isSelected && !isToday && "hover:bg-accent text-foreground",
+                isToday && !isSelected && "ring-1 ring-primary text-primary font-medium",
+                isSelected && "bg-primary text-primary-foreground font-medium"
+              )}
+            >
+              {day}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
+        <button
+          type="button"
+          onClick={onNoLimit}
+          className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          No limit
+        </button>
+        <Button
+          size="sm"
+          onClick={() => { if (pendingDate) onSelect(pendingDate); }}
+          disabled={!pendingDate}
+        >
+          Apply
+        </Button>
       </div>
     </div>
   );
