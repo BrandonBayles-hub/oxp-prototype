@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import "./globals.css";
 import { AppShell } from "@/components/app-shell/app-shell";
 import { SetupProvider } from "@/lib/setup-context";
@@ -67,8 +68,16 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap" rel="stylesheet" />
         <link href="https://fonts.cdnfonts.com/css/nohemi" rel="stylesheet" />
+        <link
+          href="https://assets.calendly.com/assets/external/widget.css"
+          rel="stylesheet"
+        />
       </head>
       <body className="min-h-screen antialiased font-sans">
+        <Script
+          src="https://assets.calendly.com/assets/external/widget.js"
+          strategy="afterInteractive"
+        />
         <R1DemoProvider>
         <R1ReleaseProvider>
         <ComingSoonProvider>
