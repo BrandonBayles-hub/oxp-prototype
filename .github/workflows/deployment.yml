@@ -13,10 +13,13 @@ jobs:
     permissions:
       id-token: write
       contents: read
+      actions: read
     steps:
       - name: Deploy to Staging
-        uses: entrata/deploy-microfrontend@main
+        # Local composite action: entrata/deploy-microfrontend@main cannot use secrets.* inside action.yml (GitHub limitation).
+        uses: ./.github/actions/deploy-microfrontend
         with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           ENVIRONMENT: dev
           REGION: "us-east-1"
           ACCOUNT_ID: 388604198110
@@ -37,8 +40,9 @@ jobs:
   #     contents: read
   #   steps:
   #     - name: Deploy to Staging
-  #       uses: entrata/deploy-microfrontend@main
+  #       uses: ./.github/actions/deploy-microfrontend
   #       with:
+  #         github_token: ${{ secrets.GITHUB_TOKEN }}
   #         ENVIRONMENT: dev
   #         REGION: "us-east-1"
   #         ACCOUNT_ID: 388604198110
