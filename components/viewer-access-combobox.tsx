@@ -1,14 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronDown, X } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { ROLES } from "@/lib/role-context";
 import { useWorkforce, type WorkforceMember } from "@/lib/workforce-context";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Badge } from "@/components/ui/badge";
+import { RemovableMetadataChip } from "@/components/removable-metadata-chip";
 import { cn } from "@/lib/utils";
 
 const ROLE_PREFIX = "role:";
@@ -96,11 +96,9 @@ export function ViewerAccessCombobox({
 
   if (disabled) {
     return (
-      <div className="flex flex-wrap gap-1">
+      <div className="flex flex-wrap items-center gap-1.5">
         {value.map((k) => (
-          <Badge key={k} variant="secondary" className="text-[10px] font-normal">
-            {labelForEntry(k, humanMembers)}
-          </Badge>
+          <RemovableMetadataChip key={k}>{labelForEntry(k, humanMembers)}</RemovableMetadataChip>
         ))}
       </div>
     );
@@ -109,23 +107,15 @@ export function ViewerAccessCombobox({
   return (
     <div className="space-y-2">
       {value.length > 0 && (
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap items-center gap-1.5">
           {value.map((k) => (
-            <Badge
+            <RemovableMetadataChip
               key={k}
-              variant="secondary"
-              className="gap-0.5 pr-0.5 text-[10px] font-normal"
+              removeLabel={`Remove ${labelForEntry(k, humanMembers)}`}
+              onRemove={() => remove(k)}
             >
               {labelForEntry(k, humanMembers)}
-              <button
-                type="button"
-                onClick={() => remove(k)}
-                className="ml-0.5 rounded-sm p-0.5 hover:bg-muted-foreground/20"
-                aria-label={`Remove ${labelForEntry(k, humanMembers)}`}
-              >
-                <X className="h-2.5 w-2.5" />
-              </button>
-            </Badge>
+            </RemovableMetadataChip>
           ))}
         </div>
       )}
