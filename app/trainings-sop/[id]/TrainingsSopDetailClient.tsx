@@ -42,9 +42,14 @@ import {
 } from "@/components/ui/dialog";
 import { useEscalations } from "@/lib/escalations-context";
 import { EscalationDetailSheet } from "@/components/escalation-detail-sheet";
+import { usePermissions } from "@/lib/permissions-context";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { TagCombobox } from "@/components/tag-combobox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { PropertySelector } from "@/components/property-selector";
+import { getSelectedPropertyNames, getDataForView } from "@/lib/property-selector-data";
+import { ChevronDown } from "lucide-react";
 
 const RichTextEditor = dynamic(
   () => import("@/components/rich-text-editor").then((m) => ({ default: m.RichTextEditor })),
@@ -160,7 +165,9 @@ export function TrainingsSopDetailClient() {
   const { agents } = useAgents();
   const { humanMembers } = useWorkforce();
   const { items: escalationItems, addEscalation } = useEscalations();
+  const { hasPermission } = usePermissions();
   const doc = documents.find((d) => d.id === id && d.type === "file");
+  const canEdit = hasPermission("p-training-create");
 
   const approvalEscalations = useMemo(
     () =>
@@ -200,6 +207,11 @@ export function TrainingsSopDetailClient() {
   const [workforceExpanded, setWorkforceExpanded] = useState(false);
   const [reviewDateEdit, setReviewDateEdit] = useState("");
 
+  const [inlineBody, setInlineBody] = useState<string | null>(null);
+  const [submitDialogOpen, setSubmitDialogOpen] = useState(false);
+  const [submitSummary, setSubmitSummary] = useState("");
+  const [submitReason, setSubmitReason] = useState("");
+
   const PROPERTY_BADGE_LIMIT = 3;
   const docProperties = useMemo(
     () => (doc?.properties?.length ? doc.properties : [doc?.property ?? "Portfolio"].filter(Boolean)),
@@ -235,6 +247,9 @@ export function TrainingsSopDetailClient() {
     () => existingLabels.filter((t) => !docTagsNormalized.has(normalizeTag(t))),
     [existingLabels, docTagsNormalized]
   );
+
+  const isTextBased = !doc?.fileFormat || doc.fileFormat === "text";
+  const hasUnsavedChanges = isTextBased && inlineBody !== null && inlineBody !== (doc?.body ?? "");
 
   const isBodyHtml = useMemo(() => {
     const body = doc?.body ?? "";
@@ -401,6 +416,45 @@ export function TrainingsSopDetailClient() {
     setEditDialogOpen(false);
   };
 
+  const handleInlineSubmitForApproval = () => {
+    if (!doc || inlineBody === null) return;
+    const summary = [submitSummary.trim(), submitReason.trim()].filter(Boolean).join(" — ") || "Document changes submitted for approval.";
+    const existingHistory = doc.history ?? [];
+    const submittedEntry = {
+      at: new Date().toISOString(),
+      action: "submitted" as const,
+      by: doc.owner,
+      summary,
+    };
+    updateDocument(id, {
+      body: inlineBody,
+      approvalStatus: "review",
+      history: [...existingHistory, submittedEntry],
+    });
+    addEscalation({
+      type: "approval",
+      name: `Document review: ${doc.fileName}`,
+      summary,
+      category: doc.documentType === "sop" ? "Compliance" : "Leasing",
+      property: doc.property,
+      status: "Open",
+      assignee: "",
+      linkToSource: `/trainings-sop/${id}`,
+      labels: [...(doc.tags ?? [])],
+      documentApprovalContext: {
+        documentId: id,
+        documentName: doc.fileName,
+        changeSummary: summary,
+        proposedBody: inlineBody,
+        previousBody: doc.body ?? "",
+      },
+    });
+    setInlineBody(null);
+    setSubmitSummary("");
+    setSubmitReason("");
+    setSubmitDialogOpen(false);
+  };
+
   const handleUploadNewVersion = () => {
     if (!uploadFile) return;
     const summary = uploadChangeSummary.trim() || `Uploaded new file: ${uploadFile.name}`;
@@ -547,10 +601,19 @@ export function TrainingsSopDetailClient() {
             <Share2 className="h-4 w-4" />
             {shareCopied ? "Link copied" : "Share"}
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setEditDialogOpen(true)}>
-            <Pencil className="h-4 w-4" />
-            Edit
-          </Button>
+          {isTextBased ? (
+            canEdit && hasUnsavedChanges && (
+              <Button size="sm" onClick={() => setSubmitDialogOpen(true)}>
+                <Send className="h-4 w-4" />
+                Submit for Approval
+              </Button>
+            )
+          ) : (
+            <Button variant="outline" size="sm" onClick={() => setUploadDialogOpen(true)}>
+              <Upload className="h-4 w-4" />
+              Upload New Version
+            </Button>
+          )}
         </div>
         </div>
       </header>
@@ -867,24 +930,30 @@ export function TrainingsSopDetailClient() {
                     {propertiesExpanded ? "See less" : `See more (${docProperties.length - PROPERTY_BADGE_LIMIT} more)`}
                   </button>
                 )}
-                <select
-                  value=""
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (!v) return;
-                    if (docProperties.includes(v)) return;
-                    const next = [...docProperties, v];
-                    updateDocument(id, { properties: next, property: next[0] });
-                    e.target.value = "";
-                  }}
-                  className="mt-1.5 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium"
-                  aria-label="Add property"
-                >
-                  <option value="">Add property…</option>
-                  {SUGGESTED_PROPERTY_TAGS.filter((p) => !docProperties.includes(p)).map((p) => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="mt-1.5 flex w-full items-center justify-between rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-muted/50 focus:outline-none focus:ring-1 focus:ring-ring"
+                      aria-label="Add property"
+                    >
+                      <span className="text-muted-foreground">Add property…</span>
+                      <ChevronDown className="h-3.5 w-3.5 opacity-50" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-80 p-0" align="start" sideOffset={4}>
+                    <PropertySelector
+                      className="h-[400px] border-0 shadow-none rounded-md"
+                      onSelectionChange={(selectedIds) => {
+                        const names = getSelectedPropertyNames(getDataForView("Property List"), selectedIds);
+                        if (names.length > 0) {
+                          const merged = [...new Set([...docProperties, ...names])];
+                          updateDocument(id, { properties: merged, property: merged[0] });
+                        }
+                      }}
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
               <div>
                 <span className="text-muted-foreground">Approval</span>
@@ -1173,194 +1242,293 @@ export function TrainingsSopDetailClient() {
           </Card>
         </div>
 
-        {/* Right: Document preview */}
+        {/* Right: Document view/edit panel */}
         <div className="min-h-[480px] lg:sticky lg:top-6 flex flex-col rounded-lg border border-border/60 bg-card overflow-hidden">
-          {/* Viewer toolbar */}
-          <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-4 py-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="truncate text-sm font-medium text-foreground">{displayTitle || "Untitled"}</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setViewerZoom((z) => Math.max(60, z - 10))}
-                className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                aria-label="Zoom out"
-              >
-                <ZoomOut className="h-4 w-4" />
-              </button>
-              <span className="min-w-[2.5rem] text-center text-[11px] tabular-nums text-muted-foreground">{viewerZoom}%</span>
-              <button
-                type="button"
-                onClick={() => setViewerZoom((z) => Math.min(150, z + 10))}
-                className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                aria-label="Zoom in"
-              >
-                <ZoomIn className="h-4 w-4" />
-              </button>
-              <div className="mx-1 h-4 w-px bg-border" />
-              <button
-                type="button"
-                onClick={() => { if (typeof window !== "undefined") window.print(); }}
-                className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                aria-label="Print"
-                title="Print"
-              >
-                <Printer className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
 
-          {displayBody?.trim() ? (
+          {isTextBased ? (
             <>
-              {/* Paper area with subtle dot grid background */}
-              <div
-                ref={viewerScrollRef}
-                className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8"
-                style={{ backgroundColor: "hsl(var(--muted))", backgroundImage: "radial-gradient(circle, hsl(var(--border)) 0.5px, transparent 0.5px)", backgroundSize: "16px 16px" }}
-              >
-                {/* Sizer wrapper: reserves space matching the scaled paper so scrolling works */}
-                <div
-                  className="mx-auto"
-                  style={{
-                    width: `calc(21cm * ${effectiveScale})`,
-                    minHeight: `calc(29.7cm * ${effectiveScale})`,
-                  }}
-                >
-                  <div
-                    className="bg-card shadow-lg rounded border border-border/40 origin-top-left"
-                    style={{
-                      width: "21cm",
-                      minHeight: "29.7cm",
-                      transform: `scale(${effectiveScale})`,
-                    }}
+              {/* ── Text-based: Inline TipTap editor ── */}
+              <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-4 py-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="truncate text-sm font-medium text-foreground">{displayTitle || "Untitled"}</span>
+                  {!canEdit && (
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Read only</Badge>
+                  )}
+                  {hasUnsavedChanges && (
+                    <span className="flex h-2 w-2 rounded-full bg-amber-500" title="Unsaved changes" />
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { if (typeof window !== "undefined") window.print(); }}
+                    className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                    aria-label="Print"
+                    title="Print"
                   >
-                    {/* Document header band */}
-                    <div className="border-b border-border/40 bg-muted/20 px-8 py-5 sm:px-10">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <h2 className="font-heading text-xl font-semibold text-foreground leading-tight">
-                            {displayTitle || "Untitled"}
-                          </h2>
-                          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                            <span className="inline-flex items-center gap-1 capitalize">
-                              <FileText className="h-3 w-3" />{doc.documentType}
-                            </span>
-                            <span>{doc.property}</span>
-                            {doc.version && <span>v{doc.version}</span>}
-                            <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" />{doc.modified}</span>
-                            {doc.effectiveDate && <span>Effective {doc.effectiveDate}</span>}
-                          </div>
-                        </div>
-                        {doc.owner && (
-                          <div className="shrink-0 flex items-center gap-1.5">
-                            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                              {doc.owner.slice(0, 1).toUpperCase()}
-                            </span>
-                            <span className="text-xs text-muted-foreground hidden sm:inline">{doc.owner}</span>
-                          </div>
-                        )}
-                      </div>
-                      {docTags.length > 0 && (
-                        <div className="mt-3 flex flex-wrap gap-1.5">
-                          {docTags.map((t) => (
-                            <span key={t} className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-[10px] font-medium text-primary border border-primary/15">{t}</span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Document body */}
-                    <div className="px-8 py-6 sm:px-10 sm:py-8">
-                      <div
-                        className={cn(
-                          "font-sans text-foreground leading-relaxed selection:bg-primary/20",
-                          "prose prose-sm max-w-none dark:prose-invert",
-                          "prose-headings:font-semibold prose-headings:text-foreground prose-headings:tracking-tight",
-                          "prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5",
-                          "prose-strong:text-foreground",
-                          isBodyHtml ? "prose-p:first:mt-0" : "whitespace-pre-wrap font-mono text-[13px]"
-                        )}
-                        style={{
-                          fontSize: isBodyHtml ? "14px" : "13px",
-                          lineHeight: isBodyHtml ? 1.7 : 1.6,
-                          letterSpacing: isBodyHtml ? "0.01em" : undefined,
-                        }}
-                        {...(isBodyHtml ? { dangerouslySetInnerHTML: { __html: currentPageContent } } : {})}
-                      >
-                        {!isBodyHtml ? currentPageContent : null}
-                      </div>
-                    </div>
-
-                    {/* Document footer */}
-                    <div className="border-t border-border/30 bg-muted/10 px-8 py-3 sm:px-10">
-                      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                        <span>Page {viewerPage} of {totalPages}</span>
-                        <span>{doc.source === "entrata" ? "Source: Entrata" : "Source: Uploaded"} · {doc.fileName}</span>
-                      </div>
-                    </div>
-                  </div>
+                    <Printer className="h-4 w-4" />
+                  </button>
                 </div>
               </div>
 
-              {/* Pagination bar */}
-              {totalPages > 1 && (
-                <div className="flex items-center justify-center gap-3 border-t border-border bg-card px-4 py-2">
-                  <button
-                    type="button"
-                    onClick={() => setViewerPage((p) => Math.max(1, p - 1))}
-                    disabled={viewerPage <= 1}
-                    className="rounded p-1.5 text-foreground/70 hover:bg-muted disabled:opacity-30 disabled:pointer-events-none transition-colors"
-                    aria-label="Previous page"
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                  </button>
-                  <div className="flex items-center gap-1">
-                    {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-                      const page = i + 1;
-                      return (
-                        <button
-                          key={page}
-                          type="button"
-                          onClick={() => setViewerPage(page)}
-                          className={cn(
-                            "h-7 min-w-[1.75rem] rounded px-1.5 text-xs font-medium transition-colors",
-                            viewerPage === page ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
-                          )}
-                        >
-                          {page}
-                        </button>
-                      );
-                    })}
-                    {totalPages > 7 && <span className="text-xs text-muted-foreground px-1">...</span>}
+              {displayBody?.trim() || canEdit ? (
+                <div className="flex-1 overflow-y-auto">
+                  <RichTextEditor
+                    key={`inline-${id}`}
+                    value={displayBody}
+                    onChange={(html) => {
+                      if (canEdit) setInlineBody(html);
+                    }}
+                    placeholder={canEdit ? "Start writing your document…" : "No content yet."}
+                    minHeight="400px"
+                    contentKey={id}
+                  />
+                </div>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 bg-muted/30">
+                  <div className="rounded-full bg-muted p-4">
+                    <FileText className="h-8 w-8 text-muted-foreground" />
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setViewerPage((p) => Math.min(totalPages, p + 1))}
-                    disabled={viewerPage >= totalPages}
-                    className="rounded p-1.5 text-foreground/70 hover:bg-muted disabled:opacity-30 disabled:pointer-events-none transition-colors"
-                    aria-label="Next page"
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
+                  <p className="text-sm font-medium text-foreground">No content yet</p>
+                  <p className="text-xs text-muted-foreground text-center max-w-xs">This document has no text content.</p>
                 </div>
               )}
             </>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 bg-muted/30">
-              <div className="rounded-full bg-muted p-4">
-                <FileText className="h-8 w-8 text-muted-foreground" />
+            <>
+              {/* ── Binary (PDF/DOCX): Paper preview with zoom/pagination ── */}
+              <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-4 py-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="truncate text-sm font-medium text-foreground">{displayTitle || "Untitled"}</span>
+                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0 capitalize">{doc.fileFormat ?? "PDF"}</Badge>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setViewerZoom((z) => Math.max(60, z - 10))}
+                    className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                    aria-label="Zoom out"
+                  >
+                    <ZoomOut className="h-4 w-4" />
+                  </button>
+                  <span className="min-w-[2.5rem] text-center text-[11px] tabular-nums text-muted-foreground">{viewerZoom}%</span>
+                  <button
+                    type="button"
+                    onClick={() => setViewerZoom((z) => Math.min(150, z + 10))}
+                    className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                    aria-label="Zoom in"
+                  >
+                    <ZoomIn className="h-4 w-4" />
+                  </button>
+                  <div className="mx-1 h-4 w-px bg-border" />
+                  <button
+                    type="button"
+                    onClick={() => { if (typeof window !== "undefined") window.print(); }}
+                    className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                    aria-label="Print"
+                    title="Print"
+                  >
+                    <Printer className="h-4 w-4" />
+                  </button>
+                  <div className="mx-1 h-4 w-px bg-border" />
+                  <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setUploadDialogOpen(true)}>
+                    <Upload className="h-3.5 w-3.5" />
+                    Upload New Version
+                  </Button>
+                </div>
               </div>
-              <p className="text-sm font-medium text-foreground">No content yet</p>
-              <p className="text-xs text-muted-foreground text-center max-w-xs">Click Edit to add body text, or upload a document to populate the content.</p>
-              <Button size="sm" onClick={() => setEditDialogOpen(true)}>
-                <Pencil className="h-3.5 w-3.5" /> Add content
-              </Button>
-            </div>
+
+              {displayBody?.trim() ? (
+                <>
+                  <div
+                    ref={viewerScrollRef}
+                    className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8"
+                    style={{ backgroundColor: "hsl(var(--muted))", backgroundImage: "radial-gradient(circle, hsl(var(--border)) 0.5px, transparent 0.5px)", backgroundSize: "16px 16px" }}
+                  >
+                    <div
+                      className="mx-auto"
+                      style={{
+                        width: `calc(21cm * ${effectiveScale})`,
+                        minHeight: `calc(29.7cm * ${effectiveScale})`,
+                      }}
+                    >
+                      <div
+                        className="bg-card shadow-lg rounded border border-border/40 origin-top-left"
+                        style={{
+                          width: "21cm",
+                          minHeight: "29.7cm",
+                          transform: `scale(${effectiveScale})`,
+                        }}
+                      >
+                        <div className="border-b border-border/40 bg-muted/20 px-8 py-5 sm:px-10">
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0">
+                              <h2 className="font-heading text-xl font-semibold text-foreground leading-tight">
+                                {displayTitle || "Untitled"}
+                              </h2>
+                              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                                <span className="inline-flex items-center gap-1 capitalize">
+                                  <FileText className="h-3 w-3" />{doc.documentType}
+                                </span>
+                                <span>{doc.property}</span>
+                                {doc.version && <span>v{doc.version}</span>}
+                                <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" />{doc.modified}</span>
+                                {doc.effectiveDate && <span>Effective {doc.effectiveDate}</span>}
+                              </div>
+                            </div>
+                            {doc.owner && (
+                              <div className="shrink-0 flex items-center gap-1.5">
+                                <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                                  {doc.owner.slice(0, 1).toUpperCase()}
+                                </span>
+                                <span className="text-xs text-muted-foreground hidden sm:inline">{doc.owner}</span>
+                              </div>
+                            )}
+                          </div>
+                          {docTags.length > 0 && (
+                            <div className="mt-3 flex flex-wrap gap-1.5">
+                              {docTags.map((t) => (
+                                <span key={t} className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-[10px] font-medium text-primary border border-primary/15">{t}</span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="px-8 py-6 sm:px-10 sm:py-8">
+                          <div
+                            className={cn(
+                              "font-sans text-foreground leading-relaxed selection:bg-primary/20",
+                              "prose prose-sm max-w-none dark:prose-invert",
+                              "prose-headings:font-semibold prose-headings:text-foreground prose-headings:tracking-tight",
+                              "prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5",
+                              "prose-strong:text-foreground",
+                              isBodyHtml ? "prose-p:first:mt-0" : "whitespace-pre-wrap font-mono text-[13px]"
+                            )}
+                            style={{
+                              fontSize: isBodyHtml ? "14px" : "13px",
+                              lineHeight: isBodyHtml ? 1.7 : 1.6,
+                              letterSpacing: isBodyHtml ? "0.01em" : undefined,
+                            }}
+                            {...(isBodyHtml ? { dangerouslySetInnerHTML: { __html: currentPageContent } } : {})}
+                          >
+                            {!isBodyHtml ? currentPageContent : null}
+                          </div>
+                        </div>
+
+                        <div className="border-t border-border/30 bg-muted/10 px-8 py-3 sm:px-10">
+                          <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                            <span>Page {viewerPage} of {totalPages}</span>
+                            <span>{doc.source === "entrata" ? "Source: Entrata" : "Source: Uploaded"} · {doc.fileName}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {totalPages > 1 && (
+                    <div className="flex items-center justify-center gap-3 border-t border-border bg-card px-4 py-2">
+                      <button
+                        type="button"
+                        onClick={() => setViewerPage((p) => Math.max(1, p - 1))}
+                        disabled={viewerPage <= 1}
+                        className="rounded p-1.5 text-foreground/70 hover:bg-muted disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                        aria-label="Previous page"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </button>
+                      <div className="flex items-center gap-1">
+                        {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+                          const page = i + 1;
+                          return (
+                            <button
+                              key={page}
+                              type="button"
+                              onClick={() => setViewerPage(page)}
+                              className={cn(
+                                "h-7 min-w-[1.75rem] rounded px-1.5 text-xs font-medium transition-colors",
+                                viewerPage === page ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
+                              )}
+                            >
+                              {page}
+                            </button>
+                          );
+                        })}
+                        {totalPages > 7 && <span className="text-xs text-muted-foreground px-1">...</span>}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setViewerPage((p) => Math.min(totalPages, p + 1))}
+                        disabled={viewerPage >= totalPages}
+                        className="rounded p-1.5 text-foreground/70 hover:bg-muted disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                        aria-label="Next page"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 bg-muted/30">
+                  <div className="rounded-full bg-muted p-4">
+                    <FileText className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                  <p className="text-sm font-medium text-foreground">No content yet</p>
+                  <p className="text-xs text-muted-foreground text-center max-w-xs">Upload a document to populate the preview.</p>
+                  <Button size="sm" onClick={() => setUploadDialogOpen(true)}>
+                    <Upload className="h-3.5 w-3.5" /> Upload Document
+                  </Button>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
+
+      {/* Submit for Approval dialog */}
+      <Dialog open={submitDialogOpen} onOpenChange={setSubmitDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Send className="h-4 w-4" />
+              Submit for Approval
+            </DialogTitle>
+            <DialogDescription>
+              Describe what changed and why. This will be sent to the approval queue.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-foreground">What was updated?</label>
+              <textarea
+                value={submitSummary}
+                onChange={(e) => setSubmitSummary(e.target.value)}
+                placeholder="e.g. Updated late fee section, added move-out checklist"
+                rows={2}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-foreground">Why were these changes made?</label>
+              <textarea
+                value={submitReason}
+                onChange={(e) => setSubmitReason(e.target.value)}
+                placeholder="e.g. Policy change from regional, compliance update"
+                rows={2}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSubmitDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleInlineSubmitForApproval}>
+              <Send className="h-4 w-4" />
+              Submit for Approval
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <EscalationDetailSheet
         item={activeApprovalEscalation}
