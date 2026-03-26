@@ -76,6 +76,8 @@ export type VaultItem = {
   folderId?: string;
   /** If true, this is a template — not an active operational document */
   isTemplate?: boolean;
+  /** File format hint — determines whether inline editing (text) or preview (binary) is used */
+  fileFormat?: "text" | "pdf" | "docx" | "image";
 };
 
 export const COMPLIANCE_ITEMS = [
@@ -218,11 +220,11 @@ All refunds must include:
   • Agent should reference this policy when explaining the process to residents`;
 
 const INITIAL_DOCS: VaultItem[] = [
-  { id: "1", fileName: "Leasing SOP", documentType: "sop", property: "Portfolio", approvalStatus: "approved", trainedOn: "Yes", modified: "Feb 18, 2025", owner: "Admin", type: "file", version: "2.1", source: "upload", effectiveDate: "2025-02-01", body: LEASING_SOP_BODY },
-  { id: "2", fileName: "Maintenance escalation", documentType: "sop", property: "Portfolio", approvalStatus: "approved", trainedOn: "Yes", modified: "Feb 15, 2025", owner: "Admin", type: "file", version: "1.0", source: "upload" },
-  { id: "3", fileName: "Fair housing policy", documentType: "policy", property: "Portfolio", approvalStatus: "approved", trainedOn: "Yes", modified: "Feb 10, 2025", owner: "Admin", type: "file", source: "upload", tags: ["compliance"] },
-  { id: "4", fileName: "Lease template", documentType: "lease", property: "Hillside Living", approvalStatus: "review", trainedOn: "No", modified: "Feb 5, 2025", owner: "Admin", type: "file", source: "upload" },
-  { id: "5", fileName: "Refund policy", documentType: "sop", property: "Portfolio", approvalStatus: "review", trainedOn: "No", modified: "Feb 20, 2025", owner: "Admin", type: "file", version: "1.0", source: "upload", body: REFUND_POLICY_BODY },
+  { id: "1", fileName: "Leasing SOP", documentType: "sop", property: "Portfolio", approvalStatus: "approved", trainedOn: "Yes", modified: "Feb 18, 2025", owner: "Admin", type: "file", version: "2.1", source: "upload", effectiveDate: "2025-02-01", body: LEASING_SOP_BODY, fileFormat: "text" },
+  { id: "2", fileName: "Maintenance escalation", documentType: "sop", property: "Portfolio", approvalStatus: "approved", trainedOn: "Yes", modified: "Feb 15, 2025", owner: "Admin", type: "file", version: "1.0", source: "upload", fileFormat: "text" },
+  { id: "3", fileName: "Fair housing policy", documentType: "policy", property: "Portfolio", approvalStatus: "approved", trainedOn: "Yes", modified: "Feb 10, 2025", owner: "Admin", type: "file", source: "upload", tags: ["compliance"], fileFormat: "pdf" },
+  { id: "4", fileName: "Lease template", documentType: "lease", property: "Hillside Living", approvalStatus: "review", trainedOn: "No", modified: "Feb 5, 2025", owner: "Admin", type: "file", source: "upload", fileFormat: "pdf" },
+  { id: "5", fileName: "Refund policy", documentType: "sop", property: "Portfolio", approvalStatus: "review", trainedOn: "No", modified: "Feb 20, 2025", owner: "Admin", type: "file", version: "1.0", source: "upload", body: REFUND_POLICY_BODY, fileFormat: "text" },
 ];
 
 /** Maps compliance subject (e.g. "Fair housing policy") to the document ID used to train on that subject */
@@ -240,7 +242,7 @@ type VaultContextValue = {
   documents: VaultItem[];
   setDocuments: React.Dispatch<React.SetStateAction<VaultItem[]>>;
   addDocument: (item: Omit<VaultItem, "id" | "modified">) => string;
-  updateDocument: (id: string, updates: Partial<Pick<VaultItem, "fileName" | "documentType" | "property" | "approvalStatus" | "version" | "effectiveDate" | "modified" | "body" | "tags" | "linkedAgentIds" | "history" | "properties" | "nextReviewDate" | "folderId" | "isTemplate" | "versions" | "trainingRecords">>) => void;
+  updateDocument: (id: string, updates: Partial<Pick<VaultItem, "fileName" | "documentType" | "property" | "approvalStatus" | "version" | "effectiveDate" | "modified" | "body" | "tags" | "linkedAgentIds" | "history" | "properties" | "nextReviewDate" | "folderId" | "isTemplate" | "versions" | "trainingRecords" | "fileFormat">>) => void;
   addFolder: (fileName: string) => void;
   moveToFolder: (docId: string, folderId: string | null) => void;
   complianceChecked: Record<string, boolean>;
@@ -404,7 +406,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     return newId;
   }, [addActivity]);
 
-  const updateDocument = useCallback((id: string, updates: Partial<Pick<VaultItem, "fileName" | "documentType" | "property" | "approvalStatus" | "version" | "effectiveDate" | "modified" | "body" | "tags" | "linkedAgentIds" | "history" | "properties" | "nextReviewDate" | "folderId" | "isTemplate" | "versions" | "trainingRecords">>) => {
+  const updateDocument = useCallback((id: string, updates: Partial<Pick<VaultItem, "fileName" | "documentType" | "property" | "approvalStatus" | "version" | "effectiveDate" | "modified" | "body" | "tags" | "linkedAgentIds" | "history" | "properties" | "nextReviewDate" | "folderId" | "isTemplate" | "versions" | "trainingRecords" | "fileFormat">>) => {
     setDocuments((prev) =>
       prev.map((doc) => {
         if (doc.id !== id) return doc;

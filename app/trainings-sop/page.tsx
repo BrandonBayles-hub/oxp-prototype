@@ -24,6 +24,9 @@ import { EscalationDetailSheet } from "@/components/escalation-detail-sheet";
 import { Shield, ShieldCheck, FileCheck, Users, Activity } from "lucide-react";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { PropertySelector } from "@/components/property-selector";
+import { getSelectedPropertyNames, getDataForView } from "@/lib/property-selector-data";
+import { ChevronDown } from "lucide-react";
 import { Chat, type ChatMessage } from "@/components/ui/chat";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -1360,8 +1363,20 @@ function UploadDocModal({
   const [fileName, setFileName] = useState("");
   const [documentType, setDocumentType] = useState<VaultItem["documentType"]>("sop");
   const [property, setProperty] = useState(properties[0] ?? "Portfolio");
+  const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(new Set());
   const [effectiveDate, setEffectiveDate] = useState("");
   const [fileBody, setFileBody] = useState("");
+
+  const selectedPropertyNames = useMemo(
+    () => getSelectedPropertyNames(getDataForView("Property List"), selectedPropertyIds),
+    [selectedPropertyIds]
+  );
+
+  useEffect(() => {
+    if (selectedPropertyNames.length > 0) {
+      setProperty(selectedPropertyNames[0]);
+    }
+  }, [selectedPropertyNames]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1406,9 +1421,26 @@ function UploadDocModal({
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-foreground">Property</label>
-            <select value={property} onChange={(e) => setProperty(e.target.value)} className="select-base w-full">
-              {properties.map((p) => (<option key={p} value={p}>{p}</option>))}
-            </select>
+            <Popover>
+              <PopoverTrigger asChild>
+                <button type="button" className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm hover:bg-muted/50 focus:outline-none focus:ring-1 focus:ring-ring">
+                  <span className="truncate text-left">
+                    {selectedPropertyNames.length === 0
+                      ? "Select properties..."
+                      : selectedPropertyNames.length === 1
+                      ? selectedPropertyNames[0]
+                      : `${selectedPropertyNames.length} properties selected`}
+                  </span>
+                  <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-80 p-0" align="start" sideOffset={4}>
+                <PropertySelector
+                  className="h-[400px] border-0 shadow-none rounded-md"
+                  onSelectionChange={setSelectedPropertyIds}
+                />
+              </PopoverContent>
+            </Popover>
           </div>
           {documentType === "sop" && (
             <div>
