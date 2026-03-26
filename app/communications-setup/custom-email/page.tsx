@@ -47,8 +47,16 @@ const SERVICE_TYPES = [
   "Entrata Email",
 ];
 
+/** IMAP/SMTP ("Other Service Providers") — no ELI+ AI lanes; Entrata Email only. */
+const OTHER_PROVIDER_SERVICE_TYPES = ["Entrata Email"] as const;
+
 const RESIDENT_ELI_SERVICES = ["ELI+ Maintenance AI", "ELI+ Payments AI", "ELI+ Renewals AI"];
 const ALL_ELI_SERVICES = ["ELI+ Leasing AI", ...RESIDENT_ELI_SERVICES];
+
+function filterToOtherProviderServiceTypes(types: string[]): string[] {
+  const allowed = new Set<string>(OTHER_PROVIDER_SERVICE_TYPES);
+  return types.filter((s) => allowed.has(s));
+}
 
 function applyServiceRules(current: string[], toggled: string): string[] {
   if (toggled === "Entrata Email") {
@@ -80,6 +88,7 @@ function ServiceTypeSelector({
   onOpenChange,
   dropUp,
   accentColor = "blue",
+  serviceOptions,
 }: {
   selected: string[];
   onToggle: (svc: string) => void;
@@ -87,13 +96,19 @@ function ServiceTypeSelector({
   onOpenChange: (open: boolean) => void;
   dropUp?: boolean;
   accentColor?: "blue" | "violet";
+  /** When set (e.g. IMAP/SMTP only), list is restricted — omit ELI+ AI service rows. */
+  serviceOptions?: readonly string[];
 }) {
   const accent = accentColor === "violet"
     ? { border: "border-violet-600", bg: "bg-violet-600", badge: "bg-violet-50 border-violet-200 text-violet-700" }
     : { border: "border-blue-600", bg: "bg-blue-600", badge: "bg-blue-50 border-blue-200 text-blue-700" };
 
+  const optionList = serviceOptions ?? SERVICE_TYPES;
+  const showEliGroupLabel =
+    optionList.includes("All Resident ELI+ AI Services") && RESIDENT_ELI_SERVICES.every((s) => selected.includes(s));
+
   const displayText = selected.length > 0
-    ? (RESIDENT_ELI_SERVICES.every((s) => selected.includes(s))
+    ? (showEliGroupLabel
         ? ["All Resident ELI+ AI Services", ...(selected.includes("Entrata Email") ? ["Entrata Email"] : []), ...(selected.includes("ELI+ Leasing AI") ? ["ELI+ Leasing AI"] : [])].join(", ")
         : selected.join(", "))
     : "Select service types...";
@@ -112,7 +127,7 @@ function ServiceTypeSelector({
       </button>
       {open && (
         <div className={`absolute z-20 w-full rounded-md border border-[hsl(var(--border))] bg-white py-1 shadow-lg ${dropUp ? "bottom-full mb-1" : "mt-1"}`}>
-          {SERVICE_TYPES.map((svc) => {
+          {optionList.map((svc) => {
             const isGroup = svc === "All Resident ELI+ AI Services";
             const isChecked = isGroup
               ? RESIDENT_ELI_SERVICES.every((s) => selected.includes(s))
@@ -504,7 +519,7 @@ export default function CustomEmailPage() {
     setEmailForm({
       emailAddress: email.emailAddress,
       properties: [...email.properties],
-      serviceTypes: [...email.serviceTypes],
+      serviceTypes: filterToOtherProviderServiceTypes(email.serviceTypes),
       forwardTo: email.forwardTo,
       imapConfig: { ...email.imapConfig },
       smtpConfig: { ...email.smtpConfig },
@@ -535,7 +550,9 @@ export default function CustomEmailPage() {
                   emailAddress: emailForm.emailAddress.trim(),
                   forwardTo: emailForm.forwardTo,
                   properties: emailForm.properties,
-                  serviceTypes: emailForm.serviceTypes.filter((s) => s !== "All Resident ELI+ AI Services"),
+                  serviceTypes: filterToOtherProviderServiceTypes(
+                    emailForm.serviceTypes.filter((s) => s !== "All Resident ELI+ AI Services")
+                  ),
                   imapConfig: emailForm.imapConfig,
                   smtpConfig: emailForm.smtpConfig,
                   status: (isSmtpActive || isImapActive ? "active" : e.status) as "active" | "disabled",
@@ -556,7 +573,9 @@ export default function CustomEmailPage() {
             emailAddress: emailForm.emailAddress.trim(),
             forwardTo: emailForm.forwardTo,
             properties: emailForm.properties,
-            serviceTypes: emailForm.serviceTypes.filter((s) => s !== "All Resident ELI+ AI Services"),
+            serviceTypes: filterToOtherProviderServiceTypes(
+              emailForm.serviceTypes.filter((s) => s !== "All Resident ELI+ AI Services")
+            ),
             imapConfig: emailForm.imapConfig,
             smtpConfig: emailForm.smtpConfig,
             status: (isSmtpActive || isImapActive ? "active" : "disabled") as "active" | "disabled",
@@ -918,12 +937,15 @@ export default function CustomEmailPage() {
               <div>
                 <label className="mb-1.5 block text-sm font-semibold text-[hsl(var(--foreground))]">Service Types</label>
                 <ServiceTypeSelector
+                  serviceOptions={OTHER_PROVIDER_SERVICE_TYPES}
                   selected={emailForm.serviceTypes}
                   onToggle={(svc) => { toggleEmailFormSvc(svc); }}
                   open={emailFormSvcDropdown}
                   onOpenChange={(v) => { setEmailFormSvcDropdown(v); if (v) setEmailFormPropDropdown(false); }}
                 />
-                <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Select one or more service types to associate with this email address</p>
+                <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
+                  For IMAP/SMTP, only Entrata Email applies. Connect with Google or Microsoft above to assign ELI+ AI services.
+                </p>
               </div>
 
               <div>
