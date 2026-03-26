@@ -401,6 +401,7 @@ export function TrainingsSopDetailClient() {
   const viewerScrollRef = useRef<HTMLDivElement>(null);
   const [viewerContainerWidth, setViewerContainerWidth] = useState(0);
   const [nameEdit, setNameEdit] = useState<string | null>(null);
+  const [ownerEdit, setOwnerEdit] = useState<string | null>(null);
   const [propertiesExpanded, setPropertiesExpanded] = useState(false);
   const [workforceExpanded, setWorkforceExpanded] = useState(false);
   const [reviewDateEdit, setReviewDateEdit] = useState("");
@@ -602,6 +603,13 @@ export function TrainingsSopDetailClient() {
       updateDocument(id, { fileName: nameEdit.trim() || doc.fileName });
     }
     setNameEdit(null);
+  };
+
+  const handleOwnerBlur = () => {
+    if (ownerEdit !== null && ownerEdit.trim() !== doc.owner) {
+      updateDocument(id, { owner: ownerEdit.trim() || doc.owner });
+    }
+    setOwnerEdit(null);
   };
 
   const handleSubmitForApproval = () => {
@@ -1299,7 +1307,19 @@ export function TrainingsSopDetailClient() {
                 </div>
               </div>
               <div><span className="text-muted-foreground">Modified</span><p className="font-medium">{doc.modified}</p></div>
-              <div><span className="text-muted-foreground">Owner</span><p className="font-medium">{doc.owner}</p></div>
+              <div>
+                <label className="text-muted-foreground">Owner</label>
+                <input
+                  type="text"
+                  value={ownerEdit !== null ? ownerEdit : doc.owner}
+                  onChange={(e) => setOwnerEdit(e.target.value)}
+                  onBlur={handleOwnerBlur}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+                  className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium text-foreground"
+                  placeholder="Owner"
+                  aria-label="Owner"
+                />
+              </div>
               <div><span className="text-muted-foreground">Source</span><p className="font-medium">{doc.source ?? "upload"}</p></div>
             </CardContent>
           </Card>
@@ -1548,28 +1568,31 @@ export function TrainingsSopDetailClient() {
                 Labels are used as metadata to help AI agents search and relate documents to escalations.
               </CardDescription>
             </CardHeader>
-            <CardContent className="flex flex-col divide-y divide-border/50 [&>div]:py-4 first:[&>div]:pt-0 last:[&>div]:pb-0">
+            <CardContent className="flex flex-col">
               {docTags.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-1.5 mb-3">
                   {docTags.map((t) => (
-                    <Badge key={t} variant="secondary" className="gap-1 text-[10px]">
+                    <RemovableMetadataChip
+                      key={t}
+                      removeLabel={`Remove ${t}`}
+                      onRemove={() => removeTag(t)}
+                    >
                       {t}
-                      <button type="button" onClick={() => removeTag(t)} className="ml-0.5 rounded-full hover:bg-muted-foreground/20" aria-label={`Remove ${t}`}>
-                        <X className="h-2.5 w-2.5" />
-                      </button>
-                    </Badge>
+                    </RemovableMetadataChip>
                   ))}
                 </div>
               ) : (
-                <p className="rounded-md border border-dashed border-border px-2.5 py-2 text-xs text-muted-foreground">
+                <p className="rounded-md border border-dashed border-border px-2.5 py-2 text-xs text-muted-foreground mb-3">
                   No labels yet. Add labels below to drive routing and agent connections.
                 </p>
               )}
 
-              <TagCombobox
-                existingLabels={availableToAdd}
-                onAdd={addTag}
-              />
+              <div>
+                <TagCombobox
+                  existingLabels={availableToAdd}
+                  onAdd={addTag}
+                />
+              </div>
 
             </CardContent>
           </Card>

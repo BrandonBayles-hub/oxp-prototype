@@ -353,7 +353,7 @@ type VaultContextValue = {
   documents: VaultItem[];
   setDocuments: React.Dispatch<React.SetStateAction<VaultItem[]>>;
   addDocument: (item: Omit<VaultItem, "id" | "modified">) => string;
-  updateDocument: (id: string, updates: Partial<Pick<VaultItem, "fileName" | "documentType" | "property" | "approvalStatus" | "version" | "effectiveDate" | "modified" | "body" | "tags" | "linkedAgentIds" | "relatedDocumentIds" | "history" | "properties" | "nextReviewDate" | "folderId" | "isTemplate" | "versions" | "trainingRecords" | "fileFormat" | "viewerAccess">>) => void;
+  updateDocument: (id: string, updates: Partial<Pick<VaultItem, "fileName" | "documentType" | "property" | "approvalStatus" | "version" | "effectiveDate" | "modified" | "body" | "tags" | "linkedAgentIds" | "relatedDocumentIds" | "history" | "properties" | "nextReviewDate" | "folderId" | "isTemplate" | "versions" | "trainingRecords" | "fileFormat" | "viewerAccess" | "owner">>) => void;
   addFolder: (fileName: string) => void;
   moveToFolder: (docId: string, folderId: string | null) => void;
   complianceChecked: Record<string, boolean>;
@@ -525,7 +525,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     return newId;
   }, [addActivity]);
 
-  const updateDocument = useCallback((id: string, updates: Partial<Pick<VaultItem, "fileName" | "documentType" | "property" | "approvalStatus" | "version" | "effectiveDate" | "modified" | "body" | "tags" | "linkedAgentIds" | "relatedDocumentIds" | "history" | "properties" | "nextReviewDate" | "folderId" | "isTemplate" | "versions" | "trainingRecords" | "fileFormat" | "viewerAccess">>) => {
+  const updateDocument = useCallback((id: string, updates: Partial<Pick<VaultItem, "fileName" | "documentType" | "property" | "approvalStatus" | "version" | "effectiveDate" | "modified" | "body" | "tags" | "linkedAgentIds" | "relatedDocumentIds" | "history" | "properties" | "nextReviewDate" | "folderId" | "isTemplate" | "versions" | "trainingRecords" | "fileFormat" | "viewerAccess" | "owner">>) => {
     setDocuments((prev) =>
       prev.map((doc) => {
         if (doc.id !== id) return doc;
