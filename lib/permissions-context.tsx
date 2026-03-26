@@ -23,13 +23,13 @@ export const ALL_PERMISSIONS: Permission[] = [
   {
     id: "p-comms-send-email",
     capability: "Send Emails",
-    description: "Ability to send email messages from the conversation panel in lead and resident profiles.",
+    description: "Ability to send email messages from OXP Communication inboxes and conversation panel.",
     section: "Command Center",
   },
   {
     id: "p-comms-send-sms",
     capability: "Send SMS",
-    description: "Ability to send SMS messages from the conversation panel in lead and resident profiles.",
+    description: "Ability to send SMS messages from OXP Communication inboxes and conversation panel.",
     section: "Command Center",
   },
   {

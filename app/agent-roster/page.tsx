@@ -16,7 +16,13 @@ import { useWorkforce } from "@/lib/workforce-context";
 import { useVault } from "@/lib/vault-context";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  videoDialogOverlayClassName,
 } from "@/components/ui/dialog";
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
@@ -615,7 +621,10 @@ function AgentRosterContent() {
 
       {/* Agent Walkthrough Video Dialog */}
       <Dialog open={!!videoAgentName} onOpenChange={(o) => !o && setVideoAgentName(null)}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent
+          overlayClassName={videoDialogOverlayClassName}
+          className="sm:max-w-2xl"
+        >
           <DialogHeader>
             <DialogTitle>{videoAgentName}</DialogTitle>
             <DialogDescription>Agent walkthrough video</DialogDescription>

@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   AlertCircle,
   ArrowRight,
+  ArrowUp,
   CalendarDays,
   CheckCircle2,
   ClipboardCheck,
@@ -14,10 +15,15 @@ import {
   FileCheck,
   FileText as FileTextIcon,
   Gauge,
+  Image as ImageIcon,
   Lightbulb,
+  Mail,
+  MessageCircle,
+  MessageSquare,
+  Paperclip,
+  Phone,
   ReceiptText,
   Search,
-  MessageSquare,
   RefreshCw,
   StickyNote,
   Tag,
@@ -42,7 +48,12 @@ import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useEscalations } from "@/lib/escalations-context";
-import { useConversations } from "@/lib/conversations-context";
+import {
+  useConversations,
+  CONVERSATION_UNASSIGNED_ASSIGNEE,
+  type ConversationMessage,
+} from "@/lib/conversations-context";
+import { getEmailThreadRoutingAddresses } from "@/lib/email-signature";
 import { useAgents } from "@/lib/agents-context";
 import { useWorkforce } from "@/lib/workforce-context";
 import { useRole, matchesRoleProperties } from "@/lib/role-context";
@@ -1603,7 +1614,7 @@ function AdminCommandCenter() {
         open={!!convoId}
         onClose={() => setConvoId(null)}
         agentsByName={agentsByName}
-        onSend={(text) => convoItem && addMessage(convoItem.id, { role: "staff", text })}
+        onSend={(message) => convoItem && addMessage(convoItem.id, message)}
       />
 
       <MetricDetailDialog
@@ -2021,6 +2032,25 @@ function R1OutcomesSection() {
   );
 }
 
+const CONVERSATION_SHEET_STAFF = "Abe Kashiwagi";
+
+const SHEET_AVATAR_COLORS = [
+  "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+  "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
+  "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
+  "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300",
+  "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300",
+  "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300",
+  "bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300",
+];
+
+function sheetAvatarColor(name: string) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return SHEET_AVATAR_COLORS[Math.abs(hash) % SHEET_AVATAR_COLORS.length];
+}
+
 function ConversationSheet({
   convoItem,
   open,
@@ -2032,10 +2062,17 @@ function ConversationSheet({
   open: boolean;
   onClose: () => void;
   agentsByName: Map<string, { name: string; type: string }>;
-  onSend: (text: string) => void;
+  onSend: (message: ConversationMessage) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState("");
+  const [inputMode, setInputMode] = useState<"message" | "private_note">("message");
+  const { humanMembers } = useWorkforce();
+
+  const humanNameSet = useMemo(
+    () => new Set(humanMembers.map((m) => m.name)),
+    [humanMembers]
+  );
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -2043,213 +2080,501 @@ function ConversationSheet({
     }
   }, [convoItem?.messages.length]);
 
+  useEffect(() => {
+    setDraft("");
+    setInputMode("message");
+  }, [convoItem?.id]);
+
   if (!convoItem) return null;
 
-  const initials = (name: string) =>
-    name.split(" ").map((w) => w[0]).join("").slice(0, 2);
+  const nameInitials = (name: string) =>
+    name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 
   const resolveAgentLabel = (agentName: string) => {
     const a = agentsByName.get(agentName);
     return a ? `${a.type === "autonomous" ? "ELI+ " : ""}${a.name}` : agentName;
   };
 
+  const isHumanAssignee = (assignee: string) => humanNameSet.has(assignee);
+
+  const handoffAssigneeLabel = (assignee: string) => {
+    if (assignee === CONVERSATION_UNASSIGNED_ASSIGNEE) return "Unassigned";
+    if (isHumanAssignee(assignee)) return assignee;
+    return "Staff";
+  };
+
+  const handoffAssigneeInitials = (assignee: string) => {
+    if (assignee === CONVERSATION_UNASSIGNED_ASSIGNEE) return "—";
+    if (isHumanAssignee(assignee)) return nameInitials(assignee);
+    return "AI";
+  };
+
+  const emailRouting = getEmailThreadRoutingAddresses(convoItem.resident, convoItem.property);
+
+  const staffTimestamp = () => {
+    const now = new Date();
+    return now.toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+      timeZoneName: "short",
+    });
+  };
+
   const handleSend = () => {
     if (!draft.trim()) return;
-    onSend(draft.trim());
+    const base = {
+      role: "staff" as const,
+      text: draft.trim(),
+      timestamp: staffTimestamp(),
+      type: inputMode,
+      ...(inputMode === "private_note" ? { privateNoteAuthor: CONVERSATION_SHEET_STAFF } : {}),
+    };
+    onSend(base);
     setDraft("");
+  };
+
+  const renderChannelMeta = () => (
+    <>
+      {convoItem.channel === "Email" && (
+        <>
+          <span className="text-muted-foreground/50">·</span>
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground">
+            <Mail className="h-3.5 w-3.5 shrink-0 opacity-70" />
+            Email
+          </span>
+        </>
+      )}
+      {convoItem.channel === "SMS" && (
+        <>
+          <span className="text-muted-foreground/50">·</span>
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground">
+            <Phone className="h-3.5 w-3.5 shrink-0 opacity-70" />
+            SMS
+          </span>
+        </>
+      )}
+      {convoItem.channel !== "Email" && convoItem.channel !== "SMS" && (
+        <>
+          <span className="text-muted-foreground/50">·</span>
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground">
+            <MessageCircle className="h-3.5 w-3.5 shrink-0 opacity-70" />
+            {convoItem.channel}
+          </span>
+        </>
+      )}
+    </>
+  );
+
+  const renderMessageBlock = (msg: ConversationMessage, idx: number, emailLayout: boolean) => {
+    if (msg.type === "handoff") {
+      return (
+        <div key={idx} className="flex items-center justify-center gap-2 py-1">
+          <CornerDownRight className="h-3 w-3 text-muted-foreground" />
+          <span className="text-[11px] text-muted-foreground">
+            Handoff {handoffAssigneeLabel(convoItem.assignee)} · {msg.timestamp}
+          </span>
+        </div>
+      );
+    }
+
+    if (msg.type === "thread_activity" && msg.threadActivity) {
+      return <ConversationThreadActivityRow key={idx} message={msg} />;
+    }
+
+    if (msg.type === "label_activity" && msg.labelActivity) {
+      const { actor, labelsAdded } = msg.labelActivity;
+      return (
+        <div
+          key={idx}
+          className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/70 bg-muted/25 py-2.5 px-3"
+        >
+          <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+          <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
+            <span className="font-medium text-foreground">{actor}</span>
+            {" added "}
+            {labelsAdded.length === 1 ? "label " : "labels "}
+            <span className="font-medium text-foreground">{labelsAdded.join(", ")}</span>
+            {msg.timestamp && (
+              <>
+                <span className="text-muted-foreground/70"> · </span>
+                <span>{msg.timestamp}</span>
+              </>
+            )}
+          </p>
+        </div>
+      );
+    }
+
+    if (msg.type === "private_note") {
+      return (
+        <div key={idx} className="space-y-1">
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+            <Avatar className="h-5 w-5">
+              <AvatarFallback
+                className={cn(
+                  "text-[8px]",
+                  msg.privateNoteAuthor
+                    ? sheetAvatarColor(msg.privateNoteAuthor)
+                    : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                )}
+              >
+                {msg.privateNoteAuthor ? nameInitials(msg.privateNoteAuthor) : <StickyNote className="h-2.5 w-2.5" />}
+              </AvatarFallback>
+            </Avatar>
+            <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+              Private Note
+              {msg.privateNoteAuthor ? (
+                <>
+                  <span className="font-normal text-muted-foreground"> · </span>
+                  <span className="font-medium text-amber-800 dark:text-amber-200">{msg.privateNoteAuthor}</span>
+                </>
+              ) : null}
+            </span>
+            {msg.timestamp && <span className="text-[10px] text-muted-foreground">{msg.timestamp}</span>}
+          </div>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+            {msg.text}
+          </div>
+        </div>
+      );
+    }
+
+    const isAgent = msg.role === "agent";
+    const isStaff = msg.role === "staff";
+
+    if (emailLayout) {
+      return (
+        <div key={idx} className="space-y-2 border-l-2 border-l-primary/25 pl-4">
+          <div className="flex items-center gap-2">
+            <Avatar className={cn(isAgent || isStaff ? "h-8 w-8" : "h-5 w-5")}>
+              {isAgent ? <AvatarImage src="/eli-cube.svg" alt="ELI" className="p-1" /> : null}
+              <AvatarFallback
+                className={cn(
+                  (isAgent || isStaff)
+                    ? "bg-muted text-[10px] text-foreground"
+                    : "bg-muted text-[8px] text-muted-foreground"
+                )}
+              >
+                {isStaff ? handoffAssigneeInitials(convoItem.assignee) : <User className="h-2.5 w-2.5" />}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex flex-col">
+              <span className="text-xs font-semibold text-foreground">
+                {isAgent
+                  ? resolveAgentLabel(convoItem.agent)
+                  : isStaff
+                    ? handoffAssigneeLabel(convoItem.assignee)
+                    : convoItem.resident}
+              </span>
+              {msg.timestamp && <span className="text-[10px] text-muted-foreground">{msg.timestamp}</span>}
+            </div>
+          </div>
+          <div className="rounded-md border border-border bg-muted/30 px-4 py-3 text-sm leading-relaxed text-foreground">
+            {msg.text.split("\n").map((line, li) => (
+              <span key={li}>
+                {line}
+                {li < msg.text.split("\n").length - 1 && <br />}
+              </span>
+            ))}
+          </div>
+          {msg.emailAttachments && msg.emailAttachments.length > 0 && (
+            <div className="space-y-2 pt-1">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Attachments</p>
+              <div className="flex flex-wrap gap-2">
+                {msg.emailAttachments.map((att, ai) =>
+                  att.kind === "image" ? (
+                    <div
+                      key={`${att.name}-${ai}`}
+                      className="flex w-[min(100%,12rem)] flex-col gap-1.5 rounded-md border border-border bg-card p-2 text-left shadow-sm"
+                    >
+                      <div className="flex aspect-[4/3] w-full items-center justify-center rounded border border-dashed border-border bg-gradient-to-br from-muted/80 to-muted/40">
+                        <ImageIcon className="h-6 w-6 text-muted-foreground/70" aria-hidden />
+                      </div>
+                      <span className="truncate text-[11px] font-medium text-foreground" title={att.name}>
+                        {att.name}
+                      </span>
+                    </div>
+                  ) : (
+                    <div
+                      key={`${att.name}-${ai}`}
+                      className="flex max-w-[14rem] items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-left shadow-sm"
+                    >
+                      <FileTextIcon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                      <span className="truncate text-[11px] font-medium text-foreground" title={att.name}>
+                        {att.name}
+                      </span>
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
+          )}
+          {msg.emailSignature?.trim() && (
+            <div className="mt-3 border-t border-border pt-3">
+              <div className="flex gap-3">
+                {(isStaff || msg.role === "resident") && (
+                  <Avatar className="mt-0.5 h-10 w-10 shrink-0 border border-border bg-background">
+                    <AvatarFallback
+                      className={cn(
+                        "text-[10px]",
+                        isStaff
+                          ? convoItem.assignee === CONVERSATION_UNASSIGNED_ASSIGNEE
+                            ? "border border-dashed border-muted-foreground/35 bg-muted/50 text-muted-foreground"
+                            : sheetAvatarColor(convoItem.assignee)
+                          : "bg-muted text-muted-foreground"
+                      )}
+                    >
+                      {isStaff
+                        ? convoItem.assignee === CONVERSATION_UNASSIGNED_ASSIGNEE
+                          ? "—"
+                          : isHumanAssignee(convoItem.assignee)
+                            ? nameInitials(convoItem.assignee)
+                            : "ST"
+                        : nameInitials(convoItem.resident)}
+                    </AvatarFallback>
+                  </Avatar>
+                )}
+                <p className="min-w-0 whitespace-pre-line text-xs leading-relaxed text-muted-foreground">
+                  {msg.emailSignature}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div key={idx} className="space-y-2">
+        <div className="flex items-center gap-2">
+          <Avatar className={cn(isAgent || isStaff ? "h-8 w-8" : "h-5 w-5")}>
+            {isAgent ? <AvatarImage src="/eli-cube.svg" alt="ELI" className="p-1" /> : null}
+            <AvatarFallback
+              className={cn(
+                (isAgent || isStaff)
+                  ? "bg-blue-100 text-[10px] text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                  : "bg-muted text-[8px] text-muted-foreground"
+              )}
+            >
+              {isStaff ? handoffAssigneeInitials(convoItem.assignee) : <User className="h-2.5 w-2.5" />}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex flex-col">
+            <span className="text-xs font-semibold text-foreground">
+              {isAgent
+                ? resolveAgentLabel(convoItem.agent)
+                : isStaff
+                  ? handoffAssigneeLabel(convoItem.assignee)
+                  : convoItem.resident}
+            </span>
+            {msg.timestamp && <span className="text-[10px] text-muted-foreground">{msg.timestamp}</span>}
+          </div>
+        </div>
+        <div
+          className={cn(
+            "max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
+            (isAgent || isStaff) && "bg-blue-500 text-white dark:bg-blue-600",
+            !isAgent && !isStaff && "border border-border bg-card text-card-foreground shadow-sm"
+          )}
+        >
+          {msg.text.split("\n").map((line, li) => (
+            <span key={li}>
+              {line}
+              {li < msg.text.split("\n").length - 1 && <br />}
+            </span>
+          ))}
+        </div>
+      </div>
+    );
   };
 
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent side="right" className="flex w-full flex-col overflow-hidden p-0 sm:max-w-xl">
-        {/* Header */}
-        <div className="shrink-0 border-b border-border px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold text-foreground">
-              {initials(convoItem.resident)}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-base font-semibold text-foreground leading-tight">
-                {convoItem.resident}
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {convoItem.contactType}
-                {convoItem.unit ? ` · ${convoItem.unit}` : ""}
-              </p>
-            </div>
-            <div className="shrink-0 text-right">
-              <p className="text-xs font-medium text-green-600 flex items-center gap-1.5 justify-end">
-                <span className="inline-block h-2 w-2 rounded-full bg-green-500" />
-                Live
-              </p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">{convoItem.time}</p>
-            </div>
-          </div>
-          <div className="mt-3 flex items-center gap-5 text-xs text-muted-foreground">
-            <span><span className="font-medium text-foreground">Agent: </span>{resolveAgentLabel(convoItem.agent)}</span>
-            <span><span className="font-medium text-foreground">Property: </span>{convoItem.property}</span>
-            <span><span className="font-medium text-foreground">Via: </span>{convoItem.channel}</span>
-          </div>
-        </div>
-
-        {/* Messages */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-hover bg-muted/30 px-5 py-4">
-          <div className="space-y-4">
-            {convoItem.messages.map((msg, idx) => {
-              if (msg.type === "handoff") {
-                return (
-                  <div key={idx} className="flex items-center justify-center gap-2 py-1">
-                    <CornerDownRight className="h-3 w-3 text-muted-foreground" />
-                    <span className="text-[11px] text-muted-foreground">
-                      Handoff · {msg.timestamp}
-                    </span>
-                  </div>
-                );
-              }
-
-              if (msg.type === "thread_activity" && msg.threadActivity) {
-                return <ConversationThreadActivityRow key={idx} message={msg} />;
-              }
-
-              if (msg.type === "label_activity" && msg.labelActivity) {
-                const { actor, labelsAdded } = msg.labelActivity;
-                return (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/70 bg-muted/25 py-2.5 px-3"
-                  >
-                    <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                    <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
-                      <span className="font-medium text-foreground">{actor}</span>
-                      {" added "}
-                      {labelsAdded.length === 1 ? "label " : "labels "}
-                      <span className="font-medium text-foreground">{labelsAdded.join(", ")}</span>
-                      {msg.timestamp && (
-                        <>
-                          <span className="text-muted-foreground/70"> · </span>
-                          <span>{msg.timestamp}</span>
-                        </>
-                      )}
-                    </p>
-                  </div>
-                );
-              }
-
-              if (msg.type === "private_note") {
-                return (
-                  <div key={idx} className="space-y-1">
-                    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                      <Avatar className="h-5 w-5">
-                        <AvatarFallback className="bg-amber-100 text-[8px] text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
-                          {msg.privateNoteAuthor ? (
-                            msg.privateNoteAuthor
-                              .split(" ")
-                              .map((w) => w[0])
-                              .join("")
-                              .slice(0, 2)
-                              .toUpperCase()
-                          ) : (
-                            <StickyNote className="h-2.5 w-2.5" />
-                          )}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
-                        Private Note
-                        {msg.privateNoteAuthor ? (
-                          <>
-                            <span className="font-normal text-muted-foreground"> · </span>
-                            <span className="font-medium text-amber-800 dark:text-amber-200">
-                              {msg.privateNoteAuthor}
-                            </span>
-                          </>
-                        ) : null}
-                      </span>
-                      {msg.timestamp && <span className="text-[10px] text-muted-foreground">{msg.timestamp}</span>}
-                    </div>
-                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
-                      {msg.text}
-                    </div>
-                  </div>
-                );
-              }
-
-              const isAgent = msg.role === "agent";
-              const isStaff = msg.role === "staff";
-
-              return (
-                <div key={idx} className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Avatar className={cn(isAgent || isStaff ? "h-8 w-8" : "h-5 w-5")}>
-                      {isAgent ? (
-                        <AvatarImage src="/eli-cube.svg" alt="ELI" className="p-1" />
-                      ) : null}
-                      <AvatarFallback
-                        className={cn(
-                          (isAgent || isStaff)
-                            ? "bg-blue-100 text-[10px] text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
-                            : "bg-muted text-[8px] text-muted-foreground"
-                        )}
-                      >
-                        {isStaff
-                          ? initials(convoItem.assignee)
-                          : <User className="h-2.5 w-2.5" />}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex flex-col">
-                      <span className="text-xs font-semibold text-foreground">
-                        {isAgent
-                          ? resolveAgentLabel(convoItem.agent)
-                          : isStaff
-                            ? convoItem.assignee
-                            : convoItem.resident}
-                      </span>
-                      {msg.timestamp && <span className="text-[10px] text-muted-foreground">{msg.timestamp}</span>}
-                    </div>
-                  </div>
-                  <div
+      <SheetContent
+        side="right"
+        className="flex w-full flex-col overflow-hidden p-0 sm:max-w-2xl"
+      >
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          {/* Header — matches /conversations detail strip */}
+          <div className="shrink-0 border-b border-border bg-card px-5 py-3">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="text-base font-semibold leading-tight text-foreground">{convoItem.resident}</span>
+                <span className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
+                  <span>{convoItem.property}</span>
+                  {renderChannelMeta()}
+                </span>
+              </div>
+              <div className="flex shrink-0 items-center gap-3">
+                <div className="hidden text-right text-[11px] text-muted-foreground sm:block">
+                  <p className="font-medium text-foreground">{resolveAgentLabel(convoItem.agent)}</p>
+                  {convoItem.contactType}
+                  {convoItem.unit ? ` · ${convoItem.unit}` : ""}
+                </div>
+                <Avatar className="h-7 w-7">
+                  <AvatarFallback
                     className={cn(
-                      "max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
-                      (isAgent || isStaff) && "bg-blue-500 text-white dark:bg-blue-600",
-                      !isAgent && !isStaff && "border border-border bg-card text-card-foreground shadow-sm"
+                      "text-[10px]",
+                      convoItem.assignee === CONVERSATION_UNASSIGNED_ASSIGNEE
+                        ? "border border-dashed border-muted-foreground/40 bg-muted/40 text-muted-foreground"
+                        : sheetAvatarColor(convoItem.assignee)
                     )}
                   >
-                    {msg.text.split("\n").map((line, li) => (
-                      <span key={li}>
-                        {line}
-                        {li < msg.text.split("\n").length - 1 && <br />}
-                      </span>
-                    ))}
+                    {convoItem.assignee === CONVERSATION_UNASSIGNED_ASSIGNEE
+                      ? "—"
+                      : isHumanAssignee(convoItem.assignee)
+                        ? nameInitials(convoItem.assignee)
+                        : "AI"}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="text-right">
+                  <p className="flex items-center justify-end gap-1.5 text-xs font-medium text-green-600">
+                    <span className="inline-block h-2 w-2 rounded-full bg-green-500" />
+                    Live
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">{convoItem.time}</p>
+                </div>
+              </div>
+            </div>
+
+            {convoItem.labels.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {convoItem.labels.map((label) => (
+                  <Badge
+                    key={label}
+                    variant={label.includes("Escalation") ? "destructive" : "outline"}
+                    className={cn(
+                      "rounded-md text-xs font-normal",
+                      label.includes("Escalation")
+                        ? "border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
+                        : "border-border"
+                    )}
+                  >
+                    {label}
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Messages — same structure as /conversations */}
+          <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-hover bg-muted/30 px-5 py-4">
+            <div className="space-y-4">
+              {convoItem.channel === "Email" && (
+                <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+                  <div className="border-b border-border bg-muted/50 px-4 py-3">
+                    <div className="flex items-start gap-2.5">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-background">
+                        <Mail className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <div>
+                          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Subject</p>
+                          <p className="text-sm font-semibold leading-snug text-foreground">
+                            {convoItem.emailSubject ?? convoItem.preview}
+                          </p>
+                        </div>
+                        <div className="grid gap-1.5 text-xs">
+                          <p>
+                            <span className="text-muted-foreground">From:</span>{" "}
+                            <span className="font-medium text-foreground">
+                              {convoItem.resident} &lt;{emailRouting.residentEmail}&gt;
+                            </span>
+                          </p>
+                          <p>
+                            <span className="text-muted-foreground">To:</span>{" "}
+                            <span className="font-medium text-foreground">
+                              {convoItem.property} Leasing &lt;{emailRouting.propertyInboxEmail}&gt;
+                            </span>
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-4 bg-background px-4 py-4">
+                    {convoItem.messages.map((msg, idx) => renderMessageBlock(msg, idx, true))}
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        </div>
+              )}
 
-        {/* Input */}
-        <div className="shrink-0 bg-muted/50 px-5 py-3">
-          <div className="flex items-center gap-2 rounded-2xl border border-input bg-background px-3 py-2 shadow-sm focus-within:border-primary/40 focus-within:ring-1 focus-within:ring-ring">
-            <textarea
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
-              placeholder="Type a message to join this conversation…"
-              rows={1}
-              className="w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground focus-visible:outline-none"
-            />
-            <Button
-              size="icon"
-              className="h-8 w-8 shrink-0 rounded-full"
-              disabled={!draft.trim()}
-              onClick={handleSend}
-            >
-              <ArrowRight className="h-4 w-4" />
-            </Button>
+              {convoItem.channel !== "Email" &&
+                convoItem.messages.map((msg, idx) => renderMessageBlock(msg, idx, false))}
+            </div>
+          </div>
+
+          {/* Composer — matches /conversations input chrome */}
+          <div className="shrink-0 bg-muted/50">
+            <div className="flex items-center gap-1 px-5 pt-3 pb-2">
+              <Button
+                variant={inputMode === "message" ? "default" : "ghost"}
+                size="sm"
+                className="gap-1.5 rounded-full text-xs"
+                onClick={() => setInputMode("message")}
+              >
+                <MessageSquare className="h-3.5 w-3.5" />
+                Message
+              </Button>
+              <Button
+                variant={inputMode === "private_note" ? "secondary" : "ghost"}
+                size="sm"
+                className={cn(
+                  "gap-1.5 rounded-full text-xs",
+                  inputMode === "private_note" &&
+                    "bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300"
+                )}
+                onClick={() => setInputMode("private_note")}
+              >
+                <StickyNote className="h-3.5 w-3.5" />
+                Private Note
+              </Button>
+            </div>
+            <div className="px-5 pb-4">
+              <div
+                className={cn(
+                  "relative flex flex-col rounded-xl border transition-colors focus-within:ring-1 focus-within:ring-ring",
+                  inputMode === "private_note"
+                    ? "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20"
+                    : "border-input bg-background"
+                )}
+              >
+                <textarea
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  placeholder={inputMode === "private_note" ? "Write a private note…" : "Write a message…"}
+                  rows={2}
+                  className="w-full resize-none bg-transparent px-4 pt-3 pb-1 text-sm placeholder:text-muted-foreground focus-visible:outline-none"
+                />
+                <div className="flex items-center justify-between px-3 pb-2">
+                  <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-muted-foreground" type="button" disabled>
+                    <Paperclip className="h-3.5 w-3.5" />
+                    Attach
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    className={cn(
+                      "h-8 w-8 rounded-full",
+                      inputMode === "private_note" && "bg-amber-600 hover:bg-amber-700"
+                    )}
+                    disabled={!draft.trim()}
+                    onClick={handleSend}
+                    aria-label="Send"
+                  >
+                    <ArrowUp className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </SheetContent>
