@@ -132,12 +132,12 @@ function TreeItem({
     return node.children.filter((child) => matchesSearch(child, searchTerm));
   }, [node.children, searchTerm]);
 
-  if (searchTerm && !matchesSearch(node, searchTerm)) return null;
-
   const allDescendantIds = useMemo(
     () => (hasChildren ? collectDescendantIds(node).slice(1) : []),
     [node, hasChildren]
   );
+
+  if (searchTerm && !matchesSearch(node, searchTerm)) return null;
   const allChildrenSelected =
     hasChildren && allDescendantIds.length > 0 && allDescendantIds.every((id) => selected.has(id));
   const someChildrenSelected =
