@@ -17,6 +17,11 @@ export type ThreadActivity =
       assignedBy: string;
       previousAssignee: string;
     }
+  | {
+      kind: "assignment_cleared";
+      actor: string;
+      previousAssignee: string;
+    }
   | { kind: "ai_activation"; active: boolean; actor: string }
   | {
       kind: "channel_opt";
@@ -199,6 +204,14 @@ export function satisfiesEscalatedPropertyInboxLabels(c: ConversationItem): bool
 
 /** Prototype default for activity attribution when the viewer performs an action. */
 export const DEFAULT_CONVERSATION_ACTIVITY_ACTOR = "Abe Kashiwagi";
+
+/** Canonical assignee string when no person or AI queue owns the conversation. */
+export const CONVERSATION_UNASSIGNED_ASSIGNEE = "Unassigned";
+
+/**
+ * Pass to `updateAssignee` to clear the assignee (see {@link CONVERSATION_UNASSIGNED_ASSIGNEE}).
+ */
+export const UNASSIGN_CONVERSATION_VALUE = "__oxp_unassign_conversation__";
 
 export function formatThreadActivityTimestamp(d = new Date()): string {
   return d.toLocaleString("en-US", {
@@ -759,6 +772,21 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
       setItems((prev) =>
         prev.map((c) => {
           if (c.id !== conversationId) return c;
+          if (assignee === UNASSIGN_CONVERSATION_VALUE) {
+            if (c.assignee === CONVERSATION_UNASSIGNED_ASSIGNEE) return c;
+            const message = buildThreadActivityMessage({
+              kind: "assignment_cleared",
+              actor: assignedBy,
+              previousAssignee: c.assignee,
+            });
+            const nextMessages = [...c.messages, message];
+            return {
+              ...c,
+              assignee: CONVERSATION_UNASSIGNED_ASSIGNEE,
+              messages: nextMessages,
+              hasUnread: nextHasUnreadAfterAppend(c, message),
+            };
+          }
           if (c.assignee === assignee) return c;
           const message = buildThreadActivityMessage({
             kind: "assignment",
