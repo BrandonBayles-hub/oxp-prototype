@@ -8,6 +8,7 @@ import {
   Mail,
   Phone,
   RotateCcw,
+  UserMinus,
   UserPlus,
 } from "lucide-react";
 import type { ConversationMessage } from "@/lib/conversations-context";
@@ -80,6 +81,27 @@ export function ConversationThreadActivityRow({
           {" assigned "}
           <span className="font-medium text-foreground">{a.assignee}</span>
           {" to this conversation"}
+          {a.previousAssignee ? (
+            <>
+              {" "}
+              <span className="text-muted-foreground/90">
+                (was <span className="font-medium text-foreground/90">{a.previousAssignee}</span>)
+              </span>
+            </>
+          ) : null}
+        </>
+      );
+      break;
+    case "assignment_cleared":
+      icon = (
+        <IconWrap>
+          <UserMinus className="h-3.5 w-3.5" />
+        </IconWrap>
+      );
+      body = (
+        <>
+          <span className="font-medium text-foreground">{a.actor}</span>
+          {" unassigned this conversation"}
           {a.previousAssignee ? (
             <>
               {" "}

@@ -1,6 +1,15 @@
 "use client";
 
-import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -43,6 +52,8 @@ import {
   SendHorizontal,
   Sparkles,
   PlayCircle,
+  RefreshCw,
+  UserMinus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -51,15 +62,29 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import {
-  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@/components/ui/select";
 import {
   useConversations,
+  CONVERSATION_UNASSIGNED_ASSIGNEE,
+  UNASSIGN_CONVERSATION_VALUE,
   type ConversationItem,
   type EmailAttachmentRef,
   isConversationUnattended,
@@ -73,6 +98,7 @@ import { cn } from "@/lib/utils";
 import {
   buildStaffEmailSignatureBody,
   getEmailThreadRoutingAddresses,
+  getPropertyFromChannelOptionsForProperty,
   getVoiceOrSmsThreadRoutingNumbers,
 } from "@/lib/email-signature";
 import {
@@ -155,6 +181,18 @@ const LIVE_AI_PROPERTY_FORBIDDEN = new Set([
 /** Logged-in user for the My Inbox tab (human assignee name). */
 const MY_INBOX_ASSIGNEE = "Abe Kashiwagi";
 
+function handoffAssigneeLabel(assignee: string, isHuman: (a: string) => boolean): string {
+  if (assignee === CONVERSATION_UNASSIGNED_ASSIGNEE) return "Unassigned";
+  if (isHuman(assignee)) return assignee;
+  return "Staff";
+}
+
+function handoffAssigneeInitials(assignee: string, isHuman: (a: string) => boolean): string {
+  if (assignee === CONVERSATION_UNASSIGNED_ASSIGNEE) return "—";
+  if (isHuman(assignee)) return initials(assignee);
+  return initials("Staff");
+}
+
 type ChannelOptChoice = "opt-in" | "opt-out" | "no-indication";
 
 function staffEmailSignatureForConversation(
@@ -169,6 +207,22 @@ function staffEmailSignatureForConversation(
     staffName,
     staffTitle,
     propertyName: convo.property,
+  });
+}
+
+/** Same merge template as main inbox email replies, for a given property (Entrata email thread may differ from inbox channel). */
+function staffEmailSignatureForProperty(
+  convo: ConversationItem,
+  propertyName: string,
+  humanNameSet: Set<string>,
+  humanMembers: { name: string; role: string }[]
+): string {
+  const staffName = humanNameSet.has(convo.assignee) ? convo.assignee : MY_INBOX_ASSIGNEE;
+  const staffTitle = humanMembers.find((m) => m.name === staffName)?.role ?? "Leasing Specialist";
+  return buildStaffEmailSignatureBody({
+    staffName,
+    staffTitle,
+    propertyName,
   });
 }
 
@@ -208,6 +262,122 @@ type SidebarFilter =
   | { type: "property"; value: string }
   | { type: "live-ai-jamison" }
   | { type: "live-ai-hillside" };
+
+/** Resolve / Reopen + Add a label for Entrata profile side panel (z above z-[60] overlay). */
+function ProfilePanelConversationActionsMenu({
+  selected,
+  allLabels,
+  newLabelText,
+  setNewLabelText,
+  resolveConversation,
+  reopenConversation,
+  addLabel,
+  removeLabel,
+}: {
+  selected: ConversationItem;
+  allLabels: string[];
+  newLabelText: string;
+  setNewLabelText: Dispatch<SetStateAction<string>>;
+  resolveConversation: (id: string, actor: string) => void;
+  reopenConversation: (id: string, actor: string) => void;
+  addLabel: (id: string, label: string, actor: string) => void;
+  removeLabel: (id: string, label: string) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="text-gray-400 hover:text-gray-600 transition-colors shrink-0"
+          aria-label="Conversation actions"
+        >
+          <ChevronDown className="h-4 w-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="z-[70] w-48">
+        {selected.status === "open" ? (
+          <DropdownMenuItem
+            onSelect={() => resolveConversation(selected.id, MY_INBOX_ASSIGNEE)}
+            className="gap-2"
+          >
+            <Check className="h-3.5 w-3.5" />
+            Resolve
+          </DropdownMenuItem>
+        ) : (
+          <DropdownMenuItem
+            onSelect={() => reopenConversation(selected.id, MY_INBOX_ASSIGNEE)}
+            className="gap-2"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Reopen
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger className="gap-2">
+            <Tag className="h-3.5 w-3.5" />
+            Add a label
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="z-[70] w-52 p-0" sideOffset={4}>
+            <div className="p-2" onKeyDown={(e) => e.stopPropagation()}>
+              <Input
+                value={newLabelText}
+                onChange={(e) => setNewLabelText(e.target.value)}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Enter" && newLabelText.trim()) {
+                    addLabel(selected.id, newLabelText.trim(), MY_INBOX_ASSIGNEE);
+                    setNewLabelText("");
+                  }
+                }}
+                placeholder="Search labels…"
+                className="h-7 text-xs"
+              />
+            </div>
+            <div className="max-h-40 overflow-y-auto border-t border-border">
+              {allLabels
+                .filter((l) => !newLabelText.trim() || l.toLowerCase().includes(newLabelText.toLowerCase()))
+                .map((label) => {
+                  const applied = selected.labels.includes(label);
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent transition-colors"
+                      onClick={() => {
+                        if (applied) {
+                          removeLabel(selected.id, label);
+                        } else {
+                          addLabel(selected.id, label, MY_INBOX_ASSIGNEE);
+                        }
+                      }}
+                    >
+                      <Check className={cn("h-3.5 w-3.5 shrink-0", applied ? "opacity-100" : "opacity-0")} />
+                      <span className="truncate">{label}</span>
+                    </button>
+                  );
+                })}
+              {newLabelText.trim() &&
+                !allLabels.some((l) => l.toLowerCase() === newLabelText.toLowerCase()) && (
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent transition-colors"
+                    onClick={() => {
+                      addLabel(selected.id, newLabelText.trim(), MY_INBOX_ASSIGNEE);
+                      setNewLabelText("");
+                    }}
+                  >
+                    <Plus className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">Create &ldquo;{newLabelText.trim()}&rdquo;</span>
+                  </button>
+                )}
+            </div>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 function ConversationsContent() {
   const {
@@ -362,7 +532,8 @@ function ConversationsContent() {
     return sidebarFiltered.filter((c) => {
       if (inboxTab === "all") return true;
       if (inboxTab === "mine") return c.assignee === MY_INBOX_ASSIGNEE;
-      if (inboxTab === "unassigned") return c.assignee.startsWith("ELI+");
+      if (inboxTab === "unassigned")
+        return c.assignee.startsWith("ELI+") || c.assignee === CONVERSATION_UNASSIGNED_ASSIGNEE;
       return true;
     });
   }, [sidebarFiltered, inboxTab]);
@@ -424,6 +595,8 @@ function ConversationsContent() {
   const [inputMode, setInputMode] = useState<"message" | "private_note">("message");
   const [draft, setDraft] = useState("");
   const chatTextareaRef = useRef<HTMLTextAreaElement>(null);
+  /** Entrata profile “current inbox” composer — same draft/inputMode as main, separate ref for @mentions. */
+  const profilePanelInboxComposerRef = useRef<HTMLTextAreaElement>(null);
   const [privateNoteMention, setPrivateNoteMention] = useState<PrivateNoteMentionActive | null>(null);
   const [privateNoteMentionIndex, setPrivateNoteMentionIndex] = useState(0);
 
@@ -454,10 +627,32 @@ function ConversationsContent() {
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [emailAttachmentPreview, setEmailAttachmentPreview] = useState<EmailAttachmentRef | null>(null);
   const [threadsPanelOpen, setThreadsPanelOpen] = useState(false);
+  /** When opening the Entrata profile, show the current inbox thread in the right panel (not the mock thread list). */
+  const [profilePanelInboxOpen, setProfilePanelInboxOpen] = useState(false);
   const [threadsFilter, setThreadsFilter] = useState<"active" | "closed">("active");
   const [openThreadIdx, setOpenThreadIdx] = useState<number | null>(null);
   const [threadInputMode, setThreadInputMode] = useState<"message" | "private_note">("message");
   const [threadDraft, setThreadDraft] = useState("");
+  const [newThreadDialogOpen, setNewThreadDialogOpen] = useState(false);
+  const [newThreadFromSelection, setNewThreadFromSelection] = useState("");
+  const [newThreadOutbound, setNewThreadOutbound] = useState<{
+    channel: "SMS" | "Email";
+    from: string;
+    propertyName: string;
+  } | null>(null);
+  /** Staff / private-note messages sent from the Entrata profile thread composer (prototype; not persisted). */
+  const [entSideSentByThreadKey, setEntSideSentByThreadKey] = useState<
+    Record<
+      string,
+      {
+        role: "staff";
+        text: string;
+        timestamp: string;
+        privateNote?: boolean;
+        emailSignature?: string;
+      }[]
+    >
+  >({});
   const [threadAssignments, setThreadAssignments] = useState<Record<number, string | null>>({});
   const [messageIntroDismissed, setMessageIntroDismissed] = useState(false);
   const [showMessageIntro, setShowMessageIntro] = useState(false);
@@ -473,8 +668,15 @@ function ConversationsContent() {
   const getThreadAssignee = (globalIdx: number) =>
     globalIdx in threadAssignments ? threadAssignments[globalIdx] : THREAD_DATA[globalIdx]?.assignee ?? null;
 
-  const assignThread = (globalIdx: number, name: string | null) =>
+  const assignThread = (globalIdx: number, name: string | null) => {
     setThreadAssignments((prev) => ({ ...prev, [globalIdx]: name }));
+    if (!selected) return;
+    if (name === null) {
+      updateAssignee(selected.id, UNASSIGN_CONVERSATION_VALUE, MY_INBOX_ASSIGNEE);
+    } else if (name !== selected.assignee) {
+      updateAssignee(selected.id, name, MY_INBOX_ASSIGNEE);
+    }
+  };
   const [aiActivated, setAiActivated] = useState(true);
   const [reactivationDate, setReactivationDate] = useState<Date | null>(null);
   const [noLimit, setNoLimit] = useState(false);
@@ -537,10 +739,36 @@ function ConversationsContent() {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [conversations]);
 
+  const newThreadPropertyFromOptions = useMemo(
+    () => (selected ? getPropertyFromChannelOptionsForProperty(selected.property) : []),
+    [selected]
+  );
+
+  useEffect(() => {
+    if (!newThreadFromSelection) return;
+    if (!newThreadPropertyFromOptions.some((o) => o.id === newThreadFromSelection)) {
+      setNewThreadFromSelection("");
+    }
+  }, [newThreadPropertyFromOptions, newThreadFromSelection]);
+
+  const handleCreateNewThreadFromDialog = () => {
+    const opt = newThreadPropertyFromOptions.find((o) => o.id === newThreadFromSelection);
+    if (!opt) return;
+    setNewThreadOutbound({
+      channel: opt.channel,
+      from: opt.from,
+      propertyName: opt.propertyName,
+    });
+    setProfilePanelInboxOpen(false);
+    setOpenThreadIdx(-1);
+    setNewThreadDialogOpen(false);
+    setNewThreadFromSelection("");
+  };
+
   const applyPrivateNoteMention = (
-    candidate: (typeof privateNoteMentionCandidates)[number]
+    candidate: (typeof privateNoteMentionCandidates)[number],
+    el: HTMLTextAreaElement | null = chatTextareaRef.current
   ) => {
-    const el = chatTextareaRef.current;
     if (!el) return;
     const caret = el.selectionStart ?? el.value.length;
     const m = getActivePrivateNoteMention(el.value, caret);
@@ -600,6 +828,66 @@ function ConversationsContent() {
     setPrivateNoteMention(null);
   };
 
+  /** Entrata profile side-panel thread composer (mock threads + new thread). */
+  const handleProfileEntThreadSend = () => {
+    const text = threadDraft.trim();
+    if (!text || openThreadIdx === null || !selected) return;
+    const now = new Date();
+    const timestamp = now.toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+      timeZoneName: "short",
+    });
+    const isEmailEntThread =
+      openThreadIdx === -1
+        ? newThreadOutbound?.channel === "Email"
+        : openThreadIdx >= 0 && THREAD_DATA[openThreadIdx]?.channel === "Email";
+    const signatureProperty =
+      openThreadIdx === -1
+        ? (newThreadOutbound?.propertyName ?? selected.property)
+        : (THREAD_DATA[openThreadIdx]?.property ?? selected.property);
+    const emailSignature =
+      isEmailEntThread && threadInputMode === "message"
+        ? staffEmailSignatureForProperty(selected, signatureProperty, humanNameSet, humanMembers)
+        : undefined;
+    if (threadInputMode === "private_note") {
+      addMessage(selected.id, {
+        role: "staff",
+        text,
+        timestamp,
+        type: "private_note",
+        privateNoteAuthor: MY_INBOX_ASSIGNEE,
+      });
+    } else {
+      addMessage(selected.id, {
+        role: "staff",
+        text,
+        timestamp,
+        type: "message",
+        ...(emailSignature ? { emailSignature } : {}),
+      });
+    }
+    const key = String(openThreadIdx);
+    setEntSideSentByThreadKey((prev) => ({
+      ...prev,
+      [key]: [
+        ...(prev[key] ?? []),
+        {
+          role: "staff" as const,
+          text,
+          timestamp,
+          privateNote: threadInputMode === "private_note",
+          ...(emailSignature ? { emailSignature } : {}),
+        },
+      ],
+    }));
+    setThreadDraft("");
+  };
+
   const handleComposerKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (inputMode === "private_note" && privateNoteMention && privateNoteMentionFiltered.length > 0) {
       if (e.key === "ArrowDown") {
@@ -619,7 +907,10 @@ function ConversationsContent() {
       }
       if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey) {
         e.preventDefault();
-        applyPrivateNoteMention(privateNoteMentionFiltered[privateNoteMentionIndex]);
+        applyPrivateNoteMention(
+          privateNoteMentionFiltered[privateNoteMentionIndex],
+          e.currentTarget
+        );
         return;
       }
     }
@@ -986,7 +1277,12 @@ function ConversationsContent() {
                 <div className="flex items-center gap-3 min-w-0">
                   <button
                     type="button"
-                    onClick={() => setProfileModalOpen(true)}
+                    onClick={() => {
+                      setProfileModalOpen(true);
+                      setThreadsPanelOpen(true);
+                      setOpenThreadIdx(null);
+                      setProfilePanelInboxOpen(true);
+                    }}
                     className="text-base font-semibold leading-tight hover:underline hover:text-blue-600 transition-colors cursor-pointer"
                   >
                     {selected.resident}
@@ -1021,10 +1317,21 @@ function ConversationsContent() {
                         aria-label="Change assignee"
                       >
                         <Avatar className="h-7 w-7">
-                          <AvatarFallback className={cn("text-[10px]", avatarColor(selected.assignee))}>
+                          <AvatarFallback
+                            className={cn(
+                              "text-[10px]",
+                              isHumanAssignee(selected.assignee)
+                                ? avatarColor(selected.assignee)
+                                : selected.assignee === CONVERSATION_UNASSIGNED_ASSIGNEE
+                                  ? "border border-dashed border-muted-foreground/40 bg-muted/40 text-muted-foreground"
+                                  : avatarColor(selected.assignee)
+                            )}
+                          >
                             {isHumanAssignee(selected.assignee)
                               ? initials(selected.assignee)
-                              : "AI"}
+                              : selected.assignee === CONVERSATION_UNASSIGNED_ASSIGNEE
+                                ? "—"
+                                : "AI"}
                           </AvatarFallback>
                         </Avatar>
                       </button>
@@ -1362,7 +1669,7 @@ function ConversationsContent() {
                             <div key={idx} className="flex items-center justify-center gap-2 py-1">
                               <CornerDownRight className="h-3 w-3 text-muted-foreground" />
                               <span className="text-[11px] text-muted-foreground">
-                                Handoff {isHumanAssignee(selected.assignee) ? selected.assignee : "Staff"} · {msg.timestamp}
+                                Handoff {handoffAssigneeLabel(selected.assignee, isHumanAssignee)} · {msg.timestamp}
                               </span>
                             </div>
                           );
@@ -1449,7 +1756,7 @@ function ConversationsContent() {
                                   )}
                                 >
                                   {isStaff
-                                    ? initials(isHumanAssignee(selected.assignee) ? selected.assignee : "Staff")
+                                    ? handoffAssigneeInitials(selected.assignee, isHumanAssignee)
                                     : <User className="h-2.5 w-2.5" />}
                                 </AvatarFallback>
                               </Avatar>
@@ -1458,7 +1765,7 @@ function ConversationsContent() {
                                   {isAgent
                                     ? resolveAgentLabel(selected.agent)
                                     : isStaff
-                                      ? (isHumanAssignee(selected.assignee) ? selected.assignee : "Staff")
+                                      ? handoffAssigneeLabel(selected.assignee, isHumanAssignee)
                                       : selected.resident}
                                 </span>
                                 {msg.timestamp && <span className="text-[10px] text-muted-foreground">{msg.timestamp}</span>}
@@ -1518,13 +1825,19 @@ function ConversationsContent() {
                                       <AvatarFallback
                                         className={cn(
                                           "text-[10px]",
-                                          isStaff ? avatarColor(selected.assignee) : "bg-muted text-muted-foreground"
+                                          isStaff
+                                            ? selected.assignee === CONVERSATION_UNASSIGNED_ASSIGNEE
+                                              ? "border border-dashed border-muted-foreground/35 bg-muted/50 text-muted-foreground"
+                                              : avatarColor(selected.assignee)
+                                            : "bg-muted text-muted-foreground"
                                         )}
                                       >
                                         {isStaff
-                                          ? isHumanAssignee(selected.assignee)
-                                            ? initials(selected.assignee)
-                                            : "ST"
+                                          ? selected.assignee === CONVERSATION_UNASSIGNED_ASSIGNEE
+                                            ? "—"
+                                            : isHumanAssignee(selected.assignee)
+                                              ? initials(selected.assignee)
+                                              : "ST"
                                           : initials(selected.resident)}
                                       </AvatarFallback>
                                     </Avatar>
@@ -1548,7 +1861,7 @@ function ConversationsContent() {
                       <div key={idx} className="flex items-center justify-center gap-2 py-1">
                         <CornerDownRight className="h-3 w-3 text-muted-foreground" />
                         <span className="text-[11px] text-muted-foreground">
-                          Handoff {isHumanAssignee(selected.assignee) ? selected.assignee : "Staff"} · {msg.timestamp}
+                          Handoff {handoffAssigneeLabel(selected.assignee, isHumanAssignee)} · {msg.timestamp}
                         </span>
                       </div>
                     );
@@ -1640,7 +1953,7 @@ function ConversationsContent() {
                             )}
                           >
                             {isStaff
-                              ? initials(isHumanAssignee(selected.assignee) ? selected.assignee : "Staff")
+                              ? handoffAssigneeInitials(selected.assignee, isHumanAssignee)
                               : <User className="h-2.5 w-2.5" />}
                           </AvatarFallback>
                         </Avatar>
@@ -1649,7 +1962,7 @@ function ConversationsContent() {
                             {isAgent
                               ? resolveAgentLabel(selected.agent)
                               : isStaff
-                                ? (isHumanAssignee(selected.assignee) ? selected.assignee : "Staff")
+                                ? handoffAssigneeLabel(selected.assignee, isHumanAssignee)
                                 : selected.resident}
                           </span>
                           {msg.timestamp && <span className="text-[10px] text-muted-foreground">{msg.timestamp}</span>}
@@ -1893,7 +2206,13 @@ function ConversationsContent() {
       {/* Resident Profile Curtain Overlay */}
       {profileModalOpen && selected && (
         <div className="fixed inset-0 z-[60] flex">
-          <div className="absolute inset-0 bg-black/30" onClick={() => setProfileModalOpen(false)} />
+          <div
+            className="absolute inset-0 bg-black/30"
+            onClick={() => {
+              setProfileModalOpen(false);
+              setProfilePanelInboxOpen(false);
+            }}
+          />
           <div className="relative z-10 flex flex-1 flex-col animate-in slide-in-from-top duration-300 bg-white">
             {/* Entrata brand bar — full width */}
             <div className="flex items-center justify-between bg-[#b71c1c] px-4 py-2.5 shrink-0">
@@ -1901,7 +2220,10 @@ function ConversationsContent() {
               <div className="flex items-center gap-4">
                 <button
                   type="button"
-                  onClick={() => setProfileModalOpen(false)}
+                  onClick={() => {
+                    setProfileModalOpen(false);
+                    setProfilePanelInboxOpen(false);
+                  }}
                   className="flex items-center gap-1.5 text-[14px] font-medium text-white/90 hover:text-white transition-colors"
                 >
                   <X className="h-4 w-4" />
@@ -1932,7 +2254,11 @@ function ConversationsContent() {
                         if (!messageIntroDismissed) {
                           setShowMessageIntro(true);
                         } else {
-                          setThreadsPanelOpen(v => !v);
+                          setThreadsPanelOpen((v) => {
+                            const next = !v;
+                            if (!next) setProfilePanelInboxOpen(false);
+                            return next;
+                          });
                         }
                       }},
                     { label: "SMS", Icon: MessageSquare },
@@ -2162,41 +2488,159 @@ function ConversationsContent() {
                 <div className="flex items-center gap-3 border-b border-gray-200 px-4 py-3 shrink-0">
                   <button
                     type="button"
-                    onClick={() => setOpenThreadIdx(null)}
+                    onClick={() => {
+                      setOpenThreadIdx(null);
+                      setNewThreadOutbound(null);
+                    }}
                     className="text-gray-500 hover:text-gray-800 transition-colors"
                   >
                     <ArrowLeft className="h-4 w-4" />
                   </button>
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#2e7d32] text-[11px] font-bold text-white shrink-0">
-                    {initials(selected.resident)}
-                  </div>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className={cn(
+                          "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[11px] font-bold transition-colors hover:ring-2 hover:ring-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-400",
+                          getThreadAssignee(openThreadIdx)
+                            ? avatarColor(getThreadAssignee(openThreadIdx)!)
+                            : "bg-[#2e7d32] text-white"
+                        )}
+                        title={
+                          getThreadAssignee(openThreadIdx)
+                            ? `Assigned to ${getThreadAssignee(openThreadIdx)}. Click to change.`
+                            : "Assign an agent to this thread"
+                        }
+                        aria-label="Assign agent to this thread"
+                      >
+                        {getThreadAssignee(openThreadIdx)
+                          ? initials(getThreadAssignee(openThreadIdx)!)
+                          : initials(selected.resident)}
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      className="z-[70] w-[280px] p-0"
+                      align="start"
+                      onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                    >
+                      <ThreadAssignPicker
+                        agents={THREAD_AGENTS}
+                        currentAssignee={getThreadAssignee(openThreadIdx)}
+                        onAssign={(name) => assignThread(openThreadIdx, name)}
+                      />
+                    </PopoverContent>
+                  </Popover>
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] font-semibold text-gray-900">{selected.resident}</p>
-                    <p className="text-[11px] text-gray-500">{THREAD_DATA[openThreadIdx]?.property}: {THREAD_DATA[openThreadIdx]?.type}</p>
+                    <p className="text-[11px] text-gray-500">
+                      {openThreadIdx === -1
+                        ? newThreadOutbound
+                          ? `New thread · ${newThreadOutbound.channel} · ${newThreadOutbound.propertyName}`
+                          : "New thread"
+                        : `${THREAD_DATA[openThreadIdx]?.property}: ${THREAD_DATA[openThreadIdx]?.type}`}
+                    </p>
                   </div>
-                  <button className="text-gray-400 hover:text-gray-600 transition-colors">
-                    <ChevronDown className="h-4 w-4" />
-                  </button>
+                  <ProfilePanelConversationActionsMenu
+                    selected={selected}
+                    allLabels={allLabels}
+                    newLabelText={newLabelText}
+                    setNewLabelText={setNewLabelText}
+                    resolveConversation={resolveConversation}
+                    reopenConversation={reopenConversation}
+                    addLabel={addLabel}
+                    removeLabel={removeLabel}
+                  />
                   <button
                     type="button"
-                    onClick={() => { setOpenThreadIdx(null); setThreadsPanelOpen(false); }}
+                    onClick={() => {
+                      setOpenThreadIdx(null);
+                      setNewThreadOutbound(null);
+                      setThreadsPanelOpen(false);
+                      setProfilePanelInboxOpen(false);
+                    }}
                     className="text-gray-400 hover:text-gray-600 transition-colors"
                   >
                     <X className="h-4 w-4" />
                   </button>
                 </div>
 
+                {openThreadIdx === -1 && newThreadOutbound && (
+                  <div className="shrink-0 border-b border-gray-200 bg-gray-50 px-4 py-2.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">From</p>
+                    <p className="text-[12px] font-medium text-gray-900 mt-0.5 tabular-nums">{newThreadOutbound.from}</p>
+                    <p className="text-[10px] text-gray-500 mt-0.5">
+                      {newThreadOutbound.channel === "SMS"
+                        ? "Property SMS vanity"
+                        : "Property email"}{" "}
+                      · {newThreadOutbound.propertyName}
+                    </p>
+                  </div>
+                )}
+
                 {/* Messages area — same style as inbox conversation panel */}
                 <div className="flex-1 overflow-y-auto bg-muted/30 px-4 py-4">
                   <div className="space-y-4">
-                    {(openThreadIdx >= 0 ? THREAD_DATA[openThreadIdx]?.messages ?? [] : []).map((msg, idx) => {
+                    {openThreadIdx === -1 &&
+                    (entSideSentByThreadKey["-1"] ?? []).length === 0 ? (
+                      <p className="text-center text-[12px] text-gray-500 py-8 px-2 leading-relaxed">
+                        {newThreadOutbound ? (
+                          <>
+                            Outbound messages will send from{" "}
+                            <span className="font-medium text-gray-800">{newThreadOutbound.from}</span>.
+                            Compose below to start the thread.
+                          </>
+                        ) : (
+                          "Choose a channel in New Thread to set the From line."
+                        )}
+                      </p>
+                    ) : null}
+                    {[
+                      ...(openThreadIdx >= 0 ? THREAD_DATA[openThreadIdx]?.messages ?? [] : []),
+                      ...(entSideSentByThreadKey[String(openThreadIdx)] ?? []),
+                    ].map((msg, idx) => {
+                      if (
+                        "privateNote" in msg &&
+                        msg.privateNote &&
+                        msg.role === "staff"
+                      ) {
+                        return (
+                          <div key={`ent-pn-${openThreadIdx}-${idx}`} className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                              <Avatar className="h-5 w-5">
+                                <AvatarFallback
+                                  className={cn("text-[8px]", avatarColor(MY_INBOX_ASSIGNEE))}
+                                >
+                                  {initials(MY_INBOX_ASSIGNEE)}
+                                </AvatarFallback>
+                              </Avatar>
+                              <span className="text-[10px] font-semibold text-amber-700">
+                                Private Note · {MY_INBOX_ASSIGNEE}
+                              </span>
+                              {msg.timestamp && (
+                                <span className="text-[9px] text-muted-foreground">{msg.timestamp}</span>
+                              )}
+                            </div>
+                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                              {msg.text}
+                            </div>
+                          </div>
+                        );
+                      }
                       const isAgent = msg.role === "agent";
                       const isStaff = msg.role === "staff";
-                      const threadData = THREAD_DATA[openThreadIdx];
-                      const assigneeName = threadData?.assignee ?? "Staff";
+                      const threadData =
+                        openThreadIdx >= 0 ? THREAD_DATA[openThreadIdx] : undefined;
+                      const assigneeName =
+                        getThreadAssignee(openThreadIdx) ??
+                        threadData?.assignee ??
+                        MY_INBOX_ASSIGNEE;
+                      const emailSig =
+                        isStaff && "emailSignature" in msg
+                          ? (msg as { emailSignature?: string }).emailSignature?.trim()
+                          : undefined;
 
                       return (
-                        <div key={idx} className="space-y-2">
+                        <div key={`ent-${openThreadIdx}-${idx}`} className="space-y-2">
                           <div className="flex items-center gap-2">
                             <Avatar className={cn(isAgent || isStaff ? "h-7 w-7" : "h-5 w-5")}>
                               {isAgent ? (
@@ -2211,7 +2655,9 @@ function ConversationsContent() {
                               >
                                 {isStaff
                                   ? initials(assigneeName)
-                                  : isAgent ? "AI" : initials(selected.resident)}
+                                  : isAgent
+                                    ? "AI"
+                                    : initials(selected.resident)}
                               </AvatarFallback>
                             </Avatar>
                             <div className="flex flex-col">
@@ -2222,21 +2668,107 @@ function ConversationsContent() {
                                     ? assigneeName
                                     : selected.resident}
                               </span>
-                              {msg.timestamp && <span className="text-[9px] text-muted-foreground">{msg.timestamp}</span>}
+                              {msg.timestamp && (
+                                <span className="text-[9px] text-muted-foreground">{msg.timestamp}</span>
+                              )}
                             </div>
                           </div>
                           <div
                             className={cn(
                               "max-w-[85%] rounded-2xl px-3.5 py-2 text-[12px] leading-relaxed",
                               (isAgent || isStaff) && "bg-blue-500 text-white",
-                              !isAgent && !isStaff && "border border-border bg-card text-card-foreground shadow-sm"
+                              !isAgent && !isStaff &&
+                                "border border-border bg-card text-card-foreground shadow-sm"
                             )}
                           >
-                            {msg.text}
+                            {msg.text.split("\n").map((line, li) => (
+                              <span key={li}>
+                                {line}
+                                {li < msg.text.split("\n").length - 1 && <br />}
+                              </span>
+                            ))}
+                            {emailSig ? (
+                              <div className="mt-2 border-t border-white/25 pt-2">
+                                <div className="flex gap-2">
+                                  <Avatar className="mt-0.5 h-8 w-8 shrink-0 border border-white/50 bg-white">
+                                    <AvatarFallback
+                                      className={cn(
+                                        "text-[9px]",
+                                        isHumanAssignee(selected.assignee)
+                                          ? avatarColor(selected.assignee)
+                                          : selected.assignee === CONVERSATION_UNASSIGNED_ASSIGNEE
+                                            ? "bg-white/90 text-slate-600"
+                                            : "bg-muted text-muted-foreground"
+                                      )}
+                                    >
+                                      {isHumanAssignee(selected.assignee)
+                                        ? initials(selected.assignee)
+                                        : selected.assignee === CONVERSATION_UNASSIGNED_ASSIGNEE
+                                          ? "—"
+                                          : "ST"}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <p className="min-w-0 whitespace-pre-line text-[10px] leading-relaxed text-blue-50">
+                                    {emailSig}
+                                  </p>
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
                         </div>
                       );
                     })}
+                    {selected.messages.some(
+                      (m) => m.type === "thread_activity" || m.type === "label_activity"
+                    ) ? (
+                      <div className="space-y-2 border-t border-border/60 pt-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 px-0.5">
+                          Conversation activity
+                        </p>
+                        {selected.messages
+                          .map((m, actIdx) => ({ m, actIdx }))
+                          .filter(
+                            ({ m }) =>
+                              m.type === "thread_activity" || m.type === "label_activity"
+                          )
+                          .slice(-12)
+                          .map(({ m, actIdx }) => {
+                            if (m.type === "thread_activity" && m.threadActivity) {
+                              return (
+                                <ConversationThreadActivityRow
+                                  key={`ent-act-${actIdx}-${m.timestamp ?? actIdx}`}
+                                  message={m}
+                                />
+                              );
+                            }
+                            if (m.type === "label_activity" && m.labelActivity) {
+                              const { actor, labelsAdded } = m.labelActivity;
+                              return (
+                                <div
+                                  key={`ent-act-la-${actIdx}`}
+                                  className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/70 bg-muted/25 py-2 px-2"
+                                >
+                                  <Tag className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+                                  <p className="text-center text-[10px] leading-relaxed text-muted-foreground">
+                                    <span className="font-medium text-foreground">{actor}</span>
+                                    {" added "}
+                                    <span className="font-medium text-foreground">
+                                      {labelsAdded.join(", ")}
+                                    </span>
+                                    {m.timestamp && (
+                                      <>
+                                        <span className="text-muted-foreground/70"> · </span>
+                                        <span>{m.timestamp}</span>
+                                      </>
+                                    )}
+                                  </p>
+                                </div>
+                              );
+                            }
+                            return null;
+                          })}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 
@@ -2257,7 +2789,8 @@ function ConversationsContent() {
                       size="sm"
                       className={cn(
                         "gap-1.5 rounded-full text-[11px] h-7",
-                        threadInputMode === "private_note" && "bg-amber-100 text-amber-800 hover:bg-amber-200"
+                        threadInputMode === "private_note" &&
+                          "bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300"
                       )}
                       onClick={() => setThreadInputMode("private_note")}
                     >
@@ -2277,6 +2810,12 @@ function ConversationsContent() {
                       <textarea
                         value={threadDraft}
                         onChange={(e) => setThreadDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            handleProfileEntThreadSend();
+                          }
+                        }}
                         placeholder={threadInputMode === "private_note" ? "Write a private note…" : "Write a message…"}
                         rows={2}
                         className="w-full resize-none bg-transparent px-3 pt-2.5 pb-1 text-[12px] placeholder:text-muted-foreground focus-visible:outline-none"
@@ -2287,12 +2826,397 @@ function ConversationsContent() {
                           Attach
                         </Button>
                         <Button
+                          type="button"
                           size="icon"
                           className={cn(
                             "h-7 w-7 rounded-full",
                             threadInputMode === "private_note" && "bg-amber-600 hover:bg-amber-700"
                           )}
                           disabled={!threadDraft.trim()}
+                          onClick={handleProfileEntThreadSend}
+                          aria-label="Send"
+                        >
+                          <ArrowUp className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : profilePanelInboxOpen ? (
+              /* ===== CURRENT INBOX CONVERSATION (same thread as main panel) ===== */
+              <>
+                <div className="flex items-center gap-3 border-b border-gray-200 px-4 py-3 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setProfilePanelInboxOpen(false)}
+                    className="text-gray-500 hover:text-gray-800 transition-colors"
+                    aria-label="Back to threads list"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </button>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="shrink-0 rounded-full transition-colors hover:ring-2 hover:ring-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-400"
+                        aria-label="Change assignee"
+                        title="Change assignee"
+                      >
+                        <Avatar className="h-9 w-9">
+                          <AvatarFallback
+                            className={cn(
+                              "text-[11px] font-bold",
+                              isHumanAssignee(selected.assignee)
+                                ? avatarColor(selected.assignee)
+                                : selected.assignee === CONVERSATION_UNASSIGNED_ASSIGNEE
+                                  ? "border border-dashed border-gray-300 bg-gray-50 text-gray-500"
+                                  : "bg-[#2e7d32] text-white"
+                            )}
+                          >
+                            {isHumanAssignee(selected.assignee)
+                              ? initials(selected.assignee)
+                              : selected.assignee === CONVERSATION_UNASSIGNED_ASSIGNEE
+                                ? "—"
+                                : "AI"}
+                          </AvatarFallback>
+                        </Avatar>
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="z-[70] w-64 p-0" align="start">
+                      <AssigneePicker
+                        groupedAssignees={groupedAssignees}
+                        currentAssignee={selected.assignee}
+                        onSelect={(value) => updateAssignee(selected.id, value, MY_INBOX_ASSIGNEE)}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-semibold text-gray-900">{selected.resident}</p>
+                    <p className="text-[11px] text-gray-500 truncate">
+                      {selected.property}
+                      {selected.channel === "Email" && (
+                        <>
+                          <span className="text-gray-300"> · </span>
+                          Email
+                        </>
+                      )}
+                      {selected.channel === "SMS" && (
+                        <>
+                          <span className="text-gray-300"> · </span>
+                          SMS
+                        </>
+                      )}
+                    </p>
+                  </div>
+                  <ProfilePanelConversationActionsMenu
+                    selected={selected}
+                    allLabels={allLabels}
+                    newLabelText={newLabelText}
+                    setNewLabelText={setNewLabelText}
+                    resolveConversation={resolveConversation}
+                    reopenConversation={reopenConversation}
+                    addLabel={addLabel}
+                    removeLabel={removeLabel}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfilePanelInboxOpen(false);
+                      setThreadsPanelOpen(false);
+                    }}
+                    className="text-gray-400 hover:text-gray-600 transition-colors"
+                    aria-label="Close conversation panel"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto bg-muted/30 px-4 py-4">
+                  {selected.channel === "Email" && (
+                    <div className="mb-3 rounded-md border border-border bg-card px-3 py-2 shadow-sm">
+                      <p className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">Subject</p>
+                      <p className="text-[11px] font-semibold text-foreground leading-snug line-clamp-2">
+                        {selected.emailSubject ?? selected.preview}
+                      </p>
+                    </div>
+                  )}
+                  <div className="space-y-4">
+                    {selected.messages.map((msg, idx) => {
+                      if (msg.type === "handoff") {
+                        return (
+                          <div key={idx} className="flex items-center justify-center gap-2 py-1">
+                            <CornerDownRight className="h-3 w-3 text-muted-foreground" />
+                            <span className="text-[10px] text-muted-foreground">
+                              Handoff {handoffAssigneeLabel(selected.assignee, isHumanAssignee)} · {msg.timestamp}
+                            </span>
+                          </div>
+                        );
+                      }
+                      if (msg.type === "thread_activity" && msg.threadActivity) {
+                        return <ConversationThreadActivityRow key={idx} message={msg} />;
+                      }
+                      if (msg.type === "label_activity" && msg.labelActivity) {
+                        const { actor, labelsAdded } = msg.labelActivity;
+                        return (
+                          <div
+                            key={idx}
+                            className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/70 bg-muted/25 py-2 px-2"
+                          >
+                            <Tag className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+                            <p className="text-center text-[10px] leading-relaxed text-muted-foreground">
+                              <span className="font-medium text-foreground">{actor}</span>
+                              {" added "}
+                              <span className="font-medium text-foreground">{labelsAdded.join(", ")}</span>
+                              {msg.timestamp && (
+                                <>
+                                  <span className="text-muted-foreground/70"> · </span>
+                                  <span>{msg.timestamp}</span>
+                                </>
+                              )}
+                            </p>
+                          </div>
+                        );
+                      }
+                      if (msg.type === "private_note") {
+                        return (
+                          <div key={idx} className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                              <Avatar className="h-5 w-5">
+                                <AvatarFallback
+                                  className={cn(
+                                    "text-[8px]",
+                                    msg.privateNoteAuthor
+                                      ? avatarColor(msg.privateNoteAuthor)
+                                      : "bg-amber-100 text-amber-700"
+                                  )}
+                                >
+                                  {msg.privateNoteAuthor ? initials(msg.privateNoteAuthor) : <StickyNote className="h-2.5 w-2.5" />}
+                                </AvatarFallback>
+                              </Avatar>
+                              <span className="text-[10px] font-semibold text-amber-700">
+                                Private Note
+                                {msg.privateNoteAuthor ? (
+                                  <>
+                                    <span className="font-normal text-muted-foreground"> · </span>
+                                    {msg.privateNoteAuthor}
+                                  </>
+                                ) : null}
+                              </span>
+                              {msg.timestamp && <span className="text-[9px] text-muted-foreground">{msg.timestamp}</span>}
+                            </div>
+                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                              {msg.text}
+                            </div>
+                          </div>
+                        );
+                      }
+                      const isAgent = msg.role === "agent";
+                      const isStaff = msg.role === "staff";
+                      return (
+                        <div key={idx} className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Avatar className={cn(isAgent || isStaff ? "h-7 w-7" : "h-5 w-5")}>
+                              {isAgent ? (
+                                <AvatarImage src="/eli-cube.svg" alt="ELI" className="p-1" />
+                              ) : null}
+                              <AvatarFallback
+                                className={cn(
+                                  (isAgent || isStaff)
+                                    ? "bg-blue-100 text-[9px] text-blue-700"
+                                    : "bg-muted text-[8px] text-muted-foreground"
+                                )}
+                              >
+                                {isStaff
+                                  ? handoffAssigneeInitials(selected.assignee, isHumanAssignee)
+                                  : isAgent
+                                    ? "AI"
+                                    : initials(selected.resident)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="flex flex-col">
+                              <span className="text-[11px] font-semibold text-foreground">
+                                {isAgent
+                                  ? resolveAgentLabel(selected.agent)
+                                  : isStaff
+                                    ? handoffAssigneeLabel(selected.assignee, isHumanAssignee)
+                                    : selected.resident}
+                              </span>
+                              {msg.timestamp && <span className="text-[9px] text-muted-foreground">{msg.timestamp}</span>}
+                            </div>
+                          </div>
+                          <div
+                            className={cn(
+                              "max-w-[85%] rounded-2xl px-3.5 py-2 text-[12px] leading-relaxed",
+                              (isAgent || isStaff) && "bg-blue-500 text-white",
+                              !isAgent && !isStaff && "border border-border bg-card text-card-foreground shadow-sm"
+                            )}
+                          >
+                            {msg.text.split("\n").map((line, li) => (
+                              <span key={li}>
+                                {line}
+                                {li < msg.text.split("\n").length - 1 && <br />}
+                              </span>
+                            ))}
+                          </div>
+                          {msg.emailAttachments && msg.emailAttachments.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 pt-0.5">
+                              {msg.emailAttachments.map((att, ai) => (
+                                <button
+                                  key={`${att.name}-${ai}`}
+                                  type="button"
+                                  onClick={() => setEmailAttachmentPreview(att)}
+                                  className="truncate max-w-full rounded border border-border bg-card px-2 py-1 text-left text-[10px] font-medium text-foreground hover:bg-muted/50"
+                                >
+                                  {att.name}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="shrink-0 bg-muted/50 border-t border-gray-200">
+                  <div className="flex items-center gap-1 px-4 pt-2 pb-1">
+                    <Button
+                      variant={inputMode === "message" ? "default" : "ghost"}
+                      size="sm"
+                      className="gap-1.5 rounded-full text-[11px] h-7"
+                      onClick={() => {
+                        setInputMode("message");
+                        setPrivateNoteMention(null);
+                      }}
+                    >
+                      <MessageSquare className="h-3 w-3" />
+                      Message
+                    </Button>
+                    <Button
+                      variant={inputMode === "private_note" ? "secondary" : "ghost"}
+                      size="sm"
+                      className={cn(
+                        "gap-1.5 rounded-full text-[11px] h-7",
+                        inputMode === "private_note" &&
+                          "bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300"
+                      )}
+                      onClick={() => setInputMode("private_note")}
+                    >
+                      <StickyNote className="h-3 w-3" />
+                      Private Note
+                    </Button>
+                  </div>
+                  <div className="px-4 pb-3">
+                    <div
+                      className={cn(
+                        "relative flex flex-col rounded-xl border transition-colors focus-within:ring-1 focus-within:ring-ring",
+                        inputMode === "private_note"
+                          ? "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20"
+                          : "border-input bg-background"
+                      )}
+                    >
+                      {inputMode === "private_note" &&
+                        privateNoteMention &&
+                        (privateNoteMentionFiltered.length > 0 ? (
+                          <div
+                            className="absolute bottom-full left-0 right-0 z-[70] mb-1 overflow-hidden rounded-md border border-border bg-popover shadow-md"
+                            role="listbox"
+                            aria-label="Mention a teammate"
+                          >
+                            <ul className="max-h-40 overflow-y-auto py-1">
+                              {privateNoteMentionFiltered.map((c, idx) => (
+                                <li
+                                  key={c.handle}
+                                  role="option"
+                                  aria-selected={idx === privateNoteMentionIndex}
+                                >
+                                  <button
+                                    type="button"
+                                    className={cn(
+                                      "flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-accent",
+                                      idx === privateNoteMentionIndex && "bg-accent"
+                                    )}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onMouseEnter={() => setPrivateNoteMentionIndex(idx)}
+                                    onClick={() =>
+                                      applyPrivateNoteMention(c, profilePanelInboxComposerRef.current)
+                                    }
+                                  >
+                                    <Avatar className="h-6 w-6">
+                                      <AvatarFallback
+                                        className={cn("text-[9px]", avatarColor(c.name))}
+                                      >
+                                        {initials(c.name)}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                    <div className="min-w-0 flex-1">
+                                      <p className="truncate font-medium text-foreground">{c.name}</p>
+                                      <p className="truncate text-[10px] text-muted-foreground">
+                                        @{c.handle} · {c.role}
+                                      </p>
+                                    </div>
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : privateNoteMention.query.length > 0 ? (
+                          <div className="absolute bottom-full left-0 right-0 z-[70] mb-1 rounded-md border border-border bg-popover px-2.5 py-1.5 text-[11px] text-muted-foreground shadow-md">
+                            No matching staff
+                          </div>
+                        ) : null)}
+                      <textarea
+                        ref={profilePanelInboxComposerRef}
+                        value={draft}
+                        onChange={handleComposerDraftChange}
+                        onSelect={(e) => {
+                          if (inputMode === "private_note") {
+                            syncPrivateNoteMentionFromTextarea(e.currentTarget);
+                          }
+                        }}
+                        onKeyUp={(e) => {
+                          if (inputMode === "private_note") {
+                            syncPrivateNoteMentionFromTextarea(e.currentTarget);
+                          }
+                        }}
+                        onKeyDown={handleComposerKeyDown}
+                        placeholder={
+                          inputMode === "private_note"
+                            ? "Write a private note…"
+                            : "Write a message…"
+                        }
+                        rows={2}
+                        className="w-full resize-none bg-transparent px-3 pt-2.5 pb-1 text-[12px] placeholder:text-muted-foreground focus-visible:outline-none"
+                        aria-label={inputMode === "private_note" ? "Private note" : "Message"}
+                        aria-autocomplete={inputMode === "private_note" ? "list" : undefined}
+                        aria-haspopup={inputMode === "private_note" ? "listbox" : undefined}
+                        aria-expanded={
+                          inputMode === "private_note" && !!privateNoteMention
+                            ? privateNoteMentionFiltered.length > 0 ||
+                              privateNoteMention.query.length > 0
+                            : undefined
+                        }
+                      />
+                      <div className="flex items-center justify-between px-2 pb-1.5">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="gap-1 text-[10px] text-muted-foreground h-7"
+                        >
+                          <Paperclip className="h-3 w-3" />
+                          Attach
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon"
+                          className={cn(
+                            "h-7 w-7 rounded-full",
+                            inputMode === "private_note" && "bg-amber-600 hover:bg-amber-700"
+                          )}
+                          disabled={!draft.trim()}
+                          onClick={handleSend}
+                          aria-label="Send"
                         >
                           <ArrowUp className="h-3.5 w-3.5" />
                         </Button>
@@ -2314,7 +3238,10 @@ function ConversationsContent() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setThreadsPanelOpen(false)}
+                    onClick={() => {
+                      setThreadsPanelOpen(false);
+                      setProfilePanelInboxOpen(false);
+                    }}
                     className="text-gray-400 hover:text-gray-600 transition-colors"
                   >
                     <X className="h-5 w-5" />
@@ -2347,7 +3274,11 @@ function ConversationsContent() {
                       <div
                         key={i}
                         className="flex items-start gap-3 cursor-pointer rounded-lg p-1.5 -mx-1.5 transition-colors hover:bg-gray-50"
-                        onClick={() => setOpenThreadIdx(globalIdx)}
+                        onClick={() => {
+                          setProfilePanelInboxOpen(false);
+                          setNewThreadOutbound(null);
+                          setOpenThreadIdx(globalIdx);
+                        }}
                       >
                         <div className="mt-0.5 flex items-center">
                           <span className={`inline-block h-2 w-2 rounded-full ${thread.status === "active" ? "bg-blue-500" : "bg-transparent"}`} />
@@ -2385,8 +3316,12 @@ function ConversationsContent() {
                   </div>
                   {/* New Thread button */}
                   <button
+                    type="button"
                     className="mt-5 inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-5 py-1.5 text-[13px] font-medium text-gray-600 transition-colors hover:bg-gray-50"
-                    onClick={() => setOpenThreadIdx(-1)}
+                    onClick={() => {
+                      setNewThreadFromSelection("");
+                      setNewThreadDialogOpen(true);
+                    }}
                   >
                     New Thread
                     <Plus className="h-3.5 w-3.5 text-gray-400" strokeWidth={1.5} />
@@ -2397,6 +3332,70 @@ function ConversationsContent() {
           </div>}
         </div>
       )}
+
+      <Dialog
+        open={newThreadDialogOpen}
+        onOpenChange={(open) => {
+          setNewThreadDialogOpen(open);
+          if (!open) setNewThreadFromSelection("");
+        }}
+      >
+        <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-md z-[101]">
+          <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
+            <DialogTitle className="text-base font-semibold leading-tight">New Thread</DialogTitle>
+            <button
+              type="button"
+              onClick={() => {
+                setNewThreadDialogOpen(false);
+                setNewThreadFromSelection("");
+              }}
+              className="rounded-sm text-muted-foreground opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label="Close"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="px-6 py-5 space-y-3">
+            <DialogDescription className="sr-only">
+              Pick SMS vanity or property email as the outbound From line for this thread.
+            </DialogDescription>
+            <p className="text-sm font-semibold text-foreground">Select Communication Method</p>
+            {selected && newThreadPropertyFromOptions.length === 0 ? (
+              <p className="text-[13px] text-muted-foreground leading-relaxed">
+                No SMS vanity or email is configured for{" "}
+                <span className="font-medium text-foreground">{selected.property}</span> in this
+                prototype. Add it under property vanity contact data to enable new threads.
+              </p>
+            ) : (
+              <Select
+                value={newThreadFromSelection || undefined}
+                onValueChange={setNewThreadFromSelection}
+              >
+                <SelectTrigger className="h-11 w-full text-left text-[13px]">
+                  <SelectValue placeholder="Select Channel" />
+                </SelectTrigger>
+                <SelectContent className="z-[110] max-h-[min(280px,50vh)]">
+                  {newThreadPropertyFromOptions.map((o) => (
+                    <SelectItem key={o.id} value={o.id} className="text-[13px]">
+                      {o.channel} — {o.from}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+          <DialogFooter className="border-t border-border px-6 py-4 sm:justify-end">
+            <Button
+              type="button"
+              className="rounded-full bg-gray-900 px-6 text-white hover:bg-gray-800"
+              disabled={!newThreadFromSelection || newThreadPropertyFromOptions.length === 0}
+              onClick={handleCreateNewThreadFromDialog}
+            >
+              Create Thread
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={emailAttachmentPreview !== null} onOpenChange={(open) => { if (!open) setEmailAttachmentPreview(null); }}>
         <DialogContent className="flex max-h-[min(90vh,760px)] max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
@@ -2477,6 +3476,7 @@ function AssigneePicker({
   const filteredAi = groupedAssignees.ai.filter((a) => !q || a.label.toLowerCase().includes(q));
   const filteredHumans = groupedAssignees.humans.filter((h) => !q || h.label.toLowerCase().includes(q));
   const hasResults = filteredAi.length > 0 || filteredHumans.length > 0;
+  const alreadyUnassigned = currentAssignee === CONVERSATION_UNASSIGNED_ASSIGNEE;
 
   return (
     <div>
@@ -2494,6 +3494,30 @@ function AssigneePicker({
         </div>
       </div>
       <div className="max-h-56 overflow-y-auto p-1">
+        <div className="sticky top-0 z-[1] -mx-0 mb-1 border-b border-border bg-popover pb-1.5 pt-0.5">
+          <button
+            type="button"
+            disabled={alreadyUnassigned}
+            title={alreadyUnassigned ? "No assignee on this conversation" : "Clear assignee (no AI routing)"}
+            onClick={() => onSelect(UNASSIGN_CONVERSATION_VALUE)}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors",
+              alreadyUnassigned
+                ? "cursor-not-allowed text-muted-foreground/70"
+                : "text-foreground hover:bg-muted"
+            )}
+          >
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-border/80 bg-muted/40 text-muted-foreground">
+              <UserMinus className="h-3 w-3" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-medium">Unassign</span>
+              <span className="block text-[10px] text-muted-foreground">
+                Remove assignee — not routed to an AI agent
+              </span>
+            </span>
+          </button>
+        </div>
         {!hasResults ? (
           <p className="px-2 py-3 text-center text-xs text-muted-foreground">No matching assignees</p>
         ) : (
@@ -2557,7 +3581,7 @@ function ThreadAssignPicker({
 }: {
   agents: string[];
   currentAssignee: string | null;
-  onAssign: (name: string) => void;
+  onAssign: (name: string | null) => void;
 }) {
   const [query, setQuery] = useState("");
   const q = query.toLowerCase().trim();
@@ -2565,6 +3589,24 @@ function ThreadAssignPicker({
 
   return (
     <div>
+      <div className="border-b border-gray-200 px-4 py-2.5">
+        <button
+          type="button"
+          disabled={currentAssignee === null}
+          title={currentAssignee === null ? "Thread is already unassigned" : "Clear thread assignee"}
+          onClick={() => onAssign(null)}
+          className={`flex w-full items-center gap-3 rounded-lg border border-gray-200 px-3 py-2 text-left text-[13px] font-medium transition-colors ${
+            currentAssignee === null
+              ? "cursor-not-allowed bg-gray-50 text-gray-400"
+              : "bg-white text-gray-800 hover:bg-gray-50"
+          }`}
+        >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-dashed border-gray-300 text-gray-500">
+            <UserMinus className="h-4 w-4" />
+          </span>
+          <span className="flex-1">Unassign thread</span>
+        </button>
+      </div>
       <div className="p-3 border-b border-gray-200">
         <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2">
           <Search className="h-4 w-4 text-gray-400 shrink-0" />

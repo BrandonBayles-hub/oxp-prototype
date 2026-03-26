@@ -48,6 +48,10 @@ export const PROPERTY_EMAIL_CONTACTS: Record<string, { phone: string; address: s
     phone: "(720) 555-0280",
     address: "2400 Jamison Circle, Aurora, CO 80014",
   },
+  "Sun Valley": {
+    phone: "(720) 555-0310",
+    address: "1200 Sun Valley Drive, Boulder, CO 80301",
+  },
 };
 
 /** Vanity line + leasing inbox shown on property hover (conversation list). */
@@ -60,7 +64,66 @@ export const PROPERTY_VANITY_CONTACT: Record<string, { vanityNumber: string; ema
     vanityNumber: "(844) 555-9262",
     email: "hello@jamisonapartments.com",
   },
+  "Sun Valley": {
+    vanityNumber: "(844) 555-3100",
+    email: "leasing@sunvalleyliving.com",
+  },
 };
+
+/** Outbound “From” line for new Entrata-side threads (SMS vanity or leasing email). */
+export type PropertyFromChannelOption = {
+  id: string;
+  channel: "SMS" | "Email";
+  propertyName: string;
+  from: string;
+};
+
+export function getPropertyFromChannelOptions(): PropertyFromChannelOption[] {
+  const out: PropertyFromChannelOption[] = [];
+  for (const propertyName of Object.keys(PROPERTY_VANITY_CONTACT)) {
+    const v = PROPERTY_VANITY_CONTACT[propertyName];
+    if (!v) continue;
+    out.push({
+      id: `${propertyName}::SMS`,
+      channel: "SMS",
+      propertyName,
+      from: v.vanityNumber,
+    });
+    out.push({
+      id: `${propertyName}::Email`,
+      channel: "Email",
+      propertyName,
+      from: v.email,
+    });
+  }
+  return out.sort((a, b) => {
+    const byP = a.propertyName.localeCompare(b.propertyName);
+    if (byP !== 0) return byP;
+    return a.channel === b.channel ? 0 : a.channel === "SMS" ? -1 : 1;
+  });
+}
+
+/** SMS vanity + leasing email for one property only (new thread From line). */
+export function getPropertyFromChannelOptionsForProperty(
+  propertyName: string
+): PropertyFromChannelOption[] {
+  const v = PROPERTY_VANITY_CONTACT[propertyName];
+  if (!v) return [];
+  return [
+    {
+      id: `${propertyName}::SMS`,
+      channel: "SMS",
+      propertyName,
+      from: v.vanityNumber,
+    },
+    {
+      id: `${propertyName}::Email`,
+      channel: "Email",
+      propertyName,
+      from: v.email,
+    },
+  ];
+}
 
 export function getPropertyVanityContact(propertyName: string): {
   vanityNumber: string;
