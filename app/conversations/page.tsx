@@ -78,6 +78,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  videoDialogOverlayClassName,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@/components/ui/select";
@@ -2138,7 +2139,10 @@ function ConversationsContent() {
 
       {/* Instructional video modal for Message panel */}
       <Dialog open={showMessageIntro} onOpenChange={setShowMessageIntro}>
-        <DialogContent className="sm:max-w-[640px] p-0 gap-0 overflow-hidden z-[80]">
+        <DialogContent
+          overlayClassName={videoDialogOverlayClassName}
+          className="sm:max-w-[640px] p-0 gap-0 overflow-hidden"
+        >
           <DialogHeader className="px-6 pt-6 pb-4">
             <DialogTitle className="text-lg font-semibold">How to Use the Conversation Panel</DialogTitle>
             <DialogDescription className="text-sm text-muted-foreground">

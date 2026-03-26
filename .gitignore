@@ -16,6 +16,9 @@ out/
 
 # misc
 .DS_Store
+
+# Cursor MCP (may contain API tokens — keep local)
+.cursor/mcp.json
 *.pem
 
 # debug

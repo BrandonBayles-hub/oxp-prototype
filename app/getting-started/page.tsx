@@ -38,7 +38,6 @@ import {
   Users,
   Megaphone,
   Settings,
-  Radio,
   Download,
   Mail,
   ClipboardList,
@@ -54,7 +53,6 @@ const STEPS = [
   { id: "train-workforce",     title: "Train Your Workforce — Upload Documents & SOPs",             href: "/trainings-sop" },
   { id: "playbooks-tasks",     title: "Create Playbooks & Tasks",                                   href: "/escalations" },
   { id: "workforce",           title: "Configure Your Workforce",                                   href: "/workforce" },
-  { id: "live-conversations",  title: "Activate Live Conversations & Centralized Communications",   href: "/command-center" },
   { id: "eli-plus",            title: "Activate ELI Plus Agents",                                    href: "/agent-roster" },
   { id: "workflows",           title: "Set up Agent Builder",                                        href: "/workflows" },
   { id: "voice-brand",         title: "Configure Voice & Brand",                                     href: "/voice" },
@@ -69,7 +67,6 @@ const STEP_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   "train-workforce":     FileText,
   "playbooks-tasks":     ClipboardList,
   workforce:             Users,
-  "live-conversations":  Radio,
   "eli-plus":            Bot,
   "activate-ai-agents":  Bot,
   workflows:             GitBranch,
@@ -101,7 +98,7 @@ export default function GettingStartedPage() {
   const { state: govState, updateActivity: updateGovActivity, enabledGuardrailCount } = useGovernance();
   const { isR1Release } = useR1Release();
 
-  const R1_HIDDEN_STEPS = ["live-conversations", "governance", "voice-brand", "eli-essentials", "ops-efficiency", "eli-plus"];
+  const R1_HIDDEN_STEPS = ["governance", "voice-brand", "eli-essentials", "ops-efficiency", "eli-plus"];
 
   const visibleSteps = useMemo(() => {
     if (!isR1Release) return STEPS.map(s => ({ ...s }));
@@ -135,7 +132,6 @@ export default function GettingStartedPage() {
     "train-workforce":    false,
     "playbooks-tasks":    false,
     workforce:            false,
-    "live-conversations": false,
     "eli-plus":           l4Agents.some((a) => a.status === "Active"),
     "activate-ai-agents": l4Agents.some((a) => a.status === "Active"),
     workflows:            atLeastOneEnabled,
@@ -155,7 +151,7 @@ export default function GettingStartedPage() {
     opsAgents: l2l3Agents.some((a) => a.status === "Active"),
     essentials: l1Agents.some((a) => a.status === "Active"),
     voiceOrChannel: voiceConfigured,
-    governance: enabledGuardrailCount > 0 || completedSteps.includes(9),
+    governance: enabledGuardrailCount > 0 || completedSteps.includes(8),
     testRun: testRunDone,
   };
   const goLiveSatisfied = Object.values(goLiveChecklist).every(Boolean);
@@ -241,7 +237,6 @@ export default function GettingStartedPage() {
                   {step.id === "train-workforce" && <StepTrainWorkforce />}
                   {step.id === "playbooks-tasks" && <StepPlaybooksTasks />}
                   {step.id === "workforce" && <StepWorkforce />}
-                  {step.id === "live-conversations" && <StepLiveConversations />}
                   {step.id === "eli-plus" && <StepEliPlus />}
                   {step.id === "workflows" && <StepWorkflows />}
                   {step.id === "voice-brand" && <StepVoiceBrand />}
@@ -753,270 +748,7 @@ function StepEliEssentials() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   Step 5: Activate Live Conversations & Centralized Communications
-   ═══════════════════════════════════════════════════════════════════════ */
-
-const LIVE_CONV_PROPERTIES = [
-  { id: "harvest-peak", name: "Harvest Peak Capital", vertical: "Conventional", units: 312 },
-  { id: "skyline", name: "Skyline Apartments", vertical: "Conventional", units: 198 },
-  { id: "meridian", name: "The Meridian", vertical: "Affordable", units: 156 },
-  { id: "azure", name: "Azure Heights", vertical: "Conventional", units: 244 },
-  { id: "cambridge", name: "Cambridge Suites", vertical: "Student", units: 180 },
-  { id: "willow-creek", name: "Willow Creek Residences", vertical: "Conventional", units: 276 },
-  { id: "summit-view", name: "Summit View Towers", vertical: "Conventional", units: 340 },
-  { id: "lakeside", name: "Lakeside Commons", vertical: "Affordable", units: 128 },
-  { id: "parkway", name: "Parkway Terrace", vertical: "Student", units: 210 },
-  { id: "cedar-ridge", name: "Cedar Ridge Estates", vertical: "Conventional", units: 165 },
-  { id: "riverstone", name: "Riverstone Landing", vertical: "Conventional", units: 290 },
-  { id: "magnolia", name: "Magnolia Gardens", vertical: "Affordable", units: 142 },
-  { id: "ironwood", name: "Ironwood Flats", vertical: "Conventional", units: 188 },
-  { id: "brookhaven", name: "Brookhaven Place", vertical: "Student", units: 224 },
-  { id: "silver-oaks", name: "Silver Oaks Village", vertical: "Conventional", units: 310 },
-  { id: "aspen-grove", name: "Aspen Grove Lofts", vertical: "Conventional", units: 175 },
-];
-
-function TablePagination({ total, page, pageSize, onPageChange, onPageSizeChange }: { total: number; page: number; pageSize: number; onPageChange: (p: number) => void; onPageSizeChange: (s: number) => void }) {
-  const totalPages = Math.ceil(total / pageSize);
-  const start = (page - 1) * pageSize + 1;
-  const end = Math.min(page * pageSize, total);
-
-  if (total <= 5) return null;
-
-  return (
-    <div className="flex items-center justify-between pt-3">
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-[hsl(var(--muted-foreground))]">Show</span>
-        {[5, 10, 25].map((size) => (
-          <button
-            key={size}
-            type="button"
-            onClick={() => { onPageSizeChange(size); onPageChange(1); }}
-            className={`rounded px-2 py-0.5 text-xs font-medium transition-colors ${
-              pageSize === size
-                ? "bg-[hsl(var(--foreground))] text-white"
-                : "bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]/80"
-            }`}
-          >
-            {size}
-          </button>
-        ))}
-      </div>
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-[hsl(var(--muted-foreground))]">
-          {start}–{end} of {total}
-        </span>
-        <button
-          type="button"
-          disabled={page <= 1}
-          onClick={() => onPageChange(page - 1)}
-          className="rounded p-1 text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--muted))]/40 disabled:opacity-30 disabled:cursor-not-allowed"
-        >
-          <ChevronRight className="h-4 w-4 rotate-180" />
-        </button>
-        <span className="text-xs font-medium text-[hsl(var(--foreground))] tabular-nums">
-          {page}/{totalPages}
-        </span>
-        <button
-          type="button"
-          disabled={page >= totalPages}
-          onClick={() => onPageChange(page + 1)}
-          className="rounded p-1 text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--muted))]/40 disabled:opacity-30 disabled:cursor-not-allowed"
-        >
-          <ChevronRight className="h-4 w-4" />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function StepLiveConversations() {
-  const [commStatuses, setCommStatuses] = useState<Record<string, string>>(() => {
-    const init: Record<string, string> = {};
-    LIVE_CONV_PROPERTIES.forEach((p) => {
-      init[p.id] = p.id === "meridian" || p.id === "cambridge" ? "Inactive" : "Active";
-    });
-    return init;
-  });
-  const [commModal, setCommModal] = useState<{ propId: string; propName: string; action: "on" | "off" } | null>(null);
-
-  const [commPage, setCommPage] = useState(1);
-  const [commPageSize, setCommPageSize] = useState(5);
-
-  const commActiveCount = Object.values(commStatuses).filter((s) => s === "Active").length;
-
-  const commPaged = LIVE_CONV_PROPERTIES.slice((commPage - 1) * commPageSize, commPage * commPageSize);
-
-
-  return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <div className="flex h-5 w-5 items-center justify-center rounded bg-[hsl(var(--muted))]">
-            <Radio className="h-3.5 w-3.5 text-[hsl(var(--muted-foreground))]" />
-          </div>
-          <p className="text-sm font-semibold text-[hsl(var(--foreground))]">Live Conversations</p>
-        </div>
-        <span
-          className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-            commActiveCount > 0 ? "bg-[#B3FFCC] text-black" : "bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]"
-          }`}
-        >
-          {commActiveCount > 0
-            ? `${commActiveCount}/${LIVE_CONV_PROPERTIES.length} Active`
-            : "Off"}
-        </span>
-      </div>
-
-      <p className="text-sm text-[hsl(var(--foreground))]">
-        Enable live conversations for each property in your portfolio. Toggle the Communication Inbox on to activate the new conversation panel and centralized inbox for your staff.
-      </p>
-
-      {/* Properties table */}
-      <div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-[hsl(var(--border))] text-left">
-              <th className="pb-2 font-medium text-[hsl(var(--muted-foreground))]">Property</th>
-              <th className="pb-2 font-medium text-[hsl(var(--muted-foreground))]">Status</th>
-              <th className="pb-2 text-center font-medium text-[hsl(var(--muted-foreground))]">Enabled Communication Inbox</th>
-            </tr>
-          </thead>
-          <tbody>
-            {commPaged.map((prop) => {
-              const commActive = commStatuses[prop.id] === "Active";
-              return (
-                <tr key={prop.id} className="border-b border-[hsl(var(--border))]/50">
-                  <td className="py-3 font-medium text-[hsl(var(--foreground))]">{prop.name}</td>
-                  <td className="py-3">
-                    <span
-                      className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                        commActive
-                          ? "bg-[#B3FFCC] text-emerald-800"
-                          : "bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]"
-                      }`}
-                    >
-                      {commActive ? "Active" : "Inactive"}
-                    </span>
-                  </td>
-                  <td className="py-3 text-center">
-                    <div className="group/comm relative inline-block">
-                      <button
-                        type="button"
-                        onClick={() => setCommModal({ propId: prop.id, propName: prop.name, action: commActive ? "off" : "on" })}
-                        className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
-                          commActive
-                            ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200"
-                            : "bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]/80 border border-[hsl(var(--border))]"
-                        }`}
-                      >
-                        {commActive ? "On" : "Off"}
-                      </button>
-                      <div className="invisible absolute left-1/2 top-full z-50 mt-1.5 -translate-x-1/2 rounded-md bg-[hsl(var(--foreground))] px-3 py-2 text-[11px] leading-snug text-white shadow-lg group-hover/comm:visible" style={{ width: "max-content", maxWidth: "260px" }}>
-                        {commActive
-                          ? "ON — The Communication Inbox is enabled. Your staff can use the new conversation panel and inbox in their workflows."
-                          : "OFF — The Communication Inbox is disabled. The new conversation panel and inbox will not appear in the interface."}
-                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 border-4 border-transparent border-b-[hsl(var(--foreground))]" />
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        <TablePagination total={LIVE_CONV_PROPERTIES.length} page={commPage} pageSize={commPageSize} onPageChange={setCommPage} onPageSizeChange={setCommPageSize} />
-      </div>
-
-      {/* Confirmation modal for toggling Communication Inbox On/Off */}
-      {commModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="fixed inset-0 bg-black/40" onClick={() => setCommModal(null)} />
-          <div className="relative z-10 w-full max-w-md rounded-xl border border-[hsl(var(--border))] bg-white p-6 shadow-2xl">
-            <h3 className="text-lg font-semibold text-[hsl(var(--foreground))]">
-              {commModal.action === "on"
-                ? "Enable Communication Inbox"
-                : "Disable Communication Inbox"}
-            </h3>
-            <p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">
-              {commModal.propName}
-            </p>
-
-            {commModal.action === "on" ? (
-              <div className="mt-4 space-y-3">
-                <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 px-4 py-3">
-                  <p className="text-xs font-medium text-emerald-800">
-                    Are you sure you want to enable the Communication Inbox for this property?
-                  </p>
-                  <p className="mt-1.5 text-xs leading-relaxed text-emerald-700">
-                    This will activate the new conversation panel and centralized inbox, giving your staff a unified place to manage all resident and prospect communications.
-                  </p>
-                </div>
-                <div className="rounded-lg border border-blue-200 bg-blue-50/60 px-4 py-3">
-                  <p className="text-xs leading-relaxed text-blue-800">
-                    Enabling this will not affect any existing functionality. All current messaging tools will continue to work exactly as they do today. This simply adds the new communication inbox for your staff.
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="mt-4 space-y-3">
-                <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-3">
-                  <p className="text-xs font-medium text-amber-800">
-                    Are you sure you want to disable the Communication Inbox for this property?
-                  </p>
-                  <p className="mt-1.5 text-xs leading-relaxed text-amber-700">
-                    The new conversation panel and inbox will be removed from the interface. Your property will revert to the previous email relay or message center setup, and incoming messages will be managed through the &ldquo;Contact Needed&rdquo; tabs on the Entrata dashboard.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            <div className="mt-5 flex items-center justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setCommModal(null)}
-                className="inline-flex items-center justify-center rounded-md border border-[hsl(var(--border))] bg-white px-4 py-2 text-sm font-medium text-[hsl(var(--foreground))] shadow-sm transition-colors hover:bg-[hsl(var(--muted))]/60"
-              >
-                Cancel
-              </button>
-              {commModal.action === "on" ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCommStatuses((prev) => ({
-                      ...prev,
-                      [commModal.propId]: "Active",
-                    }));
-                    setCommModal(null);
-                  }}
-                  className="inline-flex items-center justify-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-700"
-                >
-                  Turn On
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCommStatuses((prev) => ({
-                      ...prev,
-                      [commModal.propId]: "Inactive",
-                    }));
-                    setCommModal(null);
-                  }}
-                  className="inline-flex items-center justify-center gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 shadow-sm transition-colors hover:bg-red-100"
-                >
-                  Turn Off
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-/* ═══════════════════════════════════════════════════════════════════════
-   Step 6: Configure Voice & Brand
+   Configure Voice & Brand
    ═══════════════════════════════════════════════════════════════════════ */
 
 function StepVoiceBrand() {

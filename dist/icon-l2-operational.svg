@@ -1,0 +1,40 @@
+<svg width="80" height="80" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M40 40V0L4 20V60L40 40Z" fill="url(#l2_g0)"/>
+<path d="M40 40L76 60V20L40 0V40Z" fill="url(#l2_g1)"/>
+<path d="M76 60L40 80L4 60L40 40L76 60Z" fill="url(#l2_g2)"/>
+<path d="M40 40L76 20L40 0L4 20L40 40Z" fill="url(#l2_g3)"/>
+<path d="M40 40V80L76 60V20L40 40Z" fill="url(#l2_g4)"/>
+<path d="M40 80L4 60V20L40 40V80Z" fill="url(#l2_g5)"/>
+<path d="M40 40L76 20L40 0L4 20L40 40Z" fill="url(#l2_r0)"/>
+<path d="M40 40V80L76 60V20L40 40Z" fill="url(#l2_r1)"/>
+<path d="M40 80L4 60V20L40 40V80Z" fill="url(#l2_r2)"/>
+<defs>
+<linearGradient id="l2_g0" x1="12.9" y1="7.3" x2="28.9" y2="47.3" gradientUnits="userSpaceOnUse">
+<stop stop-color="#60A5FA"/><stop offset="1" stop-color="#2563EB"/>
+</linearGradient>
+<linearGradient id="l2_g1" x1="58" y1="0" x2="58" y2="60" gradientUnits="userSpaceOnUse">
+<stop stop-color="#38BDF8"/><stop offset="1" stop-color="#1D4ED8"/>
+</linearGradient>
+<linearGradient id="l2_g2" x1="51.7" y1="45.4" x2="27.7" y2="75.4" gradientUnits="userSpaceOnUse">
+<stop stop-color="#1E3A5F"/><stop offset="1" stop-color="#7DD3FC"/>
+</linearGradient>
+<linearGradient id="l2_g3" x1="50" y1="7.2" x2="28" y2="35.2" gradientUnits="userSpaceOnUse">
+<stop stop-color="#93C5FD" stop-opacity="0.6"/><stop offset="1" stop-color="#60A5FA"/>
+</linearGradient>
+<linearGradient id="l2_g4" x1="39.3" y1="39.2" x2="77.4" y2="61.2" gradientUnits="userSpaceOnUse">
+<stop stop-color="#3B82F6"/><stop offset="1" stop-color="#2563EB" stop-opacity="0.65"/>
+</linearGradient>
+<linearGradient id="l2_g5" x1="39.8" y1="39.7" x2="4.2" y2="60.3" gradientUnits="userSpaceOnUse">
+<stop stop-color="#0EA5E9" stop-opacity="0.65"/><stop offset="1" stop-color="#0284C7"/>
+</linearGradient>
+<radialGradient id="l2_r0" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(46 4) rotate(108) scale(38 55)">
+<stop offset="0.63" stop-color="white" stop-opacity="0"/><stop offset="1" stop-color="white" stop-opacity="0.55"/>
+</radialGradient>
+<radialGradient id="l2_r1" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(40 44) rotate(24) scale(39 80)">
+<stop stop-color="white" stop-opacity="0.34"/><stop offset="0.56" stop-color="white" stop-opacity="0"/>
+</radialGradient>
+<radialGradient id="l2_r2" cx="0" cy="0" r="1" gradientTransform="matrix(-2 -26 -44 3.4 30 74)" gradientUnits="userSpaceOnUse">
+<stop stop-color="white" stop-opacity="0.24"/><stop offset="1" stop-color="white" stop-opacity="0"/>
+</radialGradient>
+</defs>
+</svg>

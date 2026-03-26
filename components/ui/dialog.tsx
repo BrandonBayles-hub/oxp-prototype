@@ -27,10 +27,14 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { className?: string }
->(({ className, children, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
+    className?: string;
+    /** Use e.g. `videoDialogOverlayClassName` so the page stays visible and pointer events reach content behind */
+    overlayClassName?: string;
+  }
+>(({ className, overlayClassName, children, ...props }, ref) => (
   <DialogPortal>
-    <DialogOverlay />
+    <DialogOverlay className={overlayClassName} />
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
@@ -94,3 +98,6 @@ export {
   DialogTitle,
   DialogDescription,
 };
+
+/** Transparent overlay + no pointer capture — for walkthrough / video modals where the UI behind should stay visible and interactive */
+export const videoDialogOverlayClassName = "bg-transparent pointer-events-none";
