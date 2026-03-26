@@ -24,9 +24,22 @@ import {
   Shield,
   Users,
   Upload,
+  ChevronDown,
+  Eye,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
-import { useVault, COMPLIANCE_ITEMS, SUGGESTED_PROPERTY_TAGS, SUGGESTED_SUBJECT_TAGS, type VaultItem, type VaultDocumentType, type DocumentHistoryEntry, type DocumentVersion, type AgentTrainingStatus } from "@/lib/vault-context";
+import {
+  useVault,
+  COMPLIANCE_ITEMS,
+  SUGGESTED_PROPERTY_TAGS,
+  SUGGESTED_SUBJECT_TAGS,
+  DEFAULT_VIEWER_ACCESS,
+  type VaultItem,
+  type VaultDocumentType,
+  type DocumentHistoryEntry,
+  type DocumentVersion,
+  type AgentTrainingStatus,
+} from "@/lib/vault-context";
 import { useAgents } from "@/lib/agents-context";
 import { useWorkforce } from "@/lib/workforce-context";
 import dynamic from "next/dynamic";
@@ -49,7 +62,7 @@ import { TagCombobox } from "@/components/tag-combobox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PropertySelector } from "@/components/property-selector";
 import { getSelectedPropertyNames, getDataForView } from "@/lib/property-selector-data";
-import { ChevronDown } from "lucide-react";
+import { ViewerAccessCombobox } from "@/components/viewer-access-combobox";
 
 const RichTextEditor = dynamic(
   () => import("@/components/rich-text-editor").then((m) => ({ default: m.RichTextEditor })),
@@ -955,6 +968,25 @@ export function TrainingsSopDetailClient() {
                   </PopoverContent>
                 </Popover>
               </div>
+
+              {/* ── Viewers (people & roles) — separate from Property association above ── */}
+              <div className="rounded-md border border-border/50 bg-muted/20 px-3 py-2.5">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Eye className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <span className="text-sm font-medium text-foreground">Viewers</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground mb-2.5 leading-snug">
+                  Who can open this document. Property above only associates the SOP with sites; it does not grant access.
+                </p>
+                <ViewerAccessCombobox
+                  value={(doc.viewerAccess ?? DEFAULT_VIEWER_ACCESS).entries}
+                  onChange={(entries) =>
+                    updateDocument(id, { viewerAccess: { entries: [...new Set(entries)] } })
+                  }
+                  disabled={!canEdit}
+                />
+              </div>
+
               <div>
                 <span className="text-muted-foreground">Approval</span>
                 <div className="flex items-center gap-2 mt-0.5">
