@@ -9,8 +9,12 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import {
-  useVault, COMPLIANCE_ITEMS,
-  type VaultItem, type ApprovalStatus, type AgentTrainingStatus,
+  useVault,
+  COMPLIANCE_ITEMS,
+  DEFAULT_VIEWER_ACCESS,
+  type VaultItem,
+  type ApprovalStatus,
+  type AgentTrainingStatus,
 } from "@/lib/vault-context";
 import { Button } from "@/components/ui/button";
 import {
@@ -335,6 +339,7 @@ function TrainingsSopContent() {
       effectiveDate: effectiveDate || undefined,
       body,
       folderId: currentFolderId ?? undefined,
+      viewerAccess: DEFAULT_VIEWER_ACCESS,
       history: [{ at: new Date().toISOString(), action: "submitted" as const, by: "Admin", summary: "New document submitted for review." }],
     });
     const escId = addEscalation({

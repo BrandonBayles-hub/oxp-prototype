@@ -48,6 +48,13 @@ export type VaultActivityEntry = {
   detail?: string;
 };
 
+/** Who may view a vault document — roles (`role:*`) and/or people (`user:*` workforce ids). */
+export type ViewerAccess = {
+  entries: string[];
+};
+
+export const DEFAULT_VIEWER_ACCESS: ViewerAccess = { entries: ["role:admin"] };
+
 export type VaultItem = {
   id: string;
   fileName: string;
@@ -64,6 +71,8 @@ export type VaultItem = {
   tags?: string[];
   body?: string;
   linkedAgentIds?: string[];
+  /** Other vault documents this SOP references or should be reviewed when this one changes (directed links). */
+  relatedDocumentIds?: string[];
   history?: DocumentHistoryEntry[];
   properties?: string[];
   /** Stored previous versions (snapshots on approval) */
@@ -78,6 +87,11 @@ export type VaultItem = {
   isTemplate?: boolean;
   /** File format hint — determines whether inline editing (text) or preview (binary) is used */
   fileFormat?: "text" | "pdf" | "docx" | "image";
+  /**
+   * Who can view this document — people and/or org roles (not the same as document Property association).
+   * Each entry is `role:<Role>` (see ROLES in role-context) or `user:<workforceMemberId>` for a person.
+   */
+  viewerAccess?: ViewerAccess;
 };
 
 export const COMPLIANCE_ITEMS = [
@@ -219,12 +233,109 @@ All refunds must include:
   • Refund requests over $500 must be escalated immediately
   • Agent should reference this policy when explaining the process to residents`;
 
+function normalizeViewerAccessOnDocument(doc: VaultItem): VaultItem {
+  const va = doc.viewerAccess as ViewerAccess | { roles?: string[]; propertyGroups?: string[] } | undefined;
+  if (!va) return doc;
+  if ("entries" in va && Array.isArray(va.entries) && va.entries.length > 0) {
+    const entries = va.entries.filter((e): e is string => typeof e === "string");
+    return entries.length ? { ...doc, viewerAccess: { entries: [...new Set(entries)] } } : { ...doc, viewerAccess: DEFAULT_VIEWER_ACCESS };
+  }
+  if ("roles" in va && Array.isArray(va.roles) && va.roles.length > 0) {
+    return {
+      ...doc,
+      viewerAccess: { entries: [...new Set(va.roles.map((r) => `role:${r}`))] },
+    };
+  }
+  return { ...doc, viewerAccess: DEFAULT_VIEWER_ACCESS };
+}
+
 const INITIAL_DOCS: VaultItem[] = [
-  { id: "1", fileName: "Leasing SOP", documentType: "sop", property: "Portfolio", approvalStatus: "approved", trainedOn: "Yes", modified: "Feb 18, 2025", owner: "Admin", type: "file", version: "2.1", source: "upload", effectiveDate: "2025-02-01", body: LEASING_SOP_BODY, fileFormat: "text" },
-  { id: "2", fileName: "Maintenance escalation", documentType: "sop", property: "Portfolio", approvalStatus: "approved", trainedOn: "Yes", modified: "Feb 15, 2025", owner: "Admin", type: "file", version: "1.0", source: "upload", fileFormat: "text" },
-  { id: "3", fileName: "Fair housing policy", documentType: "policy", property: "Portfolio", approvalStatus: "approved", trainedOn: "Yes", modified: "Feb 10, 2025", owner: "Admin", type: "file", source: "upload", tags: ["compliance"], fileFormat: "pdf" },
-  { id: "4", fileName: "Lease template", documentType: "lease", property: "Hillside Living", approvalStatus: "review", trainedOn: "No", modified: "Feb 5, 2025", owner: "Admin", type: "file", source: "upload", fileFormat: "pdf" },
-  { id: "5", fileName: "Refund policy", documentType: "sop", property: "Portfolio", approvalStatus: "review", trainedOn: "No", modified: "Feb 20, 2025", owner: "Admin", type: "file", version: "1.0", source: "upload", body: REFUND_POLICY_BODY, fileFormat: "text" },
+  {
+    id: "1",
+    fileName: "Leasing SOP",
+    documentType: "sop",
+    property: "Portfolio",
+    approvalStatus: "approved",
+    trainedOn: "Yes",
+    modified: "Feb 18, 2025",
+    owner: "Admin",
+    type: "file",
+    version: "2.1",
+    source: "upload",
+    effectiveDate: "2025-02-01",
+    body: LEASING_SOP_BODY,
+    fileFormat: "text",
+    viewerAccess: {
+      entries: ["role:admin", "role:regional", "role:property", "user:h-comp-dir"],
+    },
+    relatedDocumentIds: ["3", "5"],
+  },
+  {
+    id: "2",
+    fileName: "Maintenance escalation",
+    documentType: "sop",
+    property: "Portfolio",
+    approvalStatus: "approved",
+    trainedOn: "Yes",
+    modified: "Feb 15, 2025",
+    owner: "Admin",
+    type: "file",
+    version: "1.0",
+    source: "upload",
+    fileFormat: "text",
+    viewerAccess: { entries: ["role:admin", "role:regional"] },
+    relatedDocumentIds: ["1"],
+  },
+  {
+    id: "3",
+    fileName: "Fair housing policy",
+    documentType: "policy",
+    property: "Portfolio",
+    approvalStatus: "approved",
+    trainedOn: "Yes",
+    modified: "Feb 10, 2025",
+    owner: "Admin",
+    type: "file",
+    source: "upload",
+    tags: ["compliance"],
+    fileFormat: "pdf",
+    viewerAccess: {
+      entries: ["role:admin", "role:regional", "role:property", "role:ic", "user:h-exec", "user:h-comp-dir"],
+    },
+    relatedDocumentIds: ["1", "4", "5"],
+  },
+  {
+    id: "4",
+    fileName: "Lease template",
+    documentType: "lease",
+    property: "Hillside Living",
+    approvalStatus: "review",
+    trainedOn: "No",
+    modified: "Feb 5, 2025",
+    owner: "Admin",
+    type: "file",
+    source: "upload",
+    fileFormat: "pdf",
+    viewerAccess: { entries: ["role:admin", "role:property", "user:h-pm-a", "user:h-leasing-mgr-a"] },
+    relatedDocumentIds: ["3"],
+  },
+  {
+    id: "5",
+    fileName: "Refund policy",
+    documentType: "sop",
+    property: "Portfolio",
+    approvalStatus: "review",
+    trainedOn: "No",
+    modified: "Feb 20, 2025",
+    owner: "Admin",
+    type: "file",
+    version: "1.0",
+    source: "upload",
+    body: REFUND_POLICY_BODY,
+    fileFormat: "text",
+    viewerAccess: { entries: ["role:admin"] },
+    relatedDocumentIds: ["1", "3"],
+  },
 ];
 
 /** Maps compliance subject (e.g. "Fair housing policy") to the document ID used to train on that subject */
@@ -242,7 +353,7 @@ type VaultContextValue = {
   documents: VaultItem[];
   setDocuments: React.Dispatch<React.SetStateAction<VaultItem[]>>;
   addDocument: (item: Omit<VaultItem, "id" | "modified">) => string;
-  updateDocument: (id: string, updates: Partial<Pick<VaultItem, "fileName" | "documentType" | "property" | "approvalStatus" | "version" | "effectiveDate" | "modified" | "body" | "tags" | "linkedAgentIds" | "history" | "properties" | "nextReviewDate" | "folderId" | "isTemplate" | "versions" | "trainingRecords" | "fileFormat">>) => void;
+  updateDocument: (id: string, updates: Partial<Pick<VaultItem, "fileName" | "documentType" | "property" | "approvalStatus" | "version" | "effectiveDate" | "modified" | "body" | "tags" | "linkedAgentIds" | "relatedDocumentIds" | "history" | "properties" | "nextReviewDate" | "folderId" | "isTemplate" | "versions" | "trainingRecords" | "fileFormat" | "viewerAccess">>) => void;
   addFolder: (fileName: string) => void;
   moveToFolder: (docId: string, folderId: string | null) => void;
   complianceChecked: Record<string, boolean>;
@@ -301,11 +412,19 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         const compliance = parsed.compliance;
         const subjectDocIds = parsed.complianceSubjectDocumentIds;
         if (Array.isArray(docs)) {
-          const migrated = docs.map((d: VaultItem) => {
+          const allIds = new Set((docs as VaultItem[]).map((d) => d.id));
+          const migrated = (docs as VaultItem[]).map((d) => {
             let doc = d;
             if (doc.id === "1" && !doc.body) doc = { ...doc, body: LEASING_SOP_BODY };
             if (doc.id === "5" && !doc.body) doc = { ...doc, body: REFUND_POLICY_BODY };
             if ((doc.approvalStatus as string) === "draft" && doc.type === "file") doc = { ...doc, approvalStatus: "review" };
+            doc = normalizeViewerAccessOnDocument(doc);
+            if (doc.relatedDocumentIds?.length) {
+              const nextRel = [...new Set(doc.relatedDocumentIds)].filter(
+                (rid) => allIds.has(rid) && rid !== doc.id
+              );
+              doc = { ...doc, relatedDocumentIds: nextRel.length ? nextRel : undefined };
+            }
             return doc;
           });
           setDocuments(migrated);
@@ -406,7 +525,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     return newId;
   }, [addActivity]);
 
-  const updateDocument = useCallback((id: string, updates: Partial<Pick<VaultItem, "fileName" | "documentType" | "property" | "approvalStatus" | "version" | "effectiveDate" | "modified" | "body" | "tags" | "linkedAgentIds" | "history" | "properties" | "nextReviewDate" | "folderId" | "isTemplate" | "versions" | "trainingRecords" | "fileFormat">>) => {
+  const updateDocument = useCallback((id: string, updates: Partial<Pick<VaultItem, "fileName" | "documentType" | "property" | "approvalStatus" | "version" | "effectiveDate" | "modified" | "body" | "tags" | "linkedAgentIds" | "relatedDocumentIds" | "history" | "properties" | "nextReviewDate" | "folderId" | "isTemplate" | "versions" | "trainingRecords" | "fileFormat" | "viewerAccess">>) => {
     setDocuments((prev) =>
       prev.map((doc) => {
         if (doc.id !== id) return doc;
@@ -513,7 +632,12 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
           d.folderId === id ? { ...d, folderId: undefined } : d
         );
       }
-      return prev.filter((d) => d.id !== id);
+      const remaining = prev.filter((d) => d.id !== id);
+      return remaining.map((d) => {
+        const rel = d.relatedDocumentIds?.filter((rid) => rid !== id);
+        if (!d.relatedDocumentIds?.includes(id)) return d;
+        return { ...d, relatedDocumentIds: rel?.length ? rel : undefined };
+      });
     });
   }, []);
 
