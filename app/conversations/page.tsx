@@ -181,6 +181,14 @@ const LIVE_AI_PROPERTY_FORBIDDEN = new Set([
 /** Logged-in user for the My Inbox tab (human assignee name). */
 const MY_INBOX_ASSIGNEE = "Abe Kashiwagi";
 
+/** Primary ELI+ lane agents — omit from AssigneePicker (routing stays label/automation-driven). */
+const ASSIGNMENT_PICKER_EXCLUDED_AUTONOMOUS_AGENT_NAMES = new Set([
+  "Leasing AI",
+  "Maintenance AI",
+  "Payments AI",
+  "Renewal AI",
+]);
+
 function handoffAssigneeLabel(assignee: string, isHuman: (a: string) => boolean): string {
   if (assignee === CONVERSATION_UNASSIGNED_ASSIGNEE) return "Unassigned";
   if (isHuman(assignee)) return assignee;
@@ -432,6 +440,7 @@ function ConversationsContent() {
 
   const groupedAssignees = useMemo(() => {
     const ai = autonomousAgents
+      .filter((a) => !ASSIGNMENT_PICKER_EXCLUDED_AUTONOMOUS_AGENT_NAMES.has(a.name))
       .map((a) => ({ value: `ELI+ ${a.name}`, label: `ELI+ ${a.name}` }))
       .sort((a, b) => a.label.localeCompare(b.label));
     const humans = humanMembers
