@@ -1,0 +1,160 @@
+# Vendored from entrata/deploy-microfrontend@main with a composite-action fix:
+# `secrets` is not available inside composite action.yml — pass github_token from the workflow.
+name: 'Deploy'
+description: 'Composite action for building and deploying microfrontends to AWS S3 and CloudFront'
+
+inputs:
+  github_token:
+    description: 'GitHub token for loading Actions variables (pass secrets.GITHUB_TOKEN from the workflow)'
+    required: true
+  ENVIRONMENT:
+    description: 'GitHub environment name for deployment protection'
+    required: false
+  STACK:
+    description: 'Stack name (used for S3 bucket naming)'
+    required: false
+  REGION:
+    description: 'AWS region for deployment'
+    required: true
+  ACCOUNT_ID:
+    description: 'AWS account ID'
+    required: true
+  S3_BUCKET:
+    description: 'S3 bucket name. If not provided, will be built from ACCOUNT_ID, STACK, and MICROFRONTEND_NAME'
+    required: false
+  ROLE_ARN:
+    description: 'IAM role ARN for AWS authentication'
+    required: true
+  CUSTOM_VARS:
+    description: 'JSON object containing environment variables (overrides GitHub vars/secrets)'
+    required: false
+    default: '{}'
+  MICROFRONTEND_NAME:
+    description: 'Name of the microfrontend (used for S3 bucket naming). If not provided, will use the repository name (extracted from github.repository)'
+    required: false
+
+outputs:
+  stack_name:
+    description: 'The stack name used for deployment'
+    value: ${{ steps.set-env.outputs.stack_name }}
+  microfrontend_name:
+    description: 'The microfrontend name used'
+    value: ${{ steps.set-mf-name.outputs.microfrontend_name }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set environment variables
+      id: set-env
+      shell: bash
+      run: |
+        STACK_NAME="${{ inputs.STACK }}"
+        if [ -z "$STACK_NAME" ]; then
+          STACK_NAME="production"
+        fi
+        echo "stack_name=$STACK_NAME" >> $GITHUB_OUTPUT
+        echo "STACK_NAME=$STACK_NAME" >> $GITHUB_ENV
+        # NODE_VERSION - default to 23, can be overridden by calling repo's environment variables
+        # Note: vars context is not available in composite actions, so we default to 23
+        # Calling repos can set NODE_VERSION as an environment variable in their workflow
+        echo "NODE_VERSION=23" >> $GITHUB_ENV
+
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Cache node modules
+      id: cache-npm
+      uses: actions/cache@v4
+      env:
+        cache-name: cache-node-modules
+      with:
+        path: ~/.npm
+        key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/package.json') }}-${{ hashFiles('**/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-build-${{ env.cache-name }}-
+          ${{ runner.os }}-build-
+          ${{ runner.os }}-
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    - name: Install dependencies
+      shell: bash
+      run: npm ci --ignore-scripts
+
+    - name: Ensure Rollup Linux binary is available
+      shell: bash
+      run: npm ci --ignore-scripts --no-save --no-package-lock @rollup/rollup-linux-x64-gnu || true
+
+    - name: Load all environment variables from GitHub vars/secrets and JSON input
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+      run: |
+        # Load variables from GitHub repository and environment (if specified)
+        SCRIPT_PATH="${{ github.action_path }}/scripts/load-github-vars.sh"
+        chmod +x "$SCRIPT_PATH"
+        "$SCRIPT_PATH" \
+          "${{ github.repository }}" \
+          "${GITHUB_TOKEN}" \
+          "${{ inputs.ENVIRONMENT }}" \
+          '${{ inputs.CUSTOM_VARS }}'
+
+    - name: Build
+      shell: bash
+      run: npm run build
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.STACK_NAME }}
+        path: dist/
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ env.STACK_NAME }}
+        path: dist/
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ inputs.ROLE_ARN }}
+        aws-region: ${{ inputs.REGION }}
+
+    - name: Set Microfrontend Name
+      id: set-mf-name
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.MICROFRONTEND_NAME }}" ]; then
+          MF_NAME="${{ inputs.MICROFRONTEND_NAME }}"
+        else
+          # Extract repo name from github.repository (format: org/repo-name)
+          MF_NAME=$(echo "${{ github.repository }}" | cut -d'/' -f2)
+        fi
+        echo "microfrontend_name=$MF_NAME" >> $GITHUB_OUTPUT
+        echo "MF_NAME=$MF_NAME" >> $GITHUB_ENV
+        echo "Microfrontend name: $MF_NAME"
+
+    - name: Deploy to S3 and CloudFront
+      shell: bash
+      run: |
+        # S3 bucket: use input if provided, otherwise build from ACCOUNT_ID, STACK, MF_NAME
+        if [ -n "${{ inputs.S3_BUCKET }}" ]; then
+          S3_BUCKET="${{ inputs.S3_BUCKET }}"
+        elif [ -n "${{ inputs.STACK }}" ]; then
+          S3_BUCKET="${{ inputs.ACCOUNT_ID }}-${{ inputs.STACK }}-${{ env.MF_NAME }}"
+        else
+          S3_BUCKET="${{ inputs.ACCOUNT_ID }}-${{ env.MF_NAME }}"
+        fi
+        aws s3 sync --region ${{ inputs.REGION }} --delete ./dist/ s3://$S3_BUCKET/
+
+        # CloudFront invalidation: derive origin domain from S3 bucket name
+        CF_DOMAIN="${S3_BUCKET}.s3.${{ inputs.REGION }}.amazonaws.com"
+
+        for id in $(aws cloudfront list-distributions --query "DistributionList.Items[?Origins.Items[0].DomainName=='${CF_DOMAIN}'].{id:Id}" --output text)
+        do
+          aws cloudfront create-invalidation --distribution-id $id --paths "/*"
+        done
