@@ -26,6 +26,7 @@ import { usePermissions } from "@/lib/permissions-context";
 import { usePlaybooks, type PlaybookPriority } from "@/lib/playbooks-context";
 import { SEED_PLAYBOOK_TEMPLATES } from "@/lib/playbook-templates-data";
 import { PROPERTIES } from "@/lib/specialties-data";
+import { PropertySelector } from "@/components/property-selector";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
@@ -49,6 +50,22 @@ const TYPES: { value: EscalationType | "All"; label: string }[] = [
   { value: "workflow", label: "Workflow" },
   { value: "training", label: "Training / clarity" },
   { value: "doc_improvement", label: "Policy / doc improvement" },
+];
+
+const MOCK_UNITS = [
+  { value: "101", label: "Unit 101" },
+  { value: "102", label: "Unit 102" },
+  { value: "103", label: "Unit 103" },
+  { value: "104", label: "Unit 104" },
+  { value: "201", label: "Unit 201" },
+  { value: "202", label: "Unit 202" },
+  { value: "203", label: "Unit 203" },
+  { value: "204", label: "Unit 204" },
+  { value: "301", label: "Unit 301" },
+  { value: "302", label: "Unit 302" },
+  { value: "303", label: "Unit 303" },
+  { value: "401", label: "Unit 401" },
+  { value: "402", label: "Unit 402" },
 ];
 
 function EscalationsContent() {
@@ -109,7 +126,9 @@ function EscalationsContent() {
   const [showCreateTaskDialog, setShowCreateTaskDialog] = useState(false);
   const [showLaunchPlaybook, setShowLaunchPlaybook] = useState(false);
   const [launchTemplateId, setLaunchTemplateId] = useState("");
-  const [launchProperty, setLaunchProperty] = useState("");
+  const [launchPropertyIds, setLaunchPropertyIds] = useState<Set<string>>(new Set());
+  const [launchUnits, setLaunchUnits] = useState<Set<string>>(new Set());
+  const [launchAssignee, setLaunchAssignee] = useState("");
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -277,7 +296,11 @@ function EscalationsContent() {
 
   const handleLaunchPlaybook = () => {
     const template = SEED_PLAYBOOK_TEMPLATES.find((t) => t.id === launchTemplateId);
-    if (!template || !launchProperty) return;
+    if (!template || launchPropertyIds.size === 0) return;
+
+    const selectedProperties = Array.from(launchPropertyIds);
+    const primaryProperty = selectedProperties[0];
+    const unitsString = launchUnits.size > 0 ? Array.from(launchUnits).join(", ") : undefined;
 
     const now = new Date().toISOString();
     const PRIORITY_MAP: Record<string, PlaybookPriority> = { P0: "P0", P1: "P1", P2: "P2", P3: "P3" };
@@ -288,24 +311,26 @@ function EscalationsContent() {
       type: "workflow" as const,
       summary: t.name,
       category: "Playbook",
-      property: launchProperty,
+      property: primaryProperty,
       status: "Open",
-      assignee: "",
+      assignee: launchAssignee === "unassigned" ? "" : launchAssignee,
       priority: ({ P0: "urgent", P1: "high", P2: "medium", P3: "low" } as const)[t.priority] ?? ("medium" as const),
       dueAt: now,
       createdAt: now,
+      unit: unitsString,
     }));
 
     addPlaybook({
       templateName: template.name,
-      property: launchProperty,
-      properties: [launchProperty],
+      property: primaryProperty,
+      properties: selectedProperties,
+      unit: unitsString,
       createdAt: now.split("T")[0],
       dueAt: now,
       launchedAt: now,
       status: "In Progress",
       priority: PRIORITY_MAP[template.priority] ?? "P2",
-      assignee: "",
+      assignee: launchAssignee === "unassigned" ? "" : launchAssignee,
       description: template.description,
       tasks,
     });
@@ -369,7 +394,7 @@ function EscalationsContent() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-44">
                 <DropdownMenuItem onClick={handleCreateTask}>Create Task</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => { setLaunchTemplateId(""); setLaunchProperty(""); setShowLaunchPlaybook(true); }}>Launch Playbook</DropdownMenuItem>
+                <DropdownMenuItem onSelect={(e) => { e.preventDefault(); setLaunchTemplateId(""); setLaunchPropertyIds(new Set()); setLaunchUnits(new Set()); setLaunchAssignee(""); setTimeout(() => setShowLaunchPlaybook(true), 50); }}>Launch Playbook</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -879,7 +904,7 @@ function EscalationsContent() {
         onSave={handleCreateTaskSave}
       />
 
-      <Dialog open={showLaunchPlaybook} onOpenChange={(open) => { setShowLaunchPlaybook(open); if (!open) { setLaunchTemplateId(""); setLaunchProperty(""); } }}>
+      <Dialog open={showLaunchPlaybook} onOpenChange={(open) => { setShowLaunchPlaybook(open); if (!open) { setLaunchTemplateId(""); setLaunchPropertyIds(new Set()); setLaunchUnits(new Set()); setLaunchAssignee(""); } }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Launch Playbook</DialogTitle>
@@ -892,9 +917,9 @@ function EscalationsContent() {
                 <SelectTrigger className="h-9 text-sm">
                   <SelectValue placeholder="Select a template" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="z-[200]">
                   {SEED_PLAYBOOK_TEMPLATES.filter((t) => t.variety !== "automated").map((t) => (
-                    <SelectItem key={t.id} value={t.id} className="text-sm">
+                    <SelectItem key={t.id} value={t.id} textValue={t.name} className="text-sm">
                       <span className="flex items-center gap-2">
                         {t.name}
                         <span className="text-[10px] text-muted-foreground">({t.tasks.length} tasks)</span>
@@ -910,15 +935,53 @@ function EscalationsContent() {
                 ) : null;
               })()}
             </div>
+            
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-foreground">Property</label>
-              <Select value={launchProperty} onValueChange={setLaunchProperty}>
+              <Popover modal={true}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" role="combobox" className="w-full justify-between font-normal h-9 text-sm px-3">
+                    {launchPropertyIds.size === 0 ? (
+                      <span className="text-muted-foreground">Select properties...</span>
+                    ) : (
+                      `${launchPropertyIds.size} property(s) selected`
+                    )}
+                    <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 z-[200]" align="start" sideOffset={4}>
+                  <PropertySelector 
+                    selected={launchPropertyIds}
+                    onSelectionChange={setLaunchPropertyIds}
+                    className="h-[400px] border-0 shadow-none rounded-md"
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {launchPropertyIds.size > 0 && (
+              <div className="space-y-1.5 animate-in fade-in slide-in-from-top-2">
+                <label className="text-sm font-medium text-foreground">Units (Optional)</label>
+                <MultiCheckList
+                  options={MOCK_UNITS}
+                  selected={launchUnits}
+                  onChange={setLaunchUnits}
+                  placeholder="Select affected units..."
+                />
+                <p className="text-xs text-muted-foreground">Specify which unit(s) or resident(s) are affected by this incident.</p>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground">Assignee (Optional)</label>
+              <Select value={launchAssignee} onValueChange={setLaunchAssignee}>
                 <SelectTrigger className="h-9 text-sm">
-                  <SelectValue placeholder="Select a property" />
+                  <SelectValue placeholder="Assign playbook to..." />
                 </SelectTrigger>
-                <SelectContent>
-                  {PROPERTIES.map((p) => (
-                    <SelectItem key={p} value={p} className="text-sm">{p}</SelectItem>
+                <SelectContent className="z-[200]">
+                  <SelectItem value="unassigned" className="text-sm text-muted-foreground italic">Leave unassigned</SelectItem>
+                  {assigneeNames.map((a) => (
+                    <SelectItem key={a} value={a} className="text-sm">{a}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -926,7 +989,7 @@ function EscalationsContent() {
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="outline" size="sm" onClick={() => setShowLaunchPlaybook(false)}>Cancel</Button>
-            <Button size="sm" disabled={!launchTemplateId || !launchProperty} onClick={handleLaunchPlaybook}>
+            <Button size="sm" disabled={!launchTemplateId || launchPropertyIds.size === 0} onClick={handleLaunchPlaybook}>
               Launch Playbook
             </Button>
           </div>
@@ -970,7 +1033,7 @@ function MultiCheckList({ options, selected, onChange, placeholder }: {
       : `${selected.size} selected`;
 
   return (
-    <Popover>
+    <Popover modal={true}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -983,7 +1046,7 @@ function MultiCheckList({ options, selected, onChange, placeholder }: {
           <ChevronDown className="ml-1 h-3.5 w-3.5 shrink-0 opacity-50" />
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-1" align="start">
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-1 z-[200]" align="start">
         <div className="max-h-48 overflow-y-auto">
           {options.map(({ value, label }) => {
             const isSelected = selected.has(value);

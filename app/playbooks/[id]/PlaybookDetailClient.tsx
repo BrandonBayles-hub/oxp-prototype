@@ -212,6 +212,9 @@ export function PlaybookDetailClient() {
           <span className="inline-flex items-center gap-1.5">
             <MapPin className="h-3 w-3" />
             {playbook.property}
+            {playbook.unit && (
+              <span className="ml-1 border-l border-border pl-2">Unit {playbook.unit}</span>
+            )}
           </span>
           <span className="inline-flex items-center gap-1.5">
             <Calendar className="h-3 w-3" />

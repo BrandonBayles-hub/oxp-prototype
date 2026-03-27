@@ -234,14 +234,21 @@ function TreeItem({
 
 export interface PropertySelectorProps {
   className?: string;
+  selected?: Set<string>;
   /** Called whenever the set of selected IDs changes */
   onSelectionChange?: (selectedIds: Set<string>) => void;
 }
 
-export function PropertySelector({ className, onSelectionChange }: PropertySelectorProps) {
+export function PropertySelector({ className, selected: externalSelected, onSelectionChange }: PropertySelectorProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [internalSelected, setInternalSelected] = useState<Set<string>>(new Set());
+  
+  const selected = externalSelected !== undefined ? externalSelected : internalSelected;
+  const setSelected = externalSelected !== undefined 
+    ? (onSelectionChange || setInternalSelected) 
+    : setInternalSelected;
+  
   const [viewMode, setViewMode] = useState<PropertyViewMode>("Property List");
 
   const data = useMemo(() => getDataForView(viewMode), [viewMode]);
@@ -258,32 +265,45 @@ export function PropertySelector({ className, onSelectionChange }: PropertySelec
   }, []);
 
   const handleToggleSelect = useCallback((id: string, node: PropertyNode) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      const descendantIds = collectDescendantIds(node);
-      const allCurrentlySelected = descendantIds.every((did) => next.has(did));
+    const next = new Set(selected);
+    const descendantIds = collectDescendantIds(node);
+    const allCurrentlySelected = descendantIds.every((did) => next.has(did));
 
-      if (allCurrentlySelected) {
-        for (const did of descendantIds) next.delete(did);
-      } else {
-        for (const did of descendantIds) next.add(did);
-      }
+    if (allCurrentlySelected) {
+      for (const did of descendantIds) next.delete(did);
+    } else {
+      for (const did of descendantIds) next.add(did);
+    }
+    
+    if (externalSelected !== undefined && onSelectionChange) {
+      onSelectionChange(next);
+    } else {
+      setInternalSelected(next);
       onSelectionChange?.(next);
-      return next;
-    });
-  }, [onSelectionChange]);
+    }
+  }, [selected, externalSelected, onSelectionChange]);
 
   const handleClear = useCallback(() => {
-    setSelected(new Set());
+    if (externalSelected !== undefined && onSelectionChange) {
+      onSelectionChange(new Set());
+    } else {
+      setInternalSelected(new Set());
+      onSelectionChange?.(new Set());
+    }
     setSearchTerm("");
-  }, []);
+  }, [externalSelected, onSelectionChange]);
 
   const handleViewChange = useCallback((value: string) => {
     setViewMode(value as PropertyViewMode);
-    setSelected(new Set());
+    if (externalSelected !== undefined && onSelectionChange) {
+      onSelectionChange(new Set());
+    } else {
+      setInternalSelected(new Set());
+      onSelectionChange?.(new Set());
+    }
     setSearchTerm("");
     setExpanded(new Set());
-  }, []);
+  }, [externalSelected, onSelectionChange]);
 
   return (
     <div
