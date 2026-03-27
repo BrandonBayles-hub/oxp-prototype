@@ -14,6 +14,7 @@ export type Playbook = {
   templateName: string;
   property: string;
   properties: string[];
+  unit?: string;
   createdAt: string;
   dueAt: string;
   launchedAt: string;
