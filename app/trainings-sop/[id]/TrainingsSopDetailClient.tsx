@@ -1149,56 +1149,96 @@ export function TrainingsSopDetailClient() {
                 </select>
               </div>
               <div>
-                <label className="text-muted-foreground">Property</label>
-                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                  {(propertiesExpanded ? docProperties : docProperties.slice(0, PROPERTY_BADGE_LIMIT)).map((p) => (
-                    <RemovableMetadataChip
-                      key={p}
-                      removeLabel={`Remove ${p}`}
-                      onRemove={() => {
-                        const next = docProperties.filter((x) => x !== p);
-                        const primary = next[0] ?? "Portfolio";
-                        updateDocument(id, { properties: next.length ? next : undefined, property: primary });
-                      }}
-                    >
-                      {p}
-                    </RemovableMetadataChip>
-                  ))}
-                </div>
-                {docProperties.length > PROPERTY_BADGE_LIMIT && (
-                  <button
-                    type="button"
-                    onClick={() => setPropertiesExpanded((e) => !e)}
-                    className="mt-1.5 text-xs font-medium text-primary hover:underline"
+                <label className="text-muted-foreground">Scope</label>
+                <select
+                  value={doc.scopeLevel || "company"}
+                  onChange={(e) => updateDocument(id, { scopeLevel: e.target.value as any })}
+                  className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium capitalize"
+                  aria-label="Document scope"
+                >
+                  <option value="company">Company</option>
+                  <option value="owner">Owner</option>
+                  <option value="property">Property</option>
+                </select>
+                {doc.scopeLevel === "owner" && (
+                  <select
+                    value={doc.ownerId || ""}
+                    onChange={(e) => updateDocument(id, { ownerId: e.target.value })}
+                    className="mt-2 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium text-foreground"
+                    aria-label="Select Owner"
                   >
-                    {propertiesExpanded ? "See less" : `See more (${docProperties.length - PROPERTY_BADGE_LIMIT} more)`}
-                  </button>
+                    <option value="" disabled>Select an owner...</option>
+                    <option value="Smith Investments">Smith Investments</option>
+                    <option value="Jones Portfolio">Jones Portfolio</option>
+                    <option value="Capital Group">Capital Group</option>
+                  </select>
                 )}
-                <Popover>
-                  <PopoverTrigger asChild>
+                <div className="mt-2 flex items-center gap-2">
+                  <input 
+                    type="checkbox" 
+                    id="internalOnlyDetails" 
+                    checked={doc.isInternalOnly ?? false} 
+                    onChange={(e) => updateDocument(id, { isInternalOnly: e.target.checked })} 
+                    className="h-4 w-4 rounded border-border" 
+                  />
+                  <label htmlFor="internalOnlyDetails" className="text-xs font-medium text-foreground">
+                    Internal Only
+                  </label>
+                </div>
+              </div>
+              {(!doc.scopeLevel || doc.scopeLevel === "property") && (
+                <div>
+                  <label className="text-muted-foreground">Property</label>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    {(propertiesExpanded ? docProperties : docProperties.slice(0, PROPERTY_BADGE_LIMIT)).map((p) => (
+                      <RemovableMetadataChip
+                        key={p}
+                        removeLabel={`Remove ${p}`}
+                        onRemove={() => {
+                          const next = docProperties.filter((x) => x !== p);
+                          const primary = next[0] ?? "Portfolio";
+                          updateDocument(id, { properties: next.length ? next : undefined, property: primary });
+                        }}
+                      >
+                        {p}
+                      </RemovableMetadataChip>
+                    ))}
+                  </div>
+                  {docProperties.length > PROPERTY_BADGE_LIMIT && (
                     <button
                       type="button"
-                      className="mt-1.5 flex w-full items-center justify-between rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-muted/50 focus:outline-none focus:ring-1 focus:ring-ring"
-                      aria-label="Add property"
+                      onClick={() => setPropertiesExpanded((e) => !e)}
+                      className="mt-1.5 text-xs font-medium text-primary hover:underline"
                     >
-                      <span className="text-muted-foreground">Add property…</span>
-                      <ChevronDown className="h-3.5 w-3.5 opacity-50" />
+                      {propertiesExpanded ? "See less" : `See more (${docProperties.length - PROPERTY_BADGE_LIMIT} more)`}
                     </button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-80 p-0" align="start" sideOffset={4}>
-                    <PropertySelector
-                      className="h-[400px] border-0 shadow-none rounded-md"
-                      onSelectionChange={(selectedIds) => {
-                        const names = getSelectedPropertyNames(getDataForView("Property List"), selectedIds);
-                        if (names.length > 0) {
-                          const merged = [...new Set([...docProperties, ...names])];
-                          updateDocument(id, { properties: merged, property: merged[0] });
-                        }
-                      }}
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
+                  )}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="mt-1.5 flex w-full items-center justify-between rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-muted/50 focus:outline-none focus:ring-1 focus:ring-ring"
+                        aria-label="Add property"
+                      >
+                        <span className="text-muted-foreground">Add property…</span>
+                        <ChevronDown className="h-3.5 w-3.5 opacity-50" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-80 p-0" align="start" sideOffset={4}>
+                      <PropertySelector
+                        className="h-[400px] border-0 shadow-none rounded-md"
+                        onSelectionChange={(selectedIds) => {
+                          const names = getSelectedPropertyNames(getDataForView("Property List"), selectedIds);
+                          if (names.length > 0) {
+                            const merged = [...new Set([...docProperties, ...names])];
+                            updateDocument(id, { properties: merged, property: merged[0] });
+                          }
+                        }}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              )}
 
               <div>
                 <label className="text-muted-foreground">Viewers</label>

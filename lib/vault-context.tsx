@@ -7,6 +7,8 @@ export type ApprovalStatus = "review" | "approved" | "needs_review";
 
 export type VaultSource = "upload" | "entrata" | "workflow";
 
+export type ScopeLevel = "company" | "owner" | "property";
+
 /** One entry in a document's history: edits, submissions, approvals, denials */
 export type DocumentHistoryEntry = {
   at: string;
@@ -75,6 +77,15 @@ export type VaultItem = {
   relatedDocumentIds?: string[];
   history?: DocumentHistoryEntry[];
   properties?: string[];
+  // --- NEW HIERARCHY FIELDS ---
+  scopeLevel?: ScopeLevel;
+  ownerId?: string;     // Set if scopeLevel === 'owner'
+  propertyId?: string;  // Set if scopeLevel === 'property'
+  
+  // --- NEW VISIBILITY FLAGS ---
+  isInternalOnly?: boolean;  // True = only PMC staff can see it
+  isOwnerVisible?: boolean;  // True = Owners can view it in their portal
+  isTenantVisible?: boolean; // True = Residents can view it (e.g. HOA rules)
   /** Stored previous versions (snapshots on approval) */
   versions?: DocumentVersion[];
   /** Per-agent training status records */
@@ -105,7 +116,7 @@ export const COMPLIANCE_ITEMS = [
 export const SUGGESTED_PROPERTY_TAGS = ["Portfolio", "Hillside Living", "Jamison Apartments", "Property C"];
 export const SUGGESTED_SUBJECT_TAGS = ["Leasing", "Maintenance", "Compliance", "Payments", "Policy", "Resident relations", "Operations"];
 
-const STORAGE_KEY = "janet-poc-vault-v3";
+const STORAGE_KEY = "janet-poc-vault-v5";
 
 const LEASING_SOP_BODY = `ENTRATA | GO DARK STEPS
 The steps below must be completed prior to migration/transition to the new
@@ -255,6 +266,7 @@ const INITIAL_DOCS: VaultItem[] = [
     fileName: "Leasing SOP",
     documentType: "sop",
     property: "Portfolio",
+    scopeLevel: "company",
     approvalStatus: "approved",
     trainedOn: "Yes",
     modified: "Feb 18, 2025",
@@ -275,6 +287,8 @@ const INITIAL_DOCS: VaultItem[] = [
     fileName: "Maintenance escalation",
     documentType: "sop",
     property: "Portfolio",
+    scopeLevel: "owner",
+    ownerId: "Smith Investments",
     approvalStatus: "approved",
     trainedOn: "Yes",
     modified: "Feb 15, 2025",
@@ -291,6 +305,7 @@ const INITIAL_DOCS: VaultItem[] = [
     fileName: "Fair housing policy",
     documentType: "policy",
     property: "Portfolio",
+    scopeLevel: "company",
     approvalStatus: "approved",
     trainedOn: "Yes",
     modified: "Feb 10, 2025",
@@ -309,6 +324,8 @@ const INITIAL_DOCS: VaultItem[] = [
     fileName: "Lease template",
     documentType: "lease",
     property: "Hillside Living",
+    scopeLevel: "property",
+    propertyId: "Hillside Living",
     approvalStatus: "review",
     trainedOn: "No",
     modified: "Feb 5, 2025",
@@ -324,6 +341,7 @@ const INITIAL_DOCS: VaultItem[] = [
     fileName: "Refund policy",
     documentType: "sop",
     property: "Portfolio",
+    scopeLevel: "company",
     approvalStatus: "review",
     trainedOn: "No",
     modified: "Feb 20, 2025",
@@ -353,7 +371,7 @@ type VaultContextValue = {
   documents: VaultItem[];
   setDocuments: React.Dispatch<React.SetStateAction<VaultItem[]>>;
   addDocument: (item: Omit<VaultItem, "id" | "modified">) => string;
-  updateDocument: (id: string, updates: Partial<Pick<VaultItem, "fileName" | "documentType" | "property" | "approvalStatus" | "version" | "effectiveDate" | "modified" | "body" | "tags" | "linkedAgentIds" | "relatedDocumentIds" | "history" | "properties" | "nextReviewDate" | "folderId" | "isTemplate" | "versions" | "trainingRecords" | "fileFormat" | "viewerAccess" | "owner">>) => void;
+  updateDocument: (id: string, updates: Partial<Pick<VaultItem, "fileName" | "documentType" | "property" | "approvalStatus" | "version" | "effectiveDate" | "modified" | "body" | "tags" | "linkedAgentIds" | "relatedDocumentIds" | "history" | "properties" | "nextReviewDate" | "folderId" | "isTemplate" | "versions" | "trainingRecords" | "fileFormat" | "viewerAccess" | "owner" | "scopeLevel" | "ownerId" | "propertyId" | "isInternalOnly" | "isOwnerVisible" | "isTenantVisible">>) => void;
   addFolder: (fileName: string) => void;
   moveToFolder: (docId: string, folderId: string | null) => void;
   complianceChecked: Record<string, boolean>;
