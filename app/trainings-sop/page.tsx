@@ -256,6 +256,13 @@ function TrainingsSopContent() {
   const folders = useMemo(() => items.filter((i) => i.type === "folder"), [items]);
   const currentFolder = useMemo(() => currentFolderId ? folders.find((f) => f.id === currentFolderId) : null, [currentFolderId, folders]);
 
+  const getOwnerForProperty = useCallback((propName: string) => {
+    if (propName === "Hillside Living") return "Smith Investments";
+    if (propName === "Jamison Apartments") return "Jones Portfolio";
+    if (propName === "Property C") return "Capital Group";
+    return "Smith Investments";
+  }, []);
+
   const filtered = useMemo(() => {
     let list = items;
     if (viewMode === "templates") {
@@ -280,14 +287,27 @@ function TrainingsSopContent() {
       }
       if (docTypeFilter !== "All" && i.documentType !== docTypeFilter) return false;
       if (approvalFilter !== "All" && i.type === "file" && i.approvalStatus !== approvalFilter) return false;
-      if (propertyFilter !== "All" && i.property !== propertyFilter) return false;
+      
+      // Hierarchy Resolution Logic
+      if (propertyFilter !== "All") {
+        const isTargetProperty = i.scopeLevel === "property" && i.propertyId === propertyFilter;
+        // Lookup the owner of the currently filtered property
+        const targetOwnerId = getOwnerForProperty(propertyFilter); 
+        const isTargetOwner = i.scopeLevel === "owner" && i.ownerId === targetOwnerId;
+        const isCompanyLevel = i.scopeLevel === "company" || !i.scopeLevel; // fallback for legacy
+
+        // Show the document if it falls into any of the cascading buckets
+        if (!isTargetProperty && !isTargetOwner && !isCompanyLevel) {
+          return false;
+        }
+      }
       return true;
     }).sort((a, b) => {
       if (a.type === "folder" && b.type !== "folder") return -1;
       if (a.type !== "folder" && b.type === "folder") return 1;
       return 0;
     });
-  }, [items, search, docTypeFilter, approvalFilter, propertyFilter, viewMode, currentFolderId]);
+  }, [items, search, docTypeFilter, approvalFilter, propertyFilter, viewMode, currentFolderId, getOwnerForProperty]);
 
   const linkedDocForSubject = (subject: string) => {
     const id = complianceSubjectDocumentIds[subject];
@@ -325,13 +345,18 @@ function TrainingsSopContent() {
     property?: string,
     effectiveDate?: string,
     source: "upload" | "entrata" = "upload",
-    body?: string
+    body?: string,
+    options?: { scopeLevel?: string; ownerId?: string; propertyId?: string; isInternalOnly?: boolean }
   ) => {
     const docProperty = property ?? "Portfolio";
     const category = documentType === "lease" ? "Leasing" : "Compliance";
     const newId = addDocToVault({
       fileName, documentType,
       property: docProperty,
+      scopeLevel: options?.scopeLevel as any,
+      ownerId: options?.ownerId,
+      propertyId: options?.propertyId,
+      isInternalOnly: options?.isInternalOnly,
       approvalStatus: "review",
       trainedOn: "No",
       owner: "Admin", type: "file",
@@ -937,6 +962,7 @@ function TrainingsSopContent() {
                   <th className="w-10"><input type="checkbox" checked={filtered.filter((i) => i.type === "file").length > 0 && selectedIds.size === filtered.filter((i) => i.type === "file").length} onChange={selectAll} className="h-4 w-4 rounded border-border" /></th>
                   <th>Name</th>
                   <th>Type</th>
+                  <th>Scope</th>
                   <th>Property</th>
                   <th>Approval</th>
                   <th>Modified</th>
@@ -959,7 +985,7 @@ function TrainingsSopContent() {
                     onKeyDown={(row.type === "file" || row.type === "folder") ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (row.type === "folder") setCurrentFolderId(row.id); else router.push(`/trainings-sop/${row.id}`); } } : undefined}
                   >
                     {row.type === "folder" ? (
-                      <td colSpan={2} className="font-medium text-foreground">
+                      <td colSpan={3} className="font-medium text-foreground">
                         <span className="inline-flex items-center gap-1.5 cursor-pointer"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gray-500 dark:bg-gray-500"><FolderOpen className="h-3.5 w-3.5 text-white" /></span> {row.fileName}</span>
                       </td>
                     ) : (
@@ -977,7 +1003,24 @@ function TrainingsSopContent() {
                       </>
                     )}
                     <td className="capitalize text-muted-foreground">{row.documentType}</td>
-                    <td className="text-muted-foreground">{row.property}</td>
+                    <td>
+                      {row.type === "file" && (
+                        <div className="flex items-center gap-2">
+                          {(!row.scopeLevel || row.scopeLevel === "company") && (
+                            <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">Company</span>
+                          )}
+                          {row.scopeLevel === "owner" && (
+                            <span className="inline-flex rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-800 dark:bg-purple-900/40 dark:text-purple-300">Owner</span>
+                          )}
+                          {row.scopeLevel === "property" && (
+                            <span className="inline-flex rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800 dark:bg-orange-900/40 dark:text-orange-300">Property</span>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td className="text-muted-foreground">
+                      {row.scopeLevel === "owner" && row.ownerId ? row.ownerId : (row.property || "—")}
+                    </td>
                     <td>
                       {row.type === "file" ? (
                         <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
@@ -1361,7 +1404,7 @@ function UploadDocModal({
   onClose, onSave, properties, fileInputRef,
 }: {
   onClose: () => void;
-  onSave: (fileName: string, documentType: VaultItem["documentType"], property?: string, effectiveDate?: string, source?: "upload" | "entrata", body?: string) => void;
+  onSave: (fileName: string, documentType: VaultItem["documentType"], property?: string, effectiveDate?: string, source?: "upload" | "entrata", body?: string, options?: { scopeLevel?: string; ownerId?: string; propertyId?: string; isInternalOnly?: boolean }) => void;
   properties: string[];
   fileInputRef: React.RefObject<HTMLInputElement | null>;
 }) {
@@ -1371,6 +1414,14 @@ function UploadDocModal({
   const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(new Set());
   const [effectiveDate, setEffectiveDate] = useState("");
   const [fileBody, setFileBody] = useState("");
+
+  const [scopeLevel, setScopeLevel] = useState<"company" | "owner" | "property">("company");
+  const [ownerId, setOwnerId] = useState("");
+  const [propertyId, setPropertyId] = useState("");
+  const [isInternalOnly, setIsInternalOnly] = useState(false);
+
+  // Mock owner data
+  const OWNERS = ["Smith Investments", "Jones Portfolio", "Capital Group"];
 
   const selectedPropertyNames = useMemo(
     () => getSelectedPropertyNames(getDataForView("Property List"), selectedPropertyIds),
@@ -1424,28 +1475,52 @@ function UploadDocModal({
               <option value="sop">SOP</option><option value="policy">Policy</option><option value="lease">Lease</option><option value="other">Other</option>
             </select>
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-foreground">Property</label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <button type="button" className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm hover:bg-muted/50 focus:outline-none focus:ring-1 focus:ring-ring">
-                  <span className="truncate text-left">
-                    {selectedPropertyNames.length === 0
-                      ? "Select properties..."
-                      : selectedPropertyNames.length === 1
-                      ? selectedPropertyNames[0]
-                      : `${selectedPropertyNames.length} properties selected`}
-                  </span>
-                  <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent className="w-80 p-0" align="start" sideOffset={4}>
-                <PropertySelector
-                  className="h-[400px] border-0 shadow-none rounded-md"
-                  onSelectionChange={setSelectedPropertyIds}
-                />
-              </PopoverContent>
-            </Popover>
+          <div className="rounded-md border border-border bg-muted/20 p-3 space-y-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-foreground">Where should this apply?</label>
+              <select 
+                value={scopeLevel} 
+                onChange={(e) => setScopeLevel(e.target.value as any)} 
+                className="select-base w-full"
+              >
+                <option value="company">All Properties (Company Policy)</option>
+                <option value="owner">Specific Owner Portfolio</option>
+                <option value="property">Specific Property</option>
+              </select>
+            </div>
+
+            {scopeLevel === "owner" && (
+              <div>
+                <label className="mb-1 block text-xs font-medium text-foreground">Select Owner</label>
+                <select value={ownerId} onChange={(e) => setOwnerId(e.target.value)} className="select-base w-full">
+                  <option value="">Select an owner...</option>
+                  {OWNERS.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+            )}
+
+            {scopeLevel === "property" && (
+              <div>
+                <label className="mb-1 block text-xs font-medium text-foreground">Select Property</label>
+                <select value={propertyId} onChange={(e) => setPropertyId(e.target.value)} className="select-base w-full">
+                  <option value="">Select a property...</option>
+                  {properties.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 pt-2">
+            <input 
+              type="checkbox" 
+              id="internalOnly" 
+              checked={isInternalOnly} 
+              onChange={(e) => setIsInternalOnly(e.target.checked)} 
+              className="h-4 w-4 rounded border-border" 
+            />
+            <label htmlFor="internalOnly" className="text-xs font-medium text-foreground">
+              Internal Only
+            </label>
           </div>
           {documentType === "sop" && (
             <div>
@@ -1462,7 +1537,7 @@ function UploadDocModal({
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => fileName.trim() && onSave(fileName.trim(), documentType, property, effectiveDate || undefined, "upload", fileBody || undefined)} disabled={!fileName.trim()}>Upload &amp; add to Vault</Button>
+          <Button onClick={() => fileName.trim() && onSave(fileName.trim(), documentType, property, effectiveDate || undefined, "upload", fileBody || undefined, { scopeLevel, ownerId, propertyId, isInternalOnly })} disabled={!fileName.trim()}>Upload &amp; add to Vault</Button>
         </div>
       </div>
     </div>
