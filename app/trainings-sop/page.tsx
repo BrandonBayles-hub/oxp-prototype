@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   FileText, FilePlus, FolderOpen, FolderPlus, Pencil, Send, CheckCircle, Upload, Building2,
-  Search, Clock, AlertTriangle, ChevronRight, X, CornerDownRight, BookOpen, Plus, MoreHorizontal, MoreVertical, Trash2,
+  Search, Clock, AlertTriangle, ChevronRight, X, CornerDownRight, BookOpen, Plus, MoreHorizontal, MoreVertical, Trash2, Link2, Blocks,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import {
@@ -168,6 +168,7 @@ function TrainingsSopContent() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<"list" | "templates">("list");
   const [showExploreSops, setShowExploreSops] = useState(false);
+  const [showConnectLibrary, setShowConnectLibrary] = useState(false);
   const [bulkActionResult, setBulkActionResult] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [complianceSelectSubject, setComplianceSelectSubject] = useState<string | null>(null);
@@ -682,27 +683,18 @@ function TrainingsSopContent() {
               <TabsTrigger value="compliance">Compliance</TabsTrigger>
               <TabsTrigger value="activity">Activity</TabsTrigger>
             </TabsList>
-            <Button variant="outline" size="sm" onClick={() => setShowExploreSops(true)}>
-              <BookOpen className="mr-1.5 h-3.5 w-3.5" /> Explore SOPs
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => setShowExploreSops(true)}>
+                <BookOpen className="mr-1.5 h-3.5 w-3.5" /> Explore SOPs
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setShowConnectLibrary(true)}>
+                <Blocks className="mr-1.5 h-3.5 w-3.5" /> Connect Library
+              </Button>
+            </div>
           </div>
         )}
 
         {/* ── COMPLIANCE TAB ── */}
-        <TabsContent value="compliance" className="mt-0">
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <span className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg border border-border bg-muted">
-              <ShieldCheck className="h-6 w-6 text-foreground" />
-            </span>
-            <h3 className="text-lg font-semibold text-foreground">Coming soon</h3>
-            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-              Compliance tracking is on the way. You&apos;ll be able to link SOPs to compliance areas, track agent training status, and manage audit readiness from here.
-            </p>
-          </div>
-        </TabsContent>
-
-        {/* ── COMPLIANCE TAB (preserved for reintroduction) ── */}
-        {false && (
         <TabsContent value="compliance" className="mt-0">
           <section>
             <h2 className="section-title mb-1">Compliance areas</h2>
@@ -821,7 +813,6 @@ function TrainingsSopContent() {
             </div>
           </section>
         </TabsContent>
-        )}
 
         {/* ── DOCUMENT LIBRARY TAB ── */}
         <TabsContent value="library" className="mt-0">
@@ -1103,20 +1094,6 @@ function TrainingsSopContent() {
 
         {/* ── ACTIVITY TAB ── */}
         <TabsContent value="activity" className="mt-0">
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <span className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg border border-border bg-muted">
-              <Activity className="h-6 w-6 text-foreground" />
-            </span>
-            <h3 className="text-lg font-semibold text-foreground">Coming soon</h3>
-            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-              The activity feed is on the way. You&apos;ll be able to see uploads, approvals, training events, and other document actions here.
-            </p>
-          </div>
-        </TabsContent>
-
-        {/* ── ACTIVITY TAB (preserved for reintroduction) ── */}
-        {false && (
-        <TabsContent value="activity" className="mt-0">
           <section>
             <h2 className="section-title mb-1">Activity feed</h2>
             <p className="mb-4 text-sm text-muted-foreground">
@@ -1152,7 +1129,6 @@ function TrainingsSopContent() {
             )}
           </section>
         </TabsContent>
-        )}
       </Tabs>
 
       {/* ── MODALS ── */}
@@ -1250,20 +1226,149 @@ function TrainingsSopContent() {
           setReviewDocId(escId);
         }}
       />
+      
+      <ConnectLibraryDialog 
+        open={showConnectLibrary} 
+        onOpenChange={setShowConnectLibrary} 
+        onAdd={(fileName, body) => addDocument(fileName, "other", "Portfolio", undefined, "upload", body)}
+      />
     </>
   );
 }
 
 /* ── SUB-COMPONENTS ── */
 
+function GoogleDriveIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" {...props}>
+      <path d="M12.01 1.485c-2.082 0-3.754.02-3.743.047.01.02 1.708 3.001 3.774 6.62l3.76 6.574h3.76c2.081 0 3.753-.02 3.742-.047-.005-.02-1.708-3.001-3.775-6.62l-3.76-6.574zm-4.76 1.73a789.828 789.861 0 0 0-3.63 6.319L0 15.868l1.89 3.298 1.885 3.297 3.62-6.335 3.618-6.33-1.88-3.287C8.1 4.704 7.255 3.22 7.25 3.214zm2.259 12.653-.203.348c-.114.198-.96 1.672-1.88 3.287a423.93 423.948 0 0 1-1.698 2.97c-.01.026 3.24.042 7.222.042h7.244l1.796-3.157c.992-1.734 1.85-3.23 1.906-3.323l.104-.167h-7.249z" fill="currentColor"/>
+    </svg>
+  );
+}
+
+function MicrosoftSharePointIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" {...props}>
+      <path d="M24 13.5q0 1.242-.475 2.332-.474 1.09-1.289 1.904-.814.815-1.904 1.29-1.09.474-2.332.474-.762 0-1.523-.2-.106.997-.557 1.858-.451.862-1.154 1.494-.704.633-1.606.99-.902.358-1.91.358-1.09 0-2.045-.416-.955-.416-1.664-1.125-.709-.709-1.125-1.664Q6 19.84 6 18.75q0-.188.018-.375.017-.188.04-.375H.997q-.41 0-.703-.293T0 17.004V6.996q0-.41.293-.703T.996 6h3.54q.14-1.277.726-2.373.586-1.096 1.488-1.904Q7.652.914 8.807.457 9.96 0 11.25 0q1.395 0 2.625.533T16.02 1.98q.914.915 1.447 2.145T18 6.75q0 .188-.012.375-.011.188-.035.375 1.242 0 2.344.469 1.101.468 1.928 1.277.826.809 1.3 1.904Q24 12.246 24 13.5zm-12.75-12q-.973 0-1.857.34-.885.34-1.577.943-.691.604-1.154 1.43Q6.2 5.039 6.06 6h4.945q.41 0 .703.293t.293.703v4.945l.21-.035q.212-.75.61-1.424.399-.673.944-1.218.545-.545 1.213-.944.668-.398 1.43-.61.093-.503.093-.96 0-1.09-.416-2.045-.416-.955-1.125-1.664-.709-.709-1.664-1.125Q12.34 1.5 11.25 1.5zM6.117 15.902q.54 0 1.06-.111.522-.111.932-.37.41-.257.662-.679.252-.422.252-1.055 0-.632-.263-1.054-.264-.422-.662-.703-.399-.282-.856-.463l-.855-.34q-.399-.158-.662-.334-.264-.176-.264-.445 0-.2.14-.323.141-.123.335-.193.193-.07.404-.094.21-.023.351-.023.598 0 1.055.152.457.153.95.457V8.543q-.282-.082-.522-.14-.24-.06-.475-.1-.234-.041-.486-.059-.252-.017-.557-.017-.515 0-1.054.117-.54.117-.979.375-.44.258-.715.68-.275.421-.275 1.03 0 .598.263.997.264.398.663.68.398.28.855.474l.856.363q.398.17.662.358.263.187.263.457 0 .222-.123.351-.123.13-.31.2-.188.07-.393.087-.205.018-.369.018-.703 0-1.248-.234-.545-.235-1.107-.621v1.875q1.195.468 2.472.468zM11.25 22.5q.773 0 1.453-.293t1.19-.803q.51-.51.808-1.195.299-.686.299-1.459 0-.668-.223-1.277-.222-.61-.62-1.096-.4-.486-.95-.826-.55-.34-1.207-.48v1.933q0 .41-.293.703t-.703.293H7.57q-.07.375-.07.75 0 .773.293 1.459t.803 1.195q.51.51 1.195.803.686.293 1.459.293zM18 18q.926 0 1.746-.352.82-.351 1.436-.966.615-.616.966-1.43.352-.815.352-1.752 0-.926-.352-1.746-.351-.82-.966-1.436-.616-.615-1.436-.966Q18.926 9 18 9t-1.74.357q-.815.358-1.43.973t-.973 1.43q-.357.814-.357 1.74 0 .129.006.258t.017.258q.551.27 1.02.65t.838.855q.369.475.627 1.026.258.55.387 1.148Q17.18 18 18 18Z" fill="currentColor"/>
+    </svg>
+  );
+}
+
+function ConnectLibraryDialog({ open, onOpenChange, onAdd }: { open: boolean; onOpenChange: (open: boolean) => void; onAdd: (fileName: string, body: string) => void }) {
+  const [integration, setIntegration] = useState<string | null>(null);
+  const [connected, setConnected] = useState<Record<string, boolean>>({
+    "google-drive": false,
+    "ms-teams": false,
+  });
+  const [importing, setImporting] = useState<string | null>(null);
+  
+  const handleConnect = (id: string) => {
+    setTimeout(() => {
+      setConnected(prev => ({ ...prev, [id]: true }));
+    }, 1000);
+  };
+
+  const handleImport = (name: string) => {
+    setImporting(name);
+    setTimeout(() => {
+      onAdd(name, `<p>Imported content for ${name}</p>`);
+      setImporting(null);
+      onOpenChange(false);
+      setIntegration(null);
+    }, 1500);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle>Connect Library</DialogTitle>
+          <DialogDescription>
+            Connect an external system to sync folders and files directly into your Vault.
+          </DialogDescription>
+        </DialogHeader>
+
+        {!integration ? (
+          <div className="grid grid-cols-2 gap-4 py-4">
+            <button type="button" onClick={() => setIntegration("google-drive")} className="group flex flex-col items-center gap-3 rounded-lg border border-border p-6 text-center hover:border-primary hover:bg-primary/5 transition-all">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted group-hover:bg-primary/10 transition-colors">
+                <GoogleDriveIcon className="h-6 w-6 text-muted-foreground group-hover:text-primary transition-colors" />
+              </div>
+              <div>
+                <p className="font-medium text-foreground">Google Drive</p>
+                <p className="text-xs text-muted-foreground mt-1">{connected["google-drive"] ? "Connected" : "Not connected"}</p>
+              </div>
+            </button>
+            <button type="button" onClick={() => setIntegration("ms-teams")} className="group flex flex-col items-center gap-3 rounded-lg border border-border p-6 text-center hover:border-primary hover:bg-primary/5 transition-all">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted group-hover:bg-primary/10 transition-colors">
+                <MicrosoftSharePointIcon className="h-6 w-6 text-muted-foreground group-hover:text-primary transition-colors" />
+              </div>
+              <div>
+                <p className="font-medium text-foreground">Microsoft Teams / SharePoint</p>
+                <p className="text-xs text-muted-foreground mt-1">{connected["ms-teams"] ? "Connected" : "Not connected"}</p>
+              </div>
+            </button>
+          </div>
+        ) : !connected[integration] ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+              <Blocks className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <h3 className="mb-2 text-lg font-medium text-foreground">Connect {integration === "google-drive" ? "Google Drive" : "Microsoft Teams"}</h3>
+            <p className="mb-6 max-w-sm text-sm text-muted-foreground">
+              Authenticate with your account to browse and sync folders directly into the Vault.
+            </p>
+            <Button onClick={() => handleConnect(integration)}>Connect Account</Button>
+            <Button variant="ghost" className="mt-2" onClick={() => setIntegration(null)}>Back to integrations</Button>
+          </div>
+        ) : (
+          <div className="flex flex-col h-full overflow-hidden">
+            <div className="flex items-center justify-between py-2 mb-4 border-b border-border">
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="icon" onClick={() => setIntegration(null)}>
+                  <ChevronRight className="h-4 w-4 rotate-180" />
+                </Button>
+                <span className="font-medium">{integration === "google-drive" ? "Google Drive" : "Microsoft Teams"}</span>
+              </div>
+              <Badge variant="secondary" className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-none">Connected</Badge>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto pr-2">
+              <p className="text-xs text-muted-foreground mb-3">Select files to import into your Vault:</p>
+              <div className="space-y-2">
+                {["Employee Handbook 2025.pdf", "Maintenance Protocols v2.docx", "Leasing Addendums Folder", "Emergency Evacuation Plan"].map(name => (
+                  <div key={name} className="flex items-center justify-between rounded-md border border-border p-3 hover:bg-muted/50">
+                    <div className="flex items-center gap-3">
+                      {name.includes("Folder") ? <FolderOpen className="h-4 w-4 text-muted-foreground" /> : <FileText className="h-4 w-4 text-muted-foreground" />}
+                      <span className="text-sm font-medium">{name}</span>
+                    </div>
+                    <Button 
+                      variant="secondary" 
+                      size="sm" 
+                      onClick={() => handleImport(name)}
+                      disabled={importing === name}
+                    >
+                      {importing === name ? "Importing..." : "Import"}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 const ENTRATA_PREMADE_DOCS: { id: string; name: string; documentType: VaultItem["documentType"]; description: string; body?: string }[] = [
   { id: "entrata-leasing-app", name: "Leasing Application", documentType: "policy", description: "Standard application form and criteria", body: "<p>Entrata leasing application template. Configure in Entrata under Leasing > Applications.</p>" },
   { id: "entrata-movein", name: "Move-in Checklist", documentType: "sop", description: "Pre-move-in and day-of steps", body: "<p>Move-in checklist (Entrata). Covers unit walk, keys, paperwork, and portal setup.</p>" },
-  { id: "entrata-fair-housing", name: "Fair Housing Policy", documentType: "policy", description: "Fair housing and advertising compliance", body: "<p>Fair housing policy template from Entrata. Align with your jurisdiction and HUD guidance.</p>" },
-  { id: "entrata-security-deposit", name: "Security Deposit Policy", documentType: "policy", description: "Deposit collection, holding, and refund rules", body: "<p>Security deposit policy. Configure deposit amounts and return timelines in Entrata.</p>" },
-  { id: "entrata-screening", name: "Screening Criteria", documentType: "policy", description: "Applicant screening and approval criteria", body: "<p>Screening criteria (Entrata). Define credit, income, and criminal criteria per property.</p>" },
-  { id: "entrata-eviction", name: "Eviction Procedures", documentType: "sop", description: "Legal process and notice requirements", body: "<p>Eviction procedures. Follow state and local requirements; configure notices in Entrata.</p>" },
-  { id: "entrata-accommodation", name: "Reasonable Accommodation Process", documentType: "sop", description: "Request handling and documentation", body: "<p>Reasonable accommodation process. Document requests and outcomes in Entrata.</p>" },
+  { id: "entrata-fair-housing", name: "Fair housing & anti-discrimination", documentType: "policy", description: "Fair housing and advertising compliance", body: "<p>Fair housing policy template from Entrata. Align with your jurisdiction and HUD guidance.</p>" },
+  { id: "entrata-security-deposit", name: "Security deposit handling", documentType: "policy", description: "Deposit collection, holding, and refund rules", body: "<p>Security deposit policy. Configure deposit amounts and return timelines in Entrata.</p>" },
+  { id: "entrata-screening", name: "Tenant screening & background checks", documentType: "policy", description: "Applicant screening and approval criteria", body: "<p>Screening criteria (Entrata). Define credit, income, and criminal criteria per property.</p>" },
+  { id: "entrata-eviction", name: "Eviction & lease termination", documentType: "sop", description: "Legal process and notice requirements", body: "<p>Eviction procedures. Follow state and local requirements; configure notices in Entrata.</p>" },
+  { id: "entrata-accommodation", name: "Reasonable accommodation & assistive animals", documentType: "sop", description: "Request handling and documentation", body: "<p>Reasonable accommodation process. Document requests and outcomes in Entrata.</p>" },
   { id: "entrata-lease-addendum", name: "Lease Addendum Template", documentType: "lease", description: "Standard addendum for lease changes", body: "<p>Lease addendum template. Use for pets, parking, or other lease modifications.</p>" },
   { id: "entrata-rent-collection", name: "Rent Collection SOP", documentType: "sop", description: "Due dates, late fees, and payment methods", body: "<p>Rent collection SOP. Align with Entrata charge codes and late fee settings.</p>" },
   { id: "entrata-maintenance-request", name: "Maintenance Request Form", documentType: "other", description: "How residents submit and track work orders", body: "<p>Maintenance request process. Residents use Entrata portal or front office.</p>" },
@@ -1501,11 +1606,30 @@ function UploadDocModal({
 
             {scopeLevel === "property" && (
               <div>
-                <label className="mb-1 block text-xs font-medium text-foreground">Select Property</label>
-                <select value={propertyId} onChange={(e) => setPropertyId(e.target.value)} className="select-base w-full">
-                  <option value="">Select a property...</option>
-                  {properties.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
+                <label className="mb-1 block text-xs font-medium text-foreground">Select Properties</label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm hover:bg-muted/50 focus:outline-none focus:ring-1 focus:ring-ring"
+                    >
+                      <span className="text-muted-foreground truncate mr-2">
+                        {selectedPropertyNames.length > 0 ? selectedPropertyNames.join(", ") : "Select properties..."}
+                      </span>
+                      <ChevronDown className="h-3.5 w-3.5 opacity-50 shrink-0" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[320px] p-0 z-[60]" align="start" sideOffset={4}>
+                    <PropertySelector
+                      className="h-[350px] border-0 shadow-none rounded-md"
+                      onSelectionChange={(ids) => {
+                        setSelectedPropertyIds(ids);
+                        const names = getSelectedPropertyNames(getDataForView("Property List"), ids);
+                        if (names.length > 0) setPropertyId(names[0]);
+                      }}
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
             )}
           </div>

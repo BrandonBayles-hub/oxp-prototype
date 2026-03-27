@@ -422,7 +422,7 @@ const MESSAGES: PlgMessage[] = [
     benefits: [
       { icon: "Building2", title: "Cross-property visibility", body: "See which properties have approved SOPs and which have gaps." },
       { icon: "AlertTriangle", title: "Review alerts", body: "Get notified when documents are past their review date or need updating." },
-      { icon: "FileCheck", title: "Compliance assurance", body: "Fair housing policy, screening criteria, and other required docs tracked and monitored." },
+      { icon: "FileCheck", title: "Compliance assurance", body: "Fair housing policies, screening criteria, and other required docs tracked and monitored." },
     ],
     metric: { value: "100%", label: "of required compliance documents tracked" },
   },
