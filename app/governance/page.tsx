@@ -46,7 +46,7 @@ import {
 const MOCK_AUDIT_LOG = [
   { id: "a1", timestamp: "2026-02-20T08:15:23Z", event: "agent_response" as AuditEventType, agent: "Leasing AI", detail: "Responded to tour inquiry for Unit 204", traceId: "tr-9f3a1b" },
   { id: "a2", timestamp: "2026-02-20T07:42:11Z", event: "tool_call" as AuditEventType, agent: "Payments Operations", detail: "Called Entrata MCP: postLedgerEntry", traceId: "tr-8e2c4d" },
-  { id: "a3", timestamp: "2026-02-20T06:30:00Z", event: "document_retrieval" as AuditEventType, agent: "Compliance AI", detail: "Retrieved 'Fair housing policy' for screening response", traceId: "tr-7d1b3e" },
+  { id: "a3", timestamp: "2026-02-20T06:30:00Z", event: "document_retrieval" as AuditEventType, agent: "Compliance AI", detail: "Retrieved 'Fair housing & anti-discrimination' for screening response", traceId: "tr-7d1b3e" },
   { id: "a4", timestamp: "2026-02-19T16:20:45Z", event: "escalation" as AuditEventType, agent: "Maintenance AI", detail: "Escalated emergency work order to on-call staff", traceId: "tr-6c0a2f" },
   { id: "a5", timestamp: "2026-02-19T14:10:33Z", event: "approval" as AuditEventType, agent: "Renewal AI", detail: "Human approved $200 concession for Unit 312 renewal", traceId: "tr-5b9f1a" },
   { id: "a6", timestamp: "2026-02-19T11:05:12Z", event: "config_change" as AuditEventType, agent: "System", detail: "Updated screening guardrail: approval gate enabled", traceId: "tr-4a8e0b" },

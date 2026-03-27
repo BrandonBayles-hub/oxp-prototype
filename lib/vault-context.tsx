@@ -106,11 +106,14 @@ export type VaultItem = {
 };
 
 export const COMPLIANCE_ITEMS = [
-  "Fair housing policy",
-  "Security deposit policy",
-  "Screening policy",
-  "Eviction procedures",
-  "Reasonable accommodation process",
+  "Fair housing & anti-discrimination",
+  "Reasonable accommodation & assistive animals",
+  "Tenant screening & background checks",
+  "Data privacy & PII handling",
+  "Security deposit handling",
+  "Rent collection & late fees",
+  "Eviction & lease termination",
+  "Maintenance & habitability standards",
 ];
 
 export const SUGGESTED_PROPERTY_TAGS = ["Portfolio", "Hillside Living", "Jamison Apartments", "Property C"];
@@ -302,7 +305,7 @@ const INITIAL_DOCS: VaultItem[] = [
   },
   {
     id: "3",
-    fileName: "Fair housing policy",
+    fileName: "Fair housing & anti-discrimination",
     documentType: "policy",
     property: "Portfolio",
     scopeLevel: "company",

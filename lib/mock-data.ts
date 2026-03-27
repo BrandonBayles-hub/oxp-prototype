@@ -29,6 +29,6 @@ export const mockAgentSections = [
 export const mockVaultDocs = [
   { id: "1", fileName: "Leasing SOP", trainedOn: "Yes", modified: "Feb 18, 2025", owner: "Admin" },
   { id: "2", fileName: "Maintenance escalation", trainedOn: "Yes", modified: "Feb 15, 2025", owner: "Admin" },
-  { id: "3", fileName: "Fair housing policy", trainedOn: "Yes", modified: "Feb 10, 2025", owner: "Admin" },
+  { id: "3", fileName: "Fair housing & anti-discrimination", trainedOn: "Yes", modified: "Feb 10, 2025", owner: "Admin" },
   { id: "4", fileName: "Lease template", trainedOn: "No", modified: "Feb 5, 2025", owner: "Admin" },
 ];

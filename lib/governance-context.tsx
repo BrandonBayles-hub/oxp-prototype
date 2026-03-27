@@ -13,7 +13,7 @@ export const HIGH_REGULATION_ACTIVITIES = [
     description: "Application screening, background checks, and admission decisions.",
     defaultApprovalGate: true,
     defaultPolicyCheck: true,
-    defaultRequiredDocs: ["Screening policy", "Fair housing policy"],
+    defaultRequiredDocs: ["Tenant screening & background checks", "Fair housing & anti-discrimination"],
   },
   {
     id: "eviction",
@@ -22,7 +22,7 @@ export const HIGH_REGULATION_ACTIVITIES = [
     description: "Eviction filings, legal notices, and lease termination actions.",
     defaultApprovalGate: true,
     defaultPolicyCheck: true,
-    defaultRequiredDocs: ["Eviction procedures"],
+    defaultRequiredDocs: ["Eviction & lease termination"],
   },
   {
     id: "accommodation",
@@ -31,7 +31,7 @@ export const HIGH_REGULATION_ACTIVITIES = [
     description: "Disability accommodation requests, ESA processing, and modifications.",
     defaultApprovalGate: true,
     defaultPolicyCheck: true,
-    defaultRequiredDocs: ["Reasonable accommodation process", "Fair housing policy"],
+    defaultRequiredDocs: ["Reasonable accommodation & assistive animals", "Fair housing & anti-discrimination"],
   },
   {
     id: "refunds",
@@ -40,7 +40,7 @@ export const HIGH_REGULATION_ACTIVITIES = [
     description: "Security deposit refunds, late fee waivers, and financial concessions.",
     defaultApprovalGate: true,
     defaultPolicyCheck: false,
-    defaultRequiredDocs: ["Security deposit policy"],
+    defaultRequiredDocs: ["Security deposit handling", "Rent collection & late fees"],
   },
   {
     id: "lease_terms",
@@ -58,7 +58,7 @@ export const HIGH_REGULATION_ACTIVITIES = [
     description: "Listing content, ad targeting, and promotional communications.",
     defaultApprovalGate: false,
     defaultPolicyCheck: true,
-    defaultRequiredDocs: ["Fair housing policy"],
+    defaultRequiredDocs: ["Fair housing & anti-discrimination"],
   },
 ] as const;
 
