@@ -770,10 +770,26 @@ export function TrainingsSopDetailClient() {
     const canonical = existingLabelsMap.get(n) ?? trimmed;
     const next = [...(doc.tags ?? []), canonical].filter(Boolean);
     updateDocument(id, { tags: next });
+    
+    addActivity({
+      action: "Label added",
+      by: "Admin",
+      documentId: id,
+      documentName: doc.fileName,
+      detail: `Added label "${canonical}"`,
+    });
   };
 
   const removeTag = (tag: string) => {
     updateDocument(id, { tags: (doc.tags ?? []).filter((t) => t !== tag) });
+    
+    addActivity({
+      action: "Label removed",
+      by: "Admin",
+      documentId: id,
+      documentName: doc.fileName,
+      detail: `Removed label "${tag}"`,
+    });
   };
 
   const toggleAgent = (agentId: string) => {
@@ -787,18 +803,33 @@ export function TrainingsSopDetailClient() {
     const otherDoc = documents.find((d) => d.id === otherId);
     const isInbound = otherDoc?.relatedDocumentIds?.includes(id);
 
+    let actionText = "";
+
     if (isOutbound) {
       const next = doc.relatedDocumentIds!.filter((x) => x !== otherId);
       updateDocument(id, { relatedDocumentIds: next.length ? next : undefined });
+      actionText = `Unlinked "${otherDoc?.fileName || otherId}"`;
     }
     if (isInbound && otherDoc) {
       const next = otherDoc.relatedDocumentIds!.filter((x) => x !== id);
       updateDocument(otherId, { relatedDocumentIds: next.length ? next : undefined });
+      actionText = `Removed inbound link from "${otherDoc.fileName}"`;
     }
     
     if (!isOutbound && !isInbound) {
       const next = [...(doc.relatedDocumentIds ?? []), otherId];
       updateDocument(id, { relatedDocumentIds: next });
+      actionText = `Linked to "${otherDoc?.fileName || otherId}"`;
+    }
+
+    if (actionText) {
+      addActivity({
+        action: "Connection updated",
+        by: "Admin",
+        documentId: id,
+        documentName: doc.fileName,
+        detail: actionText,
+      });
     }
   };
 
