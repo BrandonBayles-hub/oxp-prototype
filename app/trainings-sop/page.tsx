@@ -572,8 +572,8 @@ function TrainingsSopContent() {
 
   const uniqueActivityActions = useMemo(() => {
     const actions = new Set(activityLog.map((e) => e.action));
-    // Ensure 'Document rejected' is an option even if no activity currently exists for it
-    actions.add("Document rejected");
+    // Ensure standard actions are always available as filter options
+    ["Document rejected", "Connection updated", "Label added", "Label removed"].forEach(action => actions.add(action));
     return ["All", ...Array.from(actions).sort()];
   }, [activityLog]);
 
@@ -1214,29 +1214,92 @@ function TrainingsSopContent() {
             {filteredActivityLog.length === 0 ? (
               <p className="py-8 text-center text-sm text-muted-foreground">No activity matches your filters.</p>
             ) : (
-              <ul className="divide-y divide-border rounded-md border border-border">
-                {filteredActivityLog.slice(0, 50).map((entry) => (
-                  <li key={entry.id} className="flex items-start gap-3 px-4 py-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-medium text-foreground">{entry.action}</span>
-                        {entry.by && <span className="text-xs text-muted-foreground">by {entry.by}</span>}
-                        <span className="text-xs text-muted-foreground">
-                          {new Date(entry.at).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}
-                        </span>
-                      </div>
-                      {entry.documentName && (
-                        <p className="text-xs text-muted-foreground">
-                          {entry.documentId ? (
-                            <Link href={`/trainings-sop/${entry.documentId}`} className="text-primary hover:underline">{entry.documentName}</Link>
-                          ) : entry.documentName}
-                        </p>
-                      )}
-                      {entry.detail && <p className="text-xs text-muted-foreground">{entry.detail}</p>}
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              <div className="overflow-x-auto">
+                <table className="table-borderless w-full min-w-[800px]">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Action</th>
+                      <th>User</th>
+                      <th>Document</th>
+                      <th>Type</th>
+                      <th>Scope</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredActivityLog.slice(0, 50).map((entry) => {
+                      const doc = entry.documentId ? items.find(d => d.id === entry.documentId) : null;
+                      return (
+                        <tr key={entry.id} className="table-row-hover">
+                          <td className="whitespace-nowrap text-muted-foreground">
+                            {new Date(entry.at).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}
+                          </td>
+                          <td className="font-medium text-foreground">
+                            {entry.action}
+                            {entry.detail && (
+                              <span className="block text-[10px] font-normal text-muted-foreground mt-0.5">
+                                {entry.detail}
+                              </span>
+                            )}
+                          </td>
+                          <td className="text-muted-foreground">
+                            {entry.by ? (
+                              <div className="flex items-center gap-1.5">
+                                <Avatar className="h-5 w-5 text-[9px]">
+                                  <AvatarFallback className="bg-gray-300 text-gray-700 dark:bg-gray-600 dark:text-gray-200">
+                                    {entry.by.slice(0, 1).toUpperCase()}
+                                  </AvatarFallback>
+                                </Avatar>
+                                {entry.by}
+                              </div>
+                            ) : "—"}
+                          </td>
+                          <td className="max-w-[200px] truncate">
+                            {entry.documentName ? (
+                              entry.documentId ? (
+                                <Link href={`/trainings-sop/${entry.documentId}`} className="font-medium text-primary hover:underline">
+                                  {entry.documentName}
+                                </Link>
+                              ) : (
+                                <span className="font-medium">{entry.documentName}</span>
+                              )
+                            ) : "—"}
+                          </td>
+                          <td>
+                            {doc?.documentType ? (
+                              <span className="inline-flex rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">
+                                {doc.documentType}
+                              </span>
+                            ) : "—"}
+                          </td>
+                          <td className="text-muted-foreground">
+                            {doc ? (
+                              <div className="flex flex-col gap-1">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  {(!doc.scopeLevel || doc.scopeLevel === "company") && (
+                                    <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">Company</span>
+                                  )}
+                                  {doc.scopeLevel === "owner" && (
+                                    <span className="inline-flex rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-medium text-purple-800 dark:bg-purple-900/40 dark:text-purple-300">Owner</span>
+                                  )}
+                                  {doc.scopeLevel === "property" && (
+                                    <span className="inline-flex rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-medium text-orange-800 dark:bg-orange-900/40 dark:text-orange-300">Property</span>
+                                  )}
+                                </div>
+                                {(doc.scopeLevel === "owner" || doc.scopeLevel === "property") && (
+                                  <span className="text-[10px]">
+                                    {doc.scopeLevel === "owner" ? (doc.ownerId || "—") : (doc.property || "—")}
+                                  </span>
+                                )}
+                              </div>
+                            ) : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
           </section>
         </TabsContent>
