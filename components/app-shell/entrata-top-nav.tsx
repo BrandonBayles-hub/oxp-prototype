@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import {
   LayoutDashboard,
   Users,
@@ -21,6 +21,9 @@ import { useRole, ROLES, type Role } from "@/lib/role-context";
 import { useR1Demo } from "@/lib/r1-demo-context";
 import { useR1Release } from "@/lib/r1-release-context";
 import { useComingSoon } from "@/lib/coming-soon-context";
+import { useWorkforce } from "@/lib/workforce-context";
+import { useEscalations } from "@/lib/escalations-context";
+import { useConversations } from "@/lib/conversations-context";
 
 const NAV_ITEMS = [
   { label: "OXP", active: true },
@@ -41,6 +44,23 @@ export function EntrataTopNav() {
   const { isR1Release, toggleR1Release } = useR1Release();
   const { isR1Preview, toggleR1Preview } = useR1Demo();
   const { isComingSoonEnabled, toggleComingSoon } = useComingSoon();
+  const { getCurrentUser } = useWorkforce();
+  const { items: escalations } = useEscalations();
+  const { items: conversations } = useConversations();
+
+  const currentUser = useMemo(() => getCurrentUser(role), [getCurrentUser, role]);
+
+  const hasOXPAlerts = useMemo(() => {
+    if (!currentUser) return false;
+    const hasAssignedEscalation = escalations.some(
+      (e) => e.assignee === currentUser.name && e.status !== "Done"
+    );
+    const hasAssignedConversation = conversations.some(
+      (c) => c.assignee === currentUser.name && c.status === "open"
+    );
+    return hasAssignedEscalation || hasAssignedConversation;
+  }, [currentUser, escalations, conversations]);
+
   const [demoOpen, setDemoOpen] = useState(false);
   const demoRef = useRef<HTMLDivElement>(null);
 
@@ -356,6 +376,9 @@ export function EntrataTopNav() {
               )}
               {Icon && <Icon style={{ width: 13, height: 13, strokeWidth: 1.5 }} />}
               {item.label}
+              {item.label === "OXP" && hasOXPAlerts && (
+                <div className="ml-0.5 h-1.5 w-1.5 rounded-full bg-red-500" />
+              )}
             </button>
           );
         })}
