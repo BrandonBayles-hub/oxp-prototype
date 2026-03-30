@@ -37,6 +37,7 @@ import {
 import type { PlaybookTemplateTask, PlaybookTemplatePriority } from "@/lib/playbook-templates-data";
 import { useWorkforce } from "@/lib/workforce-context";
 import { cn } from "@/lib/utils";
+import { PropertySelector } from "@/components/property-selector";
 
 // ── Shared cadence types ────────────────────────────────────────────────────
 
@@ -53,6 +54,9 @@ const CADENCE_OPTIONS: { value: SpecialtyTaskRepeats; label: string }[] = [
   { value: "Daily", label: "Daily" },
   { value: "Weekly", label: "Weekly" },
   { value: "Monthly", label: "Monthly" },
+  { value: "Quarterly", label: "Quarterly" },
+  { value: "Semi-Annually", label: "Semi-Annually" },
+  { value: "Annually", label: "Annually" },
 ];
 
 const CUSTOM_WORKFLOWS = [
@@ -87,6 +91,12 @@ type CreateCustomTaskDialogProps = {
   hideSpecialtyWorkflow?: boolean;
   /** When provided, the dialog opens in edit mode with fields pre-filled */
   initialData?: SpecialtyTask | TaskTemplate | PlaybookTemplateTask | null;
+  /** Optional custom title to override default Create/Edit title */
+  title?: string;
+  /** If true, allows choosing an absolute date for non-repeating tasks instead of relative 'Due In' */
+  allowAbsoluteDate?: boolean;
+  /** Custom text for the save button */
+  saveButtonText?: string;
 } & (
   | { mode: "template"; onSave: (task: TaskTemplate) => void }
   | { mode: "specialty"; onSave: (task: SpecialtyTask) => void }
@@ -115,6 +125,7 @@ export function CreateCustomTaskDialog(props: CreateCustomTaskDialogProps) {
   const [dueUnit, setDueUnit] = useState("Day(s)");
   const [assignee, setAssignee] = useState("");
   const [property, setProperty] = useState("");
+  const [absoluteDate, setAbsoluteDate] = useState("");
   const [sections, setSections] = useState<TaskSections>({ ...DEFAULT_SECTIONS, checklist: { ...DEFAULT_SECTIONS.checklist, items: [] } });
   const [newChecklistItem, setNewChecklistItem] = useState("");
 
@@ -142,20 +153,31 @@ export function CreateCustomTaskDialog(props: CreateCustomTaskDialogProps) {
       timezone: ("timezone" in initialData && initialData.timezone) ? initialData.timezone : "America/Denver",
     });
     setPriority(initialData.priority ?? "P2");
-    // Parse dueIn/dueOffset string like "1 Day" or "2 Weeks" back into value + unit
+    // Parse dueIn/dueOffset string like "1 Day" or "2 Weeks" back into value + unit, or handle absolute date
     const dueInStr = ("dueIn" in initialData ? initialData.dueIn : undefined)
       ?? ("dueOffset" in initialData ? initialData.dueOffset : undefined)
       ?? "1 Day";
-    const dueMatch = dueInStr.match(/^(\d+)\s*(.+)/);
-    if (dueMatch) {
-      setDueValue(dueMatch[1]);
-      const raw = dueMatch[2].toLowerCase().replace(/s$/, "");
-      if (raw.startsWith("hour")) setDueUnit("Hour(s)");
-      else if (raw.startsWith("week")) setDueUnit("Week(s)");
-      else setDueUnit("Day(s)");
-    } else {
+    
+    // Note: Due to React strict mode / lifecycle, we want to try to use the current repeats/cadence
+    // when setting the absolute date so we aren't un-checking it if there's a delay.
+    const isAbsolute = props.allowAbsoluteDate && !!dueInStr.match(/^\d{4}-\d{2}-\d{2}$/);
+    if (isAbsolute) {
+      setAbsoluteDate(dueInStr);
       setDueValue("1");
       setDueUnit("Day(s)");
+    } else {
+      setAbsoluteDate("");
+      const dueMatch = dueInStr.match(/^(\d+)\s*(.+)/);
+      if (dueMatch) {
+        setDueValue(dueMatch[1]);
+        const raw = dueMatch[2].toLowerCase().replace(/s$/, "");
+        if (raw.startsWith("hour")) setDueUnit("Hour(s)");
+        else if (raw.startsWith("week")) setDueUnit("Week(s)");
+        else setDueUnit("Day(s)");
+      } else {
+        setDueValue("1");
+        setDueUnit("Day(s)");
+      }
     }
     setAssignee("assignee" in initialData ? (initialData.assignee ?? "") : "");
     setProperty("property" in initialData ? (initialData.property ?? "") : "");
@@ -165,6 +187,12 @@ export function CreateCustomTaskDialog(props: CreateCustomTaskDialogProps) {
       setSections({ links: { enabled: false, required: false }, attachments: { enabled: false, required: false }, checklist: { enabled: false, requireAll: false, items: [] } });
     }
     setNewChecklistItem("");
+    
+    // Explicitly set absoluteDate if a nextReviewDate was passed in via dueIn
+    if (props.allowAbsoluteDate && isAbsolute) {
+      setAbsoluteDate(dueInStr);
+    }
+    
     setEditorKey((k) => k + 1);
   }
 
@@ -177,6 +205,7 @@ export function CreateCustomTaskDialog(props: CreateCustomTaskDialogProps) {
     setPriority("P2");
     setDueValue("1");
     setDueUnit("Day(s)");
+    setAbsoluteDate("");
     setAssignee("");
     setProperty("");
     setSections({ links: { enabled: false, required: false }, attachments: { enabled: false, required: false }, checklist: { enabled: false, requireAll: false, items: [] } });
@@ -185,7 +214,9 @@ export function CreateCustomTaskDialog(props: CreateCustomTaskDialogProps) {
     setEditorKey((k) => k + 1);
   };
 
-  const dueIn = `${dueValue} ${dueUnit.replace("(s)", dueValue === "1" ? "" : "s")}`;
+  const dueIn = props.allowAbsoluteDate && schedule.cadence === "Never"
+    ? (absoluteDate || new Date().toISOString().split("T")[0])
+    : `${dueValue} ${dueUnit.replace("(s)", dueValue === "1" ? "" : "s")}`;
 
   const buildSchedulingFields = () => {
     if (schedule.cadence === "Never") return {};
@@ -287,7 +318,7 @@ export function CreateCustomTaskDialog(props: CreateCustomTaskDialogProps) {
     <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v); }}>
       <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle>{isEditing ? "Edit Custom Task" : "Create Custom Task"}</DialogTitle>
+          <DialogTitle>{props.title || (isEditing ? "Edit Custom Task" : "Create Custom Task")}</DialogTitle>
           <DialogDescription>
             {isEditing
               ? "Update the task details, sections, and assignment info."
@@ -446,28 +477,37 @@ export function CreateCustomTaskDialog(props: CreateCustomTaskDialogProps) {
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <label className={labelClass}>Due Date</label>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground">Within</span>
+                  <label className={labelClass}>Due {props.allowAbsoluteDate && schedule.cadence === "Never" ? "Date" : "In"}</label>
+                  {props.allowAbsoluteDate && schedule.cadence === "Never" ? (
                     <input
-                      type="number"
-                      min={1}
-                      max={999}
-                      value={dueValue}
-                      onChange={(e) => setDueValue(e.target.value)}
-                      className="h-9 w-16 rounded-md border border-input bg-background px-2 text-center text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                      type="date"
+                      value={absoluteDate}
+                      onChange={(e) => setAbsoluteDate(e.target.value)}
+                      className={inputClass}
                     />
-                    <Select value={dueUnit} onValueChange={setDueUnit}>
-                      <SelectTrigger className="h-9 w-28 text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {DUE_UNITS.map((u) => (
-                          <SelectItem key={u} value={u} className="text-sm">{u}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-muted-foreground">Within</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={999}
+                        value={dueValue}
+                        onChange={(e) => setDueValue(e.target.value)}
+                        className="h-9 w-16 rounded-md border border-input bg-background px-2 text-center text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                      <Select value={dueUnit} onValueChange={setDueUnit}>
+                        <SelectTrigger className="h-9 w-28 text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {DUE_UNITS.map((u) => (
+                            <SelectItem key={u} value={u} className="text-sm">{u}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
@@ -651,17 +691,24 @@ export function CreateCustomTaskDialog(props: CreateCustomTaskDialogProps) {
             </p>
 
             <div className="space-y-3">
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 relative z-[150]">
                 <label className={labelClass}>Property</label>
-                <Select value={property || "__none__"} onValueChange={(v) => setProperty(v === "__none__" ? "" : v)}>
+                <Select value={property || "__none__"} onValueChange={(v) => {
+                  // Property is updated inside the PropertySelector component, this is just for the controlled root Select
+                  if (v === "__none__") setProperty("");
+                }}>
                   <SelectTrigger className="h-9 text-sm">
-                    <SelectValue placeholder="Select Property" />
+                    <SelectValue placeholder="Select Property">
+                      {property || "Select Property"}
+                    </SelectValue>
                   </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__" className="text-sm">Select Property</SelectItem>
-                    {PROPERTIES.map((p) => (
-                      <SelectItem key={p} value={p} className="text-sm">{p}</SelectItem>
-                    ))}
+                  <SelectContent className="w-[300px] p-0 z-[200]" align="start">
+                    <PropertySelector
+                      selectedProperties={property ? [property] : []}
+                      onChange={(selected) => setProperty(Array.from(selected)[0] || "")}
+                      singleSelection={true}
+                      className="w-full border-0 shadow-none rounded-none max-h-[300px]"
+                    />
                   </SelectContent>
                 </Select>
               </div>
@@ -721,7 +768,7 @@ export function CreateCustomTaskDialog(props: CreateCustomTaskDialogProps) {
             Cancel
           </Button>
           <Button size="sm" disabled={!name.trim()} onClick={handleSave}>
-            {isEditing ? "Save Changes" : "Create Task"}
+            {props.saveButtonText || (isEditing ? "Save Changes" : "Create Task")}
           </Button>
         </DialogFooter>
       </DialogContent>

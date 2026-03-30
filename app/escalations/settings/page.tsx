@@ -1269,8 +1269,8 @@ type FromDocStep = "select" | "generating" | "tasks" | "metadata";
 function approvalBadgeClass(status: string) {
   switch (status) {
     case "approved": return "bg-[#B3FFCC] text-black border-transparent dark:bg-emerald-900/40 dark:text-emerald-300";
-    case "review": return "bg-amber-400 text-amber-950 border-transparent dark:bg-amber-900/40 dark:text-amber-300";
-    case "needs_review": return "bg-red-500 text-white border-transparent dark:bg-red-900/40 dark:text-red-300";
+    case "review": 
+    case "needs_review": return "bg-amber-400 text-amber-950 border-transparent dark:bg-amber-900/40 dark:text-amber-300";
     default: return "";
   }
 }

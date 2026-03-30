@@ -36,7 +36,7 @@ export type TaskTemplate = {
   sections?: TaskSections;
 };
 
-export type SpecialtyTaskRepeats = "Never" | "Daily" | "Weekly" | "Monthly";
+export type SpecialtyTaskRepeats = "Never" | "Daily" | "Weekly" | "Monthly" | "Quarterly" | "Semi-Annually" | "Annually";
 export type SpecialtyTaskPriority = "P1" | "P2" | "P3";
 
 export type Weekday = "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun";

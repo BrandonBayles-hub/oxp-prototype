@@ -26,6 +26,7 @@ import {
   Upload,
   ChevronDown,
   Link2,
+  CalendarDays,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import {
@@ -64,6 +65,7 @@ import { PropertySelector } from "@/components/property-selector";
 import { getSelectedPropertyNames, getDataForView } from "@/lib/property-selector-data";
 import { ViewerAccessCombobox } from "@/components/viewer-access-combobox";
 import { RemovableMetadataChip } from "@/components/removable-metadata-chip";
+import { CreateCustomTaskDialog } from "@/components/create-custom-task-dialog";
 
 const RichTextEditor = dynamic(
   () => import("@/components/rich-text-editor").then((m) => ({ default: m.RichTextEditor })),
@@ -405,6 +407,7 @@ export function TrainingsSopDetailClient() {
   const [propertiesExpanded, setPropertiesExpanded] = useState(false);
   const [workforceExpanded, setWorkforceExpanded] = useState(false);
   const [reviewDateEdit, setReviewDateEdit] = useState("");
+  const [showReviewTaskDialog, setShowReviewTaskDialog] = useState(false);
 
   const [inlineBody, setInlineBody] = useState<string | null>(null);
   const [submitDialogOpen, setSubmitDialogOpen] = useState(false);
@@ -524,9 +527,13 @@ export function TrainingsSopDetailClient() {
   const fitScale = viewerContainerWidth > 0 ? Math.min(1, viewerContainerWidth / PAPER_WIDTH_PX) : 0.7;
   const effectiveScale = fitScale * (viewerZoom / 100);
 
-  // When doc is SOP in review but no approval escalation exists (e.g. submitted from list), create one so the approval card always has full details and sheet.
+  // When doc is in review but no open approval escalation exists (e.g. submitted from list, or non-SOP type), create one so the approval card and sheet stay available for every document type.
   useEffect(() => {
-    if (!id || !doc || doc.documentType !== "sop" || doc.approvalStatus !== "review") return;
+    if (!id || !doc) return;
+    if (doc.approvalStatus !== "review") {
+      createdApprovalEscalationForDocRef.current = null;
+      return;
+    }
     const hasEscalation = escalationItems.some(
       (e) =>
         e.type === "approval" &&
@@ -535,11 +542,12 @@ export function TrainingsSopDetailClient() {
     );
     if (hasEscalation || createdApprovalEscalationForDocRef.current === id) return;
     createdApprovalEscalationForDocRef.current = id;
+    const category = doc.documentType === "sop" ? "Compliance" : "Leasing";
     addEscalation({
       type: "approval",
       name: `Document review: ${doc.fileName}`,
       summary: "Document submitted for approval.",
-      category: "Compliance",
+      category,
       property: doc.property,
       status: "Open",
       assignee: "",
@@ -1291,12 +1299,12 @@ export function TrainingsSopDetailClient() {
                     className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
                       doc.approvalStatus === "approved"
                         ? "bg-[#B3FFCC] text-black dark:bg-emerald-900/40 dark:text-emerald-300"
-                        : doc.approvalStatus === "review"
+                        : doc.approvalStatus === "review" || doc.approvalStatus === "needs_review"
                           ? "bg-amber-400 text-amber-950 dark:bg-amber-900/40 dark:text-amber-300"
                           : "bg-muted text-muted-foreground"
                     }`}
                   >
-                    {doc.approvalStatus}
+                    {doc.approvalStatus === "needs_review" ? "Needs review" : doc.approvalStatus}
                   </span>
                   <Button
                     variant="outline"
@@ -1309,7 +1317,7 @@ export function TrainingsSopDetailClient() {
                   </Button>
                 </div>
               </div>
-              {doc.documentType === "sop" && approvalEscalations.length > 0 && (
+              {approvalEscalations.length > 0 && (
                 <div className="space-y-2">
                   {approvalEscalations.map((esc) => (
                     <div
@@ -1362,18 +1370,39 @@ export function TrainingsSopDetailClient() {
               )}
               <div>
                 <span className="text-muted-foreground">Next review date</span>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <input
-                    type="date"
-                    value={reviewDateEdit || doc.nextReviewDate || ""}
-                    onChange={(e) => {
-                      setReviewDateEdit(e.target.value);
-                      updateDocument(id, { nextReviewDate: e.target.value || undefined });
-                    }}
-                    className="block rounded-md border border-input bg-background px-2 py-1 text-sm font-medium"
-                  />
-                  {doc.nextReviewDate && new Date(doc.nextReviewDate) <= new Date() && (
-                    <span className="text-xs font-medium text-red-600">Overdue</span>
+                <div className="mt-1">
+                  {doc.nextReviewDate ? (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowReviewTaskDialog(true)}
+                        className="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted focus:outline-none focus:ring-1 focus:ring-ring"
+                        title="Click to edit review date"
+                      >
+                        <CalendarDays className="h-4 w-4 opacity-70" />
+                        {doc.nextReviewDate}
+                      </button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => updateDocument(id, { nextReviewDate: "" })}
+                        aria-label="Clear review date"
+                        title="Clear review date"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 gap-1.5"
+                      onClick={() => setShowReviewTaskDialog(true)}
+                    >
+                      <CalendarDays className="h-3.5 w-3.5 opacity-70" />
+                      Schedule Review
+                    </Button>
                   )}
                 </div>
               </div>
@@ -1956,6 +1985,52 @@ export function TrainingsSopDetailClient() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+
+      <CreateCustomTaskDialog
+        open={showReviewTaskDialog}
+        onOpenChange={setShowReviewTaskDialog}
+        mode="specialty"
+        title="Schedule Review"
+        allowAbsoluteDate
+        saveButtonText="Schedule Review"
+        initialData={{
+          id: `review-${doc?.id}`,
+          name: `Review: ${doc?.fileName || "Document"}`,
+          description: `Scheduled review for ${doc?.documentType?.toUpperCase() || "document"}.`,
+          workflow: "Trainings & SOP",
+          source: "custom",
+          repeats: "Never",
+          priority: "P2",
+          assignee: "",
+          property: doc?.property || "Portfolio",
+          dueIn: doc?.nextReviewDate || new Date().toISOString().split("T")[0],
+        } as any}
+        onSave={(task) => {
+          console.log("Scheduled review task:", task);
+          let nextDateStr = task.dueIn;
+          
+          // If task.dueIn isn't an absolute date (e.g. they chose to repeat Monthly), fallback to calculating an offset
+          if (!nextDateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            const nextDate = new Date();
+            if (task.repeats === "Monthly") {
+               nextDate.setMonth(nextDate.getMonth() + 1);
+            } else if (task.repeats === "Quarterly") {
+               nextDate.setMonth(nextDate.getMonth() + 3);
+            } else if (task.repeats === "Semi-Annually") {
+               nextDate.setMonth(nextDate.getMonth() + 6);
+            } else if (task.repeats === "Annually") {
+               nextDate.setFullYear(nextDate.getFullYear() + 1);
+            } else {
+               nextDate.setMonth(nextDate.getMonth() + 6);
+            }
+            nextDateStr = nextDate.toISOString().split("T")[0];
+          }
+
+          updateDocument(id, { nextReviewDate: nextDateStr });
+          setShowReviewTaskDialog(false);
+        }}
+      />
 
       <EscalationDetailSheet
         item={activeApprovalEscalation}
