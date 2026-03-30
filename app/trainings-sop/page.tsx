@@ -1086,11 +1086,9 @@ function TrainingsSopContent() {
                         <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
                           row.approvalStatus === "approved"
                             ? "bg-[#B3FFCC] text-black dark:bg-emerald-900/40 dark:text-emerald-300"
-                            : row.approvalStatus === "review"
+                            : row.approvalStatus === "review" || row.approvalStatus === "needs_review"
                               ? "bg-amber-400 text-amber-950 dark:bg-amber-900/40 dark:text-amber-300"
-                              : row.approvalStatus === "needs_review"
-                                ? "bg-red-500 text-white dark:bg-red-900/40 dark:text-red-300"
-                                : "bg-muted text-muted-foreground"
+                              : "bg-muted text-muted-foreground"
                         }`}>{row.approvalStatus === "needs_review" ? "Needs review" : row.approvalStatus}</span>
                       ) : "—"}
                     </td>
@@ -1636,7 +1634,7 @@ function ComplianceSelectDocumentModal({
                   <td className="font-medium text-foreground"><span className="inline-flex items-center gap-1.5"><FileText className="h-4 w-4 shrink-0 text-muted-foreground" />{row.fileName}</span></td>
                   <td className="capitalize text-muted-foreground">{row.documentType}</td>
                   <td className="text-muted-foreground">{row.property}</td>
-                  <td><span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${row.approvalStatus === "approved" ? "bg-[#B3FFCC] text-black" : row.approvalStatus === "review" ? "bg-amber-400 text-amber-950" : row.approvalStatus === "needs_review" ? "bg-red-500 text-white" : "bg-muted text-muted-foreground"}`}>{row.approvalStatus === "needs_review" ? "Needs review" : row.approvalStatus}</span></td>
+                  <td><span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${row.approvalStatus === "approved" ? "bg-[#B3FFCC] text-black" : row.approvalStatus === "review" || row.approvalStatus === "needs_review" ? "bg-amber-400 text-amber-950" : "bg-muted text-muted-foreground"}`}>{row.approvalStatus === "needs_review" ? "Needs review" : row.approvalStatus}</span></td>
                   <td className="text-muted-foreground">{row.modified}</td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <Button variant="secondary" size="sm" className="h-7 bg-white border border-border hover:bg-muted/80" onClick={() => onSelect(row.id)}>

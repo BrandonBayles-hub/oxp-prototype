@@ -343,10 +343,10 @@ export function PropertySelector({ className, selected: externalSelected, onSele
 
         {/* View mode selector */}
         <Select value={viewMode} onValueChange={handleViewChange}>
-          <SelectTrigger className="h-9 text-xs font-medium">
+          <SelectTrigger className="h-9 text-xs font-medium bg-background relative z-10">
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className="z-[200]">
             {PROPERTY_VIEW_MODES.map((mode) => (
               <SelectItem key={mode} value={mode} className="text-xs">
                 {mode}
