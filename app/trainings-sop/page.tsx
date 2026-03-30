@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   FileText, FilePlus, FolderOpen, FolderPlus, Pencil, Send, CheckCircle, Upload, Building2,
-  Search, Clock, AlertTriangle, ChevronRight, X, CornerDownRight, BookOpen, Plus, MoreHorizontal, MoreVertical, Trash2, Link2, Blocks,
+  Search, Clock, AlertTriangle, ChevronRight, X, CornerDownRight, BookOpen, Plus, MoreHorizontal, MoreVertical, Trash2, Link2, Blocks, Download
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import {
@@ -159,6 +159,9 @@ function TrainingsSopContent() {
 
   const [activeTab, setActiveTab] = useState<"compliance" | "library" | "activity">("library");
   const [search, setSearch] = useState("");
+  const [activitySearch, setActivitySearch] = useState("");
+  const [activityActionFilter, setActivityActionFilter] = useState("All");
+  const [activityDateFilter, setActivityDateFilter] = useState("All Time");
   const [docTypeFilter, setDocTypeFilter] = useState<string>("All");
   const [approvalFilter, setApprovalFilter] = useState<string>("All");
   const [propertyFilter, setPropertyFilter] = useState("All");
@@ -532,6 +535,72 @@ function TrainingsSopContent() {
     () => fileDocuments.filter((d) => d.approvalStatus === "needs_review"),
     [fileDocuments]
   );
+
+  // Derived state for activity log
+  const filteredActivityLog = useMemo(() => {
+    const now = new Date();
+    return activityLog.filter((entry) => {
+      // Action filter
+      if (activityActionFilter !== "All" && entry.action !== activityActionFilter) return false;
+      
+      // Date filter
+      if (activityDateFilter !== "All Time") {
+        const entryDate = new Date(entry.at);
+        const diffTime = Math.abs(now.getTime() - entryDate.getTime());
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        
+        if (activityDateFilter === "Last 7 Days" && diffDays > 7) return false;
+        if (activityDateFilter === "Last 30 Days" && diffDays > 30) return false;
+        if (activityDateFilter === "Last 90 Days" && diffDays > 90) return false;
+      }
+
+      // Search filter
+      if (activitySearch) {
+        const term = activitySearch.toLowerCase();
+        if (
+          !entry.action.toLowerCase().includes(term) &&
+          !entry.by?.toLowerCase().includes(term) &&
+          !entry.documentName?.toLowerCase().includes(term) &&
+          !entry.detail?.toLowerCase().includes(term)
+        ) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [activityLog, activitySearch, activityActionFilter, activityDateFilter]);
+
+  const uniqueActivityActions = useMemo(() => {
+    const actions = new Set(activityLog.map((e) => e.action));
+    // Ensure 'Document rejected' is an option even if no activity currently exists for it
+    actions.add("Document rejected");
+    return ["All", ...Array.from(actions).sort()];
+  }, [activityLog]);
+
+  const handleExportCsv = () => {
+    const headers = ["Date", "Action", "Performed By", "Document", "Details"];
+    const rows = filteredActivityLog.map(entry => [
+      new Date(entry.at).toLocaleString(),
+      entry.action,
+      entry.by || "",
+      entry.documentName || "",
+      entry.detail || ""
+    ]);
+    
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `activity_feed_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   return (
     <>
@@ -1093,19 +1162,61 @@ function TrainingsSopContent() {
         </TabsContent>
 
         {/* ── ACTIVITY TAB ── */}
-        <TabsContent value="activity" className="mt-0">
+        <TabsContent value="activity" className="mt-6">
           <section>
-            <h2 className="section-title mb-1">Activity feed</h2>
-            <p className="mb-4 text-sm text-muted-foreground">
-              Recent actions across your document vault — uploads, approvals, training, and more.
-            </p>
-            {activityLog.length === 0 ? (
-              <p className="py-8 text-center text-sm text-muted-foreground">No activity yet. Actions like uploads, approvals, and training will appear here.</p>
+            <div className="mb-6">
+              <h2 className="section-title mb-1">Activity feed</h2>
+              <p className="text-sm text-muted-foreground">
+                Recent actions across your document vault — uploads, approvals, training, and more.
+              </p>
+            </div>
+            
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <input
+                  type="search"
+                  placeholder="Search activity..."
+                  value={activitySearch}
+                  onChange={(e) => setActivitySearch(e.target.value)}
+                  className="input-base w-64 min-w-[12rem]"
+                />
+                <select
+                  value={activityActionFilter}
+                  onChange={(e) => setActivityActionFilter(e.target.value)}
+                  className="select-base w-auto min-w-[8rem]"
+                >
+                  {uniqueActivityActions.map((action) => (
+                    <option key={action} value={action}>
+                      {action === "All" ? "Action: All" : action}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={activityDateFilter}
+                  onChange={(e) => setActivityDateFilter(e.target.value)}
+                  className="select-base w-auto min-w-[8rem]"
+                >
+                  {["All Time", "Last 7 Days", "Last 30 Days", "Last 90 Days"].map((range) => (
+                    <option key={range} value={range}>
+                      {range}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={handleExportCsv} className="h-9 shrink-0">
+                  <Download className="mr-2 h-4 w-4" />
+                  Export CSV
+                </Button>
+              </div>
+            </div>
+
+            {filteredActivityLog.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">No activity matches your filters.</p>
             ) : (
               <ul className="divide-y divide-border rounded-md border border-border">
-                {activityLog.slice(0, 50).map((entry) => (
+                {filteredActivityLog.slice(0, 50).map((entry) => (
                   <li key={entry.id} className="flex items-start gap-3 px-4 py-3">
-                    <Activity className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm font-medium text-foreground">{entry.action}</span>

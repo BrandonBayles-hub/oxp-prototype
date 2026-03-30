@@ -175,9 +175,9 @@
   }
   /* Section headings: minimal, use Shadcn typography */
   .section-title {
-    @apply text-sm font-semibold leading-none tracking-tight text-foreground;
+    @apply text-lg font-semibold leading-none tracking-tight text-foreground;
   }
   .section-title-muted {
-    @apply text-sm font-semibold leading-none tracking-tight text-muted-foreground;
+    @apply text-lg font-semibold leading-none tracking-tight text-muted-foreground;
   }
 }
