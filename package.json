@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --hostname 127.0.0.1",
-    "dev:clean": "rm -rf .next && next dev --hostname 127.0.0.1",
-    "dev:fresh": "lsof -ti:3000 | xargs kill -9 2>/dev/null; rm -rf .next && next dev --hostname 127.0.0.1",
+    "dev": "ulimit -n 65536 && next dev --hostname 127.0.0.1",
+    "dev:clean": "ulimit -n 65536 && rm -rf .next && next dev --hostname 127.0.0.1",
+    "dev:fresh": "ulimit -n 65536 && lsof -ti:3000 | xargs kill -9 2>/dev/null; rm -rf .next && next dev --hostname 127.0.0.1",
     "build": "next build && rm -rf dist && cp -r out dist",
     "start": "next start",
     "lint": "next lint",

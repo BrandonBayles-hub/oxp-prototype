@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import {
   LayoutDashboard,
   Users,
@@ -21,6 +21,9 @@ import { useRole, ROLES, type Role } from "@/lib/role-context";
 import { useR1Demo } from "@/lib/r1-demo-context";
 import { useR1Release } from "@/lib/r1-release-context";
 import { useComingSoon } from "@/lib/coming-soon-context";
+import { useWorkforce } from "@/lib/workforce-context";
+import { useEscalations } from "@/lib/escalations-context";
+import { useConversations } from "@/lib/conversations-context";
 
 const NAV_ITEMS = [
   { label: "OXP", active: true },
@@ -41,6 +44,23 @@ export function EntrataTopNav() {
   const { isR1Release, toggleR1Release } = useR1Release();
   const { isR1Preview, toggleR1Preview } = useR1Demo();
   const { isComingSoonEnabled, toggleComingSoon } = useComingSoon();
+  const { getCurrentUser } = useWorkforce();
+  const { items: escalations } = useEscalations();
+  const { items: conversations } = useConversations();
+
+  const currentUser = useMemo(() => getCurrentUser(role), [getCurrentUser, role]);
+
+  const hasOXPAlerts = useMemo(() => {
+    if (!currentUser) return false;
+    const hasAssignedEscalation = escalations.some(
+      (e) => e.assignee === currentUser.name && e.status !== "Done"
+    );
+    const hasAssignedConversation = conversations.some(
+      (c) => c.assignee === currentUser.name && c.status === "open"
+    );
+    return hasAssignedEscalation || hasAssignedConversation;
+  }, [currentUser, escalations, conversations]);
+
   const [demoOpen, setDemoOpen] = useState(false);
   const demoRef = useRef<HTMLDivElement>(null);
 
@@ -329,7 +349,7 @@ export function EntrataTopNav() {
             <button
               key={`${item.label}-${i}`}
               type="button"
-              className="flex items-center gap-1 whitespace-nowrap rounded-sm"
+              className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-sm"
               style={{
                 height: 26,
                 padding: "0 10px",
@@ -348,14 +368,17 @@ export function EntrataTopNav() {
               }}
             >
               {("active" in item && item.active) && (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ marginRight: 2 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                   <path d="m3.3 7 8.7 5 8.7-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                   <path d="M12 22V12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               )}
-              {Icon && <Icon style={{ width: 13, height: 13, strokeWidth: 1.5 }} />}
-              {item.label}
+              {Icon && <Icon style={{ width: 14, height: 14, strokeWidth: 1.5 }} />}
+              <span style={{ lineHeight: 1, marginTop: 1 }}>{item.label}</span>
+              {item.label === "OXP" && hasOXPAlerts && (
+                <div className="ml-0.5 h-1.5 w-1.5 rounded-full bg-red-500" style={{ marginTop: 1 }} />
+              )}
             </button>
           );
         })}
