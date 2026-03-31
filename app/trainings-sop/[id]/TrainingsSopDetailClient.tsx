@@ -35,8 +35,8 @@ import {
   SUGGESTED_PROPERTY_TAGS,
   SUGGESTED_SUBJECT_TAGS,
   DEFAULT_VIEWER_ACCESS,
+  approvalStatusDisplayLabel,
   type VaultItem,
-  type VaultDocumentType,
   type DocumentHistoryEntry,
   type DocumentVersion,
   type AgentTrainingStatus,
@@ -283,7 +283,6 @@ function RelatedDocLinkDialog({
     return linkable.filter(
       (d) =>
         d.fileName.toLowerCase().includes(q) ||
-        d.documentType.toLowerCase().includes(q) ||
         (d.property?.toLowerCase().includes(q) ?? false)
     );
   }, [linkable, search]);
@@ -303,7 +302,7 @@ function RelatedDocLinkDialog({
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search files or types..."
+            placeholder="Search files..."
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
             autoFocus
           />
@@ -323,10 +322,9 @@ function RelatedDocLinkDialog({
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <p className="truncate text-sm font-medium text-foreground">{d.fileName}</p>
-                        <Badge variant="secondary" className="text-[10px] capitalize">{d.documentType}</Badge>
                       </div>
                       <p className="truncate text-xs text-muted-foreground">
-                        {d.property} · {d.approvalStatus}
+                        {d.property} · {approvalStatusDisplayLabel(d.approvalStatus)}
                       </p>
                     </div>
                   </div>
@@ -1174,20 +1172,6 @@ export function TrainingsSopDetailClient() {
                 />
               </div>
               <div>
-                <label className="text-muted-foreground">Type</label>
-                <select
-                  value={doc.documentType}
-                  onChange={(e) => updateDocument(id, { documentType: e.target.value as VaultDocumentType })}
-                  className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium capitalize"
-                  aria-label="Document type"
-                >
-                  <option value="sop">SOP</option>
-                  <option value="policy">Policy</option>
-                  <option value="lease">Lease</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-              <div>
                 <label className="text-muted-foreground">Scope</label>
                 <select
                   value={doc.scopeLevel || "company"}
@@ -1212,18 +1196,6 @@ export function TrainingsSopDetailClient() {
                     <option value="Capital Group">Capital Group</option>
                   </select>
                 )}
-                <div className="mt-2 flex items-center gap-2">
-                  <input 
-                    type="checkbox" 
-                    id="internalOnlyDetails" 
-                    checked={doc.isInternalOnly ?? false} 
-                    onChange={(e) => updateDocument(id, { isInternalOnly: e.target.checked })} 
-                    className="h-4 w-4 rounded border-border" 
-                  />
-                  <label htmlFor="internalOnlyDetails" className="text-xs font-medium text-foreground">
-                    Internal Only
-                  </label>
-                </div>
               </div>
               {(!doc.scopeLevel || doc.scopeLevel === "property") && (
                 <div>
@@ -1304,7 +1276,7 @@ export function TrainingsSopDetailClient() {
                           : "bg-muted text-muted-foreground"
                     }`}
                   >
-                    {doc.approvalStatus === "needs_review" ? "Needs review" : doc.approvalStatus}
+                    {approvalStatusDisplayLabel(doc.approvalStatus)}
                   </span>
                   <Button
                     variant="outline"
@@ -1355,19 +1327,15 @@ export function TrainingsSopDetailClient() {
                   ))}
                 </div>
               )}
-              {doc.documentType === "sop" && (
-                <>
-                  <div className="flex items-center justify-between">
-                    <div><span className="text-muted-foreground">Version</span><p className="font-medium">{doc.version ?? "1.0"}</p></div>
-                    {(doc.versions?.length ?? 0) > 0 && (
-                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setVersionsDialogOpen(true)}>
-                        View history ({doc.versions!.length})
-                      </Button>
-                    )}
-                  </div>
-                  <div><span className="text-muted-foreground">Effective date</span><p className="font-medium">{doc.effectiveDate ?? "—"}</p></div>
-                </>
-              )}
+              <div className="flex items-center justify-between">
+                <div><span className="text-muted-foreground">Version</span><p className="font-medium">{doc.version ?? "1.0"}</p></div>
+                {(doc.versions?.length ?? 0) > 0 && (
+                  <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setVersionsDialogOpen(true)}>
+                    View history ({doc.versions!.length})
+                  </Button>
+                )}
+              </div>
+              <div><span className="text-muted-foreground">Effective date</span><p className="font-medium">{doc.effectiveDate ?? "—"}</p></div>
               <div>
                 <span className="text-muted-foreground">Next review date</span>
                 <div className="mt-1">
@@ -1454,9 +1422,6 @@ export function TrainingsSopDetailClient() {
                               </Link>
                             ) : (
                               <span className="truncate text-sm text-muted-foreground italic">Removed or missing document</span>
-                            )}
-                            {rd && (
-                              <span className="shrink-0 text-[10px] capitalize text-muted-foreground">{rd.documentType}</span>
                             )}
                           </div>
                           {canEdit && (
@@ -1825,9 +1790,6 @@ export function TrainingsSopDetailClient() {
                                 {displayTitle || "Untitled"}
                               </h2>
                               <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                                <span className="inline-flex items-center gap-1 capitalize">
-                                  <FileText className="h-3 w-3" />{doc.documentType}
-                                </span>
                                 <span>{doc.property}</span>
                                 {doc.version && <span>v{doc.version}</span>}
                                 <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" />{doc.modified}</span>
@@ -1997,7 +1959,7 @@ export function TrainingsSopDetailClient() {
         initialData={{
           id: `review-${doc?.id}`,
           name: `Review: ${doc?.fileName || "Document"}`,
-          description: `Scheduled review for ${doc?.documentType?.toUpperCase() || "document"}.`,
+          description: "Scheduled document review.",
           workflow: "Trainings & SOP",
           source: "custom",
           repeats: "Never",

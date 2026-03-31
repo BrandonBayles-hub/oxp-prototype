@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef, useCallback, Suspense } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback, Suspense, useId } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -12,6 +12,7 @@ import {
   useVault,
   COMPLIANCE_ITEMS,
   DEFAULT_VIEWER_ACCESS,
+  approvalStatusDisplayLabel,
   type VaultItem,
   type ApprovalStatus,
   type AgentTrainingStatus,
@@ -42,8 +43,8 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-const DOC_TYPES = ["All", "sop", "policy", "lease", "other"] as const;
-const APPROVAL_STATUSES = ["All", "review", "approved", "needs_review"] as const;
+/** Library filter values; `pending_review` matches both `review` and `needs_review`. */
+const APPROVAL_FILTERS = ["All", "pending_review", "approved"] as const;
 const PROPERTIES = ["All", "Portfolio", "Hillside Living", "Jamison Apartments", "Property C"];
 
 const TRAIN_SOP_METRICS_STORAGE_KEY = "janet-poc-trainings-sop-metrics-prev";
@@ -162,10 +163,11 @@ function TrainingsSopContent() {
   const [activitySearch, setActivitySearch] = useState("");
   const [activityActionFilter, setActivityActionFilter] = useState("All");
   const [activityDateFilter, setActivityDateFilter] = useState("All Time");
-  const [docTypeFilter, setDocTypeFilter] = useState<string>("All");
   const [approvalFilter, setApprovalFilter] = useState<string>("All");
   const [propertyFilter, setPropertyFilter] = useState("All");
   const [addDocMode, setAddDocMode] = useState<null | "choice" | "upload" | "entrata">(null);
+  /** When set, opening Upload doc modal pre-fills from Connect Library import */
+  const [libraryUploadPrefill, setLibraryUploadPrefill] = useState<{ displayName: string; body: string } | null>(null);
   const [showNewFolder, setShowNewFolder] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -285,12 +287,16 @@ function TrainingsSopContent() {
         if (
           !i.fileName.toLowerCase().includes(q) &&
           !i.owner.toLowerCase().includes(q) &&
-          !i.documentType.toLowerCase().includes(q) &&
           !(i.source ?? "").toLowerCase().includes(q)
         ) return false;
       }
-      if (docTypeFilter !== "All" && i.documentType !== docTypeFilter) return false;
-      if (approvalFilter !== "All" && i.type === "file" && i.approvalStatus !== approvalFilter) return false;
+      if (approvalFilter !== "All" && i.type === "file") {
+        if (approvalFilter === "pending_review") {
+          if (i.approvalStatus !== "review" && i.approvalStatus !== "needs_review") return false;
+        } else if (i.approvalStatus !== approvalFilter) {
+          return false;
+        }
+      }
       
       // Hierarchy Resolution Logic
       if (propertyFilter !== "All") {
@@ -311,7 +317,7 @@ function TrainingsSopContent() {
       if (a.type !== "folder" && b.type === "folder") return 1;
       return 0;
     });
-  }, [items, search, docTypeFilter, approvalFilter, propertyFilter, viewMode, currentFolderId, getOwnerForProperty]);
+  }, [items, search, approvalFilter, propertyFilter, viewMode, currentFolderId, getOwnerForProperty]);
 
   const linkedDocForSubject = (subject: string) => {
     const id = complianceSubjectDocumentIds[subject];
@@ -338,7 +344,9 @@ function TrainingsSopContent() {
   metricsSnapshotRef.current = {
     docCount: items.filter((i) => i.type === "file" && !i.isTemplate).length,
     complianceLinked: COMPLIANCE_ITEMS.filter((s) => complianceSubjectDocumentIds[s]).length,
-    sopsPending: items.filter((i) => i.type === "file" && !i.isTemplate && i.approvalStatus === "review").length,
+    sopsPending: items.filter(
+      (i) => i.type === "file" && !i.isTemplate && (i.approvalStatus === "review" || i.approvalStatus === "needs_review")
+    ).length,
     agentsTrained: agentsWithComplianceTraining.filter(({ areas }) => areas.length > 0).length,
     savedAt: new Date().toISOString(),
   };
@@ -407,11 +415,12 @@ function TrainingsSopContent() {
 
   const runBulkAnalysis = () => {
     const count = selectedDocs.length;
-    const types = Array.from(new Set(selectedDocs.map((d) => d.documentType)));
-    const needsReview = selectedDocs.filter((d) => d.approvalStatus === "review").length;
+    const needsReview = selectedDocs.filter(
+      (d) => d.approvalStatus === "review" || d.approvalStatus === "needs_review"
+    ).length;
     const noBody = selectedDocs.filter((d) => !d.body?.trim()).length;
     setBulkActionResult(
-      `Analysis of ${count} document(s): Types: ${types.join(", ")}. ` +
+      `Analysis of ${count} document(s). ` +
       `${needsReview} pending review. ${noBody} missing content. ` +
       `${count - noBody} ready for training.`
     );
@@ -495,7 +504,7 @@ function TrainingsSopContent() {
     : { text: complianceLinkedCount === COMPLIANCE_ITEMS.length ? "All areas linked" : "Link SOPs in Compliance tab", variant: complianceLinkedCount === COMPLIANCE_ITEMS.length ? ("positive" as const) : ("neutral" as const) };
   const sopsPendingTrend = previousMetrics
     ? formatTrendDelta(sopsPendingReviewCount, previousMetrics.sopsPending, { lowerIsBetter: true, suffix: "since last visit", lastVisitAt: previousMetrics.savedAt })
-    : { text: sopsPendingReviewCount === 0 ? "None pending" : "In review", variant: sopsPendingReviewCount === 0 ? ("positive" as const) : ("neutral" as const) };
+    : { text: sopsPendingReviewCount === 0 ? "None pending" : "Needs review", variant: sopsPendingReviewCount === 0 ? ("positive" as const) : ("neutral" as const) };
   const agentsTrainedTrend = previousMetrics
     ? formatTrendDelta(agentsTrainedOnComplianceCount, previousMetrics.agentsTrained, { suffix: "since last visit", lastVisitAt: previousMetrics.savedAt })
     : { text: "Link agents to docs in Agent Roster", variant: "neutral" as const };
@@ -529,12 +538,6 @@ function TrainingsSopContent() {
     const label = status === "out_of_date" ? "Out of date" : status === "trained" ? "Trained" : "Pending";
     return <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${cls}`}>{label}</span>;
   };
-
-  // Documents needing review (past nextReviewDate)
-  const docsNeedingReview = useMemo(
-    () => fileDocuments.filter((d) => d.approvalStatus === "needs_review"),
-    [fileDocuments]
-  );
 
   // Derived state for activity log
   const filteredActivityLog = useMemo(() => {
@@ -731,19 +734,6 @@ function TrainingsSopContent() {
         </Card>
       </div>}
 
-      {/* Documents needing review alert */}
-      {docsNeedingReview.length > 0 && (
-        <div className="mb-6 flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-900/20">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-          <div>
-            <p className="text-sm font-medium text-amber-800 dark:text-amber-200">{docsNeedingReview.length} document(s) past review date</p>
-            <p className="text-xs text-amber-700 dark:text-amber-300">
-              {docsNeedingReview.map((d) => d.fileName).join(", ")} — these need to be reviewed and re-approved to stay compliant.
-            </p>
-          </div>
-        </div>
-      )}
-
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)} className="mb-6">
         {!currentFolderId && (
           <div className="mb-4 flex items-center justify-between gap-3">
@@ -900,7 +890,6 @@ function TrainingsSopContent() {
                     {pendingReviewDocs.map((doc) => {
                       const esc = approvalEscalations.find((e) => e.documentApprovalContext?.documentId === doc.id);
                       const isOverdue = doc.nextReviewDate && new Date(doc.nextReviewDate) < new Date();
-                      const statusLabel = doc.approvalStatus === "needs_review" ? "Needs review" : "In review";
                       return (
                         <li key={doc.id}>
                           <button
@@ -916,13 +905,8 @@ function TrainingsSopContent() {
                                   {isOverdue && (
                                     <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-800 dark:bg-red-900/40 dark:text-red-200">Overdue</span>
                                   )}
-                                  <span className={cn(
-                                    "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-                                    doc.approvalStatus === "needs_review"
-                                      ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
-                                      : "bg-amber-400 text-amber-950 dark:bg-amber-900/40 dark:text-amber-300"
-                                  )}>
-                                    {statusLabel}
+                                  <span className="rounded-full bg-amber-400 px-1.5 py-0.5 text-[10px] font-medium text-amber-950 dark:bg-amber-900/40 dark:text-amber-300">
+                                    {approvalStatusDisplayLabel(doc.approvalStatus)}
                                   </span>
                                 </div>
                               </div>
@@ -966,17 +950,15 @@ function TrainingsSopContent() {
 
           <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-3">
-              <input type="search" placeholder="Search files, type, or owners" value={search} onChange={(e) => setSearch(e.target.value)} className="input-base w-64 min-w-[12rem]" />
-              <select value={docTypeFilter} onChange={(e) => setDocTypeFilter(e.target.value)} className="select-base w-auto min-w-[8rem]">
-                <option value="All">Type: All</option>
-                {DOC_TYPES.filter((d) => d !== "All").map((d) => (<option key={d} value={d}>{d}</option>))}
-              </select>
+              <input type="search" placeholder="Search files or owners" value={search} onChange={(e) => setSearch(e.target.value)} className="input-base w-64 min-w-[12rem]" />
               <select value={propertyFilter} onChange={(e) => setPropertyFilter(e.target.value)} className="select-base w-auto min-w-[8rem]">
                 {PROPERTIES.map((p) => (<option key={p} value={p}>{p === "All" ? "Property: All" : p}</option>))}
               </select>
               <select value={approvalFilter} onChange={(e) => setApprovalFilter(e.target.value)} className="select-base w-auto min-w-[8rem]">
                 <option value="All">Approval: All</option>
-                {APPROVAL_STATUSES.filter((a) => a !== "All").map((a) => (<option key={a} value={a}>{a === "needs_review" ? "Needs review" : a}</option>))}
+                {APPROVAL_FILTERS.filter((a) => a !== "All").map((a) => (
+                  <option key={a} value={a}>{a === "pending_review" ? "Needs review" : "Approved"}</option>
+                ))}
               </select>
             </div>
             <div className="flex gap-2">
@@ -1021,7 +1003,6 @@ function TrainingsSopContent() {
                 <tr>
                   <th className="w-10"><input type="checkbox" checked={filtered.filter((i) => i.type === "file").length > 0 && selectedIds.size === filtered.filter((i) => i.type === "file").length} onChange={selectAll} className="h-4 w-4 rounded border-border" /></th>
                   <th>Name</th>
-                  <th>Type</th>
                   <th>Scope</th>
                   <th>Property</th>
                   <th>Approval</th>
@@ -1045,7 +1026,7 @@ function TrainingsSopContent() {
                     onKeyDown={(row.type === "file" || row.type === "folder") ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (row.type === "folder") setCurrentFolderId(row.id); else router.push(`/trainings-sop/${row.id}`); } } : undefined}
                   >
                     {row.type === "folder" ? (
-                      <td colSpan={3} className="font-medium text-foreground">
+                      <td colSpan={2} className="font-medium text-foreground">
                         <span className="inline-flex items-center gap-1.5 cursor-pointer"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gray-500 dark:bg-gray-500"><FolderOpen className="h-3.5 w-3.5 text-white" /></span> {row.fileName}</span>
                       </td>
                     ) : (
@@ -1062,7 +1043,6 @@ function TrainingsSopContent() {
                         </td>
                       </>
                     )}
-                    <td className="capitalize text-muted-foreground">{row.documentType}</td>
                     <td>
                       {row.type === "file" && (
                         <div className="flex items-center gap-2">
@@ -1089,7 +1069,7 @@ function TrainingsSopContent() {
                             : row.approvalStatus === "review" || row.approvalStatus === "needs_review"
                               ? "bg-amber-400 text-amber-950 dark:bg-amber-900/40 dark:text-amber-300"
                               : "bg-muted text-muted-foreground"
-                        }`}>{row.approvalStatus === "needs_review" ? "Needs review" : row.approvalStatus}</span>
+                        }`}>{approvalStatusDisplayLabel(row.approvalStatus)}</span>
                       ) : "—"}
                     </td>
                     <td className="text-muted-foreground">{row.modified}</td>
@@ -1118,7 +1098,7 @@ function TrainingsSopContent() {
                             </DropdownMenuItem>
                             {(row.approvalStatus === "review" || row.approvalStatus === "needs_review") && (
                               <DropdownMenuItem onClick={() => handleReviewDoc(row)}>
-                                <CheckCircle className="mr-2 h-3.5 w-3.5" /> Review
+                                <CheckCircle className="mr-2 h-3.5 w-3.5" /> Open approval
                               </DropdownMenuItem>
                             )}
                             <DropdownMenuSeparator />
@@ -1220,7 +1200,6 @@ function TrainingsSopContent() {
                       <th>Action</th>
                       <th>User</th>
                       <th>Document</th>
-                      <th>Type</th>
                       <th>Scope</th>
                     </tr>
                   </thead>
@@ -1263,13 +1242,6 @@ function TrainingsSopContent() {
                               )
                             ) : "—"}
                           </td>
-                          <td>
-                            {doc?.documentType ? (
-                              <span className="inline-flex rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">
-                                {doc.documentType}
-                              </span>
-                            ) : "—"}
-                          </td>
                           <td className="text-muted-foreground">
                             {doc ? (
                               <div className="flex flex-col gap-1">
@@ -1308,7 +1280,17 @@ function TrainingsSopContent() {
         <AddDocChoiceModal onClose={() => setAddDocMode(null)} onUpload={() => setAddDocMode("upload")} onFromEntrata={() => setAddDocMode("entrata")} />
       )}
       {addDocMode === "upload" && (
-        <UploadDocModal onClose={() => setAddDocMode(null)} onSave={addDocument} properties={PROPERTIES.filter((p) => p !== "All")} fileInputRef={fileInputRef} />
+        <UploadDocModal
+          onClose={() => {
+            setAddDocMode(null);
+            setLibraryUploadPrefill(null);
+          }}
+          onSave={addDocument}
+          properties={PROPERTIES.filter((p) => p !== "All")}
+          fileInputRef={fileInputRef}
+          libraryPrefill={libraryUploadPrefill}
+          onClearLibraryPrefill={() => setLibraryUploadPrefill(null)}
+        />
       )}
       {addDocMode === "entrata" && (
         <EntrataDocsModal onClose={() => setAddDocMode(null)} onSelect={addDocument} properties={PROPERTIES.filter((p) => p !== "All")} />
@@ -1399,10 +1381,14 @@ function TrainingsSopContent() {
         }}
       />
       
-      <ConnectLibraryDialog 
-        open={showConnectLibrary} 
-        onOpenChange={setShowConnectLibrary} 
-        onAdd={(fileName, body) => addDocument(fileName, "other", "Portfolio", undefined, "upload", body)}
+      <ConnectLibraryDialog
+        open={showConnectLibrary}
+        onOpenChange={setShowConnectLibrary}
+        onImportComplete={(displayName, body) => {
+          setLibraryUploadPrefill({ displayName, body });
+          setShowConnectLibrary(false);
+          setAddDocMode("upload");
+        }}
       />
     </>
   );
@@ -1426,7 +1412,16 @@ function MicrosoftSharePointIcon(props: React.SVGProps<SVGSVGElement>) {
   );
 }
 
-function ConnectLibraryDialog({ open, onOpenChange, onAdd }: { open: boolean; onOpenChange: (open: boolean) => void; onAdd: (fileName: string, body: string) => void }) {
+function ConnectLibraryDialog({
+  open,
+  onOpenChange,
+  onImportComplete,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Called after mock import; parent should open the add-document / upload details flow */
+  onImportComplete: (displayName: string, body: string) => void;
+}) {
   const [integration, setIntegration] = useState<string | null>(null);
   const [connected, setConnected] = useState<Record<string, boolean>>({
     "google-drive": false,
@@ -1443,7 +1438,7 @@ function ConnectLibraryDialog({ open, onOpenChange, onAdd }: { open: boolean; on
   const handleImport = (name: string) => {
     setImporting(name);
     setTimeout(() => {
-      onAdd(name, `<p>Imported content for ${name}</p>`);
+      onImportComplete(name, `<p>Imported content for ${name}</p>`);
       setImporting(null);
       onOpenChange(false);
       setIntegration(null);
@@ -1582,7 +1577,6 @@ function ComplianceSelectDocumentModal({
   subject: string; documents: VaultItem[]; currentDocumentId: string | null; onClose: () => void; onSelect: (documentId: string | null) => void;
 }) {
   const [search, setSearch] = useState("");
-  const [docTypeFilter, setDocTypeFilter] = useState<string>("All");
   const [approvalFilter, setApprovalFilter] = useState<string>("All");
   const [propertyFilter, setPropertyFilter] = useState("All");
 
@@ -1590,14 +1584,19 @@ function ComplianceSelectDocumentModal({
     return documents.filter((i) => {
       if (search.trim()) {
         const q = search.toLowerCase();
-        if (!i.fileName.toLowerCase().includes(q) && !i.owner.toLowerCase().includes(q) && !i.documentType.toLowerCase().includes(q) && !(i.source ?? "").toLowerCase().includes(q)) return false;
+        if (!i.fileName.toLowerCase().includes(q) && !i.owner.toLowerCase().includes(q) && !(i.source ?? "").toLowerCase().includes(q)) return false;
       }
-      if (docTypeFilter !== "All" && i.documentType !== docTypeFilter) return false;
-      if (approvalFilter !== "All" && i.approvalStatus !== approvalFilter) return false;
+      if (approvalFilter !== "All") {
+        if (approvalFilter === "pending_review") {
+          if (i.approvalStatus !== "review" && i.approvalStatus !== "needs_review") return false;
+        } else if (i.approvalStatus !== approvalFilter) {
+          return false;
+        }
+      }
       if (propertyFilter !== "All" && i.property !== propertyFilter) return false;
       return true;
     });
-  }, [documents, search, docTypeFilter, approvalFilter, propertyFilter]);
+  }, [documents, search, approvalFilter, propertyFilter]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20" onClick={onClose}>
@@ -1609,32 +1608,29 @@ function ComplianceSelectDocumentModal({
         <div className="border-b border-border px-4 py-3">
           <div className="flex flex-wrap items-center gap-3">
             <input type="search" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} className="input-base h-8 w-48 min-w-0 text-sm" />
-            <select value={docTypeFilter} onChange={(e) => setDocTypeFilter(e.target.value)} className="select-base h-8 w-auto min-w-[7rem] text-sm">
-              <option value="All">Type: All</option>
-              {DOC_TYPES.filter((d) => d !== "All").map((d) => (<option key={d} value={d}>{d}</option>))}
-            </select>
             <select value={propertyFilter} onChange={(e) => setPropertyFilter(e.target.value)} className="select-base h-8 w-auto min-w-[7rem] text-sm">
               <option value="All">Property: All</option>
               {PROPERTIES.filter((p) => p !== "All").map((p) => (<option key={p} value={p}>{p}</option>))}
             </select>
             <select value={approvalFilter} onChange={(e) => setApprovalFilter(e.target.value)} className="select-base h-8 w-auto min-w-[7rem] text-sm">
               <option value="All">Approval: All</option>
-              {APPROVAL_STATUSES.filter((a) => a !== "All").map((a) => (<option key={a} value={a}>{a === "needs_review" ? "Needs review" : a}</option>))}
+              {APPROVAL_FILTERS.filter((a) => a !== "All").map((a) => (
+                <option key={a} value={a}>{a === "pending_review" ? "Needs review" : "Approved"}</option>
+              ))}
             </select>
           </div>
         </div>
         <div className="flex-1 overflow-auto min-h-0">
           <table className="table-borderless w-full min-w-[700px]">
-            <thead><tr><th>File name</th><th>Type</th><th>Property</th><th>Approval</th><th>Modified</th><th className="w-20">Select</th></tr></thead>
+            <thead><tr><th>File name</th><th>Property</th><th>Approval</th><th>Modified</th><th className="w-20">Select</th></tr></thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={6} className="py-8 text-center text-sm text-muted-foreground">{documents.length === 0 ? "No documents in the Vault yet." : "No documents match the filters."}</td></tr>
+                <tr><td colSpan={5} className="py-8 text-center text-sm text-muted-foreground">{documents.length === 0 ? "No documents in the Vault yet." : "No documents match the filters."}</td></tr>
               ) : filtered.map((row) => (
                 <tr key={row.id} className="table-row-hover cursor-pointer" onClick={() => onSelect(row.id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(row.id); } }}>
                   <td className="font-medium text-foreground"><span className="inline-flex items-center gap-1.5"><FileText className="h-4 w-4 shrink-0 text-muted-foreground" />{row.fileName}</span></td>
-                  <td className="capitalize text-muted-foreground">{row.documentType}</td>
                   <td className="text-muted-foreground">{row.property}</td>
-                  <td><span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${row.approvalStatus === "approved" ? "bg-[#B3FFCC] text-black" : row.approvalStatus === "review" || row.approvalStatus === "needs_review" ? "bg-amber-400 text-amber-950" : "bg-muted text-muted-foreground"}`}>{row.approvalStatus === "needs_review" ? "Needs review" : row.approvalStatus}</span></td>
+                  <td><span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${row.approvalStatus === "approved" ? "bg-[#B3FFCC] text-black" : row.approvalStatus === "review" || row.approvalStatus === "needs_review" ? "bg-amber-400 text-amber-950" : "bg-muted text-muted-foreground"}`}>{approvalStatusDisplayLabel(row.approvalStatus)}</span></td>
                   <td className="text-muted-foreground">{row.modified}</td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <Button variant="secondary" size="sm" className="h-7 bg-white border border-border hover:bg-muted/80" onClick={() => onSelect(row.id)}>
@@ -1678,24 +1674,32 @@ function AddDocChoiceModal({ onClose, onUpload, onFromEntrata }: { onClose: () =
 }
 
 function UploadDocModal({
-  onClose, onSave, properties, fileInputRef,
+  onClose,
+  onSave,
+  properties,
+  fileInputRef,
+  libraryPrefill,
+  onClearLibraryPrefill,
 }: {
   onClose: () => void;
   onSave: (fileName: string, documentType: VaultItem["documentType"], property?: string, effectiveDate?: string, source?: "upload" | "entrata", body?: string, options?: { scopeLevel?: string; ownerId?: string; propertyId?: string; isInternalOnly?: boolean }) => void;
   properties: string[];
   fileInputRef: React.RefObject<HTMLInputElement | null>;
+  libraryPrefill?: { displayName: string; body: string } | null;
+  onClearLibraryPrefill?: () => void;
 }) {
   const [fileName, setFileName] = useState("");
-  const [documentType, setDocumentType] = useState<VaultItem["documentType"]>("sop");
   const [property, setProperty] = useState(properties[0] ?? "Portfolio");
   const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(new Set());
-  const [effectiveDate, setEffectiveDate] = useState("");
   const [fileBody, setFileBody] = useState("");
+  const [pickedFileName, setPickedFileName] = useState<string | null>(null);
+  const [fileInputKey, setFileInputKey] = useState(0);
+  const fileInputId = useId();
+  const libraryPrefillAppliedRef = useRef(false);
 
   const [scopeLevel, setScopeLevel] = useState<"company" | "owner" | "property">("company");
   const [ownerId, setOwnerId] = useState("");
   const [propertyId, setPropertyId] = useState("");
-  const [isInternalOnly, setIsInternalOnly] = useState(false);
 
   // Mock owner data
   const OWNERS = ["Smith Investments", "Jones Portfolio", "Capital Group"];
@@ -1711,12 +1715,33 @@ function UploadDocModal({
     }
   }, [selectedPropertyNames]);
 
+  useEffect(() => {
+    if (!libraryPrefill) {
+      libraryPrefillAppliedRef.current = false;
+      return;
+    }
+    if (libraryPrefillAppliedRef.current) return;
+    libraryPrefillAppliedRef.current = true;
+    setPickedFileName(libraryPrefill.displayName);
+    const base = libraryPrefill.displayName.replace(/\.[^.]+$/, "");
+    setFileName(base.trim() || libraryPrefill.displayName);
+    setFileBody(libraryPrefill.body);
+  }, [libraryPrefill]);
+
+  const clearPickedFile = useCallback(() => {
+    setPickedFileName(null);
+    setFileBody("");
+    setFileName("");
+    setFileInputKey((k) => k + 1);
+    onClearLibraryPrefill?.();
+  }, [onClearLibraryPrefill]);
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setPickedFileName(file.name);
       const base = file.name.replace(/\.[^.]+$/, "");
       setFileName(base.trim() || file.name);
-      // Read file content for .txt files
       if (file.name.endsWith(".txt") || file.type === "text/plain") {
         const reader = new FileReader();
         reader.onload = (ev) => {
@@ -1728,29 +1753,68 @@ function UploadDocModal({
         setFileBody(`[Uploaded file: ${file.name} (${(file.size / 1024).toFixed(1)} KB)]`);
       }
     }
-    e.target.value = "";
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20" onClick={onClose}>
       <div className="w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-        <h3 className="section-title">Upload my document</h3>
-        <p className="mt-1 text-xs text-muted-foreground">Add a document from your device. For .txt files, content is extracted automatically.</p>
+        <h3 className="section-title">{libraryPrefill ? "Add document" : "Upload my document"}</h3>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {libraryPrefill
+            ? "Your file was imported from the connected library. Confirm the name, type, and scope, then add it to the Vault."
+            : "Add a document from your device. For .txt files, content is extracted automatically."}
+        </p>
         <div className="mt-4 space-y-3">
           <div>
-            <label className="mb-1 block text-xs font-medium text-foreground">File</label>
-            <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.txt" onChange={handleFileChange} className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-primary-foreground file:cursor-pointer" aria-label="Choose file" />
+            <label htmlFor={fileInputId} className="mb-1 block text-xs font-medium text-foreground">File</label>
+            <input
+              key={fileInputKey}
+              id={fileInputId}
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.doc,.docx,.txt"
+              onChange={handleFileChange}
+              className="sr-only"
+              tabIndex={-1}
+              aria-label="Choose file"
+            />
+            {pickedFileName ? (
+              <div className="flex items-center gap-2 rounded-md border border-input bg-background px-3 py-2">
+                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground" title={pickedFileName}>
+                  {pickedFileName}
+                </span>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="h-8 shrink-0 text-xs"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  Change file
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+                  onClick={clearPickedFile}
+                  aria-label="Remove file"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : (
+              <Button type="button" variant="outline" className="h-9 w-full gap-2" onClick={() => fileInputRef.current?.click()}>
+                <Upload className="h-4 w-4" />
+                Choose file
+              </Button>
+            )}
             <p className="mt-1 text-[10px] text-muted-foreground">PDF, DOC, DOCX, or TXT. Text content is extracted from .txt files.</p>
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-foreground">Document name</label>
             <input type="text" value={fileName} onChange={(e) => setFileName(e.target.value)} placeholder="e.g. Leasing SOP" className="input-base w-full" autoFocus />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-foreground">Document type</label>
-            <select value={documentType} onChange={(e) => setDocumentType(e.target.value as VaultItem["documentType"])} className="select-base w-full">
-              <option value="sop">SOP</option><option value="policy">Policy</option><option value="lease">Lease</option><option value="other">Other</option>
-            </select>
           </div>
           <div className="rounded-md border border-border bg-muted/20 p-3 space-y-3">
             <div>
@@ -1806,34 +1870,19 @@ function UploadDocModal({
             )}
           </div>
 
-          <div className="flex items-center gap-2 pt-2">
-            <input 
-              type="checkbox" 
-              id="internalOnly" 
-              checked={isInternalOnly} 
-              onChange={(e) => setIsInternalOnly(e.target.checked)} 
-              className="h-4 w-4 rounded border-border" 
-            />
-            <label htmlFor="internalOnly" className="text-xs font-medium text-foreground">
-              Internal Only
-            </label>
-          </div>
-          {documentType === "sop" && (
-            <div>
-              <label className="mb-1 block text-xs font-medium text-foreground">Effective date (optional)</label>
-              <input type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} className="input-base w-full" />
-            </div>
-          )}
-          {fileBody && (
-            <div>
-              <label className="mb-1 block text-xs font-medium text-foreground">Content preview</label>
-              <pre className="max-h-32 overflow-auto rounded-md border border-border bg-muted/30 p-2 text-xs text-muted-foreground">{fileBody.slice(0, 500)}{fileBody.length > 500 ? "..." : ""}</pre>
-            </div>
-          )}
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => fileName.trim() && onSave(fileName.trim(), documentType, property, effectiveDate || undefined, "upload", fileBody || undefined, { scopeLevel, ownerId, propertyId, isInternalOnly })} disabled={!fileName.trim()}>Upload &amp; add to Vault</Button>
+          <Button
+            onClick={() =>
+              pickedFileName &&
+              fileName.trim() &&
+              onSave(fileName.trim(), "sop", property, undefined, "upload", fileBody || undefined, { scopeLevel, ownerId, propertyId })
+            }
+            disabled={!pickedFileName || !fileName.trim()}
+          >
+            Upload &amp; add to Vault
+          </Button>
         </div>
       </div>
     </div>
@@ -1880,7 +1929,6 @@ function EntrataDocsModal({
                 <div className="min-w-0 flex-1">
                   <p className="font-medium text-foreground">{doc.name}</p>
                   <p className="text-xs text-muted-foreground">{doc.description}</p>
-                  <span className="mt-1 inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground capitalize">{doc.documentType}</span>
                 </div>
                 <span className="shrink-0 text-xs text-primary">Add to Vault</span>
               </button>
@@ -1916,7 +1964,6 @@ function EditDocSheet({
   onSave: (id: string, updates: Partial<Pick<VaultItem, "fileName" | "documentType" | "property" | "approvalStatus" | "version" | "effectiveDate" | "body" | "nextReviewDate" | "isTemplate">>) => void;
 }) {
   const [fileName, setFileName] = useState("");
-  const [documentType, setDocumentType] = useState<VaultItem["documentType"]>("sop");
   const [property, setProperty] = useState("");
   const [approvalStatus, setApprovalStatus] = useState<ApprovalStatus>("review");
   const [body, setBody] = useState("");
@@ -1927,20 +1974,21 @@ function EditDocSheet({
   useEffect(() => {
     if (item) {
       setFileName(item.fileName);
-      setDocumentType(item.documentType);
       setProperty(item.property);
       setApprovalStatus(item.approvalStatus);
       setBody(item.body ?? "");
       setNextReviewDate(item.nextReviewDate ?? "");
       setIsTemplate(item.isTemplate ?? false);
     }
-  }, [item?.id, item?.fileName, item?.documentType, item?.property, item?.approvalStatus, item?.body, item?.nextReviewDate, item?.isTemplate]);
+  }, [item?.id, item?.fileName, item?.property, item?.approvalStatus, item?.body, item?.nextReviewDate, item?.isTemplate]);
 
   const handleSave = () => {
     if (!item) return;
     onSave(item.id, {
-      fileName: fileName.trim() || item.fileName, documentType,
-      property: property || item.property, approvalStatus, body,
+      fileName: fileName.trim() || item.fileName,
+      property: property || item.property,
+      approvalStatus,
+      body,
       nextReviewDate: nextReviewDate || undefined,
       isTemplate: isTemplate || undefined,
     });
@@ -1960,28 +2008,20 @@ function EditDocSheet({
               <input type="text" value={fileName} onChange={(e) => setFileName(e.target.value)} className="input-base w-full" />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-foreground">Document type</label>
-              <select value={documentType} onChange={(e) => setDocumentType(e.target.value as VaultItem["documentType"])} className="select-base w-full">
-                <option value="sop">SOP</option><option value="policy">Policy</option><option value="lease">Lease</option><option value="other">Other</option>
-              </select>
-            </div>
-            <div>
               <label className="mb-1 block text-xs font-medium text-foreground">Property</label>
               <select value={property} onChange={(e) => setProperty(e.target.value)} className="select-base w-full">
                 {PROPERTIES.filter((p) => p !== "All").map((p) => (<option key={p} value={p}>{p}</option>))}
               </select>
             </div>
-            {documentType === "sop" && (
-              <>
-                <div><label className="mb-1 block text-xs font-medium text-foreground">Version</label><p className="text-sm text-muted-foreground">{item.version ?? "1.0"} (auto-incremented on approval)</p></div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-foreground">Approval status</label>
-                  <select value={approvalStatus} onChange={(e) => setApprovalStatus(e.target.value as ApprovalStatus)} className="select-base w-full">
-                    <option value="review">review</option><option value="approved">approved</option><option value="needs_review">needs review</option>
-                  </select>
-                </div>
-              </>
-            )}
+            <div><label className="mb-1 block text-xs font-medium text-foreground">Version</label><p className="text-sm text-muted-foreground">{item.version ?? "1.0"} (auto-incremented on approval)</p></div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-foreground">Approval status</label>
+              <select value={approvalStatus} onChange={(e) => setApprovalStatus(e.target.value as ApprovalStatus)} className="select-base w-full">
+                <option value="review">Needs review (in approval)</option>
+                <option value="needs_review">Needs review (past review date)</option>
+                <option value="approved">Approved</option>
+              </select>
+            </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-foreground">Next review date</label>
               <input type="date" value={nextReviewDate} onChange={(e) => setNextReviewDate(e.target.value)} className="input-base w-full" />
@@ -2101,7 +2141,6 @@ function ExploreSopsDialog({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-medium text-foreground">{template.name}</p>
-                      <Badge variant="secondary" className="text-[10px]">{template.documentType}</Badge>
                     </div>
                     <p className="mt-0.5 text-xs text-muted-foreground">{template.description}</p>
                   </div>
