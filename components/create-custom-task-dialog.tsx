@@ -37,7 +37,6 @@ import {
 import type { PlaybookTemplateTask, PlaybookTemplatePriority } from "@/lib/playbook-templates-data";
 import { useWorkforce } from "@/lib/workforce-context";
 import { cn } from "@/lib/utils";
-import { PropertySelector } from "@/components/property-selector";
 
 // ── Shared cadence types ────────────────────────────────────────────────────
 
@@ -693,22 +692,22 @@ export function CreateCustomTaskDialog(props: CreateCustomTaskDialogProps) {
             <div className="space-y-3">
               <div className="space-y-1.5 relative z-[150]">
                 <label className={labelClass}>Property</label>
-                <Select value={property || "__none__"} onValueChange={(v) => {
-                  // Property is updated inside the PropertySelector component, this is just for the controlled root Select
-                  if (v === "__none__") setProperty("");
-                }}>
+                <Select
+                  value={property || "__none__"}
+                  onValueChange={(v) => setProperty(v === "__none__" ? "" : v)}
+                >
                   <SelectTrigger className="h-9 text-sm">
-                    <SelectValue placeholder="Select Property">
-                      {property || "Select Property"}
-                    </SelectValue>
+                    <SelectValue placeholder="Select property" />
                   </SelectTrigger>
-                  <SelectContent className="w-[300px] p-0 z-[200]" align="start">
-                    <PropertySelector
-                      selectedProperties={property ? [property] : []}
-                      onChange={(selected) => setProperty(Array.from(selected)[0] || "")}
-                      singleSelection={true}
-                      className="w-full border-0 shadow-none rounded-none max-h-[300px]"
-                    />
+                  <SelectContent className="z-[200]">
+                    <SelectItem value="__none__" className="text-sm text-muted-foreground">
+                      None
+                    </SelectItem>
+                    {PROPERTIES.map((p) => (
+                      <SelectItem key={p} value={p} className="text-sm">
+                        {p}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
