@@ -5,6 +5,13 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 export type VaultDocumentType = "sop" | "lease" | "policy" | "other";
 export type ApprovalStatus = "review" | "approved" | "needs_review";
 
+/** User-facing label: `review` and `needs_review` both display as "Needs review". */
+export function approvalStatusDisplayLabel(status: ApprovalStatus): string {
+  if (status === "review" || status === "needs_review") return "Needs review";
+  if (status === "approved") return "Approved";
+  return status;
+}
+
 export type VaultSource = "upload" | "entrata" | "workflow";
 
 export type ScopeLevel = "company" | "owner" | "property";

@@ -1288,7 +1288,7 @@ for (let h = 0; h < 24; h++) {
 function approvalLabel(status: string) {
   switch (status) {
     case "approved": return "Approved";
-    case "review": return "In Review";
+    case "review":
     case "needs_review": return "Needs review";
     default: return status;
   }
