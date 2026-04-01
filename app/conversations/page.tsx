@@ -87,6 +87,7 @@ import {
   CONVERSATION_UNASSIGNED_ASSIGNEE,
   UNASSIGN_CONVERSATION_VALUE,
   type ConversationItem,
+  type ConversationMessage,
   type EmailAttachmentRef,
   isConversationUnattended,
   isWaitingOnResidentPublicReply,
@@ -282,6 +283,24 @@ function conversationMatchesAllThreadsInbox(c: ConversationItem): boolean {
   );
 }
 
+function isPublicThreadMessageForUnreadCount(m: ConversationMessage): boolean {
+  if (m.type === "label_activity" || m.type === "thread_activity") return false;
+  return m.type === undefined || m.type === "message";
+}
+
+/** Count resident public messages after the last agent/staff public message (unread batch when thread is marked unread). */
+function countUnreadResidentMessagesInThread(c: ConversationItem): number {
+  if (!c.hasUnread) return 0;
+  let n = 0;
+  for (let i = c.messages.length - 1; i >= 0; i--) {
+    const m = c.messages[i];
+    if (!isPublicThreadMessageForUnreadCount(m)) continue;
+    if (m.role === "resident") n++;
+    else break;
+  }
+  return n;
+}
+
 /** Resolve / Reopen + Add a label for Entrata profile side panel (z above z-[60] overlay). */
 function ProfilePanelConversationActionsMenu({
   selected,
@@ -467,11 +486,15 @@ function ConversationsContent() {
 
   const isEscalationLabel = (label: string) => label.endsWith("Escalation");
 
-  /** Count shown on “All Threads” — matches that inbox list (attention-needed open threads only). */
-  const allThreadsUnreadCount = useMemo(
-    () => conversations.filter(conversationMatchesAllThreadsInbox).length,
-    [conversations]
-  );
+  /** Sum of unread resident messages across threads in “All Threads” (mention/unattended-only threads contribute 0). */
+  const allThreadsUnreadCount = useMemo(() => {
+    let total = 0;
+    for (const c of conversations) {
+      if (!conversationMatchesAllThreadsInbox(c)) continue;
+      total += countUnreadResidentMessagesInThread(c);
+    }
+    return total;
+  }, [conversations]);
 
   const mentionsInboxCount = useMemo(
     () => conversations.filter((c) => conversationHasCurrentUserPrivateNoteMention(c)).length,
