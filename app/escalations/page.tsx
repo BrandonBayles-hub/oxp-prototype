@@ -669,12 +669,29 @@ function EscalationsContent() {
               />
             </FilterRow>
             <FilterRow label="Property">
-              <MultiCheckList
-                options={propertyOptions.filter((o) => o.value !== "All")}
-                selected={propertyFilter}
-                onChange={setPropertyFilter}
-                placeholder="All properties"
-              />
+              <Popover modal={true}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex h-8 w-full items-center justify-between rounded-md border border-input bg-background px-2 text-xs",
+                      propertyFilter.size === 0 && "text-muted-foreground"
+                    )}
+                  >
+                    <span className="truncate">
+                      {propertyFilter.size === 0 ? "All properties" : `${propertyFilter.size} selected`}
+                    </span>
+                    <ChevronDown className="ml-1 h-3.5 w-3.5 shrink-0 opacity-50" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[320px] p-0 z-[200]" align="start" sideOffset={4}>
+                  <PropertySelector
+                    selected={propertyFilter}
+                    onSelectionChange={setPropertyFilter}
+                    className="h-[360px] border-0 shadow-none rounded-md"
+                  />
+                </PopoverContent>
+              </Popover>
             </FilterRow>
             <FilterRow label="Specialty">
               <MultiCheckList
