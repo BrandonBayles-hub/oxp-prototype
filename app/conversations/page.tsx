@@ -1309,27 +1309,7 @@ function ConversationsContent() {
                   >
                     {selected.resident}
                   </button>
-                  <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                    {selected.property}
-                    {selected.channel === "Email" && (
-                      <>
-                        <span className="text-muted-foreground/50">·</span>
-                        <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground">
-                          <Mail className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                          Email
-                        </span>
-                      </>
-                    )}
-                    {selected.channel === "SMS" && (
-                      <>
-                        <span className="text-muted-foreground/50">·</span>
-                        <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground">
-                          <Phone className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                          SMS
-                        </span>
-                      </>
-                    )}
-                  </span>
+                  <span className="text-sm text-muted-foreground">{selected.property}</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Popover>
