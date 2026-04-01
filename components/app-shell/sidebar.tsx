@@ -93,7 +93,7 @@ export function Sidebar() {
   const { isR1Release } = useR1Release();
   const { badges, activation } = useNavBadges();
 
-  const r1HiddenRoutes = ["/performance", "/voice", "/governance"];
+  const r1HiddenRoutes = ["/conversations", "/performance", "/voice", "/governance"];
 
   const navGroupsWithVisibility = navGroups
     .map((group) => ({
