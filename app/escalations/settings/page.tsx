@@ -22,6 +22,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { CreateCustomTaskDialog } from "@/components/create-custom-task-dialog";
 import { usePermissions } from "@/lib/permissions-context";
@@ -76,6 +77,83 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
 ];
+
+// ── Assignee combobox ───────────────────────────────────────────────────────
+
+function AssigneeCombobox({
+  members,
+  value,
+  onChange,
+}: {
+  members: { id: string; name: string }[];
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase().trim();
+    if (!q) return members;
+    return members.filter((m) => m.name.toLowerCase().includes(q));
+  }, [members, query]);
+  const selectedName = members.find((m) => m.id === value)?.name ?? "Unassigned";
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm hover:bg-muted/50 focus:outline-none focus:ring-1 focus:ring-ring"
+        >
+          <span className={value ? "text-foreground" : "text-muted-foreground"}>{selectedName}</span>
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[240px] p-0 z-[200]" align="start">
+        <div className="p-2">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search members…"
+            className="h-8 w-full rounded-md border border-input bg-background px-2.5 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            autoFocus
+          />
+        </div>
+        <div className="max-h-48 overflow-y-auto px-1 pb-1">
+          <button
+            type="button"
+            onClick={() => { onChange(""); setOpen(false); setQuery(""); }}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm transition-colors hover:bg-muted",
+              !value && "bg-muted font-medium"
+            )}
+          >
+            <Check className={cn("h-3.5 w-3.5 shrink-0", value ? "invisible" : "text-primary")} />
+            <span className="text-muted-foreground">Unassigned</span>
+          </button>
+          {filtered.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => { onChange(m.id); setOpen(false); setQuery(""); }}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm transition-colors hover:bg-muted",
+                value === m.id && "bg-muted font-medium"
+              )}
+            >
+              <Check className={cn("h-3.5 w-3.5 shrink-0", value === m.id ? "text-primary" : "invisible")} />
+              {m.name}
+            </button>
+          ))}
+          {filtered.length === 0 && (
+            <p className="px-2 py-3 text-center text-xs text-muted-foreground">No members found</p>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 // ── Page component ─────────────────────────────────────────────────────────
 
@@ -955,14 +1033,6 @@ function PlaybookLibraryView() {
         <h1 className="text-xl font-semibold text-foreground">Manage Playbooks</h1>
         <div className="flex items-center gap-2">
           <Button
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs"
-            onClick={() => router.push("/workflows")}
-          >
-            Explore Playbooks
-          </Button>
-          <Button
             size="sm"
             className="h-8 gap-1.5 text-xs"
             onClick={() => setShowChooser(true)}
@@ -1822,7 +1892,7 @@ function CreatePlaybookFromDocDialog({
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <label className={labelClass}>Type</label>
                 <Select value={playbookType} onValueChange={(v) => setPlaybookType(v as PlaybookTemplateType)}>
@@ -1834,16 +1904,24 @@ function CreatePlaybookFromDocDialog({
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <label className={labelClass}>Assignee</label>
-                <Select value={assigneeId || "__none__"} onValueChange={(v) => setAssigneeId(v === "__none__" ? "" : v)}>
-                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select" /></SelectTrigger>
+                <label className={labelClass}>Priority</label>
+                <Select value={priority} onValueChange={(v) => setPriority(v as PlaybookTemplatePriority)}>
+                  <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__" className="text-xs text-muted-foreground">Unassigned</SelectItem>
-                    {humanMembers.map((m) => (
-                      <SelectItem key={m.id} value={m.id} className="text-sm">{m.name}</SelectItem>
-                    ))}
+                    <SelectItem value="P0" className="text-sm">P0 — Critical</SelectItem>
+                    <SelectItem value="P1" className="text-sm">P1 — High</SelectItem>
+                    <SelectItem value="P2" className="text-sm">P2 — Medium</SelectItem>
+                    <SelectItem value="P3" className="text-sm">P3 — Low</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="space-y-1.5">
+                <label className={labelClass}>Assignee</label>
+                <AssigneeCombobox
+                  members={humanMembers}
+                  value={assigneeId}
+                  onChange={setAssigneeId}
+                />
               </div>
             </div>
 
@@ -1900,9 +1978,7 @@ function CreatePlaybookFromDocDialog({
               </>
             )}
 
-            <p className="text-xs text-muted-foreground">
-              {tasks.length} task{tasks.length !== 1 ? "s" : ""} will be included from the generated list.
-            </p>
+            
           </div>
         )}
 
