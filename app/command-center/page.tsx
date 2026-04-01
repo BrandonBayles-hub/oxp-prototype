@@ -1440,10 +1440,7 @@ function AdminCommandCenter() {
               {teamAgents.length > 0 ? (
                 <ul className="divide-y divide-border">
                   {teamAgents.map((agent) => (
-                    <li key={agent.id} className={cn(
-                      "flex items-center gap-3 py-3 first:pt-0 last:pb-0",
-                      !agent.isActive && "opacity-50"
-                    )}>
+                    <li key={agent.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
                         <img src="/eli-cube.svg" alt="" className="h-4 w-4" />
                       </div>
