@@ -1,15 +1,44 @@
 "use client";
 
-import { useEditor, EditorContent } from "@tiptap/react";
+import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import Heading from "@tiptap/extension-heading";
 import {
   TextStyle,
   FontFamily,
   FontSize,
 } from "@tiptap/extension-text-style";
-import { useEffect, useRef, useState } from "react";
-import { Bold, Italic, List, ListOrdered, Quote, Undo, Redo } from "lucide-react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { Bold, Italic, List, ListOrdered, Quote, Undo, Redo, Heading1, Heading2, Heading3, ListTree, ChevronDown } from "lucide-react";
 import { FontWeight } from "@/lib/tiptap-font-weight";
+
+type OutlineItem = { id: string; level: number; text: string };
+
+function extractHeadings(editor: Editor): OutlineItem[] {
+  const items: OutlineItem[] = [];
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name === "heading") {
+      const text = node.textContent.trim();
+      if (text) items.push({ id: `heading-${pos}`, level: node.attrs.level as number, text });
+    }
+  });
+  return items;
+}
+
+function scrollToHeading(editor: Editor, text: string, level: number) {
+  let targetPos = -1;
+  editor.state.doc.descendants((node, pos) => {
+    if (targetPos >= 0) return false;
+    if (node.type.name === "heading" && node.attrs.level === level && node.textContent.trim() === text) {
+      targetPos = pos;
+      return false;
+    }
+  });
+  if (targetPos >= 0) {
+    editor.commands.setTextSelection(targetPos + 1);
+    editor.commands.scrollIntoView();
+  }
+}
 
 function isHtml(s: string): boolean {
   const t = s.trim();
@@ -33,6 +62,8 @@ type RichTextEditorProps = {
   minHeight?: string;
   /** When this changes, value is re-applied to the editor (e.g. document id) */
   contentKey?: string;
+  /** Show the document outline panel */
+  showOutline?: boolean;
 };
 
 export function RichTextEditor({
@@ -42,13 +73,17 @@ export function RichTextEditor({
   className = "",
   minHeight = "180px",
   contentKey,
+  showOutline: showOutlineProp,
 }: RichTextEditorProps) {
+  const [outlineOpen, setOutlineOpen] = useState(true);
+  const [headings, setHeadings] = useState<OutlineItem[]>([]);
   const initialContent = useRef(toTiptapContent(value));
   const lastContentKey = useRef(contentKey);
 
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      StarterKit.configure({ heading: false }),
+      Heading.configure({ levels: [1, 2, 3] }),
       TextStyle,
       FontFamily,
       FontSize,
@@ -100,6 +135,16 @@ export function RichTextEditor({
       editor.off("transaction", updateAttrs);
     };
   }, [editor]);
+
+  useEffect(() => {
+    if (!editor) return;
+    const refresh = () => setHeadings(extractHeadings(editor));
+    refresh();
+    editor.on("update", refresh);
+    return () => { editor.off("update", refresh); };
+  }, [editor]);
+
+  const showOutline = showOutlineProp !== false && headings.length > 0;
 
   if (!editor) {
     return (
@@ -176,6 +221,27 @@ export function RichTextEditor({
           <option value="18px">18</option>
           <option value="24px">24</option>
         </select>
+        {/* Heading level */}
+        <select
+          value={
+            editor.isActive("heading", { level: 1 }) ? "1" :
+            editor.isActive("heading", { level: 2 }) ? "2" :
+            editor.isActive("heading", { level: 3 }) ? "3" : ""
+          }
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v) editor.chain().focus().toggleHeading({ level: Number(v) as 1 | 2 | 3 }).run();
+            else editor.chain().focus().setParagraph().run();
+          }}
+          className="h-8 min-w-0 max-w-[100px] rounded border border-border/60 bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+          title="Heading level"
+          aria-label="Heading level"
+        >
+          <option value="">Paragraph</option>
+          <option value="1">Heading 1</option>
+          <option value="2">Heading 2</option>
+          <option value="3">Heading 3</option>
+        </select>
         <span className="mx-0.5 h-5 w-px bg-border" aria-hidden />
         <button
           type="button"
@@ -244,8 +310,44 @@ export function RichTextEditor({
         >
           <Redo className="h-4 w-4" />
         </button>
+        {headings.length > 0 && (
+          <>
+            <span className="mx-0.5 h-5 w-px bg-border" aria-hidden />
+            <button
+              type="button"
+              onClick={() => setOutlineOpen((o) => !o)}
+              className={`rounded p-1.5 ${outlineOpen ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+              title="Toggle outline"
+              aria-label="Toggle outline"
+            >
+              <ListTree className="h-4 w-4" />
+            </button>
+          </>
+        )}
       </div>
-      <EditorContent editor={editor} />
+      <div className="flex flex-1 overflow-hidden">
+        {showOutline && outlineOpen && (
+          <nav className="w-56 shrink-0 border-r border-border/60 bg-muted/20 overflow-y-auto py-2 px-1">
+            <p className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Outline</p>
+            {headings.map((h, i) => (
+              <button
+                key={h.id + i}
+                type="button"
+                onClick={() => scrollToHeading(editor, h.text, h.level)}
+                className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs text-foreground/80 hover:bg-muted hover:text-foreground transition-colors truncate"
+                style={{ paddingLeft: `${(h.level - 1) * 12 + 8}px` }}
+                title={h.text}
+              >
+                <span className="shrink-0 text-[10px] font-medium text-muted-foreground">H{h.level}</span>
+                <span className="truncate">{h.text}</span>
+              </button>
+            ))}
+          </nav>
+        )}
+        <div className="flex-1 overflow-y-auto">
+          <EditorContent editor={editor} />
+        </div>
+      </div>
     </div>
   );
 }
