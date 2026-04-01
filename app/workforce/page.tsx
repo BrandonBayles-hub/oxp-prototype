@@ -22,6 +22,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { PropertySelector } from "@/components/property-selector";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { SPECIALTIES as SPECIALTY_LIST } from "@/lib/specialties-data";
@@ -357,16 +358,24 @@ export default function WorkforcePage() {
                 className="h-9 pl-8 text-xs"
               />
             </div>
-            <FilterDropdown
-              label="Property"
-              options={allProperties}
-              selected={propertyFilters}
-              onToggle={(p) => setPropertyFilters((prev) => {
-                const next = new Set(prev);
-                if (next.has(p)) next.delete(p); else next.add(p);
-                return next;
-              })}
-            />
+            <Popover modal={true}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="h-9 gap-1.5 text-xs font-normal">
+                  Property
+                  {propertyFilters.size > 0 && (
+                    <Badge variant="secondary" className="ml-0.5 h-4 min-w-[1rem] rounded-full px-1 text-[10px]">{propertyFilters.size}</Badge>
+                  )}
+                  <ChevronDown className="h-3.5 w-3.5 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[320px] p-0 z-[200]" align="start" sideOffset={4}>
+                <PropertySelector
+                  selected={propertyFilters}
+                  onSelectionChange={setPropertyFilters}
+                  className="h-[360px] border-0 shadow-none rounded-md"
+                />
+              </PopoverContent>
+            </Popover>
             <FilterDropdown
               label="Specialty"
               options={allSpecialties}

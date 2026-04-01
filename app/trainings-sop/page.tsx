@@ -951,9 +951,49 @@ function TrainingsSopContent() {
           <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-3">
               <input type="search" placeholder="Search files or owners" value={search} onChange={(e) => setSearch(e.target.value)} className="input-base w-64 min-w-[12rem]" />
-              <select value={propertyFilter} onChange={(e) => setPropertyFilter(e.target.value)} className="select-base w-auto min-w-[8rem]">
-                {PROPERTIES.map((p) => (<option key={p} value={p}>{p === "All" ? "Property: All" : p}</option>))}
-              </select>
+              <Popover modal={true}>
+                <PopoverTrigger asChild>
+                  <button type="button" className={cn(
+                    "select-base w-auto min-w-[8rem] flex items-center justify-between gap-1",
+                    propertyFilter === "All" && "text-muted-foreground"
+                  )}>
+                    <span className="truncate">{propertyFilter === "All" ? "Property: All" : propertyFilter}</span>
+                    <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[320px] p-0 z-[200]" align="start" sideOffset={4}>
+                  <div className="border-b border-border px-3 py-2">
+                    <button
+                      type="button"
+                      onClick={() => setPropertyFilter("All")}
+                      className={cn("w-full rounded-sm px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted", propertyFilter === "All" && "font-medium bg-muted")}
+                    >
+                      All Properties
+                    </button>
+                  </div>
+                  <PropertySelector
+                    selected={(() => {
+                      if (propertyFilter === "All") return new Set<string>();
+                      const data = getDataForView("Property List");
+                      let foundId = "";
+                      const walk = (nodes: typeof data): void => {
+                        for (const n of nodes) {
+                          if (n.type === "property" && n.name === propertyFilter) { foundId = n.id; return; }
+                          if (n.children) walk(n.children);
+                        }
+                      };
+                      walk(data);
+                      return foundId ? new Set([foundId]) : new Set<string>();
+                    })()}
+                    onSelectionChange={(ids) => {
+                      const data = getDataForView("Property List");
+                      const names = getSelectedPropertyNames(data, ids);
+                      setPropertyFilter(names[0] ?? "All");
+                    }}
+                    className="h-[340px] border-0 shadow-none rounded-md"
+                  />
+                </PopoverContent>
+              </Popover>
               <select value={approvalFilter} onChange={(e) => setApprovalFilter(e.target.value)} className="select-base w-auto min-w-[8rem]">
                 <option value="All">Approval: All</option>
                 {APPROVAL_FILTERS.filter((a) => a !== "All").map((a) => (
