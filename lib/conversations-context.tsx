@@ -373,7 +373,7 @@ Hillside Living
     id: "lc-13",
     resident: "Keisha Monroe",
     unit: "Unit 412",
-    preview: "Thanks for the package hold — I’ll pick it up tonight.",
+    preview: "Will the desk stay open until 8pm? Want to double-check b...",
     agent: "Staff",
     time: "9m ago",
     contactType: "Resident",
@@ -382,10 +382,16 @@ Hillside Living
     assignee: "Abe Kashiwagi",
     labels: ["Resident"],
     status: "open",
-    hasUnread: false,
+    hasUnread: true,
     messages: [
       { role: "resident", text: "Thanks for the package hold — I’ll pick it up tonight after 6.", timestamp: "Sep 15 2025 · 6:00pm MST", type: "message" },
       { role: "staff", text: "Sounds good — front desk has it under your unit number. See you then!", timestamp: "Sep 15 2025 · 6:01pm MST", type: "message" },
+      {
+        role: "resident",
+        text: "Will the desk stay open until 8pm? Want to double-check before I head over.",
+        timestamp: "Sep 15 2025 · 6:55pm MST",
+        type: "message",
+      },
     ],
   },
   {
