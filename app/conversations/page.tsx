@@ -1280,24 +1280,9 @@ function ConversationsContent() {
                           )}
                         </span>
                       <div className="flex items-center justify-between gap-2">
-                        <div className="flex min-w-0 items-center gap-2">
-                          {convo.hasUnread && (
-                            <Badge
-                              variant="outline"
-                              className={cn(
-                                "h-5 shrink-0 px-1.5 py-0 text-[9px] font-semibold uppercase tracking-wide",
-                                convo.contactType === "Lead"
-                                  ? "border-sky-300 bg-sky-50 text-sky-800 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-200"
-                                  : "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200"
-                              )}
-                            >
-                              {convo.contactType === "Lead" ? "Lead" : "Resident"}
-                            </Badge>
-                          )}
-                          <span className={cn("truncate text-sm", convo.hasUnread ? "font-bold" : "font-semibold")}>
-                            {convo.resident}
-                          </span>
-                        </div>
+                        <span className={cn("truncate text-sm", convo.hasUnread ? "font-bold" : "font-semibold")}>
+                          {convo.resident}
+                        </span>
                         <span className="shrink-0 text-[10px] text-muted-foreground">{convo.time}</span>
                       </div>
                       <p className={cn("truncate text-xs", convo.hasUnread ? "text-foreground" : "text-muted-foreground")}>{convo.preview}</p>
