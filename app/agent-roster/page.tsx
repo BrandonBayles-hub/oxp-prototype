@@ -405,7 +405,7 @@ function AgentRosterContent() {
                             else setAutoAgentId(agent.id);
                           }}
                         >
-                          <div className={`flex min-w-0 items-center gap-3 ${isOffEliPlus ? "opacity-50" : ""}`}>
+                          <div className="flex min-w-0 items-center gap-3">
                             <img src={AGENT_TYPE_ICON[agent.type] ?? "/icon-l1-essentials.svg"} alt="" width={20} height={20} className="shrink-0" />
                             <div className="min-w-0">
                               <p className="text-[length:var(--text-body)] font-medium text-[hsl(var(--foreground))] truncate">{agent.type === "autonomous" ? `ELI+ ${agent.name}` : agent.name}</p>
