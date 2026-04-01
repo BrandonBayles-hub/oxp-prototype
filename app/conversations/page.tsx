@@ -272,6 +272,16 @@ type SidebarFilter =
   | { type: "live-ai-jamison" }
   | { type: "live-ai-hillside" };
 
+/** All Threads: open only; unread, @mention in a private note, or unattended. Resolved threads never appear here. */
+function conversationMatchesAllThreadsInbox(c: ConversationItem): boolean {
+  if (c.status !== "open") return false;
+  return (
+    c.hasUnread ||
+    conversationHasCurrentUserPrivateNoteMention(c) ||
+    isConversationUnattended(c)
+  );
+}
+
 /** Resolve / Reopen + Add a label for Entrata profile side panel (z above z-[60] overlay). */
 function ProfilePanelConversationActionsMenu({
   selected,
@@ -457,9 +467,9 @@ function ConversationsContent() {
 
   const isEscalationLabel = (label: string) => label.endsWith("Escalation");
 
-  /** Unread threads across everything the user’s role can access (filteredItems). */
+  /** Count shown on “All Threads” — matches that inbox list (attention-needed open threads only). */
   const allThreadsUnreadCount = useMemo(
-    () => conversations.filter((c) => c.hasUnread).length,
+    () => conversations.filter(conversationMatchesAllThreadsInbox).length,
     [conversations]
   );
 
@@ -512,7 +522,7 @@ function ConversationsContent() {
 
   const sidebarFiltered = useMemo(() => {
     return conversations.filter((c) => {
-      if (sidebarFilter === "all") return true;
+      if (sidebarFilter === "all") return conversationMatchesAllThreadsInbox(c);
       if (sidebarFilter === "mentions") return conversationHasCurrentUserPrivateNoteMention(c);
       if (sidebarFilter === "unattended") return isConversationUnattended(c);
       if (typeof sidebarFilter === "object" && sidebarFilter.type === "label") {
@@ -953,14 +963,16 @@ function ConversationsContent() {
     <div className="flex flex-1 min-h-0 overflow-hidden">
       {/* ===== LEFT SIDEBAR ===== */}
       <aside className="flex w-[220px] shrink-0 flex-col border-r border-border bg-card">
-        <div className="flex items-center gap-2 px-4 py-3">
-          <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
-            <Link href="/command-center" aria-label="Back to Command Center">
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-          </Button>
-          <span className="text-sm font-semibold">Back</span>
-        </div>
+        <Link
+          href="/command-center"
+          className="flex items-center gap-2 px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted/60 rounded-md mx-2 mt-1"
+          aria-label="Back to Command Center"
+        >
+          <span className="flex h-7 w-7 items-center justify-center rounded-md">
+            <ArrowLeft className="h-4 w-4" />
+          </span>
+          Back
+        </Link>
 
         <nav className="flex-1 overflow-y-auto px-2 py-2">
           <ul className="space-y-0.5">
@@ -1355,37 +1367,19 @@ function ConversationsContent() {
                     </PopoverContent>
                   </Popover>
                   {selected.status === "open" ? (
-                    <div className="flex items-center shrink-0">
-                      <Button
-                        size="sm"
-                        className="gap-1 rounded-r-none px-2.5 h-7 text-xs"
-                        onClick={() => resolveConversation(selected.id, MY_INBOX_ASSIGNEE)}
-                      >
-                        <Check className="h-3 w-3" />
-                        Resolve
-                      </Button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            size="sm"
-                            className="rounded-l-none border-l border-primary-foreground/20 px-1.5 h-7"
-                          >
-                            <ChevronDown className="h-3 w-3" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-48">
-                          <DropdownMenuItem onClick={() => resolveConversation(selected.id, MY_INBOX_ASSIGNEE)}>
-                            <Check className="mr-2 h-3.5 w-3.5" />
-                            Mark as Resolved
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
+                    <Button
+                      size="sm"
+                      className="shrink-0 gap-1.5 px-4 h-7 text-xs mx-3"
+                      onClick={() => resolveConversation(selected.id, MY_INBOX_ASSIGNEE)}
+                    >
+                      <Check className="h-3 w-3" />
+                      Resolve
+                    </Button>
                   ) : (
                     <Button
                       size="sm"
                       variant="outline"
-                      className="gap-1.5"
+                      className="gap-1.5 px-4 h-7 text-xs mx-3"
                       onClick={() => reopenConversation(selected.id, MY_INBOX_ASSIGNEE)}
                     >
                       Reopen

@@ -50,9 +50,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <EntrataTopNav />
       <MobileNav />
       <div className="flex flex-1 overflow-hidden">
-        <div className="hidden shrink-0 lg:block">
-          <Sidebar />
-        </div>
+        {!fullBleed && (
+          <div className="hidden shrink-0 lg:block">
+            <Sidebar />
+          </div>
+        )}
         <main className={cn(
           "flex-1 bg-muted/50",
           fullBleed ? "flex flex-col overflow-hidden" : "pt-3 lg:pt-0 overflow-y-auto"

@@ -10,6 +10,7 @@ import { useNavBadges, type NavBadge } from "@/lib/use-nav-badges";
 import {
   Rocket,
   LayoutDashboard,
+  MessageSquare,
   AlertCircle,
   BarChart3,
   Codepen,
@@ -29,6 +30,7 @@ const navGroups = [
     label: "To Do",
     items: [
       { href: "/command-center", label: "Command Center", icon: LayoutDashboard },
+      { href: "/conversations", label: "Communications", icon: MessageSquare },
       { href: "/escalations", label: "Escalations", icon: AlertCircle },
       { href: "/entrata-experts", label: "Entrata Experts", icon: Sparkles },
     ],
@@ -120,7 +122,8 @@ export function Sidebar() {
             </p>
             <ul className="space-y-0.5">
               {group.items.map((item) => {
-                const isActive = pathname === item.href;
+                const isActive =
+                  pathname.replace(/\/$/, "") === item.href.replace(/\/$/, "");
                 const Icon = item.icon;
                 const badge = badges[item.href];
                 const isActivation = item.href === "/getting-started";
