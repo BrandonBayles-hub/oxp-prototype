@@ -17,7 +17,6 @@ import {
   ArrowLeft,
   Bot,
   MessageCircle,
-  User,
   Search,
   Plus,
   X,
@@ -54,6 +53,7 @@ import {
   PlayCircle,
   RefreshCw,
   UserMinus,
+  Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -93,6 +93,7 @@ import {
   isWaitingOnResidentPublicReply,
   satisfiesEscalatedPropertyInboxLabels,
   conversationHasCurrentUserPrivateNoteMention,
+  getLinkedConversationsByEscalation,
 } from "@/lib/conversations-context";
 import { useAgents } from "@/lib/agents-context";
 import { useWorkforce } from "@/lib/workforce-context";
@@ -201,6 +202,67 @@ function handoffAssigneeInitials(assignee: string, isHuman: (a: string) => boole
   if (assignee === CONVERSATION_UNASSIGNED_ASSIGNEE) return "—";
   if (isHuman(assignee)) return initials(assignee);
   return initials("Staff");
+}
+
+/**
+ * Plain div + img for thread rows — avoids Radix AvatarImage/Fallback getting out of sync
+ * (empty circle on the first agent message, etc.).
+ */
+function ThreadMessageAvatar({
+  variant,
+  isAgent,
+  isStaff,
+  selected,
+  isHumanAssignee,
+  staffInitialsOverride,
+}: {
+  variant: "threadEmail" | "threadBubble";
+  isAgent: boolean;
+  isStaff: boolean;
+  selected: ConversationItem;
+  isHumanAssignee: (a: string) => boolean;
+  /** Entrata side panel uses per-thread assignee, not always `selected.assignee`. */
+  staffInitialsOverride?: string;
+}) {
+  const base = "relative flex h-7 w-7 shrink-0 overflow-hidden rounded-full";
+  if (isAgent) {
+    return (
+      <div
+        className={cn(
+          base,
+          "items-center justify-center p-1",
+          variant === "threadBubble"
+            ? "bg-blue-100 dark:bg-blue-900/40"
+            : "bg-muted"
+        )}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element -- static public asset */}
+        <img src="/eli-cube.svg" alt="ELI" className="h-full w-full object-contain" />
+      </div>
+    );
+  }
+  if (isStaff) {
+    const staffCls =
+      variant === "threadBubble"
+        ? "bg-blue-100 text-[9px] font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+        : "bg-muted text-[9px] font-semibold text-foreground";
+    return (
+      <div className={cn(base, "items-center justify-center", staffCls)}>
+        {staffInitialsOverride ?? handoffAssigneeInitials(selected.assignee, isHumanAssignee)}
+      </div>
+    );
+  }
+  return (
+    <div
+      className={cn(
+        base,
+        "items-center justify-center text-[9px] font-semibold",
+        avatarColor(selected.resident)
+      )}
+    >
+      {initials(selected.resident)}
+    </div>
+  );
 }
 
 type ChannelOptChoice = "opt-in" | "opt-out" | "no-indication";
@@ -614,15 +676,26 @@ function ConversationsContent() {
       }
     }
     if (filtered.length > 0 && (!selectedId || !filtered.find((c) => c.id === selectedId))) {
-      setSelectedId(filtered[0].id);
+      const idStillValid = Boolean(selectedId && conversations.some((c) => c.id === selectedId));
+      if (!idStillValid) {
+        setSelectedId(filtered[0].id);
+      }
     } else if (filtered.length === 0) {
-      setSelectedId(null);
+      if (!selectedId || !conversations.some((c) => c.id === selectedId)) {
+        setSelectedId(null);
+      }
     }
   }, [filtered, selectedId, initialConvoId, conversations]);
 
-  const selected: ConversationItem | null = selectedId
-    ? filtered.find((c) => c.id === selectedId) ?? null
-    : null;
+  const selected: ConversationItem | null = useMemo(() => {
+    if (!selectedId) return null;
+    return filtered.find((c) => c.id === selectedId) ?? conversations.find((c) => c.id === selectedId) ?? null;
+  }, [selectedId, filtered, conversations]);
+
+  const linkedByEscalation = useMemo(() => {
+    if (!selected?.escalationId) return [];
+    return getLinkedConversationsByEscalation(conversations, selected.id, selected.escalationId);
+  }, [conversations, selected?.id, selected?.escalationId]);
 
   const selectedEmailRouting =
     selected?.channel === "Email"
@@ -1615,6 +1688,52 @@ function ConversationsContent() {
                       </Select>
                     </div>
                   </div>
+
+                  {selected.escalationId && linkedByEscalation.length > 0 && (
+                    <div
+                      className="mt-2 overflow-hidden rounded-lg border border-violet-200/80 bg-violet-50/50 shadow-sm dark:border-violet-900/50 dark:bg-violet-950/20"
+                      role="region"
+                      aria-label="Related escalated conversations"
+                    >
+                      <div className="flex gap-2 border-b border-violet-200/60 px-2.5 py-2 dark:border-violet-800/40">
+                        <div
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-violet-100 text-violet-700 dark:bg-violet-900/60 dark:text-violet-200"
+                          aria-hidden
+                        >
+                          <Link2 className="h-3.5 w-3.5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-violet-800 dark:text-violet-200">
+                            Linked conversations
+                          </p>
+                          <p className="mt-0.5 text-[10px] leading-snug text-violet-950/70 dark:text-violet-100/70">
+                            Any related escalated conversations will also be resolved automatically together when you
+                            resolve one.
+                          </p>
+                        </div>
+                      </div>
+                      <ul className="space-y-0.5 bg-background/60 px-1.5 py-1.5 dark:bg-background/40">
+                        {linkedByEscalation.map((c) => (
+                          <li key={c.id}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedId(c.id);
+                                markRead(c.id, MY_INBOX_ASSIGNEE);
+                              }}
+                              className="flex w-full items-center gap-1.5 rounded-md border border-transparent px-1.5 py-1.5 text-left text-[11px] transition-colors hover:border-violet-200 hover:bg-violet-50/80 dark:hover:border-violet-800 dark:hover:bg-violet-950/40"
+                            >
+                              <span className="shrink-0 font-medium text-violet-700/90 dark:text-violet-300/90">
+                                {c.channel}
+                              </span>
+                              <span className="min-w-0 flex-1 truncate text-foreground">{c.preview}</span>
+                              <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -1701,10 +1820,10 @@ function ConversationsContent() {
                           return (
                             <div key={idx} className="space-y-1">
                               <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                                <Avatar className="h-5 w-5">
+                                <Avatar className="h-7 w-7">
                                   <AvatarFallback
                                     className={cn(
-                                      "text-[8px]",
+                                      "text-[9px] font-semibold",
                                       msg.privateNoteAuthor
                                         ? avatarColor(msg.privateNoteAuthor)
                                         : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
@@ -1713,7 +1832,7 @@ function ConversationsContent() {
                                     {msg.privateNoteAuthor ? (
                                       initials(msg.privateNoteAuthor)
                                     ) : (
-                                      <StickyNote className="h-2.5 w-2.5" />
+                                      <StickyNote className="h-3.5 w-3.5" />
                                     )}
                                   </AvatarFallback>
                                 </Avatar>
@@ -1741,22 +1860,13 @@ function ConversationsContent() {
                         return (
                           <div key={idx} className="space-y-2 border-l-2 border-l-primary/25 pl-4">
                             <div className="flex items-center gap-2">
-                              <Avatar className={cn(isAgent || isStaff ? "h-8 w-8" : "h-5 w-5")}>
-                                {isAgent ? (
-                                  <AvatarImage src="/eli-cube.svg" alt="ELI" className="p-1" />
-                                ) : null}
-                                <AvatarFallback
-                                  className={cn(
-                                    (isAgent || isStaff)
-                                      ? "bg-muted text-[10px] text-foreground"
-                                      : "bg-muted text-[8px] text-muted-foreground"
-                                  )}
-                                >
-                                  {isStaff
-                                    ? handoffAssigneeInitials(selected.assignee, isHumanAssignee)
-                                    : <User className="h-2.5 w-2.5" />}
-                                </AvatarFallback>
-                              </Avatar>
+                              <ThreadMessageAvatar
+                                variant="threadEmail"
+                                isAgent={isAgent}
+                                isStaff={isStaff}
+                                selected={selected}
+                                isHumanAssignee={isHumanAssignee}
+                              />
                               <div className="flex flex-col">
                                 <span className="text-xs font-semibold text-foreground">
                                   {isAgent
@@ -1818,10 +1928,10 @@ function ConversationsContent() {
                               <div className="mt-3 border-t border-border pt-3">
                                 <div className="flex gap-3">
                                   {(isStaff || msg.role === "resident") && (
-                                    <Avatar className="mt-0.5 h-10 w-10 shrink-0 border border-border bg-background">
+                                    <Avatar className="mt-0.5 h-8 w-8 shrink-0 border border-border bg-background">
                                       <AvatarFallback
                                         className={cn(
-                                          "text-[10px]",
+                                          "text-[9px]",
                                           isStaff
                                             ? selected.assignee === CONVERSATION_UNASSIGNED_ASSIGNEE
                                               ? "border border-dashed border-muted-foreground/35 bg-muted/50 text-muted-foreground"
@@ -1896,10 +2006,10 @@ function ConversationsContent() {
                     return (
                       <div key={idx} className="space-y-1">
                         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                          <Avatar className="h-5 w-5">
+                          <Avatar className="h-7 w-7">
                             <AvatarFallback
                               className={cn(
-                                "text-[8px]",
+                                "text-[9px] font-semibold",
                                 msg.privateNoteAuthor
                                   ? avatarColor(msg.privateNoteAuthor)
                                   : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
@@ -1908,7 +2018,7 @@ function ConversationsContent() {
                               {msg.privateNoteAuthor ? (
                                 initials(msg.privateNoteAuthor)
                               ) : (
-                                <StickyNote className="h-2.5 w-2.5" />
+                                <StickyNote className="h-3.5 w-3.5" />
                               )}
                             </AvatarFallback>
                           </Avatar>
@@ -1938,22 +2048,13 @@ function ConversationsContent() {
                   return (
                     <div key={idx} className="space-y-2">
                       <div className="flex items-center gap-2">
-                        <Avatar className={cn(isAgent || isStaff ? "h-8 w-8" : "h-5 w-5")}>
-                          {isAgent ? (
-                            <AvatarImage src="/eli-cube.svg" alt="ELI" className="p-1" />
-                          ) : null}
-                          <AvatarFallback
-                            className={cn(
-                              (isAgent || isStaff)
-                                ? "bg-blue-100 text-[10px] text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
-                                : "bg-muted text-[8px] text-muted-foreground"
-                            )}
-                          >
-                            {isStaff
-                              ? handoffAssigneeInitials(selected.assignee, isHumanAssignee)
-                              : <User className="h-2.5 w-2.5" />}
-                          </AvatarFallback>
-                        </Avatar>
+                        <ThreadMessageAvatar
+                          variant="threadBubble"
+                          isAgent={isAgent}
+                          isStaff={isStaff}
+                          selected={selected}
+                          isHumanAssignee={isHumanAssignee}
+                        />
                         <div className="flex flex-col">
                           <span className={cn("text-xs font-semibold", (isAgent || isStaff) ? "text-foreground" : "text-foreground")}>
                             {isAgent
@@ -2606,9 +2707,9 @@ function ConversationsContent() {
                         return (
                           <div key={`ent-pn-${openThreadIdx}-${idx}`} className="space-y-1">
                             <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                              <Avatar className="h-5 w-5">
+                              <Avatar className="h-7 w-7">
                                 <AvatarFallback
-                                  className={cn("text-[8px]", avatarColor(MY_INBOX_ASSIGNEE))}
+                                  className={cn("text-[9px] font-semibold", avatarColor(MY_INBOX_ASSIGNEE))}
                                 >
                                   {initials(MY_INBOX_ASSIGNEE)}
                                 </AvatarFallback>
@@ -2642,24 +2743,14 @@ function ConversationsContent() {
                       return (
                         <div key={`ent-${openThreadIdx}-${idx}`} className="space-y-2">
                           <div className="flex items-center gap-2">
-                            <Avatar className={cn(isAgent || isStaff ? "h-7 w-7" : "h-5 w-5")}>
-                              {isAgent ? (
-                                <AvatarImage src="/eli-cube.svg" alt="ELI" className="p-1" />
-                              ) : null}
-                              <AvatarFallback
-                                className={cn(
-                                  (isAgent || isStaff)
-                                    ? "bg-blue-100 text-[9px] text-blue-700"
-                                    : "bg-muted text-[8px] text-muted-foreground"
-                                )}
-                              >
-                                {isStaff
-                                  ? initials(assigneeName)
-                                  : isAgent
-                                    ? "AI"
-                                    : initials(selected.resident)}
-                              </AvatarFallback>
-                            </Avatar>
+                            <ThreadMessageAvatar
+                              variant="threadBubble"
+                              isAgent={isAgent}
+                              isStaff={isStaff}
+                              selected={selected}
+                              isHumanAssignee={isHumanAssignee}
+                              staffInitialsOverride={isStaff ? initials(assigneeName) : undefined}
+                            />
                             <div className="flex flex-col">
                               <span className="text-[11px] font-semibold text-foreground">
                                 {isAgent
@@ -2690,10 +2781,10 @@ function ConversationsContent() {
                             {emailSig ? (
                               <div className="mt-2 border-t border-white/25 pt-2">
                                 <div className="flex gap-2">
-                                  <Avatar className="mt-0.5 h-8 w-8 shrink-0 border border-white/50 bg-white">
+                                  <Avatar className="mt-0.5 h-7 w-7 shrink-0 border border-white/50 bg-white">
                                     <AvatarFallback
                                       className={cn(
-                                        "text-[9px]",
+                                        "text-[8px]",
                                         isHumanAssignee(selected.assignee)
                                           ? avatarColor(selected.assignee)
                                           : selected.assignee === CONVERSATION_UNASSIGNED_ASSIGNEE
@@ -2982,16 +3073,16 @@ function ConversationsContent() {
                         return (
                           <div key={idx} className="space-y-1">
                             <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                              <Avatar className="h-5 w-5">
+                              <Avatar className="h-7 w-7">
                                 <AvatarFallback
                                   className={cn(
-                                    "text-[8px]",
+                                    "text-[9px] font-semibold",
                                     msg.privateNoteAuthor
                                       ? avatarColor(msg.privateNoteAuthor)
                                       : "bg-amber-100 text-amber-700"
                                   )}
                                 >
-                                  {msg.privateNoteAuthor ? initials(msg.privateNoteAuthor) : <StickyNote className="h-2.5 w-2.5" />}
+                                  {msg.privateNoteAuthor ? initials(msg.privateNoteAuthor) : <StickyNote className="h-3.5 w-3.5" />}
                                 </AvatarFallback>
                               </Avatar>
                               <span className="text-[10px] font-semibold text-amber-700">
@@ -3016,24 +3107,13 @@ function ConversationsContent() {
                       return (
                         <div key={idx} className="space-y-2">
                           <div className="flex items-center gap-2">
-                            <Avatar className={cn(isAgent || isStaff ? "h-7 w-7" : "h-5 w-5")}>
-                              {isAgent ? (
-                                <AvatarImage src="/eli-cube.svg" alt="ELI" className="p-1" />
-                              ) : null}
-                              <AvatarFallback
-                                className={cn(
-                                  (isAgent || isStaff)
-                                    ? "bg-blue-100 text-[9px] text-blue-700"
-                                    : "bg-muted text-[8px] text-muted-foreground"
-                                )}
-                              >
-                                {isStaff
-                                  ? handoffAssigneeInitials(selected.assignee, isHumanAssignee)
-                                  : isAgent
-                                    ? "AI"
-                                    : initials(selected.resident)}
-                              </AvatarFallback>
-                            </Avatar>
+                            <ThreadMessageAvatar
+                              variant="threadBubble"
+                              isAgent={isAgent}
+                              isStaff={isStaff}
+                              selected={selected}
+                              isHumanAssignee={isHumanAssignee}
+                            />
                             <div className="flex flex-col">
                               <span className="text-[11px] font-semibold text-foreground">
                                 {isAgent
@@ -3293,8 +3373,8 @@ function ConversationsContent() {
                             <button
                               className={
                                 getThreadAssignee(globalIdx)
-                                  ? `flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold transition-colors hover:ring-2 hover:ring-gray-300 ${avatarColor(getThreadAssignee(globalIdx)!)}`
-                                  : "shrink-0 flex h-8 w-8 items-center justify-center rounded-full border border-dashed border-gray-300 text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
+                                  ? `flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[9px] font-bold transition-colors hover:ring-2 hover:ring-gray-300 ${avatarColor(getThreadAssignee(globalIdx)!)}`
+                                  : "shrink-0 flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-gray-300 text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
                               }
                               title={getThreadAssignee(globalIdx) ? `Assigned to ${getThreadAssignee(globalIdx)}. Click to reassign.` : "Assign someone to this thread"}
                               onClick={(e) => e.stopPropagation()}

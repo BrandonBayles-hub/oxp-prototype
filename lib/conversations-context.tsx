@@ -69,6 +69,8 @@ export type ConversationItem = {
   status: "open" | "resolved";
   messages: ConversationMessage[];
   hasUnread: boolean;
+  /** When set, threads with the same id are one escalation case across channels. */
+  escalationId?: string;
 };
 
 /** Login / profile handles matched in private notes as @handle (prototype viewer). */
@@ -88,6 +90,16 @@ export function conversationHasCurrentUserPrivateNoteMention(c: ConversationItem
   return c.messages.some(
     (m) => m.type === "private_note" && privateNoteTextMentionsCurrentUser(m.text)
   );
+}
+
+/** Other conversations in the same escalation case (excludes `currentId`). */
+export function getLinkedConversationsByEscalation(
+  all: ConversationItem[],
+  currentId: string,
+  escalationId: string | undefined
+): ConversationItem[] {
+  if (!escalationId) return [];
+  return all.filter((c) => c.id !== currentId && c.escalationId === escalationId);
 }
 
 function isPublicThreadMessage(m: ConversationMessage): boolean {
@@ -237,6 +249,35 @@ function buildThreadActivityMessage(activity: ThreadActivity): ConversationMessa
 
 const INITIAL: ConversationItem[] = [
   {
+    id: "lc-21",
+    resident: "Jordan Lee",
+    unit: null,
+    preview: "Is Saturday at 2pm OK for a tour? I can do Sunday too if that wor...",
+    agent: "Staff",
+    time: "just now",
+    contactType: "Lead",
+    property: "Hillside Living",
+    channel: "Web Chat",
+    assignee: "Abe Kashiwagi",
+    labels: ["Lead"],
+    status: "open",
+    hasUnread: true,
+    messages: [
+      {
+        role: "staff",
+        text: "Hi Jordan — thanks for your interest in Hillside Living. I’ve sent the floor plan you asked for. Let me know when you’d like to tour.",
+        timestamp: "Apr 1 2026 · 4:12pm MST",
+        type: "message",
+      },
+      {
+        role: "resident",
+        text: "Is Saturday at 2pm OK for a tour? I can do Sunday too if that works better.",
+        timestamp: "Apr 1 2026 · 4:18pm MST",
+        type: "message",
+      },
+    ],
+  },
+  {
     id: "lc-1",
     resident: "Maria Santos",
     unit: null,
@@ -334,6 +375,7 @@ Hillside Living
     channel: "Web Chat",
     assignee: "ELI+ Leasing AI",
     labels: ["Leasing AI", "Leasing AI Escalation"],
+    escalationId: "esc-hillside-alma-12",
     status: "open",
     hasUnread: true,
     messages: [
@@ -347,6 +389,45 @@ Hillside Living
         timestamp: "Sep 15 2025 · 8:17pm MST",
         type: "private_note",
         privateNoteAuthor: "Abe Kashiwagi",
+      },
+    ],
+  },
+  {
+    id: "lc-20",
+    resident: "Alma Sanchez",
+    unit: null,
+    preview: "Got it — I’ll upload ID tonight. Thanks!",
+    agent: "Staff",
+    time: "4m ago",
+    contactType: "Lead",
+    property: "Hillside Living",
+    channel: "Email",
+    emailSubject: "Re: Your application — ID upload (same case as web chat)",
+    assignee: "Abe Kashiwagi",
+    labels: ["Leasing AI", "Leasing AI Escalation"],
+    escalationId: "esc-hillside-alma-12",
+    status: "open",
+    hasUnread: false,
+    messages: [
+      {
+        role: "staff",
+        text: "Hi Alma — following up on your web chat thread. When you have a moment, please reply with a clear photo of your government ID (or use the secure upload link from my last message in chat). This email is tied to the same escalated case on our side.",
+        timestamp: "Sep 15 2025 · 7:20pm MST",
+        type: "message",
+        emailSignature: `Best regards,
+Abe Kashiwagi
+Leasing Specialist
+
+Hillside Living
+(720) 555-0140
+1800 Hillside Parkway, Denver, CO 80205`,
+      },
+      {
+        role: "resident",
+        text: "Got it — I’ll upload ID tonight. Thanks!",
+        timestamp: "Sep 15 2025 · 7:22pm MST",
+        type: "message",
+        emailSignature: "—\nAlma Sanchez\nProspective resident",
       },
     ],
   },
