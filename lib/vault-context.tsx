@@ -103,6 +103,8 @@ export type VaultItem = {
   folderId?: string;
   /** If true, this is a template — not an active operational document */
   isTemplate?: boolean;
+  /** Saved draft body — editor content saved locally before submitting for approval */
+  draftBody?: string;
   /** File format hint — determines whether inline editing (text) or preview (binary) is used */
   fileFormat?: "text" | "pdf" | "docx" | "image";
   /**
@@ -381,7 +383,7 @@ type VaultContextValue = {
   documents: VaultItem[];
   setDocuments: React.Dispatch<React.SetStateAction<VaultItem[]>>;
   addDocument: (item: Omit<VaultItem, "id" | "modified">) => string;
-  updateDocument: (id: string, updates: Partial<Pick<VaultItem, "fileName" | "documentType" | "property" | "approvalStatus" | "version" | "effectiveDate" | "modified" | "body" | "tags" | "linkedAgentIds" | "relatedDocumentIds" | "history" | "properties" | "nextReviewDate" | "folderId" | "isTemplate" | "versions" | "trainingRecords" | "fileFormat" | "viewerAccess" | "owner" | "scopeLevel" | "ownerId" | "propertyId" | "isInternalOnly" | "isOwnerVisible" | "isTenantVisible">>) => void;
+  updateDocument: (id: string, updates: Partial<Pick<VaultItem, "fileName" | "documentType" | "property" | "approvalStatus" | "version" | "effectiveDate" | "modified" | "body" | "draftBody" | "tags" | "linkedAgentIds" | "relatedDocumentIds" | "history" | "properties" | "nextReviewDate" | "folderId" | "isTemplate" | "versions" | "trainingRecords" | "fileFormat" | "viewerAccess" | "owner" | "scopeLevel" | "ownerId" | "propertyId" | "isInternalOnly" | "isOwnerVisible" | "isTenantVisible">>) => void;
   addFolder: (fileName: string) => void;
   moveToFolder: (docId: string, folderId: string | null) => void;
   complianceChecked: Record<string, boolean>;
@@ -553,7 +555,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     return newId;
   }, [addActivity]);
 
-  const updateDocument = useCallback((id: string, updates: Partial<Pick<VaultItem, "fileName" | "documentType" | "property" | "approvalStatus" | "version" | "effectiveDate" | "modified" | "body" | "tags" | "linkedAgentIds" | "relatedDocumentIds" | "history" | "properties" | "nextReviewDate" | "folderId" | "isTemplate" | "versions" | "trainingRecords" | "fileFormat" | "viewerAccess" | "owner">>) => {
+  const updateDocument = useCallback((id: string, updates: Partial<Pick<VaultItem, "fileName" | "documentType" | "property" | "approvalStatus" | "version" | "effectiveDate" | "modified" | "body" | "draftBody" | "tags" | "linkedAgentIds" | "relatedDocumentIds" | "history" | "properties" | "nextReviewDate" | "folderId" | "isTemplate" | "versions" | "trainingRecords" | "fileFormat" | "viewerAccess" | "owner">>) => {
     setDocuments((prev) =>
       prev.map((doc) => {
         if (doc.id !== id) return doc;
