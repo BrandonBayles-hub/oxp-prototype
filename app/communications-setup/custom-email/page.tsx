@@ -47,8 +47,22 @@ const SERVICE_TYPES = [
   "Entrata Email",
 ];
 
+/** Set to `true` to show "Entrata Email" again in Google/Microsoft and assignment service-type pickers. */
+const SHOW_ENTRATA_EMAIL_IN_SERVICE_SELECTOR = false;
+
+/** Full ELI picker list (OAuth + edit assignment); IMAP "Other providers" still uses `OTHER_PROVIDER_SERVICE_TYPES` only. */
+const ELI_CONNECT_SERVICE_TYPES: readonly string[] = SHOW_ENTRATA_EMAIL_IN_SERVICE_SELECTOR
+  ? SERVICE_TYPES
+  : SERVICE_TYPES.filter((s) => s !== "Entrata Email");
+
 /** IMAP/SMTP ("Other Service Providers") — no ELI+ AI lanes; Entrata Email only. */
 const OTHER_PROVIDER_SERVICE_TYPES = ["Entrata Email"] as const;
+
+/** Toggle to `true` to show the "Other Service Providers" connect button on this page again. */
+const SHOW_OTHER_SERVICE_PROVIDERS_BUTTON = false;
+
+/** Toggle to `true` to show the "Entrata Email / Optional" column in the property status table again. */
+const SHOW_ENTRATA_EMAIL_OPTIONAL_COLUMN = false;
 
 const RESIDENT_ELI_SERVICES = ["ELI+ Maintenance AI", "ELI+ Payments AI", "ELI+ Renewals AI"];
 const ALL_ELI_SERVICES = ["ELI+ Leasing AI", ...RESIDENT_ELI_SERVICES];
@@ -231,7 +245,11 @@ function EliPropertyStatusTable() {
           <div>
             <h3 className="text-sm font-semibold text-[hsl(var(--foreground))]">Status of Custom Email Integration</h3>
             <p className="mt-0.5 text-xs text-[hsl(var(--muted-foreground))]">
-              All contracted ELI+ AI service email integrations must be completed for each property before they can operate within the new Communications Inbox. Entrata Email is optional and not required for ELI+ activation. Services marked N/A are not contracted for that property.
+              All contracted ELI+ AI service email integrations must be completed for each property before they can operate within the new Communications Inbox.
+              {SHOW_ENTRATA_EMAIL_OPTIONAL_COLUMN && (
+                <> Entrata Email is optional and not required for ELI+ activation.</>
+              )}{" "}
+              Services marked N/A are not contracted for that property.
             </p>
           </div>
           <span
@@ -257,10 +275,12 @@ function EliPropertyStatusTable() {
                   <span className="block text-[9px] font-normal text-[hsl(var(--muted-foreground))]/60">Required</span>
                 </th>
               ))}
-              <th className="px-3 py-2.5 text-center font-medium text-[hsl(var(--muted-foreground))] whitespace-nowrap text-xs">
-                <span>Entrata Email</span>
-                <span className="block text-[9px] font-normal text-[hsl(var(--muted-foreground))]/60">Optional</span>
-              </th>
+              {SHOW_ENTRATA_EMAIL_OPTIONAL_COLUMN && (
+                <th className="px-3 py-2.5 text-center font-medium text-[hsl(var(--muted-foreground))] whitespace-nowrap text-xs">
+                  <span>Entrata Email</span>
+                  <span className="block text-[9px] font-normal text-[hsl(var(--muted-foreground))]/60">Optional</span>
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -313,19 +333,21 @@ function EliPropertyStatusTable() {
                       </td>
                     );
                   })}
-                  <td className="px-3 py-3 text-center">
-                    {entrataDone(prop.name) ? (
-                      <div className="flex flex-col items-center gap-0.5">
-                        <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-                        <span className="text-[9px] font-semibold text-emerald-600">Done</span>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-center gap-0.5">
-                        <Circle className="h-5 w-5 text-gray-300" />
-                        <span className="text-[9px] font-medium text-gray-400">—</span>
-                      </div>
-                    )}
-                  </td>
+                  {SHOW_ENTRATA_EMAIL_OPTIONAL_COLUMN && (
+                    <td className="px-3 py-3 text-center">
+                      {entrataDone(prop.name) ? (
+                        <div className="flex flex-col items-center gap-0.5">
+                          <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                          <span className="text-[9px] font-semibold text-emerald-600">Done</span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center gap-0.5">
+                          <Circle className="h-5 w-5 text-gray-300" />
+                          <span className="text-[9px] font-medium text-gray-400">—</span>
+                        </div>
+                      )}
+                    </td>
+                  )}
                 </tr>
               );
             })}
@@ -662,14 +684,16 @@ export default function CustomEmailPage() {
               </svg>
               Sign in with Microsoft
             </button>
-            <button
-              type="button"
-              onClick={openAddEmailModal}
-              className="inline-flex items-center gap-3 rounded-lg border border-[hsl(var(--border))] bg-white px-6 py-3 text-sm font-medium text-[hsl(var(--foreground))] shadow-sm transition-all hover:bg-gray-50 hover:shadow-md"
-            >
-              <Globe className="h-5 w-5 text-[hsl(var(--muted-foreground))]" />
-              Other Service Providers
-            </button>
+            {SHOW_OTHER_SERVICE_PROVIDERS_BUTTON && (
+              <button
+                type="button"
+                onClick={openAddEmailModal}
+                className="inline-flex items-center gap-3 rounded-lg border border-[hsl(var(--border))] bg-white px-6 py-3 text-sm font-medium text-[hsl(var(--foreground))] shadow-sm transition-all hover:bg-gray-50 hover:shadow-md"
+              >
+                <Globe className="h-5 w-5 text-[hsl(var(--muted-foreground))]" />
+                Other Service Providers
+              </button>
+            )}
           </div>
 
           {(() => {
@@ -1130,9 +1154,20 @@ export default function CustomEmailPage() {
               <div className="px-8 py-8">
                 <h2 className="text-lg font-semibold text-gray-900">Configure Email Assignment</h2>
                 <p className="mt-1 text-sm text-gray-500">
-                  Select the properties and service types this email address will be associated with before connecting your account.
+                  Select the service types and properties this email address will be associated with before connecting your account.
                 </p>
                 <div className="mt-6 space-y-5">
+                  <div>
+                    <label className="mb-1.5 block text-sm font-semibold text-gray-900">Service Type</label>
+                    <ServiceTypeSelector
+                      serviceOptions={ELI_CONNECT_SERVICE_TYPES}
+                      selected={oauthModal.selectedServiceTypes}
+                      onToggle={toggleOauthSvc}
+                      open={oauthModal.svcDropdownOpen}
+                      onOpenChange={(v) => setOauthModal((prev) => prev && { ...prev, svcDropdownOpen: v, propDropdownOpen: false })}
+                      dropUp
+                    />
+                  </div>
                   <div>
                     <label className="mb-1.5 block text-sm font-semibold text-gray-900">Properties</label>
                     <div className="relative">
@@ -1172,16 +1207,6 @@ export default function CustomEmailPage() {
                         ))}
                       </div>
                     )}
-                  </div>
-                  <div>
-                    <label className="mb-1.5 block text-sm font-semibold text-gray-900">Service Type</label>
-                    <ServiceTypeSelector
-                      selected={oauthModal.selectedServiceTypes}
-                      onToggle={toggleOauthSvc}
-                      open={oauthModal.svcDropdownOpen}
-                      onOpenChange={(v) => setOauthModal((prev) => prev && { ...prev, svcDropdownOpen: v, propDropdownOpen: false })}
-                      dropUp
-                    />
                   </div>
                 </div>
                 <div className="mt-8 flex items-center justify-end gap-3">
@@ -1416,6 +1441,7 @@ export default function CustomEmailPage() {
               <div>
                 <label className="block text-sm font-medium text-[hsl(var(--foreground))] mb-1.5">Service Types</label>
                 <ServiceTypeSelector
+                  serviceOptions={ELI_CONNECT_SERVICE_TYPES}
                   selected={assignmentEdit.serviceTypes}
                   onToggle={(svc) => {
                     setAssignmentEdit((prev) => {

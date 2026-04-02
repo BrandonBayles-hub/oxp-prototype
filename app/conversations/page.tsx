@@ -1266,18 +1266,6 @@ function ConversationsContent() {
                           ) : (
                             convo.property
                           )}
-                          {convo.channel === "Email" && (
-                            <span className="inline-flex items-center gap-0.5 font-normal text-muted-foreground/90">
-                              <Mail className="h-3 w-3 shrink-0" />
-                              Email
-                            </span>
-                          )}
-                          {convo.channel === "SMS" && (
-                            <span className="inline-flex items-center gap-0.5 font-normal text-muted-foreground/90">
-                              <Phone className="h-3 w-3 shrink-0" />
-                              SMS
-                            </span>
-                          )}
                         </span>
                       <div className="flex items-center justify-between gap-2">
                         <span className={cn("truncate text-sm", convo.hasUnread ? "font-bold" : "font-semibold")}>
