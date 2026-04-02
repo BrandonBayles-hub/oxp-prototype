@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -19,7 +19,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
-import { X, Plus, Link2, Paperclip, CheckSquare } from "lucide-react";
+import { X, Plus, Link2, Paperclip, CheckSquare, ChevronDown, Check } from "lucide-react";
 import {
   SPECIALTIES,
   PROPERTIES,
@@ -37,8 +37,74 @@ import {
 import type { PlaybookTemplateTask, PlaybookTemplatePriority } from "@/lib/playbook-templates-data";
 import { useWorkforce } from "@/lib/workforce-context";
 import { cn } from "@/lib/utils";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { PropertySelector } from "@/components/property-selector";
+import { getSelectedPropertyNames, getDataForView } from "@/lib/property-selector-data";
 
 // ── Shared cadence types ────────────────────────────────────────────────────
+
+function AssigneeCombobox({ members, value, onChange }: { members: { id: string; name: string }[]; value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase().trim();
+    if (!q) return members;
+    return members.filter((m) => m.name.toLowerCase().includes(q));
+  }, [members, query]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm hover:bg-muted/50 focus:outline-none focus:ring-1 focus:ring-ring",
+            !value && "text-muted-foreground"
+          )}
+        >
+          <span className="truncate">{value || "Select Assignee"}</span>
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[240px] p-0 z-[200]" align="start">
+        <div className="p-2">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search members…"
+            className="h-8 w-full rounded-md border border-input bg-background px-2.5 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            autoFocus
+          />
+        </div>
+        <div className="max-h-48 overflow-y-auto px-1 pb-1">
+          <button
+            type="button"
+            onClick={() => { onChange(""); setOpen(false); setQuery(""); }}
+            className={cn("flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm transition-colors hover:bg-muted", !value && "bg-muted font-medium")}
+          >
+            <Check className={cn("h-3.5 w-3.5 shrink-0", value ? "invisible" : "text-primary")} />
+            <span className="text-muted-foreground">Unassigned</span>
+          </button>
+          {filtered.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => { onChange(m.name); setOpen(false); setQuery(""); }}
+              className={cn("flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm transition-colors hover:bg-muted", value === m.name && "bg-muted font-medium")}
+            >
+              <Check className={cn("h-3.5 w-3.5 shrink-0", value === m.name ? "text-primary" : "invisible")} />
+              {m.name}
+            </button>
+          ))}
+          {filtered.length === 0 && (
+            <p className="px-2 py-3 text-center text-xs text-muted-foreground">No members found</p>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 type CadenceState = {
   cadence: SpecialtyTaskRepeats;
@@ -692,24 +758,43 @@ export function CreateCustomTaskDialog(props: CreateCustomTaskDialogProps) {
             <div className="space-y-3">
               <div className="space-y-1.5 relative z-[150]">
                 <label className={labelClass}>Property</label>
-                <Select
-                  value={property || "__none__"}
-                  onValueChange={(v) => setProperty(v === "__none__" ? "" : v)}
-                >
-                  <SelectTrigger className="h-9 text-sm">
-                    <SelectValue placeholder="Select property" />
-                  </SelectTrigger>
-                  <SelectContent className="z-[200]">
-                    <SelectItem value="__none__" className="text-sm text-muted-foreground">
-                      None
-                    </SelectItem>
-                    {PROPERTIES.map((p) => (
-                      <SelectItem key={p} value={p} className="text-sm">
-                        {p}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover modal={true}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className={cn(
+                        "flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm hover:bg-muted/50 focus:outline-none focus:ring-1 focus:ring-ring",
+                        !property && "text-muted-foreground"
+                      )}
+                    >
+                      <span className="truncate">{property || "Select property"}</span>
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[320px] p-0 z-[200]" align="start" sideOffset={4}>
+                    <PropertySelector
+                      selected={(() => {
+                        if (!property) return new Set<string>();
+                        const data = getDataForView("Property List");
+                        let foundId = "";
+                        const walk = (nodes: typeof data): void => {
+                          for (const n of nodes) {
+                            if (n.type === "property" && n.name === property) { foundId = n.id; return; }
+                            if (n.children) walk(n.children);
+                          }
+                        };
+                        walk(data);
+                        return foundId ? new Set([foundId]) : new Set<string>();
+                      })()}
+                      onSelectionChange={(ids) => {
+                        const data = getDataForView("Property List");
+                        const names = getSelectedPropertyNames(data, ids);
+                        setProperty(names[0] ?? "");
+                      }}
+                      className="h-[360px] border-0 shadow-none rounded-md"
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
 
               {!hideSpecialtyWorkflow && (
@@ -746,17 +831,11 @@ export function CreateCustomTaskDialog(props: CreateCustomTaskDialogProps) {
 
               <div className="space-y-1.5">
                 <label className={labelClass}>Assignee</label>
-                <Select value={assignee || "__none__"} onValueChange={(v) => setAssignee(v === "__none__" ? "" : v)}>
-                  <SelectTrigger className="h-9 text-sm">
-                    <SelectValue placeholder="Select Assignee" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__" className="text-sm">Select Assignee</SelectItem>
-                    {humanMembers.map((m) => (
-                      <SelectItem key={m.id} value={m.name} className="text-sm">{m.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <AssigneeCombobox
+                  members={humanMembers}
+                  value={assignee}
+                  onChange={setAssignee}
+                />
               </div>
             </div>
           </section>

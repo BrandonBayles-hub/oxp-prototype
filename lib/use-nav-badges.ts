@@ -1,6 +1,11 @@
 "use client";
 
 import { useMemo } from "react";
+import {
+  useConversations,
+  conversationHasCurrentUserPrivateNoteMention,
+  isConversationUnattended,
+} from "@/lib/conversations-context";
 import { useEscalations } from "@/lib/escalations-context";
 import { useVault } from "@/lib/vault-context";
 import { useAgents } from "@/lib/agents-context";
@@ -29,6 +34,7 @@ export type NavBadgeResult = {
 };
 
 export function useNavBadges(): NavBadgeResult {
+  const { filteredItems: conversationsForNav } = useConversations();
   const { items: escalations } = useEscalations();
   const { documents, docCount } = useVault();
   const { agents, agentsEnabledCount } = useAgents();
@@ -46,6 +52,25 @@ export function useNavBadges(): NavBadgeResult {
     ).length;
     if (openEscalations > 0) {
       badges["/escalations"] = { count: openEscalations, variant: "action" };
+    }
+
+    /** Distinct threads needing attention: unread, @mention in a private note, or unattended (same semantics as Communications sidebar). */
+    const communicationsAttentionIds = new Set<string>();
+    for (const c of conversationsForNav) {
+      if (
+        c.hasUnread ||
+        conversationHasCurrentUserPrivateNoteMention(c) ||
+        isConversationUnattended(c)
+      ) {
+        communicationsAttentionIds.add(c.id);
+      }
+    }
+    const communicationsAttentionCount = communicationsAttentionIds.size;
+    if (communicationsAttentionCount > 0) {
+      badges["/conversations"] = {
+        count: communicationsAttentionCount,
+        variant: "action",
+      };
     }
 
     const needsAttention = escalations.filter(
@@ -97,8 +122,17 @@ export function useNavBadges(): NavBadgeResult {
       },
     };
   }, [
-    escalations, documents, agents, completedSteps, goLiveComplete,
-    docCount, agentsEnabledCount, atLeastOneEnabled, voiceConfigured,
-    availableToolNames, enabledGuardrailCount,
+    conversationsForNav,
+    escalations,
+    documents,
+    agents,
+    completedSteps,
+    goLiveComplete,
+    docCount,
+    agentsEnabledCount,
+    atLeastOneEnabled,
+    voiceConfigured,
+    availableToolNames,
+    enabledGuardrailCount,
   ]);
 }

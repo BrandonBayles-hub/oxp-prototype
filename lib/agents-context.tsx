@@ -96,9 +96,24 @@ export type Agent = {
   slaFirstResponseMinutes?: number;
   slaResolutionHours?: number;
   slaBusinessHoursOnly?: boolean;
+
+  /** New Relic usage telemetry (mock) */
+  weeklyUsage?: number;
+  trendDirection?: "up" | "down" | "flat";
 };
 
 const STORAGE_KEY = "janet-poc-agents-v8";
+
+function seedUsage(name: string, status: string, type: AgentType): { weeklyUsage: number; trendDirection: "up" | "down" | "flat" } {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
+  h = Math.abs(h);
+  const base = status === "Active" ? 120 + (h % 880) : status === "Off" ? 0 : h % 40;
+  const typeBoost = type === "autonomous" ? 1.6 : type === "efficiency" ? 1.3 : type === "operations" ? 1.1 : 1;
+  const weeklyUsage = Math.round(base * typeBoost);
+  const trendDirection: "up" | "down" | "flat" = weeklyUsage === 0 ? "flat" : h % 5 < 3 ? "up" : h % 5 === 3 ? "flat" : "down";
+  return { weeklyUsage, trendDirection };
+}
 
 const defaultAgentFields = (
   bucket: string,
@@ -106,7 +121,10 @@ const defaultAgentFields = (
   name: string,
   description: string,
   overrides: Partial<Agent> = {}
-): Omit<Agent, "id"> => ({
+): Omit<Agent, "id"> => {
+  const status = overrides.status ?? "Off";
+  const usage = seedUsage(name, status, type);
+  return {
   name,
   description,
   status: "Off",
@@ -122,6 +140,7 @@ const defaultAgentFields = (
   escalationsCount: 0,
   revenueImpact: "—",
   labels: [],
+  ...usage,
   ...(type === "autonomous" ? {
     persona: "professional",
     maxSteps: 10,
@@ -141,7 +160,8 @@ const defaultAgentFields = (
     ],
   } : {}),
   ...overrides,
-});
+};
+};
 
 const INITIAL_AGENTS: Agent[] = [
   // Revenue & Financial Management — autonomous, intelligence, operations

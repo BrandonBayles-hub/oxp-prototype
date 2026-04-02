@@ -33,7 +33,7 @@ import { useTools } from "@/lib/tools-context";
 import { useGovernance } from "@/lib/governance-context";
 import { useAgentCompliance } from "@/lib/use-agent-compliance";
 import { useR1Release } from "@/lib/r1-release-context";
-import { Tag, X, DollarSign, Megaphone, Users, Wrench, ShieldCheck, Power, Activity, AlertCircle, Play, Clock, CheckCircle, CheckCircle2, XCircle, Calendar, Lightbulb, Target, Database, BarChart3, Pencil, Save, ArrowLeft, ArrowRight, Sparkles, BookOpen, Cog, Bot, Box, MessageSquare, Shield, Zap, Eye, EyeOff, Globe, Mail, Phone, Volume2, History, RotateCcw, Lock, ExternalLink, CirclePlay } from "lucide-react";
+import { Tag, X, Search, DollarSign, Megaphone, Users, Wrench, ShieldCheck, Power, Activity, AlertCircle, Play, Clock, CheckCircle, CheckCircle2, XCircle, Calendar, Lightbulb, Target, Database, BarChart3, Pencil, Save, ArrowLeft, ArrowRight, Sparkles, BookOpen, Cog, Bot, Box, MessageSquare, Shield, Zap, Eye, EyeOff, Globe, Mail, Phone, Volume2, History, RotateCcw, Lock, ExternalLink, CirclePlay, TrendingUp, TrendingDown, Minus, ArrowUpDown } from "lucide-react";
 import { Chat, type ChatMessage, type ChatSource, type ChatToolCall } from "@/components/ui/chat";
 
 const AGENT_TYPE_ICON: Record<AgentType, string> = {
@@ -221,6 +221,8 @@ function AgentRosterContent() {
   const { isR1Release } = useR1Release();
   const [statusFilter, setStatusFilter] = useState("All");
   const [typeFilter, setTypeFilter] = useState<AgentType | "All">("All");
+  const [sortBy, setSortBy] = useState<"level" | "most_used" | "trending">("level");
+  const [search, setSearch] = useState("");
   const [showTypeSelector, setShowTypeSelector] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showCreateAuto, setShowCreateAuto] = useState(false);
@@ -244,13 +246,18 @@ function AgentRosterContent() {
   }, [searchParams, agents]);
 
   const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
     return agents.filter((a) => {
       if (bucketFilter !== "All" && a.bucket !== bucketFilter) return false;
       if (statusFilter !== "All" && a.status !== statusFilter) return false;
       if (typeFilter !== "All" && a.type !== typeFilter) return false;
+      if (q) {
+        const haystack = [a.name, a.description, a.bucket, ...(a.labels ?? [])].join(" ").toLowerCase();
+        if (!q.split(/\s+/).every((word) => haystack.includes(word))) return false;
+      }
       return true;
     });
-  }, [agents, bucketFilter, statusFilter, typeFilter]);
+  }, [agents, bucketFilter, statusFilter, typeFilter, search]);
 
   const byBucket = useMemo(() => {
     const map: Record<string, Agent[]> = {};
@@ -259,10 +266,20 @@ function AgentRosterContent() {
       if (map[a.bucket]) map[a.bucket].push(a);
     });
     for (const bk of BUCKETS) {
-      map[bk].sort((x, y) => (TYPE_LEVEL[y.type] ?? 0) - (TYPE_LEVEL[x.type] ?? 0));
+      if (sortBy === "most_used") {
+        map[bk].sort((x, y) => (y.weeklyUsage ?? 0) - (x.weeklyUsage ?? 0));
+      } else if (sortBy === "trending") {
+        const rank = { up: 2, flat: 1, down: 0 };
+        map[bk].sort((x, y) => {
+          const d = rank[y.trendDirection ?? "flat"] - rank[x.trendDirection ?? "flat"];
+          return d !== 0 ? d : (y.weeklyUsage ?? 0) - (x.weeklyUsage ?? 0);
+        });
+      } else {
+        map[bk].sort((x, y) => (TYPE_LEVEL[y.type] ?? 0) - (TYPE_LEVEL[x.type] ?? 0));
+      }
     }
     return map;
-  }, [filtered]);
+  }, [filtered, sortBy]);
 
   return (
     <>
@@ -272,6 +289,34 @@ function AgentRosterContent() {
       />
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search agents…"
+              className="select-base pl-8 w-52"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as "level" | "most_used" | "trending")}
+            className="select-base w-auto min-w-[11rem]"
+          >
+            <option value="level">View by: Agent Level</option>
+            <option value="most_used">View by: Most Used</option>
+            <option value="trending">View by: Trending</option>
+          </select>
           <select
             value={bucketFilter}
             onChange={(e) => setBucketFilter(e.target.value)}
@@ -304,7 +349,7 @@ function AgentRosterContent() {
             <option value="Off">Off</option>
           </select>
         </div>
-        {!isR1Release && (
+        {false && !isR1Release && (
           <Button onClick={() => setShowComingSoon(true)}>
             <img src="/eli-cube.svg" alt="" width={16} height={16} className="mr-1" /> Create Agent
           </Button>
@@ -351,7 +396,7 @@ function AgentRosterContent() {
                             idx < items.length - 1 ? "border-b border-[hsl(var(--border))]/50 mx-4 px-0" : "mx-4 px-0"
                           } ${
                             isOffEliPlus
-                              ? "opacity-50 cursor-default"
+                              ? "cursor-default"
                               : selectedId === agent.id ? "bg-[hsl(var(--muted))]/50 cursor-pointer" : "hover:bg-[hsl(var(--muted))]/30 cursor-pointer"
                           }`}
                           onClick={() => {
@@ -398,8 +443,14 @@ function AgentRosterContent() {
                                     <CirclePlay className="h-4 w-4" />
                                   </button>
                                 )}
+                                
                                 <span className="text-[length:var(--text-caption)] text-[hsl(var(--muted-foreground))]">
-                                  {AGENT_TYPES.find((t) => t.value === agent.type)?.label ?? "L1 · ELI Essentials"}
+                                  {(() => {
+                                    const label = AGENT_TYPES.find((t) => t.value === agent.type)?.label ?? "L1 · ELI Essentials";
+                                    const dotIdx = label.indexOf("·");
+                                    if (dotIdx === -1) return label;
+                                    return <><span className="font-medium text-foreground">{label.slice(0, dotIdx).trim()}</span>{" · "}{label.slice(dotIdx + 1).trim()}</>;
+                                  })()}
                                 </span>
                                 <span
                                   className={`rounded-full px-2 py-0.5 text-xs font-medium ${
