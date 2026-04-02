@@ -11,64 +11,64 @@ export type Permission = {
 };
 
 export const ALL_PERMISSIONS: Permission[] = [
-  // ── Command Center ──
-  { id: "p-cc-view", capability: "View Command Center", description: "Access the Command Center dashboard", section: "Command Center" },
+  // ── Communications (Command Center + inbox) ──
+  { id: "p-cc-view", capability: "View Command Center", description: "Access the Command Center dashboard", section: "Communications" },
   {
     id: "p-comms-omnichannel-panel",
     capability: "Omni-Channel Conversation Panel",
     description:
       "Ability to see the conversation panel in lead and resident profiles with access to the OXP communication inboxes.",
-    section: "Command Center",
+    section: "Communications",
   },
   {
     id: "p-comms-send-email",
     capability: "Send Emails",
     description: "Ability to send email messages from OXP Communication inboxes and conversation panel.",
-    section: "Command Center",
+    section: "Communications",
   },
   {
     id: "p-comms-send-sms",
     capability: "Send SMS",
     description: "Ability to send SMS messages from OXP Communication inboxes and conversation panel.",
-    section: "Command Center",
+    section: "Communications",
   },
   {
     id: "p-comms-apply-labels",
     capability: "Apply Conversation Labels",
     description:
       "Tag conversation threads from the panel using existing labels. Separate from creating or editing global custom labels.",
-    section: "Command Center",
+    section: "Communications",
   },
   {
     id: "p-comms-assign-conversation",
     capability: "Assign or Reassign Conversation",
     description:
       "Hand off a conversation thread to another user, including claiming conversations from a shared queue.",
-    section: "Command Center",
+    section: "Communications",
   },
   {
     id: "p-comms-resolve-threads",
     capability: "Resolve Threads",
     description:
       "Mark conversation threads as resolved from the panel without full inbox administration access.",
-    section: "Command Center",
+    section: "Communications",
   },
   {
     id: "p-comms-reopen-threads",
     capability: "Reopen Threads",
     description:
       "Reopen closed or resolved conversation threads from the panel without full inbox administration access.",
-    section: "Command Center",
+    section: "Communications",
   },
-  { id: "p-comms-create-inbox", capability: "Create Custom Inboxes", description: "Create Custom Inboxes", section: "Command Center" },
-  { id: "p-comms-delete-inbox", capability: "Delete Custom Inboxes", description: "Ability to delete custom inboxes", section: "Command Center" },
-  { id: "p-comms-edit-inbox-props", capability: "Edit Properties In Inbox", description: "Modify properties that are routed to custom inboxes", section: "Command Center" },
-  { id: "p-comms-edit-inbox-labels", capability: "Edit Labels In Inbox", description: "Modify label routing for custom inboxes", section: "Command Center" },
-  { id: "p-comms-edit-inbox-users", capability: "Edit Users in Inbox", description: "Modify users with access to custom inboxes", section: "Command Center" },
-  { id: "p-comms-add-labels", capability: "Add Custom Labels", description: "Ability to create labels", section: "Command Center" },
-  { id: "p-comms-edit-labels", capability: "Edit Custom Labels", description: "Modify an existing label", section: "Command Center" },
-  { id: "p-comms-delete-labels", capability: "Delete Custom Labels", description: "Ability to delete labels", section: "Command Center" },
-  { id: "p-comms-reporting", capability: "See Comms Reporting", description: "Ability to view reporting for communications", section: "Command Center" },
+  { id: "p-comms-create-inbox", capability: "Create Custom Inboxes", description: "Create Custom Inboxes", section: "Communications" },
+  { id: "p-comms-delete-inbox", capability: "Delete Custom Inboxes", description: "Ability to delete custom inboxes", section: "Communications" },
+  { id: "p-comms-edit-inbox-props", capability: "Edit Properties In Inbox", description: "Modify properties that are routed to custom inboxes", section: "Communications" },
+  { id: "p-comms-edit-inbox-labels", capability: "Edit Labels In Inbox", description: "Modify label routing for custom inboxes", section: "Communications" },
+  { id: "p-comms-edit-inbox-users", capability: "Edit Users in Inbox", description: "Modify users with access to custom inboxes", section: "Communications" },
+  { id: "p-comms-add-labels", capability: "Add Custom Labels", description: "Ability to create labels", section: "Communications" },
+  { id: "p-comms-edit-labels", capability: "Edit Custom Labels", description: "Modify an existing label", section: "Communications" },
+  { id: "p-comms-delete-labels", capability: "Delete Custom Labels", description: "Ability to delete labels", section: "Communications" },
+  { id: "p-comms-reporting", capability: "See Comms Reporting", description: "Ability to view reporting for communications", section: "Communications" },
 
   // ── Escalations ──
   { id: "p-tasks-view", capability: "View Escalations", description: "Access the Escalations page and view assigned escalations", section: "Escalations" },
@@ -132,12 +132,12 @@ export const ALL_PERMISSIONS: Permission[] = [
 ];
 
 export const PERMISSION_SECTIONS = [
-  "Command Center", "Escalations", "Performance", "Agent Roster", "Workforce",
+  "Communications", "Escalations", "Performance", "Agent Roster", "Workforce",
   "Activation", "Workflows", "Trainings & SOP", "Voice", "Governance",
 ];
 
 export const SECTION_VIEW_PERMISSION: Record<string, string> = {
-  "Command Center": "p-cc-view",
+  "Communications": "p-cc-view",
   "Escalations": "p-tasks-view",
   "Performance": "p-report-performance",
   "Agent Roster": "p-agents-view",
