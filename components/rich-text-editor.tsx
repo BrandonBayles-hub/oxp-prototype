@@ -34,10 +34,12 @@ function scrollToHeading(editor: Editor, text: string, level: number) {
       return false;
     }
   });
-  if (targetPos >= 0) {
-    editor.commands.setTextSelection(targetPos + 1);
-    editor.commands.scrollIntoView();
-  }
+  if (targetPos < 0) return;
+  editor.commands.setTextSelection(targetPos + 1);
+  const domAtPos = editor.view.domAtPos(targetPos + 1);
+  const domNode = domAtPos.node instanceof HTMLElement ? domAtPos.node : domAtPos.node.parentElement;
+  const heading = domNode?.closest("h1, h2, h3") ?? domNode;
+  heading?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function isHtml(s: string): boolean {
@@ -49,8 +51,8 @@ function toTiptapContent(value: string): string {
   if (!value.trim()) return "<p></p>";
   if (isHtml(value)) return value;
   return value
-    .split(/\n\n+/)
-    .map((p) => `<p>${p.replace(/\n/g, "<br>")}</p>`)
+    .split(/\n/)
+    .map((line) => `<p>${line || "<br>"}</p>`)
     .join("");
 }
 
@@ -162,10 +164,24 @@ export function RichTextEditor({
   return (
     <div
       className={
-        "rounded-md border border-input bg-background text-sm " + className
+        "rounded-md border border-input bg-background text-sm flex flex-col " + className
       }
     >
       <div className="flex flex-wrap items-center gap-0.5 border-b border-border/60 bg-muted/40 px-2 py-1">
+        {headings.length > 0 && (
+          <>
+            <button
+              type="button"
+              onClick={() => setOutlineOpen((o) => !o)}
+              className={`rounded p-1.5 ${outlineOpen ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+              title="Toggle outline"
+              aria-label="Toggle outline"
+            >
+              <ListTree className="h-4 w-4" />
+            </button>
+            <span className="mx-0.5 h-5 w-px bg-border" aria-hidden />
+          </>
+        )}
         {/* Font family */}
         <select
           value={textStyleAttrs.fontFamily}
@@ -178,7 +194,7 @@ export function RichTextEditor({
           title="Font"
           aria-label="Font family"
         >
-          <option value="">Default</option>
+          <option value="">Inter</option>
           <option value="Inter, sans-serif">Inter</option>
           <option value="system-ui, sans-serif">System</option>
           <option value="Georgia, serif">Georgia</option>
@@ -196,7 +212,7 @@ export function RichTextEditor({
           title="Weight"
           aria-label="Font weight"
         >
-          <option value="">Default</option>
+          <option value="">Normal</option>
           <option value="400">Normal</option>
           <option value="500">Medium</option>
           <option value="600">Semibold</option>
@@ -214,7 +230,7 @@ export function RichTextEditor({
           title="Size"
           aria-label="Font size"
         >
-          <option value="">Default</option>
+          <option value="">14</option>
           <option value="12px">12</option>
           <option value="14px">14</option>
           <option value="16px">16</option>
@@ -230,7 +246,7 @@ export function RichTextEditor({
           }
           onChange={(e) => {
             const v = e.target.value;
-            if (v) editor.chain().focus().toggleHeading({ level: Number(v) as 1 | 2 | 3 }).run();
+            if (v) editor.chain().focus().setHeading({ level: Number(v) as 1 | 2 | 3 }).run();
             else editor.chain().focus().setParagraph().run();
           }}
           className="h-8 min-w-0 max-w-[100px] rounded border border-border/60 bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
@@ -310,22 +326,9 @@ export function RichTextEditor({
         >
           <Redo className="h-4 w-4" />
         </button>
-        {headings.length > 0 && (
-          <>
-            <span className="mx-0.5 h-5 w-px bg-border" aria-hidden />
-            <button
-              type="button"
-              onClick={() => setOutlineOpen((o) => !o)}
-              className={`rounded p-1.5 ${outlineOpen ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
-              title="Toggle outline"
-              aria-label="Toggle outline"
-            >
-              <ListTree className="h-4 w-4" />
-            </button>
-          </>
-        )}
+        
       </div>
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden min-h-0">
         {showOutline && outlineOpen && (
           <nav className="w-56 shrink-0 border-r border-border/60 bg-muted/20 overflow-y-auto py-2 px-1">
             <p className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Outline</p>
@@ -334,11 +337,10 @@ export function RichTextEditor({
                 key={h.id + i}
                 type="button"
                 onClick={() => scrollToHeading(editor, h.text, h.level)}
-                className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs text-foreground/80 hover:bg-muted hover:text-foreground transition-colors truncate"
+                className="flex w-full rounded px-2 py-1 text-left text-xs text-foreground/80 hover:bg-muted hover:text-foreground transition-colors truncate"
                 style={{ paddingLeft: `${(h.level - 1) * 12 + 8}px` }}
                 title={h.text}
               >
-                <span className="shrink-0 text-[10px] font-medium text-muted-foreground">H{h.level}</span>
                 <span className="truncate">{h.text}</span>
               </button>
             ))}
