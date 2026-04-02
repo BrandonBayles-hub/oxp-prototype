@@ -257,6 +257,14 @@ function TrainingsSopContent() {
     };
   }, []);
 
+  useEffect(() => {
+    const connect = searchParams.get("connect");
+    if (connect) {
+      setShowConnectLibrary(true);
+      router.replace("/trainings-sop", { scroll: false });
+    }
+  }, [searchParams, router]);
+
   const fileDocuments = useMemo(() => items.filter((i) => i.type === "file" && !i.isTemplate) as VaultItem[], [items]);
   const templateDocuments = useMemo(() => items.filter((i) => i.type === "file" && i.isTemplate) as VaultItem[], [items]);
   const folders = useMemo(() => items.filter((i) => i.type === "folder"), [items]);
@@ -948,6 +956,55 @@ function TrainingsSopContent() {
             </Card>
           )}
 
+          {/* My Drafts — same Card style as Awaiting Review */}
+          {(() => {
+            const drafts = fileDocuments.filter((d) => d.draftBody);
+            if (drafts.length === 0 || viewMode !== "list" || currentFolderId) return null;
+            return (
+              <Card className="mb-6">
+                <CardHeader className="pb-3">
+                  <CardTitle>My Drafts</CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    {drafts.length} unsaved draft{drafts.length !== 1 ? "s" : ""} in progress
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <div className="scrollbar-hide overflow-y-auto" style={{ maxHeight: "248px" }}>
+                    <ul className="flex flex-col gap-2">
+                      {drafts.map((d) => (
+                        <li key={d.id}>
+                          <Link
+                            href={`/trainings-sop/${d.id}`}
+                            className="flex w-full gap-3 rounded-lg border border-border bg-muted/50 p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted dark:bg-muted/50 dark:hover:bg-muted"
+                          >
+                            <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border bg-background"><Pencil className="h-3.5 w-3.5 text-muted-foreground" /></span>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-start justify-between gap-2">
+                                <span className="truncate text-sm font-medium text-foreground" title={d.fileName}>{d.fileName}</span>
+                                <span className="shrink-0 rounded-full bg-amber-400 px-1.5 py-0.5 text-[10px] font-medium text-amber-950 dark:bg-amber-900/40 dark:text-amber-300">Draft</span>
+                              </div>
+                              <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                                <span className="truncate">{d.property ?? "Portfolio"}</span>
+                                <span aria-hidden>·</span>
+                                <span>v{d.version ?? "1.0"}</span>
+                                {d.modified && (
+                                  <>
+                                    <span aria-hidden>·</span>
+                                    <span className="truncate">{d.modified}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
+
           <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-3">
               <input type="search" placeholder="Search files or owners" value={search} onChange={(e) => setSearch(e.target.value)} className="input-base w-64 min-w-[12rem]" />
@@ -1317,7 +1374,13 @@ function TrainingsSopContent() {
 
       {/* ── MODALS ── */}
       {addDocMode === "choice" && (
-        <AddDocChoiceModal onClose={() => setAddDocMode(null)} onUpload={() => setAddDocMode("upload")} onFromEntrata={() => setAddDocMode("entrata")} />
+        <AddDocChoiceModal
+          onClose={() => setAddDocMode(null)}
+          onUpload={() => setAddDocMode("upload")}
+          onFromEntrata={() => setAddDocMode("entrata")}
+          onGoogleDrive={() => { setAddDocMode(null); setShowConnectLibrary(true); }}
+          onMicrosoft365={() => { setAddDocMode(null); setShowConnectLibrary(true); }}
+        />
       )}
       {addDocMode === "upload" && (
         <UploadDocModal
@@ -1691,12 +1754,12 @@ function ComplianceSelectDocumentModal({
   );
 }
 
-function AddDocChoiceModal({ onClose, onUpload, onFromEntrata }: { onClose: () => void; onUpload: () => void; onFromEntrata: () => void }) {
+function AddDocChoiceModal({ onClose, onUpload, onFromEntrata, onGoogleDrive, onMicrosoft365 }: { onClose: () => void; onUpload: () => void; onFromEntrata: () => void; onGoogleDrive: () => void; onMicrosoft365: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20" onClick={onClose}>
       <div className="w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
         <h3 className="section-title">Add document</h3>
-        <p className="mt-1 text-sm text-muted-foreground">Upload your own file or select a premade document from Entrata.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Upload your own file or import from a connected source.</p>
         <div className="mt-6 flex flex-col gap-3">
           <Button variant="outline" className="justify-start gap-3 py-6" onClick={onUpload}>
             <Upload className="h-5 w-5 shrink-0" />
@@ -1705,6 +1768,14 @@ function AddDocChoiceModal({ onClose, onUpload, onFromEntrata }: { onClose: () =
           <Button variant="outline" className="justify-start gap-3 py-6" onClick={onFromEntrata}>
             <Building2 className="h-5 w-5 shrink-0" />
             <span className="text-left"><strong>Select from Entrata</strong><br /><span className="text-xs font-normal text-muted-foreground">Choose from premade Entrata templates and policies</span></span>
+          </Button>
+          <Button variant="outline" className="justify-start gap-3 py-6" onClick={onGoogleDrive}>
+            <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1Z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23Z" fill="#34A853"/><path d="M5.84 14.09A6.6 6.6 0 0 1 5.5 12c0-.72.12-1.42.35-2.09V7.07H2.18A10.96 10.96 0 0 0 1 12c0 1.77.43 3.45 1.18 4.93l3.66-2.84Z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53Z" fill="#EA4335"/></svg>
+            <span className="text-left"><strong>Google Drive</strong><br /><span className="text-xs font-normal text-muted-foreground">Import from Google Docs or Google Drive</span></span>
+          </Button>
+          <Button variant="outline" className="justify-start gap-3 py-6" onClick={onMicrosoft365}>
+            <svg className="h-5 w-5 shrink-0" viewBox="0 0 23 23" fill="none"><path d="M1 1h10v10H1z" fill="#F25022"/><path d="M12 1h10v10H12z" fill="#7FBA00"/><path d="M1 12h10v10H1z" fill="#00A4EF"/><path d="M12 12h10v10H12z" fill="#FFB900"/></svg>
+            <span className="text-left"><strong>Microsoft 365</strong><br /><span className="text-xs font-normal text-muted-foreground">Import from SharePoint, OneDrive, or Word</span></span>
           </Button>
         </div>
         <div className="mt-5 flex justify-end"><Button variant="ghost" onClick={onClose}>Cancel</Button></div>

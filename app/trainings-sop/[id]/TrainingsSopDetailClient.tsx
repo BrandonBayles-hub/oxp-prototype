@@ -27,6 +27,10 @@ import {
   ChevronDown,
   Link2,
   CalendarDays,
+  Save,
+  Trash2,
+  Building2,
+  Check,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import {
@@ -172,83 +176,69 @@ function AgentLinkCombobox({
 function ComplianceLinkCombobox({
   subjects,
   linkedSubjects,
-  onToggle,
+  onLink,
+  onUnlink,
 }: {
   subjects: string[];
   linkedSubjects: string[];
-  onToggle: (subject: string) => void;
+  onLink: (subject: string) => void;
+  onUnlink: (subject: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  const unlinked = useMemo(
-    () => subjects.filter((s) => !linkedSubjects.includes(s)),
-    [subjects, linkedSubjects]
-  );
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return unlinked;
+    if (!search.trim()) return subjects;
     const q = search.toLowerCase();
-    return unlinked.filter((s) => s.toLowerCase().includes(q));
-  }, [unlinked, search]);
-
-  if (unlinked.length === 0) return null;
+    return subjects.filter((s) => s.toLowerCase().includes(q));
+  }, [subjects, search]);
 
   return (
-    <div ref={ref} className="relative mt-2">
-      <button
-        type="button"
-        onClick={() => { setOpen((o) => !o); setSearch(""); }}
-        className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-      >
-        + Link a compliance area
-        <ChevronRight className={cn("h-3 w-3 transition-transform", open && "rotate-90")} />
-      </button>
-      {open && (
-        <div className="absolute left-0 top-full z-30 mt-1 w-72 rounded-lg border border-border bg-card shadow-lg">
-          <div className="border-b border-border p-2">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search compliance areas..."
-              className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-xs placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
-              autoFocus
-            />
-          </div>
-          <ul className="max-h-52 overflow-y-auto p-1">
-            {filtered.length === 0 ? (
-              <li className="px-2.5 py-3 text-center text-xs text-muted-foreground">
-                {search ? "No areas match your search" : "All areas are already linked"}
-              </li>
-            ) : (
-              filtered.map((s) => (
-                <li key={s}>
-                  <button
-                    type="button"
-                    onClick={() => { onToggle(s); setOpen(false); }}
-                    className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm hover:bg-muted transition-colors"
-                  >
-                    <Shield className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span className="truncate text-xs font-medium text-foreground">{s}</span>
-                  </button>
-                </li>
-              ))
-            )}
-          </ul>
+    <Popover open={open} onOpenChange={(v) => { setOpen(v); if (!v) setSearch(""); }}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+        >
+          + Link compliance areas
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[280px] p-0 z-[200]" align="start">
+        <div className="p-2">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search compliance areas..."
+            className="h-8 w-full rounded-md border border-input bg-background px-2.5 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            autoFocus
+          />
         </div>
-      )}
-    </div>
+        <div className="max-h-52 overflow-y-auto px-1 pb-1">
+          {filtered.length === 0 ? (
+            <p className="px-2 py-3 text-center text-xs text-muted-foreground">No areas match your search</p>
+          ) : (
+            filtered.map((s) => {
+              const isLinked = linkedSubjects.includes(s);
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => isLinked ? onUnlink(s) : onLink(s)}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-xs transition-colors hover:bg-muted",
+                    isLinked && "font-medium"
+                  )}
+                >
+                  <Check className={cn("h-3.5 w-3.5 shrink-0", isLinked ? "text-primary" : "invisible")} />
+                  <span className="truncate">{s}</span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -347,6 +337,64 @@ function RelatedDocLinkDialog({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function OwnerCombobox({ members, value, onChange }: { members: { id: string; name: string }[]; value: string; onChange: (name: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase().trim();
+    if (!q) return members;
+    return members.filter((m) => m.name.toLowerCase().includes(q));
+  }, [members, query]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "mt-1 flex w-full items-center justify-between rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted/50 focus:outline-none focus:ring-1 focus:ring-ring",
+            !value && "text-muted-foreground"
+          )}
+        >
+          <span className="truncate">{value || "Select owner"}</span>
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[240px] p-0 z-[200]" align="start">
+        <div className="p-2">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search members…"
+            className="h-8 w-full rounded-md border border-input bg-background px-2.5 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            autoFocus
+          />
+        </div>
+        <div className="max-h-48 overflow-y-auto px-1 pb-1">
+          {filtered.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => { onChange(m.name); setOpen(false); setQuery(""); }}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm transition-colors hover:bg-muted",
+                value === m.name && "bg-muted font-medium"
+              )}
+            >
+              <Check className={cn("h-3.5 w-3.5 shrink-0", value === m.name ? "text-primary" : "invisible")} />
+              {m.name}
+            </button>
+          ))}
+          {filtered.length === 0 && (
+            <p className="px-2 py-3 text-center text-xs text-muted-foreground">No members found</p>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -474,7 +522,9 @@ export function TrainingsSopDetailClient() {
   );
 
   const isTextBased = !doc?.fileFormat || doc.fileFormat === "text";
-  const hasUnsavedChanges = isTextBased && inlineBody !== null && inlineBody !== (doc?.body ?? "");
+  const hasDraft = Boolean(doc?.draftBody);
+  const editingBody = hasDraft ? doc!.draftBody! : (doc?.body ?? "");
+  const hasUnsavedChanges = isTextBased && inlineBody !== null && inlineBody !== editingBody;
 
   const isBodyHtml = useMemo(() => {
     const body = doc?.body ?? "";
@@ -654,7 +704,7 @@ export function TrainingsSopDetailClient() {
   };
 
   const handleInlineSubmitForApproval = () => {
-    if (!doc || inlineBody === null) return;
+    if (!doc || (inlineBody === null && !hasDraft)) return;
     const summary = [submitSummary.trim(), submitReason.trim()].filter(Boolean).join(" — ") || "Document changes submitted for approval.";
     const existingHistory = doc.history ?? [];
     const submittedEntry = {
@@ -663,8 +713,10 @@ export function TrainingsSopDetailClient() {
       by: doc.owner,
       summary,
     };
+    const bodyToSubmit = inlineBody ?? doc.draftBody ?? doc.body ?? "";
     updateDocument(id, {
-      body: inlineBody,
+      body: bodyToSubmit,
+      draftBody: undefined,
       approvalStatus: "review",
       history: [...existingHistory, submittedEntry],
     });
@@ -682,7 +734,7 @@ export function TrainingsSopDetailClient() {
         documentId: id,
         documentName: doc.fileName,
         changeSummary: summary,
-        proposedBody: inlineBody,
+        proposedBody: bodyToSubmit,
         previousBody: doc.body ?? "",
       },
     });
@@ -690,6 +742,32 @@ export function TrainingsSopDetailClient() {
     setSubmitSummary("");
     setSubmitReason("");
     setSubmitDialogOpen(false);
+  };
+
+  const handleSaveDraft = () => {
+    if (!doc || inlineBody === null) return;
+    updateDocument(id, { draftBody: inlineBody });
+    setInlineBody(null);
+    addActivity({
+      action: "Draft saved",
+      by: doc.owner,
+      documentId: id,
+      documentName: doc.fileName,
+      detail: "Document draft saved for later editing.",
+    });
+  };
+
+  const handleDiscardDraft = () => {
+    if (!doc) return;
+    updateDocument(id, { draftBody: undefined });
+    setInlineBody(null);
+    addActivity({
+      action: "Draft discarded",
+      by: doc.owner,
+      documentId: id,
+      documentName: doc.fileName,
+      detail: "Document draft discarded; reverted to last approved version.",
+    });
   };
 
   const handleUploadNewVersion = () => {
@@ -840,7 +918,7 @@ export function TrainingsSopDetailClient() {
   };
 
   const displayTitle = nameEdit !== null ? nameEdit : doc.fileName;
-  const displayBody = doc.body ?? "";
+  const displayBody = hasDraft ? doc.draftBody! : (doc.body ?? "");
 
   return (
     <>
@@ -890,11 +968,19 @@ export function TrainingsSopDetailClient() {
             {shareCopied ? "Link copied" : "Share"}
           </Button>
           {isTextBased ? (
-            canEdit && hasUnsavedChanges && (
-              <Button size="sm" onClick={() => setSubmitDialogOpen(true)}>
-                <Send className="h-4 w-4" />
-                Submit for Approval
-              </Button>
+            canEdit && (hasUnsavedChanges || hasDraft) && (
+              <>
+                {hasUnsavedChanges && (
+                  <Button variant="outline" size="sm" onClick={handleSaveDraft}>
+                    <Save className="h-4 w-4" />
+                    Save Draft
+                  </Button>
+                )}
+                <Button size="sm" onClick={() => setSubmitDialogOpen(true)}>
+                  <Send className="h-4 w-4" />
+                  Submit for Approval
+                </Button>
+              </>
             )
           ) : (
             <Button variant="outline" size="sm" onClick={() => setUploadDialogOpen(true)}>
@@ -1087,7 +1173,7 @@ export function TrainingsSopDetailClient() {
           <DialogHeader>
             <DialogTitle>Upload New Version</DialogTitle>
             <DialogDescription>
-              Upload a new file (e.g. PDF, DOCX) to replace the current version. This will create a new approval request for review.
+              Upload a new file or import from a connected source. This will create a new approval request for review.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -1129,6 +1215,21 @@ export function TrainingsSopDetailClient() {
                 )}
               </div>
             </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-foreground">Or import from</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => { setUploadDialogOpen(false); router.push("/trainings-sop?connect=google-drive"); }} className="flex items-center gap-2.5 rounded-lg border border-border bg-background px-3 py-2.5 text-left transition-colors hover:bg-muted/50">
+                  <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1Z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23Z" fill="#34A853"/><path d="M5.84 14.09A6.6 6.6 0 0 1 5.5 12c0-.72.12-1.42.35-2.09V7.07H2.18A10.96 10.96 0 0 0 1 12c0 1.77.43 3.45 1.18 4.93l3.66-2.84Z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53Z" fill="#EA4335"/></svg>
+                  <span className="text-xs font-medium text-foreground">Google Drive</span>
+                </button>
+                <button type="button" onClick={() => { setUploadDialogOpen(false); router.push("/trainings-sop?connect=ms-teams"); }} className="flex items-center gap-2.5 rounded-lg border border-border bg-background px-3 py-2.5 text-left transition-colors hover:bg-muted/50">
+                  <svg className="h-4 w-4 shrink-0" viewBox="0 0 23 23" fill="none"><path d="M1 1h10v10H1z" fill="#F25022"/><path d="M12 1h10v10H12z" fill="#7FBA00"/><path d="M1 12h10v10H1z" fill="#00A4EF"/><path d="M12 12h10v10H12z" fill="#FFB900"/></svg>
+                  <span className="text-xs font-medium text-foreground">Microsoft 365</span>
+                </button>
+              </div>
+            </div>
+
             <div>
               <label className="mb-1 block text-xs font-medium text-foreground">What changed in this version?</label>
               <textarea
@@ -1335,7 +1436,6 @@ export function TrainingsSopDetailClient() {
                   </Button>
                 )}
               </div>
-              <div><span className="text-muted-foreground">Effective date</span><p className="font-medium">{doc.effectiveDate ?? "—"}</p></div>
               <div>
                 <span className="text-muted-foreground">Next review date</span>
                 <div className="mt-1">
@@ -1377,15 +1477,10 @@ export function TrainingsSopDetailClient() {
               <div><span className="text-muted-foreground">Modified</span><p className="font-medium">{doc.modified}</p></div>
               <div>
                 <label className="text-muted-foreground">Owner</label>
-                <input
-                  type="text"
-                  value={ownerEdit !== null ? ownerEdit : doc.owner}
-                  onChange={(e) => setOwnerEdit(e.target.value)}
-                  onBlur={handleOwnerBlur}
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
-                  className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium text-foreground"
-                  placeholder="Owner"
-                  aria-label="Owner"
+                <OwnerCombobox
+                  members={humanMembers}
+                  value={doc.owner}
+                  onChange={(name) => updateDocument(id, { owner: name })}
                 />
               </div>
               <div><span className="text-muted-foreground">Source</span><p className="font-medium">{doc.source ?? "upload"}</p></div>
@@ -1467,28 +1562,19 @@ export function TrainingsSopDetailClient() {
               {/* ── Compliance ── */}
               <div>
                 <span className="text-muted-foreground">Compliance</span>
-                <div className="mt-0.5">
+                <div className="mt-1.5">
                   {complianceSubjectsForDoc.length > 0 ? (
-                    <ul className="space-y-1">
+                    <div className="flex flex-wrap gap-1.5 mb-2">
                       {complianceSubjectsForDoc.map((subject) => (
-                        <li key={subject} className="flex items-center justify-between rounded-md bg-emerald-50 px-2.5 py-1.5 text-sm dark:bg-emerald-900/20">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <CheckCircle className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                            <span className="font-medium text-emerald-800 dark:text-emerald-200">{subject}</span>
-                          </div>
-                          {canEdit && (
-                            <button
-                              type="button"
-                              onClick={() => setComplianceSubjectDocumentId(subject, null)}
-                              className="shrink-0 rounded p-0.5 text-emerald-600/70 hover:bg-emerald-100 hover:text-emerald-900 dark:text-emerald-400/70 dark:hover:bg-emerald-900/50 dark:hover:text-emerald-200"
-                              aria-label={`Unlink ${subject}`}
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                          )}
-                        </li>
+                        <RemovableMetadataChip
+                          key={subject}
+                          removeLabel={`Unlink ${subject}`}
+                          onRemove={canEdit ? () => setComplianceSubjectDocumentId(subject, null) : undefined}
+                        >
+                          {subject}
+                        </RemovableMetadataChip>
                       ))}
-                    </ul>
+                    </div>
                   ) : (
                     <p className="rounded-md border border-dashed border-border px-2.5 py-2 text-xs text-muted-foreground mb-2">
                       Not linked to a compliance area yet.
@@ -1498,7 +1584,8 @@ export function TrainingsSopDetailClient() {
                     <ComplianceLinkCombobox
                       subjects={COMPLIANCE_ITEMS}
                       linkedSubjects={complianceSubjectsForDoc}
-                      onToggle={(subject) => setComplianceSubjectDocumentId(subject, id)}
+                      onLink={(subject) => setComplianceSubjectDocumentId(subject, id)}
+                      onUnlink={(subject) => setComplianceSubjectDocumentId(subject, null)}
                     />
                   )}
                 </div>
@@ -1561,66 +1648,7 @@ export function TrainingsSopDetailClient() {
                 </div>
               </div>
 
-              {/* ── Workforce ── */}
-              {complianceSubjectsForDoc.length > 0 && (
-                <div>
-                  <span className="text-muted-foreground">Workforce</span>
-                  <div className="mt-0.5">
-                    <div className="space-y-1.5">
-                      {(workforceExpanded ? humanMembers : humanMembers.slice(0, 3)).map((m) => {
-                        const ackedSubjects = complianceSubjectsForDoc.filter((s) =>
-                          workforceAcksForDoc.some((a) => a.memberId === m.id && a.subject === s)
-                        );
-                        const allAcked = ackedSubjects.length === complianceSubjectsForDoc.length;
-                        return (
-                          <div key={m.id} className="flex items-center justify-between rounded-md border border-border/50 bg-muted/50 px-2.5 py-1.5">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-foreground">
-                                {m.name.slice(0, 1)}
-                              </span>
-                              <span className="truncate text-sm font-medium text-foreground">{m.name}</span>
-                              <span className="text-[10px] text-muted-foreground">{m.role}</span>
-                            </div>
-                            <div className="flex shrink-0 items-center gap-1.5">
-                              {allAcked ? (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-                                  <CheckCircle className="h-2.5 w-2.5" /> Acknowledged
-                                </span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    complianceSubjectsForDoc.forEach((s) => {
-                                      if (!workforceAcksForDoc.some((a) => a.memberId === m.id && a.subject === s)) {
-                                        addWorkforceAck({ memberId: m.id, memberName: m.name, subject: s });
-                                      }
-                                    });
-                                  }}
-                                  className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted transition-colors"
-                                >
-                                  {ackedSubjects.length > 0 ? `${ackedSubjects.length}/${complianceSubjectsForDoc.length}` : "Not yet"}
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {humanMembers.length > 3 && (
-                      <button
-                        type="button"
-                        onClick={() => setWorkforceExpanded((v) => !v)}
-                        className="mt-1.5 text-xs font-medium text-primary hover:underline"
-                      >
-                        {workforceExpanded ? "Show less" : `Show all (${humanMembers.length})`}
-                      </button>
-                    )}
-                    {humanMembers.length === 0 && (
-                      <p className="text-xs text-muted-foreground">No human staff in the workforce.</p>
-                    )}
-                  </div>
-                </div>
-              )}
+              
             </CardContent>
           </Card>
 
@@ -1664,7 +1692,7 @@ export function TrainingsSopDetailClient() {
         </div>
 
         {/* Right: Document view/edit panel */}
-        <div className="min-h-[480px] lg:sticky lg:top-6 flex flex-col rounded-lg border border-border/60 bg-card overflow-hidden">
+        <div className="min-h-[480px] lg:sticky lg:top-6 flex flex-col rounded-lg border border-border/60 bg-card overflow-hidden lg:max-h-[calc(100vh-6rem)]">
 
           {isTextBased ? (
             <>
@@ -1676,11 +1704,25 @@ export function TrainingsSopDetailClient() {
                   {!canEdit && (
                     <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Read only</Badge>
                   )}
+                  {hasDraft && (
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-700">Draft</Badge>
+                  )}
                   {hasUnsavedChanges && (
                     <span className="flex h-2 w-2 rounded-full bg-amber-500" title="Unsaved changes" />
                   )}
                 </div>
                 <div className="flex items-center gap-2">
+                  {hasDraft && canEdit && (
+                    <button
+                      type="button"
+                      onClick={handleDiscardDraft}
+                      className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
+                      title="Discard draft and revert to last approved version"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Discard Draft
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => { if (typeof window !== "undefined") window.print(); }}
@@ -1694,16 +1736,17 @@ export function TrainingsSopDetailClient() {
               </div>
 
               {displayBody?.trim() || canEdit ? (
-                <div className="flex-1 overflow-y-auto">
+                <div className="flex-1 overflow-hidden flex flex-col min-h-0">
                   <RichTextEditor
-                    key={`inline-${id}`}
+                    key={`inline-${id}-${hasDraft ? "draft" : "live"}`}
                     value={displayBody}
                     onChange={(html) => {
                       if (canEdit) setInlineBody(html);
                     }}
                     placeholder={canEdit ? "Start writing your document…" : "No content yet."}
                     minHeight="400px"
-                    contentKey={id}
+                    className="flex-1 min-h-0"
+                    contentKey={`${id}-${hasDraft ? "draft" : "live"}`}
                   />
                 </div>
               ) : (

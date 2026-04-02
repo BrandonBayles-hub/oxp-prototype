@@ -34,6 +34,8 @@ type OptionRow = {
   group: "role" | "user";
 };
 
+const VIEWER_CHIP_LIMIT = 4;
+
 export function ViewerAccessCombobox({
   value,
   onChange,
@@ -46,6 +48,7 @@ export function ViewerAccessCombobox({
   const { humanMembers } = useWorkforce();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [expanded, setExpanded] = useState(false);
 
   const options = useMemo((): OptionRow[] => {
     const roleRows: OptionRow[] = ROLES.map((r) => ({
@@ -95,28 +98,45 @@ export function ViewerAccessCombobox({
   };
 
   if (disabled) {
+    const visible = expanded ? value : value.slice(0, VIEWER_CHIP_LIMIT);
     return (
-      <div className="flex flex-wrap items-center gap-1.5">
-        {value.map((k) => (
-          <RemovableMetadataChip key={k}>{labelForEntry(k, humanMembers)}</RemovableMetadataChip>
-        ))}
+      <div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {visible.map((k) => (
+            <RemovableMetadataChip key={k}>{labelForEntry(k, humanMembers)}</RemovableMetadataChip>
+          ))}
+        </div>
+        {value.length > VIEWER_CHIP_LIMIT && (
+          <button type="button" onClick={() => setExpanded((e) => !e)} className="mt-1.5 text-xs font-medium text-primary hover:underline">
+            {expanded ? "See less" : `See more (${value.length - VIEWER_CHIP_LIMIT} more)`}
+          </button>
+        )}
       </div>
     );
   }
 
+  const visibleChips = expanded ? value : value.slice(0, VIEWER_CHIP_LIMIT);
+
   return (
     <div className="space-y-2">
       {value.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          {value.map((k) => (
-            <RemovableMetadataChip
-              key={k}
-              removeLabel={`Remove ${labelForEntry(k, humanMembers)}`}
-              onRemove={() => remove(k)}
-            >
-              {labelForEntry(k, humanMembers)}
-            </RemovableMetadataChip>
-          ))}
+        <div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {visibleChips.map((k) => (
+              <RemovableMetadataChip
+                key={k}
+                removeLabel={`Remove ${labelForEntry(k, humanMembers)}`}
+                onRemove={() => remove(k)}
+              >
+                {labelForEntry(k, humanMembers)}
+              </RemovableMetadataChip>
+            ))}
+          </div>
+          {value.length > VIEWER_CHIP_LIMIT && (
+            <button type="button" onClick={() => setExpanded((e) => !e)} className="mt-1.5 text-xs font-medium text-primary hover:underline">
+              {expanded ? "See less" : `See more (${value.length - VIEWER_CHIP_LIMIT} more)`}
+            </button>
+          )}
         </div>
       )}
 
