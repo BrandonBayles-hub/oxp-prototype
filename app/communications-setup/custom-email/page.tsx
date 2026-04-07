@@ -58,14 +58,25 @@ const ELI_CONNECT_SERVICE_TYPES: readonly string[] = SHOW_ENTRATA_EMAIL_IN_SERVI
 /** IMAP/SMTP ("Other Service Providers") — no ELI+ AI lanes; Entrata Email only. */
 const OTHER_PROVIDER_SERVICE_TYPES = ["Entrata Email"] as const;
 
-/** Toggle to `true` to show the "Other Service Providers" connect button on this page again. */
-const SHOW_OTHER_SERVICE_PROVIDERS_BUTTON = false;
+/** Shows the "Other Service Providers" (IMAP/SMTP) connect button next to Google/Microsoft. */
+const SHOW_OTHER_SERVICE_PROVIDERS_BUTTON = true;
 
 /** Toggle to `true` to show the "Entrata Email / Optional" column in the property status table again. */
 const SHOW_ENTRATA_EMAIL_OPTIONAL_COLUMN = false;
 
 const RESIDENT_ELI_SERVICES = ["ELI+ Maintenance AI", "ELI+ Payments AI", "ELI+ Renewals AI"];
 const ALL_ELI_SERVICES = ["ELI+ Leasing AI", ...RESIDENT_ELI_SERVICES];
+
+/** Unique Entrata inbound address users add as a forward destination in their provider (prototype). */
+function generateInboundForwardAddress(): string {
+  let token: string;
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    token = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
+  } else {
+    token = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e9).toString(36)}`.replace(/\./g, "").slice(0, 12);
+  }
+  return `inbound+${token}@mail.entrata.com`;
+}
 
 function filterToOtherProviderServiceTypes(types: string[]): string[] {
   const allowed = new Set<string>(OTHER_PROVIDER_SERVICE_TYPES);
@@ -529,7 +540,7 @@ export default function CustomEmailPage() {
       emailAddress: "",
       properties: [],
       serviceTypes: [],
-      forwardTo: "",
+      forwardTo: generateInboundForwardAddress(),
       imapConfig: { ...defaultImapSmtp },
       smtpConfig: { ...defaultImapSmtp },
     });
@@ -538,11 +549,12 @@ export default function CustomEmailPage() {
 
   const openEditEmailModal = (email: EmailAddress) => {
     setEmailModalEditId(email.id);
+    const ft = email.forwardTo?.trim();
     setEmailForm({
       emailAddress: email.emailAddress,
       properties: [...email.properties],
       serviceTypes: filterToOtherProviderServiceTypes(email.serviceTypes),
-      forwardTo: email.forwardTo,
+      forwardTo: ft || generateInboundForwardAddress(),
       imapConfig: { ...email.imapConfig },
       smtpConfig: { ...email.smtpConfig },
     });
@@ -913,6 +925,20 @@ export default function CustomEmailPage() {
               </div>
 
               <div>
+                <label className="mb-1.5 block text-sm font-semibold text-[hsl(var(--foreground))]">Service Types</label>
+                <ServiceTypeSelector
+                  serviceOptions={OTHER_PROVIDER_SERVICE_TYPES}
+                  selected={emailForm.serviceTypes}
+                  onToggle={(svc) => { toggleEmailFormSvc(svc); }}
+                  open={emailFormSvcDropdown}
+                  onOpenChange={(v) => { setEmailFormSvcDropdown(v); if (v) setEmailFormPropDropdown(false); }}
+                />
+                <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
+                  For IMAP/SMTP, only Entrata Email applies. Connect with Google or Microsoft above to assign ELI+ AI services.
+                </p>
+              </div>
+
+              <div>
                 <label className="mb-1.5 block text-sm font-semibold text-[hsl(var(--foreground))]">Properties</label>
                 <div className="relative">
                   <button
@@ -956,20 +982,6 @@ export default function CustomEmailPage() {
                   })()}
                 </div>
                 <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Select one or more properties to associate with this email address</p>
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-sm font-semibold text-[hsl(var(--foreground))]">Service Types</label>
-                <ServiceTypeSelector
-                  serviceOptions={OTHER_PROVIDER_SERVICE_TYPES}
-                  selected={emailForm.serviceTypes}
-                  onToggle={(svc) => { toggleEmailFormSvc(svc); }}
-                  open={emailFormSvcDropdown}
-                  onOpenChange={(v) => { setEmailFormSvcDropdown(v); if (v) setEmailFormPropDropdown(false); }}
-                />
-                <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
-                  For IMAP/SMTP, only Entrata Email applies. Connect with Google or Microsoft above to assign ELI+ AI services.
-                </p>
               </div>
 
               <div>

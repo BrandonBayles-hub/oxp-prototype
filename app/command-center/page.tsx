@@ -51,7 +51,9 @@ import { useEscalations } from "@/lib/escalations-context";
 import {
   useConversations,
   CONVERSATION_UNASSIGNED_ASSIGNEE,
+  type BulkOutboundEmailRef,
   type ConversationMessage,
+  type EmailAttachmentRef,
 } from "@/lib/conversations-context";
 import { getEmailThreadRoutingAddresses } from "@/lib/email-signature";
 import { useAgents } from "@/lib/agents-context";
@@ -60,11 +62,16 @@ import { useRole, matchesRoleProperties } from "@/lib/role-context";
 import { useR1Release } from "@/lib/r1-release-context";
 import { EscalationDetailSheet } from "@/components/escalation-detail-sheet";
 import { ConversationThreadActivityRow } from "@/components/conversation-thread-activity-row";
+import {
+  ConversationBulkEmailCard,
+  ConversationBulkEmailModal,
+} from "@/components/conversation-bulk-email";
 import { ValueYoureMissingBanner } from "@/components/value-youre-missing-banner";
 import { MetricDetailDialog, type MetricDetailConfig } from "@/components/metric-detail-dialog";
 import {
   Dialog,
   DialogContent,
+  DialogHeader,
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
@@ -2067,6 +2074,8 @@ function ConversationSheet({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState("");
   const [inputMode, setInputMode] = useState<"message" | "private_note">("message");
+  const [bulkEmailModal, setBulkEmailModal] = useState<BulkOutboundEmailRef | null>(null);
+  const [sheetAttachmentPreview, setSheetAttachmentPreview] = useState<EmailAttachmentRef | null>(null);
   const { humanMembers } = useWorkforce();
 
   const humanNameSet = useMemo(
@@ -2083,6 +2092,8 @@ function ConversationSheet({
   useEffect(() => {
     setDraft("");
     setInputMode("message");
+    setBulkEmailModal(null);
+    setSheetAttachmentPreview(null);
   }, [convoItem?.id]);
 
   if (!convoItem) return null;
@@ -2393,6 +2404,7 @@ function ConversationSheet({
   };
 
   return (
+    <>
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
       <SheetContent
         side="right"
@@ -2496,6 +2508,12 @@ function ConversationSheet({
                     </div>
                   </div>
                   <div className="space-y-4 bg-background px-4 py-4">
+                    {convoItem.bulkOutboundEmail && (
+                      <ConversationBulkEmailCard
+                        bulk={convoItem.bulkOutboundEmail}
+                        onClick={() => setBulkEmailModal(convoItem.bulkOutboundEmail!)}
+                      />
+                    )}
                     {convoItem.messages.map((msg, idx) => renderMessageBlock(msg, idx, true))}
                   </div>
                 </div>
@@ -2579,5 +2597,55 @@ function ConversationSheet({
         </div>
       </SheetContent>
     </Sheet>
+    <ConversationBulkEmailModal
+      bulk={bulkEmailModal}
+      open={bulkEmailModal !== null}
+      onOpenChange={(o) => {
+        if (!o) setBulkEmailModal(null);
+      }}
+      onAttachmentClick={(att) => {
+        setBulkEmailModal(null);
+        setSheetAttachmentPreview(att);
+      }}
+    />
+    <Dialog
+      open={sheetAttachmentPreview !== null}
+      onOpenChange={(o) => {
+        if (!o) setSheetAttachmentPreview(null);
+      }}
+    >
+      <DialogContent className="flex max-h-[min(90vh,760px)] max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+        <DialogHeader className="shrink-0 space-y-1 border-b border-border px-6 py-4 text-left">
+          <DialogTitle className="pr-8 text-base font-semibold leading-snug">
+            {sheetAttachmentPreview?.name ?? "Attachment"}
+          </DialogTitle>
+          <DialogDescription className="sr-only">Prototype attachment preview.</DialogDescription>
+        </DialogHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto bg-muted/40 p-6">
+          {sheetAttachmentPreview?.kind === "image" ? (
+            <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=1400&q=80"
+                alt=""
+                className="block h-auto w-full max-h-[min(65vh,520px)] object-cover"
+              />
+              <p className="border-t border-border px-4 py-2.5 text-center text-[11px] text-muted-foreground">
+                Sample preview for prototype.
+              </p>
+            </div>
+          ) : sheetAttachmentPreview ? (
+            <div className="mx-auto max-w-xl rounded-lg border border-border bg-background shadow-sm">
+              <div className="flex items-center gap-2 border-b border-border bg-muted/50 px-4 py-2">
+                <FileTextIcon className="h-4 w-4 text-muted-foreground" aria-hidden />
+                <span className="truncate text-xs font-medium text-foreground">{sheetAttachmentPreview.name}</span>
+              </div>
+              <p className="p-6 text-center text-[11px] text-muted-foreground">Sample document preview for prototype.</p>
+            </div>
+          ) : null}
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

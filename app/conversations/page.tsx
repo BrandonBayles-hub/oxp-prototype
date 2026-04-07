@@ -88,6 +88,7 @@ import {
   UNASSIGN_CONVERSATION_VALUE,
   type ConversationItem,
   type ConversationMessage,
+  type BulkOutboundEmailRef,
   type EmailAttachmentRef,
   isConversationUnattended,
   isWaitingOnResidentPublicReply,
@@ -111,6 +112,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ConversationThreadActivityRow } from "@/components/conversation-thread-activity-row";
+import {
+  ConversationBulkEmailCard,
+  ConversationBulkEmailModal,
+} from "@/components/conversation-bulk-email";
 
 const AVATAR_COLORS = [
   "bg-emerald-100 text-emerald-700",
@@ -742,6 +747,7 @@ function ConversationsContent() {
   const [addLabelOpen, setAddLabelOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [emailAttachmentPreview, setEmailAttachmentPreview] = useState<EmailAttachmentRef | null>(null);
+  const [bulkEmailModal, setBulkEmailModal] = useState<BulkOutboundEmailRef | null>(null);
   const [threadsPanelOpen, setThreadsPanelOpen] = useState(false);
   /** When opening the Entrata profile, show the current inbox thread in the right panel (not the mock thread list). */
   const [profilePanelInboxOpen, setProfilePanelInboxOpen] = useState(false);
@@ -1779,6 +1785,12 @@ function ConversationsContent() {
                       </div>
                     </div>
                     <div className="space-y-4 bg-background px-4 py-4">
+                      {selected.bulkOutboundEmail && (
+                        <ConversationBulkEmailCard
+                          bulk={selected.bulkOutboundEmail}
+                          onClick={() => setBulkEmailModal(selected.bulkOutboundEmail!)}
+                        />
+                      )}
                       {selected.messages.map((msg, idx) => {
                         if (msg.type === "handoff") {
                           return (
@@ -3033,6 +3045,13 @@ function ConversationsContent() {
                     </div>
                   )}
                   <div className="space-y-4">
+                    {selected.bulkOutboundEmail && (
+                      <ConversationBulkEmailCard
+                        dense
+                        bulk={selected.bulkOutboundEmail}
+                        onClick={() => setBulkEmailModal(selected.bulkOutboundEmail!)}
+                      />
+                    )}
                     {selected.messages.map((msg, idx) => {
                       if (msg.type === "handoff") {
                         return (
@@ -3536,6 +3555,18 @@ function ConversationsContent() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ConversationBulkEmailModal
+        bulk={bulkEmailModal}
+        open={bulkEmailModal !== null}
+        onOpenChange={(o) => {
+          if (!o) setBulkEmailModal(null);
+        }}
+        onAttachmentClick={(att) => {
+          setBulkEmailModal(null);
+          setEmailAttachmentPreview(att);
+        }}
+      />
 
     </div>
   );

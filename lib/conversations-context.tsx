@@ -8,6 +8,18 @@ export type EmailAttachmentRef = {
   kind: "image" | "file";
 };
 
+/** Outbound bulk send summarized in the thread; full message opens in a modal. */
+export type BulkOutboundEmailRef = {
+  sentAt: string;
+  /** e.g. "All residents · 612 recipients" */
+  recipientSummary: string;
+  subject: string;
+  body: string;
+  sentBy?: string;
+  emailSignature?: string;
+  emailAttachments?: EmailAttachmentRef[];
+};
+
 /** Staff-facing timeline entries (resolve, assign, read, AI preference, etc.). */
 export type ThreadActivity =
   | { kind: "status"; action: "resolved" | "reopened"; actor: string }
@@ -64,6 +76,11 @@ export type ConversationItem = {
   channel: string;
   /** When `channel` is Email, shown as the thread subject in the conversation panel. */
   emailSubject?: string;
+  /**
+   * When set on an Email thread, the outbound bulk send is shown as one summary card in the
+   * thread body; clicking opens a modal with the full message. Other `messages` still render below.
+   */
+  bulkOutboundEmail?: BulkOutboundEmailRef;
   assignee: string;
   labels: string[];
   status: "open" | "resolved";
@@ -274,6 +291,46 @@ const INITIAL: ConversationItem[] = [
         text: "Is Saturday at 2pm OK for a tour? I can do Sunday too if that works better.",
         timestamp: "Apr 1 2026 · 4:18pm MST",
         type: "message",
+      },
+    ],
+  },
+  {
+    id: "lc-22",
+    resident: "Nina Ortiz",
+    unit: "Unit 445",
+    preview: "Thanks — will the gym stay open during the deck work?",
+    agent: "Staff",
+    time: "1m ago",
+    contactType: "Resident",
+    property: "Hillside Living",
+    channel: "Email",
+    emailSubject: "Re: Pool deck resurfacing — April schedule (all residents)",
+    assignee: "Abe Kashiwagi",
+    labels: ["Resident"],
+    status: "open",
+    hasUnread: true,
+    bulkOutboundEmail: {
+      sentAt: "Apr 6 2026 · 8:30am MST",
+      recipientSummary: "All residents · 612 recipients",
+      subject: "Pool deck resurfacing — April schedule (all residents)",
+      body: "Hello Hillside residents,\n\nWe'll be resurfacing the pool deck from Tuesday, April 8 through Friday, April 11. The pool will be closed during this time; the spa remains open until Thursday.\n\nContractors will need access to the north service gate — please do not block the service drive. We'll send a second reminder the day before work begins.\n\nThank you for your patience,",
+      sentBy: "Abe Kashiwagi",
+      emailSignature: `Best regards,
+Abe Kashiwagi
+Leasing Specialist
+
+Hillside Living
+(720) 555-0140
+1800 Hillside Parkway, Denver, CO 80205`,
+      emailAttachments: [{ name: "Pool-Deck-Project-Timeline-April2026.pdf", kind: "file" }],
+    },
+    messages: [
+      {
+        role: "resident",
+        text: "Thanks for the notice. Will the gym stay open during the deck work?",
+        timestamp: "Apr 6 2026 · 10:12am MST",
+        type: "message",
+        emailSignature: "—\nNina Ortiz\nUnit 445\nnina.ortiz@email.com",
       },
     ],
   },
