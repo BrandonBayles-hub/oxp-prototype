@@ -340,7 +340,7 @@ type SidebarFilter =
   | { type: "live-ai-jamison" }
   | { type: "live-ai-hillside" };
 
-/** All Threads: open only; unread, @mention in a private note, or unattended. Resolved threads never appear here. */
+/** Open Threads: open only; unread, @mention in a private note, or unattended. Resolved threads never appear here. */
 function conversationMatchesAllThreadsInbox(c: ConversationItem): boolean {
   if (c.status !== "open") return false;
   return (
@@ -553,7 +553,7 @@ function ConversationsContent() {
 
   const isEscalationLabel = (label: string) => label.endsWith("Escalation");
 
-  /** Sum of unread resident messages across threads in “All Threads” (mention/unattended-only threads contribute 0). */
+  /** Sum of unread resident messages across threads in “Open Threads” (mention/unattended-only threads contribute 0). */
   const allThreadsUnreadCount = useMemo(() => {
     let total = 0;
     for (const c of conversations) {
@@ -1079,9 +1079,9 @@ function ConversationsContent() {
         <nav className="flex-1 overflow-y-auto px-2 py-2">
           <ul className="space-y-0.5">
             {([
-              { id: "all" as const, icon: Inbox, label: "All Threads" },
+              { id: "all" as const, icon: Inbox, label: "Open Threads" },
               { id: "mentions" as const, icon: AtSign, label: "Mentions" },
-              { id: "unattended" as const, icon: Clock, label: "Unattended" },
+              { id: "unattended" as const, icon: Clock, label: "Needs Action" },
             ] as const).map((item) => (
               <li key={item.id}>
                 <Button
@@ -1116,6 +1116,9 @@ function ConversationsContent() {
 
           <div className="my-3 h-px bg-border" />
 
+          <h3 className="px-2 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Inboxes
+          </h3>
           <ul className="space-y-0.5">
             <li>
               <Button
