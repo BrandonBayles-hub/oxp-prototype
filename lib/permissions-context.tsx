@@ -14,6 +14,13 @@ export const ALL_PERMISSIONS: Permission[] = [
   // ── Communications (Command Center + inbox) ──
   { id: "p-cc-view", capability: "View Command Center", description: "Access the Command Center dashboard", section: "Communications" },
   {
+    id: "p-comms-oxp-communication",
+    capability: "OXP Communication",
+    description:
+      "Ability to access OXP Communication tab in oxp main navigation and in the command center area.",
+    section: "Communications",
+  },
+  {
     id: "p-comms-omnichannel-panel",
     capability: "Omni-Channel Conversation Panel",
     description:
@@ -153,6 +160,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Set<string>> = {
   admin: new Set(ALL_PERMISSIONS.map((p) => p.id)),
   regional: new Set([
     "p-cc-view",
+    "p-comms-oxp-communication",
     "p-comms-omnichannel-panel",
     "p-comms-send-email",
     "p-comms-send-sms",
@@ -175,6 +183,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Set<string>> = {
   ]),
   property: new Set([
     "p-cc-view",
+    "p-comms-oxp-communication",
     "p-comms-omnichannel-panel",
     "p-comms-send-email",
     "p-comms-send-sms",
@@ -196,6 +205,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Set<string>> = {
   ]),
   ic: new Set([
     "p-cc-view",
+    "p-comms-oxp-communication",
     "p-comms-omnichannel-panel",
     "p-comms-send-email",
     "p-comms-send-sms",
