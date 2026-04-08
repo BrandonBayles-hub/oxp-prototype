@@ -54,9 +54,12 @@ import {
   RefreshCw,
   UserMinus,
   Link2,
+  SlidersHorizontal,
+  CircleHelp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -318,6 +321,41 @@ function isLiveAiPropertyInbox(c: ConversationItem, property: string): boolean {
   return c.labels.some((l) => LIVE_AI_PROPERTY_ALLOWED.has(l));
 }
 
+function labelIsEscalation(label: string): boolean {
+  return label.endsWith("Escalation");
+}
+
+function conversationHasEscalationLabel(c: ConversationItem): boolean {
+  return c.labels.some(labelIsEscalation);
+}
+
+/** Primary ELI lane without an *Escalation companion label (any property). */
+function isPrimaryAiLaneConversation(c: ConversationItem): boolean {
+  if (c.labels.some((l) => LIVE_AI_PROPERTY_FORBIDDEN.has(l))) return false;
+  return c.labels.some((l) => LIVE_AI_PROPERTY_ALLOWED.has(l));
+}
+
+/**
+ * “Escalated” thread-list filter: any unresolved (open) thread where the lead or resident is
+ * waiting on staff to reply on the public thread — includes escalation-labeled lanes and
+ * other inbound (e.g. lead) threads. Unread always counts as needing staff attention.
+ */
+function matchesThreadListEscalatedFilter(c: ConversationItem): boolean {
+  if (c.status !== "open") return false;
+  if (c.hasUnread) return true;
+  return !isWaitingOnResidentPublicReply(c);
+}
+
+/**
+ * Live AI / non-escalated bucket: primary AI lane without escalation, or any thread where
+ * the last public message is staff/agent (waiting on resident).
+ */
+function matchesThreadListLiveAiNonEscalatedFilter(c: ConversationItem): boolean {
+  if (isWaitingOnResidentPublicReply(c)) return true;
+  if (conversationHasEscalationLabel(c)) return false;
+  return isPrimaryAiLaneConversation(c);
+}
+
 /** Live AI: primary lane, no escalation labels, fully read, waiting on lead/resident to reply. */
 function isLiveAiJamisonConversation(c: ConversationItem): boolean {
   if (!isLiveAiPropertyInbox(c, "Jamison Apartments")) return false;
@@ -339,6 +377,8 @@ type SidebarFilter =
   | { type: "property"; value: string }
   | { type: "live-ai-jamison" }
   | { type: "live-ai-hillside" };
+
+type ThreadListConvoTypeFilter = "escalated" | "liveAi";
 
 /** Open Threads: open only; unread, @mention in a private note, or unattended. Resolved threads never appear here. */
 function conversationMatchesAllThreadsInbox(c: ConversationItem): boolean {
@@ -484,6 +524,59 @@ function ProfilePanelConversationActionsMenu({
   );
 }
 
+function ConversationListChannelChip({ channel }: { channel: string }) {
+  if (channel === "Email") {
+    return (
+      <span
+        className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-blue-200 bg-blue-50 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-blue-800 dark:border-blue-900/60 dark:bg-blue-950/50 dark:text-blue-200"
+        aria-label="Email thread"
+      >
+        <Mail className="h-3 w-3 shrink-0 opacity-80" aria-hidden />
+        Email
+      </span>
+    );
+  }
+  if (channel === "SMS") {
+    return (
+      <span
+        className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/50 dark:text-emerald-200"
+        aria-label="SMS thread"
+      >
+        <Phone className="h-3 w-3 shrink-0 opacity-80" aria-hidden />
+        SMS
+      </span>
+    );
+  }
+  return (
+    <span
+      className="inline-flex max-w-[9rem] shrink-0 items-center gap-0.5 truncate rounded-md border border-border bg-muted/60 px-1.5 py-px text-[9px] font-semibold text-muted-foreground"
+      aria-label={`Channel: ${channel}`}
+    >
+      <MessageSquare className="h-3 w-3 shrink-0 opacity-70" aria-hidden />
+      <span className="truncate">{channel}</span>
+    </span>
+  );
+}
+
+/** Mock threads in the Entrata resident profile side panel (+ optional OXP bulk email row). */
+type EntrataProfileThreadMessage = {
+  role: "user" | "agent" | "staff";
+  text: string;
+  timestamp: string;
+  emailSignature?: string;
+};
+
+type EntrataProfileThreadRow = {
+  property: string;
+  type: string;
+  channel: "SMS" | "Email";
+  status: "active" | "closed";
+  assignee: string | null;
+  messages: EntrataProfileThreadMessage[];
+  bulkOutboundEmail?: BulkOutboundEmailRef;
+  emailSubject?: string;
+};
+
 function ConversationsContent() {
   const {
     filteredItems: conversations,
@@ -550,8 +643,53 @@ function ConversationsContent() {
   const [sidebarFilter, setSidebarFilter] = useState<SidebarFilter>("all");
   const [inboxTab, setInboxTab] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [threadListFiltersOpen, setThreadListFiltersOpen] = useState(false);
+  const [threadListConvoTypes, setThreadListConvoTypes] = useState<Set<ThreadListConvoTypeFilter>>(
+    () => new Set(["escalated"])
+  );
+  /** `null` = all properties (default). */
+  const [threadListPropertyKeys, setThreadListPropertyKeys] = useState<Set<string> | null>(null);
 
   const isEscalationLabel = (label: string) => label.endsWith("Escalation");
+
+  const allConversationPropertyNames = useMemo(() => {
+    const s = new Set<string>();
+    for (const c of conversations) s.add(c.property);
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [conversations]);
+
+  const threadFiltersAreNonDefault =
+    threadListPropertyKeys !== null ||
+    threadListConvoTypes.size !== 1 ||
+    !threadListConvoTypes.has("escalated");
+
+  const threadListConvoSummary = useMemo(() => {
+    const parts: string[] = [];
+    if (threadListConvoTypes.has("escalated")) parts.push("Escalated");
+    if (threadListConvoTypes.has("liveAi")) parts.push("Non-Escalated");
+    if (parts.length === 0) return "None selected";
+    return parts.join(", ");
+  }, [threadListConvoTypes]);
+
+  const threadListPropertySummary = useMemo(() => {
+    if (threadListPropertyKeys === null) return "All properties";
+    const n = threadListPropertyKeys.size;
+    if (n === 0) return "No properties";
+    if (n === allConversationPropertyNames.length) return "All properties";
+    if (n <= 2) return [...threadListPropertyKeys].sort((a, b) => a.localeCompare(b)).join(", ");
+    return `${n} properties`;
+  }, [threadListPropertyKeys, allConversationPropertyNames]);
+
+  const toggleThreadListProperty = (propertyName: string) => {
+    setThreadListPropertyKeys((prev) => {
+      const all = allConversationPropertyNames;
+      const base = prev === null ? new Set(all) : new Set(prev);
+      if (base.has(propertyName)) base.delete(propertyName);
+      else base.add(propertyName);
+      if (base.size === all.length) return null;
+      return base;
+    });
+  };
 
   /** Sum of unread resident messages across threads in “Open Threads” (mention/unattended-only threads contribute 0). */
   const allThreadsUnreadCount = useMemo(() => {
@@ -648,16 +786,30 @@ function ConversationsContent() {
     });
   }, [sidebarFiltered, inboxTab]);
 
+  const threadListConvoFiltered = useMemo(() => {
+    if (threadListConvoTypes.size === 0) return tabFiltered;
+    return tabFiltered.filter((c) => {
+      if (threadListConvoTypes.has("escalated") && matchesThreadListEscalatedFilter(c)) return true;
+      if (threadListConvoTypes.has("liveAi") && matchesThreadListLiveAiNonEscalatedFilter(c)) return true;
+      return false;
+    });
+  }, [tabFiltered, threadListConvoTypes]);
+
+  const threadListFiltered = useMemo(() => {
+    if (threadListPropertyKeys === null) return threadListConvoFiltered;
+    return threadListConvoFiltered.filter((c) => threadListPropertyKeys.has(c.property));
+  }, [threadListConvoFiltered, threadListPropertyKeys]);
+
   const filtered = useMemo(() => {
-    if (!searchQuery.trim()) return tabFiltered;
+    if (!searchQuery.trim()) return threadListFiltered;
     const q = searchQuery.toLowerCase();
-    return tabFiltered.filter(
+    return threadListFiltered.filter(
       (c) =>
         c.resident.toLowerCase().includes(q) ||
         c.preview.toLowerCase().includes(q) ||
         c.labels.some((l) => l.toLowerCase().includes(q))
     );
-  }, [tabFiltered, searchQuery]);
+  }, [threadListFiltered, searchQuery]);
 
   const myInboxUnreadCount = useMemo(
     () =>
@@ -787,9 +939,6 @@ function ConversationsContent() {
     "Travis Eggers",
   ];
 
-  const getThreadAssignee = (globalIdx: number) =>
-    globalIdx in threadAssignments ? threadAssignments[globalIdx] : THREAD_DATA[globalIdx]?.assignee ?? null;
-
   const assignThread = (globalIdx: number, name: string | null) => {
     setThreadAssignments((prev) => ({ ...prev, [globalIdx]: name }));
     if (!selected) return;
@@ -806,9 +955,10 @@ function ConversationsContent() {
   const [phoneOpt, setPhoneOpt] = useState("opt-in");
   const [emailOpt, setEmailOpt] = useState("opt-in");
 
-  const THREAD_DATA = [
+  const sunValleyProfileThreads = useMemo((): EntrataProfileThreadRow[] => {
+    return [
     {
-      property: "Sun Valley", type: "Facilities", channel: "SMS", status: "active" as const, assignee: "Court White",
+      property: "Sun Valley", type: "Facilities", channel: "SMS", status: "active", assignee: "Court White",
       messages: [
         { role: "user" as const, text: "Hi, my kitchen sink has been leaking for two days now. Can someone come take a look?", timestamp: "Sep 15 2025 · 3:12pm" },
         { role: "agent" as const, text: "I'm sorry to hear that! I've submitted a work order for your kitchen sink leak. A maintenance technician will reach out to schedule a time.", timestamp: "Sep 15 2025 · 3:14pm" },
@@ -817,7 +967,7 @@ function ConversationsContent() {
       ],
     },
     {
-      property: "Sun Valley", type: "Office", channel: "SMS", status: "active" as const, assignee: null as string | null,
+      property: "Sun Valley", type: "Office", channel: "SMS", status: "active", assignee: null,
       messages: [
         { role: "user" as const, text: "I noticed a late fee on my account but I paid rent on time. Can you look into this?", timestamp: "Sep 14 2025 · 10:05am" },
         { role: "staff" as const, text: "Let me pull up your payment history. One moment please.", timestamp: "Sep 14 2025 · 10:08am" },
@@ -826,7 +976,7 @@ function ConversationsContent() {
       ],
     },
     {
-      property: "Sun Valley", type: "Facilities", channel: "SMS", status: "active" as const, assignee: "Jane Doe",
+      property: "Sun Valley", type: "Facilities", channel: "SMS", status: "active", assignee: "Jane Doe",
       messages: [
         { role: "user" as const, text: "The A/C in my unit isn't blowing cold air. It's been warm all day.", timestamp: "Sep 13 2025 · 1:30pm" },
         { role: "agent" as const, text: "I'm sorry about the discomfort. I've created a work order for your A/C unit. Our maintenance team will be in touch to schedule a visit.", timestamp: "Sep 13 2025 · 1:32pm" },
@@ -836,7 +986,7 @@ function ConversationsContent() {
       ],
     },
     {
-      property: "Sun Valley", type: "Leasing", channel: "Email", status: "closed" as const, assignee: "Court White",
+      property: "Sun Valley", type: "Leasing", channel: "Email", status: "closed", assignee: "Court White",
       messages: [
         { role: "user" as const, text: "Hi, I'm interested in renewing my lease. What are the renewal options?", timestamp: "Aug 20 2025 · 9:00am" },
         { role: "agent" as const, text: "Great to hear you'd like to stay! We have 6-month and 12-month renewal options available. I'll have our leasing team send over the details.", timestamp: "Aug 20 2025 · 9:03am" },
@@ -846,14 +996,49 @@ function ConversationsContent() {
       ],
     },
     {
-      property: "Sun Valley", type: "Office", channel: "SMS", status: "closed" as const, assignee: "Court White",
+      property: "Sun Valley", type: "Office", channel: "SMS", status: "closed", assignee: "Court White",
       messages: [
         { role: "user" as const, text: "I need a copy of my payment history for the last 6 months for my tax filing.", timestamp: "Aug 10 2025 · 2:00pm" },
         { role: "staff" as const, text: "Of course! I've generated a ledger statement for the past 6 months and uploaded it to your resident portal under Documents.", timestamp: "Aug 10 2025 · 2:15pm" },
         { role: "user" as const, text: "Perfect, I see it. Thank you!", timestamp: "Aug 10 2025 · 2:20pm" },
       ],
     },
-  ];
+    ];
+  }, []);
+
+  const profilePanelThreads: EntrataProfileThreadRow[] = useMemo(() => {
+    if (selected?.bulkOutboundEmail && selected.channel === "Email") {
+      const linkedThread: EntrataProfileThreadRow = {
+        property: selected.property,
+        type: "Bulk email",
+        channel: "Email",
+        status: "active",
+        assignee: selected.assignee,
+        bulkOutboundEmail: selected.bulkOutboundEmail,
+        emailSubject: selected.emailSubject,
+        messages: selected.messages
+          .filter((m) => m.type === undefined || m.type === "message")
+          .map((m) => ({
+            role:
+              m.role === "resident"
+                ? ("user" as const)
+                : m.role === "agent"
+                  ? ("agent" as const)
+                  : ("staff" as const),
+            text: m.text,
+            timestamp: m.timestamp ?? "",
+            ...(m.emailSignature ? { emailSignature: m.emailSignature } : {}),
+          })),
+      };
+      return [linkedThread, ...sunValleyProfileThreads];
+    }
+    return [...sunValleyProfileThreads];
+  }, [selected]);
+
+  const getThreadAssignee = (globalIdx: number) =>
+    globalIdx in threadAssignments
+      ? threadAssignments[globalIdx]
+      : profilePanelThreads[globalIdx]?.assignee ?? null;
 
   const allLabels = useMemo(() => {
     const set = new Set<string>();
@@ -967,11 +1152,11 @@ function ConversationsContent() {
     const isEmailEntThread =
       openThreadIdx === -1
         ? newThreadOutbound?.channel === "Email"
-        : openThreadIdx >= 0 && THREAD_DATA[openThreadIdx]?.channel === "Email";
+        : openThreadIdx >= 0 && profilePanelThreads[openThreadIdx]?.channel === "Email";
     const signatureProperty =
       openThreadIdx === -1
         ? (newThreadOutbound?.propertyName ?? selected.property)
-        : (THREAD_DATA[openThreadIdx]?.property ?? selected.property);
+        : (profilePanelThreads[openThreadIdx]?.property ?? selected.property);
     const emailSignature =
       isEmailEntThread && threadInputMode === "message"
         ? staffEmailSignatureForProperty(selected, signatureProperty, humanNameSet, humanMembers)
@@ -1231,22 +1416,226 @@ function ConversationsContent() {
 
       {/* ===== CONVERSATION LIST ===== */}
       <div className="flex w-[340px] shrink-0 flex-col border-r border-border bg-card">
-        {/* Tabs bar */}
-        <div className="px-3 py-2">
-          <Tabs value={inboxTab} onValueChange={setInboxTab}>
-            <TabsList className="w-full">
-              <TabsTrigger value="mine" className="flex-1 gap-1.5">
-                My Inbox
-                {myInboxUnreadCount > 0 && (
-                  <Badge variant="destructive" className="h-5 min-w-5 justify-center px-1.5 text-[10px]">
-                    {myInboxUnreadCount}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="unassigned" className="flex-1">Unassigned</TabsTrigger>
-              <TabsTrigger value="all" className="flex-1">All</TabsTrigger>
-            </TabsList>
-          </Tabs>
+        {/* Tabs bar + thread list filters */}
+        <div className="space-y-2 px-3 py-2">
+          <div className="flex items-center gap-1.5">
+            <Tabs value={inboxTab} onValueChange={setInboxTab} className="min-w-0 flex-1">
+              <TabsList className="h-9 w-full">
+                <TabsTrigger value="mine" className="flex-1 gap-1.5 px-1.5 text-xs">
+                  My Inbox
+                  {myInboxUnreadCount > 0 && (
+                    <Badge variant="destructive" className="h-5 min-w-5 justify-center px-1.5 text-[10px]">
+                      {myInboxUnreadCount}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="unassigned" className="flex-1 px-1.5 text-xs">
+                  Unassigned
+                </TabsTrigger>
+                <TabsTrigger value="all" className="flex-1 px-1.5 text-xs">
+                  All
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <Button
+              type="button"
+              variant={threadListFiltersOpen || threadFiltersAreNonDefault ? "secondary" : "ghost"}
+              size="icon"
+              className="relative h-9 w-9 shrink-0"
+              aria-label="More thread filters"
+              aria-expanded={threadListFiltersOpen}
+              onClick={() => setThreadListFiltersOpen((open) => !open)}
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              {threadFiltersAreNonDefault && (
+                <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
+              )}
+            </Button>
+          </div>
+
+          {threadListFiltersOpen && (
+            <div className="space-y-2.5 rounded-lg border border-border bg-muted/30 p-2.5">
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Conversations filter
+                </p>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 w-full justify-between gap-2 px-2 text-xs font-normal"
+                    >
+                      <span className="truncate">{threadListConvoSummary}</span>
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="w-[var(--radix-popover-trigger-width)] max-h-[min(320px,70vh)] overflow-y-auto p-2"
+                    align="start"
+                    sideOffset={4}
+                  >
+                    <TooltipProvider delayDuration={200}>
+                      <p className="mb-2 text-[10px] font-medium text-muted-foreground">
+                        Select one or both
+                      </p>
+                      <div className="space-y-2">
+                        <div className="flex items-start gap-1.5 rounded-md px-1 py-0.5 hover:bg-accent/60">
+                          <Checkbox
+                            id="thread-filter-escalated"
+                            className="mt-0.5 shrink-0"
+                            checked={threadListConvoTypes.has("escalated")}
+                            onCheckedChange={(c) => {
+                              if (c === "indeterminate") return;
+                              setThreadListConvoTypes((prev) => {
+                                const next = new Set(prev);
+                                if (c) next.add("escalated");
+                                else next.delete("escalated");
+                                return next;
+                              });
+                            }}
+                          />
+                          <label
+                            htmlFor="thread-filter-escalated"
+                            className="min-w-0 flex-1 cursor-pointer text-xs font-normal leading-snug text-foreground"
+                          >
+                            Escalated conversations
+                          </label>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                className="mt-0.5 shrink-0 rounded-sm text-muted-foreground outline-none ring-offset-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                                aria-label="What counts as Escalated conversations"
+                              >
+                                <CircleHelp className="h-3.5 w-3.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="left" className="max-w-[240px] text-xs leading-snug">
+                              Open, unresolved threads where the lead or resident is waiting on staff next on
+                              the public thread: includes unread messages and threads whose last public
+                              message is from the lead or resident (not staff or the AI).
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        <div className="flex items-start gap-1.5 rounded-md px-1 py-0.5 hover:bg-accent/60">
+                          <Checkbox
+                            id="thread-filter-live-ai"
+                            className="mt-0.5 shrink-0"
+                            checked={threadListConvoTypes.has("liveAi")}
+                            onCheckedChange={(c) => {
+                              if (c === "indeterminate") return;
+                              setThreadListConvoTypes((prev) => {
+                                const next = new Set(prev);
+                                if (c) next.add("liveAi");
+                                else next.delete("liveAi");
+                                return next;
+                              });
+                            }}
+                          />
+                          <label
+                            htmlFor="thread-filter-live-ai"
+                            className="min-w-0 flex-1 cursor-pointer text-xs font-normal leading-snug text-foreground"
+                          >
+                            Non-Escalated
+                          </label>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                className="mt-0.5 shrink-0 rounded-sm text-muted-foreground outline-none ring-offset-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                                aria-label="What counts as Non-Escalated"
+                              >
+                                <CircleHelp className="h-3.5 w-3.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="left" className="max-w-[240px] text-xs leading-snug">
+                              Threads where the last public message is from staff or the AI (waiting on the
+                              lead or resident next), plus primary ELI AI lanes that do not carry an escalation
+                              label.
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </div>
+                    </TooltipProvider>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Properties filter
+                </p>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 w-full justify-between gap-2 px-2 text-xs font-normal"
+                    >
+                      <span className="truncate">{threadListPropertySummary}</span>
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="w-[var(--radix-popover-trigger-width)] max-h-[min(320px,70vh)] overflow-y-auto p-2"
+                    align="start"
+                    sideOffset={4}
+                  >
+                    <p className="mb-2 text-[10px] font-medium text-muted-foreground">Properties</p>
+                    <div className="space-y-2">
+                      <div className="flex items-start gap-2 rounded-md px-1 py-0.5 hover:bg-accent/60">
+                        <Checkbox
+                          id="thread-filter-prop-all"
+                          className="mt-0.5"
+                          checked={threadListPropertyKeys === null}
+                          onCheckedChange={(c) => {
+                            if (c === "indeterminate") return;
+                            if (c) setThreadListPropertyKeys(null);
+                            else setThreadListPropertyKeys(new Set());
+                          }}
+                        />
+                        <label
+                          htmlFor="thread-filter-prop-all"
+                          className="cursor-pointer text-xs font-normal leading-snug text-foreground"
+                        >
+                          All properties
+                        </label>
+                      </div>
+                      <div className="my-1 h-px bg-border" />
+                      {allConversationPropertyNames.map((prop) => {
+                        const propChecked =
+                          threadListPropertyKeys === null || threadListPropertyKeys.has(prop);
+                        return (
+                          <div
+                            key={prop}
+                            className="flex items-start gap-2 rounded-md px-1 py-0.5 hover:bg-accent/60"
+                          >
+                            <Checkbox
+                              id={`thread-filter-prop-${prop}`}
+                              className="mt-0.5"
+                              checked={propChecked}
+                              onCheckedChange={(c) => {
+                                if (c === "indeterminate") return;
+                                const shouldCheck = c === true;
+                                if (shouldCheck !== propChecked) toggleThreadListProperty(prop);
+                              }}
+                            />
+                            <label
+                              htmlFor={`thread-filter-prop-${prop}`}
+                              className="cursor-pointer text-xs font-normal leading-snug text-foreground"
+                            >
+                              {prop}
+                            </label>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Search + actions */}
@@ -1291,67 +1680,70 @@ function ConversationsContent() {
                         {convo.hasUnread && !isActive && (
                           <span className="absolute left-1.5 top-4 h-2 w-2 rounded-full bg-destructive" />
                         )}
-                        <span className="flex items-center gap-1.5 text-[10px] font-medium tracking-wide text-muted-foreground">
-                          {emailRouting ? (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="cursor-default border-b border-dotted border-muted-foreground/50 hover:border-muted-foreground hover:text-foreground">
-                                  {convo.property}
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent side="bottom" align="start" className="max-w-[min(280px,calc(100vw-2rem))] p-0">
-                                <div className="space-y-2 px-3 py-2">
-                                  <div>
-                                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                                      From (resident)
-                                    </p>
-                                    <p className="break-all text-[11px] leading-snug text-foreground">
-                                      {emailRouting.residentEmail}
-                                    </p>
+                        <div className="flex items-start justify-between gap-2 pr-0.5">
+                          <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[10px] font-medium tracking-wide text-muted-foreground">
+                            {emailRouting ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="cursor-default border-b border-dotted border-muted-foreground/50 hover:border-muted-foreground hover:text-foreground">
+                                    {convo.property}
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="bottom" align="start" className="max-w-[min(280px,calc(100vw-2rem))] p-0">
+                                  <div className="space-y-2 px-3 py-2">
+                                    <div>
+                                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                        From (resident)
+                                      </p>
+                                      <p className="break-all text-[11px] leading-snug text-foreground">
+                                        {emailRouting.residentEmail}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                        To (property)
+                                      </p>
+                                      <p className="break-all text-[11px] leading-snug text-foreground">
+                                        {emailRouting.propertyInboxEmail}
+                                      </p>
+                                    </div>
                                   </div>
-                                  <div>
-                                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                                      To (property)
-                                    </p>
-                                    <p className="break-all text-[11px] leading-snug text-foreground">
-                                      {emailRouting.propertyInboxEmail}
-                                    </p>
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : phoneRouting?.propertyLine ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="cursor-default border-b border-dotted border-muted-foreground/50 hover:border-muted-foreground hover:text-foreground">
+                                    {convo.property}
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="bottom" align="start" className="max-w-[min(280px,calc(100vw-2rem))] p-0">
+                                  <div className="space-y-2 px-3 py-2">
+                                    <div>
+                                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                        From (resident)
+                                      </p>
+                                      <p className="font-mono text-[11px] tabular-nums leading-snug text-foreground">
+                                        {phoneRouting.residentPhone}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                        To (property)
+                                      </p>
+                                      <p className="font-mono text-[11px] tabular-nums leading-snug text-foreground">
+                                        {phoneRouting.propertyLine}
+                                      </p>
+                                    </div>
                                   </div>
-                                </div>
-                              </TooltipContent>
-                            </Tooltip>
-                          ) : phoneRouting?.propertyLine ? (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="cursor-default border-b border-dotted border-muted-foreground/50 hover:border-muted-foreground hover:text-foreground">
-                                  {convo.property}
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent side="bottom" align="start" className="max-w-[min(280px,calc(100vw-2rem))] p-0">
-                                <div className="space-y-2 px-3 py-2">
-                                  <div>
-                                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                                      From (resident)
-                                    </p>
-                                    <p className="font-mono text-[11px] tabular-nums leading-snug text-foreground">
-                                      {phoneRouting.residentPhone}
-                                    </p>
-                                  </div>
-                                  <div>
-                                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                                      To (property)
-                                    </p>
-                                    <p className="font-mono text-[11px] tabular-nums leading-snug text-foreground">
-                                      {phoneRouting.propertyLine}
-                                    </p>
-                                  </div>
-                                </div>
-                              </TooltipContent>
-                            </Tooltip>
-                          ) : (
-                            convo.property
-                          )}
-                        </span>
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              convo.property
+                            )}
+                          </span>
+                          <ConversationListChannelChip channel={convo.channel} />
+                        </div>
                       <div className="flex items-center justify-between gap-2">
                         <span className={cn("truncate text-sm", convo.hasUnread ? "font-bold" : "font-semibold")}>
                           {convo.resident}
@@ -2656,7 +3048,7 @@ function ConversationsContent() {
                         ? newThreadOutbound
                           ? `New thread · ${newThreadOutbound.channel} · ${newThreadOutbound.propertyName}`
                           : "New thread"
-                        : `${THREAD_DATA[openThreadIdx]?.property}: ${THREAD_DATA[openThreadIdx]?.type}`}
+                        : `${profilePanelThreads[openThreadIdx]?.property}: ${profilePanelThreads[openThreadIdx]?.type}`}
                     </p>
                   </div>
                   <ProfilePanelConversationActionsMenu
@@ -2699,6 +3091,28 @@ function ConversationsContent() {
                 {/* Messages area — same style as inbox conversation panel */}
                 <div className="flex-1 overflow-y-auto bg-muted/30 px-4 py-4">
                   <div className="space-y-4">
+                    {openThreadIdx >= 0 && profilePanelThreads[openThreadIdx]?.channel === "Email" && (
+                      <>
+                        {(profilePanelThreads[openThreadIdx]?.emailSubject ?? profilePanelThreads[openThreadIdx]?.bulkOutboundEmail?.subject) && (
+                          <div className="rounded-md border border-border bg-card px-3 py-2 shadow-sm">
+                            <p className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">Subject</p>
+                            <p className="text-[11px] font-semibold text-foreground leading-snug line-clamp-2">
+                              {profilePanelThreads[openThreadIdx]?.emailSubject ??
+                                profilePanelThreads[openThreadIdx]?.bulkOutboundEmail?.subject}
+                            </p>
+                          </div>
+                        )}
+                        {profilePanelThreads[openThreadIdx]?.bulkOutboundEmail && (
+                          <ConversationBulkEmailCard
+                            dense
+                            bulk={profilePanelThreads[openThreadIdx].bulkOutboundEmail!}
+                            onClick={() =>
+                              setBulkEmailModal(profilePanelThreads[openThreadIdx].bulkOutboundEmail!)
+                            }
+                          />
+                        )}
+                      </>
+                    )}
                     {openThreadIdx === -1 &&
                     (entSideSentByThreadKey["-1"] ?? []).length === 0 ? (
                       <p className="text-center text-[12px] text-gray-500 py-8 px-2 leading-relaxed">
@@ -2714,7 +3128,7 @@ function ConversationsContent() {
                       </p>
                     ) : null}
                     {[
-                      ...(openThreadIdx >= 0 ? THREAD_DATA[openThreadIdx]?.messages ?? [] : []),
+                      ...(openThreadIdx >= 0 ? profilePanelThreads[openThreadIdx]?.messages ?? [] : []),
                       ...(entSideSentByThreadKey[String(openThreadIdx)] ?? []),
                     ].map((msg, idx) => {
                       if (
@@ -2748,7 +3162,7 @@ function ConversationsContent() {
                       const isAgent = msg.role === "agent";
                       const isStaff = msg.role === "staff";
                       const threadData =
-                        openThreadIdx >= 0 ? THREAD_DATA[openThreadIdx] : undefined;
+                        openThreadIdx >= 0 ? profilePanelThreads[openThreadIdx] : undefined;
                       const assigneeName =
                         getThreadAssignee(openThreadIdx) ??
                         threadData?.assignee ??
@@ -3373,8 +3787,8 @@ function ConversationsContent() {
                     ))}
                   </div>
                   <div className="space-y-5">
-                    {THREAD_DATA.filter((t) => t.status === threadsFilter).map((thread, i) => {
-                      const globalIdx = THREAD_DATA.indexOf(thread);
+                    {profilePanelThreads.filter((t) => t.status === threadsFilter).map((thread, i) => {
+                      const globalIdx = profilePanelThreads.indexOf(thread);
                       return (
                       <div
                         key={i}
