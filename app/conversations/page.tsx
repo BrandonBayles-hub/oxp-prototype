@@ -1299,13 +1299,13 @@ function ConversationsContent() {
       <aside className="flex w-[220px] shrink-0 flex-col border-r border-border bg-card">
         <Link
           href="/command-center"
-          className="flex items-center gap-2 px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted/60 rounded-md mx-2 mt-1"
+          className="mx-2 mt-1 flex items-center gap-2 rounded-md px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-muted/60"
           aria-label="Back to Command Center"
         >
-          <span className="flex h-7 w-7 items-center justify-center rounded-md">
-            <ArrowLeft className="h-4 w-4" />
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground">
+            <ArrowLeft className="h-4 w-4" strokeWidth={2} />
           </span>
-          Back
+          <span>Back</span>
         </Link>
 
         <nav className="flex-1 overflow-y-auto px-2 py-2">
@@ -1848,13 +1848,13 @@ function ConversationsContent() {
                   </button>
                   <span className="text-sm text-muted-foreground">{selected.property}</span>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 [&>*]:shrink-0">
                   {clickToCallEnabled && (
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="h-8 shrink-0 gap-1.5 px-3 text-xs"
+                      className="h-8 gap-1.5 px-3 text-xs"
                       title="Call lead or resident on primary number"
                       onClick={() => beginClickToCallForConversation(selected)}
                     >
@@ -1865,7 +1865,8 @@ function ConversationsContent() {
                   <Popover>
                     <PopoverTrigger asChild>
                       <button
-                        className="flex items-center gap-1 rounded-full border border-transparent px-1 py-0.5 transition-colors hover:border-border hover:bg-muted"
+                        type="button"
+                        className="flex h-8 w-8 items-center justify-center rounded-full border border-transparent transition-colors hover:border-border hover:bg-muted"
                         aria-label="Change assignee"
                       >
                         <Avatar className="h-7 w-7">
@@ -1899,17 +1900,17 @@ function ConversationsContent() {
                   {selected.status === "open" ? (
                     <Button
                       size="sm"
-                      className="shrink-0 gap-1.5 px-4 h-7 text-xs mx-3"
+                      className="h-8 gap-1.5 px-3 text-xs"
                       onClick={() => resolveConversation(selected.id, MY_INBOX_ASSIGNEE)}
                     >
-                      <Check className="h-3 w-3" />
+                      <Check className="h-3.5 w-3.5" />
                       Resolve
                     </Button>
                   ) : (
                     <Button
                       size="sm"
                       variant="outline"
-                      className="gap-1.5 px-4 h-7 text-xs mx-3"
+                      className="h-8 gap-1.5 px-3 text-xs"
                       onClick={() => reopenConversation(selected.id, MY_INBOX_ASSIGNEE)}
                     >
                       Reopen
@@ -4080,12 +4081,12 @@ function ConversationsContent() {
         <DialogContent className="gap-6 sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Place this call?</DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="text-sm leading-relaxed text-muted-foreground">
               {callConfirmDraft ? (
                 <>
                   You are about to call{" "}
-                  <span className="font-medium text-foreground">{callConfirmDraft.residentName}</span> on{" "}
-                  <span className="font-mono text-sm text-foreground">{callConfirmDraft.phoneDisplay}</span>{" "}
+                  <span className="font-semibold">{callConfirmDraft.residentName}</span> on{" "}
+                  <span className="font-semibold tabular-nums">{callConfirmDraft.phoneDisplay}</span>{" "}
                   (primary on file). Continue?
                 </>
               ) : (

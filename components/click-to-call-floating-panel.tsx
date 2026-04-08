@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, GripVertical, Phone, PhoneOff, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,6 +40,33 @@ function formatDuration(totalSeconds: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+const CALL_PANEL_MAX_W = 380;
+const CALL_PANEL_MARGIN = 16;
+/** Below Entrata-style top chrome (~76px) with small gap. */
+const CALL_PANEL_TOP_OFFSET = 80;
+
+function getCallPanelTopRightPosition(): { x: number; y: number } {
+  if (typeof window === "undefined") {
+    return { x: 24, y: CALL_PANEL_TOP_OFFSET };
+  }
+  const panelW = Math.min(window.innerWidth - CALL_PANEL_MARGIN * 2, CALL_PANEL_MAX_W);
+  return {
+    x: Math.max(CALL_PANEL_MARGIN, window.innerWidth - panelW - CALL_PANEL_MARGIN),
+    y: CALL_PANEL_TOP_OFFSET,
+  };
+}
+
+function clampPanelPosition(x: number, y: number): { x: number; y: number } {
+  if (typeof window === "undefined") return { x, y };
+  const panelW = Math.min(window.innerWidth - CALL_PANEL_MARGIN * 2, CALL_PANEL_MAX_W);
+  const maxX = Math.max(CALL_PANEL_MARGIN, window.innerWidth - panelW - CALL_PANEL_MARGIN);
+  const maxY = Math.max(CALL_PANEL_MARGIN, window.innerHeight - 120);
+  return {
+    x: Math.min(Math.max(CALL_PANEL_MARGIN, x), maxX),
+    y: Math.min(Math.max(CALL_PANEL_MARGIN, y), maxY),
+  };
+}
+
 export function ClickToCallFloatingPanel({
   session,
   onDismiss,
@@ -48,7 +75,10 @@ export function ClickToCallFloatingPanel({
 }: Props) {
   const { recordThreadActivity } = useConversations();
 
-  const [position, setPosition] = useState({ x: 80, y: 100 });
+  const [position, setPosition] = useState(() => ({
+    x: 0,
+    y: CALL_PANEL_TOP_OFFSET,
+  }));
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(
     null
   );
@@ -63,9 +93,12 @@ export function ClickToCallFloatingPanel({
   const [durationAtHangup, setDurationAtHangup] = useState<number | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [isAnimatingOut, setIsAnimatingOut] = useState(false);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const connectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** DOM timers use numeric ids; avoids Node `Timeout` vs `number` mismatch in this file. */
+  const dismissTimeoutsRef = useRef<{ outer?: number; inner?: number }>({});
 
   const clearTimers = useCallback(() => {
     if (timerRef.current) {
@@ -77,6 +110,18 @@ export function ClickToCallFloatingPanel({
       connectTimerRef.current = null;
     }
   }, []);
+
+  const clearDismissSchedule = useCallback(() => {
+    const t = dismissTimeoutsRef.current;
+    if (t.outer) clearTimeout(t.outer);
+    if (t.inner) clearTimeout(t.inner);
+    dismissTimeoutsRef.current = {};
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!session) return;
+    setPosition(getCallPanelTopRightPosition());
+  }, [session?.conversationId]);
 
   useEffect(() => {
     if (!session) return;
@@ -90,7 +135,9 @@ export function ClickToCallFloatingPanel({
     setDurationAtHangup(null);
     setSaveSuccess(false);
     setSaveError(null);
+    setIsAnimatingOut(false);
     clearTimers();
+    clearDismissSchedule();
 
     connectTimerRef.current = setTimeout(() => {
       connectTimerRef.current = null;
@@ -104,8 +151,11 @@ export function ClickToCallFloatingPanel({
       }
     }, 2000);
 
-    return () => clearTimers();
-  }, [session, defaultAssigneeValue, clearTimers]);
+    return () => {
+      clearTimers();
+      clearDismissSchedule();
+    };
+  }, [session, defaultAssigneeValue, clearTimers, clearDismissSchedule]);
 
   const handlePointerDownHeader = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest("button")) return;
@@ -122,12 +172,9 @@ export function ClickToCallFloatingPanel({
     if (!dragRef.current) return;
     const dx = e.clientX - dragRef.current.startX;
     const dy = e.clientY - dragRef.current.startY;
-    const maxX = typeof window !== "undefined" ? window.innerWidth - 340 : 800;
-    const maxY = typeof window !== "undefined" ? window.innerHeight - 120 : 600;
-    setPosition({
-      x: Math.min(Math.max(8, dragRef.current.origX + dx), maxX),
-      y: Math.min(Math.max(8, dragRef.current.origY + dy), maxY),
-    });
+    setPosition(
+      clampPanelPosition(dragRef.current.origX + dx, dragRef.current.origY + dy)
+    );
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
@@ -204,9 +251,14 @@ export function ClickToCallFloatingPanel({
       followUpDue: followDue || undefined,
     });
     setSaveSuccess(true);
-    window.setTimeout(() => {
-      onDismiss();
-    }, 2200);
+    dismissTimeoutsRef.current.outer = window.setTimeout(() => {
+      dismissTimeoutsRef.current.outer = undefined;
+      setIsAnimatingOut(true);
+      dismissTimeoutsRef.current.inner = window.setTimeout(() => {
+        dismissTimeoutsRef.current.inner = undefined;
+        onDismiss();
+      }, 300);
+    }, 1900);
   };
 
   if (!session) return null;
@@ -229,7 +281,13 @@ export function ClickToCallFloatingPanel({
       aria-hidden={false}
     >
       <div
-        className="pointer-events-auto absolute w-[min(100vw-1rem,380px)] overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-lg"
+        key={session.conversationId}
+        className={cn(
+          "pointer-events-auto absolute w-[min(100vw-1rem,380px)] overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-lg duration-300",
+          isAnimatingOut
+            ? "animate-out slide-out-to-right fade-out zoom-out-95"
+            : "animate-in slide-in-from-right fade-in zoom-in-95"
+        )}
         style={{ left: position.x, top: position.y }}
       >
         {/* Draggable header */}
@@ -322,7 +380,34 @@ export function ClickToCallFloatingPanel({
                   </Button>
                 )}
                 {phase === "connected" && callLegEnded && (
-                  <span className="text-[10px] text-primary-foreground/70">Line cleared</span>
+                  <div className="flex max-w-[9rem] flex-col items-end gap-0.5 text-right">
+                    <span className="text-xs font-semibold leading-tight text-primary-foreground">Call ended</span>
+                    <span className="text-[10px] leading-snug text-primary-foreground/80 tabular-nums">
+                      {durationAtHangup != null
+                        ? `Duration ${formatDuration(durationAtHangup)}`
+                        : `Duration ${formatDuration(durationSec)}`}
+                    </span>
+                  </div>
+                )}
+                {phase === "dialing" && callLegEnded && (
+                  <div className="flex max-w-[9rem] flex-col items-end text-right">
+                    <span className="text-xs font-semibold leading-tight text-primary-foreground">
+                      Call ended
+                    </span>
+                    <span className="text-[10px] leading-snug text-primary-foreground/80">
+                      Cancelled before connect
+                    </span>
+                  </div>
+                )}
+                {phase === "failed" && callLegEnded && (
+                  <div className="flex max-w-[9rem] flex-col items-end text-right">
+                    <span className="text-xs font-semibold leading-tight text-primary-foreground">
+                      Session ended
+                    </span>
+                    <span className="text-[10px] leading-snug text-primary-foreground/80">
+                      No active call
+                    </span>
+                  </div>
                 )}
               </div>
             </div>
@@ -377,13 +462,28 @@ export function ClickToCallFloatingPanel({
                 aria-invalid={Boolean(saveError)}
                 className={cn(
                   "mt-2 w-full resize-y rounded-md border bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                  saveError ? "border-destructive" : "border-input"
+                  saveError && "border-destructive",
+                  saveSuccess &&
+                    "border-emerald-300 ring-2 ring-emerald-500/30 dark:border-emerald-700 dark:ring-emerald-500/25",
+                  !saveError && !saveSuccess && "border-input"
                 )}
               />
               {saveError ? (
                 <p className="mt-1.5 text-xs text-destructive" role="alert">
                   {saveError}
                 </p>
+              ) : saveSuccess ? (
+                <div
+                  className="mt-2 animate-in fade-in zoom-in-95 slide-in-from-bottom-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-emerald-950 shadow-md duration-300 dark:border-emerald-800/60 dark:bg-emerald-950/60 dark:text-emerald-50"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <p className="text-sm font-semibold leading-snug">On the activity log now</p>
+                  <p className="mt-1 text-xs leading-relaxed text-emerald-900/90 dark:text-emerald-100/90">
+                    The notes you entered (and your follow-up choices) were saved to this
+                    conversation&apos;s timeline—check the thread to see them with other activity.
+                  </p>
+                </div>
               ) : (
                 <p className="mt-1.5 text-[11px] text-muted-foreground">
                   Notes are required and appear on the conversation activity log when you save.
@@ -413,7 +513,7 @@ export function ClickToCallFloatingPanel({
                 <div>
                   <p className="font-medium">Saved to activity log</p>
                   <p className="mt-0.5 text-xs leading-snug opacity-90">
-                    This call and your notes were added to the thread timeline. Closing…
+                    See the note above for where to find it in the thread. Closing…
                   </p>
                 </div>
               </div>
