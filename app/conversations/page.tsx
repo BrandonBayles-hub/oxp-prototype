@@ -1302,7 +1302,7 @@ function ConversationsContent() {
           <div className="my-3 h-px bg-border" />
 
           <h3 className="px-2 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Inboxes
+            Custom Inboxes
           </h3>
           <ul className="space-y-0.5">
             <li>
