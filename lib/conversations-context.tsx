@@ -41,7 +41,18 @@ export type ThreadActivity =
       choice: "opt-in" | "opt-out" | "no-indication";
       actor: string;
     }
-  | { kind: "read"; reader: string };
+  | { kind: "read"; reader: string }
+  | {
+      kind: "phone_call";
+      actor: string;
+      phoneNumber: string;
+      outcome: "connected" | "failed" | "cancelled";
+      /** Present when outcome is connected (e.g. "3:02"). */
+      durationLabel?: string;
+      notes: string;
+      followUpAssignee?: string;
+      followUpDue?: string;
+    };
 
 export type ConversationMessage = {
   role: "resident" | "agent" | "staff";

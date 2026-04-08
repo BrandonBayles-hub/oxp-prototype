@@ -169,6 +169,47 @@ export function ConversationThreadActivityRow({
         </>
       );
       break;
+    case "phone_call": {
+      const outcomePhrase =
+        a.outcome === "connected"
+          ? `completed${a.durationLabel ? ` (${a.durationLabel})` : ""}`
+          : a.outcome === "failed"
+            ? "did not connect"
+            : "cancelled before connect";
+      icon = (
+        <IconWrap>
+          <Phone className="h-3.5 w-3.5" />
+        </IconWrap>
+      );
+      body = (
+        <>
+          <span className="font-medium text-foreground">{a.actor}</span>
+          {" logged a phone call to "}
+          <span className="font-mono text-[10px] text-foreground/90">{a.phoneNumber}</span>
+          {" · "}
+          <span className="text-muted-foreground">{outcomePhrase}</span>
+          {a.notes.trim() ? (
+            <>
+              <span className="mt-1 block text-left text-muted-foreground">
+                <span className="font-medium text-foreground/90">Notes: </span>
+                {a.notes.trim()}
+              </span>
+            </>
+          ) : (
+            <span className="mt-1 block text-left italic text-muted-foreground/80">No call notes entered.</span>
+          )}
+          {a.followUpAssignee || a.followUpDue ? (
+            <span className="mt-1 block text-left text-muted-foreground">
+              <span className="font-medium text-foreground/90">Follow-up: </span>
+              {a.followUpAssignee ? <>assigned to {a.followUpAssignee}</> : null}
+              {a.followUpAssignee && a.followUpDue ? " · " : null}
+              {a.followUpDue ? <>due {a.followUpDue}</> : null}
+            </span>
+          ) : null}
+        </>
+      );
+      break;
+    }
     default:
       return null;
   }
