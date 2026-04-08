@@ -3,6 +3,7 @@
 import {
   Fragment,
   Suspense,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -108,6 +109,11 @@ import {
   getPropertyFromChannelOptionsForProperty,
   getVoiceOrSmsThreadRoutingNumbers,
 } from "@/lib/email-signature";
+import { useClickToCallDemo } from "@/lib/click-to-call-demo-context";
+import {
+  ClickToCallFloatingPanel,
+  type ClickToCallSessionInput,
+} from "@/components/click-to-call-floating-panel";
 import {
   Tooltip,
   TooltipContent,
@@ -199,6 +205,16 @@ const ASSIGNMENT_PICKER_EXCLUDED_AUTONOMOUS_AGENT_NAMES = new Set([
   "Payments AI",
   "Renewal AI",
 ]);
+
+/** Prototype display line for click-to-call confirmation and floating panel. */
+function formatClickToCallDisplayPhone(residentPhone: string): string {
+  const d = residentPhone.replace(/\D/g, "");
+  if (d.length === 10) return `+1 (${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+  if (d.length === 11 && d.startsWith("1")) {
+    return `+1 (${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7)}`;
+  }
+  return residentPhone;
+}
 
 function handoffAssigneeLabel(assignee: string, isHuman: (a: string) => boolean): string {
   if (assignee === CONVERSATION_UNASSIGNED_ASSIGNEE) return "Unassigned";
@@ -638,6 +654,37 @@ function ConversationsContent() {
       .sort((a, b) => a.value.localeCompare(b.value));
     return { ai, humans };
   }, [autonomousAgents, humanMembers]);
+
+  const { clickToCallEnabled } = useClickToCallDemo();
+
+  const clickToCallAssigneeOptions = useMemo(() => {
+    const opts: { value: string; label: string }[] = [
+      { value: MY_INBOX_ASSIGNEE, label: "Assign to me" },
+    ];
+    for (const m of humanMembers) {
+      if (m.name === MY_INBOX_ASSIGNEE) continue;
+      opts.push({ value: m.name, label: m.name });
+    }
+    return opts;
+  }, [humanMembers]);
+
+  const [clickToCallSession, setClickToCallSession] = useState<ClickToCallSessionInput | null>(null);
+  const [callConfirmOpen, setCallConfirmOpen] = useState(false);
+  const [callConfirmDraft, setCallConfirmDraft] = useState<ClickToCallSessionInput | null>(null);
+
+  const beginClickToCallForConversation = useCallback(
+    (convo: Pick<ConversationItem, "id" | "resident" | "property">) => {
+      const { residentPhone } = getVoiceOrSmsThreadRoutingNumbers(convo.resident, convo.property);
+      setCallConfirmDraft({
+        conversationId: convo.id,
+        residentName: convo.resident,
+        propertyName: convo.property,
+        phoneDisplay: formatClickToCallDisplayPhone(residentPhone),
+      });
+      setCallConfirmOpen(true);
+    },
+    []
+  );
 
   // --- Sidebar + filter state ---
   const [sidebarFilter, setSidebarFilter] = useState<SidebarFilter>("all");
@@ -1802,6 +1849,19 @@ function ConversationsContent() {
                   <span className="text-sm text-muted-foreground">{selected.property}</span>
                 </div>
                 <div className="flex items-center gap-3">
+                  {clickToCallEnabled && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 shrink-0 gap-1.5 px-3 text-xs"
+                      title="Call lead or resident on primary number"
+                      onClick={() => beginClickToCallForConversation(selected)}
+                    >
+                      <Phone className="h-3.5 w-3.5" />
+                      Call
+                    </Button>
+                  )}
                   <Popover>
                     <PopoverTrigger asChild>
                       <button
@@ -3051,6 +3111,17 @@ function ConversationsContent() {
                         : `${profilePanelThreads[openThreadIdx]?.property}: ${profilePanelThreads[openThreadIdx]?.type}`}
                     </p>
                   </div>
+                  {clickToCallEnabled && (
+                    <button
+                      type="button"
+                      title="Call primary number"
+                      onClick={() => beginClickToCallForConversation(selected)}
+                      className="flex h-8 shrink-0 items-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 text-[11px] font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      <Phone className="h-3.5 w-3.5 text-gray-500" />
+                      Call
+                    </button>
+                  )}
                   <ProfilePanelConversationActionsMenu
                     selected={selected}
                     allLabels={allLabels}
@@ -3432,6 +3503,17 @@ function ConversationsContent() {
                       )}
                     </p>
                   </div>
+                  {clickToCallEnabled && (
+                    <button
+                      type="button"
+                      title="Call primary number"
+                      onClick={() => beginClickToCallForConversation(selected)}
+                      className="flex h-8 shrink-0 items-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 text-[11px] font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      <Phone className="h-3.5 w-3.5 text-gray-500" />
+                      Call
+                    </button>
+                  )}
                   <ProfilePanelConversationActionsMenu
                     selected={selected}
                     allLabels={allLabels}
@@ -3988,6 +4070,63 @@ function ConversationsContent() {
         }}
       />
 
+      <Dialog
+        open={callConfirmOpen}
+        onOpenChange={(open) => {
+          setCallConfirmOpen(open);
+          if (!open) setCallConfirmDraft(null);
+        }}
+      >
+        <DialogContent className="gap-6 sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Place this call?</DialogTitle>
+            <DialogDescription>
+              {callConfirmDraft ? (
+                <>
+                  You are about to call{" "}
+                  <span className="font-medium text-foreground">{callConfirmDraft.residentName}</span> on{" "}
+                  <span className="font-mono text-sm text-foreground">{callConfirmDraft.phoneDisplay}</span>{" "}
+                  (primary on file). Continue?
+                </>
+              ) : (
+                "Confirm the outbound call."
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex w-full flex-col-reverse gap-3 pt-1 sm:flex-row sm:justify-end sm:gap-3 sm:pt-0">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => {
+                setCallConfirmOpen(false);
+                setCallConfirmDraft(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="w-full gap-2 sm:w-auto"
+              onClick={() => {
+                if (callConfirmDraft) setClickToCallSession(callConfirmDraft);
+                setCallConfirmOpen(false);
+                setCallConfirmDraft(null);
+              }}
+            >
+              <Phone className="h-4 w-4 shrink-0" />
+              Yes, call
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ClickToCallFloatingPanel
+        session={clickToCallSession}
+        onDismiss={() => setClickToCallSession(null)}
+        assigneeOptions={clickToCallAssigneeOptions}
+        defaultAssigneeValue={MY_INBOX_ASSIGNEE}
+      />
     </div>
   );
 }

@@ -20,6 +20,7 @@ import { FeatureEntitlementsProvider } from "@/lib/feature-entitlements-context"
 import { PermissionsProvider } from "@/lib/permissions-context";
 import { PlaybooksProvider } from "@/lib/playbooks-context";
 import { R1DemoProvider } from "@/lib/r1-demo-context";
+import { ClickToCallDemoProvider } from "@/lib/click-to-call-demo-context";
 import { R1ReleaseProvider } from "@/lib/r1-release-context";
 import { ComingSoonProvider } from "@/lib/coming-soon-context";
 import { EliEmailsProvider } from "@/lib/eli-emails-context";
@@ -79,6 +80,7 @@ export default function RootLayout({
           strategy="afterInteractive"
         />
         <R1DemoProvider>
+        <ClickToCallDemoProvider>
         <R1ReleaseProvider>
         <ComingSoonProvider>
         <RoleProvider>
@@ -120,6 +122,7 @@ export default function RootLayout({
         </RoleProvider>
         </ComingSoonProvider>
         </R1ReleaseProvider>
+        </ClickToCallDemoProvider>
         </R1DemoProvider>
       </body>
     </html>
