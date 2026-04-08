@@ -37,70 +37,55 @@ export function ConversationBulkEmailCard({
     <button
       type="button"
       onClick={onClick}
+      title="View full bulk email"
       className={cn(
-        "group flex w-full flex-col gap-2 rounded-lg border border-border bg-muted/20 text-left shadow-sm transition-colors",
+        "group flex w-full items-center gap-2 rounded-lg border border-border bg-muted/20 text-left shadow-sm transition-colors",
         "hover:border-primary/35 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        dense ? "p-3" : "p-4",
+        dense ? "py-1.5 pl-2 pr-1.5" : "py-2 pl-2.5 pr-2",
         className
       )}
     >
-      <div className="flex items-start gap-3">
-        <div
+      <div
+        className={cn(
+          "flex shrink-0 items-center justify-center rounded-md border border-border bg-background",
+          dense ? "h-7 w-7" : "h-8 w-8"
+        )}
+      >
+        <Users className={cn("text-muted-foreground", dense ? "h-3 w-3" : "h-3.5 w-3.5")} aria-hidden />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p
           className={cn(
-            "flex shrink-0 items-center justify-center rounded-lg border border-border bg-background",
-            dense ? "h-8 w-8" : "h-10 w-10"
+            "truncate font-medium leading-tight text-foreground",
+            dense ? "text-[11px]" : "text-xs"
           )}
         >
-          <Users className={cn("text-muted-foreground", dense ? "h-3.5 w-3.5" : "h-4 w-4")} aria-hidden />
-        </div>
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex items-center gap-2">
-            <span
-              className={cn(
-                "font-semibold text-foreground",
-                dense ? "text-[11px]" : "text-xs"
-              )}
-            >
-              Bulk email sent
-            </span>
-            <span
-              className={cn(
-                "rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary",
-                dense ? "text-[9px]" : "text-[10px]"
-              )}
-            >
-              {bulk.recipientSummary}
-            </span>
-          </div>
-          <p className={cn("text-muted-foreground", dense ? "text-[10px]" : "text-[11px]")}>
-            {bulk.sentAt}
-            {bulk.sentBy ? (
-              <>
-                <span className="text-muted-foreground/60"> · </span>
-                <span className="font-medium text-foreground/90">{by}</span>
-              </>
-            ) : null}
-          </p>
-          <p
-            className={cn(
-              "line-clamp-2 text-foreground/90",
-              dense ? "text-[11px] leading-snug" : "text-sm leading-snug"
-            )}
-          >
-            {bulk.subject}
-          </p>
-        </div>
-        <ChevronRight
+          {bulk.subject}
+        </p>
+        <p
           className={cn(
-            "shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5",
-            dense ? "h-4 w-4" : "h-5 w-5"
+            "mt-0.5 truncate text-muted-foreground",
+            dense ? "text-[9px] leading-tight" : "text-[10px] leading-tight"
           )}
-          aria-hidden
-        />
+        >
+          <span className="font-medium text-foreground/80">Bulk email</span>
+          <span className="text-muted-foreground/70"> · </span>
+          {bulk.sentAt}
+          {bulk.sentBy ? (
+            <>
+              <span className="text-muted-foreground/70"> · </span>
+              {by}
+            </>
+          ) : null}
+        </p>
       </div>
-      <p className={cn("text-muted-foreground", dense ? "text-[10px]" : "text-[11px]")}>
-        Click to view the full message sent to recipients.
-      </p>
+      <ChevronRight
+        className={cn(
+          "shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5",
+          dense ? "h-3.5 w-3.5" : "h-4 w-4"
+        )}
+        aria-hidden
+      />
     </button>
   );
 }
