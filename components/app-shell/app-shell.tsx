@@ -5,7 +5,7 @@ import { Sidebar } from "./sidebar";
 import { MobileNav } from "./mobile-nav";
 import { EntrataTopNav } from "./entrata-top-nav";
 import { NotificationToast } from "@/components/notification-toast";
-import { R1PreviewBanner } from "@/components/r1-preview-banner";
+
 import { ComingSoonOverlay } from "@/components/coming-soon-overlay";
 import { RouteGuard } from "@/components/route-guard";
 import { cn } from "@/lib/utils";
@@ -59,7 +59,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           "flex-1 bg-muted/50",
           fullBleed ? "flex flex-col overflow-hidden" : "pt-3 lg:pt-0 overflow-y-auto"
         )}>
-          <R1PreviewBanner />
           {fullBleed ? (
             <RouteGuard>
               <ComingSoonOverlay>{children}</ComingSoonOverlay>

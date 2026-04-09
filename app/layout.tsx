@@ -19,7 +19,7 @@ import { NotificationsProvider } from "@/lib/notifications-context";
 import { FeatureEntitlementsProvider } from "@/lib/feature-entitlements-context";
 import { PermissionsProvider } from "@/lib/permissions-context";
 import { PlaybooksProvider } from "@/lib/playbooks-context";
-import { R1DemoProvider } from "@/lib/r1-demo-context";
+
 import { ClickToCallDemoProvider } from "@/lib/click-to-call-demo-context";
 import { R1ReleaseProvider } from "@/lib/r1-release-context";
 import { ComingSoonProvider } from "@/lib/coming-soon-context";
@@ -80,7 +80,6 @@ export default function RootLayout({
           src="https://assets.calendly.com/assets/external/widget.js"
           strategy="afterInteractive"
         />
-        <R1DemoProvider>
         <EliPlusSetupProvider>
         <ClickToCallDemoProvider>
         <R1ReleaseProvider>
@@ -126,7 +125,6 @@ export default function RootLayout({
         </R1ReleaseProvider>
         </ClickToCallDemoProvider>
         </EliPlusSetupProvider>
-        </R1DemoProvider>
       </body>
     </html>
   );

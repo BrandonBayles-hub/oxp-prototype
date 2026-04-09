@@ -18,7 +18,7 @@ import {
   Beaker,
 } from "lucide-react";
 import { useRole, ROLES, type Role } from "@/lib/role-context";
-import { useR1Demo } from "@/lib/r1-demo-context";
+
 import { useR1Release } from "@/lib/r1-release-context";
 import { useComingSoon } from "@/lib/coming-soon-context";
 import { useWorkforce } from "@/lib/workforce-context";
@@ -44,7 +44,7 @@ const NAV_ITEMS = [
 export function EntrataTopNav() {
   const { role, setRole } = useRole();
   const { isR1Release, toggleR1Release } = useR1Release();
-  const { isR1Preview, toggleR1Preview } = useR1Demo();
+
   const { isComingSoonEnabled, toggleComingSoon } = useComingSoon();
   const { getCurrentUser } = useWorkforce();
   const { items: escalations } = useEscalations();
@@ -77,7 +77,7 @@ export function EntrataTopNav() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [demoOpen]);
 
-  const anyDemoActive = isR1Release || isR1Preview || isComingSoonEnabled || eliPlusSetupEnabled;
+  const anyDemoActive = isR1Release || isComingSoonEnabled || eliPlusSetupEnabled;
 
   return (
     <div className="shrink-0 select-none" style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
@@ -219,41 +219,6 @@ export function EntrataTopNav() {
                       <div className="text-left">
                         <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>R1 Release State</p>
                         <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>R1 release view with updated command center</p>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={toggleR1Preview}
-                      className="flex items-center gap-2.5 rounded-md px-2.5 py-2 transition-colors"
-                      style={{ background: isR1Preview ? "rgba(99,102,241,0.08)" : "transparent" }}
-                    >
-                      <div
-                        style={{
-                          width: 30,
-                          height: 17,
-                          borderRadius: 9,
-                          background: isR1Preview ? "#6366f1" : "#D4D4D4",
-                          position: "relative",
-                          transition: "background 150ms",
-                          flexShrink: 0,
-                        }}
-                      >
-                        <div style={{
-                          width: 13,
-                          height: 13,
-                          borderRadius: "50%",
-                          background: "#fff",
-                          position: "absolute",
-                          top: 2,
-                          left: isR1Preview ? 15 : 2,
-                          transition: "left 150ms",
-                          boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
-                        }} />
-                      </div>
-                      <div className="text-left">
-                        <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>OXP Full State Demo</p>
-                        <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>Show R1 activation banner</p>
                       </div>
                     </button>
 
