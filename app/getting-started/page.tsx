@@ -17,6 +17,8 @@ import {
   type RiskLevel,
 } from "@/lib/governance-context";
 import { useR1Release } from "@/lib/r1-release-context";
+import { useEliPlusSetup } from "@/lib/eli-plus-setup-context";
+import dynamic from "next/dynamic";
 import {
   CheckCircle2,
   Circle,
@@ -42,6 +44,8 @@ import {
   Mail,
   ClipboardList,
 } from "lucide-react";
+
+const EliPlusSetup = dynamic(() => import("@/components/eli-plus-setup"), { ssr: false });
 
 /* ═══════════════════════════════════════════════════════════════════════
    Steps definition
@@ -97,6 +101,15 @@ export default function GettingStartedPage() {
   const { humanMembers } = useWorkforce();
   const { state: govState, updateActivity: updateGovActivity, enabledGuardrailCount } = useGovernance();
   const { isR1Release } = useR1Release();
+  const { eliPlusSetupEnabled } = useEliPlusSetup();
+  const [activeTab, setActiveTab] = useState<"activation" | "eli-plus">("activation");
+
+  useEffect(() => {
+    if (eliPlusSetupEnabled && activeTab === "eli-plus") {
+      document.body.style.overflow = "hidden";
+      return () => { document.body.style.overflow = ""; };
+    }
+  }, [eliPlusSetupEnabled, activeTab]);
 
   const R1_HIDDEN_STEPS = ["governance", "voice-brand", "eli-essentials", "ops-efficiency", "eli-plus"];
 
@@ -161,12 +174,55 @@ export default function GettingStartedPage() {
     router.push("/command-center");
   };
 
+  if (eliPlusSetupEnabled && activeTab === "eli-plus") {
+    return (
+      <div className="fixed inset-0 flex flex-col bg-white" style={{ top: 76, zIndex: 9999 }}>
+        {/* Back bar */}
+        <div className="flex items-center gap-3 border-b border-[hsl(var(--border))] bg-white px-5 py-2.5">
+          <button
+            type="button"
+            onClick={() => setActiveTab("activation")}
+            className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]"
+          >
+            <ChevronRight className="h-3.5 w-3.5 rotate-180" />
+            AI &amp; Agent Activation
+          </button>
+          <span className="text-[hsl(var(--border))]">|</span>
+          <span className="text-sm font-semibold text-[hsl(var(--foreground))]">ELI Plus Setup</span>
+        </div>
+        {/* Full-bleed ELI Plus content */}
+        <div className="flex-1 overflow-hidden">
+          <EliPlusSetup />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <PageHeader
         title="AI & Agent Activation"
         description="Complete each step to fully activate OXP Studio. Progress updates automatically as you configure the platform."
       />
+
+      {eliPlusSetupEnabled && (
+        <div className="mb-6">
+          <button
+            type="button"
+            onClick={() => setActiveTab("eli-plus")}
+            className="flex w-full items-center gap-4 rounded-xl border border-[hsl(var(--border))] bg-white p-4 text-left transition-all hover:border-zinc-400 hover:shadow-md"
+          >
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-900">
+              <Rocket className="h-5 w-5 text-white" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-[hsl(var(--foreground))]">ELI Plus Setup</p>
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">Configure and activate ELI Plus agents across your portfolio — leasing, payments, maintenance, and renewals</p>
+            </div>
+            <ChevronRight className="h-5 w-5 shrink-0 text-[hsl(var(--muted-foreground))]" />
+          </button>
+        </div>
+      )}
 
       {/* Progress bar */}
       <div className="mb-8 flex items-center gap-3">

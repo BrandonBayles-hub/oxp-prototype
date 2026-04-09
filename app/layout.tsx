@@ -24,6 +24,7 @@ import { ClickToCallDemoProvider } from "@/lib/click-to-call-demo-context";
 import { R1ReleaseProvider } from "@/lib/r1-release-context";
 import { ComingSoonProvider } from "@/lib/coming-soon-context";
 import { EliEmailsProvider } from "@/lib/eli-emails-context";
+import { EliPlusSetupProvider } from "@/lib/eli-plus-setup-context";
 
 export const metadata: Metadata = {
   title: "OXP Studio",
@@ -80,6 +81,7 @@ export default function RootLayout({
           strategy="afterInteractive"
         />
         <R1DemoProvider>
+        <EliPlusSetupProvider>
         <ClickToCallDemoProvider>
         <R1ReleaseProvider>
         <ComingSoonProvider>
@@ -123,6 +125,7 @@ export default function RootLayout({
         </ComingSoonProvider>
         </R1ReleaseProvider>
         </ClickToCallDemoProvider>
+        </EliPlusSetupProvider>
         </R1DemoProvider>
       </body>
     </html>

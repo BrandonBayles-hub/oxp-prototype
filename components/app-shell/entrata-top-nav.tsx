@@ -25,6 +25,7 @@ import { useWorkforce } from "@/lib/workforce-context";
 import { useEscalations } from "@/lib/escalations-context";
 import { useConversations } from "@/lib/conversations-context";
 import { useClickToCallDemo } from "@/lib/click-to-call-demo-context";
+import { useEliPlusSetup } from "@/lib/eli-plus-setup-context";
 
 const NAV_ITEMS = [
   { label: "OXP", active: true },
@@ -49,6 +50,7 @@ export function EntrataTopNav() {
   const { items: escalations } = useEscalations();
   const { items: conversations } = useConversations();
   const { clickToCallEnabled, toggleClickToCallEnabled } = useClickToCallDemo();
+  const { eliPlusSetupEnabled, toggleEliPlusSetup } = useEliPlusSetup();
 
   const currentUser = useMemo(() => getCurrentUser(role), [getCurrentUser, role]);
 
@@ -75,7 +77,7 @@ export function EntrataTopNav() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [demoOpen]);
 
-  const anyDemoActive = isR1Release || isR1Preview || isComingSoonEnabled;
+  const anyDemoActive = isR1Release || isR1Preview || isComingSoonEnabled || eliPlusSetupEnabled;
 
   return (
     <div className="shrink-0 select-none" style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
@@ -325,6 +327,45 @@ export function EntrataTopNav() {
                         <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>Click To Call</p>
                         <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>
                           Show call controls on Communications (prototype)
+                        </p>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={toggleEliPlusSetup}
+                      className="flex items-center gap-2.5 rounded-md px-2.5 py-2 transition-colors"
+                      style={{ background: eliPlusSetupEnabled ? "rgba(14,165,233,0.08)" : "transparent" }}
+                    >
+                      <div
+                        style={{
+                          width: 30,
+                          height: 17,
+                          borderRadius: 9,
+                          background: eliPlusSetupEnabled ? "#0ea5e9" : "#D4D4D4",
+                          position: "relative",
+                          transition: "background 150ms",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: 13,
+                            height: 13,
+                            borderRadius: "50%",
+                            background: "#fff",
+                            position: "absolute",
+                            top: 2,
+                            left: eliPlusSetupEnabled ? 15 : 2,
+                            transition: "left 150ms",
+                            boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
+                          }}
+                        />
+                      </div>
+                      <div className="text-left">
+                        <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>ELI Plus Setup</p>
+                        <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>
+                          ELI Plus setup and configuration in OXP
                         </p>
                       </div>
                     </button>
