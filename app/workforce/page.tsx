@@ -929,7 +929,7 @@ function RolesAccessPanel({ humanMembers }: { humanMembers: WorkforceMember[] })
         {PERMISSION_SECTIONS.map((section) => {
           const viewPermId = SECTION_VIEW_PERMISSION[section];
           const sectionPerms = ALL_PERMISSIONS.filter((p) => p.section === section);
-          const childPerms = sectionPerms.filter((p) => p.id !== viewPermId);
+          const childPerms = sectionPerms.length === 1 ? sectionPerms : sectionPerms.filter((p) => p.id !== viewPermId);
           const viewPerm = sectionPerms.find((p) => p.id === viewPermId);
           if (sectionPerms.length === 0) return null;
           const masterOn = isAdmin || currentPerms.has(viewPermId);
