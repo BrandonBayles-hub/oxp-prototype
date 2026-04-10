@@ -158,6 +158,7 @@ function TrainingsSopContent() {
   const { agents } = useAgents();
   const { members: workforceMembers, humanMembers } = useWorkforce();
 
+  const [pageTab, setPageTab] = useState<"sops" | "trainings">("sops");
   const [activeTab, setActiveTab] = useState<"compliance" | "library" | "activity">("library");
   const [search, setSearch] = useState("");
   const [activitySearch, setActivitySearch] = useState("");
@@ -664,13 +665,59 @@ function TrainingsSopContent() {
           </div>
         </header>
       ) : (
-        <PageHeader
-          title="Trainings & SOP"
-          description="Your single source for SOPs and operational documents. Upload or add from Entrata to train and ground agents; tag for compliance. SOPs drive how your team and AI operate."
-        />
+        <>
+          <div className="-mt-2 mb-3 flex justify-center py-2">
+            <div className="inline-flex items-center rounded-lg border border-border bg-muted/40 p-1">
+              <button
+                type="button"
+                onClick={() => setPageTab("trainings")}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                  pageTab === "trainings"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                Trainings
+              </button>
+              <button
+                type="button"
+                onClick={() => setPageTab("sops")}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                  pageTab === "sops"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                SOPs
+              </button>
+            </div>
+          </div>
+          <PageHeader
+            title="Trainings & SOP"
+            description="Your single source for SOPs and operational documents. Upload or add from Entrata to train and ground agents; tag for compliance. SOPs drive how your team and AI operate."
+          />
+        </>
       )}
 
+      {pageTab === "trainings" && !currentFolder && (
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 py-20 text-center">
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-muted">
+            <BookOpen className="h-7 w-7 text-muted-foreground" />
+          </div>
+          <h3 className="text-lg font-semibold text-foreground">Trainings</h3>
+          <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+            Create and manage training programs for your team and AI agents. Assign documents, track completion, and ensure everyone is up to date.
+          </p>
+          <span className="mt-4 rounded-full border border-border bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+            Coming Soon
+          </span>
+        </div>
+      )}
 
+      {pageTab === "sops" && (
+      <>
       {/* Training gaps banner (hidden until compliance tab is reintroduced) */}
       {false && (() => {
         const unlinkedAreas = COMPLIANCE_ITEMS.filter((s) => !complianceSubjectDocumentIds[s]);
@@ -745,10 +792,10 @@ function TrainingsSopContent() {
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)} className="mb-6">
         {!currentFolderId && (
           <div className="mb-4 flex items-center justify-between gap-3">
-            <TabsList>
-              <TabsTrigger value="library">Document library</TabsTrigger>
-              <TabsTrigger value="compliance">Compliance</TabsTrigger>
-              <TabsTrigger value="activity">Activity</TabsTrigger>
+            <TabsList className="h-auto rounded-none border-0 border-b border-border bg-transparent p-0 gap-4">
+              <TabsTrigger value="library" className="rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 pt-1 shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:text-foreground">Document library</TabsTrigger>
+              <TabsTrigger value="compliance" className="rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 pt-1 shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:text-foreground">Compliance</TabsTrigger>
+              <TabsTrigger value="activity" className="rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 pt-1 shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:text-foreground">Activity</TabsTrigger>
             </TabsList>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={() => setShowExploreSops(true)}>
@@ -1371,6 +1418,8 @@ function TrainingsSopContent() {
           </section>
         </TabsContent>
       </Tabs>
+      </>
+      )}
 
       {/* ── MODALS ── */}
       {addDocMode === "choice" && (
