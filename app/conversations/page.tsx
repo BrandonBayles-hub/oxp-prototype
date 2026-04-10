@@ -51,7 +51,6 @@ import {
   Mic,
   SendHorizontal,
   Sparkles,
-  PlayCircle,
   RefreshCw,
   UserMinus,
   Link2,
@@ -110,6 +109,7 @@ import {
   getVoiceOrSmsThreadRoutingNumbers,
 } from "@/lib/email-signature";
 import { useClickToCallDemo } from "@/lib/click-to-call-demo-context";
+import { useConversationsDemo } from "@/lib/conversations-demo-context";
 import {
   ClickToCallFloatingPanel,
   type ClickToCallSessionInput,
@@ -656,6 +656,7 @@ function ConversationsContent() {
   }, [autonomousAgents, humanMembers]);
 
   const { clickToCallEnabled } = useClickToCallDemo();
+  const { profileCommsPopupRequest } = useConversationsDemo();
 
   const clickToCallAssigneeOptions = useMemo(() => {
     const opts: { value: string; label: string }[] = [
@@ -977,6 +978,59 @@ function ConversationsContent() {
   const [threadAssignments, setThreadAssignments] = useState<Record<number, string | null>>({});
   const [messageIntroDismissed, setMessageIntroDismissed] = useState(false);
   const [showMessageIntro, setShowMessageIntro] = useState(false);
+  const messageIntroVideoRef = useRef<HTMLVideoElement>(null);
+  /** True after the muted 0–3s cover preview has finished (paused at ~3s). Next play restarts from 0 with sound. */
+  const messageIntroPreviewCompletedRef = useRef(false);
+
+  /** Demo control: Entrata profile overlay only (no right-hand conversation / threads panel). */
+  useEffect(() => {
+    if (profileCommsPopupRequest === 0) return;
+    if (!selected) return;
+    setShowMessageIntro(false);
+    setProfileModalOpen(true);
+    setThreadsPanelOpen(false);
+    setProfilePanelInboxOpen(false);
+    setOpenThreadIdx(null);
+    setNewThreadOutbound(null);
+  }, [profileCommsPopupRequest, selected]);
+
+  useEffect(() => {
+    if (!showMessageIntro) {
+      messageIntroVideoRef.current?.pause();
+      messageIntroPreviewCompletedRef.current = false;
+      return;
+    }
+
+    const v = messageIntroVideoRef.current;
+    if (!v) return;
+
+    messageIntroPreviewCompletedRef.current = false;
+
+    const onTimeUpdate = () => {
+      if (v.currentTime >= 3) {
+        v.pause();
+        v.removeEventListener("timeupdate", onTimeUpdate);
+        messageIntroPreviewCompletedRef.current = true;
+      }
+    };
+
+    const startCoverPreview = () => {
+      v.muted = true;
+      v.currentTime = 0;
+      v.addEventListener("timeupdate", onTimeUpdate);
+      void v.play().catch(() => {
+        v.removeEventListener("timeupdate", onTimeUpdate);
+      });
+    };
+
+    if (v.readyState >= 2) startCoverPreview();
+    else v.addEventListener("loadeddata", startCoverPreview, { once: true });
+
+    return () => {
+      v.removeEventListener("timeupdate", onTimeUpdate);
+      v.removeEventListener("loadeddata", startCoverPreview);
+    };
+  }, [showMessageIntro]);
 
   const THREAD_AGENTS = [
     "Hillary Avates",
@@ -2709,18 +2763,25 @@ function ConversationsContent() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="relative w-full bg-gray-900 aspect-video flex items-center justify-center">
-            <div className="absolute inset-0 bg-gradient-to-br from-blue-900/40 to-gray-900/80" />
-            <div className="relative z-10 flex flex-col items-center gap-4">
-              <div className="flex h-20 w-20 items-center justify-center rounded-full bg-white/15 backdrop-blur-sm transition-transform hover:scale-110 cursor-pointer">
-                <PlayCircle className="h-12 w-12 text-white" strokeWidth={1.2} />
-              </div>
-              <p className="text-white/70 text-sm font-medium">1:42 &mdash; Quick Start Guide</p>
-            </div>
-
-            <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20">
-              <div className="h-full w-0 bg-blue-500 rounded-full" />
-            </div>
+          <div className="relative w-full aspect-video bg-black">
+            <video
+              ref={messageIntroVideoRef}
+              className="h-full w-full object-contain"
+              controls
+              playsInline
+              preload="auto"
+              src="/media/oxp-conversation-panel-video.mp4"
+              onPlay={(e) => {
+                const el = e.currentTarget;
+                if (messageIntroPreviewCompletedRef.current) {
+                  messageIntroPreviewCompletedRef.current = false;
+                  el.currentTime = 0;
+                  el.muted = false;
+                }
+              }}
+            >
+              Your browser does not support the video tag.
+            </video>
           </div>
 
           <div className="px-6 py-5 flex flex-col gap-4 border-t border-gray-100">

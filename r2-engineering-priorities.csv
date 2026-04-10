@@ -1,0 +1,40 @@
+Theme,Area,Item,Epic / reference
+Click-to-Call (Outbound),,Outbound calling via redirect or VoIP,
+Click-to-Call (Outbound),,Caller ID shows property phone number,https://entrata.atlassian.net/browse/DEV-189613
+Click-to-Call (Outbound),,Call tracking log for reporting,https://entrata.atlassian.net/browse/DEV-227196
+Click-to-Call (Outbound),,Ability to send/reply via SMS from calls,
+Click-to-Call (Outbound),,Caller ID setup / onboarding configuration,
+Click-to-Call (Outbound),,User settings for redirect numbers,
+R1.1 Spillover,,Include any R1.1 items not completed by April 28,
+Nexus Enhancements,,Add filters: date range; labels,
+Nexus Enhancements,,Other small things that will come because they were missed,
+Nexus Enhancements,,Bugs from GTM,
+ELI+ (Colleen) Calling Integration,,Integrate ELI+ calling numbers into Entrata Twilio onboarding,
+ELI+ (Colleen) Calling Integration,,Show ELI+ call activity in Nexus conversation panel,
+OXP Communications,,Ability to view all conversation threads in inboxes of a profile,
+Unified Call Activity in Nexus,,Show missed calls (Entrata + ELI+),
+Unified Call Activity in Nexus,,Show voicemails,
+Unified Call Activity in Nexus,,Show completed calls,
+Pop-Up Notifications (Calls & SMS),,Real-time pop-ups for incoming calls and messages,
+Pop-Up Notifications (Calls & SMS),,Communication icon in top nav to view notification history,
+Pop-Up Notifications (Calls & SMS),,Admin settings to control notification behavior,
+Automated Labeling,,Create custom labels based on events,
+Automated Labeling,,Admin settings to define label triggers,
+Surveys after resolved conversations,,Create surveys where recipients can reply with a score,
+Surveys after resolved conversations,,Send via SMS and Email,
+Surveys after resolved conversations,,Reporting dashboard for responses and trends,
+Handling prospects,,Connect to resident,
+Handling prospects,,Connect to a lead/applicant,
+Handling prospects,,Create new guest card,
+Inbound Calling,Queues & Routing,Configure queues across property numbers,
+Inbound Calling,Queues & Routing,Time-based routing (business hours / after-hours / both),
+Inbound Calling,Queues & Routing,Identify caller as existing lead or resident,
+Inbound Calling,Queues & Routing,"Routing types: round robin or first-available",
+Inbound Calling,Queues & Routing,AI voice routing based on logic,https://entrata.atlassian.net/browse/DEV-266002
+Inbound Calling,VoIP Calling,Answer calls in-app (VoIP),https://entrata.atlassian.net/browse/DEV-265997
+Inbound Calling,VoIP Calling,Screen pop / record lookup on incoming call,https://entrata.atlassian.net/browse/DEV-265999
+Inbound Calling,Call Handling,Transfer calls between users (leasing → property manager),
+Inbound Calling,Call Handling,Call recording,
+Inbound Calling,Call Handling,Transcription + logging in activity log and call tracking,
+Inbound Calling,Supervisor Tools,Supervisor dashboard (monitor queues; calls; agents),https://entrata.atlassian.net/browse/DEV-266003
+Inbound Calling,Supervisor Tools,Supervisor configuration settings,https://entrata.atlassian.net/browse/DEV-266004
