@@ -19,10 +19,11 @@ import { NotificationsProvider } from "@/lib/notifications-context";
 import { FeatureEntitlementsProvider } from "@/lib/feature-entitlements-context";
 import { PermissionsProvider } from "@/lib/permissions-context";
 import { PlaybooksProvider } from "@/lib/playbooks-context";
-import { R1DemoProvider } from "@/lib/r1-demo-context";
+
 import { ClickToCallDemoProvider } from "@/lib/click-to-call-demo-context";
 import { R1ReleaseProvider } from "@/lib/r1-release-context";
-import { ComingSoonProvider } from "@/lib/coming-soon-context";
+import { R1_2ReleaseProvider } from "@/lib/r1-2-release-context";
+
 import { EliEmailsProvider } from "@/lib/eli-emails-context";
 import { EliPlusSetupProvider } from "@/lib/eli-plus-setup-context";
 
@@ -80,11 +81,10 @@ export default function RootLayout({
           src="https://assets.calendly.com/assets/external/widget.js"
           strategy="afterInteractive"
         />
-        <R1DemoProvider>
         <EliPlusSetupProvider>
         <ClickToCallDemoProvider>
         <R1ReleaseProvider>
-        <ComingSoonProvider>
+        <R1_2ReleaseProvider>
         <RoleProvider>
         <PermissionsProvider>
         <FeatureEntitlementsProvider>
@@ -122,11 +122,10 @@ export default function RootLayout({
         </FeatureEntitlementsProvider>
         </PermissionsProvider>
         </RoleProvider>
-        </ComingSoonProvider>
+        </R1_2ReleaseProvider>
         </R1ReleaseProvider>
         </ClickToCallDemoProvider>
         </EliPlusSetupProvider>
-        </R1DemoProvider>
       </body>
     </html>
   );

@@ -106,72 +106,6 @@ const IC_TIPS = [
   },
 ];
 
-const INSIGHTS_DATA: {
-  id: string;
-  icon: React.ComponentType<{ className?: string }>;
-  iconColor: string;
-  title: React.ReactNode;
-  agent: string;
-  time: string;
-  category: string;
-  actions: { label: string; href: string; primary?: boolean }[];
-}[] = [
-  {
-    id: "ins-1",
-    icon: DollarSign,
-    iconColor: "text-emerald-600 dark:text-emerald-400",
-    title: <>3 HUD Special Claims identified — <strong>$14,200 recoverable</strong></>,
-    agent: "HUD Special Claims Agent",
-    time: "2 hours ago",
-    category: "Compliance",
-    actions: [
-      { label: "Review Claims", href: "/escalations", primary: true },
-      { label: "Dismiss", href: "#" },
-      { label: "View Trace", href: "/governance" },
-    ],
-  },
-  {
-    id: "ins-2",
-    icon: ArrowRight,
-    iconColor: "text-amber-600 dark:text-amber-400",
-    title: <>7 month-to-month leases need repricing — <strong>$2,100/mo</strong> revenue opportunity</>,
-    agent: "Rent Optimization Agent",
-    time: "4 hours ago",
-    category: "Renewals",
-    actions: [
-      { label: "Review Pricing", href: "/performance", primary: true },
-      { label: "Send to Renewals AI", href: "/agent-roster?agent=7" },
-      { label: "View Trace", href: "/governance" },
-    ],
-  },
-  {
-    id: "ins-3",
-    icon: AlertCircle,
-    iconColor: "text-red-600 dark:text-red-400",
-    title: <>Vendor spend anomaly: Unit 204 charges <strong>42% above</strong> comparable work orders</>,
-    agent: "Spend Analysis Agent",
-    time: "6 hours ago",
-    category: "Accounting",
-    actions: [
-      { label: "Review Analysis", href: "/escalations", primary: true },
-      { label: "View Trace", href: "/governance" },
-    ],
-  },
-  {
-    id: "ins-4",
-    icon: Clock,
-    iconColor: "text-blue-600 dark:text-blue-400",
-    title: <>2 compliance deadlines approaching: security deposit returns for Units 118, 305</>,
-    agent: "Compliance Monitor Agent",
-    time: "1 hour ago",
-    category: "Compliance",
-    actions: [
-      { label: "Review Deadlines", href: "/escalations", primary: true },
-      { label: "Auto-process Returns", href: "/workflows" },
-    ],
-  },
-];
-
 
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -459,8 +393,6 @@ function AdminCommandCenter() {
     : null;
   const displayList = openItems.slice(0, 10);
 
-  const [insights, setInsights] = useState(INSIGHTS_DATA);
-  const dismissInsight = (id: string) => setInsights((prev) => prev.filter((i) => i.id !== id));
 
   const [convoId, setConvoId] = useState<string | null>(null);
   const convoItem = convoId ? conversations.find((c) => c.id === convoId) ?? null : null;
@@ -1520,91 +1452,6 @@ function AdminCommandCenter() {
           </CardFooter>
         </Card>
 
-        {/* Insights & Recommendations (hidden when R1) */}
-        {!isR1Release && (
-          <Card className="lg:col-span-2">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  {insights.length > 0 && (
-                    <span className="relative flex h-2.5 w-2.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
-                    </span>
-                  )}
-                  AI Insights &amp; Recommendations
-                </CardTitle>
-                {insights.length > 0 && (
-                  <Badge variant="secondary" className="text-[10px]">
-                    {insights.length} pending
-                  </Badge>
-                )}
-              </div>
-              <CardDescription>Intelligence agents have surfaced items that need your attention</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {insights.length > 0 ? (
-                <div className="scrollbar-hide overflow-y-auto" style={{ maxHeight: "340px" }}>
-                  <ul className="flex flex-col gap-2">
-                    {insights.map((insight) => {
-                      const IconComp = insight.icon;
-                      return (
-                        <li key={insight.id} className="rounded-lg border border-border bg-muted/50 p-3 transition-colors hover:border-primary/40 hover:bg-muted dark:bg-muted/50 dark:hover:bg-muted">
-                          <div className="flex gap-3">
-                            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background">
-                              <IconComp className={cn("h-4 w-4", insight.iconColor)} />
-                            </span>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-medium text-foreground">{insight.title}</p>
-                              <p className="mt-0.5 text-xs text-muted-foreground">
-                                {insight.agent}
-                                <span className="mx-1.5" aria-hidden>·</span>
-                                {insight.time}
-                                <span className="mx-1.5" aria-hidden>·</span>
-                                {insight.category}
-                              </p>
-                              <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                                {insight.actions.map((action) =>
-                                  action.label === "Dismiss" ? (
-                                    <Button
-                                      key={action.label}
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-6 px-2 text-[11px] text-muted-foreground"
-                                      onClick={() => dismissInsight(insight.id)}
-                                    >
-                                      Dismiss
-                                    </Button>
-                                  ) : (
-                                    <Button
-                                      key={action.label}
-                                      asChild
-                                      variant={action.primary ? "outline" : "ghost"}
-                                      size="sm"
-                                      className="h-6 px-2 text-[11px]"
-                                    >
-                                      <Link href={action.href}>{action.label}</Link>
-                                    </Button>
-                                  )
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <CheckCircle2 className="mb-3 h-8 w-8 text-green-500" />
-                  <p className="text-sm font-medium text-foreground">All caught up</p>
-                  <p className="mt-1 text-xs text-muted-foreground">No pending insights right now. Intelligence agents will surface new recommendations as they find them.</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
       </div>
 
       <EscalationDetailSheet
