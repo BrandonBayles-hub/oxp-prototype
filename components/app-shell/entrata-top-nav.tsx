@@ -44,8 +44,9 @@ const NAV_ITEMS = [
 
 export function EntrataTopNav() {
   const { role, setRole } = useRole();
-  const { isR1Release, toggleR1Release } = useR1Release();
-  const { isR1_2Release, toggleR1_2Release } = useR1_2Release();
+  const { isR1Release, setR1Release } = useR1Release();
+  const { isR1_2Release, setR1_2Release } = useR1_2Release();
+  const isFullVersion = !isR1Release && !isR1_2Release;
 
   const { getCurrentUser } = useWorkforce();
   const { items: escalations } = useEscalations();
@@ -78,7 +79,7 @@ export function EntrataTopNav() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [demoOpen]);
 
-  const anyDemoActive = isR1Release || isR1_2Release || eliPlusSetupEnabled;
+  const anyDemoActive = isFullVersion || isR1Release || isR1_2Release || eliPlusSetupEnabled;
 
   return (
     <div className="shrink-0 select-none" style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
@@ -190,7 +191,42 @@ export function EntrataTopNav() {
                   <div className="flex flex-col gap-1.5">
                     <button
                       type="button"
-                      onClick={toggleR1Release}
+                      onClick={() => { setR1Release(false); setR1_2Release(false); }}
+                      className="flex items-center gap-2.5 rounded-md px-2.5 py-2 transition-colors"
+                      style={{ background: isFullVersion ? "rgba(99,102,241,0.08)" : "transparent" }}
+                    >
+                      <div
+                        style={{
+                          width: 30,
+                          height: 17,
+                          borderRadius: 9,
+                          background: isFullVersion ? "#6366f1" : "#D4D4D4",
+                          position: "relative",
+                          transition: "background 150ms",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <div style={{
+                          width: 13,
+                          height: 13,
+                          borderRadius: "50%",
+                          background: "#fff",
+                          position: "absolute",
+                          top: 2,
+                          left: isFullVersion ? 15 : 2,
+                          transition: "left 150ms",
+                          boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
+                        }} />
+                      </div>
+                      <div className="text-left">
+                        <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>Full Version</p>
+                        <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>Full OXP Studio prototype</p>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => { setR1Release(true); setR1_2Release(false); }}
                       className="flex items-center gap-2.5 rounded-md px-2.5 py-2 transition-colors"
                       style={{ background: isR1Release ? "rgba(99,102,241,0.08)" : "transparent" }}
                     >
@@ -225,7 +261,7 @@ export function EntrataTopNav() {
 
                     <button
                       type="button"
-                      onClick={toggleR1_2Release}
+                      onClick={() => { setR1_2Release(true); setR1Release(false); }}
                       className="flex items-center gap-2.5 rounded-md px-2.5 py-2 transition-colors"
                       style={{ background: isR1_2Release ? "rgba(99,102,241,0.08)" : "transparent" }}
                     >
