@@ -21,6 +21,7 @@ import { PermissionsProvider } from "@/lib/permissions-context";
 import { PlaybooksProvider } from "@/lib/playbooks-context";
 
 import { ClickToCallDemoProvider } from "@/lib/click-to-call-demo-context";
+import { ConversationsDemoProvider } from "@/lib/conversations-demo-context";
 import { R1ReleaseProvider } from "@/lib/r1-release-context";
 import { R1_2ReleaseProvider } from "@/lib/r1-2-release-context";
 
@@ -97,6 +98,7 @@ export default function RootLayout({
                   <VoiceProvider>
                     <EscalationsProvider>
                     <ConversationsProvider>
+                    <ConversationsDemoProvider>
                     <ToolsProvider>
                     <GovernanceProvider>
                     <FeedbackProvider>
@@ -110,6 +112,7 @@ export default function RootLayout({
                     </FeedbackProvider>
                     </GovernanceProvider>
                     </ToolsProvider>
+                    </ConversationsDemoProvider>
                     </ConversationsProvider>
                     </EscalationsProvider>
                   </VoiceProvider>

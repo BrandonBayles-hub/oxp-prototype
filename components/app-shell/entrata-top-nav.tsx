@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   Users,
@@ -16,6 +17,7 @@ import {
   UserCircle,
   ChevronDown,
   Beaker,
+  MessageCircle,
 } from "lucide-react";
 import { useRole, ROLES, type Role } from "@/lib/role-context";
 
@@ -27,6 +29,7 @@ import { useEscalations } from "@/lib/escalations-context";
 import { useConversations } from "@/lib/conversations-context";
 import { useClickToCallDemo } from "@/lib/click-to-call-demo-context";
 import { useEliPlusSetup } from "@/lib/eli-plus-setup-context";
+import { useConversationsDemo } from "@/lib/conversations-demo-context";
 
 const NAV_ITEMS = [
   { label: "OXP", active: true },
@@ -43,6 +46,8 @@ const NAV_ITEMS = [
 ] as const;
 
 export function EntrataTopNav() {
+  const router = useRouter();
+  const { requestProfileCommsPopup } = useConversationsDemo();
   const { role, setRole } = useRole();
   const { isR1Release, setR1Release } = useR1Release();
   const { isR1_2Release, setR1_2Release } = useR1_2Release();
@@ -368,6 +373,29 @@ export function EntrataTopNav() {
                         <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>ELI Plus Setup</p>
                         <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>
                           ELI Plus setup and configuration in OXP
+                        </p>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        requestProfileCommsPopup();
+                        router.push("/conversations");
+                        setDemoOpen(false);
+                      }}
+                      className="flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-gray-50"
+                    >
+                      <MessageCircle
+                        className="mt-0.5 shrink-0 text-indigo-500"
+                        style={{ width: 16, height: 16, strokeWidth: 2 }}
+                      />
+                      <div>
+                        <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>
+                          Profile Comms Pop Up
+                        </p>
+                        <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>
+                          Open Communications resident profile without the conversation panel
                         </p>
                       </div>
                     </button>

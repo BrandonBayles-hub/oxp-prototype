@@ -92,7 +92,6 @@ export function ClickToCallFloatingPanel({
   const [callOutcome, setCallOutcome] = useState<"connected" | "failed" | "cancelled" | null>(null);
   const [durationAtHangup, setDurationAtHangup] = useState<number | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
   const [isAnimatingOut, setIsAnimatingOut] = useState(false);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -134,7 +133,6 @@ export function ClickToCallFloatingPanel({
     setCallOutcome(null);
     setDurationAtHangup(null);
     setSaveSuccess(false);
-    setSaveError(null);
     setIsAnimatingOut(false);
     clearTimers();
     clearDismissSchedule();
@@ -230,11 +228,6 @@ export function ClickToCallFloatingPanel({
   const handleSaveAndClose = () => {
     if (!session || !callLegEnded) return;
     const notesTrim = callNotes.trim();
-    if (!notesTrim) {
-      setSaveError("Add call notes before saving — they are stored on the activity log entry.");
-      return;
-    }
-    setSaveError(null);
     const outcome = callOutcome ?? "cancelled";
     const durationLabel =
       outcome === "connected"
@@ -272,8 +265,7 @@ export function ClickToCallFloatingPanel({
           ? "Call ended"
           : `On call · ${formatDuration(durationSec)}`;
 
-  const notesOk = callNotes.trim().length > 0;
-  const canSaveOrClose = callLegEnded && notesOk && !saveSuccess;
+  const canSaveOrClose = callLegEnded && !saveSuccess;
 
   return (
     <div
@@ -453,40 +445,19 @@ export function ClickToCallFloatingPanel({
               <p className="text-sm font-semibold text-foreground">Call Notes</p>
               <textarea
                 value={callNotes}
-                onChange={(e) => {
-                  setCallNotes(e.target.value);
-                  if (saveError) setSaveError(null);
-                }}
-                placeholder="Add a note…"
+                onChange={(e) => setCallNotes(e.target.value)}
+                placeholder="Add a note (optional)…"
                 rows={4}
-                aria-invalid={Boolean(saveError)}
                 className={cn(
                   "mt-2 w-full resize-y rounded-md border bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                  saveError && "border-destructive",
                   saveSuccess &&
                     "border-emerald-300 ring-2 ring-emerald-500/30 dark:border-emerald-700 dark:ring-emerald-500/25",
-                  !saveError && !saveSuccess && "border-input"
+                  !saveSuccess && "border-input"
                 )}
               />
-              {saveError ? (
-                <p className="mt-1.5 text-xs text-destructive" role="alert">
-                  {saveError}
-                </p>
-              ) : saveSuccess ? (
-                <div
-                  className="mt-2 animate-in fade-in zoom-in-95 slide-in-from-bottom-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-emerald-950 shadow-md duration-300 dark:border-emerald-800/60 dark:bg-emerald-950/60 dark:text-emerald-50"
-                  role="status"
-                  aria-live="polite"
-                >
-                  <p className="text-sm font-semibold leading-snug">On the activity log now</p>
-                  <p className="mt-1 text-xs leading-relaxed text-emerald-900/90 dark:text-emerald-100/90">
-                    The notes you entered (and your follow-up choices) were saved to this
-                    conversation&apos;s timeline—check the thread to see them with other activity.
-                  </p>
-                </div>
-              ) : (
+              {!saveSuccess && (
                 <p className="mt-1.5 text-[11px] text-muted-foreground">
-                  Notes are required and appear on the conversation activity log when you save.
+                  Optional. Notes you add appear on the conversation activity log when you save.
                 </p>
               )}
             </div>
@@ -494,11 +465,6 @@ export function ClickToCallFloatingPanel({
             {!callLegEnded && (
               <p className="text-[10px] leading-snug text-amber-800/90">
                 Hang up, cancel while connecting, or end a failed session before you can save and close.
-              </p>
-            )}
-            {callLegEnded && !notesOk && !saveSuccess && (
-              <p className="text-[10px] leading-snug text-muted-foreground">
-                Enter call notes above to enable Save &amp; close.
               </p>
             )}
           </div>
@@ -513,7 +479,7 @@ export function ClickToCallFloatingPanel({
                 <div>
                   <p className="font-medium">Saved to activity log</p>
                   <p className="mt-0.5 text-xs leading-snug opacity-90">
-                    See the note above for where to find it in the thread. Closing…
+                    Check the thread for the activity entry. Closing…
                   </p>
                 </div>
               </div>
