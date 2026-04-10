@@ -33,6 +33,7 @@ import { useTools } from "@/lib/tools-context";
 import { useGovernance } from "@/lib/governance-context";
 import { useAgentCompliance } from "@/lib/use-agent-compliance";
 import { useR1Release } from "@/lib/r1-release-context";
+import { useR1_2Release } from "@/lib/r1-2-release-context";
 import { Tag, X, Search, DollarSign, Megaphone, Users, Wrench, ShieldCheck, Power, Activity, AlertCircle, Play, Clock, CheckCircle, CheckCircle2, XCircle, Calendar, Lightbulb, Target, Database, BarChart3, Pencil, Save, ArrowLeft, ArrowRight, Sparkles, BookOpen, Cog, Bot, Box, MessageSquare, Shield, Zap, Eye, EyeOff, Globe, Mail, Phone, Volume2, History, RotateCcw, Lock, ExternalLink, CirclePlay, TrendingUp, TrendingDown, Minus, ArrowUpDown } from "lucide-react";
 import { Chat, type ChatMessage, type ChatSource, type ChatToolCall } from "@/components/ui/chat";
 
@@ -219,6 +220,8 @@ function AgentRosterContent() {
   };
   const [bucketFilter, setBucketFilter] = useState("All");
   const { isR1Release } = useR1Release();
+  const { isR1_2Release } = useR1_2Release();
+  const isFullVersion = !isR1Release && !isR1_2Release;
   const [statusFilter, setStatusFilter] = useState("All");
   const [typeFilter, setTypeFilter] = useState<AgentType | "All">("All");
   const [sortBy, setSortBy] = useState<"level" | "most_used" | "trending">("level");
@@ -233,6 +236,63 @@ function AgentRosterContent() {
   const [autoAgentId, setAutoAgentId] = useState<string | null>(null);
   const [expandedBucket, setExpandedBucket] = useState<string | null>(null);
   const [videoAgentName, setVideoAgentName] = useState<string | null>(null);
+  const [cardSortBy, setCardSortBy] = useState<"recently_added" | "name" | "level">("recently_added");
+  const [selectedBuckets, setSelectedBuckets] = useState<Set<string>>(new Set());
+  const [selectedLevels, setSelectedLevels] = useState<Set<string>>(new Set());
+  const [selectedStatuses, setSelectedStatuses] = useState<Set<string>>(new Set());
+
+  const toggleSetItem = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, value: string) => {
+    setter((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+  };
+
+  const cardFiltered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return agents.filter((a) => {
+      if (selectedBuckets.size > 0 && !selectedBuckets.has(a.bucket)) return false;
+      if (selectedStatuses.size > 0 && !selectedStatuses.has(a.status)) return false;
+      if (selectedLevels.size > 0) {
+        const agentLevel = AGENT_TYPES.find((t) => t.value === a.type);
+        if (agentLevel && !selectedLevels.has(agentLevel.label)) return false;
+      }
+      if (q) {
+        const haystack = [a.name, a.description, a.bucket, ...(a.labels ?? [])].join(" ").toLowerCase();
+        if (!q.split(/\s+/).every((word) => haystack.includes(word))) return false;
+      }
+      return true;
+    });
+  }, [agents, selectedBuckets, selectedStatuses, selectedLevels, search]);
+
+  const cardSorted = useMemo(() => {
+    const arr = [...cardFiltered];
+    if (cardSortBy === "name") arr.sort((a, b) => a.name.localeCompare(b.name));
+    else if (cardSortBy === "level") arr.sort((a, b) => (TYPE_LEVEL[b.type] ?? 0) - (TYPE_LEVEL[a.type] ?? 0));
+    return arr;
+  }, [cardFiltered, cardSortBy]);
+
+  const activeFilterPills = useMemo(() => {
+    const pills: { label: string; group: string; value: string }[] = [];
+    selectedBuckets.forEach((b) => pills.push({ label: b, group: "bucket", value: b }));
+    selectedLevels.forEach((l) => pills.push({ label: l, group: "level", value: l }));
+    selectedStatuses.forEach((s) => pills.push({ label: s, group: "status", value: s }));
+    return pills;
+  }, [selectedBuckets, selectedLevels, selectedStatuses]);
+
+  const removeFilterPill = (group: string, value: string) => {
+    if (group === "bucket") toggleSetItem(setSelectedBuckets, value);
+    else if (group === "level") toggleSetItem(setSelectedLevels, value);
+    else if (group === "status") toggleSetItem(setSelectedStatuses, value);
+  };
+
+  const clearAllFilters = () => {
+    setSelectedBuckets(new Set());
+    setSelectedLevels(new Set());
+    setSelectedStatuses(new Set());
+  };
 
   const selectedId = opsAgentId ?? intelAgentId ?? autoAgentId;
 
@@ -285,196 +345,400 @@ function AgentRosterContent() {
     <>
       <PageHeader
         title="Agent Roster"
-        description="Create, find, and manage AI agents. View config and performance per agent."
+        description="Enable, find, and manage AI agents. View config and performance per agent."
       />
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search agents…"
-              className="select-base pl-8 w-52"
-            />
-            {search && (
-              <button
-                type="button"
-                onClick={() => setSearch("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
+      {isFullVersion ? (
+        /* ═══════════════ CARD VIEW (Full Version) ═══════════════ */
+        <div className="flex gap-6">
+          {/* Left sidebar filters */}
+          <aside className="hidden w-56 shrink-0 lg:block">
+            <div className="sticky top-0 space-y-6">
+              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <Tag className="h-4 w-4" />
+                Filters
+              </div>
+
+              {/* Subcategory */}
+              <div>
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Subcategory</p>
+                <div className="space-y-1.5">
+                  {BUCKETS.map((b) => (
+                    <label key={b} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-sm text-foreground transition-colors hover:bg-muted/50">
+                      <input
+                        type="checkbox"
+                        checked={selectedBuckets.has(b)}
+                        onChange={() => toggleSetItem(setSelectedBuckets, b)}
+                        className="h-3.5 w-3.5 rounded border-border accent-[#6366f1]"
+                      />
+                      <span className="truncate text-[13px]">{b}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Level */}
+              <div>
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Level</p>
+                <div className="space-y-1.5">
+                  {AGENT_TYPES.filter((t) => t.value !== "fully_autonomous").map((t) => (
+                    <label key={t.value} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-sm text-foreground transition-colors hover:bg-muted/50">
+                      <input
+                        type="checkbox"
+                        checked={selectedLevels.has(t.label)}
+                        onChange={() => toggleSetItem(setSelectedLevels, t.label)}
+                        className="h-3.5 w-3.5 rounded border-border accent-[#6366f1]"
+                      />
+                      <span className="truncate text-[13px]">{t.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Status */}
+              <div>
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Status</p>
+                <div className="space-y-1.5">
+                  {["Active", "Off"].map((s) => (
+                    <label key={s} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-sm text-foreground transition-colors hover:bg-muted/50">
+                      <input
+                        type="checkbox"
+                        checked={selectedStatuses.has(s)}
+                        onChange={() => toggleSetItem(setSelectedStatuses, s)}
+                        className="h-3.5 w-3.5 rounded border-border accent-[#6366f1]"
+                      />
+                      <span className="text-[13px]">{s}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </aside>
+
+          {/* Main content */}
+          <div className="min-w-0 flex-1">
+            {/* Top bar: search + count + sort */}
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search agents…"
+                  className="select-base pl-8 w-64"
+                />
+                {search && (
+                  <button type="button" onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-muted-foreground">{cardSorted.length} agents</span>
+                <select
+                  value={cardSortBy}
+                  onChange={(e) => setCardSortBy(e.target.value as "recently_added" | "name" | "level")}
+                  className="select-base w-auto min-w-[10rem]"
+                >
+                  <option value="recently_added">Recently Added</option>
+                  <option value="name">Name</option>
+                  <option value="level">Agent Level</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Active filter pills */}
+            {activeFilterPills.length > 0 && (
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                {activeFilterPills.map((pill) => (
+                  <button
+                    key={`${pill.group}-${pill.value}`}
+                    type="button"
+                    onClick={() => removeFilterPill(pill.group, pill.value)}
+                    className="flex items-center gap-1.5 rounded-full border border-border bg-white px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                  >
+                    {pill.label}
+                    <X className="h-3 w-3 text-muted-foreground" />
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={clearAllFilters}
+                  className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Clear all
+                </button>
+              </div>
+            )}
+
+            {/* Card grid */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {cardSorted.map((agent) => {
+                const isOffEliPlus = agent.type === "autonomous" && agent.status === "Off";
+                const typeInfo = AGENT_TYPES.find((t) => t.value === agent.type);
+                const levelLabel = typeInfo?.label ?? "L1 · ELI Essentials";
+                const levelShort = levelLabel.split("·")[0].trim();
+                const levelName = levelLabel.split("·")[1]?.trim() ?? "";
+
+                return (
+                  <button
+                    key={agent.id}
+                    type="button"
+                    onClick={() => {
+                      if (isOffEliPlus) { setEliPlusActivateAgent(agent.name); return; }
+                      if (agent.type === "operations" || agent.type === "efficiency" || agent.type === "intelligence") setOpsAgentId(agent.id);
+                      else setAutoAgentId(agent.id);
+                    }}
+                    className={`group relative flex flex-col rounded-xl border bg-white p-4 text-left transition-all hover:shadow-md ${
+                      selectedId === agent.id
+                        ? "border-[#6366f1]/40 shadow-md ring-1 ring-[#6366f1]/20"
+                        : "border-border hover:border-border/80"
+                    }`}
+                  >
+                    {/* Header: icon + name + video button */}
+                    <div className="mb-3 flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/50">
+                        <img src={AGENT_TYPE_ICON[agent.type] ?? "/icon-l1-essentials.svg"} alt="" width={22} height={22} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[13px] font-semibold leading-tight text-foreground truncate">
+                          {agent.type === "autonomous" ? `ELI+ ${agent.name}` : agent.name}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-muted-foreground">Entrata</p>
+                      </div>
+                      {agent.type === "intelligence" && (
+                        <button
+                          type="button"
+                          title="Watch agent walkthrough"
+                          className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                          onClick={(e) => { e.stopPropagation(); setVideoAgentName(agent.name); }}
+                        >
+                          <CirclePlay className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Description */}
+                    <p className="mb-4 line-clamp-2 text-[12px] leading-relaxed text-muted-foreground">
+                      {agent.description}
+                    </p>
+
+                    {/* Footer: level + status */}
+                    <div className="mt-auto flex items-center justify-between gap-2">
+                      <span className="rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                        {levelShort}{levelName ? ` · ${levelName}` : ""}
+                      </span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                          agent.status === "Active"
+                            ? "bg-[#B3FFCC] text-black"
+                            : "bg-amber-400 text-amber-950"
+                        }`}
+                      >
+                        {agent.status}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {cardSorted.length === 0 && (
+              <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border py-16 text-center">
+                <Search className="mb-3 h-8 w-8 text-muted-foreground/50" />
+                <p className="text-sm font-medium text-foreground">No agents found</p>
+                <p className="mt-1 text-xs text-muted-foreground">Try adjusting your filters or search query.</p>
+              </div>
             )}
           </div>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as "level" | "most_used" | "trending")}
-            className="select-base w-auto min-w-[11rem]"
-          >
-            <option value="level">View by: Agent Level</option>
-            <option value="most_used">View by: Most Used</option>
-            <option value="trending">View by: Trending</option>
-          </select>
-          <select
-            value={bucketFilter}
-            onChange={(e) => setBucketFilter(e.target.value)}
-            className="select-base w-auto min-w-[11rem]"
-          >
-            <option value="All">All buckets</option>
-            {BUCKETS.map((b) => (
-              <option key={b} value={b}>{b}</option>
-            ))}
-          </select>
-          <select
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value as AgentType | "All")}
-            className="select-base w-auto min-w-[10rem]"
-          >
-            <option value="All">All types</option>
-            {AGENT_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}{t.value === "fully_autonomous" ? " (Coming Soon)" : ""}
-              </option>
-            ))}
-          </select>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="select-base w-auto min-w-[10rem]"
-          >
-            <option value="All">All statuses</option>
-            <option value="Active">Active</option>
-            <option value="Off">Off</option>
-          </select>
         </div>
-        {false && !isR1Release && (
-          <Button onClick={() => setShowComingSoon(true)}>
-            <img src="/eli-cube.svg" alt="" width={16} height={16} className="mr-1" /> Create Agent
-          </Button>
-        )}
-      </div>
-
-      <div>
-        {typeFilter === "fully_autonomous" && (
-          <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-purple-300 bg-purple-50/50 py-16 text-center dark:border-purple-800/40 dark:bg-purple-950/10">
-            <img src="/eli-cube.svg" alt="" width={48} height={48} className="mb-4" />
-            <h3 className="text-lg font-semibold text-foreground">L5 · Autonomous Agents</h3>
-            <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-              Fully autonomous agents that independently manage end-to-end workflows, make decisions, and take action across your portfolio with minimal human oversight.
-            </p>
-            <Badge variant="outline" className="mt-4 border-purple-300 bg-purple-100 text-purple-800 dark:border-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
-              Coming Soon
-            </Badge>
+      ) : (
+        /* ═══════════════ LIST VIEW (R1 / R1.2) ═══════════════ */
+        <>
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search agents…"
+                  className="select-base pl-8 w-52"
+                />
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as "level" | "most_used" | "trending")}
+                className="select-base w-auto min-w-[11rem]"
+              >
+                <option value="level">View by: Agent Level</option>
+                <option value="most_used">View by: Most Used</option>
+                <option value="trending">View by: Trending</option>
+              </select>
+              <select
+                value={bucketFilter}
+                onChange={(e) => setBucketFilter(e.target.value)}
+                className="select-base w-auto min-w-[11rem]"
+              >
+                <option value="All">All buckets</option>
+                {BUCKETS.map((b) => (
+                  <option key={b} value={b}>{b}</option>
+                ))}
+              </select>
+              <select
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value as AgentType | "All")}
+                className="select-base w-auto min-w-[10rem]"
+              >
+                <option value="All">All types</option>
+                {AGENT_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}{t.value === "fully_autonomous" ? " (Coming Soon)" : ""}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="select-base w-auto min-w-[10rem]"
+              >
+                <option value="All">All statuses</option>
+                <option value="Active">Active</option>
+                <option value="Off">Off</option>
+              </select>
+            </div>
           </div>
-        )}
-        <div className={`space-y-8 ${typeFilter === "fully_autonomous" ? "hidden" : ""}`}>
-          {BUCKETS.map((bucket) => {
-            const items = byBucket[bucket] ?? [];
 
-            return (
-              <section key={bucket} className="rounded-lg border border-[hsl(var(--border))]/50 bg-white">
-                <div className="px-4 py-4">
-                  <h2 className="section-title mb-0 flex items-center gap-3 text-base">
-                    {(() => { const Icon = BUCKET_ICONS[bucket]; return Icon ? <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted"><Icon className="h-4.5 w-4.5 text-foreground" /></span> : null; })()}
-                    {bucket} <span className="font-normal text-[hsl(var(--muted-foreground))]">({items.length})</span>
-                  </h2>
-                </div>
-                <ul>
-                  {items.length === 0 ? (
-                    <li className="px-4 py-4 text-[length:var(--text-body)] text-[hsl(var(--muted-foreground))]">
-                      No agents in this bucket.
-                    </li>
-                  ) : (
-                    items.map((agent, idx) => {
-                      const isOffEliPlus = agent.type === "autonomous" && agent.status === "Off";
-                      return (
-                        <li
-                          key={agent.id}
-                          className={`flex items-center justify-between gap-4 px-4 py-3 ${
-                            idx < items.length - 1 ? "border-b border-[hsl(var(--border))]/50 mx-4 px-0" : "mx-4 px-0"
-                          } ${
-                            isOffEliPlus
-                              ? "cursor-default"
-                              : selectedId === agent.id ? "bg-[hsl(var(--muted))]/50 cursor-pointer" : "hover:bg-[hsl(var(--muted))]/30 cursor-pointer"
-                          }`}
-                          onClick={() => {
-                            if (isOffEliPlus) return;
-                            if (agent.type === "operations" || agent.type === "efficiency" || agent.type === "intelligence") setOpsAgentId(agent.id);
-                            else setAutoAgentId(agent.id);
-                          }}
-                        >
-                          <div className="flex min-w-0 items-center gap-3">
-                            <img src={AGENT_TYPE_ICON[agent.type] ?? "/icon-l1-essentials.svg"} alt="" width={20} height={20} className="shrink-0" />
-                            <div className="min-w-0">
-                              <p className="text-[length:var(--text-body)] font-medium text-[hsl(var(--foreground))] truncate">{agent.type === "autonomous" ? `ELI+ ${agent.name}` : agent.name}</p>
-                              <p className="text-[length:var(--text-caption)] text-[hsl(var(--muted-foreground))] truncate">{agent.description}</p>
-                            </div>
-                          </div>
-                          <div className="flex shrink-0 items-center gap-3">
-                            {!isR1Release && !isOffEliPlus && complianceWarnings[agent.id] && (
-                              <span
-                                className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-red-500 text-white dark:bg-red-900/30 dark:text-red-300"
-                                title={complianceWarnings[agent.id].map((w) => w.message).join("; ")}
-                              >
-                                <AlertCircle className="h-3 w-3" />
-                                {complianceWarnings[agent.id].length}
-                              </span>
-                            )}
-                            {isOffEliPlus ? (
-                              <Button
-                                size="sm"
-                                className="shrink-0 gap-1.5 bg-primary text-primary-foreground shadow-md opacity-100 hover:bg-primary/90"
-                                onClick={(e) => { e.stopPropagation(); setEliPlusActivateAgent(agent.name); }}
-                              >
-                                <Lock className="h-3 w-3" />
-                                Unlock ELI+ Agents
-                              </Button>
-                            ) : (
-                              <>
-                                {agent.type === "intelligence" && (
-                                  <button
-                                    type="button"
-                                    title="Watch agent walkthrough"
-                                    className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                                    onClick={(e) => { e.stopPropagation(); setVideoAgentName(agent.name); }}
-                                  >
-                                    <CirclePlay className="h-4 w-4" />
-                                  </button>
-                                )}
-                                
-                                <span className="text-[length:var(--text-caption)] text-[hsl(var(--muted-foreground))]">
-                                  {(() => {
-                                    const label = AGENT_TYPES.find((t) => t.value === agent.type)?.label ?? "L1 · ELI Essentials";
-                                    const dotIdx = label.indexOf("·");
-                                    if (dotIdx === -1) return label;
-                                    return <><span className="font-medium text-foreground">{label.slice(0, dotIdx).trim()}</span>{" · "}{label.slice(dotIdx + 1).trim()}</>;
-                                  })()}
-                                </span>
-                                <span
-                                  className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                                    agent.status === "Active"
-                                      ? "bg-[#B3FFCC] text-black"
-                                      : "bg-amber-400 text-amber-950"
-                                  }`}
-                                >
-                                  {agent.status}
-                                </span>
-                              </>
-                            )}
-                          </div>
+          <div>
+            {typeFilter === "fully_autonomous" && (
+              <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-purple-300 bg-purple-50/50 py-16 text-center dark:border-purple-800/40 dark:bg-purple-950/10">
+                <img src="/eli-cube.svg" alt="" width={48} height={48} className="mb-4" />
+                <h3 className="text-lg font-semibold text-foreground">L5 · Autonomous Agents</h3>
+                <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+                  Fully autonomous agents that independently manage end-to-end workflows, make decisions, and take action across your portfolio with minimal human oversight.
+                </p>
+                <Badge variant="outline" className="mt-4 border-purple-300 bg-purple-100 text-purple-800 dark:border-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
+                  Coming Soon
+                </Badge>
+              </div>
+            )}
+            <div className={`space-y-8 ${typeFilter === "fully_autonomous" ? "hidden" : ""}`}>
+              {BUCKETS.map((bucket) => {
+                const items = byBucket[bucket] ?? [];
+
+                return (
+                  <section key={bucket} className="rounded-lg border border-[hsl(var(--border))]/50 bg-white">
+                    <div className="px-4 py-4">
+                      <h2 className="section-title mb-0 flex items-center gap-3 text-base">
+                        {(() => { const Icon = BUCKET_ICONS[bucket]; return Icon ? <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted"><Icon className="h-4.5 w-4.5 text-foreground" /></span> : null; })()}
+                        {bucket} <span className="font-normal text-[hsl(var(--muted-foreground))]">({items.length})</span>
+                      </h2>
+                    </div>
+                    <ul>
+                      {items.length === 0 ? (
+                        <li className="px-4 py-4 text-[length:var(--text-body)] text-[hsl(var(--muted-foreground))]">
+                          No agents in this bucket.
                         </li>
-                      );
-                    })
-                  )}
-                </ul>
-              </section>
-            );
-          })}
-        </div>
-
-      </div>
+                      ) : (
+                        items.map((agent, idx) => {
+                          const isOffEliPlus = agent.type === "autonomous" && agent.status === "Off";
+                          return (
+                            <li
+                              key={agent.id}
+                              className={`flex items-center justify-between gap-4 px-4 py-3 ${
+                                idx < items.length - 1 ? "border-b border-[hsl(var(--border))]/50 mx-4 px-0" : "mx-4 px-0"
+                              } ${
+                                isOffEliPlus
+                                  ? "cursor-default"
+                                  : selectedId === agent.id ? "bg-[hsl(var(--muted))]/50 cursor-pointer" : "hover:bg-[hsl(var(--muted))]/30 cursor-pointer"
+                              }`}
+                              onClick={() => {
+                                if (isOffEliPlus) return;
+                                if (agent.type === "operations" || agent.type === "efficiency" || agent.type === "intelligence") setOpsAgentId(agent.id);
+                                else setAutoAgentId(agent.id);
+                              }}
+                            >
+                              <div className="flex min-w-0 items-center gap-3">
+                                <img src={AGENT_TYPE_ICON[agent.type] ?? "/icon-l1-essentials.svg"} alt="" width={20} height={20} className="shrink-0" />
+                                <div className="min-w-0">
+                                  <p className="text-[length:var(--text-body)] font-medium text-[hsl(var(--foreground))] truncate">{agent.type === "autonomous" ? `ELI+ ${agent.name}` : agent.name}</p>
+                                  <p className="text-[length:var(--text-caption)] text-[hsl(var(--muted-foreground))] truncate">{agent.description}</p>
+                                </div>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-3">
+                                {!isR1Release && !isOffEliPlus && complianceWarnings[agent.id] && (
+                                  <span
+                                    className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-red-500 text-white dark:bg-red-900/30 dark:text-red-300"
+                                    title={complianceWarnings[agent.id].map((w) => w.message).join("; ")}
+                                  >
+                                    <AlertCircle className="h-3 w-3" />
+                                    {complianceWarnings[agent.id].length}
+                                  </span>
+                                )}
+                                {isOffEliPlus ? (
+                                  <Button
+                                    size="sm"
+                                    className="shrink-0 gap-1.5 bg-primary text-primary-foreground shadow-md opacity-100 hover:bg-primary/90"
+                                    onClick={(e) => { e.stopPropagation(); setEliPlusActivateAgent(agent.name); }}
+                                  >
+                                    <Lock className="h-3 w-3" />
+                                    Unlock ELI+ Agents
+                                  </Button>
+                                ) : (
+                                  <>
+                                    {agent.type === "intelligence" && (
+                                      <button
+                                        type="button"
+                                        title="Watch agent walkthrough"
+                                        className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                                        onClick={(e) => { e.stopPropagation(); setVideoAgentName(agent.name); }}
+                                      >
+                                        <CirclePlay className="h-4 w-4" />
+                                      </button>
+                                    )}
+                                    
+                                    <span className="text-[length:var(--text-caption)] text-[hsl(var(--muted-foreground))]">
+                                      {(() => {
+                                        const label = AGENT_TYPES.find((t) => t.value === agent.type)?.label ?? "L1 · ELI Essentials";
+                                        const dotIdx = label.indexOf("·");
+                                        if (dotIdx === -1) return label;
+                                        return <><span className="font-medium text-foreground">{label.slice(0, dotIdx).trim()}</span>{" · "}{label.slice(dotIdx + 1).trim()}</>;
+                                      })()}
+                                    </span>
+                                    <span
+                                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                                        agent.status === "Active"
+                                          ? "bg-[#B3FFCC] text-black"
+                                          : "bg-amber-400 text-amber-950"
+                                      }`}
+                                    >
+                                      {agent.status}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            </li>
+                          );
+                        })
+                      )}
+                    </ul>
+                  </section>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
 
       {opsAgentId && (() => {
         const opsAgent = agents.find((a) => a.id === opsAgentId);
@@ -1169,10 +1433,17 @@ function OperationsAgentSheet({
   });
   const [showTurnOnAllConfirm, setShowTurnOnAllConfirm] = useState(false);
   const allActive = Object.values(propertyStatuses).every((s) => s === "Active");
+  const [savedProperty, setSavedProperty] = useState<string | null>(null);
+
+  const handlePropertyStatusChange = (propName: string, value: string) => {
+    setPropertyStatuses((prev) => ({ ...prev, [propName]: value }));
+    setSavedProperty(propName);
+    setTimeout(() => setSavedProperty((cur) => cur === propName ? null : cur), 1500);
+  };
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
+      <SheetContent className="w-full overflow-y-auto sm:max-w-4xl">
         <SheetHeader>
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
@@ -1215,7 +1486,7 @@ function OperationsAgentSheet({
             className="flex w-full items-center justify-between rounded-lg border border-border bg-muted/30 px-4 py-3 text-left transition-colors hover:bg-muted/50"
           >
             <span className="text-sm font-medium text-foreground">
-              {agent.type === "operations" ? "Open ELI Essentials Settings in Entrata" : "Open Agent Settings in Entrata"}
+              {agent.type === "operations" ? "Navigate to ELI Essentials in Entrata" : "Navigate to AI Agent in Entrata"}
             </span>
             <ExternalLink className="h-4 w-4 text-muted-foreground" />
           </button>
@@ -1265,75 +1536,93 @@ function OperationsAgentSheet({
                 </div>
               )}
             </>
-          ) : (
-            <div className="rounded-lg border border-border bg-muted/20 p-4 text-center">
-              <p className="text-sm text-muted-foreground">
-                {isActive ? "No runs yet. This agent will execute on its next scheduled trigger." : "Turn this agent on to start running."}
-              </p>
-            </div>
-          )}
+          ) : null}
 
-          {/* Properties Table */}
-          <div>
-            <select className="select-base mb-4 w-auto min-w-[10rem]">
-              <option>All Properties</option>
-            </select>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-left">
-                  <th className="pb-2 font-medium text-muted-foreground">Property</th>
-                  <th className="pb-2 font-medium text-muted-foreground">Status</th>
-                  <th className="pb-2 font-medium text-muted-foreground">Vertical</th>
-                  <th className="pb-2 font-medium text-muted-foreground text-right">Runs</th>
-                  <th className="pb-2 font-medium text-muted-foreground text-right">Errors</th>
-                  <th className="pb-2 font-medium text-muted-foreground">Avg Duration</th>
-                  <th className="pb-2 font-medium text-muted-foreground text-center">Last Run</th>
-                </tr>
-              </thead>
-              <tbody>
-                {L2_PROPERTY_DATA.map((prop) => (
-                  <tr key={prop.name} className="border-b border-border/50">
-                    <td className="py-3 font-medium text-foreground">{prop.name}</td>
-                    <td className="py-3">
-                      <select
-                        className="select-base h-8 w-[5.5rem] text-xs"
-                        value={propertyStatuses[prop.name]}
-                        onChange={(e) => setPropertyStatuses((prev) => ({ ...prev, [prop.name]: e.target.value }))}
-                      >
-                        <option value="Active">Active</option>
-                        <option value="Off">Off</option>
-                      </select>
-                    </td>
-                    <td className="py-3 text-muted-foreground">{prop.vertical}</td>
-                    <td className="py-3 text-right font-medium text-foreground">{prop.runs}</td>
-                    <td className="py-3 text-right">
-                      <span className={prop.errors > 0 ? "font-medium text-red-600" : "text-foreground"}>{prop.errors}</span>
-                    </td>
-                    <td className="py-3 text-muted-foreground">{prop.avgDuration}</td>
-                    <td className="py-3 text-center">
-                      {prop.lastRun === "success" ? (
-                        <CheckCircle className="mx-auto h-4 w-4 text-emerald-600" />
-                      ) : (
-                        <XCircle className="mx-auto h-4 w-4 text-red-600" />
-                      )}
-                    </td>
+          {/* Property Configuration */}
+          <div className="rounded-xl border border-border bg-white">
+            <div className="border-b border-border px-5 py-4">
+              <h3 className="text-sm font-semibold text-foreground">Property Configuration</h3>
+              <p className="mt-0.5 text-xs text-muted-foreground">Enable or disable this agent for individual properties. Changes are saved automatically.</p>
+            </div>
+            <div className="px-5 pt-3 pb-1">
+              <select className="select-base mb-3 w-auto min-w-[10rem]">
+                <option>All Properties</option>
+              </select>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left">
+                    <th className="pb-2 font-medium text-muted-foreground">Property</th>
+                    <th className="pb-2 font-medium text-muted-foreground">Status</th>
+                    <th className="pb-2 font-medium text-muted-foreground">Vertical</th>
+                    <th className="pb-2 font-medium text-muted-foreground text-right">Runs</th>
+                    <th className="pb-2 font-medium text-muted-foreground text-right">Errors</th>
+                    <th className="pb-2 font-medium text-muted-foreground">Avg Duration</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {L2_PROPERTY_DATA.map((prop) => {
+                    const propStatus = propertyStatuses[prop.name];
+                    const justSaved = savedProperty === prop.name;
+                    return (
+                      <tr key={prop.name} className="border-b border-border/50">
+                        <td className="py-3">
+                          <div className="flex items-center gap-2">
+                            <span className={`h-2 w-2 shrink-0 rounded-full ${propStatus === "Active" ? "bg-emerald-500" : "bg-muted-foreground/30"}`} />
+                            <span className="font-medium text-foreground">{prop.name}</span>
+                          </div>
+                        </td>
+                        <td className="py-3">
+                          <div className="flex items-center gap-2">
+                            <select
+                              className="select-base h-8 w-[5.5rem] text-xs"
+                              value={propStatus}
+                              onChange={(e) => handlePropertyStatusChange(prop.name, e.target.value)}
+                            >
+                              <option value="Active">Active</option>
+                              <option value="Off">Off</option>
+                            </select>
+                            <span
+                              className={`text-[11px] font-medium text-emerald-600 transition-opacity duration-300 ${justSaved ? "opacity-100" : "opacity-0"}`}
+                            >
+                              Saved
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-3 text-muted-foreground">{prop.vertical}</td>
+                        <td className="py-3 text-right font-medium text-foreground">{prop.runs}</td>
+                        <td className="py-3 text-right">
+                          <span className={prop.errors > 0 ? "font-medium text-red-600" : "text-foreground"}>{prop.errors}</span>
+                        </td>
+                        <td className="py-3 text-muted-foreground">{prop.avgDuration}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
 
-          {/* Turn on/off all properties */}
-          <div className="flex items-center justify-between border-t border-border pt-4">
-            <span className="text-sm text-muted-foreground">Agent status (all properties)</span>
-            <Button
-              variant={allActive ? "destructive" : "default"}
-              size="sm"
-              onClick={() => setShowTurnOnAllConfirm(true)}
-            >
-              <Power className="h-4 w-4" />
-              {allActive ? "Turn off" : "Turn on"}
-            </Button>
+          {/* Bulk Action */}
+          <div className="rounded-xl border border-border bg-muted/30 p-5">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">All Properties</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {allActive
+                    ? "This agent is currently active on all properties. Turn off to disable across your entire portfolio."
+                    : "Enable this agent across all properties at once."}
+                </p>
+              </div>
+              <Button
+                variant={allActive ? "destructive" : "default"}
+                size="sm"
+                className="shrink-0 gap-1.5"
+                onClick={() => setShowTurnOnAllConfirm(true)}
+              >
+                <Power className="h-3.5 w-3.5" />
+                {allActive ? "Turn off all" : "Turn on all"}
+              </Button>
+            </div>
           </div>
 
           </>}
