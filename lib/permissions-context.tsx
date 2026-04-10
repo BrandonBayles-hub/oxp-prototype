@@ -136,10 +136,13 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: "p-gov-edit", capability: "Edit Compliance Rules", description: "Create and modify compliance and safety rules", section: "Governance" },
   { id: "p-gov-audit", capability: "Manage Audit Logs", description: "View and export audit trail records", section: "Governance" },
   { id: "p-gov-retention", capability: "Configure Data Retention", description: "Set data retention and archival policies", section: "Governance" },
+
+  // ── Entrata Experts ──
+  { id: "p-experts-view", capability: "View Credits & Usage", description: "Access the Entrata Experts page and view credit balance and usage history", section: "Entrata Experts" },
 ];
 
 export const PERMISSION_SECTIONS = [
-  "Communications", "Escalations", "Performance", "Agent Roster", "Workforce",
+  "Communications", "Escalations", "Entrata Experts", "Performance", "Agent Roster", "Workforce",
   "Activation", "Workflows", "Trainings & SOP", "Voice", "Governance",
 ];
 
@@ -154,6 +157,7 @@ export const SECTION_VIEW_PERMISSION: Record<string, string> = {
   "Trainings & SOP": "p-training-view",
   "Voice": "p-voice-view",
   "Governance": "p-gov-view",
+  "Entrata Experts": "p-experts-view",
 };
 
 export const DEFAULT_ROLE_PERMISSIONS: Record<string, Set<string>> = {
@@ -180,6 +184,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Set<string>> = {
     "p-training-view", "p-training-create", "p-training-assign",
     "p-voice-view", "p-voice-logs",
     "p-gov-view", "p-gov-audit",
+    "p-experts-view",
   ]),
   property: new Set([
     "p-cc-view",
@@ -202,6 +207,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Set<string>> = {
     "p-training-view",
     "p-voice-view", "p-voice-logs",
     "p-gov-view",
+    "p-experts-view",
   ]),
   ic: new Set([
     "p-cc-view",
