@@ -6,7 +6,7 @@ import { MobileNav } from "./mobile-nav";
 import { EntrataTopNav } from "./entrata-top-nav";
 import { NotificationToast } from "@/components/notification-toast";
 
-import { ComingSoonOverlay } from "@/components/coming-soon-overlay";
+
 import { RouteGuard } from "@/components/route-guard";
 import { cn } from "@/lib/utils";
 import { R1ScheduleCta } from "@/components/r1-schedule-cta";
@@ -61,12 +61,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         )}>
           {fullBleed ? (
             <RouteGuard>
-              <ComingSoonOverlay>{children}</ComingSoonOverlay>
+              {children}
             </RouteGuard>
           ) : (
             <div className="page-content px-6 pb-3 pt-[4.5rem] sm:px-8 lg:px-10">
               <RouteGuard>
-                <ComingSoonOverlay>{children}</ComingSoonOverlay>
+                {children}
               </RouteGuard>
             </div>
           )}
