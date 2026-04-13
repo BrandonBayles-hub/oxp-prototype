@@ -1045,43 +1045,118 @@ export function TrainingsSopDetailClient() {
       </Dialog>
 
       {/* Version history dialog */}
-      <Dialog open={versionsDialogOpen} onOpenChange={setVersionsDialogOpen}>
-        <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
+      <Dialog open={versionsDialogOpen} onOpenChange={(v) => { setVersionsDialogOpen(v); if (!v) setSelectedVersionIdx(null); }}>
+        <DialogContent className="max-h-[85vh] sm:max-w-4xl flex flex-col overflow-hidden">
           <DialogHeader>
             <DialogTitle>Version history</DialogTitle>
-            <DialogDescription>Previous approved versions of this document. Click to preview.</DialogDescription>
           </DialogHeader>
           {(doc.versions?.length ?? 0) > 0 ? (
-            <ul className="space-y-2">
-              {[...(doc.versions ?? [])].reverse().map((v, idx) => (
-                <li key={`${v.version}-${idx}`}>
+            <div className="flex flex-1 min-h-0 gap-4">
+              {/* Version list */}
+              <div className="w-64 shrink-0 overflow-y-auto space-y-1.5 pr-2 border-r border-border">
+                {/* Current version */}
+                <button
+                  type="button"
+                  onClick={() => setSelectedVersionIdx(-1)}
+                  className={cn(
+                    "w-full rounded-md border p-2.5 text-left transition-colors hover:bg-muted/50",
+                    selectedVersionIdx === -1 ? "border-primary bg-primary/5" : "border-border"
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-foreground">v{doc.version ?? "1.0"}</span>
+                    <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">Current</span>
+                  </div>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">{doc.modified}</p>
+                </button>
+                {/* Previous versions */}
+                {[...(doc.versions ?? [])].reverse().map((v, idx) => (
                   <button
+                    key={`${v.version}-${idx}`}
                     type="button"
                     onClick={() => setSelectedVersionIdx(idx)}
                     className={cn(
-                      "w-full rounded-md border p-3 text-left transition-colors hover:bg-muted/50",
-                      selectedVersionIdx === idx ? "border-primary bg-muted/30" : "border-border"
+                      "w-full rounded-md border p-2.5 text-left transition-colors hover:bg-muted/50",
+                      selectedVersionIdx === idx ? "border-primary bg-primary/5" : "border-border"
                     )}
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium">v{v.version}</span>
-                      <span className="text-xs text-muted-foreground">{new Date(v.approvedAt).toLocaleDateString()}</span>
+                      <span className="text-[11px] text-muted-foreground">{new Date(v.approvedAt).toLocaleDateString()}</span>
                     </div>
-                    {v.approvedBy && <p className="text-xs text-muted-foreground">Approved by {v.approvedBy}</p>}
-                    {v.changeSummary && <p className="mt-1 text-xs text-muted-foreground">{v.changeSummary}</p>}
+                    {v.approvedBy && <p className="text-[11px] text-muted-foreground">By {v.approvedBy}</p>}
+                    {v.changeSummary && <p className="mt-0.5 text-[11px] text-muted-foreground line-clamp-2">{v.changeSummary}</p>}
                   </button>
-                  {selectedVersionIdx === idx && v.body && (
-                    <div className="mt-2 rounded-md border border-border bg-muted/20 p-3">
-                      <p className="mb-1 text-[10px] font-medium text-muted-foreground">Content at v{v.version}</p>
+                ))}
+              </div>
+              {/* Content preview */}
+              <div className="flex-1 min-w-0 flex flex-col min-h-0">
+                {selectedVersionIdx === -1 ? (
+                  <>
+                    <div className="flex items-center justify-between pb-2 mb-2 border-b border-border">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">v{doc.version ?? "1.0"} — Current version</p>
+                        <p className="text-xs text-muted-foreground">{doc.modified}</p>
+                      </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto rounded-md border border-border bg-muted/10 p-4">
                       <div
-                        className="prose prose-sm max-w-none max-h-48 overflow-auto text-xs dark:prose-invert"
-                        dangerouslySetInnerHTML={{ __html: v.body.startsWith("<") ? v.body : `<pre class="whitespace-pre-wrap">${v.body}</pre>` }}
+                        className="prose prose-sm max-w-none dark:prose-invert"
+                        dangerouslySetInnerHTML={{ __html: (() => { const b = doc.body ?? ""; return b.startsWith("<") ? b : `<pre class="whitespace-pre-wrap">${b}</pre>`; })() }}
                       />
                     </div>
-                  )}
-                </li>
-              ))}
-            </ul>
+                  </>
+                ) : selectedVersionIdx !== null ? (() => {
+                  const versions = [...(doc.versions ?? [])].reverse();
+                  const v = versions[selectedVersionIdx];
+                  if (!v) return null;
+                  return (
+                    <>
+                      <div className="flex items-center justify-between pb-2 mb-2 border-b border-border">
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">v{v.version}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(v.approvedAt).toLocaleDateString()}
+                            {v.approvedBy && ` · Approved by ${v.approvedBy}`}
+                          </p>
+                          {v.changeSummary && <p className="mt-0.5 text-xs text-muted-foreground">{v.changeSummary}</p>}
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs shrink-0"
+                          onClick={() => {
+                            if (v.body) {
+                              updateDocument(id, { body: v.body, version: v.version });
+                              setVersionsDialogOpen(false);
+                              setSelectedVersionIdx(null);
+                            }
+                          }}
+                        >
+                          <History className="h-3 w-3" /> Restore this version
+                        </Button>
+                      </div>
+                      <div className="flex-1 overflow-y-auto rounded-md border border-border bg-muted/10 p-4">
+                        {v.body ? (
+                          <div
+                            className="prose prose-sm max-w-none dark:prose-invert"
+                            dangerouslySetInnerHTML={{ __html: v.body.startsWith("<") ? v.body : `<pre class="whitespace-pre-wrap">${v.body}</pre>` }}
+                          />
+                        ) : (
+                          <p className="py-8 text-center text-sm text-muted-foreground">No content snapshot available for this version.</p>
+                        )}
+                      </div>
+                    </>
+                  );
+                })() : (
+                  <div className="flex-1 flex flex-col items-center justify-center text-center">
+                    <History className="h-8 w-8 text-muted-foreground mb-3" />
+                    <p className="text-sm font-medium text-foreground">Select a version</p>
+                    <p className="mt-1 text-xs text-muted-foreground max-w-xs">Click any version on the left to preview its content and compare with the current document.</p>
+                  </div>
+                )}
+              </div>
+            </div>
           ) : (
             <p className="py-6 text-center text-sm text-muted-foreground">No previous versions. Versions are created each time a document is approved.</p>
           )}
