@@ -99,6 +99,11 @@ export type ConversationItem = {
   hasUnread: boolean;
   /** When set, threads with the same id are one escalation case across channels. */
   escalationId?: string;
+  /**
+   * When true, staff-authored thread bubbles show the assignee name with
+   * `(External Agent)` — responder is not an Entrata user (e.g. ELI+ escalation console).
+   */
+  staffRespondentIsExternalAgent?: boolean;
 };
 
 /** Login / profile handles matched in private notes as @handle (prototype viewer). */
@@ -287,6 +292,7 @@ const INITIAL: ConversationItem[] = [
     property: "Hillside Living",
     channel: "SMS",
     assignee: "Abe Kashiwagi",
+    staffRespondentIsExternalAgent: true,
     labels: ["Lead"],
     status: "open",
     hasUnread: true,
@@ -472,6 +478,7 @@ Hillside Living
     channel: "Email",
     emailSubject: "Re: Your application — ID upload (same case as web chat)",
     assignee: "Abe Kashiwagi",
+    staffRespondentIsExternalAgent: true,
     labels: ["Leasing AI", "Leasing AI Escalation"],
     escalationId: "esc-hillside-alma-12",
     status: "open",

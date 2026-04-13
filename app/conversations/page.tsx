@@ -222,6 +222,18 @@ function handoffAssigneeLabel(assignee: string, isHuman: (a: string) => boolean)
   return "Staff";
 }
 
+/** Staff bubble header when {@link ConversationItem.staffRespondentIsExternalAgent} is set. */
+function handoffAssigneeLabelForConversation(
+  assignee: string,
+  isHuman: (a: string) => boolean,
+  staffRespondentIsExternalAgent: boolean | undefined
+): string {
+  const base = handoffAssigneeLabel(assignee, isHuman);
+  if (!staffRespondentIsExternalAgent) return base;
+  if (assignee !== MY_INBOX_ASSIGNEE) return base;
+  return `${base} (External Agent)`;
+}
+
 function handoffAssigneeInitials(assignee: string, isHuman: (a: string) => boolean): string {
   if (assignee === CONVERSATION_UNASSIGNED_ASSIGNEE) return "—";
   if (isHuman(assignee)) return initials(assignee);
@@ -2310,7 +2322,11 @@ function ConversationsContent() {
                             <div key={idx} className="flex items-center justify-center gap-2 py-1">
                               <CornerDownRight className="h-3 w-3 text-muted-foreground" />
                               <span className="text-[11px] text-muted-foreground">
-                                Handoff {handoffAssigneeLabel(selected.assignee, isHumanAssignee)} · {msg.timestamp}
+                                Handoff {handoffAssigneeLabelForConversation(
+                                selected.assignee,
+                                isHumanAssignee,
+                                selected.staffRespondentIsExternalAgent
+                              )} · {msg.timestamp}
                               </span>
                             </div>
                           );
@@ -2397,7 +2413,11 @@ function ConversationsContent() {
                                   {isAgent
                                     ? resolveAgentLabel(selected.agent)
                                     : isStaff
-                                      ? handoffAssigneeLabel(selected.assignee, isHumanAssignee)
+                                      ? handoffAssigneeLabelForConversation(
+                                          selected.assignee,
+                                          isHumanAssignee,
+                                          selected.staffRespondentIsExternalAgent
+                                        )
                                       : selected.resident}
                                 </span>
                                 {msg.timestamp && <span className="text-[10px] text-muted-foreground">{msg.timestamp}</span>}
@@ -2493,7 +2513,11 @@ function ConversationsContent() {
                       <div key={idx} className="flex items-center justify-center gap-2 py-1">
                         <CornerDownRight className="h-3 w-3 text-muted-foreground" />
                         <span className="text-[11px] text-muted-foreground">
-                          Handoff {handoffAssigneeLabel(selected.assignee, isHumanAssignee)} · {msg.timestamp}
+                          Handoff {handoffAssigneeLabelForConversation(
+                                selected.assignee,
+                                isHumanAssignee,
+                                selected.staffRespondentIsExternalAgent
+                              )} · {msg.timestamp}
                         </span>
                       </div>
                     );
@@ -2585,7 +2609,11 @@ function ConversationsContent() {
                             {isAgent
                               ? resolveAgentLabel(selected.agent)
                               : isStaff
-                                ? handoffAssigneeLabel(selected.assignee, isHumanAssignee)
+                                ? handoffAssigneeLabelForConversation(
+                                    selected.assignee,
+                                    isHumanAssignee,
+                                    selected.staffRespondentIsExternalAgent
+                                  )
                                 : selected.resident}
                           </span>
                           {msg.timestamp && <span className="text-[10px] text-muted-foreground">{msg.timestamp}</span>}
@@ -3622,7 +3650,11 @@ function ConversationsContent() {
                           <div key={idx} className="flex items-center justify-center gap-2 py-1">
                             <CornerDownRight className="h-3 w-3 text-muted-foreground" />
                             <span className="text-[10px] text-muted-foreground">
-                              Handoff {handoffAssigneeLabel(selected.assignee, isHumanAssignee)} · {msg.timestamp}
+                              Handoff {handoffAssigneeLabelForConversation(
+                                selected.assignee,
+                                isHumanAssignee,
+                                selected.staffRespondentIsExternalAgent
+                              )} · {msg.timestamp}
                             </span>
                           </div>
                         );
@@ -3702,7 +3734,11 @@ function ConversationsContent() {
                                 {isAgent
                                   ? resolveAgentLabel(selected.agent)
                                   : isStaff
-                                    ? handoffAssigneeLabel(selected.assignee, isHumanAssignee)
+                                    ? handoffAssigneeLabelForConversation(
+                                        selected.assignee,
+                                        isHumanAssignee,
+                                        selected.staffRespondentIsExternalAgent
+                                      )
                                     : selected.resident}
                               </span>
                               {msg.timestamp && <span className="text-[9px] text-muted-foreground">{msg.timestamp}</span>}
