@@ -7,7 +7,7 @@
     "dev:clean": "ulimit -n 65536 && rm -rf .next && next dev --hostname 127.0.0.1",
     "dev:fresh": "ulimit -n 65536 && lsof -ti:3000 | xargs kill -9 2>/dev/null; rm -rf .next && next dev --hostname 127.0.0.1",
     "build": "next build && rm -rf dist && cp -r out dist",
-    "start": "next start",
+    "start": "npx --yes serve@latest out -l 3000",
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest"

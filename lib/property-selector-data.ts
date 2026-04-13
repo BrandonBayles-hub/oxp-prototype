@@ -23,13 +23,13 @@ export const portfolioData: PropertyNode[] = [
     id: "cambridge-living",
     name: "Cambridge Living",
     type: "portfolio",
-    count: 16,
+    count: 19,
     children: [
       {
         id: "region-a",
         name: "Region A",
         type: "region",
-        count: 4,
+        count: 7,
         children: [
           {
             id: "campus-model-1",
@@ -49,6 +49,17 @@ export const portfolioData: PropertyNode[] = [
             children: [
               { id: "metro-heights", name: "Metro Heights", type: "property" },
               { id: "downtown-lofts", name: "Downtown Lofts", type: "property" },
+            ],
+          },
+          {
+            id: "oxp-studio-demo",
+            name: "OXP Studio (demo)",
+            type: "group",
+            count: 3,
+            children: [
+              { id: "oxp-hillside-living", name: "Hillside Living", type: "property" },
+              { id: "oxp-jamison-apartments", name: "Jamison Apartments", type: "property" },
+              { id: "oxp-property-c", name: "Property C", type: "property" },
             ],
           },
         ],
@@ -504,6 +515,49 @@ export function getSelectedPropertyNames(
     }
   }
   walk(data);
+  return names;
+}
+
+/** Every leaf property name in a tree (for matching workforce strings to selector leaves). */
+export function collectLeafPropertyNames(nodes: PropertyNode[]): Set<string> {
+  const s = new Set<string>();
+  function walk(ns: PropertyNode[]) {
+    for (const n of ns) {
+      if (n.type === "property") s.add(n.name);
+      if (n.children) walk(n.children);
+    }
+  }
+  walk(nodes);
+  return s;
+}
+
+/** Member-facing property names → Property List leaf IDs for `PropertySelector`. */
+export function propertyNamesToIdsFromList(names: string[], data: PropertyNode[]): Set<string> {
+  const ids = new Set<string>();
+  const want = new Set(names.map((n) => n.trim()).filter(Boolean));
+  function walk(ns: PropertyNode[]) {
+    for (const n of ns) {
+      if (n.type === "property" && want.has(n.name)) ids.add(n.id);
+      if (n.children) walk(n.children);
+    }
+  }
+  walk(data);
+  return ids;
+}
+
+/** Toolbar filter: selected node IDs (any view) → leaf property display names for workforce matching. */
+export function resolveSelectedIdsToLeafPropertyNames(selectedIds: Set<string>): Set<string> {
+  const names = new Set<string>();
+  for (const mode of PROPERTY_VIEW_MODES) {
+    const data = getDataForView(mode);
+    function walk(ns: PropertyNode[]) {
+      for (const n of ns) {
+        if (n.type === "property" && selectedIds.has(n.id)) names.add(n.name);
+        if (n.children) walk(n.children);
+      }
+    }
+    walk(data);
+  }
   return names;
 }
 

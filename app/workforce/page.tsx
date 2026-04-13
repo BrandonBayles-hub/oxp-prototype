@@ -1,6 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback, useEffect, useMemo, useRef, useState,
+  type ComponentPropsWithoutRef,
+} from "react";
 import { PageHeader } from "@/components/page-header";
 import { ComingSoon } from "@/components/coming-soon";
 import { useWorkforce, TEAMS, type WorkforceMember, type WorkforceTier } from "@/lib/workforce-context";
@@ -23,12 +26,19 @@ import {
 } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PropertySelector } from "@/components/property-selector";
+import {
+  portfolioData,
+  getSelectedPropertyNames,
+  collectLeafPropertyNames,
+  propertyNamesToIdsFromList,
+  resolveSelectedIdsToLeafPropertyNames,
+} from "@/lib/property-selector-data";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { SPECIALTIES as SPECIALTY_LIST } from "@/lib/specialties-data";
 import {
   Network, Tag, ChevronRight, ChevronDown, Award,
-  X, Plus, Building2, MapPin, Search, Check, List, Trash2, Users,
+  X, Plus, Building2, MapPin, Search, Check, List, Trash2, Users, Pencil,
 } from "lucide-react";
 
 /* ──────────────────────────── Helpers ──────────────────────────── */
@@ -143,10 +153,11 @@ export default function WorkforcePage() {
       );
     }
     if (propertyFilters.size > 0) {
+      const filterNames = resolveSelectedIdsToLeafPropertyNames(propertyFilters);
       result = result.filter((m) => {
         const props = m.properties ?? [];
         if (props.includes("All properties")) return true;
-        return props.some((p) => propertyFilters.has(p));
+        return props.some((p) => filterNames.has(p));
       });
     }
     if (specialtyFilters.size > 0) {
@@ -321,16 +332,17 @@ export default function WorkforcePage() {
         {/* ───── TAB 1: Org Structure ───── */}
         <TabsContent value="org" className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex h-9 rounded-md border border-input">
+            <div className="inline-flex h-9 shrink-0 rounded-md border border-input">
               <button
                 type="button"
                 onClick={() => setOrgView("tree")}
                 className={cn(
-                  "flex h-full w-9 items-center justify-center rounded-l-md transition-colors",
+                  "flex h-full w-9 shrink-0 items-center justify-center rounded-l-md transition-colors",
                   orgView === "tree"
-                    ? "bg-foreground text-background"
+                    ? "bg-muted text-foreground shadow-sm ring-1 ring-border"
                     : "text-muted-foreground hover:text-foreground",
                 )}
+                style={{ width: 36, minWidth: 36, maxWidth: 36 }}
                 aria-label="Tree view"
               >
                 <Network className="h-4 w-4" />
@@ -339,11 +351,12 @@ export default function WorkforcePage() {
                 type="button"
                 onClick={() => setOrgView("table")}
                 className={cn(
-                  "flex h-full w-9 items-center justify-center rounded-r-md border-l border-input transition-colors",
+                  "flex h-full w-9 shrink-0 items-center justify-center rounded-r-md border-l border-input transition-colors",
                   orgView === "table"
-                    ? "bg-foreground text-background"
+                    ? "bg-muted text-foreground shadow-sm ring-1 ring-border"
                     : "text-muted-foreground hover:text-foreground",
                 )}
+                style={{ width: 36, minWidth: 36, maxWidth: 36 }}
                 aria-label="Table view"
               >
                 <List className="h-4 w-4" />
@@ -489,7 +502,6 @@ export default function WorkforcePage() {
         open={selectedMember !== null}
         onOpenChange={(open) => { if (!open) setSelectedMemberId(null); }}
         members={members}
-        allProperties={allProperties}
         allLabels={allLabels}
         childrenOfMap={childrenOfMap}
         memberMetrics={memberMetrics}
@@ -503,6 +515,7 @@ export default function WorkforcePage() {
 /* ──────────────────────────── Roles & Access ────────────────────── */
 
 import { ALL_PERMISSIONS, PERMISSION_SECTIONS, SECTION_VIEW_PERMISSION, usePermissions } from "@/lib/permissions-context";
+import { useRole } from "@/lib/role-context";
 import { Switch } from "@/components/ui/switch";
 
 type RoleTab = { key: string; label: string; builtin: boolean };
@@ -673,9 +686,9 @@ function RolesAccessPanel({ humanMembers }: { humanMembers: WorkforceMember[] })
             <button
               onClick={() => setActiveRole(r.key)}
               className={cn(
-                "rounded-full px-5 py-2 text-sm font-medium transition-colors",
+                "shrink-0 rounded-full px-5 py-2 text-sm font-medium transition-colors",
                 activeRole === r.key
-                  ? "bg-foreground text-background"
+                  ? "bg-muted text-foreground shadow-sm ring-1 ring-border"
                   : "border border-border bg-background text-foreground hover:bg-muted",
                 !r.builtin && "pr-8"
               )}
@@ -688,7 +701,7 @@ function RolesAccessPanel({ humanMembers }: { humanMembers: WorkforceMember[] })
                 className={cn(
                   "absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-0.5 transition-colors",
                   activeRole === r.key
-                    ? "text-background/60 hover:text-background"
+                    ? "text-muted-foreground hover:text-foreground"
                     : "text-muted-foreground/60 hover:text-foreground"
                 )}
                 aria-label={`Delete ${r.label}`}
@@ -1685,123 +1698,32 @@ function MemberNode({
   );
 }
 
-/* ──────────────────────────── Property Picker ────────────────────── */
+/* ──────────────────────────── Member Detail Sheet ────────────────── */
 
-function PropertyPicker({
-  allProperties,
-  selected,
-  hasAllProperties,
-  onAdd,
-  onRemove,
-  onToggleAll,
-  newProperty,
-  onNewPropertyChange,
-}: {
-  allProperties: string[];
-  selected: string[];
-  hasAllProperties: boolean;
-  onAdd: (property: string) => void;
-  onRemove: (property: string) => void;
-  onToggleAll: () => void;
-  newProperty: string;
-  onNewPropertyChange: (value: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-
+function SheetSectionAddTrigger({
+  className,
+  children,
+  ...rest
+}: ComponentPropsWithoutRef<"button">) {
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        >
-          <Plus className="h-3 w-3" /> Edit
-        </button>
-      </PopoverTrigger>
-      <PopoverContent className="w-56 p-1" align="end">
-        <button
-          type="button"
-          onClick={onToggleAll}
-          className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
-        >
-          <div className={cn(
-            "flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
-            hasAllProperties
-              ? "border-primary bg-primary text-primary-foreground"
-              : "border-muted-foreground/30",
-          )}>
-            {hasAllProperties && <Check className="h-3 w-3" />}
-          </div>
-          All properties
-        </button>
-
-        {allProperties.length > 0 && <div className="my-1 h-px bg-border" />}
-
-        <div className="max-h-48 overflow-y-auto">
-          {allProperties.map((p) => {
-            const isSelected = hasAllProperties || selected.includes(p);
-            return (
-              <button
-                key={p}
-                type="button"
-                disabled={hasAllProperties}
-                onClick={() => isSelected ? onRemove(p) : onAdd(p)}
-                className={cn(
-                  "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent hover:text-accent-foreground",
-                  hasAllProperties && "opacity-50",
-                )}
-              >
-                <div className={cn(
-                  "flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
-                  isSelected
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-muted-foreground/30",
-                )}>
-                  {isSelected && <Check className="h-3 w-3" />}
-                </div>
-                {p}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="mt-1 border-t border-border pt-1">
-          <div className="flex gap-1 px-1 pb-1">
-            <input
-              value={newProperty}
-              onChange={(e) => onNewPropertyChange(e.target.value)}
-              placeholder="Custom property..."
-              className="h-7 flex-1 rounded border border-input bg-background px-2 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && newProperty.trim()) {
-                  onAdd(newProperty);
-                  onNewPropertyChange("");
-                }
-              }}
-            />
-            <button
-              type="button"
-              disabled={!newProperty.trim()}
-              onClick={() => { onAdd(newProperty); onNewPropertyChange(""); }}
-              className="h-7 shrink-0 rounded bg-primary px-2 text-[11px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
-            >
-              Add
-            </button>
-          </div>
-        </div>
-      </PopoverContent>
-    </Popover>
+    <button
+      type="button"
+      className={cn(
+        "inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-primary hover:bg-muted",
+        className,
+      )}
+      {...rest}
+    >
+      {children}
+    </button>
   );
 }
-
-/* ──────────────────────────── Member Detail Sheet ────────────────── */
 
 function MemberDetailSheet({
   member,
   open,
   onOpenChange,
   members,
-  allProperties,
   allLabels,
   childrenOfMap,
   memberMetrics,
@@ -1812,7 +1734,6 @@ function MemberDetailSheet({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   members: WorkforceMember[];
-  allProperties: string[];
   allLabels: string[];
   childrenOfMap: Map<string, WorkforceMember[]>;
   memberMetrics: Map<string, MemberMetric>;
@@ -1820,21 +1741,44 @@ function MemberDetailSheet({
   onMemberClick: (id: string) => void;
 }) {
   const { hasPermission } = usePermissions();
+  const { role: viewerRole } = useRole();
   const canEdit = hasPermission("p-wf-members-edit");
   const [newLabel, setNewLabel] = useState("");
-  const [newProperty, setNewProperty] = useState("");
   const [newSpecialty, setNewSpecialty] = useState("");
   const [reportSearch, setReportSearch] = useState("");
   const [managerSearch, setManagerSearch] = useState("");
 
+  const properties = member?.properties ?? [];
+  const hasAllProperties = properties.includes("All properties");
+
+  const propertyListTree = portfolioData;
+  const knownLeafNames = useMemo(
+    () => collectLeafPropertyNames(propertyListTree),
+    [propertyListTree],
+  );
+  const sheetPropertySelectedIds = useMemo(() => {
+    if (!member || hasAllProperties) return new Set<string>();
+    return propertyNamesToIdsFromList(
+      properties.filter((p) => p !== "All properties"),
+      propertyListTree,
+    );
+  }, [member, properties, hasAllProperties, propertyListTree]);
+
   if (!member) return null;
+
+  const onSheetPropertyIdsChange = (ids: Set<string>) => {
+    const fromTree = getSelectedPropertyNames(propertyListTree, ids);
+    const legacy = (member.properties ?? []).filter(
+      (p) => p !== "All properties" && !knownLeafNames.has(p),
+    );
+    updateMember(member.id, { properties: [...new Set([...fromTree, ...legacy])] });
+  };
 
   const isAgent = member.type === "agent";
   const initials = member.name.split(" ").map((w) => w[0]).join("").slice(0, 2);
   const reportsTo = member.reportsTo ? members.find((m) => m.id === member.reportsTo) : null;
   const directReports = childrenOfMap.get(member.id) ?? [];
   const labels = member.labels ?? [];
-  const properties = member.properties ?? [];
   const specialties = member.specialties ?? [];
   const metric = memberMetrics.get(member.id);
 
@@ -1849,8 +1793,6 @@ function MemberDetailSheet({
     (l) => !labels.some((existing) => existing.toLowerCase() === l.toLowerCase()),
   );
 
-  const hasAllProperties = properties.includes("All properties");
-
   const addLabel = (label: string) => {
     if (!label.trim() || labels.some((l) => l.toLowerCase() === label.trim().toLowerCase())) return;
     updateMember(member.id, { labels: [...labels, label.trim()] });
@@ -1858,11 +1800,6 @@ function MemberDetailSheet({
 
   const removeLabel = (label: string) => {
     updateMember(member.id, { labels: labels.filter((l) => l !== label) });
-  };
-
-  const addProperty = (property: string) => {
-    if (!property.trim() || properties.includes(property.trim())) return;
-    updateMember(member.id, { properties: [...properties, property.trim()] });
   };
 
   const removeProperty = (property: string) => {
@@ -1887,7 +1824,8 @@ function MemberDetailSheet({
   };
 
   const hasHris = !!member.hris;
-  const canEditReports = canEdit && !hasHris;
+  /** HRIS-linked reporting is read-only for non-admins (Workday is canonical); admins may override in OXP for the prototype. */
+  const canEditReports = canEdit && (!hasHris || viewerRole === "admin");
 
   const addDirectReport = (reportId: string) => {
     updateMember(reportId, { reportsTo: member.id });
@@ -1909,6 +1847,34 @@ function MemberDetailSheet({
 
   const availableManagers = members.filter(
     (m) => m.id !== member.id && (!managerSearch || m.name.toLowerCase().includes(managerSearch.toLowerCase())),
+  );
+
+  const managerPickerContent = (
+    <>
+      <div className="relative mb-2">
+        <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+        <input
+          type="text"
+          placeholder="Search members…"
+          value={managerSearch}
+          onChange={(e) => setManagerSearch(e.target.value)}
+          className="h-8 w-full rounded-md border border-input bg-background pl-7 pr-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        />
+      </div>
+      <div className="max-h-48 overflow-y-auto">
+        {availableManagers.slice(0, 20).map((m) => (
+          <button
+            key={m.id}
+            type="button"
+            onClick={() => changeManager(m.id)}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted"
+          >
+            <span className="font-medium">{m.name}</span>
+            <span className="text-muted-foreground">{m.role}</span>
+          </button>
+        ))}
+      </div>
+    </>
   );
 
   return (
@@ -1943,41 +1909,58 @@ function MemberDetailSheet({
         <div className="space-y-6">
           {/* ── Overview ── */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-lg border border-border p-3">
+            <div className="rounded-lg border border-border bg-muted/50 p-3">
               <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Department</p>
               <p className="mt-0.5 text-sm font-medium">{member.team}</p>
             </div>
-            <div className="rounded-lg border border-border p-3">
+            <div className="rounded-lg border border-border bg-muted/50 p-3">
               <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Role</p>
               <p className="mt-0.5 text-sm font-medium">{member.tier ? tierLabel[member.tier] : (isAgent ? getAgentTypeLabel(member.role) : "Staff")}</p>
             </div>
             {metric && (
-              <div className="rounded-lg border border-border p-3">
+              <div className="rounded-lg border border-border bg-muted/50 p-3">
                 <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{metric.label}</p>
                 <p className={cn("mt-0.5 text-sm font-semibold", metric.highlight && "text-green-600 dark:text-green-400")}>{metric.value}</p>
               </div>
             )}
-            <div className="rounded-lg border border-border p-3">
-              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Reports to</p>
-              {reportsTo ? (
-                <div className="mt-0.5 flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => onMemberClick(reportsTo.id)}
-                    className="text-sm font-medium text-primary hover:underline"
-                  >
-                    {reportsTo.name}
-                  </button>
-                  {canEditReports && (
+            <div className="rounded-lg border border-border bg-muted/50 p-3">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Reports to</p>
+                {reportsTo && canEditReports && (
+                  <div className="flex shrink-0 items-center gap-0.5 -mt-0.5 -mr-0.5">
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-primary"
+                          aria-label="Change manager"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent align="end" className="w-64 p-2">
+                        {managerPickerContent}
+                      </PopoverContent>
+                    </Popover>
                     <button
                       type="button"
                       onClick={() => changeManager(undefined)}
-                      className="rounded-full p-0.5 text-muted-foreground/50 transition-colors hover:bg-destructive/10 hover:text-destructive"
+                      className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                      aria-label="Remove manager"
                     >
-                      <X className="h-3 w-3" />
+                      <X className="h-3.5 w-3.5" />
                     </button>
-                  )}
-                </div>
+                  </div>
+                )}
+              </div>
+              {reportsTo ? (
+                <button
+                  type="button"
+                  onClick={() => onMemberClick(reportsTo.id)}
+                  className="mt-0.5 block w-full text-left text-sm font-medium text-primary hover:underline"
+                >
+                  {reportsTo.name}
+                </button>
               ) : canEditReports ? (
                 <Popover>
                   <PopoverTrigger asChild>
@@ -1986,29 +1969,7 @@ function MemberDetailSheet({
                     </button>
                   </PopoverTrigger>
                   <PopoverContent align="start" className="w-64 p-2">
-                    <div className="relative mb-2">
-                      <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                      <input
-                        type="text"
-                        placeholder="Search members…"
-                        value={managerSearch}
-                        onChange={(e) => setManagerSearch(e.target.value)}
-                        className="h-8 w-full rounded-md border border-input bg-background pl-7 pr-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                      />
-                    </div>
-                    <div className="max-h-48 overflow-y-auto">
-                      {availableManagers.slice(0, 20).map((m) => (
-                        <button
-                          key={m.id}
-                          type="button"
-                          onClick={() => changeManager(m.id)}
-                          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted"
-                        >
-                          <span className="font-medium">{m.name}</span>
-                          <span className="text-muted-foreground">{m.role}</span>
-                        </button>
-                      ))}
-                    </div>
+                    {managerPickerContent}
                   </PopoverContent>
                 </Popover>
               ) : (
@@ -2029,9 +1990,9 @@ function MemberDetailSheet({
               {canEditReports && (
                 <Popover>
                   <PopoverTrigger asChild>
-                    <button type="button" className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-primary hover:bg-muted">
+                    <SheetSectionAddTrigger>
                       <Plus className="h-3 w-3" /> Add
-                    </button>
+                    </SheetSectionAddTrigger>
                   </PopoverTrigger>
                   <PopoverContent align="end" className="w-64 p-2">
                     <div className="relative mb-2">
@@ -2119,16 +2080,42 @@ function MemberDetailSheet({
                 <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
                 <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Properties</p>
               </div>
-              <PropertyPicker
-                allProperties={allProperties}
-                selected={properties}
-                hasAllProperties={hasAllProperties}
-                onAdd={addProperty}
-                onRemove={removeProperty}
-                onToggleAll={toggleAllProperties}
-                newProperty={newProperty}
-                onNewPropertyChange={setNewProperty}
-              />
+              <Popover modal>
+                <PopoverTrigger asChild>
+                  <SheetSectionAddTrigger>
+                    <Plus className="h-3 w-3" /> Add
+                  </SheetSectionAddTrigger>
+                </PopoverTrigger>
+                <PopoverContent className="w-[320px] p-0 z-[200]" align="end" sideOffset={4}>
+                  <div className="border-b border-border px-3 py-2">
+                    <button
+                      type="button"
+                      onClick={toggleAllProperties}
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+                    >
+                      <div
+                        className={cn(
+                          "flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
+                          hasAllProperties
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-muted-foreground/30",
+                        )}
+                      >
+                        {hasAllProperties && <Check className="h-3 w-3" />}
+                      </div>
+                      All properties
+                    </button>
+                  </div>
+                  <PropertySelector
+                    selected={sheetPropertySelectedIds}
+                    onSelectionChange={onSheetPropertyIdsChange}
+                    className={cn(
+                      "h-[360px] max-h-[min(360px,50vh)] border-0 shadow-none rounded-none",
+                      hasAllProperties && "pointer-events-none opacity-50",
+                    )}
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
             {properties.length === 0 ? (
               <p className="text-xs text-muted-foreground italic">No properties assigned</p>
@@ -2164,9 +2151,9 @@ function MemberDetailSheet({
                 </div>
                 <Popover>
                   <PopoverTrigger asChild>
-                    <button type="button" className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-primary hover:bg-muted">
+                    <SheetSectionAddTrigger>
                       <Plus className="h-3 w-3" /> Add
-                    </button>
+                    </SheetSectionAddTrigger>
                   </PopoverTrigger>
                   <PopoverContent align="end" className="w-64 p-2">
                     <div className="relative mb-2">
