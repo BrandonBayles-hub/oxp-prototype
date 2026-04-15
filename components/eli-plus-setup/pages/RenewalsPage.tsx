@@ -141,64 +141,22 @@ export function RenewalsPage({ navigate, days, onChange }: Props) {
         </p>
       </div>
 
-      <AgentTabBar activeTab={topTab} onTabChange={setTopTab} />
-
-      {topTab === "voices"      && <VoiceTab selectedVoice={selectedVoice} onSelect={setSelectedVoice} />}
-      {topTab === "prompt"      && <PromptTab productId="renewals" />}
-      {topTab === "test"        && <TestAgentTab productLabel="Renewals AI" voiceName={voiceName} scenarios={RENEWALS_SCENARIOS} />}
-      {topTab === "escalations" && <EscalationsTab productId="renewals" />}
-      {topTab === "reporting"   && <ReportingTab productId="renewals" />}
-
-      {topTab === "configure" && (
-      <div className="max-w-6xl space-y-6">
-        <p className="text-sm text-muted-foreground">
-          Set the number of days before a lease expires that ELI begins renewal outreach — per property.
-          Defaulted to <strong>{RENEWAL_DEFAULT_DAYS} days</strong>. Adjust any that differ.
-        </p>
-
-      {/* Default applied notice */}
-      <div className="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
-        <Sparkles className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" aria-hidden />
-        <p className="text-xs text-blue-900 leading-relaxed">
-          <strong>Default applied:</strong> All properties are set to {RENEWAL_DEFAULT_DAYS} days based on standard industry practice.
-          This is not a blocker — you can go live and adjust later. We recommend reviewing to confirm the lead time matches your lease terms.
-        </p>
-      </div>
-
-      {/* Progress bar */}
-      <div>
-        <div className="flex justify-between text-xs text-muted-foreground mb-1.5">
-          <span>{filledCount} / {PROPERTIES.length} properties configured</span>
-          <span className="text-emerald-700 font-medium">{pct}%</span>
-        </div>
-        <div className="h-1.5 w-full rounded-full bg-zinc-100 overflow-hidden">
-          <div
-            className="h-full rounded-full bg-emerald-700 transition-all duration-500"
-            style={{ width: `${pct}%` }}
-          />
+      {/* Coming Soon Banner */}
+      <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 flex items-start gap-3">
+        <span className="text-amber-500 mt-0.5 shrink-0">🚧</span>
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-amber-900">Coming soon — new updates to settings</p>
+          <p className="text-sm text-amber-800">
+            In the meantime, you can{" "}
+            <a href="#" className="underline underline-offset-2 font-medium hover:text-amber-900">
+              update your settings here
+            </a>
+            .
+          </p>
         </div>
       </div>
 
-      {saved && allFilled && (
-        <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-          <CheckCircle2 className="h-4 w-4 text-emerald-700 shrink-0" aria-hidden />
-          <p className="text-xs text-emerald-800">All properties saved. This setting is complete.</p>
-        </div>
-      )}
-
-      <DaysTable days={days} onChange={onChange} />
-
-      <div className="flex justify-end pt-2">
-        <button
-          type="button"
-          onClick={handleSave}
-          className={cn(buttonVariants({ variant: "eli" }))}
-        >
-          {allFilled ? "Save & Mark Complete" : `Save Progress (${filledCount}/${PROPERTIES.length})`}
-        </button>
-      </div>
-      </div>
-      )}
+      {/* Tab content — hidden while coming soon banner is active */}
     </div>
   )
 }

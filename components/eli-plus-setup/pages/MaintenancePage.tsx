@@ -197,101 +197,22 @@ export function MaintenancePage({ navigate, duringPhones, onDuringPhoneChange, a
         </p>
       </div>
 
-      <AgentTabBar activeTab={topTab} onTabChange={setTopTab} />
-
-      {topTab === "voices"      && <VoiceTab selectedVoice={selectedVoice} onSelect={setSelectedVoice} />}
-      {topTab === "prompt"      && <PromptTab productId="maintenance" />}
-      {topTab === "test"        && <TestAgentTab productLabel="Maintenance AI" voiceName={voiceName} scenarios={MAINTENANCE_SCENARIOS} />}
-      {topTab === "escalations" && <EscalationsTab productId="maintenance" />}
-      {topTab === "reporting"   && <ReportingTab productId="maintenance" />}
-
-      {topTab === "configure" && (
-      <div className="max-w-6xl space-y-6">
-
-      {/* Progress bar */}
-      <div>
-        <div className="flex justify-between text-xs text-muted-foreground mb-1.5">
-          <span>{totalFilled} / {totalRequired} numbers configured</span>
-          <span className="text-emerald-700 font-medium">{Math.round((totalFilled / totalRequired) * 100)}%</span>
-        </div>
-        <div className="h-1.5 w-full rounded-full bg-zinc-100 overflow-hidden">
-          <div
-            className="h-full rounded-full bg-emerald-700 transition-all duration-500"
-            style={{ width: `${(totalFilled / totalRequired) * 100}%` }}
-          />
-        </div>
-      </div>
-
-      {(duringPending > 0 || afterPending > 0) && (
-        <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-          <AlertTriangle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" aria-hidden />
-          <p className="text-xs text-red-800 leading-relaxed">
-            <strong>
-              {[duringPending > 0 && `${duringPending} during-escalation`, afterPending > 0 && `${afterPending} after-escalation`]
-                .filter(Boolean).join(" and ")} number{totalFilled < totalRequired - 1 ? "s" : ""} still required
-            </strong>{" "}— all properties must have both numbers set before Maintenance AI can go live.
+      {/* Coming Soon Banner */}
+      <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 flex items-start gap-3">
+        <span className="text-amber-500 mt-0.5 shrink-0">🚧</span>
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-amber-900">Coming soon — new updates to settings</p>
+          <p className="text-sm text-amber-800">
+            In the meantime, you can{" "}
+            <a href="#" className="underline underline-offset-2 font-medium hover:text-amber-900">
+              update your settings here
+            </a>
+            .
           </p>
         </div>
-      )}
-
-      {/* Tabs */}
-      <div className="flex items-center gap-1 rounded-lg border border-border bg-white px-1.5 py-1.5 w-fit">
-        {TABS.map((tab) => {
-          const pending = tab.id === "during" ? duringPending : afterPending
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={cn(
-                "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                activeTab === tab.id
-                  ? "bg-zinc-900 text-white shadow-sm"
-                  : "text-muted-foreground hover:text-foreground hover:bg-zinc-50",
-              )}
-            >
-              {tab.label}
-              {pending > 0 && (
-                <span className={cn(
-                  "inline-flex items-center justify-center h-4 min-w-[1rem] rounded-full text-[10px] font-bold leading-none px-0.5",
-                  activeTab === tab.id ? "bg-white/20 text-white" : "bg-red-500 text-white",
-                )}>
-                  {pending}
-                </span>
-              )}
-              {pending === 0 && (
-                <CheckCircle2 className={cn("h-3.5 w-3.5", activeTab === tab.id ? "text-emerald-400" : "text-emerald-600")} aria-hidden />
-              )}
-            </button>
-          )
-        })}
       </div>
 
-      {/* Description + Entrata notice for active tab */}
-      <div className="space-y-3 -mt-3">
-        <p className="text-xs text-muted-foreground">
-          {activeTabData.description}{" "}
-          <span className="text-muted-foreground/70">{activeTabData.hint}</span>
-        </p>
-
-        {entrataCount > 0 && (
-          <div className="flex items-start gap-3 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3">
-            <Database className="h-4 w-4 text-indigo-600 shrink-0 mt-0.5" aria-hidden />
-            <div className="space-y-0.5">
-              <p className="text-xs font-semibold text-indigo-900">
-                {entrataCount} values pulled from your Entrata settings
-              </p>
-              <p className="text-xs text-indigo-700 leading-relaxed">
-                Found in <span className="font-medium">{activeTabData.entrataPath}</span>. Review these are still current before saving.
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <PhoneTable phones={phones} onChange={onPhoneChange} entrataValues={activeTabData.entrataValues} />
-      </div>
-      )}
+      {/* Tab content — hidden while coming soon banner is active */}
     </div>
   )
 }

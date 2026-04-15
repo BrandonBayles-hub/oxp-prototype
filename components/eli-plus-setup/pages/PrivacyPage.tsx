@@ -1,5 +1,4 @@
 "use client"
-
 import { useState } from "react"
 import type { BasePageProps } from "../index"
 import { buttonVariants } from "@/components/ui/button"
@@ -13,9 +12,16 @@ import {
   ChevronRight,
   ChevronDown,
   Globe,
+  Eye,
+  EyeOff,
+  Info,
 } from "lucide-react"
+import {
+  type TemplateFields,
+  generatePrivacyPolicy,
+} from "../components/PrivacySheetContent"
 
-// ── Original privacy policy data ─────────────────────────────────────────────
+// ── Data ──────────────────────────────────────────────────────────────────────
 const COMPLIANT_PROPERTIES = [
   { id: "p1", name: "Sunset Lofts",          city: "Phoenix, AZ" },
   { id: "p2", name: "Harbor View",            city: "San Diego, CA" },
@@ -24,19 +30,118 @@ const COMPLIANT_PROPERTIES = [
   { id: "p5", name: "Riverwalk Commons",      city: "Nashville, TN" },
 ]
 
-interface TemplateFields { companyName: string; contactEmail: string; stateList: string }
-
-// ── Third-party website data ─────────────────────────────────────────────────
 const THIRD_PARTY_PROPERTIES = [
   { id: "p6",  name: "River North Plaza", city: "Chicago",  state: "IL", website: "rivernorthplaza.com" },
   { id: "p9",  name: "The Reserve",       city: "Detroit",  state: "MI", website: "thereservedetroit.com" },
   { id: "p11", name: "Willow Creek",      city: "Portland", state: "OR", website: "willowcreekpdx.com" },
 ]
 
-const getConsentLanguage = (name: string) =>
-  `By providing your phone number, you agree to receive automated text messages from ${name} — including leasing updates, payment reminders, maintenance notifications, and renewal information. Message frequency varies. Message and data rates may apply. Reply HELP for assistance or STOP to opt out at any time. View our Privacy Policy and Terms of Use at ${name.toLowerCase().replace(/\s+/g, "")}.com/legal.`
+const DEFAULT_FIELDS: TemplateFields = {
+  companyName: "Sunset Property Group LLC",
+  effectiveDate: "April 15, 2026",
+  lastUpdated: "April 15, 2026",
+  smsPhone: "(602) 555-0100",
+  smsEmail: "sms@sunsetproperties.com",
+  messageFrequency: "4",
+  chatbotProvider: "Entrata",
+  privacyEmail: "privacy@sunsetproperties.com",
+  companyAddress: "123 Main St, Phoenix, AZ 85001",
+  appealContact: "privacy@sunsetproperties.com",
+  privacyFormUrl: "sunsetproperties.com/privacy-request",
+  tollFreeNumber: "(800) 555-0100",
+  retentionApplication: "3",
+  retentionResident: "7",
+  retentionComms: "3",
+  retentionWebsite: "13",
+  retentionBackground: "5",
+  doNotSellMethod: 'clicking the "Do Not Sell or Share My Personal Information" link on our website',
+  privacyOfficerName: "Jane Smith",
+  privacyOfficerEmail: "privacy@sunsetproperties.com",
+  privacyOfficerPhone: "(800) 555-0100",
+}
 
-// ── Shared sub-components ────────────────────────────────────────────────────
+const REQUIRED_FIELDS: (keyof TemplateFields)[] = [
+  "companyName", "effectiveDate", "smsPhone", "smsEmail",
+  "messageFrequency", "chatbotProvider", "privacyEmail",
+  "companyAddress", "appealContact",
+]
+
+type SectionId = "company" | "sms" | "contact" | "california" | "minnesota"
+
+const FIELD_SECTIONS: Array<{
+  id: SectionId
+  label: string
+  required: boolean
+  badge?: string
+  fields: Array<{
+    key: keyof TemplateFields
+    label: string
+    placeholder: string
+    optional?: boolean
+    hint?: string
+  }>
+}> = [
+  {
+    id: "company",
+    label: "Company Information",
+    required: true,
+    fields: [
+      { key: "companyName", label: "Legal company name", placeholder: "Acme Property Group LLC" },
+      { key: "effectiveDate", label: "Effective date", placeholder: "April 15, 2026" },
+      { key: "lastUpdated", label: "Last updated", placeholder: "April 15, 2026" },
+    ],
+  },
+  {
+    id: "sms",
+    label: "SMS & Communications",
+    required: true,
+    fields: [
+      { key: "smsPhone", label: "Help / opt-out phone number", placeholder: "(602) 555-0100", hint: "Disclosed to residents for SMS opt-out" },
+      { key: "smsEmail", label: "Help / opt-out email", placeholder: "sms@company.com" },
+      { key: "messageFrequency", label: "Approx. messages per month", placeholder: "4", hint: "Required by carriers (FCC)" },
+      { key: "chatbotProvider", label: "Chatbot provider name", placeholder: "Entrata", hint: "Operator of your leasing chatbot" },
+    ],
+  },
+  {
+    id: "contact",
+    label: "Privacy Contact & Rights",
+    required: true,
+    fields: [
+      { key: "privacyEmail", label: "Privacy contact email", placeholder: "privacy@company.com" },
+      { key: "companyAddress", label: "Mailing address", placeholder: "123 Main St, Phoenix, AZ 85001" },
+      { key: "appealContact", label: "Appeal contact (email or URL)", placeholder: "privacy@company.com" },
+      { key: "privacyFormUrl", label: "Online privacy request form URL", placeholder: "company.com/privacy-request", optional: true },
+      { key: "tollFreeNumber", label: "Toll-free number", placeholder: "(800) 555-0100", optional: true },
+    ],
+  },
+  {
+    id: "california",
+    label: "California Supplement",
+    required: false,
+    badge: "CCPA / CPRA",
+    fields: [
+      { key: "retentionApplication", label: "Application data retention (years)", placeholder: "3" },
+      { key: "retentionResident", label: "Resident data retention, post-lease (years)", placeholder: "7" },
+      { key: "retentionComms", label: "Communications records retention (years)", placeholder: "3" },
+      { key: "retentionWebsite", label: "Website activity retention (months)", placeholder: "13" },
+      { key: "retentionBackground", label: "Background screening retention (years)", placeholder: "5", hint: "Subject to FCRA requirements" },
+      { key: "doNotSellMethod", label: "Do Not Sell opt-out method", placeholder: 'clicking the "Do Not Sell" link on our website' },
+    ],
+  },
+  {
+    id: "minnesota",
+    label: "Minnesota Supplement",
+    required: false,
+    badge: "Minn. Stat. § 325M",
+    fields: [
+      { key: "privacyOfficerName", label: "Privacy Officer name", placeholder: "Jane Smith" },
+      { key: "privacyOfficerEmail", label: "Privacy Officer email", placeholder: "privacy@company.com" },
+      { key: "privacyOfficerPhone", label: "Privacy Officer phone", placeholder: "(800) 555-0100" },
+    ],
+  },
+]
+
+// ── Sub-components ────────────────────────────────────────────────────────────
 interface OptionCardProps {
   icon: React.ElementType; title: string; description: string
   active: boolean; onSelect: () => void; children?: React.ReactNode
@@ -79,20 +184,6 @@ function CopyBtn({ text }: { text: string }) {
   )
 }
 
-function VerbageBlock({ label, text }: { label: string; text: string }) {
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-medium text-muted-foreground">{label}</p>
-        <CopyBtn text={text} />
-      </div>
-      <div className="rounded-md border border-dashed border-zinc-300 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-700 leading-relaxed">
-        {text}
-      </div>
-    </div>
-  )
-}
-
 function ThirdPartyRow({
   property, confirmed, onConfirm,
 }: {
@@ -100,13 +191,12 @@ function ThirdPartyRow({
   confirmed: boolean
   onConfirm: (id: string, val: boolean) => void
 }) {
-  const consentText = getConsentLanguage(property.name)
+  const consentText = `By providing your phone number, you agree to receive automated text messages from ${property.name} — including leasing updates, payment reminders, maintenance notifications, and renewal information. Message frequency varies. Message and data rates may apply. Reply HELP for assistance or STOP to opt out at any time. View our Privacy Policy and Terms of Use at ${property.website}/legal.`
   return (
     <div className={cn(
       "rounded-xl border overflow-hidden transition-all",
       confirmed ? "border-emerald-200 bg-emerald-50/30" : "border-zinc-200 bg-white",
     )}>
-      {/* Property header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border/60">
         <Globe className="h-3.5 w-3.5 text-muted-foreground shrink-0" aria-hidden />
         <div className="flex-1 min-w-0">
@@ -115,8 +205,6 @@ function ThirdPartyRow({
         </div>
         {confirmed && <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" aria-hidden />}
       </div>
-
-      {/* Consent language + confirmation */}
       <div className="px-4 py-3 space-y-3">
         <p className="text-xs font-medium text-muted-foreground">
           Add this as a checkbox disclosure on your contact form at <strong>{property.website}</strong>. The checkbox must be unchecked by default.
@@ -145,28 +233,105 @@ function ThirdPartyRow({
   )
 }
 
+// ── Template form ─────────────────────────────────────────────────────────────
+function TemplateForm({
+  fields,
+  onChange,
+}: {
+  fields: TemplateFields
+  onChange: (key: keyof TemplateFields, value: string) => void
+}) {
+  const [openSections, setOpenSections] = useState<Set<SectionId>>(new Set(["company", "sms", "contact"]))
+
+  function toggleSection(id: SectionId) {
+    setOpenSections(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  function isSectionComplete(section: typeof FIELD_SECTIONS[number]) {
+    return section.fields.filter(f => !f.optional).every(f => fields[f.key].trim() !== "")
+  }
+
+  return (
+    <div className="space-y-1.5">
+      {FIELD_SECTIONS.map(section => {
+        const isOpen = openSections.has(section.id)
+        const isComplete = isSectionComplete(section)
+        return (
+          <div key={section.id} className="rounded-lg border border-border overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggleSection(section.id)}
+              className={cn(
+                "w-full flex items-center gap-2 px-3 py-2.5 text-left transition-colors",
+                isOpen ? "bg-zinc-100" : "hover:bg-zinc-50",
+              )}
+            >
+              {isComplete
+                ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" aria-hidden />
+                : <div className="h-3.5 w-3.5 rounded-full border border-zinc-300 shrink-0" />}
+              <span className="flex-1 text-xs font-semibold text-foreground">{section.label}</span>
+              {section.badge && (
+                <span className="text-[10px] font-medium text-muted-foreground bg-zinc-100 border border-border rounded px-1.5 py-0.5">
+                  {section.badge}
+                </span>
+              )}
+              {!section.required && (
+                <span className="text-[10px] text-muted-foreground">Optional</span>
+              )}
+              {isOpen
+                ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+            </button>
+            {isOpen && (
+              <div className="px-3 pb-3 pt-2 space-y-3 bg-zinc-50/50">
+                {section.fields.map(f => (
+                  <div key={f.key}>
+                    <label className="flex items-center gap-1 text-xs font-medium text-muted-foreground mb-1">
+                      {f.label}
+                      {f.optional && <span className="text-muted-foreground/60 text-[11px]">(optional)</span>}
+                      {f.hint && (
+                        <span title={f.hint} className="cursor-help">
+                          <Info className="h-3 w-3 text-muted-foreground/50" aria-label={f.hint} />
+                        </span>
+                      )}
+                    </label>
+                    <input
+                      type="text"
+                      value={fields[f.key]}
+                      onChange={e => onChange(f.key, e.target.value)}
+                      placeholder={f.placeholder}
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 export function PrivacyPage({ navigate, completedTasks, onComplete }: BasePageProps) {
   const isConfigured = completedTasks?.has("privacy") ?? false
 
-  // Privacy policy fix state
   const [mode, setMode] = useState<null | "copy" | "template">(null)
   const [selectedProperty, setSelectedProperty] = useState("")
-  const [fields, setFields] = useState<TemplateFields>({
-    companyName: "Sunset Property Group LLC",
-    contactEmail: "privacy@sunsetproperties.com",
-    stateList: "Arizona, California, Texas",
-  })
-
-  // Third-party confirmation state
+  const [fields, setFields] = useState<TemplateFields>(DEFAULT_FIELDS)
   const [thirdPartyConfirmed, setThirdPartyConfirmed] = useState<Record<string, boolean>>({})
+  const [showPreview, setShowPreview] = useState(false)
+
+  const templateFieldsValid = REQUIRED_FIELDS.every(k => fields[k].trim() !== "")
 
   const policyValid =
     (mode === "copy" && selectedProperty !== "") ||
-    (mode === "template" &&
-      fields.companyName.trim() !== "" &&
-      fields.contactEmail.trim() !== "" &&
-      fields.stateList.trim() !== "")
+    (mode === "template" && templateFieldsValid)
 
   const allThirdPartyConfirmed = THIRD_PARTY_PROPERTIES.every(p => !!thirdPartyConfirmed[p.id])
   const confirmedCount = THIRD_PARTY_PROPERTIES.filter(p => !!thirdPartyConfirmed[p.id]).length
@@ -177,8 +342,12 @@ export function PrivacyPage({ navigate, completedTasks, onComplete }: BasePagePr
     navigate("overview")
   }
 
+  function handleFieldChange(key: keyof TemplateFields, value: string) {
+    setFields(prev => ({ ...prev, [key]: value }))
+  }
+
   return (
-    <div className="p-6 md:p-8 max-w-6xl space-y-6">
+    <div className="p-6 md:p-8 max-w-2xl space-y-6">
       <button
         type="button"
         onClick={() => navigate("overview")}
@@ -212,7 +381,7 @@ export function PrivacyPage({ navigate, completedTasks, onComplete }: BasePagePr
         </div>
       )}
 
-      {/* ── Section 1: Privacy Policy Status & Fix ─────────────────────── */}
+      {/* ── Section 1: What We Found ──────────────────────────────────── */}
       <div className="space-y-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/70 mb-2">
@@ -240,11 +409,14 @@ export function PrivacyPage({ navigate, completedTasks, onComplete }: BasePagePr
           </div>
         </div>
 
+        {/* ── Fix options ──────────────────────────────────────────────── */}
         <div>
           <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/70 mb-2">
             {isConfigured ? "Update Policy — Choose an Option" : "Fix 8 Properties — Choose an Option"}
           </p>
           <div className="space-y-2">
+
+            {/* Option A: Copy */}
             <OptionCard
               icon={Copy}
               title="Copy from a compliant property"
@@ -289,40 +461,61 @@ export function PrivacyPage({ navigate, completedTasks, onComplete }: BasePagePr
               )}
             </OptionCard>
 
+            {/* Option B: Template v2 madlib */}
             <OptionCard
               icon={FileText}
-              title="Fill in the Entrata template"
-              description="Complete a short form and we'll generate a compliant privacy policy applied to all properties."
+              title="Fill in the Entrata template (v2)"
+              description="Complete the legal privacy policy template — all required fields in one place. We'll publish it to all 8 properties."
               active={mode === "template"}
               onSelect={() => setMode(mode === "template" ? null : "template")}
             >
-              <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50/60 px-4 py-3 text-sm text-zinc-600 leading-relaxed">
-                <span className="text-foreground font-medium">"</span>
-                {" "}By providing your phone number, you consent to receive SMS messages from{" "}
-                <span className="inline-block border-b border-zinc-400 text-foreground font-medium min-w-[80px]">{fields.companyName || "___"}</span>
-                {" "}regarding your tenancy. Message and data rates may apply. Contact{" "}
-                <span className="inline-block border-b border-zinc-400 text-foreground font-medium min-w-[80px]">{fields.contactEmail || "___"}</span>
-                {" "}to opt out. Applies in:{" "}
-                <span className="inline-block border-b border-zinc-400 text-foreground font-medium min-w-[80px]">{fields.stateList || "___"}</span>
-                .<span className="text-foreground font-medium">"</span>
+              {/* Legal disclaimer */}
+              <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+                <Info className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" aria-hidden />
+                <p className="text-xs text-amber-800 leading-relaxed">
+                  <strong>Not legal advice.</strong> This template was created for informational purposes only (Entrata PMC Privacy Policy Template v2). Review with qualified legal counsel before publishing. Customize all fields for your organization.
+                </p>
               </div>
-              <div className="space-y-2.5">
-                {([
-                  { key: "companyName" as const, label: "Legal company name" },
-                  { key: "contactEmail" as const, label: "Privacy contact email" },
-                  { key: "stateList" as const, label: "States where this applies" },
-                ]).map(({ key, label }) => (
-                  <div key={key}>
-                    <label className="text-xs font-medium text-muted-foreground block mb-1">{label}</label>
-                    <input
-                      type="text"
-                      value={fields[key]}
-                      onChange={e => setFields(prev => ({ ...prev, [key]: e.target.value }))}
-                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-zinc-900"
-                    />
+
+              {/* Accordion form */}
+              <TemplateForm fields={fields} onChange={handleFieldChange} />
+
+              {/* Footer row: progress + preview */}
+              <div className="flex items-center justify-between pt-1">
+                <p className="text-xs text-muted-foreground">
+                  {REQUIRED_FIELDS.filter(k => fields[k].trim() !== "").length}/{REQUIRED_FIELDS.length} required fields complete
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowPreview(!showPreview)}
+                  className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
+                >
+                  {showPreview ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                  {showPreview ? "Hide preview" : "Preview full policy"}
+                </button>
+              </div>
+
+              {/* Policy preview */}
+              {showPreview && (
+                <div className="rounded-xl border border-zinc-200 bg-white overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-zinc-50">
+                    <p className="text-xs font-semibold text-foreground">Full Policy Preview</p>
+                    <CopyBtn text={generatePrivacyPolicy(fields)} />
                   </div>
-                ))}
-              </div>
+                  <div className="max-h-80 overflow-y-auto px-4 py-3">
+                    <pre className="text-[10px] text-zinc-700 whitespace-pre-wrap leading-relaxed font-sans">
+                      {generatePrivacyPolicy(fields)}
+                    </pre>
+                  </div>
+                </div>
+              )}
+
+              {templateFieldsValid && (
+                <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" aria-hidden />
+                  <p className="text-xs text-emerald-800">All required fields complete. Ready to publish.</p>
+                </div>
+              )}
             </OptionCard>
           </div>
         </div>

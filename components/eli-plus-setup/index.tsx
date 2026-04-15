@@ -151,7 +151,7 @@ export default function EliOnboardingHybrid() {
   const renewalAllFilled = renewalFilled === PROPERTIES.length
 
   return (
-      <HybridShell page={page} navigate={navigate} completedTasks={completedTasks} privacyPublished={privacyPublished} emailComplete={emailComplete} commsComplete={campaignStatus === "ready"}>
+      <HybridShell page={page} navigate={navigate} completedTasks={completedTasks} privacyPublished={privacyPublished} emailComplete={emailComplete} commsComplete={campaignStatus === "ready"} ivrComplete={ivrComplete}>
         {page === "overview" ? (
           <OverviewPage
             navigate={navigate}

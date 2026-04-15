@@ -173,207 +173,22 @@ export function PaymentsSummaryPage({ navigate, completedTasks, onComplete }: Ba
         </p>
       </div>
 
-      <AgentTabBar activeTab={topTab} onTabChange={setTopTab} />
-
-      {topTab === "voices"      && <VoiceTab selectedVoice={selectedVoice} onSelect={setSelectedVoice} />}
-      {topTab === "prompt"      && <PromptTab productId="payments" />}
-      {topTab === "test"        && <TestAgentTab productLabel="Payments AI" voiceName={voiceName} scenarios={PAYMENTS_SCENARIOS} />}
-      {topTab === "escalations" && <EscalationsTab productId="payments" />}
-      {topTab === "reporting"   && <PaymentsReportingTab />}
-
-      {topTab === "configure" && (
-      <div className="max-w-6xl space-y-6">
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            Expand any section to review or update — changes apply immediately.
+      {/* Coming Soon Banner */}
+      <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 flex items-start gap-3">
+        <span className="text-amber-500 mt-0.5 shrink-0">🚧</span>
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-amber-900">Coming soon — new updates to settings</p>
+          <p className="text-sm text-amber-800">
+            In the meantime, you can{" "}
+            <a href="#" className="underline underline-offset-2 font-medium hover:text-amber-900">
+              update your settings here
+            </a>
+            .
           </p>
-          <span className="text-xs text-muted-foreground tabular-nums shrink-0">
-            {effectiveCount} / {SETTINGS.length} ready
-          </span>
         </div>
-
-      {/* Progress bar */}
-      <div className="h-1.5 w-full rounded-full bg-zinc-100 overflow-hidden">
-        <div
-          className="h-full rounded-full bg-emerald-700 transition-all duration-500"
-          style={{ width: `${(effectiveCount / SETTINGS.length) * 100}%` }}
-        />
       </div>
 
-      {/* Defaults banner */}
-      {defaultCount > 0 && (
-        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3.5 space-y-2">
-          <div className="flex items-start gap-2.5">
-            <Sparkles className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" aria-hidden />
-            <div>
-              <p className="text-sm font-semibold text-blue-900">
-                We applied defaults to {defaultCount} settings
-              </p>
-              <p className="text-xs text-blue-800 mt-0.5 leading-relaxed">
-                We inferred these values from your existing Entrata configuration. They won't block activation, but we recommend reviewing each one before going live to make sure they match your lease agreements and billing policies.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5 pl-7">
-            <Info className="h-3 w-3 text-blue-500 shrink-0" aria-hidden />
-            <p className="text-[11px] text-blue-700">Settings marked <span className="font-semibold">Default Applied</span> were pre-filled — not entered by your team.</p>
-          </div>
-        </div>
-      )}
-
-      {/* Settings accordion */}
-      <div className="rounded-xl border border-border overflow-hidden divide-y divide-border">
-        {SETTINGS.map((setting) => {
-          const explicitlyConfigured = completedTasks?.has(setting.id) ?? false
-          const hasDefault = !!DEFAULT_SETTINGS[setting.id]
-          const isConfigured = explicitlyConfigured || hasDefault
-          const isOpen = openSection === setting.id
-          const isValid = validMap[setting.id] ?? false
-
-          return (
-            <div key={setting.id}>
-              {/* Row header — always clickable */}
-              <button
-                type="button"
-                onClick={() => setOpenSection(isOpen ? null : setting.id)}
-                className="w-full flex items-center gap-3 px-4 py-4 text-left bg-white hover:bg-zinc-50 transition-colors"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-medium text-foreground">{setting.label}</p>
-                    {/* Default Applied + Complete shown together for auto-inferred settings */}
-                    {hasDefault && !explicitlyConfigured && (
-                      <>
-                        <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
-                          <Sparkles className="h-3 w-3" aria-hidden />
-                          Default Applied
-                        </span>
-                        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-                          <CheckCircle2 className="h-3 w-3" aria-hidden />
-                          Complete
-                        </span>
-                      </>
-                    )}
-                    {/* Explicitly configured by the user */}
-                    {explicitlyConfigured && (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-                        <CheckCircle2 className="h-3 w-3" aria-hidden />
-                        Complete
-                      </span>
-                    )}
-                    {/* Not set — needs client input */}
-                    {!isConfigured && (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
-                        <AlertTriangle className="h-3 w-3" aria-hidden />
-                        Not Set
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">{setting.description}</p>
-                </div>
-                {isOpen
-                  ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden />
-                  : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden />}
-              </button>
-
-              {/* Expanded form */}
-              {isOpen && (
-                <div className="border-t border-border bg-zinc-50/50">
-                  {/* Default applied notice — always show when a default exists and user hasn't overridden */}
-                  {hasDefault && !explicitlyConfigured && (
-                    <div className="mx-4 mt-4 rounded-lg border border-blue-200 bg-blue-50 px-3.5 py-3 space-y-1">
-                      <div className="flex items-center gap-2">
-                        <Sparkles className="h-3.5 w-3.5 text-blue-600 shrink-0" aria-hidden />
-                        <p className="text-xs font-semibold text-blue-900">Default applied — please review</p>
-                      </div>
-                      <p className="text-xs text-blue-800 pl-5">
-                        <span className="font-medium">Applied value:</span> {DEFAULT_SETTINGS[setting.id].value}
-                      </p>
-                      <p className="text-xs text-blue-700 pl-5">
-                        <span className="font-medium">Source:</span> {DEFAULT_SETTINGS[setting.id].source}
-                      </p>
-                      <p className="text-xs text-blue-700 pl-5 pt-0.5">
-                        This setting is complete, but we recommend verifying it matches your lease agreements. Save below to confirm or override.
-                      </p>
-                    </div>
-                  )}
-                  {explicitlyConfigured && (
-                    <div className="flex items-center gap-2 mx-4 mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5">
-                      <CheckCircle2 className="h-4 w-4 text-emerald-700 shrink-0" aria-hidden />
-                      <p className="text-xs text-emerald-800">
-                        Previously configured. Update below and save to apply changes.
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Render the matching form component */}
-                  <div className="bg-white">
-                    {setting.type === "date" && (
-                      <DateSettingSheetContent
-                        label={setting.label}
-                        onValidChange={(v) => setValid(setting.id, v)}
-                        defaultDay={DEFAULT_SETTINGS[setting.id]?.value.match(/^\d+/)?.[0]}
-                      />
-                    )}
-                    {setting.type === "plans" && (
-                      <PaymentPlansSheetContent
-                        onValidChange={(v) => setValid(setting.id, v)}
-                      />
-                    )}
-                    {setting.type === "link" && (
-                      <PaymentLinkSheetContent
-                        onValidChange={(v) => setValid(setting.id, v)}
-                      />
-                    )}
-                    {setting.type === "late-fee" && (
-                      <LateFeeSheetContent
-                        policies={lateFeePolicy}
-                        onChange={(propId, val) => setLateFeePolicy(p => ({ ...p, [propId]: val }))}
-                        onValidChange={(v) => setValid(setting.id, v)}
-                      />
-                    )}
-                    {setting.type === "payment-plan-policy" && (
-                      <PaymentPlanPolicySheetContent
-                        policies={paymentPlanPolicy}
-                        onChange={(propId, val) => setPaymentPlanPolicy(p => ({ ...p, [propId]: val }))}
-                        onValidChange={(v) => setValid(setting.id, v)}
-                      />
-                    )}
-                    {setting.type === "options" && (
-                      <PaymentOptionsSheetContent
-                        onValidChange={(v) => setValid(setting.id, v)}
-                      />
-                    )}
-                  </div>
-
-                  <div className="flex justify-end gap-3 px-6 py-4 border-t border-border bg-white">
-                    <button
-                      type="button"
-                      onClick={() => setOpenSection(null)}
-                      className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      disabled={(setting.type === "late-fee" || setting.type === "payment-plan-policy") ? false : !isValid}
-                      onClick={() => handleSave(setting.id)}
-                      className={cn(
-                        buttonVariants({ variant: "eli", size: "sm" }),
-                        (setting.type !== "late-fee" && setting.type !== "payment-plan-policy" && !isValid) && "opacity-40 cursor-not-allowed",
-                      )}
-                    >
-                      {setting.saveLabel}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-      </div>
-      )}
+      {/* Tab content — hidden while coming soon banner is active */}
     </div>
   )
 }

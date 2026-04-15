@@ -370,70 +370,22 @@ export function LeasingPage({
         </p>
       </div>
 
-      {/* Top-level tabs */}
-      <div className="flex items-center gap-1 rounded-lg border border-border bg-white px-1.5 py-1.5 w-fit">
-        {TOP_TABS.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setTopTab(id)}
-            className={cn(
-              "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-              topTab === id
-                ? "bg-zinc-900 text-white shadow-sm"
-                : "text-muted-foreground hover:text-foreground hover:bg-zinc-50",
-            )}
-          >
-            <Icon className="h-3.5 w-3.5" aria-hidden />
-            {label}
-          </button>
-        ))}
+      {/* Coming Soon Banner */}
+      <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 flex items-start gap-3">
+        <span className="text-amber-500 mt-0.5 shrink-0">🚧</span>
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-amber-900">Coming soon — new updates to settings</p>
+          <p className="text-sm text-amber-800">
+            In the meantime, you can{" "}
+            <a href="#" className="underline underline-offset-2 font-medium hover:text-amber-900">
+              update your settings here
+            </a>
+            .
+          </p>
+        </div>
       </div>
 
-      {/* Tab content */}
-      {topTab === "configure" && (
-        <div className="space-y-4 max-w-6xl">
-          <div className="flex items-center gap-1 rounded-lg border border-border bg-white px-1.5 py-1.5 w-fit flex-wrap">
-            {CONFIGURE_TABS.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setConfigTab(tab.id)}
-                className={cn(
-                  "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                  configTab === tab.id
-                    ? "bg-zinc-900 text-white shadow-sm"
-                    : "text-muted-foreground hover:text-foreground hover:bg-zinc-50",
-                )}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="rounded-xl border border-border bg-white overflow-hidden">
-            {configTab === "goals" && <AgentGoalSheetContent goals={agentGoals} onChange={onAgentGoalChange} onValidChange={() => {}} />}
-            {configTab === "units" && <ModelUnitsSheetContent units={modelUnits} onChange={onModelUnitChange} onValidChange={() => {}} />}
-            {configTab === "tours" && <TourTypesSheetContent settings={tourSettings} onChange={onTourSettingChange} onValidChange={() => {}} />}
-            {configTab === "priority" && <TourPrioritySheetContent priority={tourPriority} onChange={onTourPriorityChange} onValidChange={() => {}} />}
-            {configTab === "policies" && <LeasingPoliciesSheetContent policies={leasingPolicies} onChange={onLeasingPolicyChange} onValidChange={() => {}} />}
-          </div>
-        </div>
-      )}
-
-      {topTab === "voices" && (
-        <VoicesTab selectedVoice={selectedVoice} onSelect={setSelectedVoice} />
-      )}
-
-      {topTab === "prompt" && <PromptTab productId="leasing" />}
-
-      {topTab === "test" && (
-        <TestAgentTab voiceName={selectedVoiceName} />
-      )}
-
-      {topTab === "escalations" && <EscalationsTab productId="leasing" />}
-
-      {topTab === "reporting" && <ReportingTab productId="leasing" />}
+      {/* Top-level tabs — hidden while coming soon banner is active */}
     </div>
   )
 }

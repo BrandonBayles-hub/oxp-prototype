@@ -79,10 +79,11 @@ interface HybridShellProps {
   privacyPublished: boolean
   emailComplete: boolean
   commsComplete: boolean
+  ivrComplete: boolean
   children: React.ReactNode
 }
 
-export function HybridShell({ page, navigate, completedTasks, privacyPublished, emailComplete, commsComplete, children }: HybridShellProps) {
+export function HybridShell({ page, navigate, completedTasks, privacyPublished, emailComplete, commsComplete, ivrComplete, children }: HybridShellProps) {
   return (
     <div className="flex h-full bg-background">
       <aside
@@ -130,7 +131,7 @@ export function HybridShell({ page, navigate, completedTasks, privacyPublished, 
             {(() => {
               const blockingCount = NEEDS_ATTENTION.filter(
                 (i) => !completedTasks.has(i.id) && (i.severity === "critical" || i.severity === "attention"),
-              ).length + (privacyPublished ? 0 : 1) + (emailComplete ? 0 : 1) // +1 each for 10DLC and email
+              ).length + (privacyPublished ? 0 : 1) + (emailComplete ? 0 : 1) + (commsComplete && !ivrComplete ? 1 : 0) // IVR only counts when unlocked
               return (
                 <button
                   type="button"
@@ -187,27 +188,6 @@ export function HybridShell({ page, navigate, completedTasks, privacyPublished, 
                 )
               })}
             </div>
-          </div>
-
-          {/* Activate group */}
-          <div>
-            <p className="px-2 mb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
-              Activate
-            </p>
-            <button
-              type="button"
-              onClick={() => navigate("golive")}
-              className={cn(
-                "w-full flex items-center gap-2.5 rounded-md px-2 py-2 text-sm transition-colors",
-                page === "golive"
-                  ? "bg-accent text-foreground font-medium"
-                  : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-              )}
-            >
-              <Rocket className={cn("h-4 w-4 shrink-0", STATUS["golive"] === "complete" ? "text-emerald-700" : undefined)} aria-hidden />
-              <span className="flex-1 text-left">Go Live</span>
-              <StatusIcon status={STATUS["golive"]} />
-            </button>
           </div>
 
         </nav>
