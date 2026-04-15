@@ -27,6 +27,7 @@ import { R1_2ReleaseProvider } from "@/lib/r1-2-release-context";
 
 import { EliEmailsProvider } from "@/lib/eli-emails-context";
 import { EliPlusSetupProvider } from "@/lib/eli-plus-setup-context";
+import { RoadmapProvider } from "@/lib/roadmap-context";
 
 export const metadata: Metadata = {
   title: "OXP Studio",
@@ -82,6 +83,7 @@ export default function RootLayout({
           src="https://assets.calendly.com/assets/external/widget.js"
           strategy="afterInteractive"
         />
+        <RoadmapProvider>
         <EliPlusSetupProvider>
         <ClickToCallDemoProvider>
         <R1ReleaseProvider>
@@ -129,6 +131,7 @@ export default function RootLayout({
         </R1ReleaseProvider>
         </ClickToCallDemoProvider>
         </EliPlusSetupProvider>
+        </RoadmapProvider>
       </body>
     </html>
   );
