@@ -487,27 +487,27 @@ function AdminCommandCenter() {
         icon: DollarSign,
         description: "Total revenue attributed to AI agent activity across your portfolio over the past 8 weeks.",
         summaryCards: [
-          { label: "Total Revenue Impact", value: "$42K", subtext: "+8% since last week", subtextVariant: "positive" },
-          { label: "Avg Revenue per Agent", value: "$10.5K", subtext: "Across 4 revenue-generating agents" },
+          { label: "Total Revenue Impact", value: "$38.7K", subtext: "+8% since last week", subtextVariant: "positive" },
+          { label: "Avg Revenue per Agent", value: "$12.9K", subtext: "Across 3 revenue-generating agents" },
           { label: "Revenue per Conversation", value: "$22.74", subtext: "+$3.20 from last month", subtextVariant: "positive" },
-          { label: "Projected Monthly", value: "$84K", subtext: "Based on current 8-week trend" },
+          { label: "Projected Monthly", value: "$77.4K", subtext: "Based on current 8-week trend" },
         ],
         byProperty: {
           a: { chartMultiplier: 0.44, summaryCards: [
             { label: "Total Revenue Impact", value: "$18.6K", subtext: "+11% since last week", subtextVariant: "positive" },
-            { label: "Avg Revenue per Agent", value: "$4.7K", subtext: "Across 4 revenue-generating agents" },
+            { label: "Avg Revenue per Agent", value: "$4.7K", subtext: "Across 3 revenue-generating agents" },
             { label: "Revenue per Conversation", value: "$24.10", subtext: "+$4.50 from last month", subtextVariant: "positive" },
             { label: "Projected Monthly", value: "$37.2K", subtext: "Based on current 8-week trend" },
           ]},
           b: { chartMultiplier: 0.34, summaryCards: [
             { label: "Total Revenue Impact", value: "$14.2K", subtext: "+7% since last week", subtextVariant: "positive" },
-            { label: "Avg Revenue per Agent", value: "$3.6K", subtext: "Across 4 revenue-generating agents" },
+            { label: "Avg Revenue per Agent", value: "$3.6K", subtext: "Across 3 revenue-generating agents" },
             { label: "Revenue per Conversation", value: "$19.80", subtext: "+$2.10 from last month", subtextVariant: "positive" },
             { label: "Projected Monthly", value: "$28.4K", subtext: "Based on current 8-week trend" },
           ]},
           c: { chartMultiplier: 0.22, summaryCards: [
             { label: "Total Revenue Impact", value: "$9.2K", subtext: "+4% since last week", subtextVariant: "positive" },
-            { label: "Avg Revenue per Agent", value: "$2.3K", subtext: "Across 4 revenue-generating agents" },
+            { label: "Avg Revenue per Agent", value: "$2.3K", subtext: "Across 3 revenue-generating agents" },
             { label: "Revenue per Conversation", value: "$16.50", subtext: "+$1.40 from last month", subtextVariant: "positive" },
             { label: "Projected Monthly", value: "$18.4K", subtext: "Based on current 8-week trend" },
           ]},
@@ -528,10 +528,9 @@ function AdminCommandCenter() {
           {
             type: "list", title: "Revenue by Agent",
             items: [
-              { name: "Leasing AI", detail: "37 leases \u00d7 $497 avg commission", value: "$18.4K", percentage: "44%", trend: "+12%", trendVariant: "positive", iconSrc: "/eli-cube.svg" },
-              { name: "Payments AI", detail: "$218K collected, recovered $12.2K in late fees", value: "$12.2K", percentage: "29%", trend: "+6%", trendVariant: "positive", iconSrc: "/eli-cube.svg" },
-              { name: "Renewal AI", detail: "28 renewals with avg $289 rent increase", value: "$8.1K", percentage: "19%", trend: "+15%", trendVariant: "positive", iconSrc: "/eli-cube.svg" },
-              { name: "Compliance Agent", detail: "3 HUD claims identified, $14.2K recoverable", value: "$3.3K", percentage: "8%", trend: "+22%", trendVariant: "positive", iconSrc: "/eli-cube.svg" },
+              { name: "Leasing AI", detail: "37 leases \u00d7 $497 avg commission", value: "$18.4K", percentage: "48%", trend: "+12%", trendVariant: "positive", iconSrc: "/eli-cube.svg" },
+              { name: "Payments AI", detail: "$218K collected, recovered $12.2K in late fees", value: "$12.2K", percentage: "31%", trend: "+6%", trendVariant: "positive", iconSrc: "/eli-cube.svg" },
+              { name: "Renewal AI", detail: "28 renewals with avg $289 rent increase", value: "$8.1K", percentage: "21%", trend: "+15%", trendVariant: "positive", iconSrc: "/eli-cube.svg" },
             ],
           },
           {
