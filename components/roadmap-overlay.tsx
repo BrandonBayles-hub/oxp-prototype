@@ -331,16 +331,16 @@ export function RoadmapOverlay() {
       <div
         style={{
           position: "relative",
-          width: viewMode === "vision" ? "min(1400px, 96vw)" : "min(1100px, 92vw)",
-          height: viewMode === "vision" ? "96vh" : undefined,
-          maxHeight: viewMode === "vision" ? "96vh" : "88vh",
+          width: "min(1400px, 96vw)",
+          height: "96vh",
+          maxHeight: "96vh",
           background: "#fff",
-          borderRadius: viewMode === "vision" ? 12 : 16,
+          borderRadius: 12,
           boxShadow: "0 24px 64px rgba(0,0,0,0.2), 0 8px 24px rgba(0,0,0,0.1)",
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
-          transition: "width 300ms ease, max-height 300ms ease, border-radius 300ms ease",
+          transition: "none",
         }}
       >
         {/* Header */}
