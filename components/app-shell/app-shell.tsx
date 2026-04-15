@@ -10,6 +10,7 @@ import { NotificationToast } from "@/components/notification-toast";
 import { RouteGuard } from "@/components/route-guard";
 import { cn } from "@/lib/utils";
 import { R1ScheduleCta } from "@/components/r1-schedule-cta";
+import { RoadmapOverlay } from "@/components/roadmap-overlay";
 
 const CHROMELESS_ROUTES: string[] = [];
 const FULL_BLEED_ROUTES = ["/conversations"];
@@ -41,6 +42,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </main>
         <NotificationToast />
         <R1ScheduleCta />
+        <RoadmapOverlay />
       </div>
     );
   }
@@ -74,6 +76,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
       <NotificationToast />
       <R1ScheduleCta />
+      <RoadmapOverlay />
     </div>
   );
 }

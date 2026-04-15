@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertCircle } from "lucide-react";
+import { Lightbulb } from "lucide-react";
 import {
   AreaChart,
   Area,
@@ -159,19 +159,23 @@ export function MetricDetailDialog({
 
         {/* Alert / CTA for negative trends */}
         {activeAlert && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950/30">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/30">
             <div className="flex items-start gap-3">
-              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
+              <Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
               <div>
-                <p className="font-semibold text-red-900 dark:text-red-200">{activeAlert.title}</p>
-                <p className="mt-1 text-sm text-red-800 dark:text-red-300">{activeAlert.description}</p>
+                <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                  We&apos;ve noticed an area where there may be room for improvement. Here are some suggestions to help.
+                </p>
+                <p className="mt-2 font-semibold text-amber-900 dark:text-amber-200">{activeAlert.title}</p>
+                <p className="mt-1 text-sm text-amber-800 dark:text-amber-300">{activeAlert.description}</p>
                 <div className="mt-3 flex gap-2">
                   {activeAlert.actions.map((action) => (
                     <Button
                       key={action.label}
                       asChild
-                      variant={action.primary ? "destructive" : "outline"}
+                      variant={action.primary ? "default" : "outline"}
                       size="sm"
+                      className={action.primary ? "bg-amber-600 hover:bg-amber-700 text-white" : ""}
                     >
                       <Link href={action.href}>
                         {action.label} <span aria-hidden>&rarr;</span>
@@ -198,7 +202,7 @@ export function MetricDetailDialog({
                   className={cn(
                     "mt-1 text-xs",
                     card.subtextVariant === "positive" && "text-green-600 dark:text-green-400",
-                    card.subtextVariant === "negative" && "text-red-600 dark:text-red-400",
+                    card.subtextVariant === "negative" && "text-amber-600 dark:text-amber-400",
                     (!card.subtextVariant || card.subtextVariant === "neutral") &&
                       "text-muted-foreground"
                   )}
@@ -301,7 +305,7 @@ function ListBreakdown({ section }: { section: Extract<BreakdownSection, { type:
                     className={cn(
                       "text-xs",
                       item.trendVariant === "positive" && "text-green-600 dark:text-green-400",
-                      item.trendVariant === "negative" && "text-red-600 dark:text-red-400"
+                      item.trendVariant === "negative" && "text-amber-600 dark:text-amber-400"
                     )}
                   >
                     {item.trend}
@@ -350,7 +354,7 @@ function AgentListBreakdown({
                     className={cn(
                       "text-sm font-semibold",
                       m.variant === "positive" && "text-green-600 dark:text-green-400",
-                      m.variant === "negative" && "text-red-600 dark:text-red-400"
+                      m.variant === "negative" && "text-amber-600 dark:text-amber-400"
                     )}
                   >
                     {m.value}
@@ -384,11 +388,11 @@ function PropertyGrid({
   return (
     <div className={cn("grid gap-4", section.items.length >= 3 ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
       {section.items.map((prop) => (
-        <Card key={prop.name} className={prop.highlight ? "border-red-200 dark:border-red-900" : ""}>
+        <Card key={prop.name} className={prop.highlight ? "border-amber-200 dark:border-amber-900" : ""}>
           <CardContent className="p-4">
             <p className="text-sm font-semibold">{prop.name}</p>
             {prop.highlight && (
-              <p className="text-xs font-medium text-red-600 dark:text-red-400">{prop.highlight}</p>
+              <p className="text-xs font-medium text-amber-600 dark:text-amber-400">{prop.highlight}</p>
             )}
             <div className="mt-2 space-y-1">
               {prop.stats.map((s) => (

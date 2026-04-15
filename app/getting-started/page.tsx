@@ -17,7 +17,7 @@ import {
   type RiskLevel,
 } from "@/lib/governance-context";
 import { useR1Release } from "@/lib/r1-release-context";
-import { useEliPlusSetup } from "@/lib/eli-plus-setup-context";
+import { useR1_2Release } from "@/lib/r1-2-release-context";
 import dynamic from "next/dynamic";
 import {
   CheckCircle2,
@@ -101,15 +101,16 @@ export default function GettingStartedPage() {
   const { humanMembers } = useWorkforce();
   const { state: govState, updateActivity: updateGovActivity, enabledGuardrailCount } = useGovernance();
   const { isR1Release } = useR1Release();
-  const { eliPlusSetupEnabled } = useEliPlusSetup();
+  const { isR1_2Release } = useR1_2Release();
+  const isFullVersion = !isR1Release && !isR1_2Release;
   const [activeTab, setActiveTab] = useState<"activation" | "eli-plus">("activation");
 
   useEffect(() => {
-    if (eliPlusSetupEnabled && activeTab === "eli-plus") {
+    if (isFullVersion && activeTab === "eli-plus") {
       document.body.style.overflow = "hidden";
       return () => { document.body.style.overflow = ""; };
     }
-  }, [eliPlusSetupEnabled, activeTab]);
+  }, [isFullVersion, activeTab]);
 
   const R1_HIDDEN_STEPS = ["governance", "voice-brand", "eli-essentials", "ops-efficiency", "eli-plus"];
 
@@ -174,7 +175,7 @@ export default function GettingStartedPage() {
     router.push("/command-center");
   };
 
-  if (eliPlusSetupEnabled && activeTab === "eli-plus") {
+  if (isFullVersion && activeTab === "eli-plus") {
     return (
       <div className="fixed inset-0 flex flex-col bg-white" style={{ top: 76, zIndex: 9999 }}>
         {/* Back bar */}
@@ -205,7 +206,7 @@ export default function GettingStartedPage() {
         description="Complete each step to fully activate OXP Studio. Progress updates automatically as you configure the platform."
       />
 
-      {eliPlusSetupEnabled && (
+      {isFullVersion && (
         <div className="mb-6">
           <button
             type="button"
