@@ -399,13 +399,12 @@ function OwnerCombobox({ members, value, onChange }: { members: { id: string; na
 }
 
 export function TrainingsSopDetailClient() {
-  const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const id = typeof params.id === "string" ? params.id : params.id?.[0];
+  const id = searchParams.get("id");
   const {
     documents, updateDocument, approveDocument, markAgentTrained, addActivity,
-    complianceSubjectDocumentIds, setComplianceSubjectDocumentId, workforceAcks, addWorkforceAck, removeWorkforceAck,
+    complianceSubjectDocumentIds, addComplianceSubjectDocument, removeComplianceSubjectDocument, workforceAcks, addWorkforceAck, removeWorkforceAck,
   } = useVault();
   const { agents } = useAgents();
   const { humanMembers } = useWorkforce();
@@ -497,7 +496,7 @@ export function TrainingsSopDetailClient() {
     });
   }, [doc?.id, doc?.relatedDocumentIds, documents]);
   const complianceSubjectsForDoc = useMemo(
-    () => COMPLIANCE_ITEMS.filter((s) => complianceSubjectDocumentIds[s] === id),
+    () => COMPLIANCE_ITEMS.filter((s) => (complianceSubjectDocumentIds[s] ?? []).includes(id ?? "")),
     [complianceSubjectDocumentIds, id]
   );
   const workforceAcksForDoc = useMemo(
@@ -599,7 +598,7 @@ export function TrainingsSopDetailClient() {
       property: doc.property,
       status: "Open",
       assignee: "",
-      linkToSource: `/trainings-sop/${id}`,
+      linkToSource: `/trainings-sop/detail?id=${id}`,
       labels: [...(doc.tags ?? [])],
       documentApprovalContext: {
         documentId: id,
@@ -625,10 +624,10 @@ export function TrainingsSopDetailClient() {
     const action = searchParams.get("action");
     if (action === "edit") {
       setEditDialogOpen(true);
-      router.replace(`/trainings-sop/${id}`, { scroll: false });
+      router.replace(`/trainings-sop/detail?id=${id}`, { scroll: false });
     } else if (action === "upload") {
       setUploadDialogOpen(true);
-      router.replace(`/trainings-sop/${id}`, { scroll: false });
+      router.replace(`/trainings-sop/detail?id=${id}`, { scroll: false });
     }
   }, [doc?.id, searchParams, id, router]);
 
@@ -689,7 +688,7 @@ export function TrainingsSopDetailClient() {
       property: doc.property,
       status: "Open",
       assignee: "",
-      linkToSource: `/trainings-sop/${id}`,
+      linkToSource: `/trainings-sop/detail?id=${id}`,
       labels: [...(doc.tags ?? [])],
       documentApprovalContext: {
         documentId: id,
@@ -728,7 +727,7 @@ export function TrainingsSopDetailClient() {
       property: doc.property,
       status: "Open",
       assignee: "",
-      linkToSource: `/trainings-sop/${id}`,
+      linkToSource: `/trainings-sop/detail?id=${id}`,
       labels: [...(doc.tags ?? [])],
       documentApprovalContext: {
         documentId: id,
@@ -811,7 +810,7 @@ export function TrainingsSopDetailClient() {
       property: doc.property,
       status: "Open",
       assignee: "",
-      linkToSource: `/trainings-sop/${id}`,
+      linkToSource: `/trainings-sop/detail?id=${id}`,
       labels: [...(doc.tags ?? [])],
       documentApprovalContext: {
         documentId: id,
@@ -835,7 +834,7 @@ export function TrainingsSopDetailClient() {
     setUploadDialogOpen(false);
   };
 
-  const shareUrl = typeof window !== "undefined" ? `${window.location.origin}/trainings-sop/${id}` : "";
+  const shareUrl = typeof window !== "undefined" ? `${window.location.origin}/trainings-sop/detail?id=${id}` : "";
   const copyShareLink = async () => {
     try {
       await navigator.clipboard.writeText(shareUrl);
@@ -1585,7 +1584,7 @@ export function TrainingsSopDetailClient() {
                             <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                             {rd ? (
                               <Link
-                                href={`/trainings-sop/${rd.id}`}
+                                href={`/trainings-sop/detail?id=${rd.id}`}
                                 className="truncate text-sm font-medium text-foreground hover:underline"
                               >
                                 {rd.fileName}
@@ -1644,7 +1643,7 @@ export function TrainingsSopDetailClient() {
                         <RemovableMetadataChip
                           key={subject}
                           removeLabel={`Unlink ${subject}`}
-                          onRemove={canEdit ? () => setComplianceSubjectDocumentId(subject, null) : undefined}
+                          onRemove={canEdit ? () => removeComplianceSubjectDocument(subject, id ?? "") : undefined}
                         >
                           {subject}
                         </RemovableMetadataChip>
@@ -1659,8 +1658,8 @@ export function TrainingsSopDetailClient() {
                     <ComplianceLinkCombobox
                       subjects={COMPLIANCE_ITEMS}
                       linkedSubjects={complianceSubjectsForDoc}
-                      onLink={(subject) => setComplianceSubjectDocumentId(subject, id)}
-                      onUnlink={(subject) => setComplianceSubjectDocumentId(subject, null)}
+                      onLink={(subject) => addComplianceSubjectDocument(subject, id ?? "")}
+                      onUnlink={(subject) => removeComplianceSubjectDocument(subject, id ?? "")}
                     />
                   )}
                 </div>

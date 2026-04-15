@@ -150,7 +150,7 @@ function TrainingsSopContent() {
     documents: items, setDocuments: setItems,
     addDocument: addDocToVault, updateDocument, addFolder: addFolderToVault,
     complianceChecked, setComplianceChecked,
-    complianceSubjectDocumentIds, setComplianceSubjectDocumentId,
+    complianceSubjectDocumentIds, addComplianceSubjectDocument, removeComplianceSubjectDocument,
     docCount, activityLog, addActivity,
     workforceAcks, addWorkforceAck, removeWorkforceAck,
     approveDocument, markAgentTrained, moveToFolder, deleteDocument,
@@ -328,9 +328,9 @@ function TrainingsSopContent() {
     });
   }, [items, search, approvalFilter, propertyFilter, viewMode, currentFolderId, getOwnerForProperty]);
 
-  const linkedDocForSubject = (subject: string) => {
-    const id = complianceSubjectDocumentIds[subject];
-    return id ? fileDocuments.find((d) => d.id === id) : null;
+  const linkedDocsForSubject = (subject: string): VaultItem[] => {
+    const ids = complianceSubjectDocumentIds[subject] ?? [];
+    return ids.map((id) => fileDocuments.find((d) => d.id === id)).filter((d): d is VaultItem => !!d);
   };
   const agentsForDocumentId = (documentId: string) => {
     const doc = fileDocuments.find((d) => d.id === documentId);
@@ -341,10 +341,11 @@ function TrainingsSopContent() {
     return agents.map((agent) => {
       const areas: { subject: string; doc: VaultItem }[] = [];
       for (const subject of COMPLIANCE_ITEMS) {
-        const docId = complianceSubjectDocumentIds[subject];
-        if (!docId) continue;
-        const doc = fileDocuments.find((d) => d.id === docId);
-        if (doc?.linkedAgentIds?.includes(agent.id)) areas.push({ subject, doc });
+        const docIds = complianceSubjectDocumentIds[subject] ?? [];
+        for (const docId of docIds) {
+          const doc = fileDocuments.find((d) => d.id === docId);
+          if (doc?.linkedAgentIds?.includes(agent.id)) areas.push({ subject, doc });
+        }
       }
       return { agent, areas };
     });
@@ -352,7 +353,7 @@ function TrainingsSopContent() {
 
   metricsSnapshotRef.current = {
     docCount: items.filter((i) => i.type === "file" && !i.isTemplate).length,
-    complianceLinked: COMPLIANCE_ITEMS.filter((s) => complianceSubjectDocumentIds[s]).length,
+    complianceLinked: COMPLIANCE_ITEMS.filter((s) => (complianceSubjectDocumentIds[s]?.length ?? 0) > 0).length,
     sopsPending: items.filter(
       (i) => i.type === "file" && !i.isTemplate && (i.approvalStatus === "review" || i.approvalStatus === "needs_review")
     ).length,
@@ -396,7 +397,7 @@ function TrainingsSopContent() {
       category,
       property: docProperty,
       assignee: "",
-      linkToSource: `/trainings-sop/${newId}`,
+      linkToSource: `/trainings-sop/detail?id=${newId}`,
       labels: [],
       documentApprovalContext: {
         documentId: newId,
@@ -486,7 +487,7 @@ function TrainingsSopContent() {
   }, [fileDocuments, addActivity]);
 
   const complianceLinkedCount = useMemo(
-    () => COMPLIANCE_ITEMS.filter((s) => complianceSubjectDocumentIds[s]).length,
+    () => COMPLIANCE_ITEMS.filter((s) => (complianceSubjectDocumentIds[s]?.length ?? 0) > 0).length,
     [complianceSubjectDocumentIds]
   );
   const sopsPendingReviewCount = useMemo(
@@ -720,7 +721,7 @@ function TrainingsSopContent() {
       <>
       {/* Training gaps banner (hidden until compliance tab is reintroduced) */}
       {false && (() => {
-        const unlinkedAreas = COMPLIANCE_ITEMS.filter((s) => !complianceSubjectDocumentIds[s]);
+        const unlinkedAreas = COMPLIANCE_ITEMS.filter((s) => !(complianceSubjectDocumentIds[s]?.length));
         const outOfDateAgents = agentsWithComplianceTraining.filter(({ agent, areas }) =>
           areas.some((a) => {
             const rec = a.doc.trainingRecords?.find((r) => r.agentId === agent.id);
@@ -791,7 +792,7 @@ function TrainingsSopContent() {
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)} className="mb-6">
         {!currentFolderId && (
-          <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="mb-8 flex items-center justify-between gap-3">
             <TabsList className="h-auto rounded-none border-0 border-b border-border bg-transparent p-0 gap-4">
               <TabsTrigger value="library" className="rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 pt-1 shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:text-foreground">Document library</TabsTrigger>
               <TabsTrigger value="compliance" className="rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 pt-1 shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:text-foreground">Compliance</TabsTrigger>
@@ -810,122 +811,120 @@ function TrainingsSopContent() {
 
         {/* ── COMPLIANCE TAB ── */}
         <TabsContent value="compliance" className="mt-0">
-          <section>
+          <div>
             <h2 className="section-title mb-1">Compliance areas</h2>
-            <p className="mb-4 text-sm text-muted-foreground">
-              Required areas for our regulated industry. Link an SOP to each subject so your AI is trained on it and liability is reduced.
+            <p className="mb-6 text-sm text-muted-foreground">
+              Documents linked here are automatically used by your AI agents when handling related conversations and tasks. You can link multiple documents per area — for example a company policy and an owner-specific override.
             </p>
-            <div className="overflow-x-auto">
-              <table className="table-borderless w-full min-w-[600px]">
-                <thead>
-                  <tr>
-                    <th>Compliance area</th>
-                    <th>Linked document</th>
-                    <th className="w-40">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {COMPLIANCE_ITEMS.map((subject) => {
-                    const linkedDoc = linkedDocForSubject(subject);
-                    return (
-                      <tr key={subject} className="table-row-hover">
-                        <td className="font-medium text-foreground">{subject}</td>
-                        <td>
-                          {linkedDoc ? (
-                            <Link href={`/trainings-sop/${linkedDoc.id}`} className="text-sm text-primary hover:underline">
-                              {linkedDoc.fileName}
-                            </Link>
-                          ) : (
-                            <span className="text-sm text-muted-foreground">No document linked</span>
-                          )}
-                        </td>
-                        <td>
-                          <Button variant="secondary" size="sm" className="shrink-0 bg-white border border-border hover:bg-muted/80" onClick={() => setComplianceSelectSubject(subject)}>
-                            {linkedDoc ? "Change" : "Select document"}
-                          </Button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <p className="mt-3 text-xs text-muted-foreground">
-              Link one document per subject. Add documents in the Document library tab, or{" "}
-              <button type="button" onClick={() => { setAddDocMode("choice"); setActiveTab("library"); }} className="font-medium text-primary hover:underline">+ Add Document</button>.
-            </p>
-          </section>
 
-          {/* Agents & how they're trained */}
-          <section className="mt-10">
-            <h2 className="section-title mb-1">Agents & how they&apos;re trained</h2>
-            <p className="mb-4 text-sm text-muted-foreground">
-              AI agents use compliance documents to ground their responses. Training status shows whether agents are current with the latest approved version.{" "}
-              <Link href="/workforce" className="font-medium text-primary underline hover:no-underline">Workforce</Link> staff can acknowledge SOPs above.
-            </p>
-            <div className="overflow-x-auto">
-              <table className="table-borderless w-full min-w-[700px]">
-                <thead>
-                  <tr>
-                    <th>Agent</th>
-                    <th>Trained on (compliance areas)</th>
-                    <th>Training status</th>
-                    <th>Document(s)</th>
-                    <th className="w-28">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {agentsWithComplianceTraining.map(({ agent, areas }) => (
-                    <tr key={agent.id} className="table-row-hover">
-                      <td className="font-medium text-foreground">
-                        <Link href="/agent-roster" className="text-primary hover:underline">{agent.name}</Link>
-                      </td>
-                      <td className="text-muted-foreground">
-                        {areas.length > 0 ? areas.map((a) => a.subject).join(", ") : "—"}
-                      </td>
-                      <td>
-                        {areas.length > 0 ? (
-                          <div className="flex flex-wrap gap-1">
-                            {areas.map(({ subject, doc }) => {
-                              const status = getTrainingStatus(doc.id, agent.id);
-                              return <span key={subject} className="flex items-center gap-1 text-xs">{trainingStatusBadge(status)}</span>;
-                            })}
-                          </div>
-                        ) : "—"}
-                      </td>
-                      <td className="text-muted-foreground">
-                        {areas.length > 0 ? (
-                          <span className="flex flex-wrap gap-x-2 gap-y-0.5">
-                            {areas.map(({ doc }) => (
-                              <Link key={doc.id} href={`/trainings-sop/${doc.id}`} className="text-primary hover:underline">{doc.fileName}</Link>
-                            ))}
-                          </span>
-                        ) : "—"}
-                      </td>
-                      <td onClick={(e) => e.stopPropagation()} className="space-x-1">
-                        {areas.length > 0 && areas.some(({ doc }) => getTrainingStatus(doc.id, agent.id) !== "trained") && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 text-[11px]"
-                            onClick={() => {
-                              areas.forEach(({ doc }) => markAgentTrained(doc.id, agent.id));
-                              addActivity({ action: "Agent trained", by: "Admin", detail: `${agent.name} marked trained on ${areas.map((a) => a.subject).join(", ")}` });
-                            }}
-                          >
-                            Mark trained
-                          </Button>
-                        )}
-                        <Button variant="secondary" size="sm" className="h-7 bg-white border border-border hover:bg-muted/80 text-[11px]" asChild>
-                          <Link href={`/agent-roster?agent=${agent.id}`}>Edit</Link>
+            <div className="space-y-6">
+              {COMPLIANCE_ITEMS.map((subject) => {
+                const linkedDocs = linkedDocsForSubject(subject);
+                return (
+                  <Card key={subject}>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <CardTitle>{subject}</CardTitle>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setComplianceSelectSubject(subject)}
+                        >
+                          <Plus className="mr-1.5 h-3.5 w-3.5" />
+                          Add document
                         </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {linkedDocs.length} {linkedDocs.length === 1 ? "document" : "documents"} linked
+                      </p>
+                    </CardHeader>
+                    <CardContent>
+                      {linkedDocs.length === 0 ? (
+                        <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center">
+                          <p className="text-sm text-muted-foreground">No documents linked to this area yet.</p>
+                          <button
+                            type="button"
+                            className="mt-1.5 text-xs font-medium text-primary hover:underline"
+                            onClick={() => setComplianceSelectSubject(subject)}
+                          >
+                            + Select a document from the library
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="table-borderless w-full min-w-[700px]">
+                            <thead>
+                              <tr>
+                                <th>Name</th>
+                                <th>Scope</th>
+                                <th>Property</th>
+                                <th>Approval</th>
+                                <th>Modified</th>
+                                <th>Owner</th>
+                                <th className="w-12"></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {linkedDocs.map((doc) => (
+                                <tr key={doc.id} className="table-row-hover">
+                                  <td className="font-medium text-foreground">
+                                    <span className="inline-flex items-center gap-1.5">
+                                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border bg-background">
+                                        <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                                      </span>
+                                      {doc.fileName}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    {(!doc.scopeLevel || doc.scopeLevel === "company") && (
+                                      <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">Company</span>
+                                    )}
+                                    {doc.scopeLevel === "owner" && (
+                                      <span className="inline-flex rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-800 dark:bg-purple-900/40 dark:text-purple-300">Owner</span>
+                                    )}
+                                    {doc.scopeLevel === "property" && (
+                                      <span className="inline-flex rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800 dark:bg-orange-900/40 dark:text-orange-300">Property</span>
+                                    )}
+                                  </td>
+                                  <td className="text-muted-foreground">
+                                    {doc.scopeLevel === "owner" && doc.ownerId ? doc.ownerId : (doc.property || "—")}
+                                  </td>
+                                  <td>
+                                    <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+                                      doc.approvalStatus === "approved"
+                                        ? "bg-[#B3FFCC] text-black dark:bg-emerald-900/40 dark:text-emerald-300"
+                                        : doc.approvalStatus === "review" || doc.approvalStatus === "needs_review"
+                                          ? "bg-amber-400 text-amber-950 dark:bg-amber-900/40 dark:text-amber-300"
+                                          : "bg-muted text-muted-foreground"
+                                    }`}>
+                                      {approvalStatusDisplayLabel(doc.approvalStatus)}
+                                    </span>
+                                  </td>
+                                  <td className="text-muted-foreground">{doc.modified}</td>
+                                  <td className="text-muted-foreground">{doc.owner}</td>
+                                  <td>
+                                    <button
+                                      type="button"
+                                      aria-label={`Remove ${doc.fileName}`}
+                                      className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                                      onClick={() => removeComplianceSubjectDocument(subject, doc.id)}
+                                    >
+                                      <X className="h-3.5 w-3.5" />
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
-          </section>
+          </div>
+
         </TabsContent>
 
         {/* ── DOCUMENT LIBRARY TAB ── */}
@@ -1021,7 +1020,7 @@ function TrainingsSopContent() {
                       {drafts.map((d) => (
                         <li key={d.id}>
                           <Link
-                            href={`/trainings-sop/${d.id}`}
+                            href={`/trainings-sop/detail?id=${d.id}`}
                             className="flex w-full gap-3 rounded-lg border border-border bg-muted/50 p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted dark:bg-muted/50 dark:hover:bg-muted"
                           >
                             <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border bg-background"><Pencil className="h-3.5 w-3.5 text-muted-foreground" /></span>
@@ -1163,11 +1162,11 @@ function TrainingsSopContent() {
                     onClick={row.type === "file" ? (e) => {
                       const target = e.target as HTMLElement;
                       if (target.closest("button") || target.closest("a") || target.closest('input[type="checkbox"]')) return;
-                      router.push(`/trainings-sop/${row.id}`);
+                      router.push(`/trainings-sop/detail?id=${row.id}`);
                     } : row.type === "folder" ? () => setCurrentFolderId(row.id) : undefined}
                     role={row.type === "file" || row.type === "folder" ? "button" : undefined}
                     tabIndex={row.type === "file" || row.type === "folder" ? 0 : undefined}
-                    onKeyDown={(row.type === "file" || row.type === "folder") ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (row.type === "folder") setCurrentFolderId(row.id); else router.push(`/trainings-sop/${row.id}`); } } : undefined}
+                    onKeyDown={(row.type === "file" || row.type === "folder") ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (row.type === "folder") setCurrentFolderId(row.id); else router.push(`/trainings-sop/detail?id=${row.id}`); } } : undefined}
                   >
                     {row.type === "folder" ? (
                       <td colSpan={2} className="font-medium text-foreground">
@@ -1179,7 +1178,7 @@ function TrainingsSopContent() {
                           <input type="checkbox" checked={selectedIds.has(row.id)} onChange={() => toggleSelect(row.id)} className="h-4 w-4 rounded border-border" />
                         </td>
                         <td className="font-medium text-foreground">
-                          <Link href={`/trainings-sop/${row.id}`} className="inline-flex items-center gap-1.5 text-foreground hover:underline" onClick={(e) => e.stopPropagation()}>
+                          <Link href={`/trainings-sop/detail?id=${row.id}`} className="inline-flex items-center gap-1.5 text-foreground hover:underline" onClick={(e) => e.stopPropagation()}>
                             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border bg-background"><FileText className="h-3.5 w-3.5 text-muted-foreground" /></span>
                             {row.fileName}
                             {row.isTemplate && <span className="ml-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">Template</span>}
@@ -1231,10 +1230,10 @@ function TrainingsSopContent() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-52">
-                            <DropdownMenuItem onClick={() => router.push(`/trainings-sop/${row.id}?action=edit`)}>
+                            <DropdownMenuItem onClick={() => router.push(`/trainings-sop/detail?id=${row.id}&action=edit`)}>
                               <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => router.push(`/trainings-sop/${row.id}?action=upload`)} className="whitespace-nowrap">
+                            <DropdownMenuItem onClick={() => router.push(`/trainings-sop/detail?id=${row.id}&action=upload`)} className="whitespace-nowrap">
                               <Upload className="mr-2 h-3.5 w-3.5 shrink-0" /> Upload New Version
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => setMoveDocId(row.id)}>
@@ -1378,7 +1377,7 @@ function TrainingsSopContent() {
                           <td className="max-w-[200px] truncate">
                             {entry.documentName ? (
                               entry.documentId ? (
-                                <Link href={`/trainings-sop/${entry.documentId}`} className="font-medium text-primary hover:underline">
+                                <Link href={`/trainings-sop/detail?id=${entry.documentId}`} className="font-medium text-primary hover:underline">
                                   {entry.documentName}
                                 </Link>
                               ) : (
@@ -1469,10 +1468,10 @@ function TrainingsSopContent() {
         <ComplianceSelectDocumentModal
           subject={complianceSelectSubject}
           documents={fileDocuments}
-          currentDocumentId={complianceSubjectDocumentIds[complianceSelectSubject] ?? null}
+          linkedDocumentIds={complianceSubjectDocumentIds[complianceSelectSubject] ?? []}
           onClose={() => setComplianceSelectSubject(null)}
-          onSelect={(documentId) => {
-            setComplianceSubjectDocumentId(complianceSelectSubject, documentId);
+          onAdd={(documentId) => {
+            addComplianceSubjectDocument(complianceSelectSubject, documentId);
             setComplianceSelectSubject(null);
           }}
         />
@@ -1519,7 +1518,7 @@ function TrainingsSopContent() {
             category: "Compliance",
             property: "Portfolio",
             assignee: "",
-            linkToSource: `/trainings-sop/${templateId}`,
+            linkToSource: `/trainings-sop/detail?id=${templateId}`,
             labels: [],
             documentApprovalContext: {
               documentId: templateId,
@@ -1724,16 +1723,23 @@ function MoveToFolderModal({
 }
 
 function ComplianceSelectDocumentModal({
-  subject, documents, currentDocumentId, onClose, onSelect,
+  subject, documents, linkedDocumentIds, onClose, onAdd,
 }: {
-  subject: string; documents: VaultItem[]; currentDocumentId: string | null; onClose: () => void; onSelect: (documentId: string | null) => void;
+  subject: string;
+  documents: VaultItem[];
+  linkedDocumentIds: string[];
+  onClose: () => void;
+  onAdd: (documentId: string) => void;
 }) {
   const [search, setSearch] = useState("");
   const [approvalFilter, setApprovalFilter] = useState<string>("All");
   const [propertyFilter, setPropertyFilter] = useState("All");
 
+  const alreadyLinked = new Set(linkedDocumentIds);
+
   const filtered = useMemo(() => {
     return documents.filter((i) => {
+      if (alreadyLinked.has(i.id)) return false;
       if (search.trim()) {
         const q = search.toLowerCase();
         if (!i.fileName.toLowerCase().includes(q) && !i.owner.toLowerCase().includes(q) && !(i.source ?? "").toLowerCase().includes(q)) return false;
@@ -1748,14 +1754,31 @@ function ComplianceSelectDocumentModal({
       if (propertyFilter !== "All" && i.property !== propertyFilter) return false;
       return true;
     });
-  }, [documents, search, approvalFilter, propertyFilter]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documents, search, approvalFilter, propertyFilter, linkedDocumentIds]);
+
+  const alreadyLinkedDocs = documents.filter((d) => alreadyLinked.has(d.id));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20" onClick={onClose}>
       <div className="flex max-h-[90vh] w-full max-w-4xl flex-col rounded-lg border border-border bg-card shadow-lg" onClick={(e) => e.stopPropagation()}>
         <div className="border-b border-border p-4">
-          <h3 className="font-semibold text-foreground">Select document for training</h3>
-          <p className="mt-1 text-sm text-muted-foreground">Choose which document to use for <strong>{subject}</strong>.</p>
+          <h3 className="font-semibold text-foreground">Add document — {subject}</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Select a document to link to this compliance area. You can link multiple — for example, a company-wide policy and a property-specific override.
+          </p>
+          {alreadyLinkedDocs.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              <span className="text-xs font-medium text-muted-foreground">Already linked:</span>
+              {alreadyLinkedDocs.map((d) => (
+                <span key={d.id} className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground">
+                  <FileText className="h-3 w-3 shrink-0" />
+                  {d.fileName}
+                  {d.property && d.property !== "Portfolio" && <span className="text-[10px]">· {d.property}</span>}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
         <div className="border-b border-border px-4 py-3">
           <div className="flex flex-wrap items-center gap-3">
@@ -1774,19 +1797,44 @@ function ComplianceSelectDocumentModal({
         </div>
         <div className="flex-1 overflow-auto min-h-0">
           <table className="table-borderless w-full min-w-[700px]">
-            <thead><tr><th>File name</th><th>Property</th><th>Approval</th><th>Modified</th><th className="w-20">Select</th></tr></thead>
+            <thead>
+              <tr>
+                <th>File name</th>
+                <th>Property</th>
+                <th>Approval</th>
+                <th>Modified</th>
+                <th className="w-20"></th>
+              </tr>
+            </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={5} className="py-8 text-center text-sm text-muted-foreground">{documents.length === 0 ? "No documents in the Vault yet." : "No documents match the filters."}</td></tr>
+                <tr>
+                  <td colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
+                    {documents.length === 0
+                      ? "No documents in the Vault yet."
+                      : alreadyLinked.size === documents.length
+                        ? "All documents are already linked to this compliance area."
+                        : "No documents match the filters."}
+                  </td>
+                </tr>
               ) : filtered.map((row) => (
-                <tr key={row.id} className="table-row-hover cursor-pointer" onClick={() => onSelect(row.id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(row.id); } }}>
-                  <td className="font-medium text-foreground"><span className="inline-flex items-center gap-1.5"><FileText className="h-4 w-4 shrink-0 text-muted-foreground" />{row.fileName}</span></td>
+                <tr key={row.id} className="table-row-hover cursor-pointer" onClick={() => onAdd(row.id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onAdd(row.id); } }}>
+                  <td className="font-medium text-foreground">
+                    <span className="inline-flex items-center gap-1.5">
+                      <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      {row.fileName}
+                    </span>
+                  </td>
                   <td className="text-muted-foreground">{row.property}</td>
-                  <td><span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${row.approvalStatus === "approved" ? "bg-[#B3FFCC] text-black" : row.approvalStatus === "review" || row.approvalStatus === "needs_review" ? "bg-amber-400 text-amber-950" : "bg-muted text-muted-foreground"}`}>{approvalStatusDisplayLabel(row.approvalStatus)}</span></td>
+                  <td>
+                    <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${row.approvalStatus === "approved" ? "bg-[#B3FFCC] text-black" : row.approvalStatus === "review" || row.approvalStatus === "needs_review" ? "bg-amber-400 text-amber-950" : "bg-muted text-muted-foreground"}`}>
+                      {approvalStatusDisplayLabel(row.approvalStatus)}
+                    </span>
+                  </td>
                   <td className="text-muted-foreground">{row.modified}</td>
                   <td onClick={(e) => e.stopPropagation()}>
-                    <Button variant="secondary" size="sm" className="h-7 bg-white border border-border hover:bg-muted/80" onClick={() => onSelect(row.id)}>
-                      {currentDocumentId === row.id ? "Selected" : "Select"}
+                    <Button variant="secondary" size="sm" className="h-7 bg-white border border-border hover:bg-muted/80" onClick={() => onAdd(row.id)}>
+                      Add
                     </Button>
                   </td>
                 </tr>
@@ -1794,9 +1842,8 @@ function ComplianceSelectDocumentModal({
             </tbody>
           </table>
         </div>
-        <div className="flex justify-between gap-2 border-t border-border p-4">
-          <div>{currentDocumentId && (<Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => onSelect(null)}>Clear selection</Button>)}</div>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+        <div className="flex justify-end border-t border-border p-4">
+          <Button variant="outline" onClick={onClose}>Done</Button>
         </div>
       </div>
     </div>
