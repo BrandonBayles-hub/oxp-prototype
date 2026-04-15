@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Users,
@@ -18,17 +18,18 @@ import {
   ChevronDown,
   Beaker,
   MessageCircle,
+  Map,
 } from "lucide-react";
 import { useRole, ROLES, type Role } from "@/lib/role-context";
 
 import { useR1Release } from "@/lib/r1-release-context";
 import { useR1_2Release } from "@/lib/r1-2-release-context";
+import { useRoadmap } from "@/lib/roadmap-context";
 
 import { useWorkforce } from "@/lib/workforce-context";
 import { useEscalations } from "@/lib/escalations-context";
 import { useConversations } from "@/lib/conversations-context";
 import { useClickToCallDemo } from "@/lib/click-to-call-demo-context";
-import { useEliPlusSetup } from "@/lib/eli-plus-setup-context";
 import { useConversationsDemo } from "@/lib/conversations-demo-context";
 
 const NAV_ITEMS = [
@@ -47,8 +48,9 @@ const NAV_ITEMS = [
 
 export function EntrataTopNav() {
   const router = useRouter();
+  const pathname = usePathname();
   const { requestProfileCommsPopup } = useConversationsDemo();
-  const { role, setRole } = useRole();
+  const { role, setRole, isRouteAllowed } = useRole();
   const { isR1Release, setR1Release } = useR1Release();
   const { isR1_2Release, setR1_2Release } = useR1_2Release();
   const isFullVersion = !isR1Release && !isR1_2Release;
@@ -57,7 +59,7 @@ export function EntrataTopNav() {
   const { items: escalations } = useEscalations();
   const { items: conversations } = useConversations();
   const { clickToCallEnabled, toggleClickToCallEnabled } = useClickToCallDemo();
-  const { eliPlusSetupEnabled, toggleEliPlusSetup } = useEliPlusSetup();
+  const { showRoadmap, setShowRoadmap } = useRoadmap();
 
   const currentUser = useMemo(() => getCurrentUser(role), [getCurrentUser, role]);
 
@@ -84,7 +86,7 @@ export function EntrataTopNav() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [demoOpen]);
 
-  const anyDemoActive = isFullVersion || isR1Release || isR1_2Release || eliPlusSetupEnabled;
+  const anyDemoActive = isFullVersion || isR1Release || isR1_2Release;
 
   return (
     <div className="shrink-0 select-none" style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
@@ -340,45 +342,6 @@ export function EntrataTopNav() {
 
                     <button
                       type="button"
-                      onClick={toggleEliPlusSetup}
-                      className="flex items-center gap-2.5 rounded-md px-2.5 py-2 transition-colors"
-                      style={{ background: eliPlusSetupEnabled ? "rgba(14,165,233,0.08)" : "transparent" }}
-                    >
-                      <div
-                        style={{
-                          width: 30,
-                          height: 17,
-                          borderRadius: 9,
-                          background: eliPlusSetupEnabled ? "#0ea5e9" : "#D4D4D4",
-                          position: "relative",
-                          transition: "background 150ms",
-                          flexShrink: 0,
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: 13,
-                            height: 13,
-                            borderRadius: "50%",
-                            background: "#fff",
-                            position: "absolute",
-                            top: 2,
-                            left: eliPlusSetupEnabled ? 15 : 2,
-                            transition: "left 150ms",
-                            boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
-                          }}
-                        />
-                      </div>
-                      <div className="text-left">
-                        <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>ELI Plus Setup</p>
-                        <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>
-                          ELI Plus setup and configuration in OXP
-                        </p>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
                       onClick={() => {
                         requestProfileCommsPopup();
                         router.push("/conversations");
@@ -414,7 +377,12 @@ export function EntrataTopNav() {
                         <button
                           key={r.value}
                           type="button"
-                          onClick={() => setRole(r.value as Role)}
+                          onClick={() => {
+                            setRole(r.value as Role);
+                            if (r.value !== "admin") {
+                              router.push("/command-center");
+                            }
+                          }}
                           className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors"
                           style={{ background: isActive ? "rgba(0,0,0,0.05)" : "transparent" }}
                         >
@@ -443,6 +411,34 @@ export function EntrataTopNav() {
                       );
                     })}
                   </div>
+                </div>
+
+                {/* Roadmap */}
+                <div style={{ borderTop: "1px solid #F0F0F0", margin: "0 14px", paddingTop: 10 }}>
+                  <p style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.35)", letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: 6 }}>
+                    Roadmap
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowRoadmap(true);
+                      setDemoOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-gray-50"
+                  >
+                    <Map
+                      className="shrink-0"
+                      style={{ width: 16, height: 16, strokeWidth: 2, color: "#8b5cf6" }}
+                    />
+                    <div>
+                      <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>
+                        OXP 2026 Roadmap
+                      </p>
+                      <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>
+                        View upcoming features and epics
+                      </p>
+                    </div>
+                  </button>
                 </div>
               </div>
             )}

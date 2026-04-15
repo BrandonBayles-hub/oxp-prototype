@@ -337,6 +337,7 @@ function AdminCommandCenter() {
   const { humanMembers } = useWorkforce();
   const { role, roleProperties } = useRole();
   const isPropertyRole = role === "property";
+  const isManagerRole = role === "regional" || role === "property";
   const { isR1Release } = useR1Release();
 
   const derivedKpis = useMemo(() => {
@@ -641,11 +642,10 @@ function AdminCommandCenter() {
         icon: CalendarDays,
         description: "Tours scheduled autonomously by Leasing AI across all properties.",
         alert: {
-          title: "Tours are down 6 from last week",
-          description: "Lead response times have increased at Property C. Review the Leasing AI response settings and ensure lead sources are connected and routing correctly.",
+          title: "Tour bookings dipped slightly this week",
+          description: "It looks like lead response times have increased at Property C, which may be affecting bookings. A quick review of Leasing AI settings and lead source routing could help get things back on track.",
           actions: [
-            { label: "Review Leasing AI Settings", href: "/agent-roster", primary: true },
-            { label: "View Lead Sources", href: "/performance" },
+            { label: "Review Leasing AI Settings", href: "/getting-started", primary: true },
           ],
         },
         summaryCards: [
@@ -668,14 +668,13 @@ function AdminCommandCenter() {
             { label: "Avg Booking Time", value: "2.4 min", subtext: "vs 18 min manual" },
           ]},
           c: { chartMultiplier: 0.25, alert: {
-            title: "Tours at Property C are underperforming",
-            description: "Lead response time at Property C has increased to 8 minutes, causing a drop in tour bookings. Conversion rate is 29%, the lowest across all properties.",
+            title: "Property C tours have room to improve",
+            description: "Lead response time at Property C has increased to 8 minutes, which may be contributing to fewer bookings. Adjusting response settings or reviewing lead source routing could help improve the conversion rate here.",
             actions: [
-              { label: "Review Leasing AI Settings", href: "/agent-roster", primary: true },
-              { label: "View Lead Sources", href: "/performance" },
+              { label: "Review Leasing AI Settings", href: "/getting-started", primary: true },
             ],
           }, summaryCards: [
-            { label: "Total Tours", value: "31", subtext: "\u22128 from last week", subtextVariant: "negative" },
+            { label: "Total Tours", value: "31", subtext: "−8 from last week", subtextVariant: "negative" },
             { label: "Show Rate", value: "74%", subtext: "+2% from last month", subtextVariant: "positive" },
             { label: "Tour-to-Lease", value: "29%", subtext: "\u22121% from last month", subtextVariant: "negative" },
             { label: "Avg Booking Time", value: "2.8 min", subtext: "vs 18 min manual" },
@@ -696,7 +695,7 @@ function AdminCommandCenter() {
           items: [
             { name: "Property A", stats: [{ label: "Tours", value: "52" }, { label: "Show rate", value: "82%" }, { label: "Conversion", value: "38%" }] },
             { name: "Jamison Apartments", stats: [{ label: "Tours", value: "41" }, { label: "Show rate", value: "76%" }, { label: "Conversion", value: "32%" }] },
-            { name: "Property C", highlight: "Needs attention", stats: [{ label: "Tours", value: "31" }, { label: "Show rate", value: "74%" }, { label: "Conversion", value: "29%" }] },
+            { name: "Property C", highlight: "Room to improve", stats: [{ label: "Tours", value: "31" }, { label: "Show rate", value: "74%" }, { label: "Conversion", value: "29%" }] },
           ],
         }],
       },
@@ -856,8 +855,8 @@ function AdminCommandCenter() {
         icon: DollarSign,
         description: "Rent collection managed by Payments AI, including reminders, processing, and reconciliation.",
         alert: {
-          title: "Collection rate down 1.2% from last month",
-          description: "Property C has 8 units with outstanding balances past 15 days. Payments AI has sent follow-up reminders but 3 accounts need manual review.",
+          title: "Collection rate shifted slightly this month",
+          description: "Property C has a few accounts with outstanding balances past 15 days. Payments AI has already sent follow-up reminders — a quick manual review of 3 accounts could help close the gap.",
           actions: [
             { label: "Review Outstanding", href: "/escalations", primary: true },
             { label: "View Payment Settings", href: "/agent-roster" },
@@ -883,8 +882,8 @@ function AdminCommandCenter() {
             { label: "Avg Days to Pay", value: "4.1 days", subtext: "vs 7.8 days pre-AI" },
           ]},
           c: { chartMultiplier: 0.27, alert: {
-            title: "Property C collection rate critically low",
-            description: "Collection rate is 85.4% with $10.3K outstanding across 5 accounts past 15 days. 3 accounts need manual review and intervention.",
+            title: "Property C collections could use some attention",
+            description: "The collection rate is at 85.4% with $10.3K outstanding across 5 accounts past 15 days. Reviewing these accounts and adjusting payment plan options could help improve the rate.",
             actions: [
               { label: "Review Outstanding", href: "/escalations", primary: true },
               { label: "View Payment Settings", href: "/agent-roster" },
@@ -905,14 +904,14 @@ function AdminCommandCenter() {
             { name: "W7", value: 216000 }, { name: "W8", value: 218000 },
           ],
           valuePrefix: "$",
-          color: "#ef4444",
+          color: "#f59e0b",
         },
         breakdowns: [{
           type: "property-grid",
           items: [
             { name: "Property A", stats: [{ label: "Collected", value: "$86K" }, { label: "Rate", value: "93.2%" }, { label: "Outstanding", value: "$6.2K" }] },
             { name: "Jamison Apartments", stats: [{ label: "Collected", value: "$74K" }, { label: "Rate", value: "91.8%" }, { label: "Outstanding", value: "$6.5K" }] },
-            { name: "Property C", highlight: "Needs attention", stats: [{ label: "Collected", value: "$58K" }, { label: "Rate", value: "85.4%" }, { label: "Outstanding", value: "$10.3K" }] },
+            { name: "Property C", highlight: "Room to improve", stats: [{ label: "Collected", value: "$58K" }, { label: "Rate", value: "85.4%" }, { label: "Outstanding", value: "$10.3K" }] },
           ],
         }],
       },
@@ -1050,9 +1049,9 @@ function AdminCommandCenter() {
         title="Command Center"
         description="What needs doing and how the workforce is performing. Orchestrate the workforce and focus effort—with insights on where to look."
       />
-      <ValueYoureMissingBanner />
+      {!isManagerRole && <ValueYoureMissingBanner />}
 
-      {!isR1Release && (
+      {!isR1Release && !isManagerRole && (
         <>
         {/* Top KPI Cards */}
         <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -1067,7 +1066,7 @@ function AdminCommandCenter() {
                   <p className={cn(
                     "text-xl font-semibold",
                     trendVariant === "positive" && "text-green-600 dark:text-green-400",
-                    trendVariant === "negative" && "text-red-600 dark:text-red-400",
+                    trendVariant === "negative" && "text-amber-600 dark:text-amber-400",
                     trendVariant === "neutral" && "text-muted-foreground"
                   )}>
                     {trendText}
@@ -1084,7 +1083,7 @@ function AdminCommandCenter() {
       )}
 
       {/* Outcomes Achieved by AI Agents */}
-      {isR1Release ? (
+      {isManagerRole ? null : isR1Release ? (
         <R1OutcomesSection />
       ) : (
         <div className="mb-8">
@@ -1133,7 +1132,7 @@ function AdminCommandCenter() {
                       <p className={cn(
                         "text-base font-semibold",
                         card.trendVariant === "positive" && "text-green-600 dark:text-green-400",
-                        card.trendVariant === "negative" && "text-red-600 dark:text-red-400",
+                        card.trendVariant === "negative" && "text-amber-600 dark:text-amber-400",
                         card.trendVariant === "neutral" && "text-muted-foreground"
                       )}>
                         {card.trendText}
@@ -1209,7 +1208,7 @@ function AdminCommandCenter() {
 
       <div className="grid items-stretch gap-6 lg:grid-cols-2">
         {/* Needs Attention */}
-        <Card className={isR1Release ? "lg:col-span-2" : ""}>
+        <Card className={isR1Release && !isManagerRole ? "lg:col-span-2" : ""}>
           <CardHeader className="pb-3">
             <CardTitle>Needs Attention</CardTitle>
             {isR1Release && (
@@ -1287,7 +1286,7 @@ function AdminCommandCenter() {
         </Card>
 
         {/* Live Conversations */}
-        {!isR1Release && <Card>
+        {(!isR1Release || isManagerRole) && <Card>
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2">
               <span className="relative flex h-2.5 w-2.5">
