@@ -644,7 +644,7 @@ export function EscalationDetailSheet({
                       <FileText className="h-4 w-4" />Document for review
                     </h3>
                     <p className="text-sm text-muted-foreground">
-                      <Link href={`/trainings-sop/${docContext.documentId}`} className="inline-flex items-center gap-1 text-primary hover:underline">
+                      <Link href={`/trainings-sop/detail?id=${docContext.documentId}`} className="inline-flex items-center gap-1 text-primary hover:underline">
                         {docContext.documentName}<ExternalLink className="h-3.5 w-3.5" />
                       </Link>
                     </p>
@@ -1044,7 +1044,7 @@ export function EscalationDetailSheet({
                       <p className="text-[10px] font-semibold tracking-wider text-muted-foreground">RELATED DOCUMENTS</p>
                       {relatedDocs.map((doc) => (
                         <div key={doc.id} className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
-                          <Link href={`/trainings-sop/${doc.id}`} className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline">
+                          <Link href={`/trainings-sop/detail?id=${doc.id}`} className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline">
                             <BookOpen className="h-3.5 w-3.5" />{doc.fileName}<ExternalLink className="h-3 w-3" />
                           </Link>
                           {doc.tags && doc.tags.length > 0 && (
@@ -1146,7 +1146,7 @@ export function EscalationDetailSheet({
                       {relatedDocs.map((d) => (
                         <Link
                           key={d.id}
-                          href={`/trainings-sop/${d.id}`}
+                          href={`/trainings-sop/detail?id=${d.id}`}
                           className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-foreground hover:bg-muted/60 transition-colors"
                         >
                           <BookOpen className="h-3 w-3 text-muted-foreground" />{d.fileName}
