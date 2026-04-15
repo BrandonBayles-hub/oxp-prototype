@@ -1339,10 +1339,10 @@ function TrainingsSopContent() {
                 <table className="table-borderless w-full min-w-[800px]">
                   <thead>
                     <tr>
-                      <th>Date</th>
-                      <th>Action</th>
-                      <th>User</th>
                       <th>Document</th>
+                      <th>Action</th>
+                      <th>Date</th>
+                      <th>User</th>
                       <th>Scope</th>
                     </tr>
                   </thead>
@@ -1351,8 +1351,16 @@ function TrainingsSopContent() {
                       const doc = entry.documentId ? items.find(d => d.id === entry.documentId) : null;
                       return (
                         <tr key={entry.id} className="table-row-hover">
-                          <td className="whitespace-nowrap text-muted-foreground">
-                            {new Date(entry.at).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}
+                          <td className="max-w-[200px] truncate">
+                            {entry.documentName ? (
+                              entry.documentId ? (
+                                <Link href={`/trainings-sop/detail?id=${entry.documentId}`} className="font-medium text-primary hover:underline">
+                                  {entry.documentName}
+                                </Link>
+                              ) : (
+                                <span className="font-medium">{entry.documentName}</span>
+                              )
+                            ) : "—"}
                           </td>
                           <td className="font-medium text-foreground">
                             {entry.action}
@@ -1361,6 +1369,9 @@ function TrainingsSopContent() {
                                 {entry.detail}
                               </span>
                             )}
+                          </td>
+                          <td className="whitespace-nowrap text-muted-foreground">
+                            {new Date(entry.at).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}
                           </td>
                           <td className="text-muted-foreground">
                             {entry.by ? (
@@ -1372,17 +1383,6 @@ function TrainingsSopContent() {
                                 </Avatar>
                                 {entry.by}
                               </div>
-                            ) : "—"}
-                          </td>
-                          <td className="max-w-[200px] truncate">
-                            {entry.documentName ? (
-                              entry.documentId ? (
-                                <Link href={`/trainings-sop/detail?id=${entry.documentId}`} className="font-medium text-primary hover:underline">
-                                  {entry.documentName}
-                                </Link>
-                              ) : (
-                                <span className="font-medium">{entry.documentName}</span>
-                              )
                             ) : "—"}
                           </td>
                           <td className="text-muted-foreground">

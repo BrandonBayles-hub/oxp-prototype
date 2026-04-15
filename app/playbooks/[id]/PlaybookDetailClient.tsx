@@ -13,6 +13,7 @@ import {
   AlertTriangle,
   ArrowUpDown,
   RefreshCw,
+  Trash2,
   X,
 } from "lucide-react";
 import { usePlaybooks, type PlaybookPriority, type PlaybookStatus } from "@/lib/playbooks-context";
@@ -21,6 +22,16 @@ import { EscalationDetailSheet } from "@/components/escalation-detail-sheet";
 import { ESCALATION_STATUSES, type Task } from "@/lib/escalations-context";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
+import { usePermissions } from "@/lib/permissions-context";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 function initials(name: string) {
   return name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
@@ -94,7 +105,9 @@ const TASK_PRIORITIES: Array<Task["priority"]> = ["urgent", "high", "medium", "l
 export function PlaybookDetailClient() {
   const params = useParams();
   const router = useRouter();
-  const { getPlaybook, updatePlaybook, updatePlaybookTask } = usePlaybooks();
+  const { getPlaybook, updatePlaybook, updatePlaybookTask, removePlaybook } = usePlaybooks();
+  const { hasPermission } = usePermissions();
+  const canDeletePlaybook = hasPermission("p-playbooks-delete");
   const playbook = getPlaybook(params.id as string);
 
   const [search, setSearch] = useState("");
@@ -103,6 +116,7 @@ export function PlaybookDetailClient() {
   const [fabOpen, setFabOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [deletePlaybookOpen, setDeletePlaybookOpen] = useState(false);
   const selectedTask = playbook?.tasks.find((t) => t.id === selectedTaskId) ?? null;
 
   const toggleSort = (field: SortField) => {
@@ -191,6 +205,16 @@ export function PlaybookDetailClient() {
             <Plus className="h-3 w-3" />
             Add Task
           </button>
+          {canDeletePlaybook && (
+            <button
+              type="button"
+              onClick={() => setDeletePlaybookOpen(true)}
+              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-destructive/40 bg-background px-2.5 text-xs font-medium text-destructive shadow-sm hover:bg-destructive/10"
+            >
+              <Trash2 className="h-3 w-3" />
+              Delete
+            </button>
+          )}
           <select
             value={playbook.status}
             onChange={(e) => updatePlaybook(playbook.id, { status: e.target.value as PlaybookStatus })}
@@ -424,6 +448,31 @@ export function PlaybookDetailClient() {
           <img src="/eli-cube.svg" alt="" className="h-7 w-7" />
         </button>
       </div>
+
+      <Dialog open={deletePlaybookOpen} onOpenChange={setDeletePlaybookOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete playbook</DialogTitle>
+            <DialogDescription>
+              Remove <span className="font-medium text-foreground">{playbook.templateName}</span> and all of its tasks? This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={() => setDeletePlaybookOpen(false)}>Cancel</Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                removePlaybook(playbook.id);
+                setDeletePlaybookOpen(false);
+                router.push("/escalations");
+              }}
+            >
+              Delete playbook
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );

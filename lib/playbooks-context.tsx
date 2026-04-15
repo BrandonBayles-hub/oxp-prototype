@@ -467,6 +467,7 @@ type PlaybooksContextValue = {
   addPlaybookTask: (playbookId: string, task: Omit<Task, "id">) => void;
   removePlaybookTask: (playbookId: string, taskId: string) => void;
   addPlaybook: (playbook: Omit<Playbook, "id">) => void;
+  removePlaybook: (id: string) => void;
 };
 
 const PlaybooksContext = createContext<PlaybooksContextValue | null>(null);
@@ -558,6 +559,14 @@ export function PlaybooksProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  const removePlaybook = useCallback((id: string) => {
+    setPlaybooks((prev) => {
+      const next = prev.filter((p) => p.id !== id);
+      saveState(next);
+      return next;
+    });
+  }, []);
+
   const value = useMemo<PlaybooksContextValue>(
     () => ({
       playbooks,
@@ -567,8 +576,9 @@ export function PlaybooksProvider({ children }: { children: React.ReactNode }) {
       addPlaybookTask,
       removePlaybookTask,
       addPlaybook,
+      removePlaybook,
     }),
-    [playbooks, getPlaybook, updatePlaybook, updatePlaybookTask, addPlaybookTask, removePlaybookTask, addPlaybook]
+    [playbooks, getPlaybook, updatePlaybook, updatePlaybookTask, addPlaybookTask, removePlaybookTask, addPlaybook, removePlaybook]
   );
 
   return <PlaybooksContext.Provider value={value}>{children}</PlaybooksContext.Provider>;

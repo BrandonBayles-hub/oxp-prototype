@@ -828,6 +828,8 @@ type EscalationsContextValue = {
   items: EscalationItem[];
   setItems: React.Dispatch<React.SetStateAction<EscalationItem[]>>;
   addEscalation: (item: Omit<EscalationItem, "id" | "createdAt">) => string;
+  /** Permanently remove an escalation from the queue (prototype local state). */
+  removeEscalation: (id: string) => void;
   updateAssignee: (id: string, assignee: string) => void;
   updateStatus: (id: string, status: string) => void;
   updateLabels: (id: string, labels: string[]) => void;
@@ -944,6 +946,10 @@ export function EscalationsProvider({ children }: { children: React.ReactNode })
     },
     [members, routingRules]
   );
+
+  const removeEscalation = useCallback((id: string) => {
+    setItems((prev) => prev.filter((r) => r.id !== id));
+  }, []);
 
   const updateAssignee = useCallback((id: string, assignee: string) => {
     const value = assignee === "Unassigned" ? "" : assignee;
@@ -1246,7 +1252,7 @@ export function EscalationsProvider({ children }: { children: React.ReactNode })
   return (
     <EscalationsContext.Provider
       value={{
-        items, setItems, addEscalation, updateAssignee, updateStatus, updateLabels,
+        items, setItems, addEscalation, removeEscalation, updateAssignee, updateStatus, updateLabels,
         markDone, reopen, addReply, addNote, updateInstructionForAgent, handBackToAgent, resolveApproval,
         bulkAssign, bulkUpdateStatus, bulkAddLabels,
         routingRules, setRoutingRules, addRoutingRule, removeRoutingRule, updateRoutingRule,
