@@ -171,7 +171,7 @@ function OutcomeConfidence() {
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <TrendingUp className="h-4 w-4 text-zinc-600" aria-hidden />
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Is It Working?</p>
+        <p className="text-xs font-semibold text-muted-foreground tracking-wide">Is It Working?</p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {OUTCOME_METRICS.map(m => <OutcomeCard key={m.label} metric={m} />)}
@@ -410,7 +410,7 @@ export function PaymentsReportingTab() {
 
       {/* Summary metrics row (from original) */}
       <div>
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Conversation Volume</p>
+        <p className="text-xs font-semibold text-muted-foreground tracking-wide mb-3">Conversation Volume</p>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {SUMMARY_METRICS.map(m => {
             const Icon = m.icon
@@ -427,7 +427,7 @@ export function PaymentsReportingTab() {
 
       {/* Top topics */}
       <div>
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Top Topics</p>
+        <p className="text-xs font-semibold text-muted-foreground tracking-wide mb-3">Top Topics</p>
         <div className="rounded-xl border border-border bg-white overflow-hidden divide-y divide-border">
           {TOP_TOPICS.map(t => (
             <div key={t.topic} className="px-4 py-3 space-y-1.5">
@@ -475,7 +475,7 @@ export function PaymentsReportingTab() {
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <Brain className="h-4 w-4 text-zinc-600" aria-hidden />
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">What We've Learned</p>
+          <p className="text-xs font-semibold text-muted-foreground tracking-wide">What We've Learned</p>
         </div>
         {LEARNED_LOG.map(entry => {
           const cat = CATEGORY_STYLES[entry.category]

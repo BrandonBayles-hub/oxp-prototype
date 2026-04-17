@@ -8,7 +8,8 @@ import { cn } from "@/lib/utils"
 import {
   ArrowLeft, Users, CreditCard, Wrench, RefreshCw,
   CheckCircle2, Phone, ChevronDown, ChevronUp, Check,
-  Loader2, AlertTriangle, Zap, Code2, MessageSquare, Clock,
+  Loader2, AlertTriangle, Zap, MessageSquare, Clock,
+  Volume2, MessageCircle,
 } from "lucide-react"
 import { PROPERTIES } from "../data/properties"
 
@@ -68,6 +69,40 @@ function buildPools(): Record<string, string[]> {
 
 const DEFAULT_NUMBERS = buildDefaults()
 const AVAILABLE_POOLS = buildPools()
+
+// ── Leasing AI Voice + SMS numbers (separate pool, offset to avoid conflicts) ──
+
+type LeasingExtraType = "voice" | "other"
+
+function buildLeasingExtraPool(areaCode: string, propIndex: number): string[] {
+  const exchange = EXCHANGES[(propIndex + 6) % EXCHANGES.length]
+  const base = 2200 + propIndex * 100
+  return Array.from({ length: 5 }, (_, i) =>
+    `(${areaCode}) ${exchange}-${String(base + i * 4).padStart(4, "0")}`
+  )
+}
+
+function buildLeasingExtrasDefaults(): Record<string, Record<LeasingExtraType, string>> {
+  const result: Record<string, Record<LeasingExtraType, string>> = {}
+  PROPERTIES.forEach((prop, idx) => {
+    const ac = AREA_CODES[prop.city] ?? "000"
+    const pool = buildLeasingExtraPool(ac, idx)
+    result[prop.id] = { voice: pool[0], other: pool[1] }
+  })
+  return result
+}
+
+function buildLeasingExtraPools(): Record<string, string[]> {
+  const result: Record<string, string[]> = {}
+  PROPERTIES.forEach((prop, idx) => {
+    const ac = AREA_CODES[prop.city] ?? "000"
+    result[prop.id] = buildLeasingExtraPool(ac, idx)
+  })
+  return result
+}
+
+const DEFAULT_LEASING_EXTRAS = buildLeasingExtrasDefaults()
+const LEASING_EXTRA_POOLS = buildLeasingExtraPools()
 
 // ── Number picker cell ───────────────────────────────────────────────────────
 function NumberPicker({ value, options, onChange }: {
@@ -131,28 +166,22 @@ function NumberPicker({ value, options, onChange }: {
   )
 }
 
-// ── Dev note ─────────────────────────────────────────────────────────────────
-function DevNote({ number, children }: { number: number; children: React.ReactNode }) {
-  return (
-    <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-      <div className="flex items-start gap-2.5">
-        <div className="flex items-center justify-center h-5 w-5 rounded-full bg-amber-400 text-[10px] font-bold text-white shrink-0 mt-0.5">
-          {number}
-        </div>
-        <div className="text-xs text-amber-900 leading-relaxed">{children}</div>
-      </div>
-    </div>
-  )
-}
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 export function CommunicationsPage({ navigate, privacyPublished, brandStatus, campaignStatus, onCampaignReady }: Props) {
   const [numbers, setNumbers] = useState<Record<string, Record<ProductId, string>>>(buildDefaults)
+  const [leasingExtras, setLeasingExtras] = useState<Record<string, Record<LeasingExtraType, string>>>(buildLeasingExtrasDefaults)
   const [saved, setSaved] = useState(false)
   const [campaignExpanded, setCampaignExpanded] = useState(true)
+  const [leasingExtrasExpanded, setLeasingExtrasExpanded] = useState(true)
 
   function setNumber(propId: string, product: ProductId, val: string) {
     setNumbers((prev) => ({ ...prev, [propId]: { ...prev[propId], [product]: val } }))
+    setSaved(false)
+  }
+
+  function setLeasingExtra(propId: string, type: LeasingExtraType, val: string) {
+    setLeasingExtras((prev) => ({ ...prev, [propId]: { ...prev[propId], [type]: val } }))
     setSaved(false)
   }
 
@@ -240,76 +269,14 @@ export function CommunicationsPage({ navigate, privacyPublished, brandStatus, ca
         </div>
       )}
 
-      {/* ── Campaign numbers ──────────────────────────────────────────────── */}
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
-        <button type="button" onClick={() => setCampaignExpanded((v) => !v)}
-          className="w-full flex items-center justify-between px-5 py-4 border-b border-border hover:bg-zinc-50 transition-colors"
-        >
-          <div className="text-left">
-            <p className="text-sm font-semibold text-foreground">Compliance Numbers</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              One number purchased per AI product · area code matched to Austin, TX (512)
-            </p>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {numbersReady ? (
-              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
-                <CheckCircle2 className="h-3 w-3" />4 numbers active
-              </span>
-            ) : campaignsCreating ? (
-              <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-0.5 text-xs font-medium text-violet-700">
-                <Loader2 className="h-3 w-3 animate-spin" />Creating…
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-0.5 text-xs font-medium text-zinc-500">
-                <Clock className="h-3 w-3" />Pending
-              </span>
-            )}
-            {campaignExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-          </div>
-        </button>
-
-        {campaignExpanded && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-0 divide-x divide-border">
-            {CAMPAIGNS.map(({ id, label, icon: Icon, number, color, iconColor, badgeColor }) => (
-              <div key={id} className={cn("px-5 py-4 space-y-3", numbersReady ? color : "bg-zinc-50")}>
-                <div className="flex items-center gap-2">
-                  <Icon className={cn("h-4 w-4 shrink-0", numbersReady ? iconColor : "text-zinc-400")} />
-                  <p className={cn("text-xs font-semibold", numbersReady ? "text-foreground" : "text-zinc-400")}>{label}</p>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <Phone className="h-3 w-3 text-muted-foreground shrink-0" />
-                  <p className={cn("text-sm font-mono font-medium", numbersReady ? "text-foreground" : "text-zinc-400")}>
-                    {numbersReady ? number : "Pending…"}
-                  </p>
-                </div>
-                {numbersReady ? (
-                  <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium", badgeColor)}>
-                    <CheckCircle2 className="h-2.5 w-2.5" />Active
-                  </span>
-                ) : campaignsCreating ? (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700">
-                    <Loader2 className="h-2.5 w-2.5 animate-spin" />Creating
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-400">
-                    <Clock className="h-2.5 w-2.5" />Waiting
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
       {/* ── Property-specific numbers ─────────────────────────────────────── */}
       <div className="space-y-3">
         <div className="flex items-end justify-between">
           <div>
-            <h2 className="text-base font-semibold text-foreground">Property Numbers</h2>
+            <h2 className="text-base font-semibold text-foreground">Property SMS Numbers</h2>
             <p className="text-xs text-muted-foreground mt-0.5">
               {numbersReady
-                ? "Pre-assigned by area code. Click any number to choose a different one."
+                ? "SMS numbers pre-assigned by area code — one per AI product per property. Click any number to choose a different one."
                 : "Numbers will be assigned automatically once your carrier registration is approved."}
             </p>
           </div>
@@ -403,6 +370,128 @@ export function CommunicationsPage({ navigate, privacyPublished, brandStatus, ca
         </div>
       </div>
 
+      {/* ── Leasing AI — Voice & SMS numbers ────────────────────────────── */}
+      <div className="space-y-3">
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <button type="button" onClick={() => setLeasingExtrasExpanded((v) => !v)}
+            className="w-full flex items-center justify-between px-5 py-4 border-b border-border hover:bg-zinc-50 transition-colors"
+          >
+            <div className="text-left">
+              <div className="flex items-center gap-2">
+                <Users className="h-4 w-4 text-violet-500 shrink-0" />
+                <p className="text-sm font-semibold text-foreground">Leasing AI — Voice & Other Numbers</p>
+                <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700">
+                  Leasing AI only
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5 ml-6">
+                Dedicated voice and other numbers for Leasing AI per property · auto-assigned by area code
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {numbersReady ? (
+                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
+                  <CheckCircle2 className="h-3 w-3" />{PROPERTIES.length * 2} numbers active
+                </span>
+              ) : campaignsCreating ? (
+                <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-0.5 text-xs font-medium text-violet-700">
+                  <Loader2 className="h-3 w-3 animate-spin" />Creating…
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-0.5 text-xs font-medium text-zinc-500">
+                  <Clock className="h-3 w-3" />Pending
+                </span>
+              )}
+              {leasingExtrasExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+            </div>
+          </button>
+
+          {leasingExtrasExpanded && (
+            <div className="overflow-x-auto">
+              {!numbersReady && (
+                <div className={cn(
+                  "flex items-start gap-3 px-4 py-3 border-b border-border",
+                  campaignsCreating ? "bg-violet-50" : "bg-zinc-50",
+                )}>
+                  {campaignsCreating
+                    ? <Loader2 className="h-3.5 w-3.5 text-violet-500 mt-0.5 shrink-0 animate-spin" />
+                    : <Clock className="h-3.5 w-3.5 text-zinc-400 mt-0.5 shrink-0" />}
+                  <p className={cn("text-xs", campaignsCreating ? "text-violet-800" : "text-muted-foreground")}>
+                    {campaignsCreating
+                      ? "Numbers are being purchased and assigned — this table will populate once registration is confirmed."
+                      : "Complete Carrier Compliance to begin number assignment."}
+                  </p>
+                </div>
+              )}
+              <table className="w-full text-xs min-w-[560px]">
+                <thead>
+                  <tr className="border-b border-border bg-zinc-50">
+                    <th className="text-left px-4 py-3 font-semibold text-foreground w-[240px]">Property</th>
+                    <th className="text-left px-4 py-3 font-semibold text-foreground">
+                      <span className="flex items-center gap-1.5">
+                        <Volume2 className="h-3.5 w-3.5 text-violet-500" />Voice
+                      </span>
+                    </th>
+                    <th className="text-left px-4 py-3 font-semibold text-foreground">
+                      <span className="flex items-center gap-1.5">
+                        <MessageCircle className="h-3.5 w-3.5 text-violet-500" />Other
+                      </span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {PROPERTIES.map((prop) => {
+                    const pool = LEASING_EXTRA_POOLS[prop.id] ?? []
+                    const extras = leasingExtras[prop.id]
+                    const defaults = DEFAULT_LEASING_EXTRAS[prop.id]
+                        const voiceCustomised = extras.voice !== defaults.voice
+                        const otherCustomised = extras.other !== defaults.other
+                    return (
+                      <tr key={prop.id} className={cn("transition-colors", numbersReady ? "bg-white hover:bg-zinc-50" : "bg-zinc-50/50")}>
+                        <td className="px-4 py-2.5">
+                          <p className={cn("font-medium leading-tight", numbersReady ? "text-foreground" : "text-muted-foreground")}>{prop.name}</p>
+                          <p className="text-[11px] text-muted-foreground flex items-center gap-1.5 mt-0.5">
+                            <span>{prop.city}, {prop.state}</span>
+                            <span className="rounded px-1 py-px text-[10px] font-medium bg-zinc-100 text-zinc-500">
+                              {AREA_CODES[prop.city] ?? "—"}
+                            </span>
+                          </p>
+                        </td>
+                        {(["voice", "other"] as const).map((type) => {
+                          const isCustomised = type === "voice" ? voiceCustomised : otherCustomised
+                          return (
+                            <td key={type} className="px-4 py-2.5">
+                              {numbersReady ? (
+                                <div className={cn("relative", isCustomised && "ring-1 ring-violet-300 rounded-md")}>
+                                  <NumberPicker
+                                    value={extras[type]}
+                                    options={pool}
+                                    onChange={(v) => setLeasingExtra(prop.id, type, v)}
+                                  />
+                                </div>
+                              ) : (
+                                <div className={cn(
+                                  "h-8 rounded-md border px-2.5 flex items-center",
+                                  campaignsCreating
+                                    ? "border-violet-100 bg-white text-violet-400"
+                                    : "border-zinc-200 bg-zinc-100 text-zinc-400",
+                                )}>
+                                  <span className="text-xs font-mono">{campaignsCreating ? "Pending…" : "—"}</span>
+                                </div>
+                              )}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Save (only when numbers are ready) */}
       {numbersReady && (
         <div className="flex items-center gap-3 pt-2">
@@ -418,24 +507,6 @@ export function CommunicationsPage({ navigate, privacyPublished, brandStatus, ca
           )}
         </div>
       )}
-    </div>
-
-    {/* ── Developer notes sidebar ───────────────────────────────────────── */}
-    <div className="w-[380px] shrink-0 sticky top-6 self-start space-y-3">
-      <div className="flex items-center gap-2 mb-1">
-        <Code2 className="h-4 w-4 text-amber-600" />
-        <p className="text-xs font-semibold uppercase tracking-widest text-amber-700">Developer notes</p>
-      </div>
-      <DevNote number={1}>
-        <p className="font-semibold mb-1">Slack fast-track is mandatory — always send it</p>
-        The moment brand & profile is approved, POST a message to the <span className="font-mono bg-amber-100 px-0.5 rounded">#twilio-rep-fasttrack</span> Slack channel: <span className="italic">"Fast-track campaign creation for [Company Name]. 4 campaigns queued (Leasing AI, Payments AI, Maintenance AI, Renewals AI). [Timestamp]"</span>
-        <p className="mt-1.5">We pay for fast-track service. Skipping this step means 3–5 day delays instead of 1–2. This should be a background job trigger, not a manual step.</p>
-      </DevNote>
-      <DevNote number={2}>
-        <p className="font-semibold mb-1">Number assignment is fully automatic</p>
-        Once campaigns are approved by Twilio, purchase one number per campaign using the company address area code. Then auto-assign to each property — no user action needed.
-        <p className="mt-1.5">If a specific area code is unavailable, fall back to a neighboring area code and surface a note in this table so the user can see the substitution.</p>
-      </DevNote>
     </div>
 
     </div>

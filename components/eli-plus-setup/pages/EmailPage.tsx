@@ -4,7 +4,7 @@ import { useState } from "react"
 import type { PageId } from "../index"
 import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { ArrowLeft, ChevronLeft, ChevronRight, CheckCircle2, Pencil, XCircle, Globe, Code2 } from "lucide-react"
+import { ArrowLeft, ChevronLeft, ChevronRight, CheckCircle2, Pencil, XCircle, Globe } from "lucide-react"
 
 // ── Connected email accounts ──────────────────────────────────────────────────
 
@@ -173,18 +173,6 @@ function isEliComplete(p: EmailProperty) {
   return contracted.length > 0 && contracted.every((k) => p[k] === "done")
 }
 
-function DevNote({ number, children }: { number: number; children: React.ReactNode }) {
-  return (
-    <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-      <div className="flex items-start gap-2.5">
-        <div className="flex items-center justify-center h-5 w-5 rounded-full bg-amber-400 text-[10px] font-bold text-white shrink-0 mt-0.5">
-          {number}
-        </div>
-        <div className="text-xs text-amber-900 leading-relaxed">{children}</div>
-      </div>
-    </div>
-  )
-}
 
 interface Props { navigate: (to: PageId) => void }
 
@@ -395,42 +383,6 @@ export function EmailPage({ navigate }: Props) {
           </div>
         </div>
       </div>
-    </div>
-
-    {/* ── Developer notes sidebar ───────────────────────────────────────── */}
-    <div className="w-[380px] shrink-0 sticky top-6 self-start space-y-3">
-      <div className="flex items-center gap-2 mb-1">
-        <Code2 className="h-4 w-4 text-amber-600" />
-        <p className="text-xs font-semibold uppercase tracking-widest text-amber-700">Developer notes</p>
-      </div>
-
-      <DevNote number={1}>
-        <p className="font-semibold mb-1">This workflow already exists — don't rebuild it</p>
-        The email integration UI, OAuth flows (Google, Microsoft), IMAP/SMTP configuration, and property-to-email mapping are all fully built today inside <span className="font-medium">OXP (Operations Experience Platform)</span>. This tab is a direct surface of that existing workflow.
-        <p className="mt-1.5">We are not rebuilding this. We are embedding it. Coordinate with the OXP team to render this view inside ELI+ Setup rather than sending users to a separate area of the product.</p>
-      </DevNote>
-
-      <DevNote number={2}>
-        <p className="font-semibold mb-1">What we need from OXP — the notification piece</p>
-        The only net-new requirement for ELI+ is a <span className="font-medium">completion status signal</span> per property per AI product. We need:
-        <ul className="mt-1.5 space-y-1 list-disc list-inside">
-          <li>An API or event returning: for each property, how many email integration items are pending vs. complete, broken down by AI product (Leasing AI, Payments AI, etc.)</li>
-          <li>A total pending count to drive the red notification badge on the Email Integration sidebar tab</li>
-          <li>A webhook or polling endpoint so Overview reflects live status without a full page reload</li>
-        </ul>
-        <p className="mt-1.5">This is the only thing that doesn't exist today. Everything else is already built.</p>
-      </DevNote>
-
-      <DevNote number={3}>
-        <p className="font-semibold mb-1">Surface email status in the Communications tab</p>
-        Once we have the completion signal from OXP, reflect it in the Communications tab property table alongside phone numbers:
-        <ul className="mt-1.5 space-y-1 list-disc list-inside">
-          <li>Show each property's connected email address — or a "No email connected" warning — inline in the table</li>
-          <li>If a property has pending items, show a "Pending email setup" badge in that row</li>
-          <li>That badge links directly back to this tab so the user never has to hunt for the right screen</li>
-        </ul>
-        <p className="mt-1.5">Goal: from the Communications tab a user can see at a glance which properties are fully set up for phone and email, and jump straight to whichever workflow needs action.</p>
-      </DevNote>
     </div>
 
     </div>

@@ -905,12 +905,12 @@ function StepGovernance() {
    ═══════════════════════════════════════════════════════════════════════ */
 
 const BRIEF_ITEMS = [
-  { label: "Share overview of OXP Studio with your team", description: "Walk through what the platform does and how it will support daily operations" },
-  { label: "Review escalation procedures", description: "Ensure team members understand how AI escalations work and their role in the process" },
-  { label: "Explain agent capabilities & limitations", description: "Set clear expectations about what AI agents can and cannot do independently" },
-  { label: "Demonstrate the Command Center", description: "Show your team how to monitor live conversations, metrics, and escalations" },
-  { label: "Share governance policies", description: "Brief the team on compliance guardrails, approval gates, and audit procedures" },
-  { label: "Assign team roles & responsibilities", description: "Clarify who handles what — routing, escalations, reviews, and overrides" },
+  { label: "Confirm 10DLC carrier compliance is approved", description: "Your privacy policy must be live on your website and the 10DLC registration approved by The Campaign Registry before any SMS texts can send. Check status in the Carrier Compliance tab." },
+  { label: "Assign phone numbers to every property", description: "Each property needs a dedicated Entrata compliance phone number before IVR routing activates. Open the Communications tab and confirm every property shows a phone number assigned." },
+  { label: "Complete IVR routing configuration", description: "Once phone numbers are assigned, select your IVR mode (Preferred Entrata, Existing Entrata, or 3rd Party) and confirm call routing for leasing, maintenance, and other departments." },
+  { label: "Walk leasing staff through AI handoffs", description: "Show your leasing team what happens when ELI Leasing AI escalates a prospect to a human. Run a live walkthrough in the Command Center before agents go live." },
+  { label: "Confirm Payments AI go-live date with your billing team", description: "Payments AI can only activate on the 2nd or 8th of each month to align with billing cycles. Activating outside this window causes incorrect resident charge notifications — coordinate the date with your billing team now." },
+  { label: "Set maintenance escalation contacts for every property", description: "Maintenance AI requires a during-hours and after-hours escalation phone number for each property. Missing contacts block activation on that property. Complete this before the go-live review." },
 ];
 
 function StepBriefTeam() {
@@ -956,10 +956,10 @@ function StepBriefTeam() {
             type="button"
             onClick={() => {
               const content = [
-                "OXP Studio — Team Brief",
+                "ELI+ Go-Live Checklist — Team Brief",
                 "=" .repeat(40),
                 "",
-                "This document outlines the key information your team needs before going live with OXP Studio.",
+                "Complete these items before activating any ELI+ AI agents. Each item maps to a blocker in the ELI+ Setup workflow.",
                 "",
                 ...BRIEF_ITEMS.map((item, i) => `${i + 1}. ${item.label}\n   ${item.description}`),
                 "",
@@ -982,12 +982,12 @@ function StepBriefTeam() {
           <button
             type="button"
             onClick={() => {
-              const subject = encodeURIComponent("OXP Studio — Team Brief");
+              const subject = encodeURIComponent("ELI+ Go-Live Checklist — Pre-Launch Actions Required");
               const body = encodeURIComponent(
                 [
                   "Hi team,",
                   "",
-                  "We are preparing to go live with OXP Studio. Please review the following briefing items before launch:",
+                  "We are preparing to go live with ELI+ AI agents. Please complete the following before our activation date:",
                   "",
                   ...BRIEF_ITEMS.map((item, i) => `${i + 1}. ${item.label} — ${item.description}`),
                   "",

@@ -1,16 +1,17 @@
 "use client"
 
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useCallback } from "react"
 import { Clock, ArrowLeft } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
 import { HybridShell } from "./components/HybridShell"
+import { GlobalToast } from "./components/GlobalToast"
 import { OverviewPage } from "./pages/OverviewPage"
 import { CompanyPage } from "./pages/CompanyPage"
+import type { SimMode } from "./pages/CompanyPage"
 import { PrivacyPage } from "./pages/PrivacyPage"
 import { EmailPage } from "./pages/EmailPage"
 import { PaymentsSummaryPage } from "./pages/PaymentsSummaryPage"
-import { PaymentsAdvancedPage } from "./pages/PaymentsAdvancedPage"
 import { GoLivePage } from "./pages/GoLivePage"
 import { MaintenancePage } from "./pages/MaintenancePage"
 import { RenewalsPage } from "./pages/RenewalsPage"
@@ -22,16 +23,17 @@ import { makeDefaultModelUnits } from "./components/ModelUnitsSheetContent"
 import { makeDefaultTourSettings } from "./components/TourTypesSheetContent"
 import type { TourPropertySettings } from "./components/TourTypesSheetContent"
 import { DEFAULT_TOUR_PRIORITY } from "./components/TourPrioritySheetContent"
-import { makeDefaultLeasingPolicies, type LeasingPoliciesState } from "./components/LeasingPoliciesSheetContent"
+import { makeDefaultLeasingPolicies, type LeasingPoliciesState, LEASING_POLICIES } from "./components/LeasingPoliciesSheetContent"
 import { makeDefaultLateFeePolicy, type LateFeeState } from "./components/LateFeeSheetContent"
 import { makeDefaultPaymentPlanPolicy, type PaymentPlanPolicyState } from "./components/PaymentPlanPolicySheetContent"
 import { PROPERTIES } from "./data/properties"
+import { PAYMENT_SETTING_IDS } from "./pages/PaymentsSummaryPage"
 import {
   ENTRATA_DURING_PHONES,
   ENTRATA_AFTER_PHONES,
 } from "./data/entrata-imports"
 
-export type PageId = "overview" | "company" | "privacy" | "email" | "communications" | "leasing" | "payments" | "payments-advanced" | "maintenance" | "renewals" | "renewals-channels" | "golive"
+export type PageId = "overview" | "company" | "privacy" | "email" | "communications" | "leasing" | "payments" | "maintenance" | "renewals" | "renewals-channels" | "golive"
 export type BrandStatus = "idle" | "submitting" | "approved"
 export type CampaignStatus = "idle" | "creating" | "ready"
 
@@ -78,8 +80,6 @@ export type BasePageProps = {
 const NON_OVERVIEW_PAGES: Partial<Record<PageId, React.ComponentType<BasePageProps>>> = {
   privacy: PrivacyPage,
   email: EmailPage,
-  payments: PaymentsSummaryPage,
-  "payments-advanced": PaymentsAdvancedPage,
   golive: GoLivePage,
 }
 
@@ -101,8 +101,22 @@ export default function EliOnboardingHybrid() {
   const [agentGoals, setAgentGoals]         = useState<Record<string, string>>(makeDefaultAgentGoals)
   const [modelUnits, setModelUnits]         = useState<Record<string, string>>(makeDefaultModelUnits)
   const [tourSettings, setTourSettings]     = useState<Record<string, TourPropertySettings>>(makeDefaultTourSettings)
-  const [tourPriority, setTourPriority]     = useState<string[]>(DEFAULT_TOUR_PRIORITY)
+  const [tourPriority, setTourPriority] = useState<Record<string, string[]>>(() =>
+    Object.fromEntries(PROPERTIES.map(p => [p.id, DEFAULT_TOUR_PRIORITY]))
+  )
   const [leasingPolicies, setLeasingPolicies] = useState<LeasingPoliciesState>(() => makeDefaultLeasingPolicies())
+  const [campusProximity, setCampusProximity] = useState<Record<string, string>>(
+    () => Object.fromEntries(PROPERTIES.map((p) => [p.id, ""]))
+  )
+  const [studySpaces, setStudySpaces] = useState<Record<string, string>>(
+    () => Object.fromEntries(PROPERTIES.map((p) => [p.id, ""]))
+  )
+  const [semesterLeases, setSemesterLeases] = useState<Record<string, string>>(
+    () => Object.fromEntries(PROPERTIES.map((p) => [p.id, ""]))
+  )
+  const [immediateMovein, setImmediateMovein] = useState<Record<string, string>>(
+    () => Object.fromEntries(PROPERTIES.map((p) => [p.id, ""]))
+  )
   const [lateFeePolicy, setLateFeePolicy] = useState<LateFeeState>(() => makeDefaultLateFeePolicy())
   const [paymentPlanPolicy, setPaymentPlanPolicy] = useState<PaymentPlanPolicyState>(() => makeDefaultPaymentPlanPolicy())
 
@@ -118,6 +132,8 @@ export default function EliOnboardingHybrid() {
   const [emailComplete, setEmailComplete] = useState(false)
   // IVR setup confirmed state
   const [ivrComplete, setIvrComplete] = useState(false)
+  // Carrier compliance simulation mode — lifted from CompanyPage so Overview can react
+  const [simMode, setSimMode] = useState<SimMode>("none")
 
   // When privacy is published, auto-simulate the Twilio brand/profile + campaign pipeline
   useEffect(() => {
@@ -134,6 +150,17 @@ export default function EliOnboardingHybrid() {
     setPage(to)
   }
 
+  // Global toast — shared across all pages
+  const [globalToast, setGlobalToast] = useState<{ message: string; visible: boolean }>({ message: "", visible: false })
+  useEffect(() => {
+    if (!globalToast.visible) return
+    const t = setTimeout(() => setGlobalToast(prev => ({ ...prev, visible: false })), 4000)
+    return () => clearTimeout(t)
+  }, [globalToast.visible])
+  const showToast = useCallback((message: string) => {
+    setGlobalToast({ message, visible: true })
+  }, [])
+
   function handleComplete(taskId: string) {
     setCompletedTasks((prev) => new Set([...prev, taskId]))
   }
@@ -146,12 +173,40 @@ export default function EliOnboardingHybrid() {
   const duringFilled = Object.values(duringPhones).filter(validPhone).length
   const afterFilled = Object.values(afterPhones).filter(validPhone).length
   const totalProps = PROPERTIES.length
+  const maintenancePending = (duringFilled < totalProps ? 1 : 0) + (afterFilled < totalProps ? 1 : 0)
 
   const renewalFilled = Object.values(renewalDays).filter(isValidDays).length
   const renewalAllFilled = renewalFilled === PROPERTIES.length
 
+  // Live progress — mirrors OverviewPage's doneCount / TOTAL_CONFIGS
+  const leasingAgentGoalsDone    = Object.values(agentGoals).every(v => v && v.trim() !== "")
+  const leasingModelUnitsDone    = Object.values(modelUnits).every(v => v && v.trim() !== "")
+  const leasingTourPriorityDone  = Object.values(tourPriority).every(arr => Array.isArray(arr) && arr.length > 0)
+  const leasingPoliciesCompleted = LEASING_POLICIES.filter(policy => {
+    const bucket = leasingPolicies[policy.id] ?? {}
+    return Object.values(bucket).every(t => t && t.trim() !== "")
+  }).length
+  const LEASING_TOTAL  = 4 + LEASING_POLICIES.length
+  const TOTAL_CONFIGS  = 3 + LEASING_TOTAL + PAYMENT_SETTING_IDS.length + 2 + 1
+  const doneCount =
+    (privacyPublished ? 1 : 0) +
+    (emailComplete    ? 1 : 0) +
+    (ivrComplete      ? 1 : 0) +
+    (completedTasks.has("tour-types") ? 1 : 0) +
+    (leasingAgentGoalsDone   ? 1 : 0) +
+    (leasingModelUnitsDone   ? 1 : 0) +
+    (leasingTourPriorityDone ? 1 : 0) +
+    leasingPoliciesCompleted +
+    PAYMENT_SETTING_IDS.filter(id => completedTasks.has(id)).length +
+    (duringFilled === totalProps ? 1 : 0) +
+    (afterFilled  === totalProps ? 1 : 0) +
+    (renewalAllFilled ? 1 : 0)
+  const progressPct = Math.round((doneCount / TOTAL_CONFIGS) * 100)
+
   return (
-      <HybridShell page={page} navigate={navigate} completedTasks={completedTasks} privacyPublished={privacyPublished} emailComplete={emailComplete} commsComplete={campaignStatus === "ready"} ivrComplete={ivrComplete}>
+    <>
+      <GlobalToast message={globalToast.message} visible={globalToast.visible} />
+      <HybridShell page={page} navigate={navigate} completedTasks={completedTasks} privacyPublished={privacyPublished} emailComplete={emailComplete} commsComplete={campaignStatus === "ready"} ivrComplete={ivrComplete} maintenancePending={maintenancePending} progressPct={progressPct} carrierSimMode={simMode}>
         {page === "overview" ? (
           <OverviewPage
             navigate={navigate}
@@ -164,6 +219,8 @@ export default function EliOnboardingHybrid() {
             commsComplete={campaignStatus === "ready"}
             ivrComplete={ivrComplete}
             onIvrComplete={() => setIvrComplete(true)}
+            carrierSimMode={simMode}
+            onNavigateToCompany={() => setPage("company")}
             agentGoals={agentGoals}
             onAgentGoalChange={(id, val) => setAgentGoals((p) => ({ ...p, [id]: val }))}
             modelUnits={modelUnits}
@@ -171,7 +228,7 @@ export default function EliOnboardingHybrid() {
             tourSettings={tourSettings}
             onTourSettingChange={(id, field, val) => setTourSettings((p) => ({ ...p, [id]: { ...p[id], [field]: val } }))}
             tourPriority={tourPriority}
-            onTourPriorityChange={setTourPriority}
+            onTourPriorityChange={(propId, order) => setTourPriority((p) => ({ ...p, [propId]: order }))}
             leasingPolicies={leasingPolicies}
             onLeasingPolicyChange={(policyId, propId, val) => setLeasingPolicies((p) => ({ ...p, [policyId]: { ...p[policyId], [propId]: val } }))}
             lateFeePolicy={lateFeePolicy}
@@ -189,10 +246,19 @@ export default function EliOnboardingHybrid() {
             onRenewalDayChange={handleRenewalDayChange}
             renewalFilled={renewalFilled}
             renewalAllFilled={renewalAllFilled}
+            campusProximity={campusProximity}
+            onCampusProximityChange={(id, val) => setCampusProximity((p) => ({ ...p, [id]: val }))}
+            studySpaces={studySpaces}
+            onStudySpacesChange={(id, val) => setStudySpaces((p) => ({ ...p, [id]: val }))}
+            semesterLeases={semesterLeases}
+            onSemesterLeasesChange={(id, val) => setSemesterLeases((p) => ({ ...p, [id]: val }))}
+            immediateMovein={immediateMovein}
+            onImmediateMoveinChange={(id, val) => setImmediateMovein((p) => ({ ...p, [id]: val }))}
           />
-        ) : page === "leasing" ? (
+          ) : page === "leasing" ? (
           <LeasingPage
             navigate={navigate}
+            showToast={showToast}
             agentGoals={agentGoals}
             onAgentGoalChange={(id, val) => setAgentGoals((p) => ({ ...p, [id]: val }))}
             modelUnits={modelUnits}
@@ -200,22 +266,33 @@ export default function EliOnboardingHybrid() {
             tourSettings={tourSettings}
             onTourSettingChange={(id, field, val) => setTourSettings((p) => ({ ...p, [id]: { ...p[id], [field]: val } }))}
             tourPriority={tourPriority}
-            onTourPriorityChange={setTourPriority}
+            onTourPriorityChange={(propId, order) => setTourPriority((p) => ({ ...p, [propId]: order }))}
             leasingPolicies={leasingPolicies}
             onLeasingPolicyChange={(policyId, propId, val) => setLeasingPolicies((p) => ({ ...p, [policyId]: { ...p[policyId], [propId]: val } }))}
+            campusProximity={campusProximity}
+            onCampusProximityChange={(id, val) => setCampusProximity((p) => ({ ...p, [id]: val }))}
+            studySpaces={studySpaces}
+            onStudySpacesChange={(id, val) => setStudySpaces((p) => ({ ...p, [id]: val }))}
+            semesterLeases={semesterLeases}
+            onSemesterLeasesChange={(id, val) => setSemesterLeases((p) => ({ ...p, [id]: val }))}
+            immediateMovein={immediateMovein}
+            onImmediateMoveinChange={(id, val) => setImmediateMovein((p) => ({ ...p, [id]: val }))}
           />
         ) : page === "maintenance" ? (
           <MaintenancePage
             navigate={navigate}
+            showToast={showToast}
             duringPhones={duringPhones}
             onDuringPhoneChange={(id, val) => setDuringPhones((p) => ({ ...p, [id]: val }))}
             afterPhones={afterPhones}
             onAfterPhoneChange={(id, val) => setAfterPhones((p) => ({ ...p, [id]: val }))}
           />
         ) : page === "renewals" ? (
-          <RenewalsPage navigate={navigate} days={renewalDays} onChange={handleRenewalDayChange} />
+          <RenewalsPage navigate={navigate} showToast={showToast} days={renewalDays} onChange={handleRenewalDayChange} />
         ) : page === "renewals-channels" ? (
           <RenewalsChannelsPage navigate={navigate} />
+        ) : page === "payments" ? (
+          <PaymentsSummaryPage navigate={navigate} completedTasks={completedTasks} onComplete={handleComplete} showToast={showToast} />
         ) : page === "communications" ? (
           <CommunicationsPage
             navigate={navigate}
@@ -225,7 +302,7 @@ export default function EliOnboardingHybrid() {
             onCampaignReady={() => setCampaignStatus("ready")}
           />
         ) : page === "company" ? (
-          <CompanyPage navigate={navigate} privacyPublished={privacyPublished} onPrivacyPublish={() => setPrivacyPublished(true)} brandStatus={brandStatus} />
+          <CompanyPage navigate={navigate} privacyPublished={privacyPublished} onPrivacyPublish={() => setPrivacyPublished(true)} brandStatus={brandStatus} showToast={showToast} simMode={simMode} onSimModeChange={setSimMode} />
         ) : (
           (() => {
             const PageComponent = NON_OVERVIEW_PAGES[page as keyof typeof NON_OVERVIEW_PAGES]
@@ -233,5 +310,6 @@ export default function EliOnboardingHybrid() {
           })()
         )}
       </HybridShell>
+    </>
   )
 }

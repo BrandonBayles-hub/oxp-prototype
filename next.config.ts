@@ -10,6 +10,7 @@ const nextConfig: NextConfig = {
   // images: { unoptimized: true },
   // No server redirect: root app/page.tsx does client-side redirect to /getting-started.
   // This avoids 404s that can occur with config redirects in some setups.
+  devIndicators: false,
   transpilePackages: [
     "@tiptap/react",
     "@tiptap/starter-kit",

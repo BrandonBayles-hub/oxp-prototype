@@ -8,6 +8,14 @@ import { PropertyFilter, usePropertyFilter } from "./PropertyFilter"
 
 const DAY_OPTIONS = Array.from({ length: 31 }, (_, i) => String(i + 1))
 
+function toOrdinal(n: number): string {
+  const s = ["th", "st", "nd", "rd"]
+  const v = n % 100
+  return n + (s[(v - 20) % 10] ?? s[v] ?? s[0])
+}
+
+const DAY_DISPLAY = Object.fromEntries(DAY_OPTIONS.map((v) => [v, toOrdinal(Number(v))]))
+
 interface Props {
   label: string
   onValidChange: (valid: boolean) => void
@@ -53,7 +61,7 @@ export function DateSettingSheetContent({ label, onValidChange, defaultDay }: Pr
             >
               <option value="">Day of month</option>
               {DAY_OPTIONS.map((v) => (
-                <option key={v} value={v}>{v}</option>
+                <option key={v} value={v}>{DAY_DISPLAY[v]}</option>
               ))}
             </select>
             <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" aria-hidden />
@@ -66,10 +74,13 @@ export function DateSettingSheetContent({ label, onValidChange, defaultDay }: Pr
           >
             Apply to All
           </button>
+          {!bulkValue && (
+            <span className="text-xs text-muted-foreground">Select a day above to apply to all properties.</span>
+          )}
           {applied && (
             <span className="flex items-center gap-1 text-xs text-emerald-700 font-medium">
               <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
-              {defaultDay && bulkValue === defaultDay ? `Default (${defaultDay}) applied to ${PROPERTIES.length} properties` : `Applied to ${PROPERTIES.length} properties`}
+              {defaultDay && bulkValue === defaultDay ? `Default (${DAY_DISPLAY[defaultDay]}) applied to ${PROPERTIES.length} properties` : `${DAY_DISPLAY[bulkValue] ?? bulkValue} applied to ${PROPERTIES.length} properties`}
             </span>
           )}
         </div>
@@ -125,7 +136,7 @@ export function DateSettingSheetContent({ label, onValidChange, defaultDay }: Pr
                       >
                         <option value="">—</option>
                         {DAY_OPTIONS.map((v) => (
-                          <option key={v} value={v}>{v}</option>
+                          <option key={v} value={v}>{DAY_DISPLAY[v]}</option>
                         ))}
                       </select>
                       <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" aria-hidden />

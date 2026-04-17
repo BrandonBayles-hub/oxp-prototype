@@ -55,6 +55,9 @@ export function PaymentLinkSheetContent({ onValidChange }: Props) {
           >
             Apply to All
           </button>
+          {!bulkUrl.trim() && (
+            <span className="text-xs text-muted-foreground">Enter a URL above to apply to all properties.</span>
+          )}
         </div>
         {applied && (
           <span className="flex items-center gap-1 text-xs text-emerald-700 font-medium">

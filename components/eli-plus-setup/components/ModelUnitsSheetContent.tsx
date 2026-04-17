@@ -102,8 +102,8 @@ export function ModelUnitsSheetContent({ units, onChange, onValidChange }: Props
                           "h-8 px-4 rounded-lg border text-sm font-medium transition-colors",
                           val === opt
                             ? opt === "yes"
-                              ? "border-emerald-600 bg-emerald-50 text-emerald-700"
-                              : "border-red-300 bg-red-50 text-red-600"
+                              ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                              : "border-zinc-500 bg-zinc-100 text-zinc-700"
                             : "border-border bg-white text-muted-foreground hover:border-zinc-400",
                         )}
                       >
