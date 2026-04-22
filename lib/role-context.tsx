@@ -50,7 +50,10 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
     (href: string) => {
       const allowed = ALLOWED_ROUTES[role];
       if (allowed === "all") return true;
-      return allowed.includes(href);
+      
+      // Strip trailing slash for comparison if it's not exactly "/"
+      const normalizedHref = href !== "/" && href.endsWith("/") ? href.slice(0, -1) : href;
+      return allowed.includes(normalizedHref);
     },
     [role]
   );

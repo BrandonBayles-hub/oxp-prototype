@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useMemo, useRef, useState, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { AlertCircle, AlertTriangle, Clock, CheckCircle2, Search, X, ArrowLeftRight, TrendingUp, BarChart3, Plus, Settings, Check, SlidersHorizontal, ArrowUpDown, ChevronDown } from "lucide-react";
+import { AlertCircle, AlertTriangle, Clock, CheckCircle2, Search, X, ArrowLeftRight, TrendingUp, BarChart3, Plus, Settings, Check, SlidersHorizontal, ArrowUpDown, ChevronDown, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -75,7 +75,7 @@ function EscalationsContent() {
   const propertyParam = searchParams.get("property");
   const initialCategory =
     categoryParam && CATEGORIES.includes(categoryParam) ? categoryParam : "All";
-  const { items, updateAssignee, bulkAssign, bulkUpdateStatus, bulkAddLabels, addEscalation } = useEscalations();
+  const { items, updateAssignee, bulkAssign, bulkUpdateStatus, bulkDelete, bulkAddLabels, addEscalation } = useEscalations();
   const { suggestedEscalations } = useFeedback();
   const { linkEscalation } = useFeedback();
   const { humanMembers, getCurrentUser, getDirectReports } = useWorkforce();
@@ -253,6 +253,13 @@ function EscalationsContent() {
     if (!bulkStatus || selectedIds.size === 0) return;
     bulkUpdateStatus(Array.from(selectedIds), bulkStatus);
     setBulkStatus("");
+    setSelectedIds(new Set());
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Are you sure you want to delete ${selectedIds.size} item(s)?`)) return;
+    bulkDelete(Array.from(selectedIds));
     setSelectedIds(new Set());
   };
 
@@ -763,9 +770,15 @@ function EscalationsContent() {
           <Button size="sm" variant="outline" className="h-8 text-xs" onClick={handleBulkStatus} disabled={!bulkStatus}>
             Update
           </Button>
-          <Button size="sm" variant="ghost" className="h-8 text-xs ml-auto" onClick={() => setSelectedIds(new Set())}>
-            Clear
-          </Button>
+          <div className="ml-auto flex items-center gap-2">
+            <Button size="sm" variant="ghost" className="h-8 text-xs text-destructive hover:text-destructive hover:bg-destructive/10" onClick={handleBulkDelete}>
+              <Trash2 className="h-3.5 w-3.5 mr-1" />
+              Delete
+            </Button>
+            <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setSelectedIds(new Set())}>
+              Clear
+            </Button>
+          </div>
         </div>
       )}
 

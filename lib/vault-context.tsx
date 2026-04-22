@@ -369,7 +369,7 @@ const INITIAL_DOCS: VaultItem[] = [
 ];
 
 /** Maps compliance subject (e.g. "Fair housing policy") to the document ID used to train on that subject */
-export type ComplianceSubjectDocumentIds = Record<string, string>;
+export type ComplianceSubjectDocumentIds = Record<string, string[]>;
 
 /** Workforce member acknowledgment for a compliance subject */
 export type WorkforceAck = {
@@ -389,7 +389,8 @@ type VaultContextValue = {
   complianceChecked: Record<string, boolean>;
   setComplianceChecked: (updater: (prev: Record<string, boolean>) => Record<string, boolean>) => void;
   complianceSubjectDocumentIds: ComplianceSubjectDocumentIds;
-  setComplianceSubjectDocumentId: (subject: string, documentId: string | null) => void;
+  addComplianceSubjectDocument: (subject: string, documentId: string) => void;
+  removeComplianceSubjectDocument: (subject: string, documentId: string) => void;
   docCount: number;
   /** Activity log (centralized feed) */
   activityLog: VaultActivityEntry[];
@@ -460,7 +461,15 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
           setDocuments(migrated);
         }
         if (compliance && typeof compliance === "object") setComplianceCheckedState((p) => ({ ...p, ...compliance }));
-        if (subjectDocIds && typeof subjectDocIds === "object") setComplianceSubjectDocumentIdsState(subjectDocIds);
+        if (subjectDocIds && typeof subjectDocIds === "object") {
+          // Migrate old format (string values) to new format (string[] values)
+          const migrated: ComplianceSubjectDocumentIds = {};
+          for (const [k, v] of Object.entries(subjectDocIds)) {
+            if (Array.isArray(v)) migrated[k] = v as string[];
+            else if (typeof v === "string" && v) migrated[k] = [v];
+          }
+          setComplianceSubjectDocumentIdsState(migrated);
+        }
       }
       const actRaw = localStorage.getItem(ACTIVITY_STORAGE_KEY);
       if (actRaw) {
@@ -525,12 +534,22 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     setActivityLog((prev) => [full, ...prev].slice(0, 200));
   }, []);
 
-  const setComplianceSubjectDocumentId = useCallback((subject: string, documentId: string | null) => {
+  const addComplianceSubjectDocument = useCallback((subject: string, documentId: string) => {
     setComplianceSubjectDocumentIdsState((prev) => {
-      const next = { ...prev };
-      if (documentId == null) delete next[subject];
-      else next[subject] = documentId;
-      return next;
+      const existing = prev[subject] ?? [];
+      if (existing.includes(documentId)) return prev;
+      return { ...prev, [subject]: [...existing, documentId] };
+    });
+  }, []);
+
+  const removeComplianceSubjectDocument = useCallback((subject: string, documentId: string) => {
+    setComplianceSubjectDocumentIdsState((prev) => {
+      const next = (prev[subject] ?? []).filter((id) => id !== documentId);
+      if (next.length === 0) {
+        const { [subject]: _removed, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [subject]: next };
     });
   }, []);
 
@@ -697,7 +716,8 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         complianceChecked,
         setComplianceChecked,
         complianceSubjectDocumentIds,
-        setComplianceSubjectDocumentId,
+        addComplianceSubjectDocument,
+        removeComplianceSubjectDocument,
         docCount,
         activityLog,
         addActivity,
