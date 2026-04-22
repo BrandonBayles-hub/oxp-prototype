@@ -9,8 +9,12 @@ import { ComingSoon } from "@/components/coming-soon";
 import { useWorkforce, TEAMS, type WorkforceMember, type WorkforceTier } from "@/lib/workforce-context";
 import { useAgents, type Agent } from "@/lib/agents-context";
 import { useEscalations, type EscalationRoutingRule, type EscalationType } from "@/lib/escalations-context";
+import Link from "next/link";
 import { useR1Release } from "@/lib/r1-release-context";
-import { useConversations } from "@/lib/conversations-context";
+import {
+  useConversations,
+  UNASSIGN_CONVERSATION_VALUE,
+} from "@/lib/conversations-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -35,13 +39,33 @@ import {
 } from "@/lib/property-selector-data";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { SPECIALTIES as SPECIALTY_LIST } from "@/lib/specialties-data";
 import {
   Network, Tag, ChevronRight, ChevronDown, Award,
-  X, Plus, Building2, MapPin, Search, Check, List, Trash2, Users, Pencil,
+  X, Plus, Building2, MapPin, Search, Check, List, Trash2, Users, Pencil, AlertCircle, MessageSquare,
 } from "lucide-react";
 
 /* ──────────────────────────── Helpers ──────────────────────────── */
+
+function formatMemberSheetEscalationType(t: EscalationType): string {
+  const map: Record<EscalationType, string> = {
+    conversation: "Conversation",
+    approval: "Approval",
+    workflow: "Workflow",
+    training: "Training",
+    doc_improvement: "Doc improvement",
+  };
+  return map[t] ?? t;
+}
+
+function formatMemberSheetEscalationDue(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, { dateStyle: "short" });
+  } catch {
+    return iso;
+  }
+}
 
 const TIER_ORDER: Record<WorkforceTier, number> = {
   leadership: 0,
@@ -1743,10 +1767,46 @@ function MemberDetailSheet({
   const { hasPermission } = usePermissions();
   const { role: viewerRole } = useRole();
   const canEdit = hasPermission("p-wf-members-edit");
+  const canViewEscalations = hasPermission("p-tasks-view");
+  const canBulkEscalations = hasPermission("p-tasks-bulk-actions");
+  const canViewConversations = hasPermission("p-cc-view");
+  const canBulkConversations = hasPermission("p-comms-assign-conversation");
+  const { items: escalationItems, bulkAssign } = useEscalations();
+  const { items: conversationItems, updateAssignee: updateConversationAssignee } = useConversations();
   const [newLabel, setNewLabel] = useState("");
   const [newSpecialty, setNewSpecialty] = useState("");
   const [reportSearch, setReportSearch] = useState("");
   const [managerSearch, setManagerSearch] = useState("");
+  const [selectedEscalationIds, setSelectedEscalationIds] = useState<Set<string>>(new Set());
+  const [bulkEscReassignName, setBulkEscReassignName] = useState("");
+  const [selectedConvoIds, setSelectedConvoIds] = useState<Set<string>>(new Set());
+  const [bulkConvoReassignName, setBulkConvoReassignName] = useState("");
+
+  useEffect(() => {
+    setSelectedEscalationIds(new Set());
+    setBulkEscReassignName("");
+    setSelectedConvoIds(new Set());
+    setBulkConvoReassignName("");
+  }, [member?.id]);
+
+  const memberOpenEscalations = useMemo(() => {
+    if (!member) return [];
+    return escalationItems.filter(
+      (i) => i.assignee === member.name && i.status !== "Done",
+    );
+  }, [escalationItems, member]);
+
+  const humanAssigneeNames = useMemo(
+    () => members.filter((m) => m.type === "human").map((m) => m.name).sort((a, b) => a.localeCompare(b)),
+    [members],
+  );
+
+  const memberOpenConversations = useMemo(() => {
+    if (!member) return [];
+    return conversationItems.filter(
+      (c) => c.assignee === member.name && c.status === "open",
+    );
+  }, [conversationItems, member]);
 
   const properties = member?.properties ?? [];
   const hasAllProperties = properties.includes("All properties");
@@ -1765,6 +1825,62 @@ function MemberDetailSheet({
   }, [member, properties, hasAllProperties, propertyListTree]);
 
   if (!member) return null;
+
+  const escAllSelected =
+    memberOpenEscalations.length > 0
+    && memberOpenEscalations.every((i) => selectedEscalationIds.has(i.id));
+  const toggleEscSelectAll = () => {
+    if (escAllSelected) setSelectedEscalationIds(new Set());
+    else setSelectedEscalationIds(new Set(memberOpenEscalations.map((i) => i.id)));
+  };
+  const toggleEscSelect = (id: string) => {
+    setSelectedEscalationIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const handleBulkEscUnassign = () => {
+    if (selectedEscalationIds.size === 0) return;
+    bulkAssign(Array.from(selectedEscalationIds), "Unassigned");
+    setSelectedEscalationIds(new Set());
+    setBulkEscReassignName("");
+  };
+  const handleBulkEscReassign = () => {
+    if (selectedEscalationIds.size === 0 || !bulkEscReassignName) return;
+    bulkAssign(Array.from(selectedEscalationIds), bulkEscReassignName);
+    setSelectedEscalationIds(new Set());
+    setBulkEscReassignName("");
+  };
+
+  const convoAllSelected =
+    memberOpenConversations.length > 0
+    && memberOpenConversations.every((c) => selectedConvoIds.has(c.id));
+  const toggleConvoSelectAll = () => {
+    if (convoAllSelected) setSelectedConvoIds(new Set());
+    else setSelectedConvoIds(new Set(memberOpenConversations.map((c) => c.id)));
+  };
+  const toggleConvoSelect = (id: string) => {
+    setSelectedConvoIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const handleBulkConvoUnassign = () => {
+    if (selectedConvoIds.size === 0) return;
+    selectedConvoIds.forEach((id) => updateConversationAssignee(id, UNASSIGN_CONVERSATION_VALUE));
+    setSelectedConvoIds(new Set());
+    setBulkConvoReassignName("");
+  };
+  const handleBulkConvoReassign = () => {
+    if (selectedConvoIds.size === 0 || !bulkConvoReassignName) return;
+    selectedConvoIds.forEach((id) => updateConversationAssignee(id, bulkConvoReassignName));
+    setSelectedConvoIds(new Set());
+    setBulkConvoReassignName("");
+  };
 
   const onSheetPropertyIdsChange = (ids: Set<string>) => {
     const fromTree = getSelectedPropertyNames(propertyListTree, ids);
@@ -2222,6 +2338,276 @@ function MemberDetailSheet({
             </div>
           )}
 
+          {/* ── Open conversations (communications) ── */}
+          {canViewConversations && (
+            <div>
+              <div className="flex items-center justify-between mb-2 gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <MessageSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground truncate">
+                    Open conversations ({memberOpenConversations.length})
+                  </p>
+                </div>
+                <Link
+                  href="/conversations"
+                  className="shrink-0 text-xs text-primary hover:underline"
+                >
+                  View all
+                </Link>
+              </div>
+              {memberOpenConversations.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">None assigned</p>
+              ) : (
+                <>
+                  {canBulkConversations && selectedConvoIds.size > 0 && (
+                    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
+                      <select
+                        value={bulkConvoReassignName}
+                        onChange={(e) => setBulkConvoReassignName(e.target.value)}
+                        className="h-7 flex-1 min-w-[8rem] rounded border border-input bg-background px-2 text-xs"
+                        aria-label="Reassign selected to"
+                      >
+                        <option value="">Reassign to…</option>
+                        {humanAssigneeNames.map((n) => (
+                          <option key={n} value={n}>{n}</option>
+                        ))}
+                      </select>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs shrink-0"
+                        disabled={!bulkConvoReassignName}
+                        onClick={handleBulkConvoReassign}
+                      >
+                        Reassign
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs shrink-0"
+                        onClick={handleBulkConvoUnassign}
+                      >
+                        Unassign
+                      </Button>
+                    </div>
+                  )}
+                  <div className="overflow-x-auto rounded-lg border border-border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/30 hover:bg-muted/30">
+                          {canBulkConversations && (
+                            <TableHead className="w-10 px-2 py-2">
+                              <Checkbox
+                                checked={convoAllSelected}
+                                onCheckedChange={toggleConvoSelectAll}
+                                aria-label="Select all conversations"
+                              />
+                            </TableHead>
+                          )}
+                          <TableHead className="min-w-[140px] py-2 text-left text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                            Contact
+                          </TableHead>
+                          <TableHead className="min-w-[72px] py-2 text-left text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                            Channel
+                          </TableHead>
+                          <TableHead className="min-w-[72px] py-2 text-left text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                            Property
+                          </TableHead>
+                          <TableHead className="min-w-[140px] py-2 text-left text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                            Preview
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {memberOpenConversations.map((row) => (
+                          <TableRow key={row.id} className="text-xs">
+                            {canBulkConversations && (
+                              <TableCell className="w-10 px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                                <Checkbox
+                                  checked={selectedConvoIds.has(row.id)}
+                                  onCheckedChange={() => toggleConvoSelect(row.id)}
+                                  aria-label={`Select conversation with ${row.resident}`}
+                                />
+                              </TableCell>
+                            )}
+                            <TableCell className="py-2 font-medium text-foreground whitespace-nowrap">
+                              {row.resident}
+                              {row.unit && (
+                                <span className="ml-1 text-[10px] text-muted-foreground">· {row.unit}</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="py-2 text-muted-foreground whitespace-nowrap capitalize">
+                              {row.channel}
+                            </TableCell>
+                            <TableCell className="py-2 text-muted-foreground whitespace-nowrap">
+                              {row.property}
+                            </TableCell>
+                            <TableCell className="max-w-[180px] py-2 text-muted-foreground">
+                              <span className="line-clamp-2">{row.preview}</span>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ── Open escalations (tasks) ── */}
+          {canViewEscalations && (
+            <div>
+              <div className="flex items-center justify-between mb-2 gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground truncate">
+                    Open escalations ({memberOpenEscalations.length})
+                  </p>
+                </div>
+                <Link
+                  href="/escalations"
+                  className="shrink-0 text-xs text-primary hover:underline"
+                >
+                  View all
+                </Link>
+              </div>
+              {memberOpenEscalations.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">None assigned</p>
+              ) : (
+                <>
+                  {canBulkEscalations && selectedEscalationIds.size > 0 && (
+                    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
+                      <select
+                        value={bulkEscReassignName}
+                        onChange={(e) => setBulkEscReassignName(e.target.value)}
+                        className="h-7 flex-1 min-w-[8rem] rounded border border-input bg-background px-2 text-xs"
+                        aria-label="Reassign selected to"
+                      >
+                        <option value="">Reassign to…</option>
+                        {humanAssigneeNames.map((n) => (
+                          <option key={n} value={n}>{n}</option>
+                        ))}
+                      </select>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs shrink-0"
+                        disabled={!bulkEscReassignName}
+                        onClick={handleBulkEscReassign}
+                      >
+                        Reassign
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs shrink-0"
+                        onClick={handleBulkEscUnassign}
+                      >
+                        Unassign
+                      </Button>
+                    </div>
+                  )}
+                  <div className="overflow-x-auto rounded-lg border border-border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/30 hover:bg-muted/30">
+                          {canBulkEscalations && (
+                            <TableHead className="w-10 px-2 py-2">
+                              <Checkbox
+                                checked={escAllSelected}
+                                onCheckedChange={toggleEscSelectAll}
+                                aria-label="Select all escalations"
+                              />
+                            </TableHead>
+                          )}
+                          <TableHead className="min-w-[140px] py-2 text-left text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                            Summary
+                          </TableHead>
+                          <TableHead className="min-w-[88px] py-2 text-left text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                            Type
+                          </TableHead>
+                          <TableHead className="min-w-[72px] py-2 text-left text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                            Category
+                          </TableHead>
+                          <TableHead className="min-w-[72px] py-2 text-left text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                            Property
+                          </TableHead>
+                          <TableHead className="min-w-[64px] py-2 text-left text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                            Due
+                          </TableHead>
+                          <TableHead className="min-w-[100px] py-2 text-left text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                            Status
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {memberOpenEscalations.map((row) => {
+                          const isOverdue = row.dueAt && new Date(row.dueAt) < new Date();
+                          return (
+                            <TableRow key={row.id} className="text-xs">
+                              {canBulkEscalations && (
+                                <TableCell className="w-10 px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                                  <Checkbox
+                                    checked={selectedEscalationIds.has(row.id)}
+                                    onCheckedChange={() => toggleEscSelect(row.id)}
+                                    aria-label={`Select ${row.summary}`}
+                                  />
+                                </TableCell>
+                              )}
+                              <TableCell className="max-w-[200px] py-2 font-medium text-foreground">
+                                <span className="line-clamp-2">{row.name ?? row.summary}</span>
+                              </TableCell>
+                              <TableCell className="py-2 text-muted-foreground whitespace-nowrap">
+                                {formatMemberSheetEscalationType(row.type)}
+                              </TableCell>
+                              <TableCell className="py-2 text-muted-foreground whitespace-nowrap">
+                                {row.category}
+                              </TableCell>
+                              <TableCell className="py-2 text-muted-foreground whitespace-nowrap">
+                                {row.property}
+                              </TableCell>
+                              <TableCell className="py-2 whitespace-nowrap">
+                                {isOverdue ? (
+                                  <span className="inline-flex rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-800 dark:bg-red-900/40 dark:text-red-200">
+                                    Overdue
+                                  </span>
+                                ) : row.dueAt ? (
+                                  <span className="text-muted-foreground">{formatMemberSheetEscalationDue(row.dueAt)}</span>
+                                ) : (
+                                  "—"
+                                )}
+                              </TableCell>
+                              <TableCell className="py-2 whitespace-nowrap">
+                                <span
+                                  className={cn(
+                                    "inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                                    row.status === "Open" && "bg-primary/10 text-primary",
+                                    row.status === "In progress" && "bg-primary/10 text-primary",
+                                    row.status === "Waiting on resident" && "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
+                                    row.status === "Pending approval" && "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200",
+                                    row.status === "Handed back to agent" && "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200",
+                                    row.status === "Blocked" && "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
+                                    !["Open", "In progress", "Waiting on resident", "Pending approval", "Handed back to agent", "Blocked"].includes(row.status) && "bg-muted text-muted-foreground",
+                                  )}
+                                >
+                                  {row.status}
+                                </span>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
         </div>
       </SheetContent>

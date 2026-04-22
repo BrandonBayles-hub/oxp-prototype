@@ -828,6 +828,8 @@ type EscalationsContextValue = {
   items: EscalationItem[];
   setItems: React.Dispatch<React.SetStateAction<EscalationItem[]>>;
   addEscalation: (item: Omit<EscalationItem, "id" | "createdAt">) => string;
+  /** Permanently remove an escalation from the queue (prototype local state). */
+  removeEscalation: (id: string) => void;
   updateAssignee: (id: string, assignee: string) => void;
   updateStatus: (id: string, status: string) => void;
   updateLabels: (id: string, labels: string[]) => void;
@@ -842,6 +844,8 @@ type EscalationsContextValue = {
   bulkAssign: (ids: string[], assignee: string) => void;
   /** Bulk update status */
   bulkUpdateStatus: (ids: string[], status: string) => void;
+  /** Bulk delete multiple escalations */
+  bulkDelete: (ids: string[]) => void;
   /** Bulk add labels */
   bulkAddLabels: (ids: string[], labels: string[]) => void;
   /** Configurable routing rules */
@@ -944,6 +948,10 @@ export function EscalationsProvider({ children }: { children: React.ReactNode })
     },
     [members, routingRules]
   );
+
+  const removeEscalation = useCallback((id: string) => {
+    setItems((prev) => prev.filter((r) => r.id !== id));
+  }, []);
 
   const updateAssignee = useCallback((id: string, assignee: string) => {
     const value = assignee === "Unassigned" ? "" : assignee;
@@ -1229,6 +1237,10 @@ export function EscalationsProvider({ children }: { children: React.ReactNode })
     );
   }, []);
 
+  const bulkDelete = useCallback((ids: string[]) => {
+    setItems((prev) => prev.filter((r) => !ids.includes(r.id)));
+  }, []);
+
   // Routing rule management
   const addRoutingRule = useCallback((rule: Omit<EscalationRoutingRule, "id">) => {
     const id = `r-${Date.now()}`;
@@ -1246,9 +1258,9 @@ export function EscalationsProvider({ children }: { children: React.ReactNode })
   return (
     <EscalationsContext.Provider
       value={{
-        items, setItems, addEscalation, updateAssignee, updateStatus, updateLabels,
+        items, setItems, addEscalation, removeEscalation, updateAssignee, updateStatus, updateLabels,
         markDone, reopen, addReply, addNote, updateInstructionForAgent, handBackToAgent, resolveApproval,
-        bulkAssign, bulkUpdateStatus, bulkAddLabels,
+        bulkAssign, bulkUpdateStatus, bulkDelete, bulkAddLabels,
         routingRules, setRoutingRules, addRoutingRule, removeRoutingRule, updateRoutingRule,
       }}
     >

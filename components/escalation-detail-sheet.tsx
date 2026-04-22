@@ -25,6 +25,7 @@ import { useWorkforce } from "@/lib/workforce-context";
 import { useVault, COMPLIANCE_ITEMS, type VaultItem } from "@/lib/vault-context";
 import { useConversations } from "@/lib/conversations-context";
 import { useFeedback } from "@/lib/feedback-context";
+import { usePermissions } from "@/lib/permissions-context";
 import {
   X,
   Building2,
@@ -46,6 +47,7 @@ import {
   Loader2,
   Check,
   ChevronDown,
+  Trash2,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -190,7 +192,9 @@ export function EscalationDetailSheet({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { updateAssignee, updateStatus, updateLabels, markDone, reopen, addReply, addNote, updateInstructionForAgent, handBackToAgent, resolveApproval } = useEscalations();
+  const { updateAssignee, updateStatus, updateLabels, markDone, reopen, addReply, addNote, updateInstructionForAgent, handBackToAgent, resolveApproval, removeEscalation } = useEscalations();
+  const { hasPermission } = usePermissions();
+  const canDeleteTask = hasPermission("p-tasks-delete");
   const { agents } = useAgents();
   const { allLabels: workforceLabels, humanMembers } = useWorkforce();
   const { documents, updateDocument, approveDocument } = useVault();
@@ -215,6 +219,7 @@ export function EscalationDetailSheet({
   const [suggestedReplyDraft, setSuggestedReplyDraft] = useState<string | null>(null);
   const [instructionDraft, setInstructionDraft] = useState("");
   const [approveConfirmOpen, setApproveConfirmOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [approvalComment, setApprovalComment] = useState("");
   const [decisionComment, setDecisionComment] = useState("");
   const [decisionAmount, setDecisionAmount] = useState("");
@@ -237,6 +242,7 @@ export function EscalationDetailSheet({
       setActivePanel(null);
       setEliMessages([]);
       setEliInput("");
+      setDeleteConfirmOpen(false);
       return;
     }
     if (prevInstructionItemIdRef.current !== item.id) {
@@ -244,6 +250,7 @@ export function EscalationDetailSheet({
       instructionSavedRef.current = false;
       setSelectedTrainingOption(null);
       setDecisionComment("");
+      setDeleteConfirmOpen(false);
       setActivePanel(null);
       setEliMessages([]);
       setEliInput("");
@@ -375,6 +382,24 @@ export function EscalationDetailSheet({
     }
     handBackToAgent(item.id);
   };
+
+  const handleConfirmDeleteEscalation = () => {
+    removeEscalation(item.id);
+    setDeleteConfirmOpen(false);
+    onOpenChange(false);
+  };
+
+  const deleteTaskFooterButton = canDeleteTask ? (
+    <Button
+      type="button"
+      variant="outline"
+      className="gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+      onClick={() => setDeleteConfirmOpen(true)}
+    >
+      <Trash2 className="h-4 w-4" />
+      Delete task
+    </Button>
+  ) : null;
 
   const handleApproveDocument = () => {
     if (!docContext) return;
@@ -644,7 +669,7 @@ export function EscalationDetailSheet({
                       <FileText className="h-4 w-4" />Document for review
                     </h3>
                     <p className="text-sm text-muted-foreground">
-                      <Link href={`/trainings-sop/${docContext.documentId}`} className="inline-flex items-center gap-1 text-primary hover:underline">
+                      <Link href={`/trainings-sop/detail?id=${docContext.documentId}`} className="inline-flex items-center gap-1 text-primary hover:underline">
                         {docContext.documentName}<ExternalLink className="h-3.5 w-3.5" />
                       </Link>
                     </p>
@@ -928,9 +953,17 @@ export function EscalationDetailSheet({
           <div className="shrink-0 border-t border-border px-6 py-4">
             <div className="flex flex-wrap justify-end gap-2">
               {item.status === "Done" ? (
-                <Button type="button" variant="outline" className="w-full" onClick={() => reopen(item.id)}>Reopen</Button>
+                canDeleteTask ? (
+                  <>
+                    {deleteTaskFooterButton}
+                    <Button type="button" variant="outline" className="min-w-[140px]" onClick={() => reopen(item.id)}>Reopen</Button>
+                  </>
+                ) : (
+                  <Button type="button" variant="outline" className="w-full" onClick={() => reopen(item.id)}>Reopen</Button>
+                )
               ) : isDocumentApproval && docContext ? (
                 <>
+                  {deleteTaskFooterButton}
                   <Button type="button" variant="outline" className="gap-1.5" onClick={handleDenyDocument}>
                     <XCircle className="h-4 w-4" />Deny
                   </Button>
@@ -940,6 +973,7 @@ export function EscalationDetailSheet({
                 </>
               ) : isGeneralApproval && !item.resolution ? (
                 <>
+                  {deleteTaskFooterButton}
                   <Button type="button" variant="outline" className="gap-1.5" onClick={() => handleResolveApproval("denied")}>
                     <XCircle className="h-4 w-4" />Deny
                   </Button>
@@ -953,10 +987,15 @@ export function EscalationDetailSheet({
                   </Button>
                 </>
               ) : canHandBack ? (
-                <Button type="button" className="gap-1.5" disabled={!instructionDraft.trim()} onClick={handleHandBackToAgent}>
-                  <ArrowLeftRight className="h-4 w-4" />Send instruction &amp; hand back
-                </Button>
-              ) : null}
+                <>
+                  {deleteTaskFooterButton}
+                  <Button type="button" className="gap-1.5" disabled={!instructionDraft.trim()} onClick={handleHandBackToAgent}>
+                    <ArrowLeftRight className="h-4 w-4" />Send instruction &amp; hand back
+                  </Button>
+                </>
+              ) : (
+                deleteTaskFooterButton
+              )}
             </div>
           </div>
           </div>
@@ -1044,7 +1083,7 @@ export function EscalationDetailSheet({
                       <p className="text-[10px] font-semibold tracking-wider text-muted-foreground">RELATED DOCUMENTS</p>
                       {relatedDocs.map((doc) => (
                         <div key={doc.id} className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
-                          <Link href={`/trainings-sop/${doc.id}`} className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline">
+                          <Link href={`/trainings-sop/detail?id=${doc.id}`} className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline">
                             <BookOpen className="h-3.5 w-3.5" />{doc.fileName}<ExternalLink className="h-3 w-3" />
                           </Link>
                           {doc.tags && doc.tags.length > 0 && (
@@ -1146,7 +1185,7 @@ export function EscalationDetailSheet({
                       {relatedDocs.map((d) => (
                         <Link
                           key={d.id}
-                          href={`/trainings-sop/${d.id}`}
+                          href={`/trainings-sop/detail?id=${d.id}`}
                           className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-foreground hover:bg-muted/60 transition-colors"
                         >
                           <BookOpen className="h-3 w-3 text-muted-foreground" />{d.fileName}
@@ -1302,6 +1341,21 @@ export function EscalationDetailSheet({
           <DialogFooter className="gap-2 sm:gap-0">
             <Button variant="outline" onClick={() => setApproveConfirmOpen(false)}>Cancel</Button>
             <Button onClick={handleApproveDocument}>Confirm approve</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete task</DialogTitle>
+            <DialogDescription>
+              Remove <span className="font-medium text-foreground">{title}</span> from your queue? This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleConfirmDeleteEscalation}>Delete task</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
