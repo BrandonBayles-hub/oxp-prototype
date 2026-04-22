@@ -93,8 +93,6 @@ export const ALL_PERMISSIONS: Permission[] = [
 
   // ── Performance ──
   { id: "p-report-performance", capability: "View Performance", description: "Access the performance analytics dashboard", section: "Performance" },
-  { id: "p-report-export", capability: "Export Reports", description: "Download reports and data exports", section: "Performance" },
-  { id: "p-report-workforce", capability: "View Workforce Analytics", description: "Access workforce utilization and capacity metrics", section: "Performance" },
 
   // ── Agent Roster ──
   { id: "p-agents-view", capability: "View Agent Roster", description: "Access the Agent Roster page and view AI Agents", section: "Agent Roster" },
@@ -178,7 +176,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Set<string>> = {
     "p-comms-edit-inbox-users", "p-comms-add-labels", "p-comms-edit-labels", "p-comms-reporting",
     "p-tasks-view", "p-tasks-edit-specialty", "p-tasks-view-all", "p-tasks-delete", "p-tasks-bulk-actions",
     "p-playbooks-view", "p-playbooks-launch", "p-playbooks-manage", "p-playbooks-delete", "p-playbooks-assign",
-    "p-report-performance", "p-report-export", "p-report-workforce",
+    "p-report-performance",
     "p-agents-view", "p-agents-operational", "p-agents-view-logs",
     "p-wf-members-view", "p-wf-members-edit", "p-wf-groups",
     "p-activation-view", "p-activation-complete",

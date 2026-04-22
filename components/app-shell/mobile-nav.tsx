@@ -156,7 +156,7 @@ export function MobileNav() {
                             onClick={() => setOpen(false)}
                             className={cn(
                               "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                              pathname === item.href
+                              pathname.replace(/\/$/, "") === item.href.replace(/\/$/, "")
                                 ? "bg-[hsl(var(--muted))] text-[hsl(var(--foreground))]"
                                 : "text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]/80 hover:text-[hsl(var(--foreground))]"
                             )}

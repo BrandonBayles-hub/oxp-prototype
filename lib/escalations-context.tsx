@@ -844,6 +844,8 @@ type EscalationsContextValue = {
   bulkAssign: (ids: string[], assignee: string) => void;
   /** Bulk update status */
   bulkUpdateStatus: (ids: string[], status: string) => void;
+  /** Bulk delete multiple escalations */
+  bulkDelete: (ids: string[]) => void;
   /** Bulk add labels */
   bulkAddLabels: (ids: string[], labels: string[]) => void;
   /** Configurable routing rules */
@@ -1235,6 +1237,10 @@ export function EscalationsProvider({ children }: { children: React.ReactNode })
     );
   }, []);
 
+  const bulkDelete = useCallback((ids: string[]) => {
+    setItems((prev) => prev.filter((r) => !ids.includes(r.id)));
+  }, []);
+
   // Routing rule management
   const addRoutingRule = useCallback((rule: Omit<EscalationRoutingRule, "id">) => {
     const id = `r-${Date.now()}`;
@@ -1254,7 +1260,7 @@ export function EscalationsProvider({ children }: { children: React.ReactNode })
       value={{
         items, setItems, addEscalation, removeEscalation, updateAssignee, updateStatus, updateLabels,
         markDone, reopen, addReply, addNote, updateInstructionForAgent, handBackToAgent, resolveApproval,
-        bulkAssign, bulkUpdateStatus, bulkAddLabels,
+        bulkAssign, bulkUpdateStatus, bulkDelete, bulkAddLabels,
         routingRules, setRoutingRules, addRoutingRule, removeRoutingRule, updateRoutingRule,
       }}
     >
