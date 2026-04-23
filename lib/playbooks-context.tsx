@@ -434,6 +434,29 @@ const INITIAL_PLAYBOOKS: Playbook[] = [
       t("t-12-16", "Close-out Report", "P2", "Tomorrow", "Not Started", "", "Summit Park", "", "Teammate"),
     ],
   },
+  {
+    id: "pb-13",
+    templateName: "Unit make-ready (turnover)",
+    property: "Summit Park",
+    properties: ["Summit Park"],
+    unit: "8-B",
+    createdAt: "2026-04-20",
+    dueAt: "2026-04-30",
+    launchedAt: "2026-04-20",
+    status: "In Progress",
+    priority: "P1",
+    assignee: "Angela Park",
+    description:
+      "End-to-end make-ready for a single unit at Summit Park. Scope is limited to home 8-B: inspection, work orders, punch list, and pre-lease sign-off.",
+    tasks: [
+      t("t-13-1", "Pre-turn inspection", "P1", "Today", "Completed", "Hillary Gonzalez", "Summit Park", "8-B", "Teammate"),
+      t("t-13-2", "Punch list & work orders", "P1", "Today", "In Progress", "Carlos Reyes", "Summit Park", "8-B", "Teammate"),
+      t("t-13-3", "Paint & flooring touch-up", "P2", "Today", "In Progress", "", "Summit Park", "8-B", "Vendor"),
+      t("t-13-4", "Appliance & fixture check", "P2", "Today", "Not Started", "", "Summit Park", "8-B", "Vendor"),
+      t("t-13-5", "Utilities & re-key", "P1", "Tomorrow", "Not Started", "Angela Park", "Summit Park", "8-B", "Teammate"),
+      t("t-13-6", "Pre-lease walkthrough (ready)", "P0", "Tomorrow", "Not Started", "Angela Park", "Summit Park", "8-B", "Teammate"),
+    ],
+  },
 ];
 
 /* ─────────────────────────────── Persistence ─────────────────────────── */
@@ -457,6 +480,13 @@ function saveState(playbooks: Playbook[]) {
   } catch { /* quota exceeded — silently ignore */ }
 }
 
+/** Append new seed playbooks (by id) so localStorage from older builds still gets fresh demo rows. */
+function mergeNewSeedPlaybooks(saved: Playbook[]): Playbook[] {
+  const seen = new Set(saved.map((p) => p.id));
+  const toAdd = INITIAL_PLAYBOOKS.filter((p) => !seen.has(p.id));
+  return toAdd.length > 0 ? [...saved, ...toAdd] : saved;
+}
+
 /* ─────────────────────────────── Context ─────────────────────────────── */
 
 type PlaybooksContextValue = {
@@ -478,7 +508,11 @@ export function PlaybooksProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const saved = loadState();
     if (saved && saved.length > 0) {
-      setPlaybooks(saved);
+      const merged = mergeNewSeedPlaybooks(saved);
+      setPlaybooks(merged);
+      if (merged.length !== saved.length) {
+        saveState(merged);
+      }
     }
   }, []);
 
