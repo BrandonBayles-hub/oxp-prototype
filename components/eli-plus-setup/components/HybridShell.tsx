@@ -54,9 +54,9 @@ const LEASING_TASK_IDS = [
 const SUB_ITEMS = [
   { id: "company"            as PageId, label: "Carrier Compliance",        icon: Building2,       taskIds: [] as string[], indent: false },
   { id: "privacy"            as PageId, label: "Privacy Policies",          icon: ShieldCheck,     taskIds: [] as string[], indent: false },
+  { id: "email"              as PageId, label: "Email Integration",         icon: Mail,            taskIds: [] as string[], indent: false },
   { id: "communications"     as PageId, label: "Communications",            icon: Phone,           taskIds: [] as string[], indent: false },
   { id: "ivr-setup"          as PageId, label: "IVR Setup",                 icon: PhoneForwarded,  taskIds: [] as string[], indent: false },
-  { id: "email"              as PageId, label: "Email Integration",         icon: Mail,            taskIds: [] as string[], indent: false },
   { id: "leasing"            as PageId, label: "Leasing AI",                icon: Users,           taskIds: [] as string[], indent: false },
   { id: "payments"           as PageId, label: "Payments AI",               icon: CreditCard,      taskIds: [] as string[], indent: false },
   { id: "maintenance"        as PageId, label: "Maintenance AI",            icon: Wrench,          taskIds: [] as string[], indent: false },
@@ -197,9 +197,15 @@ export function HybridShell({ page, navigate, completedTasks, privacyPublished, 
                         {ivrActionCount}
                       </span>
                     )}
+                    {/* Email Integration: mocked numbered badge */}
+                    {isEmail && !isComplete && (
+                      <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-0.5 rounded-full bg-red-500 text-[10px] font-bold text-white leading-none shrink-0">
+                        3
+                      </span>
+                    )}
                     {/* Communications: lock icon when CC not approved */}
                     {isCommsLocked && <Lock className="h-3 w-3 shrink-0 text-muted-foreground/60" aria-label="Requires Carrier Compliance" />}
-                    {!isTenDlc && !isPrivacy && !isIvr && !isCommsLocked && !isComplete && !isTenDlcSubmitting && needsAction && (
+                    {!isTenDlc && !isPrivacy && !isIvr && !isEmail && !isCommsLocked && !isComplete && !isTenDlcSubmitting && needsAction && (
                       <span className="h-2 w-2 rounded-full bg-red-500 shrink-0" aria-label="Action required" />
                     )}
                     {!isComplete && !isTenDlcSubmitting && !needsAction && <StatusIcon status={STATUS[id]} />}
