@@ -337,7 +337,7 @@ export function IvrSetupPage({ ivrChoice, onSave, showToast }: Props) {
 
   return (
     <div className="flex flex-col min-h-full bg-stone-50">
-      <div className="flex-1 w-full max-w-5xl mx-auto p-6 md:p-8 space-y-6">
+      <div className="flex-1 w-full max-w-5xl p-6 md:p-8 space-y-6">
         {/* Header */}
         <div>
           <h1 className="text-2xl font-bold tracking-tight">IVR Setup</h1>
