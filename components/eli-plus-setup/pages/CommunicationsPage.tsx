@@ -7,8 +7,7 @@ import { cn } from "@/lib/utils"
 import {
   ArrowLeft, Users, CreditCard, Wrench, RefreshCw,
   CheckCircle2,
-  Loader2, AlertTriangle, Zap, Clock,
-  Volume2, MessageCircle, ShieldCheck, FileText, ChevronRight,
+  Loader2, AlertTriangle, Zap, ChevronRight,
 } from "lucide-react"
 import { PROPERTIES } from "../data/properties"
 
@@ -233,39 +232,33 @@ export function CommunicationsPage({ navigate, privacyPublished, brandStatus, ca
       {!blocked && (
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-border bg-white px-4 py-3">
           <div className="flex items-center gap-2">
-            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100">
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-700" />
-            </span>
+            <CheckCircle2 className="h-4 w-4 text-teal-500" aria-hidden />
             <span className="text-sm text-foreground">
               <span className="font-semibold">{activeIds.size}</span>
-              <span className="text-muted-foreground"> active</span>
+              <span className="text-muted-foreground"> Done</span>
             </span>
           </div>
           <span className="text-zinc-300">·</span>
           <div className="flex items-center gap-2">
-            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-100">
-              {inReviewIds.size > 0
-                ? <Loader2 className="h-3.5 w-3.5 text-blue-700 animate-spin" />
-                : <ShieldCheck className="h-3.5 w-3.5 text-blue-700" />}
-            </span>
+            {inReviewIds.size > 0
+              ? <Loader2 className="h-4 w-4 text-amber-500 animate-spin" aria-hidden />
+              : <span className="inline-block h-4 w-4 rounded-full border-2 border-amber-400" aria-hidden />}
             <span className="text-sm text-foreground">
               <span className="font-semibold">{inReviewIds.size}</span>
-              <span className="text-muted-foreground"> in review</span>
+              <span className="text-muted-foreground"> Pending</span>
             </span>
           </div>
           <span className="text-zinc-300">·</span>
           <div className="flex items-center gap-2">
-            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-zinc-100">
-              <FileText className="h-3.5 w-3.5 text-zinc-600" />
-            </span>
+            <span className="inline-block h-4 w-4 rounded-full bg-zinc-200" aria-hidden />
             <span className="text-sm text-foreground">
               <span className="font-semibold">{awaitingIds.size}</span>
-              <span className="text-muted-foreground"> awaiting privacy policy</span>
+              <span className="text-muted-foreground"> Not started</span>
             </span>
           </div>
           {numbersReady && (
-            <span className="ml-auto inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
-              <CheckCircle2 className="h-3 w-3" />All properties active
+            <span className="ml-auto inline-flex items-center gap-1 rounded-full border border-teal-200 bg-teal-50 px-2.5 py-0.5 text-xs font-medium text-teal-700">
+              <CheckCircle2 className="h-3 w-3" />All properties Done
             </span>
           )}
         </div>
@@ -285,9 +278,9 @@ export function CommunicationsPage({ navigate, privacyPublished, brandStatus, ca
           <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex items-center rounded-lg border border-border bg-white p-0.5">
               {([
-                { id: "active",   label: "Active",      count: activeIds.size },
-                { id: "review",   label: "In review",   count: inReviewIds.size },
-                { id: "awaiting", label: "Needs policy",count: awaitingIds.size },
+                { id: "active",   label: "Done",        count: activeIds.size },
+                { id: "review",   label: "Pending",     count: inReviewIds.size },
+                { id: "awaiting", label: "Not started", count: awaitingIds.size },
                 { id: "all",      label: "All",         count: PROPERTIES.length },
               ] as const).map(chip => (
                 <button
@@ -383,11 +376,11 @@ export function CommunicationsPage({ navigate, privacyPublished, brandStatus, ca
                       const status = statusOf(prop.id)
                       const rowBg =
                         status === "active"  ? "bg-white"
-                      : status === "review"  ? "bg-sky-50/60"
+                      : status === "review"  ? "bg-amber-50/40"
                                              : "bg-zinc-50"
                       const stickyBg =
                         status === "active"  ? "bg-white"
-                      : status === "review"  ? "bg-[#f0f9ff]"
+                      : status === "review"  ? "bg-[#fffbeb]"
                                              : "bg-zinc-50"
                       const nums     = DEFAULT_NUMBERS[prop.id]
                       const extras   = DEFAULT_LEASING_EXTRAS[prop.id]
@@ -403,11 +396,12 @@ export function CommunicationsPage({ navigate, privacyPublished, brandStatus, ca
                             </td>
                             <td colSpan={7} className="px-4 py-2.5 align-middle border-b border-l border-border">
                               <div className="flex items-center gap-3">
-                                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 shrink-0">
-                                  <AlertTriangle className="h-3 w-3" />Needs privacy policy
+                                <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] font-medium text-zinc-600 shrink-0">
+                                  <span className="inline-block h-2.5 w-2.5 rounded-full bg-zinc-300" aria-hidden />
+                                  Not started
                                 </span>
                                 <span className="text-[11px] text-muted-foreground truncate">
-                                  Submit this property's policy to start registering numbers.
+                                  Submit this property's privacy policy to start registering numbers.
                                 </span>
                                 <button
                                   type="button"
@@ -422,13 +416,13 @@ export function CommunicationsPage({ navigate, privacyPublished, brandStatus, ca
                         )
                       }
 
-                      // Review row: inline status caption under property name + "Pending…" cells
+                      // Review row: inline status caption under property name + "Pending" cells
                       // Active row: no pill (numbers speak for themselves)
                       const renderCell = (content: ReactNode) => {
                         if (status === "active") return content
                         return (
-                          <div className="h-8 rounded-md border border-sky-200 bg-white px-2.5 flex items-center">
-                            <span className="text-xs font-mono text-sky-500">Pending…</span>
+                          <div className="h-8 rounded-md border border-amber-200 bg-white px-2.5 flex items-center">
+                            <span className="text-xs font-mono text-amber-600">Pending</span>
                           </div>
                         )
                       }
@@ -444,9 +438,9 @@ export function CommunicationsPage({ navigate, privacyPublished, brandStatus, ca
                               </span>
                             </div>
                             {status === "review" && (
-                              <div className="flex items-center gap-1 mt-1 text-[11px] text-sky-700">
+                              <div className="flex items-center gap-1 mt-1 text-[11px] text-amber-700">
                                 <Loader2 className="h-3 w-3 animate-spin" />
-                                <span>Registering · {REVIEW_META[prop.id] ?? "submitted recently"}</span>
+                                <span>Pending · {REVIEW_META[prop.id] ?? "submitted recently"}</span>
                               </div>
                             )}
                           </td>
