@@ -177,7 +177,12 @@ export function getLinkedConversationsByEscalation(
 
 function isPublicThreadMessage(m: ConversationMessage): boolean {
   if (m.type === "label_activity" || m.type === "thread_activity") return false;
-  return m.type === undefined || m.type === "message";
+  return (
+    m.type === undefined ||
+    m.type === "message" ||
+    m.type === "voicemail" ||
+    m.type === "missed_call"
+  );
 }
 
 function getLastPublicMessage(messages: ConversationMessage[]): ConversationMessage | undefined {
@@ -208,10 +213,19 @@ function nextHasUnreadAfterAppend(c: ConversationItem, message: ConversationMess
   return message.role === "resident";
 }
 
+/** A logged phone call by staff/agent counts as a reply to inbound voicemail/missed calls. */
+function isStaffPhoneCallReplyActivity(m: ConversationMessage): boolean {
+  if (m.type !== "thread_activity") return false;
+  if (m.role !== "staff" && m.role !== "agent") return false;
+  return m.threadActivity?.kind === "phone_call";
+}
+
 /**
  * Unattended thread: still open, fully read (no unread indicator), and the last
  * resident-visible message is from the lead/resident with no agent or staff
- * public reply after it. Private notes and handoffs do not count as replies.
+ * response after it. Private notes and handoffs do not count as replies, but a
+ * logged phone call activity does — so that a missed-call / voicemail thread
+ * drops out of Open Threads once staff has called the lead/resident back.
  */
 export function isConversationUnattended(c: ConversationItem): boolean {
   if (c.status !== "open" || c.hasUnread) return false;
@@ -227,6 +241,7 @@ export function isConversationUnattended(c: ConversationItem): boolean {
 
   for (let i = lastResidentPublicIdx + 1; i < msgs.length; i++) {
     const m = msgs[i];
+    if (isStaffPhoneCallReplyActivity(m)) return false;
     if (!isPublicThreadMessage(m)) continue;
     if (m.role === "agent" || m.role === "staff") return false;
   }

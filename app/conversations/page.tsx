@@ -426,7 +426,12 @@ function conversationMatchesAllThreadsInbox(c: ConversationItem): boolean {
 
 function isPublicThreadMessageForUnreadCount(m: ConversationMessage): boolean {
   if (m.type === "label_activity" || m.type === "thread_activity") return false;
-  return m.type === undefined || m.type === "message";
+  return (
+    m.type === undefined ||
+    m.type === "message" ||
+    m.type === "voicemail" ||
+    m.type === "missed_call"
+  );
 }
 
 /** Count resident public messages after the last agent/staff public message (unread batch when thread is marked unread). */
