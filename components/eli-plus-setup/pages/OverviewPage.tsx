@@ -519,6 +519,14 @@ export function OverviewPage({ navigate, completedTasks, onComplete, privacyPubl
             )}
 
           <ul className="space-y-3">
+            {/* ── Foundation section label ────────────────────────────────── */}
+            {(!privacyPublished || carrierSimMode !== "none") && (
+              <li className="flex items-center gap-2 pt-1 pb-0.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60">Foundation — complete these first</span>
+                <div className="flex-1 h-px bg-border" />
+              </li>
+            )}
+
             {/* ── 1. Privacy Policy / Carrier Compliance ─────────────────── */}
             {!privacyPublished && (
               <li
@@ -623,7 +631,12 @@ export function OverviewPage({ navigate, completedTasks, onComplete, privacyPubl
 
             {/* ── 2. Email Integration ─────────────────────────────────────── */}
             {!emailComplete && (
-              <li
+              <>
+                <li className="flex items-center gap-2 pt-1 pb-0.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60">Also required</span>
+                  <div className="flex-1 h-px bg-border" />
+                </li>
+                <li
                 className="group rounded-xl border bg-card border-border hover:border-zinc-400 hover:shadow-md hover:-translate-y-px cursor-pointer transition-all duration-300"
                 onClick={() => setActiveSheet("email-integration")}
               >
@@ -653,10 +666,11 @@ export function OverviewPage({ navigate, completedTasks, onComplete, privacyPubl
                   </div>
                 </div>
               </li>
+              </>
             )}
 
-            {/* ── 3. IVR Setup — active when comms done, locked before ─────── */}
-            {!ivrComplete && commsComplete && (
+            {/* ── 3. IVR Setup — always enabled ─────── */}
+            {!ivrComplete && (
               <li
                 className="group rounded-xl border bg-card border-border hover:border-zinc-400 hover:shadow-md hover:-translate-y-px cursor-pointer transition-all duration-300"
                 onClick={() => setActiveSheet("ivr-setup")}
@@ -683,28 +697,6 @@ export function OverviewPage({ navigate, completedTasks, onComplete, privacyPubl
                     >
                       Review &amp; confirm
                       <ArrowRight className="h-3.5 w-3.5 ml-1" aria-hidden />
-                    </button>
-                  </div>
-                </div>
-              </li>
-            )}
-            {!ivrComplete && !commsComplete && (
-              <li className="rounded-xl border border-border bg-zinc-50 opacity-60 cursor-not-allowed transition-all duration-300">
-                <div className="p-6 flex flex-col gap-3">
-                  <div className="flex items-start gap-2 flex-wrap">
-                    <p className="text-sm font-semibold leading-snug text-zinc-400">Property IVR Setup</p>
-                    <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium shrink-0 mt-0.5 border border-zinc-200 bg-white text-zinc-400">
-                      <Lock className="h-3 w-3" aria-hidden />
-                      Locked
-                    </span>
-                  </div>
-                  <p className="text-sm leading-relaxed max-w-prose text-zinc-400">
-                    Complete the Communications tab first — each property needs a phone number assigned before IVR routing can be configured.
-                  </p>
-                  <div className="flex items-center justify-between gap-4 pt-1">
-                    <p className="text-xs text-zinc-400">Unlocks after all properties have a compliance phone number</p>
-                    <button type="button" disabled className={cn(buttonVariants({ variant: "outline", size: "sm" }), "whitespace-nowrap shrink-0 opacity-50 cursor-not-allowed")}>
-                      Locked <ArrowRight className="h-3.5 w-3.5 ml-1" aria-hidden />
                     </button>
                   </div>
                 </div>

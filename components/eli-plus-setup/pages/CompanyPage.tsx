@@ -6,8 +6,8 @@ import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import {
   ArrowLeft, Lock, CheckCircle2, XCircle, Loader2,
-  Globe, X, TriangleAlert,
-  FlaskConical, Copy, Check, RefreshCw, Info,
+  X, TriangleAlert, ChevronRight,
+  RefreshCw, Info,
 } from "lucide-react"
 import type { BrandStatus } from "../index"
 
@@ -15,12 +15,14 @@ export type SimMode = "none" | "missing" | "rejected"
 
 interface Props {
   navigate: (to: PageId) => void
-  privacyPublished: boolean
-  onPrivacyPublish: () => void
   brandStatus: BrandStatus
   showToast: (message: string) => void
   simMode: SimMode
   onSimModeChange: (mode: SimMode) => void
+  onSubmitToTwilio: () => void
+  onCancelSubmission: () => void
+  onResubmitToCarrier: () => void
+  onActionCountChange: (count: number) => void
 }
 
 const PREFILLED_EIN = "98-7654321"
@@ -400,356 +402,44 @@ function RetentionAccordion({
   )
 }
 
-// ── Privacy Policy section — self-contained ──────────────────────────────────
-
-function PrivacyPolicySection({
-  websiteUrl,
-  privacyPublished,
-  onPrivacyPublish,
-  simPrivacyRejected,
-  onSimPrivacyDismiss,
-  showMissingError,
-  showToast,
-}: {
-  websiteUrl: string
-  privacyPublished: boolean
-  onPrivacyPublish: () => void
-  simPrivacyRejected: boolean
-  onSimPrivacyDismiss: () => void
-  showMissingError: boolean
-  showToast?: (msg: string) => void
-}) {
-  const [privacyFaded, setPrivacyFaded] = useState(false)
-  const [fields, setFields] = useState<PolicyFields>(DEFAULT_FIELDS)
-  const [copied, setCopied] = useState(false)
-  const [awaitingConfirm, setAwaitingConfirm] = useState(false)
-  const [verifying, setVerifying] = useState(false)
-
-  const retentionKeys: (keyof PolicyFields)[] = [
-    "retentionApplication", "retentionResident", "retentionComms",
-    "retentionWebActivity", "retentionBackground",
-  ]
-  const policyReady =
-    fields.messageFrequency !== "" &&
-    retentionKeys.every((k) => fields[k] !== "")
-  const [disclaimerOpen, setDisclaimerOpen] = useState(false)
-  const disclaimerCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  function openDisclaimer() {
-    if (disclaimerCloseTimer.current) clearTimeout(disclaimerCloseTimer.current)
-    setDisclaimerOpen(true)
-  }
-  function closeDisclaimer() {
-    disclaimerCloseTimer.current = setTimeout(() => setDisclaimerOpen(false), 120)
-  }
-
-  function setField(key: keyof PolicyFields, val: string) {
-    setFields(p => ({ ...p, [key]: val }))
-  }
-
-  function handleCopy() {
-    navigator.clipboard?.writeText(generatedPolicy).catch(() => {})
-    setCopied(true)
-    setAwaitingConfirm(true)
-    setTimeout(() => setCopied(false), 2200)
-  }
-
-  function handleManualConfirm() {
-    setVerifying(true)
-    showToast?.("Scanning your website for the privacy policy…")
-    setTimeout(() => {
-      setVerifying(false)
-      onPrivacyPublish()
-    }, 2200)
-  }
-
-  useEffect(() => {
-    if (!privacyPublished) return
-    const t = setTimeout(() => setPrivacyFaded(true), 1500)
-    return () => clearTimeout(t)
-  }, [privacyPublished])
-
-  const generatedPolicy = POLICY_TEMPLATE({ ...fields, websiteUrl })
-  const detectedUrl = privacyPublished ? `${websiteUrl}/privacy-policy` : ""
-
-  const needsResolution = !privacyPublished
-
-  return (
-    <div className="space-y-2">
-      {/* Privacy Policy URL — read-only scan result */}
-      <div>
-        <label className="block text-sm font-semibold text-foreground mb-1.5">
-          <span className="text-red-500 mr-1">*</span>Privacy Policy URL
-          <span className="ml-2 text-xs font-normal text-muted-foreground">— scanned from your website</span>
-        </label>        <div className="relative">
-          <input type="text" readOnly value={detectedUrl}
-            placeholder="No privacy policy detected"
-            className={cn(
-              "w-full h-11 rounded-lg border px-3 pr-10 text-sm focus:outline-none transition-colors duration-700",
-              simPrivacyRejected
-                ? "border-red-400 bg-white text-foreground"
-                : privacyPublished && !privacyFaded
-                ? "border-emerald-300 bg-emerald-50 text-foreground"
-                : privacyPublished && privacyFaded
-                ? "border-border bg-white text-foreground"
-                : showMissingError
-                ? "border-red-300 bg-white placeholder:text-red-400"
-                : "border-amber-300 bg-amber-50/40 placeholder:text-muted-foreground/60",
-            )}
-          />
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-            {privacyPublished
-              ? <CheckCircle2 className={cn("h-4 w-4 transition-colors duration-700", privacyFaded ? "text-emerald-600/30" : "text-emerald-600")} />
-              : simPrivacyRejected || showMissingError
-              ? <XCircle className="h-4 w-4 text-red-500" />
-              : <TriangleAlert className="h-4 w-4 text-amber-500" />}
-          </span>
-        </div>
-        {privacyPublished && !privacyFaded && (
-          <p className="mt-1.5 text-xs text-emerald-700 flex items-center gap-1.5">
-            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-            Privacy policy verified at {detectedUrl}
-          </p>
-        )}
-        {showMissingError && !privacyPublished && (
-          <InlineError message="A privacy policy is required to complete carrier registration." />
-        )}
-      </div>
-
-      {/* Carrier rejection notice */}
-      {simPrivacyRejected && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 space-y-3">
-          <div className="flex items-start gap-2.5">
-            <XCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
-            <div>
-              <p className="text-sm font-medium text-red-900">Your privacy policy couldn't be verified by our carrier</p>
-              <p className="text-xs text-red-700 mt-1 leading-relaxed">
-                Our carrier checked your website but couldn't confirm a valid, publicly accessible privacy policy. This usually happens when the page is behind a login, set to draft, or the URL has changed. Use the form below to regenerate and republish it.
-              </p>
-            </div>
-          </div>
-          <div className="border-t border-red-200 pt-2.5 flex justify-end">
-            <button type="button" onClick={onSimPrivacyDismiss}
-              className="text-xs font-medium text-red-700 hover:text-red-900 transition-colors"
-            >
-              Got it — I'll fix this below →
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Resolution form — always shown when policy isn't published */}
-      {needsResolution && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50/40 px-5 py-4 space-y-5">
-          {/* Notice */}
-          {!simPrivacyRejected && (
-            <div className="flex items-start gap-2.5">
-              <TriangleAlert className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-              <div>
-                <p className="text-sm font-semibold text-amber-900">No privacy policy found</p>
-                <p className="text-xs text-amber-800 mt-0.5 leading-relaxed">
-                  We scanned <span className="font-medium">{websiteUrl}</span> but didn't find a privacy policy page. Fill in your details below to generate one.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Pre-filled callout — simple one-liner */}
-          <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-white px-4 py-3">
-            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
-            <p className="text-xs text-zinc-700 leading-relaxed">
-              We've pre-filled parts of this policy using the details you entered on this page. To update any of those details, edit the fields above and your policy will reflect the changes.
-            </p>
-          </div>
-
-          {/* Required: message frequency — no default, must select */}
-          <div>
-            <label className="block text-[11px] font-semibold text-amber-900 mb-1.5">
-              <span className="text-red-500 mr-1">*</span>How often will you send text messages?
-            </label>
-            <select
-              value={fields.messageFrequency}
-              onChange={(e) => setField("messageFrequency", e.target.value)}
-              className={cn(
-                "h-8 rounded-md border px-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400/30 bg-white",
-                fields.messageFrequency === ""
-                  ? "border-amber-300 text-muted-foreground"
-                  : "border-amber-200 text-foreground",
-              )}
-            >
-              <option value="" disabled>Select frequency…</option>
-              <option value="varies">Varies — frequency changes month to month</option>
-              <option value="1">~1 message per month</option>
-              <option value="2">~2 messages per month</option>
-              <option value="4">~4 messages per month</option>
-              <option value="8">~8 messages per month</option>
-            </select>
-            <p className="text-[11px] text-amber-700 mt-1">Required by carriers. You must select one — this appears in your policy's SMS section.</p>
-          </div>
-
-          {/* Required: retention periods — always shown, no pre-filled defaults */}
-          <RetentionAccordion fields={fields} setField={setField} />
-
-          {/* Live template preview — always visible */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold text-amber-900">Generated policy</p>
-              {/* Disclaimer tooltip — far right */}
-              <div className="relative flex items-center gap-1 cursor-default"
-                onMouseEnter={openDisclaimer}
-                onMouseLeave={closeDisclaimer}
-              >
-                <Info className="h-3.5 w-3.5 text-zinc-700" />
-                <span className="text-[11px] font-medium text-zinc-700">Disclaimer</span>
-                {disclaimerOpen && (
-                  <div
-                    onMouseEnter={openDisclaimer}
-                    onMouseLeave={closeDisclaimer}
-                    className="absolute bottom-full right-0 mb-2.5 w-96 rounded-xl border border-zinc-200 bg-white shadow-2xl z-50 overflow-hidden"
-                  >
-                    <div className="px-5 py-4 border-b border-zinc-100">
-                      <p className="text-xs font-bold text-zinc-800 uppercase tracking-wide">Legal Disclaimer</p>
-                    </div>
-                    <div className="px-5 py-4 space-y-3 max-h-72 overflow-y-auto">
-                      <p className="text-xs text-zinc-600 leading-relaxed">
-                        This template was created by a general purpose large language model for informational purposes only and is <span className="font-semibold text-zinc-800">not legal advice</span>. It is intended as a starting point only and should not be relied upon as a substitute for consultation with qualified legal counsel. Use is at your own risk. Entrata shall not be liable for any damages, losses, or other consequences arising from its use or adaptation.
-                      </p>
-                      <p className="text-xs text-zinc-600 leading-relaxed">
-                        Each organization's privacy practices, data processing activities, and regulatory obligations are unique. Applicable privacy laws and regulations vary by jurisdiction, industry, and the nature of personal data collected and processed. This template may not address all legal requirements applicable to your organization, including certain state or international privacy laws.
-                      </p>
-                      <p className="text-xs text-zinc-600 leading-relaxed">
-                        Before using or adapting this template, you should conduct a thorough review of your organization's specific data collection and processing activities, assess all applicable legal and regulatory requirements, and consult with legal counsel to ensure compliance with all relevant laws.
-                      </p>
-                      <p className="text-xs text-zinc-600 leading-relaxed">
-                        Privacy laws are subject to frequent amendment and evolving regulatory guidance; accordingly, you should periodically review and update any privacy notice derived from this template to ensure continued compliance.
-                      </p>
-                    </div>
-                    {/* Arrow */}
-                    <div className="absolute top-full right-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-zinc-200" />
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="rounded-lg border border-amber-200 bg-white p-3 max-h-52 overflow-y-auto">
-              <pre className="text-[11px] text-foreground/75 leading-relaxed whitespace-pre-wrap font-sans">
-                {generatedPolicy}
-              </pre>
-            </div>
-          </div>
-
-          {/* Action buttons */}
-          <div className="border-t border-amber-200 pt-4 space-y-3">
-            <div className="flex flex-wrap gap-2 items-center">
-                {/* Publish button — disabled until policyReady */}
-                <div className="relative group">
-                  <button
-                    type="button"
-                    onClick={policyReady ? onPrivacyPublish : undefined}
-                    disabled={!policyReady}
-                    className={cn(
-                      "h-9 px-4 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors",
-                      policyReady
-                        ? "bg-zinc-900 text-white hover:bg-zinc-800 cursor-pointer"
-                        : "bg-zinc-200 text-zinc-400 cursor-not-allowed",
-                    )}
-                  >
-                    <Globe className="h-3.5 w-3.5" />
-                    Publish to my website
-                  </button>
-                  {!policyReady && (
-                    <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 rounded-lg border border-zinc-200 bg-white shadow-xl px-3.5 py-3 opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-50">
-                      <p className="text-[11px] text-zinc-700 leading-relaxed">
-                        Complete <span className="font-semibold">message frequency</span> and all <span className="font-semibold">data retention periods</span> above to unlock.
-                      </p>
-                      <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-zinc-200" />
-                    </div>
-                  )}
-                </div>
-
-                {/* Copy button — disabled until policyReady */}
-                <div className="relative group">
-                  <button
-                    type="button"
-                    onClick={policyReady ? handleCopy : undefined}
-                    disabled={!policyReady}
-                    className={cn(
-                      "h-9 px-4 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors",
-                      policyReady
-                        ? "border-amber-300 bg-white text-amber-900 hover:border-amber-400 hover:bg-amber-50 cursor-pointer"
-                        : "border-zinc-200 bg-zinc-50 text-zinc-400 cursor-not-allowed",
-                    )}
-                  >
-                    {copied ? <><Check className="h-3.5 w-3.5 text-emerald-600" /> Copied!</> : <><Copy className="h-3.5 w-3.5" /> Copy policy text</>}
-                  </button>
-                  {!policyReady && (
-                    <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 rounded-lg border border-zinc-200 bg-white shadow-xl px-3.5 py-3 opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-50">
-                      <p className="text-[11px] text-zinc-700 leading-relaxed">
-                        Complete <span className="font-semibold">message frequency</span> and all <span className="font-semibold">data retention periods</span> above to unlock.
-                      </p>
-                      <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-zinc-200" />
-                    </div>
-                  )}
-                </div>
-                {/* Always visible — disabled until policy is copied */}
-                <div className="relative group">
-                  <button
-                    type="button"
-                    onClick={awaitingConfirm && !verifying ? handleManualConfirm : undefined}
-                    disabled={!awaitingConfirm || verifying}
-                    className={cn(
-                      "h-9 px-4 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors",
-                      awaitingConfirm && !verifying
-                        ? "border-zinc-300 bg-white text-foreground hover:border-zinc-400 cursor-pointer"
-                        : "border-zinc-200 bg-zinc-50 text-zinc-400 cursor-not-allowed",
-                    )}
-                  >
-                    {verifying
-                      ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Verifying…</>
-                      : <><RefreshCw className="h-3.5 w-3.5" /> I've added it — verify my site</>
-                    }
-                  </button>
-                  {/* Tooltip shown when disabled */}
-                  {!awaitingConfirm && (
-                    <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 rounded-lg border border-zinc-200 bg-white shadow-xl px-3.5 py-3 opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-50">
-                      <p className="text-[11px] text-zinc-700 leading-relaxed">
-                        First, <span className="font-semibold">copy the policy text</span> using the button to the left, then paste it into your website. Once it's live, come back here and click this button to verify.
-                      </p>
-                      <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-zinc-200" />
-                    </div>
-                  )}
-                </div>
-              </div>
-            <p className="text-[11px] text-amber-700 leading-relaxed">
-              <span className="font-medium">Publish to my website</span> adds a <span className="font-mono bg-amber-100 px-1 rounded">/privacy-policy</span> page automatically.{" "}
-              <span className="font-medium">Copy policy text</span> lets you paste it into your own CMS or third-party website.
-            </p>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ── Main page ────────────────────────────────────────────────────────────────
 
-export function CompanyPage({ navigate, privacyPublished, onPrivacyPublish, brandStatus, showToast, simMode, onSimModeChange }: Props) {
+export function CompanyPage({ navigate, brandStatus, showToast, simMode, onSimModeChange, onSubmitToTwilio, onCancelSubmission, onResubmitToCarrier, onActionCountChange }: Props) {
   const [einRevealed, setEinRevealed] = useState(false)
+  const [isEditing, setIsEditing]     = useState(false)
 
   const [rejectedFields, setRejectedFields] = useState<Set<RejectedField>>(new Set())
   const [missingFields, setMissingFields] = useState<Set<RejectedField>>(new Set())
-  const [privacyCarrierRejected, setPrivacyCarrierRejected] = useState(false)
   const [restarting, setRestarting] = useState(false)
   const [restartDone, setRestartDone] = useState(false)
-  const [simFields, setSimFields] = useState<Record<string, string>>({})
+  // Start with legal name empty to demo the "one field missing" state
+  const [simFields, setSimFields] = useState<Record<string, string>>({ legal: "" })
+
+  // Fields lock while submitting or after approval — carrier-rejected stays editable so user can fix
+  const locked = (brandStatus === "submitting" || brandStatus === "approved") && !isEditing
+
+  // When carrier rejects, clear the phone field so the user must re-enter it
+  useEffect(() => {
+    if (brandStatus === "carrier-rejected") {
+      setSimFields(prev => ({ ...prev, phone: "" }))
+    }
+  }, [brandStatus])
 
   function triggerAutoSave(label: string) {
+    if (locked) return
     showToast(`${label} saved`)
+  }
+
+  function handleSaveAndResubmit() {
+    setIsEditing(false)
+    setRestarting(true)
+    setTimeout(() => { setRestarting(false); setRestartDone(true) }, 2500)
+    showToast("Resubmitting to carrier — processing takes ~15 minutes")
   }
 
   function activateMissingSim() {
     onSimModeChange("missing")
     setRejectedFields(new Set())
-    setPrivacyCarrierRejected(false)
     setRestartDone(false)
     setRestarting(false)
     setMissingFields(new Set(Object.keys(CARRIER_REJECTION_MESSAGES) as RejectedField[]))
@@ -766,15 +456,13 @@ export function CompanyPage({ navigate, privacyPublished, onPrivacyPublish, bran
     setRestarting(false)
     setSimFields({})
     setRejectedFields(new Set(Object.keys(CARRIER_REJECTION_MESSAGES) as RejectedField[]))
-    setPrivacyCarrierRejected(true)
   }
 
   function resetSim() {
     onSimModeChange("none")
     setRejectedFields(new Set())
     setMissingFields(new Set())
-    setPrivacyCarrierRejected(false)
-    setSimFields({})
+    setSimFields({ legal: "" })  // restore to one-field-missing default
     setRestarting(false)
     setRestartDone(false)
   }
@@ -783,7 +471,7 @@ export function CompanyPage({ navigate, privacyPublished, onPrivacyPublish, bran
     setRejectedFields(prev => {
       const next = new Set(prev)
       next.delete(field)
-      if (next.size === 0 && !privacyCarrierRejected) {
+      if (next.size === 0) {
         setRestarting(true)
         setTimeout(() => { setRestarting(false); setRestartDone(true); onSimModeChange("none") }, 2500)
       }
@@ -791,21 +479,14 @@ export function CompanyPage({ navigate, privacyPublished, onPrivacyPublish, bran
     })
   }
 
-  function dismissPrivacyRejection() {
-    setPrivacyCarrierRejected(false)
-    if (rejectedFields.size === 0) {
-      setRestarting(true)
-      setTimeout(() => { setRestarting(false); setRestartDone(true); onSimModeChange("none") }, 2500)
-    }
-  }
-
   useEffect(() => {
     if (brandStatus !== "approved") return
-    showToast("Carrier registration approved — phone numbers are being set up")
+    showToast("Business registered with carrier — phone numbers are being set up")
   }, [brandStatus])
 
+  // simFields takes precedence over hardcoded defaults for all modes
   function sv(key: string, fallback: string) {
-    return simMode === "missing" && key in simFields ? simFields[key] : fallback
+    return key in simFields ? simFields[key] : fallback
   }
   const isMissing = (f: RejectedField) => simMode === "missing" && missingFields.has(f)
   const isRejected = (f: RejectedField) => simMode === "rejected" && rejectedFields.has(f)
@@ -814,41 +495,46 @@ export function CompanyPage({ navigate, privacyPublished, onPrivacyPublish, bran
 
   const websiteValue = sv("website", "https://www.sunsetproperties.com")
 
+  // Track completeness for the sticky footer
+  const REQUIRED_FIELDS = [
+    { key: "legal",          label: "Legal Business Name",      fallback: "Sunset Properties LLC" },
+    { key: "address-street", label: "Street Address",           fallback: "123 Main Street, Suite 200" },
+    { key: "address-city",   label: "City",                     fallback: "Austin" },
+    { key: "address-state",  label: "State",                    fallback: "TX" },
+    { key: "address-zip",    label: "ZIP Code",                 fallback: "78701" },
+    { key: "phone",          label: "Company Phone",            fallback: "(512) 555-0123" },
+    { key: "rep-name",       label: "Representative Name",      fallback: "Sarah Johnson" },
+    { key: "rep-email",      label: "Representative Email",     fallback: "sarah.johnson@sunsetproperties.com" },
+    { key: "rep-phone",      label: "Representative Phone",     fallback: "(512) 555-0124" },
+  ] as const
+  const missingRequired = REQUIRED_FIELDS.filter(({ key, fallback }) => !sv(key, fallback).trim())
+  const allFieldsFilled = missingRequired.length === 0
+
+  // Keep parent sidebar badge in sync (0 during submitting/approved)
+  useEffect(() => {
+    const count = (brandStatus === "submitting" || brandStatus === "approved") ? 0 : missingRequired.length
+    onActionCountChange(count)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [missingRequired.length, brandStatus])
+
+  // Shared class builder for all editable inputs
+  function inputCls(field?: RejectedField, emptyKey?: string, emptyFallback?: string) {
+    const errorBorder = field ? redBorder(field) : undefined
+    const isEmpty = !locked && emptyKey !== undefined && !sv(emptyKey, emptyFallback ?? "").trim()
+    return cn(
+      "w-full h-11 rounded-lg border px-3 text-sm transition-colors focus:outline-none",
+      locked
+        ? "bg-zinc-50 text-muted-foreground cursor-default border-border"
+        : cn(
+            "bg-white text-foreground placeholder:text-muted-foreground/60 focus:ring-2 focus:ring-zinc-900/20",
+            errorBorder || (isEmpty ? "border-red-400 focus:ring-red-400/20" : undefined),
+          ),
+    )
+  }
+
   return (
-    <div className="p-6 md:p-8">
-      {/* ── Sim buttons ───────────────────────────────────────────────────── */}
-      <div className="fixed top-16 right-6 z-40 flex flex-col items-end gap-1.5">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50 flex items-center gap-1">
-          <FlaskConical className="h-3 w-3" /> Simulate
-        </p>
-        <div className="flex gap-2">
-          <button type="button" onClick={activateMissingSim}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium shadow-sm transition-colors",
-              simMode === "missing" ? "border-amber-300 bg-amber-50 text-amber-800" : "border-border bg-white text-muted-foreground hover:text-foreground hover:border-zinc-400",
-            )}
-          >
-            <TriangleAlert className="h-3.5 w-3.5" /> Missing fields
-          </button>
-          <button type="button" onClick={activateRejectedSim}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium shadow-sm transition-colors",
-              simMode === "rejected" ? "border-red-300 bg-red-50 text-red-800" : "border-border bg-white text-muted-foreground hover:text-foreground hover:border-zinc-400",
-            )}
-          >
-            <XCircle className="h-3.5 w-3.5" /> Carrier rejection
-          </button>
-          {simMode !== "none" && (
-            <button type="button" onClick={resetSim}
-              className="inline-flex items-center gap-1 rounded-lg border border-border bg-white px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground shadow-sm transition-colors"
-            >
-              <X className="h-3 w-3" /> Reset
-            </button>
-          )}
-        </div>
-        {simMode === "missing" && <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-1">Showing: required fields not provided</p>}
-        {simMode === "rejected" && !restarting && !restartDone && <p className="text-[11px] text-red-700 bg-red-50 border border-red-200 rounded-md px-2.5 py-1">Showing: all fields rejected by our carrier</p>}
-      </div>
+    <div className="flex flex-col min-h-full bg-stone-50">
+    <div className="p-6 md:p-8 pb-32 flex-1">
 
       <div className="mb-6">
         <button type="button" onClick={() => navigate("overview")}
@@ -861,13 +547,52 @@ export function CompanyPage({ navigate, privacyPublished, onPrivacyPublish, bran
       <div className="flex-1 min-w-0 max-w-2xl space-y-8">
 
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Carrier Compliance</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Confirm your business details so we can register your company with our carrier. This keeps your texts and calls compliant — without it, messages can be blocked or result in fines.
-          </p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">Carrier Compliance</h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                Confirm your business details so we can register your company with our carrier. This keeps your texts and calls compliant — without it, messages can be blocked or result in fines.
+              </p>
+            </div>
+            {/* Global status badge */}
+            {brandStatus === "idle" && (
+              <span className="shrink-0 mt-1 inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-medium text-zinc-500">
+                <span className="h-1.5 w-1.5 rounded-full bg-zinc-400" />Not submitted
+              </span>
+            )}
+            {brandStatus === "submitting" && !isEditing && (
+              <span className="shrink-0 mt-1 inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+                <Loader2 className="h-3 w-3 animate-spin" />Processing
+              </span>
+            )}
+            {brandStatus === "carrier-rejected" && !isEditing && (
+              <span className="shrink-0 mt-1 inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-medium text-red-700">
+                <TriangleAlert className="h-3 w-3" />Action required
+              </span>
+            )}
+            {brandStatus === "approved" && !isEditing && (
+              <span className="shrink-0 mt-1 inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                <CheckCircle2 className="h-3.5 w-3.5" />Carrier verified
+              </span>
+            )}
+            {isEditing && (
+              <span className="shrink-0 mt-1 inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
+                Editing — unsaved
+              </span>
+            )}
+          </div>
         </div>
 
-        {/* Restarting banner */}
+        {/* Editing mode notice */}
+        {isEditing && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex items-start gap-3">
+            <TriangleAlert className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-amber-900">Editing your Twilio submission</p>
+              <p className="text-xs text-amber-700 mt-0.5">Changes you make here will be resubmitted to Twilio. Fields auto-save as you type.</p>
+            </div>
+          </div>
+        )}        {/* Restarting banner */}
         {restarting && (
           <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 flex items-center gap-3">
             <Loader2 className="h-5 w-5 text-blue-600 animate-spin shrink-0" />
@@ -894,15 +619,21 @@ export function CompanyPage({ navigate, privacyPublished, onPrivacyPublish, bran
         <div className="space-y-5">
           <Field>
             <LabelWithInfo info={FIELD_INFO.legal}>Legal Business Name</LabelWithInfo>
-            <input type="text"
+            <input type="text" readOnly={locked}
               value={sv("legal", "Sunset Properties LLC")}
               placeholder="Enter your legal business name"
-              onChange={(e) => setSimFields(p => ({ ...p, legal: e.target.value }))}
-              onBlur={() => triggerAutoSave("Legal Business Name")}
-              className={cn("w-full h-11 rounded-lg border bg-white px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-zinc-900/20 transition-colors", redBorder("legal"))}
+              onChange={locked ? undefined : (e) => setSimFields(p => ({ ...p, legal: e.target.value }))}
+              onBlur={locked ? undefined : () => triggerAutoSave("Legal Business Name")}
+              className={inputCls("legal", "legal", "Sunset Properties LLC")}
             />
-            {isMissing("legal") && <InlineError message={MISSING_MESSAGES["legal"]} />}
-            {isRejected("legal") && <CarrierRejectionCard reason={CARRIER_REJECTION_MESSAGES["legal"]} onDismiss={() => dismissRejection("legal")} />}
+            {!locked && !sv("legal", "Sunset Properties LLC").trim() && simMode === "none" && (
+              <p className="mt-1.5 flex items-center gap-1.5 text-xs text-red-600">
+                <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
+                Required — enter the name exactly as it appears on your state or IRS filing.
+              </p>
+            )}
+            {!locked && isMissing("legal") && <InlineError message={MISSING_MESSAGES["legal"]} />}
+            {!locked && isRejected("legal") && <CarrierRejectionCard reason={CARRIER_REJECTION_MESSAGES["legal"]} onDismiss={() => dismissRejection("legal")} />}
           </Field>
 
           <Field>
@@ -915,19 +646,18 @@ export function CompanyPage({ navigate, privacyPublished, onPrivacyPublish, bran
                 <Lock className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground transition-colors" />
               </button>
             </div>
-            <p className="text-xs text-muted-foreground mt-1.5">Pulled from your Entrata account. Contact support to update.</p>
-            {isMissing("ein") && <InlineError message={MISSING_MESSAGES["ein"]} />}
-            {isRejected("ein") && <CarrierRejectionCard reason={CARRIER_REJECTION_MESSAGES["ein"]} onDismiss={() => dismissRejection("ein")} />}
+            {!locked && isMissing("ein") && <InlineError message={MISSING_MESSAGES["ein"]} />}
+            {!locked && isRejected("ein") && <CarrierRejectionCard reason={CARRIER_REJECTION_MESSAGES["ein"]} onDismiss={() => dismissRejection("ein")} />}
           </Field>
 
           <Field>
             <LabelWithInfo info={FIELD_INFO.address}>Business Address</LabelWithInfo>
-            <input type="text"
+            <input type="text" readOnly={locked}
               value={sv("address-street", "123 Main Street, Suite 200")}
               placeholder="Street address"
-              onChange={(e) => setSimFields(p => ({ ...p, "address-street": e.target.value }))}
-              onBlur={() => triggerAutoSave("Business Address")}
-              className={cn("w-full h-11 rounded-lg border bg-white px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-zinc-900/20 transition-colors mb-2", redBorder("address"))}
+              onChange={locked ? undefined : (e) => setSimFields(p => ({ ...p, "address-street": e.target.value }))}
+              onBlur={locked ? undefined : () => triggerAutoSave("Business Address")}
+              className={cn(inputCls("address"), "mb-2")}
             />
             <div className="grid grid-cols-3 gap-2">
               {[
@@ -935,58 +665,35 @@ export function CompanyPage({ navigate, privacyPublished, onPrivacyPublish, bran
                 { key: "address-state", fallback: "TX", placeholder: "State" },
                 { key: "address-zip", fallback: "78701", placeholder: "ZIP" },
               ].map(({ key, fallback, placeholder }) => (
-                <input key={key} type="text"
+                <input key={key} type="text" readOnly={locked}
                   value={sv(key, fallback)} placeholder={placeholder}
-                  onChange={(e) => setSimFields(p => ({ ...p, [key]: e.target.value }))}
-                  className={cn("w-full h-11 rounded-lg border bg-white px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-zinc-900/20 transition-colors", redBorder("address"))}
+                  onChange={locked ? undefined : (e) => setSimFields(p => ({ ...p, [key]: e.target.value }))}
+                  className={inputCls("address")}
                 />
               ))}
             </div>
-            {isMissing("address") && <InlineError message={MISSING_MESSAGES["address"]} />}
-            {isRejected("address") && <CarrierRejectionCard reason={CARRIER_REJECTION_MESSAGES["address"]} onDismiss={() => dismissRejection("address")} />}
+            {!locked && isMissing("address") && <InlineError message={MISSING_MESSAGES["address"]} />}
+            {!locked && isRejected("address") && <CarrierRejectionCard reason={CARRIER_REJECTION_MESSAGES["address"]} onDismiss={() => dismissRejection("address")} />}
           </Field>
 
           <Field>
             <LabelWithInfo info={FIELD_INFO.phone}>Company Phone Number</LabelWithInfo>
-            <input type="text"
+            <input type="text" readOnly={locked}
               value={sv("phone", "(512) 555-0123")}
               placeholder="Enter your business phone number"
-              onChange={(e) => setSimFields(p => ({ ...p, phone: e.target.value }))}
-              onBlur={() => triggerAutoSave("Company Phone Number")}
-              className={cn("w-full h-11 rounded-lg border bg-white px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-zinc-900/20 transition-colors", redBorder("phone"))}
+              onChange={locked ? undefined : (e) => setSimFields(p => ({ ...p, phone: e.target.value }))}
+              onBlur={locked ? undefined : () => triggerAutoSave("Company Phone Number")}
+              className={inputCls("phone", "phone", "(512) 555-0123")}
             />
-            {isMissing("phone") && <InlineError message={MISSING_MESSAGES["phone"]} />}
-            {isRejected("phone") && <CarrierRejectionCard reason={CARRIER_REJECTION_MESSAGES["phone"]} onDismiss={() => dismissRejection("phone")} />}
+            {brandStatus === "carrier-rejected" && !sv("phone", "(512) 555-0123").trim() && (
+              <p className="mt-1.5 flex items-center gap-1.5 text-xs text-red-600">
+                <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
+                Rejected by our carrier — please re-enter your company phone number and resubmit.
+              </p>
+            )}
+            {!locked && isMissing("phone") && <InlineError message={MISSING_MESSAGES["phone"]} />}
+            {!locked && isRejected("phone") && <CarrierRejectionCard reason={CARRIER_REJECTION_MESSAGES["phone"]} onDismiss={() => dismissRejection("phone")} />}
           </Field>
-
-          {/* Website URL + Privacy Policy URL — connected */}
-          <div className="space-y-3 rounded-xl border border-border bg-zinc-50/50 p-4">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Website &amp; Privacy Policy</p>
-            <p className="text-xs text-muted-foreground -mt-1">We scan your website to find your privacy policy — both are required for carrier registration.</p>
-
-            <Field>
-              <LabelWithInfo info={FIELD_INFO.website}>Website URL</LabelWithInfo>
-              <input type="text"
-                value={websiteValue}
-                placeholder="https://yourbusiness.com"
-                onChange={(e) => setSimFields(p => ({ ...p, website: e.target.value }))}
-                onBlur={() => triggerAutoSave("Website URL")}
-                className={cn("w-full h-11 rounded-lg border bg-white px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-zinc-900/20 transition-colors", redBorder("website"))}
-              />
-              {isMissing("website") && <InlineError message={MISSING_MESSAGES["website"]} />}
-              {isRejected("website") && <CarrierRejectionCard reason={CARRIER_REJECTION_MESSAGES["website"]} onDismiss={() => dismissRejection("website")} />}
-            </Field>
-
-            <PrivacyPolicySection
-              websiteUrl={websiteValue}
-              privacyPublished={privacyPublished}
-              onPrivacyPublish={onPrivacyPublish}
-              simPrivacyRejected={privacyCarrierRejected}
-              onSimPrivacyDismiss={dismissPrivacyRejection}
-              showMissingError={isMissing("website")}
-              showToast={showToast}
-            />
-          </div>
         </div>
         )}
 
@@ -999,55 +706,172 @@ export function CompanyPage({ navigate, privacyPublished, onPrivacyPublish, bran
           </div>
           <Field>
             <LabelWithInfo info={FIELD_INFO.repName}>Full Name</LabelWithInfo>
-            <input type="text"
+            <input type="text" readOnly={locked}
               value={sv("rep-name", "Sarah Johnson")}
               placeholder="Full legal name"
-              onChange={(e) => setSimFields(p => ({ ...p, "rep-name": e.target.value }))}
-              onBlur={() => triggerAutoSave("Full Name")}
-              className={cn("w-full h-11 rounded-lg border bg-white px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-zinc-900/20 transition-colors", redBorder("rep-name"))}
+              onChange={locked ? undefined : (e) => setSimFields(p => ({ ...p, "rep-name": e.target.value }))}
+              onBlur={locked ? undefined : () => triggerAutoSave("Full Name")}
+              className={inputCls("rep-name")}
             />
-            {isMissing("rep-name") && <InlineError message={MISSING_MESSAGES["rep-name"]} />}
-            {isRejected("rep-name") && <CarrierRejectionCard reason={CARRIER_REJECTION_MESSAGES["rep-name"]} onDismiss={() => dismissRejection("rep-name")} />}
+            {!locked && isMissing("rep-name") && <InlineError message={MISSING_MESSAGES["rep-name"]} />}
+            {!locked && isRejected("rep-name") && <CarrierRejectionCard reason={CARRIER_REJECTION_MESSAGES["rep-name"]} onDismiss={() => dismissRejection("rep-name")} />}
           </Field>
           <Field>
             <LabelWithInfo info={FIELD_INFO.repEmail}>Email Address</LabelWithInfo>
-            <input type="text"
+            <input type="text" readOnly={locked}
               value={sv("rep-email", "sarah.johnson@sunsetproperties.com")}
               placeholder="Email address"
-              onChange={(e) => setSimFields(p => ({ ...p, "rep-email": e.target.value }))}
-              onBlur={() => triggerAutoSave("Email Address")}
-              className={cn("w-full h-11 rounded-lg border bg-white px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-zinc-900/20 transition-colors", redBorder("rep-email"))}
+              onChange={locked ? undefined : (e) => setSimFields(p => ({ ...p, "rep-email": e.target.value }))}
+              onBlur={locked ? undefined : () => triggerAutoSave("Email Address")}
+              className={inputCls("rep-email")}
             />
-            {isMissing("rep-email") && <InlineError message={MISSING_MESSAGES["rep-email"]} />}
-            {isRejected("rep-email") && <CarrierRejectionCard reason={CARRIER_REJECTION_MESSAGES["rep-email"]} onDismiss={() => dismissRejection("rep-email")} />}
+            {!locked && isMissing("rep-email") && <InlineError message={MISSING_MESSAGES["rep-email"]} />}
+            {!locked && isRejected("rep-email") && <CarrierRejectionCard reason={CARRIER_REJECTION_MESSAGES["rep-email"]} onDismiss={() => dismissRejection("rep-email")} />}
           </Field>
           <Field>
             <LabelWithInfo info={FIELD_INFO.repPhone}>Phone Number</LabelWithInfo>
-            <input type="text"
+            <input type="text" readOnly={locked}
               value={sv("rep-phone", "(512) 555-0124")}
               placeholder="Phone number"
-              onChange={(e) => setSimFields(p => ({ ...p, "rep-phone": e.target.value }))}
-              onBlur={() => triggerAutoSave("Phone Number")}
-              className={cn("w-full h-11 rounded-lg border bg-white px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-zinc-900/20 transition-colors", redBorder("rep-phone"))}
+              onChange={locked ? undefined : (e) => setSimFields(p => ({ ...p, "rep-phone": e.target.value }))}
+              onBlur={locked ? undefined : () => triggerAutoSave("Phone Number")}
+              className={inputCls("rep-phone")}
             />
-            {isMissing("rep-phone") && <InlineError message={MISSING_MESSAGES["rep-phone"]} />}
-            {isRejected("rep-phone") && <CarrierRejectionCard reason={CARRIER_REJECTION_MESSAGES["rep-phone"]} onDismiss={() => dismissRejection("rep-phone")} />}
+            {!locked && isMissing("rep-phone") && <InlineError message={MISSING_MESSAGES["rep-phone"]} />}
+            {!locked && isRejected("rep-phone") && <CarrierRejectionCard reason={CARRIER_REJECTION_MESSAGES["rep-phone"]} onDismiss={() => dismissRejection("rep-phone")} />}
           </Field>
         </div>
         )}
 
-        {/* Brand submitting */}
-        {brandStatus === "submitting" && !restarting && (
-          <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 flex items-center gap-3">
-            <Loader2 className="h-5 w-5 text-blue-600 animate-spin shrink-0" />
-            <div>
-              <p className="text-sm font-semibold text-blue-900">Registering your business with our carrier…</p>
-              <p className="text-xs text-blue-700 mt-0.5">This usually takes around 15 minutes. We'll notify you when it's approved.</p>
+      </div>
+    </div>
+
+    {/* ── Sticky footer — always visible ──────────────────────────────── */}
+    <div className="sticky bottom-0 z-20 border-t border-border bg-background shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
+      <div className="px-6 md:px-8 py-4 max-w-2xl flex items-center gap-5">
+
+        {/* Restarting / resubmitting */}
+        {restarting && (
+          <>
+            <Loader2 className="h-4 w-4 text-blue-600 animate-spin shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-foreground">Resubmitting to Twilio…</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Your updated details are being sent. This usually takes up to 15 minutes.</p>
             </div>
-          </div>
+          </>
+        )}
+
+        {/* Editing mode */}
+        {!restarting && isEditing && (
+          <>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-foreground">Editing your submission</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Changes auto-save as you type. Resubmit when ready.</p>
+            </div>
+            <button type="button" onClick={() => setIsEditing(false)}
+              className={cn(buttonVariants({ variant: "outline" }), "shrink-0")}>
+              Cancel
+            </button>
+            <button type="button" onClick={handleSaveAndResubmit}
+              className={cn(buttonVariants({ variant: "eli" }), "shrink-0 gap-2")}>
+              <RefreshCw className="h-4 w-4" />Save &amp; resubmit
+            </button>
+          </>
+        )}
+
+        {/* Idle — incomplete */}
+        {!restarting && !isEditing && brandStatus === "idle" && !allFieldsFilled && (
+          <>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-foreground">
+                {missingRequired.length} required field{missingRequired.length !== 1 ? "s" : ""} missing
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {missingRequired.length === 1
+                  ? `${missingRequired[0].label} is required before you can submit.`
+                  : "Fill in all required fields to submit your business details to Twilio."}
+              </p>
+            </div>
+            <button type="button" disabled
+              className="shrink-0 inline-flex items-center gap-2 rounded-lg bg-zinc-200 px-5 py-2.5 text-sm font-semibold text-zinc-400 cursor-not-allowed whitespace-nowrap">
+              Submit to Twilio
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </>
+        )}
+
+        {/* Idle — all fields filled, ready */}
+        {!restarting && !isEditing && brandStatus === "idle" && allFieldsFilled && (
+          <>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-foreground">Ready to submit</p>
+              <p className="text-xs text-muted-foreground mt-0.5">All fields confirmed. Submit to register your business details with our carrier.</p>
+            </div>
+            <button type="button" onClick={onSubmitToTwilio}
+              className="shrink-0 inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-zinc-700 transition-colors whitespace-nowrap">
+              Submit to carrier
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </>
+        )}
+
+        {/* Carrier rejected — phone needs fixing */}
+        {!restarting && !isEditing && brandStatus === "carrier-rejected" && (
+          <>
+            <TriangleAlert className="h-4 w-4 text-red-500 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-red-900">Carrier flagged your phone number</p>
+              <p className="text-xs text-red-700 mt-0.5">
+                {sv("phone", "").trim()
+                  ? "Phone number updated — ready to resubmit."
+                  : "Re-enter your company phone number above, then resubmit."}
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={!sv("phone", "").trim()}
+              onClick={sv("phone", "").trim() ? onResubmitToCarrier : undefined}
+              className={cn(
+                "shrink-0 inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold transition-colors whitespace-nowrap",
+                sv("phone", "").trim()
+                  ? "bg-zinc-900 text-white hover:bg-zinc-700 cursor-pointer"
+                  : "bg-zinc-200 text-zinc-400 cursor-not-allowed",
+              )}
+            >
+              Resubmit to carrier
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </>
+        )}
+
+        {/* Submitting — processing */}
+        {!restarting && !isEditing && brandStatus === "submitting" && (
+          <>
+            <Loader2 className="h-4 w-4 text-blue-600 animate-spin shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-blue-900">Registering your business with our carrier…</p>
+              <p className="text-xs text-blue-700 mt-0.5">This typically takes up to 15 minutes. We'll notify you once it's approved.</p>
+            </div>
+            <button type="button" onClick={onCancelSubmission}
+              className="shrink-0 inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-medium text-red-700 hover:bg-red-100 transition-colors whitespace-nowrap">
+              Stop submission
+            </button>
+          </>
+        )}
+
+        {/* Approved */}
+        {!restarting && !isEditing && brandStatus === "approved" && (
+          <>
+            <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-emerald-900">Your business &amp; profile are registered with our carrier</p>
+              <p className="text-xs text-emerald-700 mt-0.5">This registration is active and cannot be easily changed. Contact support if you need to make updates.</p>
+            </div>
+          </>
         )}
 
       </div>
+    </div>
     </div>
   )
 }

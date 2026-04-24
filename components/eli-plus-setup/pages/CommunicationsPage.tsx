@@ -1,15 +1,14 @@
 "use client"
 
-import { useState, useRef, useEffect, useCallback } from "react"
-import { createPortal } from "react-dom"
+import { useState, useEffect, type ReactNode } from "react"
 import type { PageId, BrandStatus, CampaignStatus } from "../index"
 import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import {
   ArrowLeft, Users, CreditCard, Wrench, RefreshCw,
-  CheckCircle2, Phone, ChevronDown, ChevronUp, Check,
-  Loader2, AlertTriangle, Zap, MessageSquare, Clock,
-  Volume2, MessageCircle,
+  CheckCircle2,
+  Loader2, AlertTriangle, Zap, Clock,
+  Volume2, MessageCircle, ShieldCheck, FileText, ChevronRight,
 } from "lucide-react"
 import { PROPERTIES } from "../data/properties"
 
@@ -19,6 +18,8 @@ interface Props {
   brandStatus: BrandStatus
   campaignStatus: CampaignStatus
   onCampaignReady: () => void
+  privacyActionCount: number
+  totalPropertyCount: number
 }
 
 // ── Campaign numbers (company-level, area code = Austin 512) ─────────────────
@@ -58,17 +59,7 @@ function buildDefaults(): Record<string, Record<ProductId, string>> {
   return result
 }
 
-function buildPools(): Record<string, string[]> {
-  const result: Record<string, string[]> = {}
-  PROPERTIES.forEach((prop, idx) => {
-    const ac = AREA_CODES[prop.city] ?? "000"
-    result[prop.id] = buildPool(ac, idx)
-  })
-  return result
-}
-
 const DEFAULT_NUMBERS = buildDefaults()
-const AVAILABLE_POOLS = buildPools()
 
 // ── Leasing AI Voice + SMS numbers (separate pool, offset to avoid conflicts) ──
 
@@ -104,98 +95,99 @@ function buildLeasingExtraPools(): Record<string, string[]> {
 const DEFAULT_LEASING_EXTRAS = buildLeasingExtrasDefaults()
 const LEASING_EXTRA_POOLS = buildLeasingExtraPools()
 
-// ── Number picker cell ───────────────────────────────────────────────────────
-function NumberPicker({ value, options, onChange }: {
-  value: string; options: string[]; onChange: (v: string) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const btnRef = useRef<HTMLButtonElement>(null)
-  const dropRef = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 })
+// ── Maintenance AI Voice numbers (separate pool, offset to avoid conflicts) ──
 
-  const openDropdown = useCallback(() => {
-    if (!btnRef.current) return
-    const r = btnRef.current.getBoundingClientRect()
-    setPos({ top: r.bottom + 4, left: r.left, width: Math.max(r.width, 172) })
-    setOpen(true)
-  }, [])
-
-  useEffect(() => {
-    if (!open) return
-    function handler(e: MouseEvent) {
-      const t = e.target as Node
-      if (!btnRef.current?.contains(t) && !dropRef.current?.contains(t)) setOpen(false)
-    }
-    document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
-  }, [open])
-
-  const allOptions = Array.from(new Set([value, ...options]))
-
-  return (
-    <>
-      <button ref={btnRef} type="button" onClick={openDropdown}
-        className="flex items-center justify-between gap-1.5 w-full min-w-[130px] h-8 rounded-md border border-border bg-white px-2.5 text-xs font-mono font-medium text-foreground hover:border-zinc-400 hover:bg-zinc-50 transition-colors focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
-      >
-        <span className="truncate">{value}</span>
-        <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
-      </button>
-
-      {open && createPortal(
-        <div ref={dropRef} style={{ position: "fixed", top: pos.top, left: pos.left, minWidth: pos.width }}
-          className="z-50 rounded-lg border border-border bg-white shadow-lg py-1 overflow-hidden"
-        >
-          <p className="px-3 py-1.5 text-[10px] uppercase tracking-widest font-semibold text-muted-foreground/70 border-b border-border mb-1">
-            Available numbers
-          </p>
-          {allOptions.map((opt) => (
-            <button key={opt} type="button" onClick={() => { onChange(opt); setOpen(false) }}
-              className={cn(
-                "w-full flex items-center gap-2.5 px-3 py-1.5 text-xs font-mono text-left hover:bg-accent transition-colors",
-                opt === value ? "text-foreground font-medium" : "text-muted-foreground",
-              )}
-            >
-              <span className="w-3 shrink-0">{opt === value && <Check className="h-3 w-3 text-emerald-600" />}</span>
-              {opt}
-            </button>
-          ))}
-        </div>,
-        document.body,
-      )}
-    </>
+function buildMaintenanceVoicePool(areaCode: string, propIndex: number): string[] {
+  const exchange = EXCHANGES[(propIndex + 9) % EXCHANGES.length]
+  const base = 3300 + propIndex * 100
+  return Array.from({ length: 5 }, (_, i) =>
+    `(${areaCode}) ${exchange}-${String(base + i * 4).padStart(4, "0")}`
   )
 }
 
+function buildMaintenanceVoiceDefaults(): Record<string, string> {
+  const result: Record<string, string> = {}
+  PROPERTIES.forEach((prop, idx) => {
+    const ac = AREA_CODES[prop.city] ?? "000"
+    result[prop.id] = buildMaintenanceVoicePool(ac, idx)[0]
+  })
+  return result
+}
+
+function buildMaintenanceVoicePools(): Record<string, string[]> {
+  const result: Record<string, string[]> = {}
+  PROPERTIES.forEach((prop, idx) => {
+    const ac = AREA_CODES[prop.city] ?? "000"
+    result[prop.id] = buildMaintenanceVoicePool(ac, idx)
+  })
+  return result
+}
+
+const DEFAULT_MAINTENANCE_VOICE = buildMaintenanceVoiceDefaults()
+const MAINTENANCE_VOICE_POOLS = buildMaintenanceVoicePools()
+
+// ── Per-property campaign status (demo seed) ──────────────────────────────────
+// Matches the 8 "covered" properties in PrivacyPage (p1–p5, p7, p10, p12).
+// 4 already have Twilio campaigns approved and numbers assigned; 4 are pending.
+const INITIALLY_ACTIVE    = new Set(["p1", "p2", "p3", "p4"])
+const INITIALLY_IN_REVIEW = new Set(["p5", "p7", "p10", "p12"])
+
+const REVIEW_META: Record<string, string> = {
+  p5:  "Submitted 2 days ago",
+  p7:  "Submitted yesterday",
+  p10: "Submitted 3 hours ago",
+  p12: "Submitted 5 hours ago",
+}
+
+
 
 // ── Page ─────────────────────────────────────────────────────────────────────
-export function CommunicationsPage({ navigate, privacyPublished, brandStatus, campaignStatus, onCampaignReady }: Props) {
-  const [numbers, setNumbers] = useState<Record<string, Record<ProductId, string>>>(buildDefaults)
-  const [leasingExtras, setLeasingExtras] = useState<Record<string, Record<LeasingExtraType, string>>>(buildLeasingExtrasDefaults)
-  const [saved, setSaved] = useState(false)
-  const [campaignExpanded, setCampaignExpanded] = useState(true)
-  const [leasingExtrasExpanded, setLeasingExtrasExpanded] = useState(true)
+export function CommunicationsPage({ navigate, privacyPublished, brandStatus, campaignStatus, onCampaignReady, privacyActionCount, totalPropertyCount }: Props) {
+  // Per-property campaign status — drives all number visibility
+  const [activeIds,   setActiveIds]   = useState<Set<string>>(() => new Set(INITIALLY_ACTIVE))
+  const [inReviewIds, setInReviewIds] = useState<Set<string>>(() => new Set(INITIALLY_IN_REVIEW))
 
-  function setNumber(propId: string, product: ProductId, val: string) {
-    setNumbers((prev) => ({ ...prev, [propId]: { ...prev[propId], [product]: val } }))
-    setSaved(false)
+  type StatusFilter = "all" | "active" | "review" | "awaiting"
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active")
+
+  function simulateApproval() {
+    setActiveIds(prev => {
+      const next = new Set(prev)
+      inReviewIds.forEach(id => next.add(id))
+      return next
+    })
+    setInReviewIds(new Set())
   }
 
-  function setLeasingExtra(propId: string, type: LeasingExtraType, val: string) {
-    setLeasingExtras((prev) => ({ ...prev, [propId]: { ...prev[propId], [type]: val } }))
-    setSaved(false)
+  // Trigger parent "complete" when every property has active numbers
+  useEffect(() => {
+    if (activeIds.size === PROPERTIES.length && campaignStatus !== "ready") {
+      onCampaignReady()
+    }
+  }, [activeIds, campaignStatus, onCampaignReady])
+
+  const blocked = brandStatus !== "approved"
+
+  // Derived awaiting set — anything that isn't active or in review
+  const awaitingIds = new Set(
+    PROPERTIES.filter(p => !activeIds.has(p.id) && !inReviewIds.has(p.id)).map(p => p.id),
+  )
+  const numbersReady = activeIds.size === PROPERTIES.length
+
+  type RowStatus = "active" | "review" | "awaiting"
+  function statusOf(propId: string): RowStatus {
+    if (activeIds.has(propId))   return "active"
+    if (inReviewIds.has(propId)) return "review"
+    return "awaiting"
   }
 
-  const customisedCount = PROPERTIES.reduce((acc, prop) => {
-    const defaults = DEFAULT_NUMBERS[prop.id]
-    const current = numbers[prop.id]
-    return acc + ((["leasing", "payments", "maintenance", "renewals"] as const).some((p) => current[p] !== defaults[p]) ? 1 : 0)
-  }, 0)
-
-  const numbersReady = campaignStatus === "ready"
-  const campaignsCreating = campaignStatus === "creating"
-  const blocked = !privacyPublished
+  const visibleProperties = PROPERTIES.filter(p => {
+    if (statusFilter === "all") return true
+    return statusOf(p.id) === statusFilter
+  })
 
   return (
+    <>
     <div className="p-6 md:p-8 flex gap-8 items-start">
     {/* ── Main content ──────────────────────────────────────────────────── */}
     <div className="flex-1 min-w-0 space-y-6">
@@ -217,11 +209,11 @@ export function CommunicationsPage({ navigate, privacyPublished, brandStatus, ca
         <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3.5">
           <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
           <div>
-            <p className="text-sm font-semibold text-amber-900">Carrier Compliance required first</p>
+            <p className="text-sm font-semibold text-amber-900">Carrier Compliance must be completed first</p>
             <p className="text-xs text-amber-800 mt-0.5">
-              Complete the{" "}
+              Carrier Compliance builds the brand and profile in Twilio that campaigns are registered under. Complete it in the{" "}
               <button type="button" onClick={() => navigate("company")} className="underline font-medium hover:text-amber-900">Carrier Compliance tab</button>
-              {" "}and publish your privacy policy to begin phone number setup.
+              {" "}before phone number setup can begin.
             </p>
           </div>
         </div>
@@ -232,283 +224,275 @@ export function CommunicationsPage({ navigate, privacyPublished, brandStatus, ca
           <Loader2 className="h-4 w-4 text-blue-600 mt-0.5 shrink-0 animate-spin" />
           <div>
             <p className="text-sm font-semibold text-blue-900">Registering your business with our carrier…</p>
-            <p className="text-xs text-blue-700 mt-0.5">This usually takes about 15 minutes. Your phone numbers will be set up automatically once registration is approved.</p>
+            <p className="text-xs text-blue-700 mt-0.5">This usually takes about 15 minutes. Campaign registration can begin per-property once carrier registration is approved.</p>
           </div>
         </div>
       )}
 
-      {campaignsCreating && (
-        <div className="flex items-start gap-3 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3.5">
-          <Loader2 className="h-4 w-4 text-violet-600 mt-0.5 shrink-0 animate-spin" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-violet-900">Your phone numbers are being set up — hold tight</p>
-            <p className="text-xs text-violet-700 mt-0.5">
-              We're purchasing dedicated, compliant phone numbers for each of your {PROPERTIES.length} properties and registering them with our carrier. This typically takes 1–2 business days. We've expedited your request.
-            </p>
-            <div className="flex items-center gap-2 mt-2.5">
-              <div className="flex items-center gap-1.5 text-xs text-violet-800 bg-white border border-violet-200 rounded-md px-2.5 py-1.5">
-                <MessageSquare className="h-3 w-3" />
-                Expedited request sent to carrier
-              </div>
-              {/* Demo shortcut */}
-              <button type="button" onClick={onCampaignReady}
-                className="flex items-center gap-1.5 text-xs font-medium text-violet-700 border border-dashed border-violet-300 rounded-md px-2.5 py-1.5 hover:bg-violet-100 transition-colors"
-              >
-                <Zap className="h-3 w-3" />
-                Simulate approval →
-              </button>
-            </div>
+      {/* ── Summary row ────────────────────────────────────────────────── */}
+      {!blocked && (
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-border bg-white px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-700" />
+            </span>
+            <span className="text-sm text-foreground">
+              <span className="font-semibold">{activeIds.size}</span>
+              <span className="text-muted-foreground"> active</span>
+            </span>
           </div>
-        </div>
-      )}
-
-      {numbersReady && (
-        <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3.5">
-          <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-          <p className="text-sm font-semibold text-emerald-900">All numbers active — {PROPERTIES.length * 4} numbers assigned across {PROPERTIES.length} properties</p>
-        </div>
-      )}
-
-      {/* ── Property-specific numbers ─────────────────────────────────────── */}
-      <div className="space-y-3">
-        <div className="flex items-end justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-foreground">Property SMS Numbers</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {numbersReady
-                ? "SMS numbers pre-assigned by area code — one per AI product per property. Click any number to choose a different one."
-                : "Numbers will be assigned automatically once your carrier registration is approved."}
-            </p>
+          <span className="text-zinc-300">·</span>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-100">
+              {inReviewIds.size > 0
+                ? <Loader2 className="h-3.5 w-3.5 text-blue-700 animate-spin" />
+                : <ShieldCheck className="h-3.5 w-3.5 text-blue-700" />}
+            </span>
+            <span className="text-sm text-foreground">
+              <span className="font-semibold">{inReviewIds.size}</span>
+              <span className="text-muted-foreground"> in review</span>
+            </span>
           </div>
-          {numbersReady && customisedCount > 0 && (
-            <span className="text-xs text-muted-foreground">
-              {customisedCount} {customisedCount === 1 ? "property" : "properties"} customised
+          <span className="text-zinc-300">·</span>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-zinc-100">
+              <FileText className="h-3.5 w-3.5 text-zinc-600" />
+            </span>
+            <span className="text-sm text-foreground">
+              <span className="font-semibold">{awaitingIds.size}</span>
+              <span className="text-muted-foreground"> awaiting privacy policy</span>
+            </span>
+          </div>
+          {numbersReady && (
+            <span className="ml-auto inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
+              <CheckCircle2 className="h-3 w-3" />All properties active
             </span>
           )}
         </div>
+      )}
 
-        <div className="rounded-xl border border-border overflow-hidden">
-          {/* Pending overlay banner */}
-          {!numbersReady && (
-            <div className={cn(
-              "flex items-start gap-3 px-4 py-3 border-b border-border",
-              campaignsCreating ? "bg-violet-50" : "bg-zinc-50",
-            )}>
-              {campaignsCreating
-                ? <Loader2 className="h-3.5 w-3.5 text-violet-500 mt-0.5 shrink-0 animate-spin" />
-                : <Clock className="h-3.5 w-3.5 text-zinc-400 mt-0.5 shrink-0" />}
-              <p className={cn("text-xs", campaignsCreating ? "text-violet-800" : "text-muted-foreground")}>
-                {campaignsCreating
-                  ? "Numbers are being purchased and assigned — this table will populate once registration is confirmed."
-                  : "Complete Carrier Compliance to begin number assignment."}
-              </p>
-            </div>
-          )}
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs min-w-[680px]">
-              <thead>
-                <tr className="border-b border-border bg-zinc-50">
-                  <th className="text-left px-4 py-3 font-semibold text-foreground w-[200px]">Property</th>
-                  {([
-                    { product: "leasing",     label: "Leasing AI",     Icon: Users,      color: "text-violet-500" },
-                    { product: "payments",    label: "Payments AI",    Icon: CreditCard, color: "text-blue-500" },
-                    { product: "maintenance", label: "Maintenance AI", Icon: Wrench,     color: "text-amber-500" },
-                    { product: "renewals",    label: "Renewals AI",    Icon: RefreshCw,  color: "text-emerald-500" },
-                  ] as const).map(({ product, label, Icon, color }) => (
-                    <th key={product} className="text-left px-3 py-3 font-semibold text-foreground">
-                      <span className="flex items-center gap-1.5">
-                        <Icon className={cn("h-3.5 w-3.5", color)} />{label}
-                      </span>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {PROPERTIES.map((prop) => {
-                  const pool = AVAILABLE_POOLS[prop.id] ?? []
-                  const nums = numbers[prop.id]
-                  const defaults = DEFAULT_NUMBERS[prop.id]
-                  return (
-                    <tr key={prop.id} className={cn("transition-colors", numbersReady ? "bg-white hover:bg-zinc-50" : "bg-zinc-50/50")}>
-                      <td className="px-4 py-2.5">
-                        <p className={cn("font-medium leading-tight", numbersReady ? "text-foreground" : "text-muted-foreground")}>{prop.name}</p>
-                        <p className="text-[11px] text-muted-foreground flex items-center gap-1.5 mt-0.5">
-                          <span>{prop.city}, {prop.state}</span>
-                          <span className="rounded px-1 py-px text-[10px] font-medium bg-zinc-100 text-zinc-500">
-                            {AREA_CODES[prop.city] ?? "—"}
-                          </span>
-                        </p>
-                      </td>
-                      {(["leasing", "payments", "maintenance", "renewals"] as const).map((product) => {
-                        const isCustomised = nums[product] !== defaults[product]
-                        return (
-                          <td key={product} className="px-3 py-2.5">
-                            {numbersReady ? (
-                              <div className={cn("relative", isCustomised && "ring-1 ring-violet-300 rounded-md")}>
-                                <NumberPicker value={nums[product]} options={pool} onChange={(v) => setNumber(prop.id, product, v)} />
-                              </div>
-                            ) : (
-                              <div className={cn(
-                                "h-8 rounded-md border px-2.5 flex items-center",
-                                campaignsCreating
-                                  ? "border-violet-100 bg-white text-violet-400"
-                                  : "border-zinc-200 bg-zinc-100 text-zinc-400",
-                              )}>
-                                <span className="text-xs font-mono">{campaignsCreating ? "Pending…" : "—"}</span>
-                              </div>
-                            )}
-                          </td>
-                        )
-                      })}
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+      {/* ── Property Numbers — unified table ────────────────────────────── */}
+      {!blocked && (
+        <div className="space-y-3">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">Property Numbers</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              One row per property, grouped by AI product. Campaigns register per-property with the carrier — typically 1–2 business days once a privacy policy is live.
+            </p>
           </div>
-        </div>
-      </div>
 
-      {/* ── Leasing AI — Voice & SMS numbers ────────────────────────────── */}
-      <div className="space-y-3">
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <button type="button" onClick={() => setLeasingExtrasExpanded((v) => !v)}
-            className="w-full flex items-center justify-between px-5 py-4 border-b border-border hover:bg-zinc-50 transition-colors"
-          >
-            <div className="text-left">
-              <div className="flex items-center gap-2">
-                <Users className="h-4 w-4 text-violet-500 shrink-0" />
-                <p className="text-sm font-semibold text-foreground">Leasing AI — Voice & Other Numbers</p>
-                <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700">
-                  Leasing AI only
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground mt-0.5 ml-6">
-                Dedicated voice and other numbers for Leasing AI per property · auto-assigned by area code
-              </p>
+          {/* Toolbar: filter chips + action buttons */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex items-center rounded-lg border border-border bg-white p-0.5">
+              {([
+                { id: "active",   label: "Active",      count: activeIds.size },
+                { id: "review",   label: "In review",   count: inReviewIds.size },
+                { id: "awaiting", label: "Needs policy",count: awaitingIds.size },
+                { id: "all",      label: "All",         count: PROPERTIES.length },
+              ] as const).map(chip => (
+                <button
+                  key={chip.id}
+                  type="button"
+                  onClick={() => setStatusFilter(chip.id)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                    statusFilter === chip.id
+                      ? "bg-foreground text-background"
+                      : "text-muted-foreground hover:text-foreground hover:bg-zinc-50",
+                  )}
+                >
+                  {chip.label}
+                  <span className={cn(
+                    "inline-flex items-center justify-center rounded px-1.5 py-0 text-[10px] font-semibold",
+                    statusFilter === chip.id ? "bg-white/15 text-background" : "bg-zinc-100 text-zinc-600",
+                  )}>
+                    {chip.count}
+                  </span>
+                </button>
+              ))}
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {numbersReady ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
-                  <CheckCircle2 className="h-3 w-3" />{PROPERTIES.length * 2} numbers active
-                </span>
-              ) : campaignsCreating ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-0.5 text-xs font-medium text-violet-700">
-                  <Loader2 className="h-3 w-3 animate-spin" />Creating…
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-0.5 text-xs font-medium text-zinc-500">
-                  <Clock className="h-3 w-3" />Pending
-                </span>
+
+            <div className="ml-auto flex items-center gap-3">
+              {inReviewIds.size > 0 && (
+                <button
+                  type="button"
+                  onClick={simulateApproval}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 border border-dashed border-blue-300 rounded-md px-2.5 py-1.5 hover:bg-blue-50 transition-colors"
+                >
+                  <Zap className="h-3 w-3" />Simulate approval →
+                </button>
               )}
-              {leasingExtrasExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
             </div>
-          </button>
+          </div>
 
-          {leasingExtrasExpanded && (
+          {/* Unified table */}
+          <div className="rounded-xl border border-border overflow-hidden">
             <div className="overflow-x-auto">
-              {!numbersReady && (
-                <div className={cn(
-                  "flex items-start gap-3 px-4 py-3 border-b border-border",
-                  campaignsCreating ? "bg-violet-50" : "bg-zinc-50",
-                )}>
-                  {campaignsCreating
-                    ? <Loader2 className="h-3.5 w-3.5 text-violet-500 mt-0.5 shrink-0 animate-spin" />
-                    : <Clock className="h-3.5 w-3.5 text-zinc-400 mt-0.5 shrink-0" />}
-                  <p className={cn("text-xs", campaignsCreating ? "text-violet-800" : "text-muted-foreground")}>
-                    {campaignsCreating
-                      ? "Numbers are being purchased and assigned — this table will populate once registration is confirmed."
-                      : "Complete Carrier Compliance to begin number assignment."}
-                  </p>
-                </div>
-              )}
-              <table className="w-full text-xs min-w-[560px]">
+              <table className="w-full text-xs min-w-[1220px] border-separate border-spacing-0">
+                <colgroup>
+                  <col style={{ width: "240px" }} />
+                  <col /><col /><col />
+                  <col />
+                  <col /><col />
+                  <col />
+                </colgroup>
                 <thead>
-                  <tr className="border-b border-border bg-zinc-50">
-                    <th className="text-left px-4 py-3 font-semibold text-foreground w-[240px]">Property</th>
-                    <th className="text-left px-4 py-3 font-semibold text-foreground">
-                      <span className="flex items-center gap-1.5">
-                        <Volume2 className="h-3.5 w-3.5 text-violet-500" />Voice
+                  {/* Group header row: product names span their channel columns */}
+                  <tr className="bg-zinc-50">
+                    <th className="sticky left-0 z-20 bg-zinc-50 px-4 py-2 border-b border-border"> </th>
+                    <th colSpan={3} className="bg-zinc-50 px-3 py-2 text-left border-b border-l border-border">
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-foreground">
+                        <Users className="h-3.5 w-3.5 text-violet-500" />Leasing AI
                       </span>
                     </th>
-                    <th className="text-left px-4 py-3 font-semibold text-foreground">
-                      <span className="flex items-center gap-1.5">
-                        <MessageCircle className="h-3.5 w-3.5 text-violet-500" />Other
+                    <th className="bg-zinc-50 px-3 py-2 text-left border-b border-l border-border">
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-foreground">
+                        <CreditCard className="h-3.5 w-3.5 text-blue-500" />Payments AI
+                      </span>
+                    </th>
+                    <th colSpan={2} className="bg-zinc-50 px-3 py-2 text-left border-b border-l border-border">
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-foreground">
+                        <Wrench className="h-3.5 w-3.5 text-amber-500" />Maintenance AI
+                      </span>
+                    </th>
+                    <th className="bg-zinc-50 px-3 py-2 text-left border-b border-l border-border">
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-foreground">
+                        <RefreshCw className="h-3.5 w-3.5 text-emerald-500" />Renewals AI
                       </span>
                     </th>
                   </tr>
+                  {/* Sub-header row: channel labels */}
+                  <tr className="bg-zinc-50">
+                    <th className="sticky left-0 z-20 bg-zinc-50 px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">Property</th>
+                    <th className="bg-zinc-50 px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border">SMS</th>
+                    <th className="bg-zinc-50 px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">Voice</th>
+                    <th className="bg-zinc-50 px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">IVR text</th>
+                    <th className="bg-zinc-50 px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border">SMS</th>
+                    <th className="bg-zinc-50 px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border">SMS</th>
+                    <th className="bg-zinc-50 px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">Voice</th>
+                    <th className="bg-zinc-50 px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border">SMS</th>
+                  </tr>
                 </thead>
-                <tbody className="divide-y divide-border">
-                  {PROPERTIES.map((prop) => {
-                    const pool = LEASING_EXTRA_POOLS[prop.id] ?? []
-                    const extras = leasingExtras[prop.id]
-                    const defaults = DEFAULT_LEASING_EXTRAS[prop.id]
-                        const voiceCustomised = extras.voice !== defaults.voice
-                        const otherCustomised = extras.other !== defaults.other
-                    return (
-                      <tr key={prop.id} className={cn("transition-colors", numbersReady ? "bg-white hover:bg-zinc-50" : "bg-zinc-50/50")}>
-                        <td className="px-4 py-2.5">
-                          <p className={cn("font-medium leading-tight", numbersReady ? "text-foreground" : "text-muted-foreground")}>{prop.name}</p>
-                          <p className="text-[11px] text-muted-foreground flex items-center gap-1.5 mt-0.5">
-                            <span>{prop.city}, {prop.state}</span>
-                            <span className="rounded px-1 py-px text-[10px] font-medium bg-zinc-100 text-zinc-500">
-                              {AREA_CODES[prop.city] ?? "—"}
-                            </span>
-                          </p>
-                        </td>
-                        {(["voice", "other"] as const).map((type) => {
-                          const isCustomised = type === "voice" ? voiceCustomised : otherCustomised
-                          return (
-                            <td key={type} className="px-4 py-2.5">
-                              {numbersReady ? (
-                                <div className={cn("relative", isCustomised && "ring-1 ring-violet-300 rounded-md")}>
-                                  <NumberPicker
-                                    value={extras[type]}
-                                    options={pool}
-                                    onChange={(v) => setLeasingExtra(prop.id, type, v)}
-                                  />
-                                </div>
-                              ) : (
-                                <div className={cn(
-                                  "h-8 rounded-md border px-2.5 flex items-center",
-                                  campaignsCreating
-                                    ? "border-violet-100 bg-white text-violet-400"
-                                    : "border-zinc-200 bg-zinc-100 text-zinc-400",
-                                )}>
-                                  <span className="text-xs font-mono">{campaignsCreating ? "Pending…" : "—"}</span>
-                                </div>
-                              )}
+                <tbody>
+                  {visibleProperties.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="px-5 py-10 text-center text-sm text-muted-foreground">No properties in this state.</td>
+                    </tr>
+                  ) : (
+                    visibleProperties.map((prop) => {
+                      const status = statusOf(prop.id)
+                      const rowBg =
+                        status === "active"  ? "bg-white"
+                      : status === "review"  ? "bg-sky-50/60"
+                                             : "bg-zinc-50"
+                      const stickyBg =
+                        status === "active"  ? "bg-white"
+                      : status === "review"  ? "bg-[#f0f9ff]"
+                                             : "bg-zinc-50"
+                      const nums     = DEFAULT_NUMBERS[prop.id]
+                      const extras   = DEFAULT_LEASING_EXTRAS[prop.id]
+                      const maint    = DEFAULT_MAINTENANCE_VOICE[prop.id]
+
+                      // Slim awaiting row: property cell + single colSpan cell
+                      if (status === "awaiting") {
+                        return (
+                          <tr key={prop.id} className={rowBg}>
+                            <td className={cn("sticky left-0 z-10 px-4 py-2.5 align-middle border-b border-border", stickyBg)}>
+                              <p className="font-medium leading-tight text-foreground truncate max-w-[220px]">{prop.name}</p>
+                              <p className="text-[11px] text-muted-foreground mt-0.5">{prop.city}, {prop.state}</p>
                             </td>
-                          )
-                        })}
-                      </tr>
-                    )
-                  })}
+                            <td colSpan={7} className="px-4 py-2.5 align-middle border-b border-l border-border">
+                              <div className="flex items-center gap-3">
+                                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 shrink-0">
+                                  <AlertTriangle className="h-3 w-3" />Needs privacy policy
+                                </span>
+                                <span className="text-[11px] text-muted-foreground truncate">
+                                  Submit this property's policy to start registering numbers.
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => navigate("privacy")}
+                                  className="ml-auto inline-flex items-center gap-1 text-[11px] font-medium text-foreground border border-border rounded-md px-2 py-1 hover:bg-white transition-colors shrink-0"
+                                >
+                                  Go to policy<ChevronRight className="h-3 w-3" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      }
+
+                      // Review row: inline status caption under property name + "Pending…" cells
+                      // Active row: no pill (numbers speak for themselves)
+                      const renderCell = (content: ReactNode) => {
+                        if (status === "active") return content
+                        return (
+                          <div className="h-8 rounded-md border border-sky-200 bg-white px-2.5 flex items-center">
+                            <span className="text-xs font-mono text-sky-500">Pending…</span>
+                          </div>
+                        )
+                      }
+
+                      return (
+                        <tr key={prop.id} className={rowBg}>
+                          <td className={cn("sticky left-0 z-10 px-4 py-2.5 align-top border-b border-border", stickyBg)}>
+                            <p className="font-medium leading-tight text-foreground truncate max-w-[220px]">{prop.name}</p>
+                            <div className="text-[11px] text-muted-foreground flex items-center gap-1.5 mt-0.5">
+                              <span>{prop.city}, {prop.state}</span>
+                              <span className="rounded px-1 py-px text-[10px] font-medium bg-zinc-100 text-zinc-500">
+                                {AREA_CODES[prop.city] ?? "—"}
+                              </span>
+                            </div>
+                            {status === "review" && (
+                              <div className="flex items-center gap-1 mt-1 text-[11px] text-sky-700">
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                <span>Registering · {REVIEW_META[prop.id] ?? "submitted recently"}</span>
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Leasing AI: SMS · Voice · IVR text */}
+                          <td className="px-3 py-2.5 align-top border-b border-l border-border">
+                            {renderCell(<span className="font-mono text-xs text-foreground">{nums.leasing}</span>)}
+                          </td>
+                          <td className="px-3 py-2.5 align-top border-b border-border">
+                            {renderCell(<span className="font-mono text-xs text-foreground">{extras.voice}</span>)}
+                          </td>
+                          <td className="px-3 py-2.5 align-top border-b border-border">
+                            {renderCell(<span className="font-mono text-xs text-foreground">{extras.other}</span>)}
+                          </td>
+
+                          {/* Payments AI: SMS */}
+                          <td className="px-3 py-2.5 align-top border-b border-l border-border">
+                            {renderCell(<span className="font-mono text-xs text-foreground">{nums.payments}</span>)}
+                          </td>
+
+                          {/* Maintenance AI: SMS · Voice */}
+                          <td className="px-3 py-2.5 align-top border-b border-l border-border">
+                            {renderCell(<span className="font-mono text-xs text-foreground">{nums.maintenance}</span>)}
+                          </td>
+                          <td className="px-3 py-2.5 align-top border-b border-border">
+                            {renderCell(<span className="font-mono text-xs text-foreground">{maint}</span>)}
+                          </td>
+
+                          {/* Renewals AI: SMS */}
+                          <td className="px-3 py-2.5 align-top border-b border-l border-border">
+                            {renderCell(<span className="font-mono text-xs text-foreground">{nums.renewals}</span>)}
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* Save (only when numbers are ready) */}
-      {numbersReady && (
-        <div className="flex items-center gap-3 pt-2">
-          <button type="button" onClick={() => setSaved(true)}
-            className="h-10 rounded-lg bg-zinc-900 px-6 text-sm font-medium text-white hover:bg-zinc-800 transition-colors"
-          >
-            Save changes
-          </button>
-          {saved && (
-            <span className="inline-flex items-center gap-1.5 text-sm text-emerald-700 font-medium">
-              <CheckCircle2 className="h-4 w-4" />Saved
-            </span>
-          )}
+          </div>
         </div>
       )}
+
     </div>
 
     </div>
+    </>
   )
 }

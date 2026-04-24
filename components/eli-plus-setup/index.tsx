@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, useCallback } from "react"
+import React, { useState, useEffect, useCallback, useRef } from "react"
 import { Clock, ArrowLeft } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
@@ -17,6 +17,7 @@ import { MaintenancePage } from "./pages/MaintenancePage"
 import { RenewalsPage } from "./pages/RenewalsPage"
 import { LeasingPage } from "./pages/LeasingPage"
 import { CommunicationsPage } from "./pages/CommunicationsPage"
+import { IvrSetupPage, type IvrChoice } from "./pages/IvrSetupPage"
 import { makeDefaultRenewalDays, isValidDays } from "./components/RenewalLeadTimeSheetContent"
 import { makeDefaultAgentGoals } from "./components/AgentGoalSheetContent"
 import { makeDefaultModelUnits } from "./components/ModelUnitsSheetContent"
@@ -33,8 +34,8 @@ import {
   ENTRATA_AFTER_PHONES,
 } from "./data/entrata-imports"
 
-export type PageId = "overview" | "company" | "privacy" | "email" | "communications" | "leasing" | "payments" | "maintenance" | "renewals" | "renewals-channels" | "golive"
-export type BrandStatus = "idle" | "submitting" | "approved"
+export type PageId = "overview" | "company" | "privacy" | "email" | "communications" | "ivr-setup" | "leasing" | "payments" | "maintenance" | "renewals" | "renewals-channels" | "golive"
+export type BrandStatus = "idle" | "submitting" | "carrier-rejected" | "approved"
 export type CampaignStatus = "idle" | "creating" | "ready"
 
 function RenewalsChannelsPage({ navigate }: { navigate: (to: PageId) => void }) {
@@ -75,6 +76,7 @@ export type BasePageProps = {
   navigate: (to: PageId) => void
   completedTasks: Set<string>
   onComplete: (id: string) => void
+  onActionCountChange?: (n: number) => void
 }
 
 const NON_OVERVIEW_PAGES: Partial<Record<PageId, React.ComponentType<BasePageProps>>> = {
@@ -84,7 +86,8 @@ const NON_OVERVIEW_PAGES: Partial<Record<PageId, React.ComponentType<BasePagePro
 }
 
 export default function EliOnboardingHybrid() {
-  const [page, setPage] = useState<PageId>("overview")
+  // Overview is hidden for MVP — default landing is Carrier Compliance (foundation step)
+  const [page, setPage] = useState<PageId>("company")
   const [completedTasks, setCompletedTasks] = useState<Set<string>>(new Set())
 
   // Phone states pre-seeded with values pulled from Entrata; remaining properties are empty
@@ -130,20 +133,52 @@ export default function EliOnboardingHybrid() {
   const [campaignStatus, setCampaignStatus] = useState<CampaignStatus>("idle")
   // Email integration confirmed state
   const [emailComplete, setEmailComplete] = useState(false)
-  // IVR setup confirmed state
-  const [ivrComplete, setIvrComplete] = useState(false)
+  // IVR setup — the user's saved routing choice (null = not yet confirmed)
+  const [ivrChoice, setIvrChoice] = useState<IvrChoice>(null)
+  const ivrComplete = ivrChoice !== null
+  const ivrActionCount = ivrComplete ? 0 : 1
   // Carrier compliance simulation mode — lifted from CompanyPage so Overview can react
   const [simMode, setSimMode] = useState<SimMode>("none")
+  // Count of action items in Carrier Compliance tab (drives sidebar badge)
+  const [carrierActionCount, setCarrierActionCount] = useState(1)
+  const [privacyActionCount, setPrivacyActionCount] = useState(62) // 70 total - 8 initially covered
 
-  // When privacy is published, auto-simulate the Twilio brand/profile + campaign pipeline
-  useEffect(() => {
-    if (!privacyPublished) return
+  // Timer ref so the submission can be cancelled before it resolves
+  const brandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  function startBrandSubmission() {
     setBrandStatus("submitting")
-    const brandTimer = setTimeout(() => {
+    if (brandTimerRef.current) clearTimeout(brandTimerRef.current)
+    // 15s: simulate carrier rejecting the phone number
+    brandTimerRef.current = setTimeout(() => {
+      setBrandStatus("carrier-rejected")
+    }, 15000)
+  }
+
+  function resubmitAfterRejection() {
+    setBrandStatus("submitting")
+    if (brandTimerRef.current) clearTimeout(brandTimerRef.current)
+    // 10s second pass — carrier approves after fix
+    brandTimerRef.current = setTimeout(() => {
       setBrandStatus("approved")
       setCampaignStatus("creating")
-    }, 3000)
-    return () => clearTimeout(brandTimer)
+    }, 10000)
+  }
+
+  function cancelBrandSubmission() {
+    if (brandTimerRef.current) {
+      clearTimeout(brandTimerRef.current)
+      brandTimerRef.current = null
+    }
+    setBrandStatus("idle")
+  }
+
+  // When privacy is published, auto-start brand registration
+  useEffect(() => {
+    if (!privacyPublished) return
+    startBrandSubmission()
+    return () => { if (brandTimerRef.current) clearTimeout(brandTimerRef.current) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [privacyPublished])
 
   function navigate(to: PageId) {
@@ -163,6 +198,7 @@ export default function EliOnboardingHybrid() {
 
   function handleComplete(taskId: string) {
     setCompletedTasks((prev) => new Set([...prev, taskId]))
+    if (taskId === "privacy") setPrivacyPublished(true)
   }
 
   function handleRenewalDayChange(id: string, val: string) {
@@ -206,7 +242,7 @@ export default function EliOnboardingHybrid() {
   return (
     <>
       <GlobalToast message={globalToast.message} visible={globalToast.visible} />
-      <HybridShell page={page} navigate={navigate} completedTasks={completedTasks} privacyPublished={privacyPublished} emailComplete={emailComplete} commsComplete={campaignStatus === "ready"} ivrComplete={ivrComplete} maintenancePending={maintenancePending} progressPct={progressPct} carrierSimMode={simMode}>
+      <HybridShell page={page} navigate={navigate} completedTasks={completedTasks} privacyPublished={privacyPublished} emailComplete={emailComplete} commsComplete={campaignStatus === "ready"} ivrComplete={ivrComplete} maintenancePending={maintenancePending} progressPct={progressPct} carrierSimMode={simMode} brandStatus={brandStatus} carrierActionCount={carrierActionCount} privacyActionCount={privacyActionCount} ivrActionCount={ivrActionCount}>
         {page === "overview" ? (
           <OverviewPage
             navigate={navigate}
@@ -218,7 +254,7 @@ export default function EliOnboardingHybrid() {
             onEmailComplete={() => setEmailComplete(true)}
             commsComplete={campaignStatus === "ready"}
             ivrComplete={ivrComplete}
-            onIvrComplete={() => setIvrComplete(true)}
+            onIvrComplete={() => setIvrChoice("preferred")}
             carrierSimMode={simMode}
             onNavigateToCompany={() => setPage("company")}
             agentGoals={agentGoals}
@@ -300,13 +336,32 @@ export default function EliOnboardingHybrid() {
             brandStatus={brandStatus}
             campaignStatus={campaignStatus}
             onCampaignReady={() => setCampaignStatus("ready")}
+            privacyActionCount={privacyActionCount}
+            totalPropertyCount={PROPERTIES.length}
+          />
+        ) : page === "ivr-setup" ? (
+          <IvrSetupPage
+            navigate={navigate}
+            ivrChoice={ivrChoice}
+            onSave={setIvrChoice}
+            showToast={showToast}
           />
         ) : page === "company" ? (
-          <CompanyPage navigate={navigate} privacyPublished={privacyPublished} onPrivacyPublish={() => setPrivacyPublished(true)} brandStatus={brandStatus} showToast={showToast} simMode={simMode} onSimModeChange={setSimMode} />
+          <CompanyPage
+            navigate={navigate}
+            brandStatus={brandStatus}
+            showToast={showToast}
+            simMode={simMode}
+            onSimModeChange={setSimMode}
+            onSubmitToTwilio={startBrandSubmission}
+            onCancelSubmission={cancelBrandSubmission}
+            onResubmitToCarrier={resubmitAfterRejection}
+            onActionCountChange={setCarrierActionCount}
+          />
         ) : (
           (() => {
             const PageComponent = NON_OVERVIEW_PAGES[page as keyof typeof NON_OVERVIEW_PAGES]
-            return PageComponent ? <PageComponent navigate={navigate} completedTasks={completedTasks} onComplete={handleComplete} /> : null
+            return PageComponent ? <PageComponent navigate={navigate} completedTasks={completedTasks} onComplete={handleComplete} onActionCountChange={page === "privacy" ? setPrivacyActionCount : undefined} /> : null
           })()
         )}
       </HybridShell>
