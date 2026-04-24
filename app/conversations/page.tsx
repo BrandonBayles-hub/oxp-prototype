@@ -35,6 +35,9 @@ import {
   BarChart3,
   Settings,
   Phone,
+  PhoneCall,
+  PhoneForwarded,
+  Headphones,
   Mail,
   Building,
   Hash,
@@ -112,6 +115,7 @@ import { useClickToCallDemo } from "@/lib/click-to-call-demo-context";
 import { useConversationsDemo } from "@/lib/conversations-demo-context";
 import {
   ClickToCallFloatingPanel,
+  CLICK_TO_CALL_FOLLOWUP_UNASSIGNED,
   type ClickToCallSessionInput,
 } from "@/components/click-to-call-floating-panel";
 import {
@@ -125,6 +129,8 @@ import {
   ConversationBulkEmailCard,
   ConversationBulkEmailModal,
 } from "@/components/conversation-bulk-email";
+import { VoicemailPlayer } from "@/components/voicemail-player";
+import { MissedCallBubble } from "@/components/missed-call-bubble";
 
 const AVATAR_COLORS = [
   "bg-emerald-100 text-emerald-700",
@@ -575,6 +581,17 @@ function ConversationListChannelChip({ channel }: { channel: string }) {
       </span>
     );
   }
+  if (channel === "Phone") {
+    return (
+      <span
+        className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-purple-200 bg-purple-50 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-purple-800 dark:border-purple-900/60 dark:bg-purple-950/50 dark:text-purple-200"
+        aria-label="Phone thread"
+      >
+        <PhoneCall className="h-3 w-3 shrink-0 opacity-80" aria-hidden />
+        Phone
+      </span>
+    );
+  }
   return (
     <span
       className="inline-flex max-w-[9rem] shrink-0 items-center gap-0.5 truncate rounded-md border border-border bg-muted/60 px-1.5 py-px text-[9px] font-semibold text-muted-foreground"
@@ -671,28 +688,38 @@ function ConversationsContent() {
   const { profileCommsPopupRequest } = useConversationsDemo();
 
   const clickToCallAssigneeOptions = useMemo(() => {
-    const opts: { value: string; label: string }[] = [
+    const rest = humanMembers
+      .filter((m) => m.name !== MY_INBOX_ASSIGNEE)
+      .map((m) => ({ value: m.name, label: m.name }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    return [
+      { value: CLICK_TO_CALL_FOLLOWUP_UNASSIGNED, label: "Unassigned" },
       { value: MY_INBOX_ASSIGNEE, label: "Assign to me" },
+      ...rest,
     ];
-    for (const m of humanMembers) {
-      if (m.name === MY_INBOX_ASSIGNEE) continue;
-      opts.push({ value: m.name, label: m.name });
-    }
-    return opts;
   }, [humanMembers]);
 
   const [clickToCallSession, setClickToCallSession] = useState<ClickToCallSessionInput | null>(null);
   const [callConfirmOpen, setCallConfirmOpen] = useState(false);
   const [callConfirmDraft, setCallConfirmDraft] = useState<ClickToCallSessionInput | null>(null);
+  const [showCallbackInput, setShowCallbackInput] = useState(false);
+  const [callbackNumber, setCallbackNumber] = useState("");
 
   const beginClickToCallForConversation = useCallback(
-    (convo: Pick<ConversationItem, "id" | "resident" | "property">) => {
-      const { residentPhone } = getVoiceOrSmsThreadRoutingNumbers(convo.resident, convo.property);
+    (convo: Pick<ConversationItem, "id" | "resident" | "property" | "contactType">) => {
+      const { residentPhone, propertyLine } = getVoiceOrSmsThreadRoutingNumbers(
+        convo.resident,
+        convo.property
+      );
       setCallConfirmDraft({
         conversationId: convo.id,
         residentName: convo.resident,
         propertyName: convo.property,
         phoneDisplay: formatClickToCallDisplayPhone(residentPhone),
+        propertyRingNumberDisplay: propertyLine
+          ? formatClickToCallDisplayPhone(propertyLine)
+          : undefined,
+        contactRole: convo.contactType?.toLowerCase() === "lead" ? "lead" : "resident",
       });
       setCallConfirmOpen(true);
     },
@@ -2527,6 +2554,50 @@ function ConversationsContent() {
                     return <ConversationThreadActivityRow key={idx} message={msg} />;
                   }
 
+                  if (msg.type === "missed_call" && msg.missedCall) {
+                    return (
+                      <div key={idx} className="flex flex-col items-start gap-1">
+                        <MissedCallBubble
+                          fromNumber={msg.missedCall.fromNumber}
+                          attemptCount={msg.missedCall.attemptCount}
+                          rangForSec={msg.missedCall.rangForSec}
+                          onCallBack={
+                            clickToCallEnabled
+                              ? () => beginClickToCallForConversation(selected)
+                              : undefined
+                          }
+                        />
+                        {msg.timestamp && (
+                          <p className="pl-1 text-[10px] text-muted-foreground">
+                            {msg.timestamp}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  if (msg.type === "voicemail" && msg.voicemail) {
+                    return (
+                      <div key={idx} className="flex flex-col items-start gap-1">
+                        <VoicemailPlayer
+                          durationSec={msg.voicemail.durationSec}
+                          transcript={msg.voicemail.transcript}
+                          fromNumber={msg.voicemail.fromNumber}
+                          onCallBack={
+                            clickToCallEnabled
+                              ? () => beginClickToCallForConversation(selected)
+                              : undefined
+                          }
+                        />
+                        {msg.timestamp && (
+                          <p className="pl-1 text-[10px] text-muted-foreground">
+                            {msg.timestamp}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  }
+
                   if (msg.type === "label_activity" && msg.labelActivity) {
                     const { actor, labelsAdded } = msg.labelActivity;
                     return (
@@ -3662,6 +3733,26 @@ function ConversationsContent() {
                       if (msg.type === "thread_activity" && msg.threadActivity) {
                         return <ConversationThreadActivityRow key={idx} message={msg} />;
                       }
+                      if (msg.type === "missed_call" && msg.missedCall) {
+                        return (
+                          <MissedCallBubble
+                            key={idx}
+                            fromNumber={msg.missedCall.fromNumber}
+                            attemptCount={msg.missedCall.attemptCount}
+                            rangForSec={msg.missedCall.rangForSec}
+                          />
+                        );
+                      }
+                      if (msg.type === "voicemail" && msg.voicemail) {
+                        return (
+                          <VoicemailPlayer
+                            key={idx}
+                            durationSec={msg.voicemail.durationSec}
+                            transcript={msg.voicemail.transcript}
+                            fromNumber={msg.voicemail.fromNumber}
+                          />
+                        );
+                      }
                       if (msg.type === "label_activity" && msg.labelActivity) {
                         const { actor, labelsAdded } = msg.labelActivity;
                         return (
@@ -3929,22 +4020,38 @@ function ConversationsContent() {
               <>
                 {/* Header */}
                 <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4 shrink-0">
-                  <div className="flex items-center gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
                     <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-200 text-[11px] font-bold text-gray-600">
                       {initials(selected.resident)}
                     </div>
-                    <span className="text-sm font-semibold text-gray-900">{selected.resident}</span>
+                    <span className="truncate text-sm font-semibold text-gray-900">
+                      {selected.resident}
+                    </span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setThreadsPanelOpen(false);
-                      setProfilePanelInboxOpen(false);
-                    }}
-                    className="text-gray-400 hover:text-gray-600 transition-colors"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {clickToCallEnabled && (
+                      <button
+                        type="button"
+                        title="Call primary number"
+                        onClick={() => beginClickToCallForConversation(selected)}
+                        className="flex h-8 items-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 text-[11px] font-medium text-gray-700 hover:bg-gray-50"
+                      >
+                        <Phone className="h-3.5 w-3.5 text-gray-500" />
+                        Call
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setThreadsPanelOpen(false);
+                        setProfilePanelInboxOpen(false);
+                      }}
+                      className="flex h-8 w-8 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                      aria-label="Close profile panel"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Threads */}
@@ -4172,48 +4279,199 @@ function ConversationsContent() {
         open={callConfirmOpen}
         onOpenChange={(open) => {
           setCallConfirmOpen(open);
-          if (!open) setCallConfirmDraft(null);
+          if (!open) {
+            setCallConfirmDraft(null);
+            setShowCallbackInput(false);
+            setCallbackNumber("");
+          }
         }}
       >
-        <DialogContent className="gap-6 sm:max-w-md">
-          <DialogHeader>
+        <DialogContent className="gap-5 sm:max-w-md">
+          <DialogHeader className="space-y-1.5">
             <DialogTitle>Place this call?</DialogTitle>
             <DialogDescription className="text-sm leading-relaxed text-muted-foreground">
               {callConfirmDraft ? (
                 <>
-                  You are about to call{" "}
-                  <span className="font-semibold">{callConfirmDraft.residentName}</span> on{" "}
-                  <span className="font-semibold tabular-nums">{callConfirmDraft.phoneDisplay}</span>{" "}
-                  (primary on file). Continue?
+                  You are about to call the {callConfirmDraft.contactRole ?? "resident"},{" "}
+                  <span className="font-semibold text-foreground">
+                    {callConfirmDraft.residentName}
+                  </span>
+                  , on{" "}
+                  <span className="font-semibold tabular-nums text-foreground">
+                    {callConfirmDraft.phoneDisplay}
+                  </span>{" "}
+                  (primary on file). Choose how you&apos;d like to connect.
                 </>
               ) : (
                 "Confirm the outbound call."
               )}
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter className="flex w-full flex-col-reverse gap-3 pt-1 sm:flex-row sm:justify-end sm:gap-3 sm:pt-0">
+
+          <div className="grid gap-2.5">
+            {/* Option A — VoIP / computer audio */}
+            <button
+              type="button"
+              className="group flex items-start gap-3 rounded-lg border border-border bg-background p-3 text-left transition hover:border-primary/60 hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => {
+                if (callConfirmDraft) {
+                  setClickToCallSession({ ...callConfirmDraft, origin: "voip" });
+                }
+                setCallConfirmOpen(false);
+                setCallConfirmDraft(null);
+                setShowCallbackInput(false);
+                setCallbackNumber("");
+              }}
+            >
+              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                <Headphones className="h-4 w-4" aria-hidden />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold text-foreground">
+                  Call from computer (VoIP)
+                </span>
+                <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
+                  Use your computer&apos;s mic and speakers to connect directly to the{" "}
+                  {callConfirmDraft?.contactRole ?? "resident"}.
+                </span>
+              </span>
+            </button>
+
+            {/* Option B — Click-to-call to another number */}
+            {!showCallbackInput ? (
+              <button
+                type="button"
+                className="group flex items-start gap-3 rounded-lg border border-border bg-background p-3 text-left transition hover:border-primary/60 hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => {
+                  setShowCallbackInput(true);
+                  setCallbackNumber(callConfirmDraft?.propertyRingNumberDisplay ?? "");
+                }}
+              >
+                <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                  <PhoneForwarded className="h-4 w-4" aria-hidden />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold text-foreground">
+                    Call from another number
+                  </span>
+                  <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
+                    We&apos;ll ring the number your property set for callbacks
+                    {callConfirmDraft?.propertyRingNumberDisplay ? (
+                      <>
+                        {" "}
+                        (
+                        <span className="font-mono tabular-nums text-foreground">
+                          {callConfirmDraft.propertyRingNumberDisplay}
+                        </span>
+                        )
+                      </>
+                    ) : null}
+                    , or a custom number from your profile. Once you pick up, we&apos;ll connect you
+                    to {callConfirmDraft?.residentName ?? "the contact"}.
+                  </span>
+                </span>
+              </button>
+            ) : (
+              <div className="rounded-lg border border-primary/50 bg-accent/40 p-3">
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                    <PhoneForwarded className="h-4 w-4" aria-hidden />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-foreground">
+                      Call from another number
+                    </p>
+                    <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
+                      We&apos;ll ring this number first. Once you pick up, we&apos;ll connect the{" "}
+                      {callConfirmDraft?.contactRole ?? "resident"},{" "}
+                      <span className="font-semibold text-foreground">
+                        {callConfirmDraft?.residentName ?? "contact"}
+                      </span>
+                      .
+                    </p>
+                    <div className="mt-2.5 space-y-1.5">
+                      <label
+                        htmlFor="callback-number"
+                        className="flex items-center justify-between text-[11px] font-medium text-muted-foreground"
+                      >
+                        <span>Number we&apos;ll ring</span>
+                        {callConfirmDraft?.propertyRingNumberDisplay && (
+                          <span className="font-normal text-[10px] text-muted-foreground/80">
+                            Default: property callback line
+                          </span>
+                        )}
+                      </label>
+                      <Input
+                        id="callback-number"
+                        type="tel"
+                        inputMode="tel"
+                        autoFocus
+                        value={callbackNumber}
+                        onChange={(e) => setCallbackNumber(e.target.value)}
+                        placeholder="+1 (555) 123-4567"
+                        className="h-9 font-mono tabular-nums"
+                      />
+                      <p className="text-[10px] leading-snug text-muted-foreground">
+                        {callConfirmDraft?.propertyRingNumberDisplay
+                          ? "Pre-filled with the number your property chose for callbacks. Edit to use a profile or custom number for this call only."
+                          : "Use a number from your profile, or enter a custom one for this call."}
+                      </p>
+                    </div>
+                    <div className="mt-3 flex items-center justify-end gap-2">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8"
+                        onClick={() => {
+                          setShowCallbackInput(false);
+                          setCallbackNumber("");
+                        }}
+                      >
+                        Back
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-8 gap-1.5"
+                        disabled={callbackNumber.trim().length < 7}
+                        onClick={() => {
+                          if (callConfirmDraft && callbackNumber.trim()) {
+                            setClickToCallSession({
+                              ...callConfirmDraft,
+                              origin: "callback",
+                              callbackNumberDisplay: callbackNumber.trim(),
+                            });
+                          }
+                          setCallConfirmOpen(false);
+                          setCallConfirmDraft(null);
+                          setShowCallbackInput(false);
+                          setCallbackNumber("");
+                        }}
+                      >
+                        <Phone className="h-3.5 w-3.5 shrink-0" />
+                        Ring this number
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="flex w-full flex-col-reverse gap-3 border-t border-border pt-4 sm:flex-row sm:justify-end sm:gap-3">
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               className="w-full sm:w-auto"
               onClick={() => {
                 setCallConfirmOpen(false);
                 setCallConfirmDraft(null);
+                setShowCallbackInput(false);
+                setCallbackNumber("");
               }}
             >
               Cancel
-            </Button>
-            <Button
-              type="button"
-              className="w-full gap-2 sm:w-auto"
-              onClick={() => {
-                if (callConfirmDraft) setClickToCallSession(callConfirmDraft);
-                setCallConfirmOpen(false);
-                setCallConfirmDraft(null);
-              }}
-            >
-              <Phone className="h-4 w-4 shrink-0" />
-              Yes, call
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -4223,7 +4481,7 @@ function ConversationsContent() {
         session={clickToCallSession}
         onDismiss={() => setClickToCallSession(null)}
         assigneeOptions={clickToCallAssigneeOptions}
-        defaultAssigneeValue={MY_INBOX_ASSIGNEE}
+        defaultAssigneeValue={CLICK_TO_CALL_FOLLOWUP_UNASSIGNED}
       />
     </div>
   );

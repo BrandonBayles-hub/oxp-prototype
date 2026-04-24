@@ -1,21 +1,37 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AlertCircle, CheckCircle2, GripVertical, Phone, PhoneOff, Users } from "lucide-react";
+import {
+  AlertCircle,
+  Check,
+  CheckCircle2,
+  ChevronsUpDown,
+  GripVertical,
+  Headphones,
+  Phone,
+  PhoneForwarded,
+  PhoneOff,
+  Search,
+  UserMinus,
+  Users,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   DEFAULT_CONVERSATION_ACTIVITY_ACTOR,
   useConversations,
 } from "@/lib/conversations-context";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+
+/**
+ * Sentinel value used in the follow-up assignee picker to mean
+ * "no assignee chosen yet / don't schedule a follow-up". Keep exported so
+ * callers can build their option list with the same constant.
+ */
+export const CLICK_TO_CALL_FOLLOWUP_UNASSIGNED = "__unassigned__";
+
+export type ClickToCallOrigin = "voip" | "callback";
 
 export type ClickToCallSessionInput = {
   conversationId: string;
@@ -23,6 +39,21 @@ export type ClickToCallSessionInput = {
   propertyName: string;
   /** Display line e.g. +1 720-555-1234 */
   phoneDisplay: string;
+  /**
+   * How the call was initiated:
+   *  - "voip": agent is on computer audio
+   *  - "callback": platform rings the agent's other number first, then connects
+   */
+  origin?: ClickToCallOrigin;
+  /** When origin = "callback", the number the platform should ring first. */
+  callbackNumberDisplay?: string;
+  /**
+   * Number chosen by the property to use for callback dialing (routing/vanity line).
+   * Pre-filled in the callback UI so the agent doesn't have to type it.
+   */
+  propertyRingNumberDisplay?: string;
+  /** Whether the contact is a prospect lead or an existing resident — tailors dialog copy. */
+  contactRole?: "lead" | "resident";
 };
 
 type CallPhase = "dialing" | "connected" | "failed";
@@ -88,6 +119,7 @@ export function ClickToCallFloatingPanel({
   const [durationSec, setDurationSec] = useState(0);
   const [followAssignee, setFollowAssignee] = useState(defaultAssigneeValue);
   const [followDue, setFollowDue] = useState("");
+  const [followNotes, setFollowNotes] = useState("");
   const [callNotes, setCallNotes] = useState("");
   const [callOutcome, setCallOutcome] = useState<"connected" | "failed" | "cancelled" | null>(null);
   const [durationAtHangup, setDurationAtHangup] = useState<number | null>(null);
@@ -129,6 +161,7 @@ export function ClickToCallFloatingPanel({
     setDurationSec(0);
     setFollowAssignee(defaultAssigneeValue);
     setFollowDue("");
+    setFollowNotes("");
     setCallNotes("");
     setCallOutcome(null);
     setDurationAtHangup(null);
@@ -233,6 +266,14 @@ export function ClickToCallFloatingPanel({
       outcome === "connected"
         ? formatDuration(durationAtHangup ?? durationSec)
         : undefined;
+    // Persist the follow-up only when the user opted in explicitly: they
+    // must have picked a non-"Unassigned" assignee AND entered a due date.
+    // A sentinel assignee or no date is treated as "don't schedule one".
+    const hasDate = followDue.trim().length > 0;
+    const hasAssignee =
+      followAssignee.length > 0 && followAssignee !== CLICK_TO_CALL_FOLLOWUP_UNASSIGNED;
+    const hasFollowUp = hasDate && hasAssignee;
+    const followNotesTrim = followNotes.trim();
     recordThreadActivity(session.conversationId, {
       kind: "phone_call",
       actor: DEFAULT_CONVERSATION_ACTIVITY_ACTOR,
@@ -240,8 +281,11 @@ export function ClickToCallFloatingPanel({
       outcome,
       durationLabel,
       notes: notesTrim,
-      followUpAssignee: followAssignee,
-      followUpDue: followDue || undefined,
+      followUpAssignee: hasFollowUp ? followAssignee : undefined,
+      followUpDue: hasFollowUp ? followDue : undefined,
+      followUpNotes: hasFollowUp && followNotesTrim ? followNotesTrim : undefined,
+      origin: session.origin,
+      callbackNumber: session.callbackNumberDisplay,
     });
     setSaveSuccess(true);
     dismissTimeoutsRef.current.outer = window.setTimeout(() => {
@@ -256,9 +300,12 @@ export function ClickToCallFloatingPanel({
 
   if (!session) return null;
 
+  const isCallback = session.origin === "callback";
   const statusLabel =
     phase === "dialing"
-      ? "Connecting…"
+      ? isCallback
+        ? "Ringing your phone…"
+        : "Connecting…"
       : phase === "failed"
         ? "Call failed"
         : callLegEnded
@@ -329,6 +376,24 @@ export function ClickToCallFloatingPanel({
                 <p className="mt-0.5 font-mono text-xs tabular-nums text-primary-foreground/85">
                   {session.phoneDisplay}
                 </p>
+                <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-primary-foreground/15 px-2 py-0.5 text-[10px] font-medium text-primary-foreground">
+                  {isCallback ? (
+                    <>
+                      <PhoneForwarded className="h-3 w-3 shrink-0" aria-hidden />
+                      Callback
+                      {session.callbackNumberDisplay ? (
+                        <span className="font-mono tabular-nums opacity-85">
+                          · {session.callbackNumberDisplay}
+                        </span>
+                      ) : null}
+                    </>
+                  ) : (
+                    <>
+                      <Headphones className="h-3 w-3 shrink-0" aria-hidden />
+                      Computer audio
+                    </>
+                  )}
+                </div>
               </div>
               <div className="flex shrink-0 flex-col items-end gap-2">
                 {phase === "dialing" && !callLegEnded && (
@@ -407,24 +472,23 @@ export function ClickToCallFloatingPanel({
 
           <div className="space-y-4 px-3 py-3">
             <div>
-              <p className="text-sm font-semibold text-foreground">Schedule Follow Up</p>
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="text-sm font-semibold text-foreground">Schedule Follow Up</p>
+                <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Optional
+                </span>
+              </div>
               <div className="mt-2 space-y-3">
                 <div className="space-y-1.5">
                   <label htmlFor="ctc-assignee" className="text-xs font-medium text-muted-foreground">
                     Assignee
                   </label>
-                  <Select value={followAssignee} onValueChange={setFollowAssignee}>
-                    <SelectTrigger id="ctc-assignee" className="h-9 text-xs">
-                      <SelectValue placeholder="Assignee" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {assigneeOptions.map((o) => (
-                        <SelectItem key={o.value} value={o.value} className="text-xs">
-                          {o.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <FollowUpAssigneePicker
+                    value={followAssignee}
+                    onChange={setFollowAssignee}
+                    options={assigneeOptions}
+                    triggerId="ctc-assignee"
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="ctc-due" className="text-xs font-medium text-muted-foreground">
@@ -438,11 +502,39 @@ export function ClickToCallFloatingPanel({
                     className="h-9 text-xs"
                   />
                 </div>
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="ctc-follow-notes"
+                    className="flex items-baseline justify-between gap-2 text-xs font-medium text-muted-foreground"
+                  >
+                    <span>Follow-up notes</span>
+                    <span className="text-[10px] font-normal text-muted-foreground/80">
+                      Optional
+                    </span>
+                  </label>
+                  <textarea
+                    id="ctc-follow-notes"
+                    value={followNotes}
+                    onChange={(e) => setFollowNotes(e.target.value)}
+                    placeholder="What should the follow-up cover? e.g. confirm tour time, send lease link…"
+                    rows={3}
+                    className="w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  />
+                  {followNotes.trim().length > 0 &&
+                    (followAssignee === CLICK_TO_CALL_FOLLOWUP_UNASSIGNED || !followDue) && (
+                      <p className="text-[10px] leading-snug text-amber-700 dark:text-amber-300">
+                        Pick an assignee and a due date above to save this note with the follow-up task.
+                      </p>
+                    )}
+                </div>
               </div>
             </div>
 
             <div>
               <p className="text-sm font-semibold text-foreground">Call Notes</p>
+              <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                Optional. Notes you add appear on the conversation activity log when you save.
+              </p>
               <textarea
                 value={callNotes}
                 onChange={(e) => setCallNotes(e.target.value)}
@@ -455,18 +547,7 @@ export function ClickToCallFloatingPanel({
                   !saveSuccess && "border-input"
                 )}
               />
-              {!saveSuccess && (
-                <p className="mt-1.5 text-[11px] text-muted-foreground">
-                  Optional. Notes you add appear on the conversation activity log when you save.
-                </p>
-              )}
             </div>
-
-            {!callLegEnded && (
-              <p className="text-[10px] leading-snug text-amber-800/90">
-                Hang up, cancel while connecting, or end a failed session before you can save and close.
-              </p>
-            )}
           </div>
 
           <div className="border-t border-border bg-muted/40 px-3 py-3">
@@ -498,5 +579,228 @@ export function ClickToCallFloatingPanel({
         </div>
       </div>
     </div>
+  );
+}
+
+type FollowUpAssigneePickerProps = {
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string }[];
+  triggerId?: string;
+};
+
+/**
+ * Searchable assignee picker for the post-call follow-up.
+ *
+ * Behaviour:
+ *  - First option is always "Unassigned" (sentinel `CLICK_TO_CALL_FOLLOWUP_UNASSIGNED`)
+ *  - Second option is "Assign to me"
+ *  - Remaining options are rendered in the order passed in (expected: alphabetical by label)
+ *  - Typing in the search box filters across all options (label-insensitive)
+ */
+function FollowUpAssigneePicker({
+  value,
+  onChange,
+  options,
+  triggerId,
+}: FollowUpAssigneePickerProps) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const unassigned = options.find((o) => o.value === CLICK_TO_CALL_FOLLOWUP_UNASSIGNED);
+  const assignToMe = options.find((o) => o.label === "Assign to me");
+  const others = options.filter(
+    (o) => o !== unassigned && o !== assignToMe
+  );
+
+  const q = query.trim().toLowerCase();
+  const filter = (opts: (typeof options[number] | undefined)[]) =>
+    opts
+      .filter((o): o is { value: string; label: string } => !!o)
+      .filter((o) => !q || o.label.toLowerCase().includes(q));
+
+  const unassignedVisible = filter([unassigned]);
+  const assignToMeVisible = filter([assignToMe]);
+  const othersVisible = filter(others);
+  const hasResults =
+    unassignedVisible.length + assignToMeVisible.length + othersVisible.length > 0;
+
+  const current = options.find((o) => o.value === value);
+  const isUnassigned = value === CLICK_TO_CALL_FOLLOWUP_UNASSIGNED;
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) setQuery("");
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          id={triggerId}
+          type="button"
+          role="combobox"
+          aria-expanded={open}
+          aria-haspopup="listbox"
+          className={cn(
+            "flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-xs shadow-sm ring-offset-background transition-colors hover:border-ring hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:border-ring data-[state=open]:ring-2 data-[state=open]:ring-ring/40"
+          )}
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            {isUnassigned ? (
+              <UserMinus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+            ) : (
+              <Users className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+            )}
+            <span
+              className={cn(
+                "truncate",
+                isUnassigned ? "text-muted-foreground" : "text-foreground"
+              )}
+            >
+              {current?.label ?? "Select assignee"}
+            </span>
+          </span>
+          <span className="flex shrink-0 items-center gap-1 text-muted-foreground">
+            {isUnassigned && (
+              <span className="hidden text-[10px] text-muted-foreground/80 sm:inline">
+                Edit
+              </span>
+            )}
+            <ChevronsUpDown className="h-3.5 w-3.5 opacity-70" aria-hidden />
+          </span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        sideOffset={4}
+        collisionPadding={16}
+        className="z-[110] w-[--radix-popover-trigger-width] p-0"
+      >
+        <div className="border-b border-border p-2">
+          <div className="relative">
+            <Search
+              className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <input
+              autoFocus
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search users…"
+              className="h-8 w-full rounded-md border border-input bg-background pl-7 pr-3 text-xs placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
+        </div>
+        <div className="max-h-64 overflow-y-auto p-1">
+          {!hasResults ? (
+            <p className="px-2 py-3 text-center text-xs text-muted-foreground">
+              No matching users
+            </p>
+          ) : (
+            <>
+              {unassignedVisible.length > 0 && (
+                <div>
+                  {unassignedVisible.map((o) => (
+                    <AssigneeOptionRow
+                      key={o.value}
+                      option={o}
+                      icon={<UserMinus className="h-3 w-3" aria-hidden />}
+                      muted
+                      selected={o.value === value}
+                      onClick={() => {
+                        onChange(o.value);
+                        setOpen(false);
+                        setQuery("");
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+              {assignToMeVisible.length > 0 && (
+                <div className="mt-1 border-t border-border pt-1">
+                  {assignToMeVisible.map((o) => (
+                    <AssigneeOptionRow
+                      key={o.value}
+                      option={o}
+                      icon={<Users className="h-3 w-3" aria-hidden />}
+                      selected={o.value === value}
+                      onClick={() => {
+                        onChange(o.value);
+                        setOpen(false);
+                        setQuery("");
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+              {othersVisible.length > 0 && (
+                <div className="mt-1 border-t border-border pt-1">
+                  <p className="px-2 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Other users
+                  </p>
+                  {othersVisible.map((o) => (
+                    <AssigneeOptionRow
+                      key={o.value}
+                      option={o}
+                      icon={
+                        <span className="text-[9px] font-semibold uppercase">
+                          {o.label.slice(0, 1)}
+                        </span>
+                      }
+                      selected={o.value === value}
+                      onClick={() => {
+                        onChange(o.value);
+                        setOpen(false);
+                        setQuery("");
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function AssigneeOptionRow({
+  option,
+  icon,
+  selected,
+  muted,
+  onClick,
+}: {
+  option: { value: string; label: string };
+  icon: React.ReactNode;
+  selected: boolean;
+  muted?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted",
+        selected && "bg-muted font-medium",
+        muted && !selected && "text-muted-foreground"
+      )}
+    >
+      <span
+        className={cn(
+          "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-border/80 bg-muted/40",
+          muted ? "text-muted-foreground" : "text-foreground"
+        )}
+      >
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1 truncate">{option.label}</span>
+      {selected && <Check className="ml-auto h-3 w-3 shrink-0 text-primary" aria-hidden />}
+    </button>
   );
 }
