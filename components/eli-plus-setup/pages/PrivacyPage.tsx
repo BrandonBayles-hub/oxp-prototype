@@ -740,9 +740,9 @@ function TemplateSheet({
             {/* Right: Publish (final PP step), Done (final non-PP step), or Next */}
             {currentStep === "publish" ? (
               <button type="button"
-                disabled={!templateReady || publishingCount > 0 || nonePpSelected}
+                disabled={publishingCount > 0 || nonePpSelected}
                 onClick={() => onPublish([...selectedPpIds])}
-                className={cn(buttonVariants({ variant: "eli" }), (!templateReady || publishingCount > 0 || nonePpSelected) && "opacity-40 cursor-not-allowed")}>
+                className={cn(buttonVariants({ variant: "eli" }), (publishingCount > 0 || nonePpSelected) && "opacity-40 cursor-not-allowed")}>
                 {publishingCount > 0
                   ? <><Loader2 className="h-4 w-4 animate-spin" />Publishing…</>
                   : nonePpSelected
@@ -754,9 +754,14 @@ function TemplateSheet({
                 Done
               </button>
             ) : (
-              <button type="button" onClick={() => setStepIdx(i => i + 1)}
-                className={cn(buttonVariants({ variant: "eli" }), "gap-2")}>
-                Next <ChevronRight className="h-4 w-4" />
+              <button type="button"
+                disabled={currentStep === "form" && !templateReady}
+                onClick={() => setStepIdx(i => i + 1)}
+                className={cn(buttonVariants({ variant: "eli" }), "gap-2",
+                  currentStep === "form" && !templateReady && "opacity-40 cursor-not-allowed")}>
+                {currentStep === "form" && !templateReady
+                  ? <>Fill all required fields</>
+                  : <>Next <ChevronRight className="h-4 w-4" /></>}
               </button>
             )}
 
