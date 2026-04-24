@@ -204,6 +204,13 @@ export function ConversationThreadActivityRow({
               {a.followUpAssignee ? <>assigned to {a.followUpAssignee}</> : null}
               {a.followUpAssignee && a.followUpDue ? " · " : null}
               {a.followUpDue ? <>due {a.followUpDue}</> : null}
+              {a.followUpNotes?.trim() ? (
+                <span className="mt-0.5 block pl-3 text-left text-muted-foreground/90">
+                  {"“"}
+                  {a.followUpNotes.trim()}
+                  {"”"}
+                </span>
+              ) : null}
             </span>
           ) : null}
         </>
