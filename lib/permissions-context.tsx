@@ -91,6 +91,28 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: "p-playbooks-delete", capability: "Delete Playbooks", description: "Permanently remove a playbook and its tasks from the system", section: "Escalations" },
   { id: "p-playbooks-assign", capability: "Assign Playbook Tasks", description: "Reassign tasks within a playbook to other team members", section: "Escalations" },
 
+  // ── Calling Communications ──
+  {
+    id: "p-calling-view",
+    capability: "Access Calling Communications",
+    description: "Master access to Click-to-Call features in the OXP conversation panel.",
+    section: "Calling Communications",
+  },
+  {
+    id: "p-calling-click-to-call",
+    capability: "Click To Call Functionality",
+    description:
+      "Ability to place outbound calls to leads and residents directly from the OXP conversation panel using their computer or a default vanity number assigned to them.",
+    section: "Calling Communications",
+  },
+  {
+    id: "p-calling-custom-vanity",
+    capability: "Click To Call Custom Vanity Number",
+    description:
+      "Ability to place outbound calls using a custom vanity number selected by the user in their profile, instead of the default assigned number selected by the property.",
+    section: "Calling Communications",
+  },
+
   // ── Performance ──
   { id: "p-report-performance", capability: "View Performance", description: "Access the performance analytics dashboard", section: "Performance" },
 
@@ -142,12 +164,13 @@ export const ALL_PERMISSIONS: Permission[] = [
 ];
 
 export const PERMISSION_SECTIONS = [
-  "Communications", "Escalations", "Entrata Experts", "Performance", "Agent Roster", "Workforce",
+  "Communications", "Calling Communications", "Escalations", "Entrata Experts", "Performance", "Agent Roster", "Workforce",
   "Activation", "Workflows", "Trainings & SOP", "Voice", "Governance",
 ];
 
 export const SECTION_VIEW_PERMISSION: Record<string, string> = {
   "Communications": "p-cc-view",
+  "Calling Communications": "p-calling-view",
   "Escalations": "p-tasks-view",
   "Performance": "p-report-performance",
   "Agent Roster": "p-agents-view",
@@ -174,6 +197,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Set<string>> = {
     "p-comms-reopen-threads",
     "p-comms-create-inbox", "p-comms-edit-inbox-props", "p-comms-edit-inbox-labels",
     "p-comms-edit-inbox-users", "p-comms-add-labels", "p-comms-edit-labels", "p-comms-reporting",
+    "p-calling-view", "p-calling-click-to-call", "p-calling-custom-vanity",
     "p-tasks-view", "p-tasks-edit-specialty", "p-tasks-view-all", "p-tasks-delete", "p-tasks-bulk-actions",
     "p-playbooks-view", "p-playbooks-launch", "p-playbooks-manage", "p-playbooks-delete", "p-playbooks-assign",
     "p-report-performance",
@@ -197,6 +221,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Set<string>> = {
     "p-comms-resolve-threads",
     "p-comms-reopen-threads",
     "p-comms-edit-inbox-props", "p-comms-edit-inbox-users", "p-comms-add-labels", "p-comms-reporting",
+    "p-calling-view", "p-calling-click-to-call", "p-calling-custom-vanity",
     "p-tasks-view", "p-tasks-view-all", "p-tasks-delete", "p-tasks-bulk-actions",
     "p-playbooks-view", "p-playbooks-launch", "p-playbooks-delete", "p-playbooks-assign",
     "p-report-performance",
@@ -219,6 +244,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Set<string>> = {
     "p-comms-assign-conversation",
     "p-comms-resolve-threads",
     "p-comms-reopen-threads",
+    "p-calling-view", "p-calling-click-to-call",
     "p-tasks-view", "p-tasks-view-all",
     "p-playbooks-view",
     "p-comms-reporting",
