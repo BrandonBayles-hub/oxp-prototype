@@ -38,16 +38,6 @@ export function UpsellPage({ navigate, productKey }: Props) {
   return (
     <div className="p-6 md:p-8 max-w-6xl space-y-8">
 
-      {/* Back */}
-      <button
-        type="button"
-        onClick={() => navigate("overview")}
-        className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-1 -ml-2 text-muted-foreground")}
-      >
-        <ArrowLeft className="h-4 w-4" aria-hidden />
-        Overview
-      </button>
-
       {/* Lock badge */}
       <div className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-medium text-zinc-500">
         <Lock className="h-3 w-3" aria-hidden />

@@ -18,10 +18,13 @@ import {
   ExternalLink,
   WandSparkles,
   LinkIcon,
+  Pencil,
+  RotateCcw,
 } from "lucide-react"
 import { generatePrivacyPolicy, type TemplateFields } from "../components/PrivacySheetContent"
 import { GlobalToast } from "../components/GlobalToast"
 import { PROPERTIES } from "../data/properties"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 
 // ── Property meta ─────────────────────────────────────────────────────────────
 
@@ -36,6 +39,17 @@ interface PropertyMeta {
 const TP_IDS = new Set(["p6", "p9", "p11", "p29", "p35", "p48", "p52", "p66", "p69"])
 // IDs where no URL was auto-detected (must be entered by client)
 const MISSING_URL_IDS = new Set(["p13", "p19", "p22", "p31"])
+
+// Properties with more than one Prospect Portal site — client must pick which
+// one Eli+ should use. Typically only a handful of properties hit this case.
+const MULTI_SITE_OPTIONS: Record<string, string[]> = {
+  p20: ["lonestarflats.prospectportal.entrata.com",  "lsflatsapartments.prospectportal.entrata.com"],
+  p17: ["citrusgrove.prospectportal.entrata.com",    "citrusgroveapts.prospectportal.entrata.com"],
+  p41: ["sonoranheights.prospectportal.entrata.com", "sonoranhts.prospectportal.entrata.com"],
+  p55: ["greatlakeslofts.prospectportal.entrata.com","gllofts.prospectportal.entrata.com"],
+  p67: ["savannahoaks.prospectportal.entrata.com",   "savannahoaksapts.prospectportal.entrata.com"],
+}
+const MULTI_SITE_IDS = new Set(Object.keys(MULTI_SITE_OPTIONS))
 
 function makeUrl(prop: { id: string; name: string }, isTP: boolean): string | null {
   if (MISSING_URL_IDS.has(prop.id)) return null
@@ -88,10 +102,10 @@ interface UserFields {
 }
 
 const DEFAULT_USER: UserFields = {
-  smsPhone:       "(512) 555-0199",
+  smsPhone:       CARRIER_DATA.phone,           // pre-filled from Carrier Compliance — overrideable
   smsEmail:       "sms@sunsetproperties.com",
   messageFreq:    "4",
-  privacyEmail:   "privacy@sunsetproperties.com",
+  privacyEmail:   CARRIER_DATA.email,           // pre-filled from Carrier Compliance — overrideable
   retentionApp:   CA_REQUIRED ? "3" : "3",
   retentionRes:   CA_REQUIRED ? "7" : "7",
   retentionComms: CA_REQUIRED ? "3" : "3",
@@ -189,36 +203,50 @@ const DISCLAIMER_PARAGRAPHS = [
 ]
 
 function DisclaimerLink() {
-  const [open, setOpen] = useState(false)
   return (
-    <span className="relative inline-block">
-      <button type="button" onClick={() => setOpen(v => !v)}
-        className="inline-flex items-center gap-0.5 text-xs text-blue-600 hover:text-blue-700 font-medium">
-        <Info className="h-3 w-3" />Disclaimer
-      </button>
-      {open && (
-        <span className="absolute left-0 top-full mt-1.5 z-[60] block w-80 rounded-lg border border-border bg-white shadow-lg px-4 py-3 space-y-2.5">
-          <span className="flex items-center justify-between mb-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">Legal Disclaimer</span>
-            <button type="button" onClick={() => setOpen(false)} className="rounded p-0.5 text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
-          </span>
-          {DISCLAIMER_PARAGRAPHS.map((p, i) => (
-            <p key={i} className="text-[11px] text-muted-foreground leading-relaxed">{p}</p>
-          ))}
-        </span>
-      )}
-    </span>
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="View legal disclaimer"
+          className="inline-flex items-center gap-1 rounded text-xs text-blue-600 hover:text-blue-700 font-medium px-1 -mx-1 py-0.5 hover:bg-blue-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 cursor-pointer transition-colors">
+          <Info className="h-3 w-3" />
+          <span>Disclaimer</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        side="bottom"
+        align="start"
+        sideOffset={6}
+        collisionPadding={16}
+        className="z-[70] w-[22rem] max-w-[calc(100vw-2rem)] max-h-[min(70vh,32rem)] overflow-y-auto p-4 space-y-2.5">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">Legal Disclaimer</p>
+        {DISCLAIMER_PARAGRAPHS.map((p, i) => (
+          <p key={i} className="text-[11px] text-muted-foreground leading-relaxed">{p}</p>
+        ))}
+      </PopoverContent>
+    </Popover>
   )
 }
 
 // ── Shared Field wrapper ──────────────────────────────────────────────────────
+//
+// Information architecture per field:
+//   1. Subheading (setting title) — bold dark text, treated as a small heading
+//   2. Description (the "why") — smaller, lighter prose, sits directly under the title
+//   3. Input — visually separated from the title block
+//
+// This is intentionally distinct from the section eyebrow (small caps blue)
+// so users can scan section → field → description → input.
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
-    <div>
-      <label className="block text-xs font-medium text-muted-foreground mb-1.5">{label}</label>
+    <div className="space-y-2">
+      <div className="space-y-0.5">
+        <label className="block text-sm font-semibold text-foreground tracking-tight">{label}</label>
+        {hint && <p className="text-[11px] text-zinc-500 leading-relaxed">{hint}</p>}
+      </div>
       {children}
-      {hint && <p className="text-[11px] text-muted-foreground mt-1">{hint}</p>}
     </div>
   )
 }
@@ -232,7 +260,7 @@ function SupplementHeader({ open, onToggle, title, stateName, stateProps, statut
   const required = stateProps.length > 0
   return (
     <button type="button" onClick={onToggle}
-      className={cn("flex w-full items-center gap-2 text-sm font-semibold transition-colors hover:text-foreground",
+      className={cn("flex w-full items-center gap-2 text-base font-semibold tracking-tight transition-colors hover:text-foreground",
         required ? "text-foreground" : "text-muted-foreground")}>
       {open ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
       {title}
@@ -291,6 +319,13 @@ function TemplateSheet({
   const [mnOpen, setMnOpen] = useState(MN_REQUIRED)
   const [copiedPolicy, setCopiedPolicy] = useState(false)
 
+  // ── Template edit state ─────────────────────────────────────────────────────
+  // null = use auto-generated text from form fields. Once user saves edits,
+  // their version becomes the source of truth for copy/publish actions.
+  const [customPolicyText, setCustomPolicyText] = useState<string | null>(null)
+  const [templateEditing, setTemplateEditing]   = useState(false)
+  const [editDraft, setEditDraft]               = useState("")
+
   // ── TP state ────────────────────────────────────────────────────────────────
   const [tpCopied, setTpCopied]     = useState(false)
   const [tpUnlocked, setTpUnlocked] = useState(false)
@@ -299,7 +334,7 @@ function TemplateSheet({
   // ── PP state ────────────────────────────────────────────────────────────────
   const [selectedPpIds, setSelectedPpIds] = useState<Set<string>>(() => new Set(ppPendingProps.map(p => p.id)))
   const [ppSearch, setPpSearch]           = useState("")
-  const [ppSectionOpen, setPpSectionOpen] = useState(true)
+  const [ppSectionOpen, setPpSectionOpen] = useState(false)   // collapsed by default — "Publish to all" is the happy path
 
   // Re-sync PP selection when list changes
   useEffect(() => {
@@ -313,7 +348,8 @@ function TemplateSheet({
       setStepIdx(0)
       setLocalTpProps(tpUncoveredProps)
       setTpCopied(false); setTpUnlocked(false); setTpVerifyStatus({})
-      setPpSearch(""); setPpSectionOpen(true)
+      setPpSearch(""); setPpSectionOpen(false)
+      setCustomPolicyText(null); setTemplateEditing(false); setEditDraft("")
       p6FailedOnce.current = false
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -331,10 +367,13 @@ function TemplateSheet({
     return () => document.removeEventListener("keydown", h)
   }, [open, onClose])
 
-  const policyText     = generatePrivacyPolicy(userFieldsToTemplate(fields))
-  const segments       = useMemo(() => buildHighlightedSegments(policyText, fields), [policyText, fields])
-  const filledRequired = ALL_REQUIRED_KEYS.filter(k => fields[k].trim() !== "").length
-  const totalRequired  = ALL_REQUIRED_KEYS.length
+  const generatedPolicyText = generatePrivacyPolicy(userFieldsToTemplate(fields))
+  // Effective policy = user's edits if they saved any, otherwise the auto-generated text
+  const policyText          = customPolicyText ?? generatedPolicyText
+  const hasManualEdits      = customPolicyText !== null
+  const segments            = useMemo(() => buildHighlightedSegments(policyText, fields), [policyText, fields])
+  const filledRequired      = ALL_REQUIRED_KEYS.filter(k => fields[k].trim() !== "").length
+  const totalRequired       = ALL_REQUIRED_KEYS.length
 
   const filteredPpProps = ppPendingProps.filter(p =>
     ppSearch === "" || p.name.toLowerCase().includes(ppSearch.toLowerCase()) ||
@@ -350,6 +389,22 @@ function TemplateSheet({
   function handleCopyPreview() {
     navigator.clipboard.writeText(policyText).catch(() => {})
     setCopiedPolicy(true); setTimeout(() => setCopiedPolicy(false), 2000)
+  }
+  function handleStartEdit() {
+    setEditDraft(policyText)
+    setTemplateEditing(true)
+  }
+  function handleSaveEdit() {
+    setCustomPolicyText(editDraft)
+    setTemplateEditing(false)
+  }
+  function handleCancelEdit() {
+    setTemplateEditing(false)
+    setEditDraft("")
+  }
+  function handleResetTemplate() {
+    setCustomPolicyText(null)
+    setTemplateEditing(false)
   }
   function handleTpCopy() {
     navigator.clipboard.writeText(policyText).catch(() => {})
@@ -370,6 +425,18 @@ function TemplateSheet({
         onConfirmTp(id)
       }
     }, 1800)
+  }
+  function handleVerifyAll() {
+    if (!tpUnlocked) return
+    // Verify any TP that isn't already verified or actively checking.
+    // Stagger by 120ms so the spinners cascade visually instead of firing simultaneously.
+    const targets = localTpProps.filter(tp => {
+      const s = tpVerifyStatus[tp.id] ?? "idle"
+      return s !== "verified" && s !== "checking"
+    })
+    targets.forEach((tp, i) => {
+      setTimeout(() => handleVerify(tp.id), i * 120)
+    })
   }
 
   const inputCls = (filled: boolean) => cn(
@@ -458,9 +525,12 @@ function TemplateSheet({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h2 className="text-base font-semibold text-foreground">Privacy Policy Template</h2>
-              <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-                Fill in the form, review the template, then publish to your properties. <DisclaimerLink />
-              </p>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-0.5">
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Fill in the form, review the template, then publish to your properties.
+                </p>
+                <DisclaimerLink />
+              </div>
             </div>
             <button type="button" onClick={onClose} aria-label="Close"
               className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0">
@@ -494,191 +564,293 @@ function TemplateSheet({
           {/* Step 1 — Form */}
           {currentStep === "form" && (
             <div className="px-6 py-5 space-y-6">
+              {/* Company-level banner */}
+              <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 flex items-start gap-2.5">
+                <Info className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-foreground">This policy applies to your entire company</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
+                    Fill these fields out once. The same policy text publishes to every property's website.
+                  </p>
+                </div>
+              </div>
+
               <p className="text-xs">
                 {filledRequired < totalRequired
                   ? <span className="text-amber-600 font-medium">{filledRequired} of {totalRequired} required fields filled.</span>
                   : <span className="text-emerald-600 font-medium">All {totalRequired} required fields complete.</span>}
               </p>
 
-              {/* Confirmed from Carrier Compliance */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-foreground">Confirmed from Carrier Compliance</p>
-                  <button type="button" onClick={onNavigateToCarrier}
-                    className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium">
-                    Edit <ExternalLink className="h-3 w-3" />
-                  </button>
-                </div>
-                <div className="rounded-lg border border-border bg-zinc-50/60 divide-y divide-border overflow-hidden">
-                  {[
-                    { label: "Company name",    value: CARRIER_DATA.companyName   },
-                    { label: "Mailing address", value: CARRIER_DATA.address       },
-                    { label: "Business phone",  value: CARRIER_DATA.phone         },
-                    { label: "Contact email",   value: CARRIER_DATA.email         },
-                    { label: "Effective date",  value: CARRIER_DATA.effectiveDate },
-                    { label: "Chatbot",         value: CARRIER_DATA.chatbot       },
-                  ].map(({ label, value }) => (
-                    <div key={label} className="flex items-center gap-3 px-3 py-2.5">
-                      <Lock className="h-3 w-3 text-muted-foreground/40 shrink-0" />
-                      <span className="text-xs text-muted-foreground w-[110px] shrink-0">{label}</span>
-                      <span className="text-xs font-medium text-foreground truncate">{value}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
               {/* Required user fields */}
               <div className="space-y-5">
-                <p className="text-sm font-semibold text-foreground">Required fields</p>
-                <Field label="SMS opt-out phone number" hint="The number residents text STOP or HELP to.">
+                <Field label="Support phone for SMS HELP/STOP" hint="One company-wide number for the whole portfolio. Pre-filled from your business phone — change it if you have a dedicated SMS line.">
                   <input type="text" value={fields.smsPhone} onChange={e => onChange("smsPhone", e.target.value)}
                     placeholder="(602) 555-0100" className={inputCls(fields.smsPhone.trim() !== "")} />
                 </Field>
-                <Field label="SMS opt-out email address">
+                <Field label="Support email for SMS HELP/STOP" hint="Generic shared inbox is best (e.g. sms@). Same address for every property.">
                   <input type="text" value={fields.smsEmail} onChange={e => onChange("smsEmail", e.target.value)}
                     placeholder="sms@yourcompany.com" className={inputCls(fields.smsEmail.trim() !== "")} />
                 </Field>
-                <Field label="Approximate message frequency" hint="Required by carriers (FCC).">
+                <Field label="Approximate message frequency" hint="Required by carriers (FCC). One company-wide estimate across all properties.">
                   <select value={fields.messageFreq} onChange={e => onChange("messageFreq", e.target.value)}
                     className={cn("w-full h-10 rounded-lg border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-zinc-900/20 transition-colors appearance-none",
                       fields.messageFreq !== "" ? "border-border" : "border-amber-300")}>
                     {MSG_FREQ_OPTIONS.map(o => <option key={o.value} value={o.value} disabled={o.value === ""}>{o.label}</option>)}
                   </select>
                 </Field>
-                <Field label="Privacy contact email" hint="Used for privacy rights requests and appeals.">
+                <Field label="Privacy contact email" hint="Where residents send privacy rights requests and appeals. Pre-filled from your business contact email — change it if you have a dedicated privacy inbox.">
                   <input type="text" value={fields.privacyEmail} onChange={e => onChange("privacyEmail", e.target.value)}
                     placeholder="privacy@yourcompany.com" className={inputCls(fields.privacyEmail.trim() !== "")} />
                 </Field>
               </div>
 
-              {/* California supplement */}
-              <div className="border-t border-border pt-5 space-y-4">
-                <SupplementHeader open={caOpen} onToggle={() => setCaOpen(v => !v)}
-                  title="California Supplement" stateName="CA" stateProps={CA_PROPS} statute="CCPA / CPRA" />
-                {caOpen && (
-                  <div className="space-y-5 pt-1">
-                    {CA_REQUIRED
-                      ? <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 leading-relaxed">
-                          You have {CA_PROPS.length} California properties — these retention fields are required.
-                        </p>
-                      : <p className="text-xs text-muted-foreground leading-relaxed">No California properties detected. Optional.</p>}
-                    {([
-                      { key: "retentionApp"   as keyof UserFields, label: "Lease application data (years)",   placeholder: "3"  },
-                      { key: "retentionRes"   as keyof UserFields, label: "Resident data post-lease (years)", placeholder: "7"  },
-                      { key: "retentionComms" as keyof UserFields, label: "Communications records (years)",   placeholder: "3"  },
-                      { key: "retentionWeb"   as keyof UserFields, label: "Website activity data (months)",   placeholder: "13" },
-                      { key: "retentionBg"    as keyof UserFields, label: "Background screening (years)",     placeholder: "5"  },
-                    ] as const).map(f => (
-                      <Field key={f.key} label={f.label}>
-                        <input type="text" value={fields[f.key]} onChange={e => onChange(f.key, e.target.value)}
-                          placeholder={f.placeholder}
-                          className={CA_REQUIRED ? inputCls(fields[f.key].trim() !== "")
-                            : "w-full h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"} />
-                      </Field>
-                    ))}
-                    <Field label="Do Not Sell opt-out method">
-                      <input type="text" value={fields.doNotSell} onChange={e => onChange("doNotSell", e.target.value)}
-                        placeholder='clicking the "Do Not Sell" link on our website'
-                        className="w-full h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-zinc-900/20" />
-                    </Field>
-                  </div>
-                )}
-              </div>
-
-              {/* Minnesota supplement */}
-              <div className="border-t border-border pt-5 space-y-4">
-                <SupplementHeader open={mnOpen} onToggle={() => setMnOpen(v => !v)}
-                  title="Minnesota Supplement" stateName="MN" stateProps={MN_PROPS} statute="Minn. Stat. § 325M" />
-                {mnOpen && (
-                  <div className="space-y-5 pt-1">
-                    {MN_REQUIRED && (
+              {/* California supplement — only when company has CA properties */}
+              {CA_REQUIRED && (
+                <div className="border-t border-border pt-5 space-y-4">
+                  <SupplementHeader open={caOpen} onToggle={() => setCaOpen(v => !v)}
+                    title="California Supplement" stateName="CA" stateProps={CA_PROPS} statute="CCPA / CPRA" />
+                  {caOpen && (
+                    <div className="space-y-5 pt-1">
                       <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 leading-relaxed">
-                        {MN_PROPS.length} Minnesota {MN_PROPS.length === 1 ? "property" : "properties"} — a Privacy Officer designation is required.
+                        Required because you operate {CA_PROPS.length} CA {CA_PROPS.length === 1 ? "property" : "properties"}. The CCPA (Cal. Civ. Code § 1798.100) requires retention disclosures — these values fill in <span className="font-semibold">Section 14.1</span> of your template.
                       </p>
-                    )}
-                    {([
-                      { key: "poName"  as keyof UserFields, label: "Privacy Officer name",  placeholder: "Jane Smith"             },
-                      { key: "poEmail" as keyof UserFields, label: "Privacy Officer email", placeholder: "privacy@yourcompany.com" },
-                      { key: "poPhone" as keyof UserFields, label: "Privacy Officer phone", placeholder: "(800) 555-0100"          },
-                    ] as const).map(f => (
-                      <Field key={f.key} label={f.label}>
-                        <input type="text" value={fields[f.key]} onChange={e => onChange(f.key, e.target.value)}
-                          placeholder={f.placeholder} className={inputCls(fields[f.key].trim() !== "")} />
+                      {([
+                        { key: "retentionApp"   as keyof UserFields, label: "Lease application data (years)",   placeholder: "3"  },
+                        { key: "retentionRes"   as keyof UserFields, label: "Resident data post-lease (years)", placeholder: "7"  },
+                        { key: "retentionComms" as keyof UserFields, label: "Communications records (years)",   placeholder: "3"  },
+                        { key: "retentionWeb"   as keyof UserFields, label: "Website activity data (months)",   placeholder: "13" },
+                        { key: "retentionBg"    as keyof UserFields, label: "Background screening (years)",     placeholder: "5"  },
+                      ] as const).map(f => (
+                        <Field key={f.key} label={f.label}>
+                          <input type="text" value={fields[f.key]} onChange={e => onChange(f.key, e.target.value)}
+                            placeholder={f.placeholder} className={inputCls(fields[f.key].trim() !== "")} />
+                        </Field>
+                      ))}
+                      <Field label="Do Not Sell opt-out method">
+                        <input type="text" value={fields.doNotSell} onChange={e => onChange("doNotSell", e.target.value)}
+                          placeholder='clicking the "Do Not Sell" link on our website'
+                          className="w-full h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-zinc-900/20" />
                       </Field>
-                    ))}
-                  </div>
-                )}
-              </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Minnesota supplement — only when company has MN properties */}
+              {MN_REQUIRED && (
+                <div className="border-t border-border pt-5 space-y-4">
+                  <SupplementHeader open={mnOpen} onToggle={() => setMnOpen(v => !v)}
+                    title="Minnesota Supplement" stateName="MN" stateProps={MN_PROPS} statute="Minn. Stat. § 325M" />
+                  {mnOpen && (
+                    <div className="space-y-5 pt-1">
+                      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 leading-relaxed">
+                        Required because you operate {MN_PROPS.length} MN {MN_PROPS.length === 1 ? "property" : "properties"}. Minn. Stat. § 325M requires a designated Privacy Officer — this contact fills in <span className="font-semibold">Section 14.2</span> of your template.
+                      </p>
+                      {([
+                        { key: "poName"  as keyof UserFields, label: "Privacy Officer name",  placeholder: "Jane Smith"             },
+                        { key: "poEmail" as keyof UserFields, label: "Privacy Officer email", placeholder: "privacy@yourcompany.com" },
+                        { key: "poPhone" as keyof UserFields, label: "Privacy Officer phone", placeholder: "(800) 555-0100"          },
+                      ] as const).map(f => (
+                        <Field key={f.key} label={f.label}>
+                          <input type="text" value={fields[f.key]} onChange={e => onChange(f.key, e.target.value)}
+                            placeholder={f.placeholder} className={inputCls(fields[f.key].trim() !== "")} />
+                        </Field>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
-          {/* Step 2 — Template preview */}
+          {/* Step 2 — Template preview / editor */}
           {currentStep === "template" && (
             <div className="flex flex-col h-full">
-              <div className="flex items-center justify-between px-6 py-3 border-b border-border bg-zinc-50/60 shrink-0">
-                <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-                  <WandSparkles className="h-2.5 w-2.5" />Your inputs are highlighted
-                </span>
-                <button type="button" onClick={handleCopyPreview}
-                  className="inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 font-medium">
-                  <Copy className="h-3 w-3" />{copiedPolicy ? "Copied!" : "Copy full policy"}
-                </button>
+              <div className="px-6 py-3 border-b border-border bg-blue-50/40 shrink-0">
+                <p className="text-xs text-foreground leading-relaxed">
+                  <span className="font-semibold">One policy for your whole company.</span>{" "}
+                  <span className="text-muted-foreground">This same text publishes to every property — you don't write a different version per property. Review or edit, then continue.</span>
+                </p>
               </div>
-              <div className="flex-1 overflow-y-auto px-6 py-5">
-                <div className="text-[11px] text-zinc-700 whitespace-pre-wrap leading-relaxed font-sans">
-                  {segments.map((seg, i) =>
-                    seg.hl
-                      ? <mark key={i} className="bg-amber-100 text-amber-900 rounded px-0.5">{seg.text}</mark>
-                      : <span key={i}>{seg.text}</span>
+
+              {/* Toolbar */}
+              <div className="flex items-center justify-between gap-3 px-6 py-3 border-b border-border bg-zinc-50/60 shrink-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  {templateEditing ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                      <Pencil className="h-2.5 w-2.5" />Editing template
+                    </span>
+                  ) : (
+                    <>
+                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                        <WandSparkles className="h-2.5 w-2.5" />Your inputs are highlighted
+                      </span>
+                      {hasManualEdits && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                          <Pencil className="h-2.5 w-2.5" />Edited
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  {templateEditing ? (
+                    <>
+                      <button type="button" onClick={handleCancelEdit}
+                        className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
+                        Cancel
+                      </button>
+                      <button type="button" onClick={handleSaveEdit}
+                        className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-zinc-700 transition-colors">
+                        Save edits
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {hasManualEdits && (
+                        <button type="button" onClick={handleResetTemplate}
+                          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground font-medium">
+                          <RotateCcw className="h-3 w-3" />Reset to template
+                        </button>
+                      )}
+                      <button type="button" onClick={handleStartEdit}
+                        className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium">
+                        <Pencil className="h-3 w-3" />Edit
+                      </button>
+                      <button type="button" onClick={handleCopyPreview}
+                        className="inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 font-medium">
+                        <Copy className="h-3 w-3" />{copiedPolicy ? "Copied!" : "Copy full policy"}
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
+
+              {/* Body */}
+              {templateEditing ? (
+                <div className="flex-1 overflow-y-auto p-4">
+                  <textarea
+                    value={editDraft}
+                    onChange={e => setEditDraft(e.target.value)}
+                    spellCheck={false}
+                    className="w-full h-full min-h-[55vh] text-[11px] text-zinc-700 leading-relaxed font-sans rounded-md border border-border bg-white p-4 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 resize-none"
+                  />
+                  <p className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
+                    Tip — edits override the auto-generated template. Going back to step 1 and changing form fields after saving will <span className="font-medium text-foreground">overwrite your edits</span>; use Reset to template to restore the auto-generated version.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex-1 overflow-y-auto px-6 py-5">
+                  <div className="text-[11px] text-zinc-700 whitespace-pre-wrap leading-relaxed font-sans">
+                    {segments.map((seg, i) =>
+                      seg.hl
+                        ? <mark key={i} className="bg-amber-100 text-amber-900 rounded px-0.5">{seg.text}</mark>
+                        : <span key={i}>{seg.text}</span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
           {/* Step 3 — Third-party sites */}
-          {currentStep === "third-party" && (
-            <div className="px-6 py-5 space-y-4">
-              <div>
-                <p className="text-sm font-semibold text-foreground mb-1">Third-party sites</p>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Copy the generated policy, paste it to each website, then click <strong className="text-foreground">Verify</strong> to confirm it's live.
-                </p>
+          {currentStep === "third-party" && (() => {
+            const verifiedTpCount = localTpProps.filter(tp => tpVerifyStatus[tp.id] === "verified").length
+            const checkingTpCount = localTpProps.filter(tp => tpVerifyStatus[tp.id] === "checking").length
+            const totalTp         = localTpProps.length
+            const remainingTp     = totalTp - verifiedTpCount
+            const allTpVerified   = totalTp > 0 && verifiedTpCount === totalTp
+            const verifyAllDisabled = !tpUnlocked || allTpVerified || checkingTpCount > 0
+            return (
+              <div className="px-6 py-5 space-y-4">
+                <div>
+                  <p className="text-sm font-semibold text-foreground mb-1">Third-party sites</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    These properties don't run on Entrata's Prospect Portal, so we can't publish for you. The <span className="font-medium text-foreground">same company-wide policy</span> goes on every site — copy it once, paste it onto each privacy page, then <strong className="text-foreground">Verify</strong>.
+                  </p>
+                </div>
+
+                {/* Toolbar: Copy + Verify all + progress */}
+                <div className="flex flex-wrap items-center gap-3">
+                  <button type="button" onClick={handleTpCopy}
+                    className={cn("inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors",
+                      tpCopied
+                        ? "bg-emerald-50 border border-emerald-300 text-emerald-700"
+                        : "bg-zinc-900 text-white hover:bg-zinc-700")}>
+                    <Copy className="h-3.5 w-3.5" />
+                    {tpCopied ? "Policy copied!" : "Copy policy"}
+                  </button>
+                  <button type="button" onClick={handleVerifyAll}
+                    disabled={verifyAllDisabled}
+                    title={!tpUnlocked ? "Copy the policy first" : allTpVerified ? "All sites verified" : checkingTpCount > 0 ? "Verification in progress" : ""}
+                    className={cn("inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-xs font-semibold transition-colors",
+                      verifyAllDisabled
+                        ? "border-border bg-zinc-50 text-muted-foreground cursor-not-allowed"
+                        : "border-zinc-300 bg-white text-foreground hover:bg-zinc-50")}>
+                    {checkingTpCount > 0
+                      ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Verifying {checkingTpCount} {checkingTpCount === 1 ? "site" : "sites"}…</>
+                      : allTpVerified
+                        ? <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />All verified</>
+                        : <><Globe className="h-3.5 w-3.5" />Verify all{remainingTp > 0 && tpUnlocked ? ` (${remainingTp})` : ""}</>}
+                  </button>
+                  {totalTp > 0 && (
+                    <span className="text-[11px] text-muted-foreground ml-auto">
+                      <span className={cn("font-semibold", allTpVerified ? "text-emerald-700" : "text-foreground")}>{verifiedTpCount}</span>
+                      {" "}of {totalTp} sites verified
+                    </span>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  {localTpProps.map(tp => <TpCard key={tp.id} tp={tp} />)}
+                </div>
               </div>
-              <button type="button" onClick={handleTpCopy}
-                className={cn("inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors",
-                  tpCopied
-                    ? "bg-emerald-50 border border-emerald-300 text-emerald-700"
-                    : "bg-zinc-900 text-white hover:bg-zinc-700")}>
-                <Copy className="h-3.5 w-3.5" />
-                {tpCopied ? "Policy copied!" : "Copy policy"}
-              </button>
-              <div className="space-y-2">
-                {localTpProps.map(tp => <TpCard key={tp.id} tp={tp} />)}
-              </div>
-            </div>
-          )}
+            )
+          })()}
 
           {/* Step 4 — Publish to Entrata / Prospect Portal sites */}
           {currentStep === "publish" && (
             <div className="px-6 py-5 space-y-4">
               <div>
-                <p className="text-sm font-semibold text-foreground mb-1">Publish to Entrata sites</p>
+                <p className="text-sm font-semibold text-foreground mb-1">Publish to your Prospect Portal sites</p>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Select which Prospect Portal properties should receive this policy. Entrata will publish it automatically.
+                  One company-wide policy publishes to every Prospect Portal property at once. We default to <span className="font-medium text-foreground">all properties</span> — only customize the list if you have a specific reason to exclude some.
                 </p>
               </div>
               {ppPendingProps.length > 0 ? (
                 <div className="space-y-3">
-                  <button type="button" onClick={() => setPpSectionOpen(v => !v)}
-                    className="flex w-full items-center gap-2 text-xs font-semibold text-foreground transition-colors">
-                    {ppSectionOpen ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
-                    <span className="flex-1 text-left">Properties</span>
-                    <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap",
-                      nonePpSelected ? "border border-amber-300 bg-amber-50 text-amber-700" : "border border-emerald-300 bg-emerald-50 text-emerald-700")}>
-                      {selectedPpIds.size} of {ppPendingProps.length} selected
-                    </span>
-                  </button>
+                  {/* Publish-to-all summary card */}
+                  <div className={cn(
+                    "rounded-lg border px-4 py-3 flex items-center gap-3",
+                    nonePpSelected ? "border-amber-200 bg-amber-50/40" :
+                    allPpSelected  ? "border-blue-200 bg-blue-50/40" :
+                                     "border-zinc-200 bg-zinc-50/60",
+                  )}>
+                    {nonePpSelected
+                      ? <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                      : <CheckCircle2 className="h-4 w-4 text-blue-600 shrink-0" />}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-foreground">
+                        {nonePpSelected
+                          ? "No properties selected"
+                          : allPpSelected
+                            ? `Publishing to all ${ppPendingProps.length} ${ppPendingProps.length === 1 ? "property" : "properties"}`
+                            : `Publishing to ${selectedPpIds.size} of ${ppPendingProps.length} ${ppPendingProps.length === 1 ? "property" : "properties"}`}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        {nonePpSelected
+                          ? "Pick at least one property to continue."
+                          : allPpSelected
+                            ? "Default — every Prospect Portal site gets the same policy."
+                            : "Custom selection — some properties excluded."}
+                      </p>
+                    </div>
+                    <button type="button" onClick={() => setPpSectionOpen(v => !v)}
+                      className="shrink-0 inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium whitespace-nowrap">
+                      {ppSectionOpen ? <>Hide list <ChevronDown className="h-3 w-3" /></> : <>Customize <ChevronRight className="h-3 w-3" /></>}
+                    </button>
+                  </div>
+
                   {ppSectionOpen && (
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
@@ -732,7 +904,9 @@ function TemplateSheet({
                 Close
               </button>
             ) : (
-              <button type="button" onClick={() => setStepIdx(i => i - 1)} className={cn(buttonVariants({ variant: "outline" }), "gap-2")}>
+              <button type="button" disabled={templateEditing}
+                onClick={() => setStepIdx(i => i - 1)}
+                className={cn(buttonVariants({ variant: "outline" }), "gap-2", templateEditing && "opacity-40 cursor-not-allowed")}>
                 ← Back
               </button>
             )}
@@ -750,18 +924,22 @@ function TemplateSheet({
                     : <>Publish to {selectedPpIds.size} {selectedPpIds.size === 1 ? "property" : "properties"}</>}
               </button>
             ) : isLast ? (
-              <button type="button" onClick={onClose} className={cn(buttonVariants({ variant: "eli" }))}>
+              <button type="button" onClick={onClose}
+                disabled={templateEditing}
+                className={cn(buttonVariants({ variant: "eli" }), templateEditing && "opacity-40 cursor-not-allowed")}>
                 Done
               </button>
             ) : (
               <button type="button"
-                disabled={currentStep === "form" && !templateReady}
+                disabled={(currentStep === "form" && !templateReady) || templateEditing}
                 onClick={() => setStepIdx(i => i + 1)}
                 className={cn(buttonVariants({ variant: "eli" }), "gap-2",
-                  currentStep === "form" && !templateReady && "opacity-40 cursor-not-allowed")}>
+                  ((currentStep === "form" && !templateReady) || templateEditing) && "opacity-40 cursor-not-allowed")}>
                 {currentStep === "form" && !templateReady
                   ? <>Fill all required fields</>
-                  : <>Next <ChevronRight className="h-4 w-4" /></>}
+                  : templateEditing
+                    ? <>Save edits to continue</>
+                    : <>Next <ChevronRight className="h-4 w-4" /></>}
               </button>
             )}
 
@@ -789,6 +967,10 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
     p22: "https://trinityheights.com",
     p31: "https://cypresslanding.com",
   })
+  // For properties with multiple Prospect Portal sites: client's chosen URL
+  const [selectedSiteUrl, setSelectedSiteUrl] = useState<Record<string, string>>({})
+  // Pending radio selection (before Confirm is clicked)
+  const [draftSiteSelection, setDraftSiteSelection] = useState<Record<string, string>>({})
 
   // Toast
   const [toastMsg, setToastMsg]       = useState("")
@@ -804,11 +986,15 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
   function openSheet() { setSheetOpen(true) }
 
   function effectiveUrl(id: string): string | null {
+    if (selectedSiteUrl[id]) return selectedSiteUrl[id]
+    if (MULTI_SITE_IDS.has(id)) return null   // pending site selection
     return providedUrls[id] ?? META_MAP[id]?.detectedUrl ?? null
   }
 
-  // Properties still missing a website URL
-  const missingUrlProperties = PROPERTIES.filter(p => effectiveUrl(p.id) === null)
+  // Properties still missing a website URL (auto-detection failed, no candidates)
+  const missingUrlProperties = PROPERTIES.filter(p => !MULTI_SITE_IDS.has(p.id) && effectiveUrl(p.id) === null)
+  // Properties with multiple Prospect Portal sites that haven't been chosen yet
+  const multiSiteProperties  = PROPERTIES.filter(p => MULTI_SITE_IDS.has(p.id) && !selectedSiteUrl[p.id])
   // Properties with a known URL — these appear in the main table
   const knownUrlProperties   = PROPERTIES.filter(p => effectiveUrl(p.id) !== null)
 
@@ -820,12 +1006,12 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
   const tpCoveredCount = tpProperties.filter(p => tpConfirmedIds.has(p.id)).length
   const coveredCount   = publishedIds.size + tpCoveredCount
   const totalCount     = PROPERTIES.length
-  const needsActionCount = totalCount - coveredCount - missingUrlProperties.length
+  const needsActionCount = totalCount - coveredCount - missingUrlProperties.length - multiSiteProperties.length
   const allDone        = coveredCount === totalCount
   const progressPct    = Math.round((coveredCount / totalCount) * 100)
 
-  // Emit total action count (uncovered + missing URL) to parent for sidebar badge
-  const privacyBadgeCount = needsActionCount + missingUrlProperties.length
+  // Emit total action count (uncovered + missing URL + multi-site) to parent for sidebar badge
+  const privacyBadgeCount = needsActionCount + missingUrlProperties.length + multiSiteProperties.length
   useEffect(() => {
     onActionCountChange?.(privacyBadgeCount)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -882,6 +1068,14 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
     setUrlInputs(prev => { const next = { ...prev }; delete next[id]; return next })
     showToast(`${prop?.name ?? "Property"} website confirmed — it's now in the table below`)
   }
+  function handleConfirmSiteSelection(id: string) {
+    const url = draftSiteSelection[id]
+    if (!url) return
+    const prop = PROPERTIES.find(p => p.id === id)
+    setSelectedSiteUrl(prev => ({ ...prev, [id]: url }))
+    setDraftSiteSelection(prev => { const next = { ...prev }; delete next[id]; return next })
+    showToast(`${prop?.name ?? "Property"} site set — Eli+ will use ${url}`)
+  }
 
   const FILTER_TABS: Array<{ id: FilterTab; label: string; count: number }> = [
     { id: "needs-action", label: "Needs action", count: needsActionCount              },
@@ -892,11 +1086,6 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
   return (
     <div className="h-full overflow-y-auto">
       <div className="p-6 md:p-8 space-y-6 max-w-4xl">
-
-        <button type="button" onClick={() => navigate("overview")}
-          className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-1 -ml-2 text-muted-foreground")}>
-          <ArrowLeft className="h-4 w-4" aria-hidden />Overview
-        </button>
 
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Privacy Policies</h1>
@@ -948,6 +1137,63 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* ── Multiple Prospect Portal sites callout ── */}
+        {multiSiteProperties.length > 0 && (
+          <div className="rounded-xl border border-blue-200 bg-blue-50/40 overflow-hidden">
+            <div className="flex items-center gap-2.5 px-4 py-3 border-b border-blue-200 bg-blue-50">
+              <Info className="h-4 w-4 text-blue-600 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-foreground">
+                  Multiple websites detected — {multiSiteProperties.length} {multiSiteProperties.length === 1 ? "property" : "properties"}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  We found more than one Prospect Portal site for these properties. Pick which one Eli+ should use.
+                </p>
+              </div>
+            </div>
+            <div className="divide-y divide-blue-100/80">
+              {multiSiteProperties.map(prop => {
+                const options = MULTI_SITE_OPTIONS[prop.id] ?? []
+                const draft = draftSiteSelection[prop.id]
+                return (
+                  <div key={prop.id} className="bg-white/60 px-4 py-3">
+                    <div className="flex items-start gap-3">
+                      <div className="w-[180px] shrink-0 pt-0.5">
+                        <p className="text-xs font-medium text-foreground">{prop.name}</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">{prop.city}, {prop.state}</p>
+                      </div>
+                      <div className="flex-1 min-w-0 space-y-1.5">
+                        {options.map(url => {
+                          const checked = draft === url
+                          return (
+                            <label key={url}
+                              className={cn(
+                                "flex items-center gap-2 cursor-pointer rounded-md border px-2.5 py-1.5 transition-colors",
+                                checked ? "border-blue-300 bg-blue-50" : "border-border bg-white hover:border-zinc-300",
+                              )}>
+                              <input type="radio" name={`site-${prop.id}`} checked={checked}
+                                onChange={() => setDraftSiteSelection(prev => ({ ...prev, [prop.id]: url }))}
+                                className="accent-zinc-900 h-3.5 w-3.5 shrink-0" />
+                              <Globe className="h-3 w-3 text-muted-foreground shrink-0" />
+                              <span className="text-[11px] font-mono text-foreground truncate">{url}</span>
+                            </label>
+                          )
+                        })}
+                      </div>
+                      <button type="button"
+                        disabled={!draft}
+                        onClick={() => handleConfirmSiteSelection(prop.id)}
+                        className="h-8 shrink-0 rounded-md bg-zinc-900 px-3 text-[11px] font-semibold text-white hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap">
+                        Confirm
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         )}
 

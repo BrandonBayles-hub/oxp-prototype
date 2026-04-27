@@ -190,12 +190,6 @@ export function CommunicationsPage({ navigate, privacyPublished, brandStatus, ca
     <div className="p-6 md:p-8 flex gap-8 items-start">
     {/* ── Main content ──────────────────────────────────────────────────── */}
     <div className="flex-1 min-w-0 space-y-6">
-      <button type="button" onClick={() => navigate("overview")}
-        className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-1 -ml-2 text-muted-foreground")}
-      >
-        <ArrowLeft className="h-4 w-4" />Overview
-      </button>
-
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Communications</h1>
         <p className="text-sm text-muted-foreground mt-1 max-w-6xl">

@@ -536,14 +536,6 @@ export function CompanyPage({ navigate, brandStatus, showToast, simMode, onSimMo
     <div className="flex flex-col min-h-full bg-stone-50">
     <div className="p-6 md:p-8 pb-32 flex-1">
 
-      <div className="mb-6">
-        <button type="button" onClick={() => navigate("overview")}
-          className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-1 -ml-2 text-muted-foreground")}
-        >
-          <ArrowLeft className="h-4 w-4" aria-hidden /> Overview
-        </button>
-      </div>
-
       <div className="flex-1 min-w-0 max-w-2xl space-y-8">
 
         <div>
@@ -805,11 +797,11 @@ export function CompanyPage({ navigate, brandStatus, showToast, simMode, onSimMo
           <>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-foreground">Ready to submit</p>
-              <p className="text-xs text-muted-foreground mt-0.5">All fields confirmed. Submit to register your business details with our carrier.</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Brand Registration should be done at the Company level. Please ensure that the business details entered are for your Company and NOT for a single Property. Edits cannot be made after submission. Would you like to submit your Brand Registration now?</p>
             </div>
             <button type="button" onClick={onSubmitToTwilio}
               className="shrink-0 inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-zinc-700 transition-colors whitespace-nowrap">
-              Submit to carrier
+              Submit Registration
               <ChevronRight className="h-4 w-4" />
             </button>
           </>

@@ -29,14 +29,6 @@ export function PaymentsSummaryPage({ navigate }: BasePageProps & { showToast?: 
   return (
     <div className="flex flex-col h-full">
       <div className="px-6 md:px-8 pt-6 pb-4 border-b border-border">
-        <button
-          type="button"
-          onClick={() => navigate("overview")}
-          className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-1 -ml-2 text-muted-foreground mb-2")}
-        >
-          <ArrowLeft className="h-4 w-4" aria-hidden />
-          Overview
-        </button>
         <h1 className="text-2xl font-bold tracking-tight">Payments AI</h1>
         <p className="text-sm text-muted-foreground mt-1">Per-property payment configuration and policy settings.</p>
       </div>
