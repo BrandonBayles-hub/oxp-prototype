@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useMemo, useEffect, useRef, useCallback, Suspense, useId } from "react";
+import { marked } from "marked";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   FileText, FilePlus, FolderOpen, FolderPlus, Pencil, Send, CheckCircle, Upload, Building2,
-  Search, Clock, AlertTriangle, ChevronRight, X, CornerDownRight, BookOpen, Plus, MoreHorizontal, MoreVertical, Trash2, Link2, Blocks, Download
+  Search, Clock, AlertTriangle, ChevronRight, X, CornerDownRight, BookOpen, Plus, MoreHorizontal, MoreVertical, Trash2, Link2, Blocks, Download, Loader2
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import {
@@ -38,6 +39,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { ENTRATA_CORE_SOP_TEMPLATES, type SopTemplateItem } from "@/lib/entrata-core-sop-templates";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -166,9 +168,20 @@ function TrainingsSopContent() {
   const [activityDateFilter, setActivityDateFilter] = useState("All Time");
   const [approvalFilter, setApprovalFilter] = useState<string>("All");
   const [propertyFilter, setPropertyFilter] = useState("All");
-  const [addDocMode, setAddDocMode] = useState<null | "choice" | "upload" | "entrata">(null);
-  /** When set, opening Upload doc modal pre-fills from Connect Library import */
-  const [libraryUploadPrefill, setLibraryUploadPrefill] = useState<{ displayName: string; body: string } | null>(null);
+  const [addDocMode, setAddDocMode] = useState<null | "choice" | "upload">(null);
+  /** When set, opening Upload doc modal pre-fills from Connect Library import or an Entrata SOP template. */
+  const [libraryUploadPrefill, setLibraryUploadPrefill] = useState<{
+    displayName: string;
+    body: string;
+    /** Source kind for the prefill — controls header copy and the "file" row icon/label. */
+    kind?: "library" | "entrata-template";
+    /** Tags to apply on save (used for Entrata template adds). */
+    tags?: string[];
+    /** Document type to apply on save (defaults to "sop"). */
+    documentType?: VaultItem["documentType"];
+    /** Source string to record on the document. */
+    source?: "upload" | "entrata";
+  } | null>(null);
   const [showNewFolder, setShowNewFolder] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -368,12 +381,23 @@ function TrainingsSopContent() {
     effectiveDate?: string,
     source: "upload" | "entrata" = "upload",
     body?: string,
-    options?: { scopeLevel?: string; ownerId?: string; propertyId?: string; isInternalOnly?: boolean }
+    options?: { scopeLevel?: string; ownerId?: string; propertyId?: string; isInternalOnly?: boolean; tags?: string[] }
   ) => {
     const docProperty = property ?? "Portfolio";
     const category = documentType === "lease" ? "Leasing" : "Compliance";
+    // Avoid colliding doc names so the same template can be added once per
+    // property/owner and remain individually editable in the library.
+    const existingNames = new Set(
+      items.filter((d) => d.type === "file").map((d) => d.fileName.toLowerCase())
+    );
+    let uniqueName = fileName;
+    if (existingNames.has(uniqueName.toLowerCase())) {
+      let n = 2;
+      while (existingNames.has(`${fileName} (${n})`.toLowerCase())) n++;
+      uniqueName = `${fileName} (${n})`;
+    }
     const newId = addDocToVault({
-      fileName, documentType,
+      fileName: uniqueName, documentType,
       property: docProperty,
       scopeLevel: options?.scopeLevel as any,
       ownerId: options?.ownerId,
@@ -385,13 +409,14 @@ function TrainingsSopContent() {
       source, version: "1.0",
       effectiveDate: effectiveDate || undefined,
       body,
+      tags: options?.tags,
       folderId: currentFolderId ?? undefined,
       viewerAccess: DEFAULT_VIEWER_ACCESS,
       history: [{ at: new Date().toISOString(), action: "submitted" as const, by: "Admin", summary: "New document submitted for review." }],
     });
     const escId = addEscalation({
       type: "approval",
-      name: `Document review: ${fileName}`,
+      name: `Document review: ${uniqueName}`,
       summary: "New document submitted for review.",
       status: "Open",
       category,
@@ -401,7 +426,7 @@ function TrainingsSopContent() {
       labels: [],
       documentApprovalContext: {
         documentId: newId,
-        documentName: fileName,
+        documentName: uniqueName,
         changeSummary: "New document submitted for review.",
         proposedBody: body ?? "",
         previousBody: "",
@@ -409,6 +434,7 @@ function TrainingsSopContent() {
     });
     setReviewDocId(escId);
     setAddDocMode(null);
+    setLibraryUploadPrefill(null);
   };
 
   const addFolder = (fileName: string) => { addFolderToVault(fileName); setShowNewFolder(false); };
@@ -1425,7 +1451,7 @@ function TrainingsSopContent() {
         <AddDocChoiceModal
           onClose={() => setAddDocMode(null)}
           onUpload={() => setAddDocMode("upload")}
-          onFromEntrata={() => setAddDocMode("entrata")}
+          onFromEntrata={() => { setAddDocMode(null); setShowExploreSops(true); }}
           onGoogleDrive={() => { setAddDocMode(null); setShowConnectLibrary(true); }}
           onMicrosoft365={() => { setAddDocMode(null); setShowConnectLibrary(true); }}
         />
@@ -1442,9 +1468,6 @@ function TrainingsSopContent() {
           libraryPrefill={libraryUploadPrefill}
           onClearLibraryPrefill={() => setLibraryUploadPrefill(null)}
         />
-      )}
-      {addDocMode === "entrata" && (
-        <EntrataDocsModal onClose={() => setAddDocMode(null)} onSelect={addDocument} properties={PROPERTIES.filter((p) => p !== "All")} />
       )}
       {showNewFolder && (
         <SimpleModal title="New Folder" placeholder="Folder name" onClose={() => setShowNewFolder(false)} onSave={addFolder} />
@@ -1494,41 +1517,20 @@ function TrainingsSopContent() {
       <ExploreSopsDialog
         open={showExploreSops}
         onOpenChange={setShowExploreSops}
-        existingDocNames={items.filter((d) => d.type === "file").map((d) => d.fileName)}
         onAdd={(template) => {
-          const templateId = addDocToVault({
-            fileName: template.name,
-            documentType: template.documentType,
-            property: "Portfolio",
-            approvalStatus: "review",
-            trainedOn: "No",
-            owner: "Admin",
-            type: "file",
-            source: "upload",
+          // Defer the actual save: pre-fill the "Add document" confirmation
+          // modal so the user can confirm name + scope (and customize per
+          // property) before the doc is created.
+          setShowExploreSops(false);
+          setLibraryUploadPrefill({
+            displayName: template.name,
             body: template.body,
+            kind: "entrata-template",
             tags: template.tags,
-            version: "1.0",
-            history: [{ at: new Date().toISOString(), action: "submitted" as const, by: "Admin", summary: "New document submitted for review." }],
+            documentType: template.documentType,
+            source: "entrata",
           });
-          const escId = addEscalation({
-            type: "approval",
-            name: `Document review: ${template.name}`,
-            summary: "New document submitted for review.",
-            status: "Open",
-            category: "Compliance",
-            property: "Portfolio",
-            assignee: "",
-            linkToSource: `/trainings-sop/detail?id=${templateId}`,
-            labels: [],
-            documentApprovalContext: {
-              documentId: templateId,
-              documentName: template.name,
-              changeSummary: "New document submitted for review.",
-              proposedBody: template.body ?? "",
-              previousBody: "",
-            },
-          });
-          setReviewDocId(escId);
+          setAddDocMode("upload");
         }}
       />
       
@@ -1678,19 +1680,6 @@ function ConnectLibraryDialog({
     </Dialog>
   );
 }
-
-const ENTRATA_PREMADE_DOCS: { id: string; name: string; documentType: VaultItem["documentType"]; description: string; body?: string }[] = [
-  { id: "entrata-leasing-app", name: "Leasing Application", documentType: "policy", description: "Standard application form and criteria", body: "<p>Entrata leasing application template. Configure in Entrata under Leasing > Applications.</p>" },
-  { id: "entrata-movein", name: "Move-in Checklist", documentType: "sop", description: "Pre-move-in and day-of steps", body: "<p>Move-in checklist (Entrata). Covers unit walk, keys, paperwork, and portal setup.</p>" },
-  { id: "entrata-fair-housing", name: "Fair housing & anti-discrimination", documentType: "policy", description: "Fair housing and advertising compliance", body: "<p>Fair housing policy template from Entrata. Align with your jurisdiction and HUD guidance.</p>" },
-  { id: "entrata-security-deposit", name: "Security deposit handling", documentType: "policy", description: "Deposit collection, holding, and refund rules", body: "<p>Security deposit policy. Configure deposit amounts and return timelines in Entrata.</p>" },
-  { id: "entrata-screening", name: "Tenant screening & background checks", documentType: "policy", description: "Applicant screening and approval criteria", body: "<p>Screening criteria (Entrata). Define credit, income, and criminal criteria per property.</p>" },
-  { id: "entrata-eviction", name: "Eviction & lease termination", documentType: "sop", description: "Legal process and notice requirements", body: "<p>Eviction procedures. Follow state and local requirements; configure notices in Entrata.</p>" },
-  { id: "entrata-accommodation", name: "Reasonable accommodation & assistive animals", documentType: "sop", description: "Request handling and documentation", body: "<p>Reasonable accommodation process. Document requests and outcomes in Entrata.</p>" },
-  { id: "entrata-lease-addendum", name: "Lease Addendum Template", documentType: "lease", description: "Standard addendum for lease changes", body: "<p>Lease addendum template. Use for pets, parking, or other lease modifications.</p>" },
-  { id: "entrata-rent-collection", name: "Rent Collection SOP", documentType: "sop", description: "Due dates, late fees, and payment methods", body: "<p>Rent collection SOP. Align with Entrata charge codes and late fee settings.</p>" },
-  { id: "entrata-maintenance-request", name: "Maintenance Request Form", documentType: "other", description: "How residents submit and track work orders", body: "<p>Maintenance request process. Residents use Entrata portal or front office.</p>" },
-];
 
 function MoveToFolderModal({
   folders, currentFolderId, onClose, onMove,
@@ -1889,10 +1878,17 @@ function UploadDocModal({
   onClearLibraryPrefill,
 }: {
   onClose: () => void;
-  onSave: (fileName: string, documentType: VaultItem["documentType"], property?: string, effectiveDate?: string, source?: "upload" | "entrata", body?: string, options?: { scopeLevel?: string; ownerId?: string; propertyId?: string; isInternalOnly?: boolean }) => void;
+  onSave: (fileName: string, documentType: VaultItem["documentType"], property?: string, effectiveDate?: string, source?: "upload" | "entrata", body?: string, options?: { scopeLevel?: string; ownerId?: string; propertyId?: string; isInternalOnly?: boolean; tags?: string[] }) => void;
   properties: string[];
   fileInputRef: React.RefObject<HTMLInputElement | null>;
-  libraryPrefill?: { displayName: string; body: string } | null;
+  libraryPrefill?: {
+    displayName: string;
+    body: string;
+    kind?: "library" | "entrata-template";
+    tags?: string[];
+    documentType?: VaultItem["documentType"];
+    source?: "upload" | "entrata";
+  } | null;
   onClearLibraryPrefill?: () => void;
 }) {
   const [fileName, setFileName] = useState("");
@@ -1907,6 +1903,8 @@ function UploadDocModal({
   const [scopeLevel, setScopeLevel] = useState<"company" | "owner" | "property">("company");
   const [ownerId, setOwnerId] = useState("");
   const [propertyId, setPropertyId] = useState("");
+
+  const isEntrataTemplate = libraryPrefill?.kind === "entrata-template";
 
   // Mock owner data
   const OWNERS = ["Smith Investments", "Jones Portfolio", "Capital Group"];
@@ -1965,15 +1963,23 @@ function UploadDocModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20" onClick={onClose}>
       <div className="w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-        <h3 className="section-title">{libraryPrefill ? "Add document" : "Upload my document"}</h3>
+        <h3 className="section-title">
+          {isEntrataTemplate
+            ? "Add template to library"
+            : libraryPrefill ? "Add document" : "Upload my document"}
+        </h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          {libraryPrefill
-            ? "Your file was imported from the connected library. Confirm the name, type, and scope, then add it to the Vault."
-            : "Add a document from your device. For .txt files, content is extracted automatically."}
+          {isEntrataTemplate
+            ? "Confirm the name and where this template should apply. You can edit the content after it's added."
+            : libraryPrefill
+              ? "Your file was imported from the connected library. Confirm the name, type, and scope, then add it to the Vault."
+              : "Add a document from your device. For .txt files, content is extracted automatically."}
         </p>
         <div className="mt-4 space-y-3">
           <div>
-            <label htmlFor={fileInputId} className="mb-1 block text-xs font-medium text-foreground">File</label>
+            <label htmlFor={fileInputId} className="mb-1 block text-xs font-medium text-foreground">
+              {isEntrataTemplate ? "Source" : "File"}
+            </label>
             <input
               key={fileInputKey}
               id={fileInputId}
@@ -1985,7 +1991,17 @@ function UploadDocModal({
               tabIndex={-1}
               aria-label="Choose file"
             />
-            {pickedFileName ? (
+            {isEntrataTemplate ? (
+              <div className="flex items-center gap-2 rounded-md border border-input bg-background px-3 py-2">
+                <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground" title={pickedFileName ?? ""}>
+                  {pickedFileName}
+                </span>
+                <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                  Entrata template
+                </span>
+              </div>
+            ) : pickedFileName ? (
               <div className="flex items-center gap-2 rounded-md border border-input bg-background px-3 py-2">
                 <FileText className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
                 <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground" title={pickedFileName}>
@@ -2017,7 +2033,9 @@ function UploadDocModal({
                 Choose file
               </Button>
             )}
-            <p className="mt-1 text-[10px] text-muted-foreground">PDF, DOC, DOCX, or TXT. Text content is extracted from .txt files.</p>
+            {!isEntrataTemplate && (
+              <p className="mt-1 text-[10px] text-muted-foreground">PDF, DOC, DOCX, or TXT. Text content is extracted from .txt files.</p>
+            )}
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-foreground">Document name</label>
@@ -2084,65 +2102,21 @@ function UploadDocModal({
             onClick={() =>
               pickedFileName &&
               fileName.trim() &&
-              onSave(fileName.trim(), "sop", property, undefined, "upload", fileBody || undefined, { scopeLevel, ownerId, propertyId })
+              onSave(
+                fileName.trim(),
+                libraryPrefill?.documentType ?? "sop",
+                property,
+                undefined,
+                libraryPrefill?.source ?? "upload",
+                fileBody || undefined,
+                { scopeLevel, ownerId, propertyId, tags: libraryPrefill?.tags }
+              )
             }
             disabled={!pickedFileName || !fileName.trim()}
           >
-            Upload &amp; add to Vault
+            {isEntrataTemplate ? "Add to library" : "Upload & add to Vault"}
           </Button>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function EntrataDocsModal({
-  onClose, onSelect, properties,
-}: {
-  onClose: () => void;
-  onSelect: (fileName: string, documentType: VaultItem["documentType"], property?: string, effectiveDate?: string, source?: "upload" | "entrata", body?: string) => void;
-  properties: string[];
-}) {
-  const [property, setProperty] = useState(properties[0] ?? "Portfolio");
-  const [effectiveDate, setEffectiveDate] = useState("");
-  const handleSelect = (doc: (typeof ENTRATA_PREMADE_DOCS)[number]) => {
-    onSelect(doc.name, doc.documentType, property, effectiveDate || undefined, "entrata", doc.body);
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20" onClick={onClose}>
-      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-border bg-card shadow-lg" onClick={(e) => e.stopPropagation()}>
-        <div className="border-b border-border p-4">
-          <h3 className="section-title">Select from Entrata</h3>
-          <p className="mt-1 text-sm text-muted-foreground">Premade documents and templates from Entrata.</p>
-          <div className="mt-3 flex flex-wrap gap-3">
-            <div>
-              <label className="mb-1 block text-[10px] font-medium text-muted-foreground">Property</label>
-              <select value={property} onChange={(e) => setProperty(e.target.value)} className="select-base h-8 text-sm">
-                {properties.map((p) => (<option key={p} value={p}>{p}</option>))}
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-[10px] font-medium text-muted-foreground">Effective date (optional)</label>
-              <input type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} className="input-base h-8 text-sm" />
-            </div>
-          </div>
-        </div>
-        <ul className="flex-1 overflow-y-auto p-4 space-y-2">
-          {ENTRATA_PREMADE_DOCS.map((doc) => (
-            <li key={doc.id}>
-              <button type="button" onClick={() => handleSelect(doc)} className="flex w-full items-start gap-3 rounded-lg border border-border bg-background p-3 text-left transition-colors hover:bg-muted/50">
-                <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium text-foreground">{doc.name}</p>
-                  <p className="text-xs text-muted-foreground">{doc.description}</p>
-                </div>
-                <span className="shrink-0 text-xs text-primary">Add to Vault</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-        <div className="flex justify-end border-t border-border p-4"><Button variant="ghost" onClick={onClose}>Cancel</Button></div>
       </div>
     </div>
   );
@@ -2253,156 +2227,213 @@ function EditDocSheet({
   );
 }
 
-/* ── Explore SOPs Dialog ── */
-
-const SOP_TEMPLATES: { id: string; name: string; category: string; documentType: VaultItem["documentType"]; description: string; tags?: string[]; body?: string }[] = [
-  { id: "t-1", name: "Fair Housing Policy", category: "Compliance", documentType: "policy", description: "Outlines fair housing obligations, protected classes, and prohibited practices for all staff and AI agents.", tags: ["compliance", "fair-housing"], body: "<h2>Fair Housing Policy</h2><p>This policy establishes the organization's commitment to compliance with the Fair Housing Act, ensuring all prospects and residents receive equal treatment regardless of protected class status.</p><h3>Protected Classes</h3><p>Federal: Race, color, national origin, religion, sex, familial status, disability.</p><p>Additional state/local classes may apply per property jurisdiction.</p><h3>Prohibited Practices</h3><ul><li>Refusing to rent or negotiate based on protected class</li><li>Imposing different terms, conditions, or privileges</li><li>Advertising with discriminatory preference or limitation</li><li>Steering prospects toward or away from certain units or communities</li></ul><h3>AI Agent Requirements</h3><p>All AI-generated communications must be reviewed against fair housing language guidelines. Agents must not reference protected class information in screening or communication.</p>" },
-  { id: "t-2", name: "Screening & Application SOP", category: "Compliance", documentType: "sop", description: "Standard procedure for applicant screening, criteria disclosure, and adverse action notices.", tags: ["compliance", "screening"], body: "<h2>Screening & Application SOP</h2><p>This SOP governs the end-to-end applicant screening process from application intake through final decision notification.</p><h3>Application Intake</h3><ol><li>Collect completed application with required identification</li><li>Verify application fee payment</li><li>Confirm unit availability and hold status</li></ol><h3>Screening Criteria</h3><p>All applicants are evaluated against published criteria including credit score minimums, income-to-rent ratio (typically 3:1), rental history, and criminal background per applicable law.</p><h3>Adverse Action Notices</h3><p>When an application is denied, an adverse action notice must be issued within 5 business days including the specific reason(s) for denial and the applicant's right to dispute.</p>" },
-  { id: "t-3", name: "Reasonable Accommodation SOP", category: "Compliance", documentType: "sop", description: "Process for handling accommodation and modification requests under the Fair Housing Act and ADA.", tags: ["compliance", "accommodation"], body: "<h2>Reasonable Accommodation SOP</h2><p>Procedures for receiving, evaluating, and responding to reasonable accommodation and modification requests.</p><h3>Request Intake</h3><p>All requests—verbal or written—must be documented and acknowledged within 2 business days. No specific form or language is required from the requestor.</p><h3>Evaluation Process</h3><ol><li>Verify the individual has a qualifying disability (if not obvious)</li><li>Determine if the requested accommodation is necessary and reasonable</li><li>Engage in interactive process if modification to request is needed</li></ol><h3>Response Timeline</h3><p>Final response within 10 business days. If additional information is needed, request it promptly and document all communication.</p>" },
-  { id: "t-4", name: "Leasing & Move-In SOP", category: "Leasing", documentType: "sop", description: "End-to-end leasing workflow from inquiry through lease execution and move-in coordination.", tags: ["leasing"], body: "<h2>Leasing & Move-In SOP</h2><h3>Inquiry & Tour</h3><p>Respond to all inquiries within 1 business hour. Schedule tours within 24 hours of request. Follow up within 48 hours if no application received.</p><h3>Application & Approval</h3><ol><li>Send application invitation with screening criteria disclosure</li><li>Process application within 48 hours of completion</li><li>Issue approval/denial notification with next steps</li></ol><h3>Lease Execution</h3><p>Generate lease documents within 24 hours of approval. Allow 72 hours for applicant review and signature. Collect move-in funds per property policy.</p><h3>Move-In Coordination</h3><ul><li>Schedule move-in inspection</li><li>Prepare welcome packet and key distribution</li><li>Set up utility transfers and parking assignments</li></ul>" },
-  { id: "t-5", name: "Renewal & Retention SOP", category: "Leasing", documentType: "sop", description: "Renewal offer timing, retention strategies, rent increase communication, and lease extension handling.", tags: ["leasing", "retention"], body: "<h2>Renewal & Retention SOP</h2><h3>Renewal Timeline</h3><p>Begin renewal outreach 90 days before lease expiration. Send formal offer at 60 days. Final follow-up at 30 days.</p><h3>Retention Strategies</h3><ul><li>Personalized renewal offers based on resident history</li><li>Loyalty incentives for multi-year renewals</li><li>Address maintenance concerns proactively before renewal period</li></ul><h3>Rent Increase Communication</h3><p>Provide written notice per state-required timeline (typically 30-60 days). Include market comparison data when available. Offer to discuss in person.</p>" },
-  { id: "t-6", name: "Notice to Vacate SOP", category: "Leasing", documentType: "sop", description: "Procedures for processing move-out notices, scheduling inspections, and final account settlement.", tags: ["leasing", "move-out"], body: "<h2>Notice to Vacate SOP</h2><h3>Notice Processing</h3><p>Log notice date, intended move-out date, and forwarding address. Confirm required notice period is met per lease terms.</p><h3>Pre-Move-Out Inspection</h3><p>Schedule walkthrough 7-10 days before move-out. Document existing conditions and discuss potential charges.</p><h3>Final Account Settlement</h3><ol><li>Complete move-out inspection within 24 hours of key return</li><li>Calculate final charges and deposit disposition</li><li>Send itemized statement within state-required timeframe</li></ol>" },
-  { id: "t-7", name: "Maintenance Request SOP", category: "Maintenance", documentType: "sop", description: "Work order intake, prioritization, vendor dispatch, resident communication, and completion tracking.", tags: ["maintenance"], body: "<h2>Maintenance Request SOP</h2><h3>Work Order Intake</h3><p>Accept requests via portal, phone, email, or in-person. Log all requests in the work order system within 1 hour.</p><h3>Prioritization</h3><ul><li><strong>Emergency (P0):</strong> Life safety, flooding, no heat in winter — respond within 1 hour</li><li><strong>Urgent (P1):</strong> No hot water, HVAC failure, appliance leak — respond within 4 hours</li><li><strong>Routine (P2):</strong> Cosmetic repairs, minor appliance issues — respond within 48 hours</li></ul><h3>Resident Communication</h3><p>Send confirmation when work order is created. Notify when tech is dispatched. Confirm completion and request satisfaction feedback.</p>" },
-  { id: "t-8", name: "Emergency Maintenance SOP", category: "Maintenance", documentType: "sop", description: "After-hours emergency response procedures for floods, fires, lock-outs, and HVAC failures.", tags: ["maintenance", "emergency"], body: "<h2>Emergency Maintenance SOP</h2><h3>Emergency Classification</h3><p>The following qualify as after-hours emergencies: active water leaks or flooding, fire or smoke, gas leak or odor, no heat when below 50°F, complete electrical outage, lock-out (safety concern), sewer backup.</p><h3>Response Protocol</h3><ol><li>Instruct resident on immediate safety steps (evacuate if fire/gas)</li><li>Dispatch on-call technician within 30 minutes</li><li>Contact vendor if specialized response needed</li><li>Notify property manager for any incident requiring insurance claim</li></ol><h3>Documentation</h3><p>Complete incident report within 24 hours. Include photos, timeline, and remediation steps.</p>" },
-  { id: "t-9", name: "Unit Turn & Make-Ready SOP", category: "Maintenance", documentType: "sop", description: "Checklist and timeline for turning units between residents, including inspection and punch list.", tags: ["maintenance", "turns"], body: "<h2>Unit Turn & Make-Ready SOP</h2><h3>Turn Timeline</h3><p>Target: 5-7 day turn for standard units. Begin within 24 hours of move-out inspection completion.</p><h3>Inspection Checklist</h3><ul><li>Walls, ceilings, trim — patch, paint, clean</li><li>Flooring — clean, repair, or replace</li><li>Appliances — clean, test, replace filters</li><li>Plumbing — test fixtures, clear drains, check for leaks</li><li>HVAC — replace filter, test operation</li><li>Safety — test smoke/CO detectors, check locks and deadbolts</li></ul><h3>Final Walkthrough</h3><p>Property manager signs off on completed punch list before unit is listed as available.</p>" },
-  { id: "t-10", name: "Rent Collection & Delinquency SOP", category: "Payments", documentType: "sop", description: "Payment processing, late fee policies, delinquency follow-up cadence, and payment plan procedures.", tags: ["payments"], body: "<h2>Rent Collection & Delinquency SOP</h2><h3>Payment Processing</h3><p>Rent is due on the 1st. Grace period through the 5th (per lease). Late fees applied automatically on the 6th.</p><h3>Delinquency Follow-Up</h3><ol><li>Day 6: Automated late notice + late fee posting</li><li>Day 10: Personal outreach (call or email) to discuss payment</li><li>Day 15: Formal demand letter with payment plan option</li><li>Day 20: Final notice before legal/eviction proceedings</li></ol><h3>Payment Plans</h3><p>Available at manager discretion for residents with good payment history. Maximum 3-month repayment term. Must be documented in writing.</p>" },
-  { id: "t-11", name: "Refund & Credit Policy", category: "Payments", documentType: "policy", description: "Guidelines for issuing refunds, concessions, and account credits with approval thresholds.", tags: ["payments"], body: "<h2>Refund & Credit Policy</h2><h3>Approval Thresholds</h3><ul><li>Under $100: Property Manager approval</li><li>$100–$500: Regional Manager approval</li><li>Over $500: VP of Operations approval</li></ul><h3>Processing</h3><p>Refunds processed within 5 business days of approval. Credits applied to resident ledger same day. All refunds require documented justification.</p>" },
-  { id: "t-12", name: "Resident Complaint Escalation SOP", category: "Resident Relations", documentType: "sop", description: "How to receive, log, escalate, and resolve resident complaints across all channels.", tags: ["resident-relations", "escalation"], body: "<h2>Resident Complaint Escalation SOP</h2><h3>Intake</h3><p>All complaints logged in the escalation system regardless of channel (in-person, phone, email, portal, social media). Acknowledge receipt within 4 hours.</p><h3>Escalation Tiers</h3><ol><li><strong>Tier 1:</strong> On-site staff — resolve within 24 hours</li><li><strong>Tier 2:</strong> Property Manager — if unresolved after 48 hours or resident requests escalation</li><li><strong>Tier 3:</strong> Regional Manager — recurring complaints or legal/liability concerns</li></ol><h3>Resolution & Follow-Up</h3><p>Document resolution. Follow up with resident within 48 hours of resolution to confirm satisfaction. Log outcome for reporting.</p>" },
-  { id: "t-13", name: "Pet & Animal Policy", category: "General", documentType: "policy", description: "Pet policies, breed restrictions, pet deposits, and assistance animal verification procedures.", tags: ["policy"], body: "<h2>Pet & Animal Policy</h2><h3>Pet Policy</h3><p>Maximum 2 pets per unit. Pet deposit and monthly pet rent per lease addendum. Breed and weight restrictions per property.</p><h3>Assistance Animals</h3><p>Assistance animals (service animals and emotional support animals) are NOT pets. No pet deposit, pet rent, or breed/weight restrictions apply. Reasonable documentation of disability-related need may be requested per HUD guidance.</p><h3>Violations</h3><p>Unauthorized pets subject to lease violation notice and applicable fees. Repeated violations may result in lease non-renewal.</p>" },
-  { id: "t-14", name: "Vendor Management SOP", category: "General", documentType: "sop", description: "Vendor onboarding, insurance verification, performance tracking, and invoice approval workflows.", tags: ["operations", "vendors"], body: "<h2>Vendor Management SOP</h2><h3>Onboarding</h3><p>All vendors must provide: W-9, certificate of insurance (minimum $1M general liability), business license, and signed vendor agreement.</p><h3>Insurance Verification</h3><p>Verify COI annually. Set calendar reminders 30 days before expiration. Suspend vendor access if lapsed.</p><h3>Performance Tracking</h3><ul><li>Response time to dispatch</li><li>Quality of work (callback rate)</li><li>Invoice accuracy</li><li>Resident satisfaction scores</li></ul><h3>Invoice Approval</h3><p>Invoices matched to PO/work order. Under $1,000: auto-approved if within estimate. Over $1,000: Property Manager review required.</p>" },
-];
-
-const SOP_TEMPLATE_CATEGORIES = [...new Set(SOP_TEMPLATES.map((t) => t.category))];
+/* Explore SOP Templates: six core SOPs; preview loads exact copy from public/sop-templates/*.md. */
+const SOP_TEMPLATES = ENTRATA_CORE_SOP_TEMPLATES;
 
 function ExploreSopsDialog({
   open,
   onOpenChange,
-  existingDocNames,
   onAdd,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  existingDocNames: string[];
-  onAdd: (template: (typeof SOP_TEMPLATES)[0]) => void;
+  onAdd: (template: SopTemplateItem & { body: string }) => void;
 }) {
-  const [categoryFilter, setCategoryFilter] = useState("All");
-  const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [previewMd, setPreviewMd] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [addLoadingId, setAddLoadingId] = useState<string | null>(null);
+  const mdCache = useRef<Map<string, string>>(new Map());
+
+  const loadSource = useCallback(async (t: SopTemplateItem): Promise<string> => {
+    const hit = mdCache.current.get(t.id);
+    if (hit) return hit;
+    const res = await fetch(t.sourcePath, { cache: "no-store" });
+    if (!res.ok) throw new Error(`Could not load this template (HTTP ${res.status})`);
+    const text = await res.text();
+    mdCache.current.set(t.id, text);
+    return text;
+  }, []);
+
   const previewTemplate = previewId ? SOP_TEMPLATES.find((t) => t.id === previewId) : null;
 
-  const filtered = categoryFilter === "All"
-    ? SOP_TEMPLATES
-    : SOP_TEMPLATES.filter((t) => t.category === categoryFilter);
+  const previewHtml = useMemo(() => {
+    if (previewMd == null) return null;
+    try {
+      return marked(previewMd, { async: false });
+    } catch (e) {
+      console.error("SOP template markdown render", e);
+      return null;
+    }
+  }, [previewMd]);
 
-  const handleAdd = (template: (typeof SOP_TEMPLATES)[0]) => {
-    onAdd(template);
-    setAddedIds((prev) => new Set(prev).add(template.id));
+  useEffect(() => {
+    if (!previewTemplate) {
+      setPreviewMd(null);
+      setPreviewError(null);
+      setPreviewLoading(false);
+      return;
+    }
+    setPreviewLoading(true);
+    setPreviewError(null);
+    setPreviewMd(null);
+    let cancel = false;
+    loadSource(previewTemplate)
+      .then((text) => {
+        if (!cancel) setPreviewMd(text);
+      })
+      .catch((e) => {
+        if (!cancel) {
+          setPreviewError(e instanceof Error ? e.message : "Failed to load");
+        }
+      })
+      .finally(() => {
+        if (!cancel) setPreviewLoading(false);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [previewId, previewTemplate, loadSource]);
+
+  const handleAdd = async (template: SopTemplateItem) => {
+    if (addLoadingId) return;
+    setAddLoadingId(template.id);
+    try {
+      const md = await loadSource(template);
+      // Convert markdown to HTML so headings, bold, lists, and tables render
+      // correctly in the rich-text editor (TipTap reads HTML, not markdown).
+      let body = md;
+      try {
+        const html = marked(md, { async: false });
+        if (typeof html === "string" && html.trim()) body = html;
+      } catch (e) {
+        console.error("SOP template markdown→HTML on add", e);
+      }
+      onAdd({ ...template, body });
+    } catch (e) {
+      console.error("Add template from library", e);
+    } finally {
+      setAddLoadingId(null);
+    }
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) setPreviewId(null); }}>
-      <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col">
+    <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) { setPreviewId(null); mdCache.current.clear(); } }}>
+      <DialogContent
+        className={cn(
+          "flex w-full max-w-2xl flex-col gap-0 overflow-hidden p-0",
+          "max-h-[min(92vh,56rem)] min-h-0",
+        )}
+      >
         {previewTemplate ? (
           <>
-            <DialogHeader>
-              <div className="flex items-center gap-2">
-                <button type="button" onClick={() => setPreviewId(null)} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
+            <div className="shrink-0 space-y-1.5 border-b border-border px-6 pb-4 pt-6 text-left">
+              <div className="flex items-start gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPreviewId(null)}
+                  className="mt-0.5 rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  aria-label="Back to template list"
+                >
                   <ChevronRight className="h-4 w-4 rotate-180" />
                 </button>
-                <div>
-                  <DialogTitle>{previewTemplate.name}</DialogTitle>
-                  <DialogDescription>{previewTemplate.category} · {previewTemplate.documentType}</DialogDescription>
+                <div className="min-w-0">
+                  <DialogTitle className="pr-4">{previewTemplate.name}</DialogTitle>
+                  <DialogDescription className="sr-only">
+                    Preview of the {previewTemplate.name} SOP template.
+                  </DialogDescription>
                 </div>
               </div>
-            </DialogHeader>
-            <div className="flex-1 overflow-y-auto -mx-6 px-6">
-              <div className="prose prose-sm max-w-none dark:prose-invert" dangerouslySetInnerHTML={{ __html: previewTemplate.body ?? "<p>No preview content available.</p>" }} />
             </div>
-            <div className="flex justify-end gap-2 pt-2 border-t border-border">
-              <Button variant="outline" size="sm" onClick={() => setPreviewId(null)}>Back to list</Button>
-              {existingDocNames.some((n) => n.toLowerCase() === previewTemplate.name.toLowerCase()) || addedIds.has(previewTemplate.id) ? (
-                <span className="inline-flex items-center gap-1 text-xs text-emerald-600 px-3">
-                  <CheckCircle className="h-3.5 w-3.5" /> {addedIds.has(previewTemplate.id) ? "Added" : "In library"}
-                </span>
-              ) : (
-                <Button size="sm" onClick={() => handleAdd(previewTemplate)}>
-                  <Plus className="h-3 w-3" /> Add to library
-                </Button>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-4">
+              {previewLoading && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                  Loading document…
+                </div>
               )}
+              {previewError && <p className="text-sm text-destructive">{previewError}</p>}
+              {previewHtml != null && !previewLoading && !previewError && (
+                <div className="min-w-0 max-w-full overflow-x-auto">
+                  <div
+                    className="prose prose-sm max-w-none dark:prose-invert prose-a:text-primary [&_table]:w-full [&_table]:text-sm"
+                    // eslint-disable-next-line react/no-danger -- SOP text is from shipped public/*.md only
+                    dangerouslySetInnerHTML={{ __html: previewHtml }}
+                  />
+                </div>
+              )}
+              {!previewLoading && !previewError && previewMd != null && previewHtml == null && (
+                <p className="text-sm text-destructive">Could not render this document as HTML.</p>
+              )}
+            </div>
+            <div className="shrink-0 flex flex-wrap items-center justify-end gap-2 border-t border-border px-6 py-4">
+              <Button variant="outline" size="sm" onClick={() => setPreviewId(null)}>
+                Back to list
+              </Button>
+              <Button
+                size="sm"
+                disabled={!!addLoadingId || previewLoading}
+                onClick={() => handleAdd(previewTemplate)}
+                title="Add this template to your library — customize the copy after it's added"
+              >
+                {addLoadingId === previewTemplate.id ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Plus className="h-3 w-3" />
+                )}{" "}
+                Add to library
+              </Button>
             </div>
           </>
         ) : (
           <>
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                Explore SOP Templates
-              </DialogTitle>
-              <DialogDescription>
-                Browse templates to jumpstart your document library. Preview any template, then add it for review and customize for your portfolio.
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="flex flex-wrap gap-1.5 pb-2">
-              <button
-                type="button"
-                onClick={() => setCategoryFilter("All")}
-                className={cn(
-                  "rounded-full px-3 py-1 text-xs font-medium transition-colors",
-                  categoryFilter === "All" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
-                )}
-              >
-                All
-              </button>
-              {SOP_TEMPLATE_CATEGORIES.map((cat) => (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => setCategoryFilter(cat)}
-                  className={cn(
-                    "rounded-full px-3 py-1 text-xs font-medium transition-colors",
-                    categoryFilter === cat ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
-                  )}
-                >
-                  {cat}
-                </button>
-              ))}
+            <div className="shrink-0 space-y-1.5 border-b border-border px-6 pb-4 pt-6">
+              <DialogHeader>
+                <DialogTitle>Explore SOP Templates</DialogTitle>
+                <DialogDescription>
+                  Pick a template, <strong>Preview</strong> the full document, then <strong>Add</strong> it to your library to
+                  review, edit, and align with your properties.
+                </DialogDescription>
+              </DialogHeader>
             </div>
-
-            <div className="flex-1 overflow-y-auto -mx-6 px-6">
-              <div className="divide-y divide-border pb-2">
-                {filtered.map((template) => {
-                  const alreadyInVault = existingDocNames.some((n) => n.toLowerCase() === template.name.toLowerCase());
-                  const justAdded = addedIds.has(template.id);
-                  return (
-                    <div key={template.id} className="flex items-start gap-3 py-3">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6">
+              <div className="divide-y divide-border pb-4">
+                {SOP_TEMPLATES.map((template) => (
+                  <div key={template.id} className="flex items-start gap-2 py-3 sm:gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewId(template.id)}
+                      className="flex min-w-0 flex-1 items-start gap-3 rounded-md text-left outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    >
                       <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted">
                         <FileText className="h-4 w-4 text-foreground" />
                       </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <button type="button" onClick={() => setPreviewId(template.id)} className="text-sm font-medium text-foreground hover:text-primary hover:underline text-left">
-                            {template.name}
-                          </button>
-                        </div>
-                        <p className="mt-0.5 text-xs text-muted-foreground">{template.description}</p>
-                      </div>
-                      <div className="shrink-0 flex items-center gap-1.5 pt-0.5">
-                        <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={() => setPreviewId(template.id)}>
-                          Preview
-                        </Button>
-                        {alreadyInVault || justAdded ? (
-                          <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
-                            <CheckCircle className="h-3.5 w-3.5" /> {justAdded ? "Added" : "In library"}
-                          </span>
-                        ) : (
-                          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleAdd(template)}>
-                            <Plus className="h-3 w-3" /> Add
-                          </Button>
-                        )}
-                      </div>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium text-foreground">{template.name}</span>
+                        <span className="mt-0.5 block text-xs text-muted-foreground">{template.description}</span>
+                      </span>
+                    </button>
+                    <div className="shrink-0 flex items-center gap-1.5 pt-0.5" onClick={(e) => e.stopPropagation()}>
+                      <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={() => setPreviewId(template.id)}>
+                        Preview
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 min-w-0 text-xs"
+                        disabled={addLoadingId === template.id}
+                        onClick={() => {
+                          void handleAdd(template);
+                        }}
+                        title="Add this template to your library — customize the copy after it's added"
+                      >
+                        {addLoadingId === template.id ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : <Plus className="h-3 w-3" />}{" "}
+                        Add
+                      </Button>
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
               </div>
             </div>
           </>
