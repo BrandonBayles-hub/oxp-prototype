@@ -627,6 +627,61 @@ type EntrataProfileThreadRow = {
   emailSubject?: string;
 };
 
+/**
+ * Parse a thread message timestamp (e.g. "Aug 21 2025 · 9:10am") into ms.
+ * Returns 0 if it can't be parsed so unparseable rows sort to the bottom.
+ */
+function parseThreadMessageTimestamp(ts: string | undefined): number {
+  if (!ts) return 0;
+  const cleaned = ts.replace("·", " ").replace(/\s+/g, " ").trim();
+  const match = cleaned.match(
+    /^([A-Za-z]+)\s+(\d{1,2})\s+(\d{4})(?:\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm|AM|PM))?$/
+  );
+  if (!match) {
+    const fallback = Date.parse(cleaned);
+    return Number.isFinite(fallback) ? fallback : 0;
+  }
+  const [, monthStr, dayStr, yearStr, hourStr, minStr, mer] = match;
+  const months: Record<string, number> = {
+    jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+    jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+  };
+  const monthKey = monthStr.slice(0, 3).toLowerCase();
+  const month = months[monthKey];
+  if (month === undefined) return 0;
+  const day = parseInt(dayStr, 10);
+  const year = parseInt(yearStr, 10);
+  let hour = hourStr ? parseInt(hourStr, 10) % 12 : 0;
+  if (mer && mer.toLowerCase() === "pm") hour += 12;
+  const minute = minStr ? parseInt(minStr, 10) : 0;
+  return new Date(year, month, day, hour, minute).getTime();
+}
+
+/** Treat the most recent message timestamp on a thread as its close date. */
+function getThreadCloseTimestamp(thread: EntrataProfileThreadRow): number {
+  if (!thread.messages.length) return 0;
+  let latest = 0;
+  for (const m of thread.messages) {
+    const ms = parseThreadMessageTimestamp(m.timestamp);
+    if (ms > latest) latest = ms;
+  }
+  return latest;
+}
+
+function formatThreadCloseDate(thread: EntrataProfileThreadRow): string | null {
+  const ms = getThreadCloseTimestamp(thread);
+  if (!ms) return null;
+  try {
+    return new Date(ms).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return null;
+  }
+}
+
 function ConversationsContent() {
   const {
     filteredItems: conversations,
@@ -1146,6 +1201,28 @@ function ConversationsContent() {
         { role: "user" as const, text: "I need a copy of my payment history for the last 6 months for my tax filing.", timestamp: "Aug 10 2025 · 2:00pm" },
         { role: "staff" as const, text: "Of course! I've generated a ledger statement for the past 6 months and uploaded it to your resident portal under Documents.", timestamp: "Aug 10 2025 · 2:15pm" },
         { role: "user" as const, text: "Perfect, I see it. Thank you!", timestamp: "Aug 10 2025 · 2:20pm" },
+      ],
+    },
+    {
+      property: "Sun Valley", type: "Facilities", channel: "SMS", status: "closed", assignee: "Jane Doe",
+      messages: [
+        { role: "user" as const, text: "The garage gate clicker stopped working again.", timestamp: "Jul 18 2025 · 4:42pm" },
+        { role: "staff" as const, text: "Sorry about that. I've reprogrammed your remote and tested it just now — please let me know if it gives you any more trouble.", timestamp: "Jul 18 2025 · 5:01pm" },
+        { role: "user" as const, text: "Working great, thank you!", timestamp: "Jul 18 2025 · 5:10pm" },
+      ],
+    },
+    {
+      property: "Sun Valley", type: "Leasing", channel: "Email", status: "closed", assignee: "Mark Lee",
+      messages: [
+        { role: "user" as const, text: "Following up on the parking permit transfer to my new vehicle.", timestamp: "Jun 30 2025 · 10:15am" },
+        { role: "staff" as const, text: "Got it — transferred the permit to your new plate and emailed the updated decal info.", timestamp: "Jun 30 2025 · 11:02am" },
+      ],
+    },
+    {
+      property: "Sun Valley", type: "Office", channel: "SMS", status: "closed", assignee: "Court White",
+      messages: [
+        { role: "user" as const, text: "Can you confirm the office is closed on the Fourth of July?", timestamp: "Jun 15 2025 · 9:30am" },
+        { role: "staff" as const, text: "Yes, the leasing office will be closed July 4th and reopen on the 5th at 9am.", timestamp: "Jun 15 2025 · 9:45am" },
       ],
     },
     ];
@@ -4079,51 +4156,71 @@ function ConversationsContent() {
                     ))}
                   </div>
                   <div className="space-y-5">
-                    {profilePanelThreads.filter((t) => t.status === threadsFilter).map((thread, i) => {
-                      const globalIdx = profilePanelThreads.indexOf(thread);
-                      return (
-                      <div
-                        key={i}
-                        className="flex items-start gap-3 cursor-pointer rounded-lg p-1.5 -mx-1.5 transition-colors hover:bg-gray-50"
-                        onClick={() => {
-                          setProfilePanelInboxOpen(false);
-                          setNewThreadOutbound(null);
-                          setOpenThreadIdx(globalIdx);
-                        }}
-                      >
-                        <div className="mt-0.5 flex items-center">
-                          <span className={`inline-block h-2 w-2 rounded-full ${thread.status === "active" ? "bg-blue-500" : "bg-transparent"}`} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[13px] font-semibold text-gray-900">{thread.property}: {thread.type}</p>
-                          {getThreadAssignee(globalIdx) && <p className="text-[11px] text-gray-500 mt-0.5">Active: {getThreadAssignee(globalIdx)}</p>}
-                          <span className="mt-1 inline-block rounded bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">{thread.channel}</span>
-                        </div>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <button
-                              className={
-                                getThreadAssignee(globalIdx)
-                                  ? `flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[9px] font-bold transition-colors hover:ring-2 hover:ring-gray-300 ${avatarColor(getThreadAssignee(globalIdx)!)}`
-                                  : "shrink-0 flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-gray-300 text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
-                              }
-                              title={getThreadAssignee(globalIdx) ? `Assigned to ${getThreadAssignee(globalIdx)}. Click to reassign.` : "Assign someone to this thread"}
-                              onClick={(e) => e.stopPropagation()}
+                    {profilePanelThreads
+                        .map((thread, originalIdx) => ({ thread, originalIdx }))
+                        .filter(({ thread }) => thread.status === threadsFilter)
+                        .sort((a, b) => {
+                          const aTs = getThreadCloseTimestamp(a.thread);
+                          const bTs = getThreadCloseTimestamp(b.thread);
+                          return bTs - aTs;
+                        })
+                        .map(({ thread, originalIdx }, i) => {
+                          const globalIdx = originalIdx;
+                          const assignee = getThreadAssignee(globalIdx);
+                          const dateLabel = formatThreadCloseDate(thread);
+                          const isClosed = thread.status === "closed";
+                          return (
+                            <div
+                              key={i}
+                              className="flex items-start gap-3 cursor-pointer rounded-lg p-1.5 -mx-1.5 transition-colors hover:bg-gray-50"
+                              onClick={() => {
+                                setProfilePanelInboxOpen(false);
+                                setNewThreadOutbound(null);
+                                setOpenThreadIdx(globalIdx);
+                              }}
                             >
-                              {getThreadAssignee(globalIdx) ? initials(getThreadAssignee(globalIdx)!) : <Plus className="h-4 w-4" />}
-                            </button>
-                          </PopoverTrigger>
-                          <PopoverContent className="z-[70] w-[280px] p-0" align="end" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-                            <ThreadAssignPicker
-                              agents={THREAD_AGENTS}
-                              currentAssignee={getThreadAssignee(globalIdx)}
-                              onAssign={(name) => assignThread(globalIdx, name)}
-                            />
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-                      );
-                    })}
+                              <div className="mt-0.5 flex items-center">
+                                <span className={`inline-block h-2 w-2 rounded-full ${thread.status === "active" ? "bg-blue-500" : "bg-transparent"}`} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[13px] font-semibold text-gray-900">{thread.property}: {thread.type}</p>
+                                {assignee && (
+                                  <p className="text-[11px] text-gray-500 mt-0.5">
+                                    {isClosed ? `Closed by ${assignee}` : assignee}
+                                  </p>
+                                )}
+                                {dateLabel && (
+                                  <p className="text-[11px] text-gray-500 mt-0.5">
+                                    {isClosed ? `Closed on ${dateLabel}` : `Last message ${dateLabel}`}
+                                  </p>
+                                )}
+                                <span className="mt-1 inline-block rounded bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">{thread.channel}</span>
+                              </div>
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <button
+                                    className={
+                                      assignee
+                                        ? `flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[9px] font-bold transition-colors hover:ring-2 hover:ring-gray-300 ${avatarColor(assignee)}`
+                                        : "shrink-0 flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-gray-300 text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
+                                    }
+                                    title={assignee ? `Assigned to ${assignee}. Click to reassign.` : "Assign someone to this thread"}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {assignee ? initials(assignee) : <Plus className="h-4 w-4" />}
+                                  </button>
+                                </PopoverTrigger>
+                                <PopoverContent className="z-[70] w-[280px] p-0" align="end" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+                                  <ThreadAssignPicker
+                                    agents={THREAD_AGENTS}
+                                    currentAssignee={assignee}
+                                    onAssign={(name) => assignThread(globalIdx, name)}
+                                  />
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+                          );
+                        })}
                   </div>
                   {/* New Thread button */}
                   <button
