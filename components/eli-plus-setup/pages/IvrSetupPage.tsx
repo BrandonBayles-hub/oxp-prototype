@@ -1,32 +1,28 @@
 "use client"
 
-import { Fragment, useState } from "react"
+import { Fragment, useEffect, useState } from "react"
 import type { PageId } from "../index"
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
 import {
-  Phone,
+  AlertTriangle,
+  ArrowRight,
   ChevronDown,
   ChevronUp,
-  AlertTriangle,
   CornerDownRight,
-  CheckCircle2,
-  ShieldCheck,
+  Info,
+  Phone,
+  PhoneForwarded,
+  PhoneOff,
+  Sparkles,
   TrendingDown,
   Users,
-  PhoneOff,
-  ArrowRight,
-  Sparkles,
+  Voicemail,
 } from "lucide-react"
 
+// Kept for backwards compat with parent (index.tsx still imports this type).
+// IVR is now referential only — selection always defaults to "preferred".
 export type IvrChoice = null | "preferred" | "existing" | "thirdparty"
-type IvrSelection = Exclude<IvrChoice, null>
-
-const CHOICE_LABEL: Record<IvrSelection, string> = {
-  preferred: "Preferred Entrata IVR",
-  existing: "Existing Entrata IVR",
-  thirdparty: "3rd-party IVR",
-}
 
 // ── Preferred menu preview ───────────────────────────────────────────────────
 
@@ -153,7 +149,7 @@ function StatTile({
     : tone === "amber" ? "text-amber-600"
     : "text-zinc-500"
   return (
-    <div className="p-4 flex flex-col gap-1.5">
+    <div className="rounded-lg border border-border bg-white p-4 flex flex-col gap-1.5">
       <Icon className={cn("h-4 w-4", iconColor)} aria-hidden />
       <p className="text-2xl font-bold tracking-tight text-foreground leading-none">{value}</p>
       <p className="text-xs text-muted-foreground leading-snug">{label}</p>
@@ -162,149 +158,101 @@ function StatTile({
   )
 }
 
-// ── Selection cards ──────────────────────────────────────────────────────────
+// ── Custom IVR risk callout (vague themes — no tickets, no specifics) ───────
 
-function SelectionCards({
-  selection,
-  setSelection,
-  previewOpen,
-  setPreviewOpen,
+interface CustomIvrTheme {
+  icon: typeof PhoneOff
+  title: string
+  description: string
+}
+
+const CUSTOM_IVR_THEMES: CustomIvrTheme[] = [
+  {
+    icon: PhoneForwarded,
+    title: "Calls don't reach Leasing AI",
+    description:
+      "Custom menus can skip the path that forwards leasing calls to AI, so prospects may not get answered.",
+  },
+  {
+    icon: Voicemail,
+    title: "Calls drop into voicemail",
+    description:
+      "Overflow and after-hours paths sometimes land in property voicemail instead of routing to the assistant.",
+  },
+  {
+    icon: Phone,
+    title: "Vanity numbers and IVR routing break",
+    description:
+      "Custom forwarding numbers and vanity lines can collide with AI forwarding and create routing loops.",
+  },
+]
+
+function CustomIvrAlert() {
+  return (
+    <section className="rounded-xl border-2 border-amber-300 bg-amber-50/60 px-5 py-5">
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100">
+          <AlertTriangle className="h-4 w-4 text-amber-700" aria-hidden />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-700">
+            Heads up — custom IVR detected
+          </p>
+          <h2 className="text-base font-semibold text-amber-950 mt-0.5">
+            Your existing IVR may interfere with AI call routing
+          </h2>
+          <p className="text-xs text-amber-900/80 mt-1.5 leading-relaxed">
+            When custom IVRs run alongside AI products, these are the kinds of issues that
+            come up most. You can keep your custom IVR; just know what to watch for.
+          </p>
+        </div>
+      </div>
+
+      <ul className="space-y-2.5 mt-4">
+        {CUSTOM_IVR_THEMES.map((theme) => (
+          <li
+            key={theme.title}
+            className="rounded-lg border border-amber-200 bg-white px-3.5 py-3 flex items-start gap-3"
+          >
+            <theme.icon className="h-4 w-4 text-amber-700 mt-0.5 shrink-0" aria-hidden />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-foreground">{theme.title}</p>
+              <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                {theme.description}
+              </p>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+// ── Reference cards (read-only — replaces the old selectable choice cards) ──
+
+function ReferenceOptionCard({
+  title,
+  description,
+  helper,
+  badge,
 }: {
-  selection: IvrSelection
-  setSelection: (s: IvrSelection) => void
-  previewOpen: boolean
-  setPreviewOpen: (v: boolean) => void
+  title: string
+  description: string
+  helper: string
+  badge?: string
 }) {
   return (
-    <div className="grid grid-cols-1 gap-3">
-      {/* Preferred */}
-      <button
-        type="button"
-        onClick={() => setSelection("preferred")}
-        className={cn(
-          "rounded-xl border p-4 text-left transition-all",
-          selection === "preferred"
-            ? "border-zinc-900 bg-white ring-1 ring-zinc-900"
-            : "border-border bg-white hover:border-zinc-400",
+    <div className="rounded-xl border border-border bg-white p-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <p className="text-sm font-semibold text-foreground">{title}</p>
+        {badge && (
+          <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium bg-zinc-100 text-zinc-700 border border-zinc-200">
+            {badge}
+          </span>
         )}
-      >
-        <div className="flex items-start gap-3">
-          <div className={cn(
-            "mt-0.5 h-4 w-4 rounded-full border-2 flex items-center justify-center shrink-0",
-            selection === "preferred" ? "border-zinc-900" : "border-zinc-300",
-          )}>
-            {selection === "preferred" && <div className="h-2 w-2 rounded-full bg-zinc-900" />}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className="text-sm font-semibold text-foreground">Use Preferred Entrata IVR</p>
-              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                <CheckCircle2 className="h-3 w-3" aria-hidden />
-                Recommended
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Two-level menu optimized for leasing, maintenance, and resident calls. Routes directly to Leasing AI and Maintenance AI — no manual per-property setup needed.
-            </p>
-            {selection === "preferred" && (
-              <div className="mt-3">
-                <PreferredPreview expanded={previewOpen} onToggle={() => setPreviewOpen(!previewOpen)} />
-              </div>
-            )}
-          </div>
-        </div>
-      </button>
-
-      {/* Existing Entrata */}
-      <button
-        type="button"
-        onClick={() => setSelection("existing")}
-        className={cn(
-          "rounded-xl border p-4 text-left transition-all",
-          selection === "existing"
-            ? "border-zinc-900 bg-white ring-1 ring-zinc-900"
-            : "border-border bg-white hover:border-zinc-400",
-        )}
-      >
-        <div className="flex items-start gap-3">
-          <div className={cn(
-            "mt-0.5 h-4 w-4 rounded-full border-2 flex items-center justify-center shrink-0",
-            selection === "existing" ? "border-zinc-900" : "border-zinc-300",
-          )}>
-            {selection === "existing" && <div className="h-2 w-2 rounded-full bg-zinc-900" />}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className="text-sm font-semibold text-foreground">Use Existing Entrata IVR</p>
-              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
-                <AlertTriangle className="h-3 w-3" aria-hidden />
-                Not recommended
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Keep an IVR you already built in Entrata. You'll need to add each property's AI forwarding number to that IVR manually.
-            </p>
-            {selection === "existing" && (
-              <div className="mt-3 rounded-lg border border-zinc-200 bg-white p-3 space-y-3">
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  Each property has a unique AI forwarding number — find them on the Communications tab, then add them as destinations in your existing IVR.
-                </p>
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); window.open("#", "_blank") }}
-                  className={cn(buttonVariants({ variant: "eli", size: "sm" }), "w-full justify-center")}
-                >
-                  Open Existing IVR Settings
-                  <ArrowRight className="h-3.5 w-3.5" aria-hidden />
-                </button>
-                <p className="text-[10px] text-muted-foreground text-center">
-                  Company › Communication › Call Handling › Call Menu
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      </button>
-
-      {/* 3rd-party */}
-      <button
-        type="button"
-        onClick={() => setSelection("thirdparty")}
-        className={cn(
-          "rounded-xl border p-4 text-left transition-all",
-          selection === "thirdparty"
-            ? "border-zinc-900 bg-white ring-1 ring-zinc-900"
-            : "border-border bg-white hover:border-zinc-400",
-        )}
-      >
-        <div className="flex items-start gap-3">
-          <div className={cn(
-            "mt-0.5 h-4 w-4 rounded-full border-2 flex items-center justify-center shrink-0",
-            selection === "thirdparty" ? "border-zinc-900" : "border-zinc-300",
-          )}>
-            {selection === "thirdparty" && <div className="h-2 w-2 rounded-full bg-zinc-900" />}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className="text-sm font-semibold text-foreground">Use 3rd-party IVR</p>
-              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
-                <AlertTriangle className="h-3 w-3" aria-hidden />
-                Not recommended
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Using an external IVR provider? You'll need to wire each property's AI forwarding number into that system on your own.
-            </p>
-            {selection === "thirdparty" && (
-              <div className="mt-3 rounded-lg border border-zinc-200 bg-white p-3">
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  Per-property AI forwarding numbers live on the Communications tab. Once your campaigns are approved, copy them into your 3rd-party IVR's routing configuration.
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      </button>
+      </div>
+      <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{description}</p>
+      <p className="text-[11px] text-muted-foreground/80 mt-2 leading-relaxed">{helper}</p>
     </div>
   )
 }
@@ -318,76 +266,89 @@ interface Props {
   showToast?: (msg: string) => void
 }
 
-export function IvrSetupPage({ ivrChoice, onSave, showToast }: Props) {
-  const [selection, setSelection] = useState<IvrSelection>(ivrChoice ?? "preferred")
+export function IvrSetupPage({ ivrChoice, onSave }: Props) {
+  // Prototype-only toggle: simulate a customer who already has a custom IVR.
+  const [hasCustomIvr, setHasCustomIvr] = useState(true)
   const [previewOpen, setPreviewOpen] = useState(true)
 
-  const saved = ivrChoice !== null
-  const pendingChanges = saved && selection !== ivrChoice
-  const deviating = selection !== "preferred"
-
-  function handleSave() {
-    onSave(selection)
-    showToast?.(
-      ivrChoice === null
-        ? `IVR routing saved — ${CHOICE_LABEL[selection]}`
-        : `IVR routing updated — ${CHOICE_LABEL[selection]}`,
-    )
-  }
+  // Mark IVR step as complete on view — the page is referential, so visiting
+  // it acknowledges the default routing and keeps go-live progress intact.
+  useEffect(() => {
+    if (ivrChoice === null) {
+      onSave("preferred")
+    }
+  }, [ivrChoice, onSave])
 
   return (
     <div className="flex flex-col min-h-full bg-stone-50">
-      <div className="flex-1 w-full max-w-5xl p-6 md:p-8 space-y-6">
+      <div className="flex-1 w-full max-w-5xl p-6 md:p-8 space-y-8">
         {/* Header */}
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">IVR Setup</h1>
-          <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-            Tell us how callers should be routed when an AI product goes live. We'll apply your selection automatically the moment Leasing AI, Maintenance AI, Payments AI, or Renewals AI activate — you can revisit this at any time.
-          </p>
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold tracking-tight">IVR Setup</h1>
+            <p className="text-sm text-muted-foreground mt-1 max-w-2xl leading-relaxed">
+              This tab shows how AI calls will be routed at go-live and flags anything in
+              your existing setup that may need attention.{" "}
+              <span className="font-semibold text-foreground">
+                At go-live, we'll apply our default IVR template unless a custom IVR is
+                already in place.
+              </span>
+            </p>
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={() => window.open("#", "_blank")}
+                className={cn(buttonVariants({ variant: "eli", size: "sm" }))}
+              >
+                Open IVR Settings
+                <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            </div>
+          </div>
+
+          {/* Prototype-only simulation toggle */}
+          <div className="hidden lg:flex items-center gap-2 shrink-0 rounded-md border border-dashed border-zinc-300 px-2.5 py-1.5">
+            <Sparkles className="h-3.5 w-3.5 text-zinc-500" aria-hidden />
+            <span className="text-[11px] font-medium text-muted-foreground">Sim:</span>
+            <button
+              type="button"
+              onClick={() => setHasCustomIvr((v) => !v)}
+              className={cn(
+                "text-[11px] font-semibold rounded-sm px-2 py-0.5 transition-colors",
+                hasCustomIvr
+                  ? "bg-amber-100 text-amber-800"
+                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200",
+              )}
+              aria-pressed={hasCustomIvr}
+            >
+              Custom IVR detected
+            </button>
+          </div>
         </div>
 
-        {/* Saved banner */}
-        {saved && !pendingChanges && (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 flex items-start gap-3">
-            <CheckCircle2 className="h-4 w-4 mt-0.5 text-emerald-700 shrink-0" aria-hidden />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-emerald-900">
-                Selection saved — {CHOICE_LABEL[selection]}
-              </p>
-              <p className="text-xs text-emerald-800/80 mt-0.5">
-                This routing will be applied automatically at go-live. Update it anytime below.
-              </p>
-            </div>
-          </div>
-        )}
+        {/* Custom IVR detected — surfaced first when applicable */}
+        {hasCustomIvr && <CustomIvrAlert />}
 
-        {pendingChanges && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex items-start gap-3">
-            <Sparkles className="h-4 w-4 mt-0.5 text-amber-700 shrink-0" aria-hidden />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-amber-900">
-                Unsaved changes
-              </p>
-              <p className="text-xs text-amber-800/80 mt-0.5">
-                You've picked {CHOICE_LABEL[selection]}. Save changes to make it active.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Proof-point card */}
-        <section className="rounded-xl border border-border bg-white overflow-hidden">
-          <div className="px-5 pt-5 pb-4">
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-zinc-900" aria-hidden />
-              <h2 className="text-sm font-semibold text-foreground">Why we recommend the preferred menu</h2>
-            </div>
-            <p className="text-xs text-muted-foreground mt-1.5 max-w-prose">
-              A convoluted IVR is the #1 reason AI deflection, tour-booking, and maintenance-triage KPIs underperform post-launch. The data is consistent across industry research:
+        {/* Default routing — plain section, no container */}
+        <section className="space-y-4">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">
+              Default routing — Preferred Entrata IVR
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1 max-w-prose leading-relaxed">
+              A two-level call menu optimized for leasing, maintenance, and resident calls.
+              Routes directly to Leasing AI, Maintenance AI, Payments AI, and Renewals AI —
+              no per-property setup required. This is what callers will hear the moment your
+              AI products activate.
+            </p>
+            <p className="text-xs text-muted-foreground mt-3 max-w-prose leading-relaxed">
+              A convoluted IVR is the #1 reason AI deflection, tour-booking, and
+              maintenance-triage KPIs underperform post-launch. The data is consistent across
+              industry research:
             </p>
           </div>
 
-          <div className="grid grid-cols-2 lg:grid-cols-4 border-t border-border divide-x divide-border">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <StatTile
               icon={PhoneOff}
               value="67%"
@@ -417,77 +378,42 @@ export function IvrSetupPage({ ivrChoice, onSave, showToast }: Props) {
             />
           </div>
 
-          <div className="px-5 py-3 bg-stone-50/70 border-t border-border">
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
-              Our preferred menu resolves calls in at most two levels and routes directly to the right AI — benchmarked against real Entrata implementations for tour-booking conversion and maintenance-triage accuracy.
-            </p>
-          </div>
-        </section>
-
-        {/* Selection */}
-        <section className="space-y-3">
           <div>
-            <h2 className="text-sm font-semibold text-foreground">Choose your go-live routing</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Pick how calls should be handled when your AI products activate. You can change this later.
+            <p className="text-xs font-medium text-muted-foreground mb-2">
+              What callers will hear
             </p>
+            <PreferredPreview expanded={previewOpen} onToggle={() => setPreviewOpen(!previewOpen)} />
+          </div>
+        </section>
+
+        {/* Reference: alternative routing options (read-only) */}
+        <section className="space-y-3">
+          <div className="flex items-start gap-2">
+            <Info className="h-4 w-4 text-zinc-900 mt-0.5" aria-hidden />
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">If you'd prefer a different setup</h2>
+              <p className="text-xs text-muted-foreground mt-0.5 max-w-prose">
+                These are the alternatives we support. Switching away from the preferred menu
+                doesn't happen here — talk to your consultant and they'll set it up with you.
+              </p>
+            </div>
           </div>
 
-          <SelectionCards
-            selection={selection}
-            setSelection={setSelection}
-            previewOpen={previewOpen}
-            setPreviewOpen={setPreviewOpen}
-          />
-
-          {deviating && (
-            <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 flex items-start gap-3">
-              <AlertTriangle className="h-4 w-4 mt-0.5 text-amber-700 shrink-0" aria-hidden />
-              <div className="text-xs text-amber-900 leading-relaxed">
-                <p className="font-semibold mb-1">Heads up — deviating from the preferred menu can hurt your KPIs.</p>
-                <p>
-                  Every additional menu layer drops 8–12% of callers, and misrouted calls never reach{" "}
-                  {selection === "existing" ? "Leasing AI or Maintenance AI" : "your Entrata AI products"}.
-                  You'll also need to manually configure AI forwarding numbers for each property in your{" "}
-                  {selection === "existing" ? "existing Entrata IVR" : "3rd-party IVR"},
-                  which typically adds days to the implementation timeline.
-                </p>
-              </div>
-            </div>
-          )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <ReferenceOptionCard
+              title="Use Existing Entrata IVR"
+              badge="Reference"
+              description="Keep an IVR you already built in Entrata. Each property's AI forwarding number gets added as a destination in your existing menu."
+              helper="Where it lives: Company › Communication › Call Handling › Call Menu. Per-property AI forwarding numbers are on the Communications tab."
+            />
+            <ReferenceOptionCard
+              title="Use 3rd-party IVR"
+              badge="Reference"
+              description="Already running an external IVR provider? You'll wire each property's AI forwarding number into that system's routing config."
+              helper="Once your A2P 10DLC campaigns are approved, copy the per-property forwarding numbers from the Communications tab into your provider's destinations."
+            />
+          </div>
         </section>
-      </div>
-
-      {/* Sticky footer */}
-      <div className="sticky bottom-0 border-t border-border bg-white/90 backdrop-blur px-6 md:px-8 py-3.5 flex items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground min-w-0 truncate">
-          {saved
-            ? pendingChanges
-              ? `Active routing: ${CHOICE_LABEL[ivrChoice as IvrSelection]} · pending update to ${CHOICE_LABEL[selection]}`
-              : `Active routing: ${CHOICE_LABEL[selection]}`
-            : "One selection — we'll apply it automatically at go-live."}
-        </p>
-        <div className="flex items-center gap-2 shrink-0">
-          {pendingChanges && (
-            <button
-              type="button"
-              onClick={() => setSelection(ivrChoice as IvrSelection)}
-              className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
-            >
-              Reset
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saved && !pendingChanges}
-            className={cn(buttonVariants({ variant: "eli", size: "sm" }))}
-          >
-            {saved
-              ? pendingChanges ? "Save changes" : "Saved"
-              : "Confirm selection"}
-          </button>
-        </div>
       </div>
     </div>
   )

@@ -25,6 +25,7 @@ import { generatePrivacyPolicy, type TemplateFields } from "../components/Privac
 import { GlobalToast } from "../components/GlobalToast"
 import { PROPERTIES } from "../data/properties"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { LegalAckModal, useLegalAck } from "../components/LegalAckModal"
 
 // ── Property meta ─────────────────────────────────────────────────────────────
 
@@ -86,8 +87,6 @@ const CARRIER_DATA = {
 // ── User-supplied fields ──────────────────────────────────────────────────────
 
 interface UserFields {
-  smsPhone:        string
-  smsEmail:        string
   messageFreq:     string
   privacyEmail:    string
   retentionApp:    string
@@ -102,8 +101,6 @@ interface UserFields {
 }
 
 const DEFAULT_USER: UserFields = {
-  smsPhone:       CARRIER_DATA.phone,           // pre-filled from Carrier Compliance — overrideable
-  smsEmail:       "sms@sunsetproperties.com",
   messageFreq:    "4",
   privacyEmail:   CARRIER_DATA.email,           // pre-filled from Carrier Compliance — overrideable
   retentionApp:   CA_REQUIRED ? "3" : "3",
@@ -117,7 +114,7 @@ const DEFAULT_USER: UserFields = {
   poPhone:        "(512) 555-0123",
 }
 
-const CORE_REQUIRED: (keyof UserFields)[] = ["smsPhone", "smsEmail", "messageFreq", "privacyEmail"]
+const CORE_REQUIRED: (keyof UserFields)[] = ["messageFreq", "privacyEmail"]
 const CA_REQUIRED_KEYS: (keyof UserFields)[] = CA_REQUIRED
   ? ["retentionApp", "retentionRes", "retentionComms", "retentionWeb", "retentionBg"] : []
 const MN_REQUIRED_KEYS: (keyof UserFields)[] = MN_REQUIRED
@@ -129,8 +126,6 @@ function userFieldsToTemplate(u: UserFields): TemplateFields {
     companyName:          CARRIER_DATA.companyName,
     effectiveDate:        CARRIER_DATA.effectiveDate,
     lastUpdated:          CARRIER_DATA.effectiveDate,
-    smsPhone:             u.smsPhone,
-    smsEmail:             u.smsEmail,
     messageFrequency:     u.messageFreq,
     chatbotProvider:      CARRIER_DATA.chatbot,
     privacyEmail:         u.privacyEmail || CARRIER_DATA.email,
@@ -168,7 +163,7 @@ function buildHighlightedSegments(text: string, fields: UserFields): Segment[] {
   const values = [
     CARRIER_DATA.companyName, CARRIER_DATA.address, CARRIER_DATA.phone,
     CARRIER_DATA.email, CARRIER_DATA.effectiveDate, CARRIER_DATA.chatbot,
-    fields.smsPhone, fields.smsEmail, fields.messageFreq,
+    fields.messageFreq,
     fields.privacyEmail || CARRIER_DATA.email,
     fields.retentionApp || "3", fields.retentionRes || "7",
     fields.retentionComms || "3", fields.retentionWeb || "13",
@@ -195,14 +190,40 @@ function buildHighlightedSegments(text: string, fields: UserFields): Segment[] {
 
 // ── Disclaimer ────────────────────────────────────────────────────────────────
 
-const DISCLAIMER_PARAGRAPHS = [
+export const DISCLAIMER_PARAGRAPHS = [
   "THIS TEMPLATE WAS CREATED BY A GENERAL PURPOSE LARGE LANGUAGE MODEL FOR INFORMATIONAL PURPOSES ONLY AND IS NOT LEGAL ADVICE. This template is intended to serve as a starting point for organizations developing their own privacy notices and should not be relied upon as a substitute for consultation with qualified legal counsel. Use of this template is at your own risk. Entrata shall not be liable for any damages, losses, or other consequences arising from its use or adaptation.",
   "Each organization's privacy practices, data processing activities, and regulatory obligations are unique. Applicable privacy laws and regulations vary by jurisdiction, industry, and the nature of personal data collected and processed.",
   "Before using or adapting this template, conduct a thorough review of your organization's specific data collection and processing activities and consult with legal counsel.",
   "Privacy laws are subject to frequent amendment and evolving regulatory guidance; accordingly, periodically review and update any privacy notice derived from this template.",
 ]
 
+// Versioned key — bump LEGAL_ACK_VERSION whenever DISCLAIMER_PARAGRAPHS changes
+// in a way that legal wants users to re-acknowledge. Real implementation would
+// persist the ack record (user_id + version + timestamp) to a backend audit log.
+export const LEGAL_ACK_KEY = "eli-plus:legal-ack:privacy-policy"
+export const LEGAL_ACK_VERSION = "v1"
+
+// DEMO MODE — when true, the modal shows on every click and is never persisted.
+// Set to false to enable real one-time-acknowledgement behavior.
+const LEGAL_ACK_DEMO_MODE = true
+
+function formatAckDate(iso: string): string {
+  try {
+    const d = new Date(iso)
+    return d.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    })
+  } catch {
+    return iso
+  }
+}
+
 function DisclaimerLink() {
+  const { record } = useLegalAck(LEGAL_ACK_KEY, LEGAL_ACK_VERSION)
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -224,6 +245,15 @@ function DisclaimerLink() {
         {DISCLAIMER_PARAGRAPHS.map((p, i) => (
           <p key={i} className="text-[11px] text-muted-foreground leading-relaxed">{p}</p>
         ))}
+        {record && (
+          <div className="pt-2 mt-1 border-t border-border">
+            <p className="text-[10px] text-muted-foreground/80 leading-relaxed">
+              <span className="font-medium text-foreground/80">Last acknowledged:</span>{" "}
+              {formatAckDate(record.timestamp)}
+              <span className="text-muted-foreground/60"> · {record.version}</span>
+            </p>
+          </div>
+        )}
       </PopoverContent>
     </Popover>
   )
@@ -564,17 +594,6 @@ function TemplateSheet({
           {/* Step 1 — Form */}
           {currentStep === "form" && (
             <div className="px-6 py-5 space-y-6">
-              {/* Company-level banner */}
-              <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 flex items-start gap-2.5">
-                <Info className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-foreground">This policy applies to your entire company</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
-                    Fill these fields out once. The same policy text publishes to every property's website.
-                  </p>
-                </div>
-              </div>
-
               <p className="text-xs">
                 {filledRequired < totalRequired
                   ? <span className="text-amber-600 font-medium">{filledRequired} of {totalRequired} required fields filled.</span>
@@ -583,14 +602,6 @@ function TemplateSheet({
 
               {/* Required user fields */}
               <div className="space-y-5">
-                <Field label="Support phone for SMS HELP/STOP" hint="One company-wide number for the whole portfolio. Pre-filled from your business phone — change it if you have a dedicated SMS line.">
-                  <input type="text" value={fields.smsPhone} onChange={e => onChange("smsPhone", e.target.value)}
-                    placeholder="(602) 555-0100" className={inputCls(fields.smsPhone.trim() !== "")} />
-                </Field>
-                <Field label="Support email for SMS HELP/STOP" hint="Generic shared inbox is best (e.g. sms@). Same address for every property.">
-                  <input type="text" value={fields.smsEmail} onChange={e => onChange("smsEmail", e.target.value)}
-                    placeholder="sms@yourcompany.com" className={inputCls(fields.smsEmail.trim() !== "")} />
-                </Field>
                 <Field label="Approximate message frequency" hint="Required by carriers (FCC). One company-wide estimate across all properties.">
                   <select value={fields.messageFreq} onChange={e => onChange("messageFreq", e.target.value)}
                     className={cn("w-full h-10 rounded-lg border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-zinc-900/20 transition-colors appearance-none",
@@ -666,13 +677,6 @@ function TemplateSheet({
           {/* Step 2 — Template preview / editor */}
           {currentStep === "template" && (
             <div className="flex flex-col h-full">
-              <div className="px-6 py-3 border-b border-border bg-blue-50/40 shrink-0">
-                <p className="text-xs text-foreground leading-relaxed">
-                  <span className="font-semibold">One policy for your whole company.</span>{" "}
-                  <span className="text-muted-foreground">This same text publishes to every property — you don't write a different version per property. Review or edit, then continue.</span>
-                </p>
-              </div>
-
               {/* Toolbar */}
               <div className="flex items-center justify-between gap-3 px-6 py-3 border-b border-border bg-zinc-50/60 shrink-0">
                 <div className="flex items-center gap-2 min-w-0">
@@ -983,7 +987,38 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
     toastTimer.current = setTimeout(() => setToastVisible(false), 3500)
   }
 
-  function openSheet() { setSheetOpen(true) }
+  // ── Legal acknowledgement gate ─────────────────────────────────────────────
+  // Show the disclaimer modal the first time a user enters the editing flow.
+  // Once acknowledged for the current version, never shown again unless legal
+  // bumps LEGAL_ACK_VERSION. In demo mode (LEGAL_ACK_DEMO_MODE), we clear the
+  // record on mount so the modal shows every demo run.
+  const { record: legalAckRecord, acknowledge: acknowledgeLegal } = useLegalAck(
+    LEGAL_ACK_KEY,
+    LEGAL_ACK_VERSION,
+  )
+  const [showLegalModal, setShowLegalModal] = useState(false)
+
+  useEffect(() => {
+    if (LEGAL_ACK_DEMO_MODE && typeof window !== "undefined") {
+      window.localStorage.removeItem(LEGAL_ACK_KEY)
+    }
+  }, [])
+
+  function openSheet() {
+    // In demo mode, always show the modal on click (never persist).
+    // In real mode, only show it the first time per version.
+    if (LEGAL_ACK_DEMO_MODE || !legalAckRecord) {
+      setShowLegalModal(true)
+    } else {
+      setSheetOpen(true)
+    }
+  }
+
+  function handleLegalAcknowledged() {
+    if (!LEGAL_ACK_DEMO_MODE) acknowledgeLegal()
+    setShowLegalModal(false)
+    setSheetOpen(true)
+  }
 
   function effectiveUrl(id: string): string | null {
     if (selectedSiteUrl[id]) return selectedSiteUrl[id]
@@ -1089,9 +1124,21 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
 
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Privacy Policies</h1>
-          <p className="text-sm text-muted-foreground mt-1 max-w-xl">
-            Each property needs its own privacy policy for Twilio carrier compliance. Campaigns submit per-property — one bad policy can't take down the others.
+          <p className="text-sm text-muted-foreground mt-1 max-w-xl leading-relaxed">
+            Each property needs its own privacy policy for Twilio carrier compliance.
+            Campaigns submit per-property. When applicable, these updates will reflect
+            and sync under your current Prospect Portal settings.
           </p>
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={() => window.open("#", "_blank")}
+              className={cn(buttonVariants({ variant: "eli", size: "sm" }))}
+            >
+              Open Prospect Portal Settings
+              <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          </div>
         </div>
 
         {/* ── Missing website URLs callout ── */}
@@ -1313,6 +1360,18 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
         onConfirmTp={handleConfirmTp}
         onClose={() => setSheetOpen(false)}
         onNavigateToCarrier={() => navigate("company")}
+      />
+
+      <LegalAckModal
+        open={showLegalModal}
+        storageKey={LEGAL_ACK_KEY}
+        version={LEGAL_ACK_VERSION}
+        title="Before you edit privacy policy text"
+        intro="This is a one-time acknowledgement. We'll record it so you won't see this again unless the disclaimer changes."
+        paragraphs={DISCLAIMER_PARAGRAPHS}
+        acknowledgeLabel="I have read and understood the disclaimer above."
+        continueLabel="Continue to privacy policy"
+        onAcknowledged={handleLegalAcknowledged}
       />
     </div>
   )
