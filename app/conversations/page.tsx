@@ -633,9 +633,28 @@ type EntrataProfileThreadRow = {
  */
 function parseThreadMessageTimestamp(ts: string | undefined): number {
   if (!ts) return 0;
-  const cleaned = ts.replace("·", "").replace(/\s+/g, " ").trim();
-  const parsed = Date.parse(cleaned);
-  return Number.isFinite(parsed) ? parsed : 0;
+  const cleaned = ts.replace("·", " ").replace(/\s+/g, " ").trim();
+  const match = cleaned.match(
+    /^([A-Za-z]+)\s+(\d{1,2})\s+(\d{4})(?:\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm|AM|PM))?$/
+  );
+  if (!match) {
+    const fallback = Date.parse(cleaned);
+    return Number.isFinite(fallback) ? fallback : 0;
+  }
+  const [, monthStr, dayStr, yearStr, hourStr, minStr, mer] = match;
+  const months: Record<string, number> = {
+    jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+    jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+  };
+  const monthKey = monthStr.slice(0, 3).toLowerCase();
+  const month = months[monthKey];
+  if (month === undefined) return 0;
+  const day = parseInt(dayStr, 10);
+  const year = parseInt(yearStr, 10);
+  let hour = hourStr ? parseInt(hourStr, 10) % 12 : 0;
+  if (mer && mer.toLowerCase() === "pm") hour += 12;
+  const minute = minStr ? parseInt(minStr, 10) : 0;
+  return new Date(year, month, day, hour, minute).getTime();
 }
 
 /** Treat the most recent message timestamp on a thread as its close date. */
@@ -4118,34 +4137,29 @@ function ConversationsContent() {
                 </div>
 
                 {/* Threads */}
-                <div className="flex flex-1 min-h-0 flex-col">
-                  {/* Sticky title + Active/Closed toggle */}
-                  <div className="px-5 pt-4 pb-3 shrink-0">
-                    <h3 className="text-lg font-bold text-gray-900 mb-4">Threads</h3>
-                    <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
-                      {(["active", "closed"] as const).map((tab) => (
-                        <button
-                          key={tab}
-                          onClick={() => setThreadsFilter(tab)}
-                          className={`rounded-md px-4 py-1.5 text-[12px] font-medium transition-colors ${
-                            threadsFilter === tab
-                              ? "bg-white text-gray-900 shadow-sm"
-                              : "text-gray-500 hover:text-gray-700"
-                          }`}
-                        >
-                          {tab === "active" ? "Active" : "Closed"}
-                        </button>
-                      ))}
-                    </div>
+                <div className="flex-1 overflow-y-auto px-5 py-4">
+                  <h3 className="text-lg font-bold text-gray-900 mb-4">Threads</h3>
+                  {/* Active / Closed toggle */}
+                  <div className="mb-4 inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+                    {(["active", "closed"] as const).map((tab) => (
+                      <button
+                        key={tab}
+                        onClick={() => setThreadsFilter(tab)}
+                        className={`rounded-md px-4 py-1.5 text-[12px] font-medium transition-colors ${
+                          threadsFilter === tab
+                            ? "bg-white text-gray-900 shadow-sm"
+                            : "text-gray-500 hover:text-gray-700"
+                        }`}
+                      >
+                        {tab === "active" ? "Active" : "Closed"}
+                      </button>
+                    ))}
                   </div>
-                  {/* Scrollable thread list */}
-                  <div className="flex-1 min-h-0 overflow-y-auto px-5 pb-4">
-                    <div className="space-y-5">
-                      {profilePanelThreads
+                  <div className="space-y-5">
+                    {profilePanelThreads
                         .map((thread, originalIdx) => ({ thread, originalIdx }))
                         .filter(({ thread }) => thread.status === threadsFilter)
                         .sort((a, b) => {
-                          if (threadsFilter !== "closed") return 0;
                           const aTs = getThreadCloseTimestamp(a.thread);
                           const bTs = getThreadCloseTimestamp(b.thread);
                           return bTs - aTs;
@@ -4153,8 +4167,8 @@ function ConversationsContent() {
                         .map(({ thread, originalIdx }, i) => {
                           const globalIdx = originalIdx;
                           const assignee = getThreadAssignee(globalIdx);
-                          const closedDateLabel =
-                            thread.status === "closed" ? formatThreadCloseDate(thread) : null;
+                          const dateLabel = formatThreadCloseDate(thread);
+                          const isClosed = thread.status === "closed";
                           return (
                             <div
                               key={i}
@@ -4172,11 +4186,13 @@ function ConversationsContent() {
                                 <p className="text-[13px] font-semibold text-gray-900">{thread.property}: {thread.type}</p>
                                 {assignee && (
                                   <p className="text-[11px] text-gray-500 mt-0.5">
-                                    {thread.status === "closed" ? assignee : `Active: ${assignee}`}
+                                    {isClosed ? `Closed by ${assignee}` : assignee}
                                   </p>
                                 )}
-                                {closedDateLabel && (
-                                  <p className="text-[11px] text-gray-500 mt-0.5">Closed {closedDateLabel}</p>
+                                {dateLabel && (
+                                  <p className="text-[11px] text-gray-500 mt-0.5">
+                                    {isClosed ? `Closed on ${dateLabel}` : `Last message ${dateLabel}`}
+                                  </p>
                                 )}
                                 <span className="mt-1 inline-block rounded bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">{thread.channel}</span>
                               </div>
@@ -4205,22 +4221,19 @@ function ConversationsContent() {
                             </div>
                           );
                         })}
-                    </div>
                   </div>
-                  {/* Pinned New Thread button */}
-                  <div className="border-t border-gray-200 bg-white px-5 py-3 shrink-0">
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-5 py-1.5 text-[13px] font-medium text-gray-600 transition-colors hover:bg-gray-50"
-                      onClick={() => {
-                        setNewThreadFromSelection("");
-                        setNewThreadDialogOpen(true);
-                      }}
-                    >
-                      New Thread
-                      <Plus className="h-3.5 w-3.5 text-gray-400" strokeWidth={1.5} />
-                    </button>
-                  </div>
+                  {/* New Thread button */}
+                  <button
+                    type="button"
+                    className="mt-5 inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-5 py-1.5 text-[13px] font-medium text-gray-600 transition-colors hover:bg-gray-50"
+                    onClick={() => {
+                      setNewThreadFromSelection("");
+                      setNewThreadDialogOpen(true);
+                    }}
+                  >
+                    New Thread
+                    <Plus className="h-3.5 w-3.5 text-gray-400" strokeWidth={1.5} />
+                  </button>
                 </div>
               </>
             )}
