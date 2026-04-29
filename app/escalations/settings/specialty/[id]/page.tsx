@@ -14,6 +14,7 @@ type PageProps = {
   params: Promise<{ id: string }>;
 };
 
-export default function SpecialtyDetailPage(_props: PageProps) {
-  return <SpecialtyDetailClient />;
+export default async function SpecialtyDetailPage({ params }: PageProps) {
+  const { id } = await params;
+  return <SpecialtyDetailClient initialSpecialtyId={id} />;
 }

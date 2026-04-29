@@ -72,13 +72,25 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap" rel="stylesheet" />
-        <link href="https://fonts.cdnfonts.com/css/nohemi" rel="stylesheet" />
         <link
           href="https://assets.calendly.com/assets/external/widget.css"
           rel="stylesheet"
         />
       </head>
       <body className="min-h-screen antialiased font-sans">
+        <noscript>
+          <div
+            style={{
+              padding: "1.25rem",
+              fontFamily: "system-ui, sans-serif",
+              maxWidth: "36rem",
+            }}
+          >
+            <strong>JavaScript is required</strong> for this prototype. If the screen stays blank, open the
+            folder with a static server (for example run <code style={{ fontSize: "0.9em" }}>npm run start</code> after{" "}
+            <code style={{ fontSize: "0.9em" }}>npm run build</code>) instead of double‑clicking HTML files.
+          </div>
+        </noscript>
         <Script
           src="https://assets.calendly.com/assets/external/widget.js"
           strategy="afterInteractive"

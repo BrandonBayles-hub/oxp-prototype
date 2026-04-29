@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   AlertCircle,
@@ -58,6 +58,14 @@ import {
 import { getEmailThreadRoutingAddresses } from "@/lib/email-signature";
 import { useAgents } from "@/lib/agents-context";
 import { useWorkforce } from "@/lib/workforce-context";
+import { MemberDetailSheet } from "@/components/member-detail-sheet";
+import {
+  buildLeaderIds,
+  buildTasksByAssignee,
+  buildWorkforceChildrenMap,
+  getMemberMetric,
+  type MemberMetric,
+} from "@/lib/workforce-member-metrics";
 import { useRole, matchesRoleProperties } from "@/lib/role-context";
 import { useR1Release } from "@/lib/r1-release-context";
 import { EscalationDetailSheet } from "@/components/escalation-detail-sheet";
@@ -326,7 +334,12 @@ function ICCommandCenter() {
 
 function AdminCommandCenter() {
   const { items } = useEscalations();
-  const { filteredItems: conversations, propertyCount: convoPropertyCount, addMessage } = useConversations();
+  const {
+    filteredItems: conversations,
+    items: allConversationItems,
+    propertyCount: convoPropertyCount,
+    addMessage,
+  } = useConversations();
   const { agents, agentsEnabledCount } = useAgents();
 
   const agentsByName = useMemo(() => {
@@ -334,7 +347,7 @@ function AdminCommandCenter() {
     for (const a of agents) map.set(a.name, a);
     return map;
   }, [agents]);
-  const { humanMembers } = useWorkforce();
+  const { members, humanMembers, allLabels, updateMember } = useWorkforce();
   const { role, roleProperties } = useRole();
   const isPropertyRole = role === "property";
   const isManagerRole = role === "regional" || role === "property";
@@ -398,6 +411,48 @@ function AdminCommandCenter() {
 
   const [activeMetric, setActiveMetric] = useState<string | null>(null);
   const [agentCtaOpen, setAgentCtaOpen] = useState<string | null>(null);
+  const [selectedWorkforceMemberId, setSelectedWorkforceMemberId] = useState<string | null>(null);
+
+  const selectedWorkforceMember = useMemo(
+    () => members.find((m) => m.id === selectedWorkforceMemberId) ?? null,
+    [members, selectedWorkforceMemberId],
+  );
+
+  const leaderIds = useMemo(() => buildLeaderIds(members), [members]);
+  const childrenOfMap = useMemo(
+    () => buildWorkforceChildrenMap(members, leaderIds),
+    [members, leaderIds],
+  );
+  const tasksByAssignee = useMemo(
+    () => buildTasksByAssignee(items, allConversationItems),
+    [items, allConversationItems],
+  );
+  const memberMetrics = useMemo(() => {
+    const map = new Map<string, MemberMetric>();
+    for (const m of members) {
+      map.set(m.id, getMemberMetric(m, agents, tasksByAssignee));
+    }
+    return map;
+  }, [members, agents, tasksByAssignee]);
+
+  const workforceAgentIdByName = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of members) {
+      if (m.type === "agent") map.set(m.name, m.id);
+    }
+    return map;
+  }, [members]);
+
+  const resolveWorkforceIdForRosterAgent = useCallback(
+    (agentName: string) => {
+      return (
+        workforceAgentIdByName.get(agentName)
+        ?? members.find((m) => m.type === "agent" && m.name === agentName)?.id
+        ?? null
+      );
+    },
+    [members, workforceAgentIdByName],
+  );
 
   const agentCtaConfigs: Record<string, {
     title: string;
@@ -991,13 +1046,14 @@ function AdminCommandCenter() {
       .map((a) => {
         const isActive = a.status === "Active";
         const outcomeInfo = agentOutcomeMap[a.name];
+        /* Subtitle line: inactive agents already show status in the title-row badge — avoid repeating "Off". */
         const activity = isR1Release
-          ? (isActive ? "Active" : a.status)
+          ? (isActive ? "Active" : "")
           : isActive
             ? a.conversationCount > 0
               ? `${a.conversationCount} conversations · ${outcomeInfo?.outcome ?? ""}`
               : outcomeInfo?.outcome ?? ""
-            : a.status;
+            : "";
         return {
           id: a.id,
           name: a.name,
@@ -1376,28 +1432,46 @@ function AdminCommandCenter() {
                 <ul className="divide-y divide-border">
                   {teamAgents.map((agent) => (
                     <li key={agent.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
-                        <img src="/eli-cube.svg" alt="" className="h-4 w-4" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                          {agent.name}
-                          {!agent.isActive && (
-                            <Badge variant="outline" className="text-[9px] px-1.5 py-0">{agent.status}</Badge>
-                          )}
-                        </p>
-                        <p className="text-xs text-muted-foreground">{agent.activity}</p>
-                      </div>
-                      {agent.isActive && !isR1Release ? (
-                        <div className="shrink-0 text-right">
-                          <p className="text-sm font-semibold text-foreground">{agent.metric}</p>
-                          <p className="text-[10px] text-muted-foreground">{agent.metricLabel}</p>
+                      <button
+                        type="button"
+                        className={cn(
+                          "flex min-w-0 flex-1 items-center gap-3 rounded-md text-left outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring",
+                          agent.isActive && !isR1Release && "w-full",
+                        )}
+                        onClick={() => {
+                          const wfId = resolveWorkforceIdForRosterAgent(agent.name);
+                          if (wfId) setSelectedWorkforceMemberId(wfId);
+                        }}
+                      >
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                          <img src="/eli-cube.svg" alt="" className="h-4 w-4" />
                         </div>
-                      ) : !agent.isActive && agentCtaConfigs[agent.name] ? (
+                        <div className="min-w-0 flex-1">
+                          <p className="flex items-center gap-1.5 text-sm font-medium text-foreground hover:underline">
+                            {agent.name}
+                            {!agent.isActive && (
+                              <Badge variant="outline" className="text-[9px] px-1.5 py-0">{agent.status}</Badge>
+                            )}
+                          </p>
+                          {agent.activity ? (
+                            <p className="text-xs text-muted-foreground">{agent.activity}</p>
+                          ) : null}
+                        </div>
+                        {agent.isActive && !isR1Release ? (
+                          <div className="shrink-0 text-right">
+                            <p className="text-sm font-semibold text-foreground">{agent.metric}</p>
+                            <p className="text-[10px] text-muted-foreground">{agent.metricLabel}</p>
+                          </div>
+                        ) : null}
+                      </button>
+                      {!agent.isActive && agentCtaConfigs[agent.name] ? (
                         <Button
                           size="sm"
                           className="shrink-0 text-xs"
-                          onClick={() => setAgentCtaOpen(agent.name)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAgentCtaOpen(agent.name);
+                          }}
                         >
                           Activate Agent
                         </Button>
@@ -1416,20 +1490,26 @@ function AdminCommandCenter() {
               {teamStaff.length > 0 ? (
                 <ul className="divide-y divide-border">
                   {teamStaff.map((member) => (
-                    <li key={member.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground">
-                        {member.name.split(" ").map((w: string) => w[0]).join("")}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-foreground">{member.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {member.role} · {member.activity}
-                        </p>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <p className="text-sm font-semibold text-foreground">{member.metric}</p>
-                        <p className="text-[10px] text-muted-foreground">{member.metricLabel}</p>
-                      </div>
+                    <li key={member.id} className="py-3 first:pt-0 last:pb-0">
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 rounded-md text-left outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring"
+                        onClick={() => setSelectedWorkforceMemberId(member.id)}
+                      >
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground">
+                          {member.name.split(" ").map((w: string) => w[0]).join("")}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-foreground hover:underline">{member.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {member.role} · {member.activity}
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="text-sm font-semibold text-foreground">{member.metric}</p>
+                          <p className="text-[10px] text-muted-foreground">{member.metricLabel}</p>
+                        </div>
+                      </button>
                     </li>
                   ))}
                 </ul>
@@ -1462,6 +1542,18 @@ function AdminCommandCenter() {
         onClose={() => setConvoId(null)}
         agentsByName={agentsByName}
         onSend={(message) => convoItem && addMessage(convoItem.id, message)}
+      />
+
+      <MemberDetailSheet
+        member={selectedWorkforceMember}
+        open={selectedWorkforceMember !== null}
+        onOpenChange={(open) => { if (!open) setSelectedWorkforceMemberId(null); }}
+        members={members}
+        allLabels={allLabels}
+        childrenOfMap={childrenOfMap}
+        memberMetrics={memberMetrics}
+        updateMember={updateMember}
+        onMemberClick={setSelectedWorkforceMemberId}
       />
 
       <MetricDetailDialog
