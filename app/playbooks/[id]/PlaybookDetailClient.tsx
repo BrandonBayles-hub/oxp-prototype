@@ -15,8 +15,17 @@ import {
   RefreshCw,
   Trash2,
   X,
+  FileText,
+  ExternalLink,
+  Check,
+  ChevronDown,
+  History,
+  PenLine,
 } from "lucide-react";
 import { usePlaybooks, type PlaybookPriority, type PlaybookStatus } from "@/lib/playbooks-context";
+import { useVault } from "@/lib/vault-context";
+import { useWorkforce } from "@/lib/workforce-context";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Chat, type ChatMessage } from "@/components/ui/chat";
 import { EscalationDetailSheet } from "@/components/escalation-detail-sheet";
 import { ESCALATION_STATUSES, type Task } from "@/lib/escalations-context";
@@ -32,19 +41,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { CreateCustomTaskDialog } from "@/components/create-custom-task-dialog";
+import { PlaybookHistoryDialog } from "@/components/playbook-history-dialog";
+import { PlaybookNotesSheet } from "@/components/playbook-notes-sheet";
+import type { TaskTemplate } from "@/lib/specialties-data";
 
 function initials(name: string) {
   return name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
-}
-
-function priorityDot(p: string | undefined) {
-  switch (p) {
-    case "urgent": return "bg-red-500";
-    case "high": return "bg-amber-400";
-    case "medium": return "bg-blue-400";
-    case "low": return "bg-green-400";
-    default: return "bg-muted";
-  }
 }
 
 const PRIORITY_LABEL: Record<string, string> = {
@@ -99,16 +102,42 @@ type SortDir = "asc" | "desc";
 
 const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
 const STATUS_RANK: Record<string, number> = { Blocked: 0, "In progress": 1, Open: 2, Done: 3 };
-const PLAYBOOK_STATUSES: PlaybookStatus[] = ["In Progress", "On Hold", "Completed", "Due Today", "Overdue"];
+const PLAYBOOK_STATUSES: PlaybookStatus[] = ["In Progress", "On Hold", "Completed"];
 const TASK_PRIORITIES: Array<Task["priority"]> = ["urgent", "high", "medium", "low"];
+
+const TEMPLATE_PRIORITY_MAP: Record<string, NonNullable<Task["priority"]>> = {
+  P0: "urgent",
+  P1: "high",
+  P2: "medium",
+  P3: "low",
+};
+
+function dueInToIso(dueIn: string | undefined): string {
+  if (!dueIn) return new Date().toISOString();
+  const absMatch = dueIn.match(/^\d{4}-\d{2}-\d{2}$/);
+  if (absMatch) return new Date(dueIn).toISOString();
+  const match = dueIn.match(/^(\d+)\s*(.+)/);
+  if (!match) return new Date().toISOString();
+  const value = parseInt(match[1], 10);
+  const unit = match[2].toLowerCase();
+  let ms = value * 86_400_000;
+  if (unit.startsWith("hour")) ms = value * 3_600_000;
+  else if (unit.startsWith("week")) ms = value * 7 * 86_400_000;
+  return new Date(Date.now() + ms).toISOString();
+}
 
 export function PlaybookDetailClient() {
   const params = useParams();
   const router = useRouter();
-  const { getPlaybook, updatePlaybook, updatePlaybookTask, removePlaybook } = usePlaybooks();
+  const { getPlaybook, updatePlaybook, updatePlaybookTask, addPlaybookTask, removePlaybook } = usePlaybooks();
+  const { documents } = useVault();
+  const { humanMembers } = useWorkforce();
   const { hasPermission } = usePermissions();
   const canDeletePlaybook = hasPermission("p-playbooks-delete");
   const playbook = getPlaybook(params.id as string);
+  const sourceDoc = playbook?.sourceDocId
+    ? documents.find((d) => d.id === playbook.sourceDocId)
+    : undefined;
 
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<SortField | null>(null);
@@ -117,12 +146,44 @@ export function PlaybookDetailClient() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [deletePlaybookOpen, setDeletePlaybookOpen] = useState(false);
+  const [createTaskOpen, setCreateTaskOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [filterStatuses, setFilterStatuses] = useState<Set<string>>(new Set());
+  const [filterPriorities, setFilterPriorities] = useState<Set<string>>(new Set());
+  const [filterCategories, setFilterCategories] = useState<Set<string>>(new Set());
+  const [filterAssignees, setFilterAssignees] = useState<Set<string>>(new Set());
+  const [assigneePopoverOpen, setAssigneePopoverOpen] = useState(false);
+  const [assigneeQuery, setAssigneeQuery] = useState("");
   const selectedTask = playbook?.tasks.find((t) => t.id === selectedTaskId) ?? null;
+
+  const handleCreateTaskSave = (task: TaskTemplate) => {
+    if (!playbook) return;
+    addPlaybookTask(playbook.id, {
+      type: "workflow",
+      name: task.name,
+      summary: task.name,
+      category: "Playbook",
+      property: task.property || playbook.property,
+      unit: playbook.unit,
+      status: "Open",
+      assignee: task.assignee ?? "",
+      priority: TEMPLATE_PRIORITY_MAP[task.priority ?? "P2"] ?? "medium",
+      dueAt: dueInToIso(task.dueIn),
+      descriptionHtml: task.descriptionHtml,
+      sections: task.sections,
+      createdAt: new Date().toISOString(),
+    });
+  };
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else { setSortField(field); setSortDir("asc"); }
   };
+
+  const activeFilterCount =
+    filterStatuses.size + filterPriorities.size + filterCategories.size + filterAssignees.size;
 
   const filteredTasks = useMemo(() => {
     if (!playbook) return [];
@@ -136,6 +197,18 @@ export function PlaybookDetailClient() {
           t.property.toLowerCase().includes(q) ||
           (t.unit ?? "").toLowerCase().includes(q)
       );
+    }
+    if (filterStatuses.size > 0) {
+      tasks = tasks.filter((t) => filterStatuses.has(normalizeStatus(t.status)));
+    }
+    if (filterPriorities.size > 0) {
+      tasks = tasks.filter((t) => filterPriorities.has(t.priority ?? "medium"));
+    }
+    if (filterCategories.size > 0) {
+      tasks = tasks.filter((t) => filterCategories.has(t.category));
+    }
+    if (filterAssignees.size > 0) {
+      tasks = tasks.filter((t) => filterAssignees.has(t.assignee));
     }
     if (sortField) {
       tasks = [...tasks].sort((a, b) => {
@@ -154,7 +227,7 @@ export function PlaybookDetailClient() {
       });
     }
     return tasks;
-  }, [playbook, search, sortField, sortDir]);
+  }, [playbook, search, sortField, sortDir, filterStatuses, filterPriorities, filterCategories, filterAssignees]);
 
   if (!playbook) {
     return (
@@ -197,13 +270,36 @@ export function PlaybookDetailClient() {
               className="input-base h-8 w-40 rounded-md border border-input bg-background pl-8 pr-3 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             />
           </div>
-          <button className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-2.5 text-xs font-medium text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground">
-            <SlidersHorizontal className="h-3 w-3" />
-            Filters
-          </button>
-          <button className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-2.5 text-xs font-medium text-foreground shadow-sm hover:bg-accent">
+          <button
+            type="button"
+            onClick={() => setCreateTaskOpen(true)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-2.5 text-xs font-medium text-foreground shadow-sm hover:bg-accent"
+          >
             <Plus className="h-3 w-3" />
             Add Task
+          </button>
+          <button
+            type="button"
+            onClick={() => setNotesOpen(true)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-2.5 text-xs font-medium text-foreground shadow-sm hover:bg-accent"
+            aria-label="View notes"
+          >
+            <PenLine className="h-3 w-3" />
+            Notes
+            {(playbook.notes?.length ?? 0) > 0 && (
+              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
+                {playbook.notes!.length}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setHistoryOpen(true)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-2.5 text-xs font-medium text-foreground shadow-sm hover:bg-accent"
+            aria-label="View playbook history"
+          >
+            <History className="h-3 w-3" />
+            History
           </button>
           {canDeletePlaybook && (
             <button
@@ -276,31 +372,114 @@ export function PlaybookDetailClient() {
           <span className="text-xs tabular-nums text-muted-foreground">{completed}/{total}</span>
         </div>
 
-        {/* Assignee + Description */}
-        {playbook.assignee && (
-          <div className="mt-3">
+        {/* Assignee + Priority */}
+        <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-x-10 lg:gap-x-14">
+          <div className="min-w-0 flex-1">
             <p className="mb-1 text-xs font-bold text-foreground">Assignee</p>
-            <div className="flex items-center gap-2">
-              <Avatar className="h-7 w-7">
-                <AvatarFallback className="text-[10px] font-medium">{initials(playbook.assignee)}</AvatarFallback>
-              </Avatar>
-              <span className="text-sm font-medium text-foreground">{playbook.assignee}</span>
-              <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold", {
-                "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300": playbook.priority === "P0",
-                "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300": playbook.priority === "P1",
-                "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300": playbook.priority === "P2",
-                "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300": playbook.priority === "P3",
-              })}>
-                <span className={cn("h-1.5 w-1.5 rounded-full", priorityDot(playbook.priority))} />
-                {playbook.priority}
-              </span>
-            </div>
+            <Popover open={assigneePopoverOpen} onOpenChange={(o) => { setAssigneePopoverOpen(o); if (!o) setAssigneeQuery(""); }}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="flex items-center gap-2 rounded-md px-2 py-1 -ml-2 hover:bg-muted/60 transition-colors group"
+                >
+                  {playbook.assignee ? (
+                    <>
+                      <Avatar className="h-7 w-7">
+                        <AvatarFallback className="text-[10px] font-medium">{initials(playbook.assignee)}</AvatarFallback>
+                      </Avatar>
+                      <span className="text-sm font-medium text-foreground">{playbook.assignee}</span>
+                    </>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">Unassigned</span>
+                  )}
+                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[240px] p-0 z-[200]" align="start">
+                <div className="p-2">
+                  <input
+                    type="text"
+                    value={assigneeQuery}
+                    onChange={(e) => setAssigneeQuery(e.target.value)}
+                    placeholder="Search members…"
+                    className="h-8 w-full rounded-md border border-input bg-background px-2.5 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                    autoFocus
+                  />
+                </div>
+                <div className="max-h-52 overflow-y-auto px-1 pb-1">
+                  <button
+                    type="button"
+                    onClick={() => { updatePlaybook(playbook.id, { assignee: "" }); setAssigneePopoverOpen(false); setAssigneeQuery(""); }}
+                    className={cn("flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm transition-colors hover:bg-muted", !playbook.assignee && "bg-muted font-medium")}
+                  >
+                    <Check className={cn("h-3.5 w-3.5 shrink-0", playbook.assignee ? "invisible" : "text-primary")} />
+                    <span className="text-muted-foreground">Unassigned</span>
+                  </button>
+                  {humanMembers
+                    .filter((m) => !assigneeQuery || m.name.toLowerCase().includes(assigneeQuery.toLowerCase()))
+                    .map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => { updatePlaybook(playbook.id, { assignee: m.name }); setAssigneePopoverOpen(false); setAssigneeQuery(""); }}
+                        className={cn("flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm transition-colors hover:bg-muted", playbook.assignee === m.name && "bg-muted font-medium")}
+                      >
+                        <Check className={cn("h-3.5 w-3.5 shrink-0", playbook.assignee === m.name ? "text-primary" : "invisible")} />
+                        {m.name}
+                      </button>
+                    ))}
+                  {humanMembers.filter((m) => !assigneeQuery || m.name.toLowerCase().includes(assigneeQuery.toLowerCase())).length === 0 && (
+                    <p className="px-2 py-3 text-center text-xs text-muted-foreground">No members found</p>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
-        )}
+          <div className="shrink-0">
+            <p className="mb-1 text-xs font-bold text-foreground">Priority</p>
+            <span className={cn(
+              "inline-flex items-center rounded-full border border-transparent px-2 py-0.5 text-[10px] font-semibold tabular-nums",
+              {
+                "border-red-200/80 bg-red-100 text-red-800 dark:border-red-800/50 dark:bg-red-900/40 dark:text-red-200": playbook.priority === "P0",
+                "border-amber-200/80 bg-amber-100 text-amber-900 dark:border-amber-800/50 dark:bg-amber-900/40 dark:text-amber-200": playbook.priority === "P1",
+                "border-blue-200/80 bg-blue-100 text-blue-900 dark:border-blue-800/50 dark:bg-blue-900/40 dark:text-blue-200": playbook.priority === "P2",
+                "border-green-200/80 bg-green-100 text-green-900 dark:border-green-800/50 dark:bg-green-900/40 dark:text-green-200": playbook.priority === "P3",
+              }
+            )}>
+              {playbook.priority}
+            </span>
+          </div>
+        </div>
         <div className="mt-3">
           <p className="mb-0.5 text-xs font-bold text-foreground">Playbook Description</p>
           <p className="text-sm leading-relaxed text-muted-foreground">{playbook.description}</p>
         </div>
+
+        {sourceDoc && (
+          <div className="mt-3">
+            <p className="mb-1 text-xs font-bold text-foreground">Source SOP</p>
+            <Link
+              href={`/trainings-sop/detail?id=${sourceDoc.id}`}
+              aria-label={`Open ${sourceDoc.fileName} in Trainings & SOP`}
+              className="group flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            >
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border bg-muted/50 transition-colors group-hover:bg-muted">
+                <FileText className="h-3 w-3 text-muted-foreground" aria-hidden />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium leading-tight text-foreground truncate">
+                  {sourceDoc.fileName}
+                </p>
+              </div>
+              <span
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-primary"
+                aria-hidden
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+              </span>
+            </Link>
+          </div>
+        )}
       </div>
 
       {/* ── Task search bar ── */}
@@ -315,8 +494,20 @@ export function PlaybookDetailClient() {
             className="input-base h-8 w-full rounded-md border border-input bg-background pl-8 pr-3 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           />
         </div>
-        <button className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-input bg-background text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground">
+        <button
+          type="button"
+          onClick={() => setFilterOpen(true)}
+          className={cn(
+            "relative inline-flex h-8 w-8 items-center justify-center rounded-md border border-input bg-background shadow-sm transition-colors hover:bg-accent hover:text-foreground",
+            activeFilterCount > 0 ? "text-primary border-primary/40" : "text-muted-foreground"
+          )}
+        >
           <SlidersHorizontal className="h-3.5 w-3.5" />
+          {activeFilterCount > 0 && (
+            <span className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
+              {activeFilterCount}
+            </span>
+          )}
         </button>
       </div>
 
@@ -398,7 +589,18 @@ export function PlaybookDetailClient() {
           </tbody>
         </table>
         {filteredTasks.length === 0 && (
-          <p className="mt-4 text-sm text-muted-foreground">No tasks match the search.</p>
+          <div className="mt-6 flex flex-col items-center gap-2 py-4 text-center">
+            <p className="text-sm text-muted-foreground">No tasks match your {activeFilterCount > 0 ? "filters" : "search"}.</p>
+            {activeFilterCount > 0 && (
+              <button
+                type="button"
+                onClick={() => { setFilterStatuses(new Set()); setFilterPriorities(new Set()); setFilterCategories(new Set()); setFilterAssignees(new Set()); }}
+                className="text-xs font-medium text-primary hover:underline"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -449,6 +651,45 @@ export function PlaybookDetailClient() {
         </button>
       </div>
 
+      <CreateCustomTaskDialog
+        open={createTaskOpen}
+        onOpenChange={setCreateTaskOpen}
+        mode="template"
+        title="Create Task"
+        onSave={handleCreateTaskSave}
+      />
+
+      <PlaybookHistoryDialog
+        playbook={playbook}
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+      />
+
+      <PlaybookNotesSheet
+        playbookId={playbook.id}
+        playbookName={playbook.templateName}
+        notes={playbook.notes ?? []}
+        open={notesOpen}
+        onOpenChange={setNotesOpen}
+      />
+
+      {/* ── Filter dialog ── */}
+      {playbook && (
+        <TaskFilterDialog
+          open={filterOpen}
+          onOpenChange={setFilterOpen}
+          tasks={playbook.tasks}
+          filterStatuses={filterStatuses}
+          filterPriorities={filterPriorities}
+          filterCategories={filterCategories}
+          filterAssignees={filterAssignees}
+          onFilterStatuses={setFilterStatuses}
+          onFilterPriorities={setFilterPriorities}
+          onFilterCategories={setFilterCategories}
+          onFilterAssignees={setFilterAssignees}
+        />
+      )}
+
       <Dialog open={deletePlaybookOpen} onOpenChange={setDeletePlaybookOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -475,6 +716,236 @@ export function PlaybookDetailClient() {
       </Dialog>
 
     </div>
+  );
+}
+
+// ── Filter dialog ────────────────────────────────────────────────────────────
+
+const TASK_STATUS_OPTIONS = ["In Progress", "On Hold", "Completed", "Blocked", "Open"];
+const TASK_PRIORITY_OPTIONS: Array<{ value: NonNullable<Task["priority"]>; label: string }> = [
+  { value: "urgent", label: "P0 – Urgent" },
+  { value: "high",   label: "P1 – High" },
+  { value: "medium", label: "P2 – Medium" },
+  { value: "low",    label: "P3 – Low" },
+];
+
+// Normalize incoming task statuses for display-label matching
+const STATUS_DISPLAY_MAP: Record<string, string> = {
+  "In progress": "In Progress",
+  "Done": "Completed",
+};
+function normalizeStatus(s: string): string {
+  return STATUS_DISPLAY_MAP[s] ?? s;
+}
+
+function toggleSetItem<T>(set: Set<T>, item: T): Set<T> {
+  const next = new Set(set);
+  if (next.has(item)) next.delete(item);
+  else next.add(item);
+  return next;
+}
+
+// Reusable multi-select combobox
+function MultiCombobox({
+  label,
+  options,
+  selected,
+  onToggle,
+  placeholder,
+}: {
+  label: string;
+  options: Array<{ value: string; label: string }>;
+  selected: Set<string>;
+  onToggle: (value: string) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const filtered = useMemo(() => {
+    if (!query.trim()) return options;
+    const q = query.toLowerCase();
+    return options.filter((o) => o.label.toLowerCase().includes(q));
+  }, [options, query]);
+
+  const selectedLabels = options.filter((o) => selected.has(o.value)).map((o) => o.label);
+  const triggerLabel =
+    selectedLabels.length === 0
+      ? (placeholder ?? `Select ${label}`)
+      : selectedLabels.length === 1
+      ? selectedLabels[0]
+      : `${selectedLabels[0]} +${selectedLabels.length - 1}`;
+
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs font-medium text-foreground">{label}</label>
+      <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) setQuery(""); }} modal>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className={cn(
+              "flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors hover:bg-muted/50 focus:outline-none focus:ring-1 focus:ring-ring",
+              selected.size > 0 ? "text-foreground" : "text-muted-foreground"
+            )}
+          >
+            <span className="truncate">{triggerLabel}</span>
+            <ChevronDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[--radix-popover-trigger-width] p-0 z-[200]" align="start">
+          <div className="border-b border-border p-2">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search…"
+              className="h-8 w-full rounded-md border border-input bg-background px-2.5 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              autoFocus
+            />
+          </div>
+          <div className="max-h-52 overflow-y-auto p-1">
+            {filtered.length === 0 && (
+              <p className="px-2 py-3 text-center text-xs text-muted-foreground">No options found</p>
+            )}
+            {filtered.map((opt) => {
+              const active = selected.has(opt.value);
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => onToggle(opt.value)}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm transition-colors hover:bg-muted",
+                    active && "bg-muted/60"
+                  )}
+                >
+                  <span className={cn(
+                    "flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
+                    active ? "border-primary bg-primary text-primary-foreground" : "border-input bg-background"
+                  )}>
+                    {active && <Check className="h-3 w-3" />}
+                  </span>
+                  <span className={active ? "font-medium text-foreground" : "text-foreground"}>{opt.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          {selected.size > 0 && (
+            <div className="border-t border-border p-1.5">
+              <button
+                type="button"
+                onClick={() => { options.forEach((o) => { if (selected.has(o.value)) onToggle(o.value); }); }}
+                className="w-full rounded-sm px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted transition-colors"
+              >
+                Clear selection
+              </button>
+            </div>
+          )}
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+function TaskFilterDialog({
+  open, onOpenChange, tasks,
+  filterStatuses, filterPriorities, filterCategories, filterAssignees,
+  onFilterStatuses, onFilterPriorities, onFilterCategories, onFilterAssignees,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  tasks: Task[];
+  filterStatuses: Set<string>;
+  filterPriorities: Set<string>;
+  filterCategories: Set<string>;
+  filterAssignees: Set<string>;
+  onFilterStatuses: (s: Set<string>) => void;
+  onFilterPriorities: (s: Set<string>) => void;
+  onFilterCategories: (s: Set<string>) => void;
+  onFilterAssignees: (s: Set<string>) => void;
+}) {
+  const categoryOptions = useMemo(
+    () => Array.from(new Set(tasks.map((t) => t.category).filter(Boolean))).sort()
+      .map((c) => ({ value: c, label: c })),
+    [tasks]
+  );
+
+  const assigneeOptions = useMemo(
+    () => Array.from(new Set(tasks.map((t) => t.assignee).filter(Boolean))).sort()
+      .map((a) => ({ value: a, label: a })),
+    [tasks]
+  );
+
+  const activeCount = filterStatuses.size + filterPriorities.size + filterCategories.size + filterAssignees.size;
+
+  const clearAll = () => {
+    onFilterStatuses(new Set());
+    onFilterPriorities(new Set());
+    onFilterCategories(new Set());
+    onFilterAssignees(new Set());
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Filter Tasks</DialogTitle>
+          <DialogDescription>
+            Narrow the task list by status, priority, type, or assignee.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-1">
+          <MultiCombobox
+            label="Status"
+            options={TASK_STATUS_OPTIONS.map((s) => ({ value: s, label: s }))}
+            selected={filterStatuses}
+            onToggle={(v) => onFilterStatuses(toggleSetItem(filterStatuses, v))}
+            placeholder="All statuses"
+          />
+          <MultiCombobox
+            label="Priority"
+            options={TASK_PRIORITY_OPTIONS.map((p) => ({ value: p.value, label: p.label }))}
+            selected={filterPriorities}
+            onToggle={(v) => onFilterPriorities(toggleSetItem(filterPriorities, v))}
+            placeholder="All priorities"
+          />
+          {categoryOptions.length > 0 && (
+            <MultiCombobox
+              label="Type"
+              options={categoryOptions}
+              selected={filterCategories}
+              onToggle={(v) => onFilterCategories(toggleSetItem(filterCategories, v))}
+              placeholder="All types"
+            />
+          )}
+          {assigneeOptions.length > 0 && (
+            <MultiCombobox
+              label="Assignee"
+              options={assigneeOptions}
+              selected={filterAssignees}
+              onToggle={(v) => onFilterAssignees(toggleSetItem(filterAssignees, v))}
+              placeholder="All assignees"
+            />
+          )}
+        </div>
+
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={clearAll}
+            disabled={activeCount === 0}
+          >
+            Clear all
+          </Button>
+          <Button type="button" size="sm" onClick={() => onOpenChange(false)}>
+            Apply
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

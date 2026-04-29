@@ -853,7 +853,7 @@ function SpecialtiesView() {
                 <tr
                   key={s.id}
                   className="border-b border-border last:border-b-0 hover:bg-muted/20 transition-colors cursor-pointer"
-                  onClick={() => router.push(`/escalations/settings/specialty/${s.id}`)}
+                  onClick={() => router.push(`/escalations/settings/specialty/${s.id}/`)}
                 >
                   <td className="sticky left-0 z-10 min-w-[180px] border-r border-border bg-background px-4 py-3">
                     <span className="text-sm font-medium text-foreground">{s.name}</span>
@@ -883,7 +883,7 @@ function SpecialtiesView() {
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                        onClick={(e) => { e.stopPropagation(); router.push(`/escalations/settings/specialty/${s.id}`); }}
+                        onClick={(e) => { e.stopPropagation(); router.push(`/escalations/settings/specialty/${s.id}/`); }}
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>

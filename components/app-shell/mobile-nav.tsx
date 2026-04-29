@@ -72,12 +72,18 @@ function ActivationProgress({ completed, total }: { completed: number; total: nu
   const done = completed === total;
   return (
     <span
-      className={cn(
-        "ml-auto flex h-5 min-w-5 items-center justify-center rounded-full px-2 text-[10px] font-bold leading-none",
-        done
-          ? "bg-green-500 text-white"
-          : "bg-foreground text-background"
-      )}
+      className="ml-auto shrink-0 text-[10px] font-bold leading-none"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        height: 20,
+        minWidth: 28,
+        padding: "0 8px",
+        borderRadius: 9999,
+        background: done ? "#22c55e" : "#171717",
+        color: "#fafafa",
+      }}
     >
       {completed}/{total}
     </span>

@@ -158,6 +158,8 @@ export default function GettingStartedPage() {
   const isStepDone = (id: string, i: number) => completedSteps.includes(i) || autoDetected[id];
 
   const doneCount = visibleSteps.reduce((n, step, i) => n + (isStepDone(step.id, i) ? 1 : 0), 0);
+  const progressPct =
+    visibleSteps.length > 0 ? (doneCount / visibleSteps.length) * 100 : 0;
 
   const goLiveChecklist = {
     docs: docCount > 0,
@@ -213,7 +215,10 @@ export default function GettingStartedPage() {
             onClick={() => setActiveTab("eli-plus")}
             className="flex w-full items-center gap-4 rounded-xl border border-[hsl(var(--border))] bg-white p-4 text-left transition-all hover:border-zinc-400 hover:shadow-md"
           >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-900">
+            <div
+              className="flex shrink-0 items-center justify-center rounded-lg bg-zinc-900"
+              style={{ width: 40, height: 40 }}
+            >
               <Rocket className="h-5 w-5 text-white" />
             </div>
             <div className="min-w-0 flex-1">
@@ -225,12 +230,15 @@ export default function GettingStartedPage() {
         </div>
       )}
 
-      {/* Progress bar */}
+      {/* Progress bar — inline height so layout stays correct if utility CSS is delayed */}
       <div className="mb-8 flex items-center gap-3">
-        <div className="h-2 flex-1 overflow-hidden rounded-full bg-[hsl(var(--muted))]">
+        <div
+          className="flex-1 overflow-hidden rounded-full bg-[hsl(var(--muted))]"
+          style={{ height: 8, minHeight: 8, maxHeight: 8 }}
+        >
           <div
             className="h-full rounded-full bg-emerald-600 transition-all duration-500"
-            style={{ width: `${(doneCount / visibleSteps.length) * 100}%` }}
+            style={{ width: `${progressPct}%` }}
           />
         </div>
         <span className="text-sm font-medium tabular-nums text-[hsl(var(--muted-foreground))]">
