@@ -374,9 +374,8 @@ function AdminCommandCenter() {
       : "/escalations";
 
   const topKpis = [
-    { label: "Revenue Impact", value: derivedKpis.totalRevenue, trendText: "+8% since last week", trendVariant: "positive" as KpiTrend, icon: DollarSign, href: "/performance" },
     { label: "Active Agents", value: agentsEnabledCount, trendText: "+1 since last week", trendVariant: "positive" as KpiTrend, icon: Users, href: "/agent-roster" },
-    { label: "Hours Saved", value: "386 hrs", trendText: "+42 hrs from last week", trendVariant: "positive" as KpiTrend, icon: Clock, href: "/performance" },
+    { label: "Conversations Handled", value: "1,847", trendText: "+12% from last week", trendVariant: "positive" as KpiTrend, icon: MessageSquare, href: "/conversations" },
   ];
 
   const outcomeCards = [
@@ -385,7 +384,6 @@ function AdminCommandCenter() {
     { label: "Renewals Generated", value: "28", trendText: "92% retention rate", trendVariant: "positive" as KpiTrend, icon: RefreshCw, agentName: "Renewal AI", href: "/performance", ctaText: "Clients with Renewal AI achieve 15% higher retention rates" },
     { label: "Work Orders Closed", value: "156", trendText: "+8 from last week", trendVariant: "positive" as KpiTrend, icon: Wrench, agentName: "Maintenance AI", href: "/performance", ctaText: "Clients with Maintenance AI see a 15% faster work order resolution time" },
     { label: "Rent Collected", value: "$218K", trendText: "90.6% collected \u00b7 Down 1.2% from last month", trendVariant: "negative" as KpiTrend, icon: DollarSign, agentName: "Payments AI", href: "/performance", ctaText: "Clients with Payments AI collect rent 20% faster" },
-    { label: "Conversations Handled", value: "1,847", trendText: "+12% from last week", trendVariant: "positive" as KpiTrend, icon: MessageSquare, agentName: null as string | null, href: "/conversations", ctaText: "" },
   ];
 
   const [selectedEscalationId, setSelectedEscalationId] = useState<string | null>(null);
@@ -1053,7 +1051,7 @@ function AdminCommandCenter() {
       {!isR1Release && !isManagerRole && (
         <>
         {/* Top KPI Cards */}
-        <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-2">
           {topKpis.map(({ label, value, icon: Icon, trendText, trendVariant }) => (
             <button key={label} type="button" className="text-left" onClick={() => setActiveMetric(label)}>
               <Card className="h-full cursor-pointer transition-colors hover:border-primary/40 hover:bg-muted/30">
@@ -1089,7 +1087,7 @@ function AdminCommandCenter() {
           <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Outcomes Achieved by AI Agents
           </p>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             {outcomeCards.map((card) => {
               const agent = card.agentName
                 ? agents.find((a) => a.name === card.agentName && a.type === "autonomous")
