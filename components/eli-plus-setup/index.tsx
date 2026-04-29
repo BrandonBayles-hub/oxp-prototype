@@ -12,9 +12,12 @@ import type { SimMode } from "./pages/CompanyPage"
 import { PrivacyPage } from "./pages/PrivacyPage"
 import { EmailPage } from "./pages/EmailPage"
 import { PaymentsSummaryPage } from "./pages/PaymentsSummaryPage"
+import { PaymentsPage } from "./pages/PaymentsPage"
 import { GoLivePage } from "./pages/GoLivePage"
 import { MaintenancePage } from "./pages/MaintenancePage"
+import { MaintenanceFullPage } from "./pages/MaintenanceFullPage"
 import { RenewalsPage } from "./pages/RenewalsPage"
+import { RenewalsFullPage } from "./pages/RenewalsFullPage"
 import { LeasingPage } from "./pages/LeasingPage"
 import { CommunicationsPage } from "./pages/CommunicationsPage"
 import { IvrSetupPage, type IvrChoice } from "./pages/IvrSetupPage"
@@ -315,20 +318,16 @@ export default function EliOnboardingHybrid() {
             onImmediateMoveinChange={(id, val) => setImmediateMovein((p) => ({ ...p, [id]: val }))}
           />
         ) : page === "maintenance" ? (
-          <MaintenancePage
+          <MaintenanceFullPage
             navigate={navigate}
             showToast={showToast}
-            duringPhones={duringPhones}
-            onDuringPhoneChange={(id, val) => setDuringPhones((p) => ({ ...p, [id]: val }))}
-            afterPhones={afterPhones}
-            onAfterPhoneChange={(id, val) => setAfterPhones((p) => ({ ...p, [id]: val }))}
           />
         ) : page === "renewals" ? (
-          <RenewalsPage navigate={navigate} showToast={showToast} days={renewalDays} onChange={handleRenewalDayChange} />
+          <RenewalsFullPage navigate={navigate} showToast={showToast} />
         ) : page === "renewals-channels" ? (
           <RenewalsChannelsPage navigate={navigate} />
         ) : page === "payments" ? (
-          <PaymentsSummaryPage navigate={navigate} completedTasks={completedTasks} onComplete={handleComplete} showToast={showToast} />
+          <PaymentsPage navigate={navigate} showToast={showToast} />
         ) : page === "communications" ? (
           <CommunicationsPage
             navigate={navigate}
