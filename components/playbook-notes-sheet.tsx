@@ -236,26 +236,6 @@ export function PlaybookNotesSheet({
           )}
         </div>
 
-        {/* Suggestions */}
-        <div className="flex flex-col gap-1.5 bg-muted px-4 pt-3">
-          <p className="text-[10px] font-semibold tracking-wider text-muted-foreground">
-            SUGGESTED NOTES
-          </p>
-          {SUGGESTIONS.map((text) => (
-            <button
-              key={text}
-              type="button"
-              onClick={() => {
-                setDraft(text);
-                textareaRef.current?.focus();
-              }}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 line-clamp-2"
-            >
-              {text}
-            </button>
-          ))}
-        </div>
-
         {/* Composer */}
         <div className="bg-muted p-4">
           <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-2 shadow-sm transition-shadow focus-within:border-primary/40 focus-within:shadow-md">
