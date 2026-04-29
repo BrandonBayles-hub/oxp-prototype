@@ -1,5 +1,5 @@
 "use client"
-import { useState, useCallback, useMemo, useEffect, useRef } from "react"
+import { Fragment, useState, useCallback, useMemo, useEffect, useRef } from "react"
 import type { BasePageProps } from "../index"
 import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -14,6 +14,7 @@ import {
   Info,
   Loader2,
   X,
+  XCircle,
   Lock,
   ExternalLink,
   WandSparkles,
@@ -65,6 +66,39 @@ const PROPERTY_META: PropertyMeta[] = PROPERTIES.map(p => {
 const META_MAP = Object.fromEntries(PROPERTY_META.map(m => [m.id, m]))
 
 const INITIALLY_COVERED = new Set(["p1", "p2", "p3", "p4", "p5", "p7", "p10", "p12"])
+
+// ── Twilio rejection simulation ──────────────────────────────────────────────
+// When a privacy policy + URL is submitted to Twilio for 10DLC campaign
+// approval, Twilio crawls the URL and validates the policy against CTIA
+// guidelines. The properties below simulate the most common rejection
+// reasons we see in real-world Gong calls. After the user clicks "Resubmit"
+// we treat it as approved on the second attempt (mirrors the TP retry flow).
+
+interface RejectionReason {
+  code: string
+  title: string
+  detail: string
+  fix: string
+}
+
+const REJECTION_FIXTURES: Record<string, RejectionReason> = {
+  // Bay Breeze (San Francisco) — policy text missing CTIA-required language
+  p14: {
+    code: "POLICY_MISSING_DISCLOSURE",
+    title: "Privacy policy is missing required SMS disclosure",
+    detail:
+      "Twilio's crawler reached the page but didn't find consumer instructions for STOP and HELP, which CTIA guidelines require for 10DLC campaign approval.",
+    fix: "We'll re-publish the updated policy template (which already includes STOP/HELP language) to this property's site. No action needed from you — just click Resubmit.",
+  },
+  // Coastal View (San Diego) — page returned 404
+  p15: {
+    code: "URL_NOT_FOUND",
+    title: "Privacy policy URL returned 404",
+    detail:
+      "Twilio couldn't reach https://coastalview.prospectportal.entrata.com/privacy. The page either doesn't exist or hasn't been published yet.",
+    fix: "We'll re-publish the policy file to the standard /privacy path on this property's Prospect Portal site, then resubmit to Twilio.",
+  },
+}
 
 // ── State supplement detection ────────────────────────────────────────────────
 
@@ -961,6 +995,8 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
   const [userFields, setUserFields]     = useState<UserFields>(DEFAULT_USER)
   const [publishedIds, setPublishedIds] = useState<Set<string>>(new Set(INITIALLY_COVERED))
   const [publishingIds, setPublishingIds] = useState<Set<string>>(new Set())
+  const [rejectedIds, setRejectedIds] = useState<Set<string>>(new Set())
+  const [rejectionReasons, setRejectionReasons] = useState<Record<string, RejectionReason>>({})
   const [tpConfirmedIds, setTpConfirmedIds] = useState<Set<string>>(new Set())
   const [sheetOpen, setSheetOpen]       = useState(false)
   // URLs provided by client for properties where none was auto-detected
@@ -1083,11 +1119,44 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
   function handlePublishAll(selectedIds: string[]) {
     setPublishingIds(new Set(selectedIds))
     setTimeout(() => {
-      setPublishedIds(prev => new Set([...prev, ...selectedIds]))
+      // Twilio campaign approval check happens on each property's URL.
+      // A subset gets rejected with a specific reason — the rest are approved.
+      const rejected = selectedIds.filter(id => REJECTION_FIXTURES[id])
+      const approved = selectedIds.filter(id => !REJECTION_FIXTURES[id])
+
+      setPublishedIds(prev => new Set([...prev, ...approved]))
+      if (rejected.length > 0) {
+        setRejectedIds(prev => new Set([...prev, ...rejected]))
+        setRejectionReasons(prev => {
+          const next = { ...prev }
+          rejected.forEach(id => { next[id] = REJECTION_FIXTURES[id] })
+          return next
+        })
+      }
       setPublishingIds(new Set())
-      showToast(`Congrats! Privacy policies published to ${selectedIds.length} ${selectedIds.length === 1 ? "property" : "properties"}`)
+
+      if (rejected.length === 0) {
+        showToast(`Congrats! Privacy policies published to ${approved.length} ${approved.length === 1 ? "property" : "properties"}`)
+      } else if (approved.length === 0) {
+        showToast(`Twilio rejected ${rejected.length} ${rejected.length === 1 ? "policy" : "policies"} — review reasons below`)
+      } else {
+        showToast(`${approved.length} approved · ${rejected.length} rejected by Twilio — review below`)
+      }
       setSheetOpen(false)
     }, 2000)
+  }
+  function handleResubmit(id: string) {
+    // Keep the rejected flag set while in flight so the row pill reads
+    // "Resubmitting…" — the inline reason panel hides itself while publishing.
+    setPublishingIds(prev => new Set([...prev, id]))
+    setTimeout(() => {
+      setPublishedIds(prev => new Set([...prev, id]))
+      setPublishingIds(prev => { const n = new Set(prev); n.delete(id); return n })
+      setRejectedIds(prev => { const n = new Set(prev); n.delete(id); return n })
+      setRejectionReasons(prev => { const n = { ...prev }; delete n[id]; return n })
+      const prop = PROPERTIES.find(p => p.id === id)
+      showToast(`${prop?.name ?? "Property"} privacy policy approved by Twilio`)
+    }, 1800)
   }
   const handleConfirmTp = useCallback((id: string) => {
     setTpConfirmedIds(prev => new Set([...prev, id]))
@@ -1255,6 +1324,38 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
           </div>
         </div>
 
+        {/* Twilio rejection summary — surfaces when 1+ properties are rejected */}
+        {rejectedIds.size > 0 && (
+          <div className="rounded-xl border-2 border-red-300 bg-red-50/60 px-4 py-3.5">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-100">
+                <XCircle className="h-4 w-4 text-red-700" aria-hidden />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-red-700">
+                  Campaign approval blocked
+                </p>
+                <h2 className="text-sm font-semibold text-red-950 mt-0.5">
+                  Twilio rejected {rejectedIds.size} privacy {rejectedIds.size === 1 ? "policy" : "policies"}
+                </h2>
+                <p className="text-xs text-red-900/80 mt-1 leading-relaxed">
+                  Each rejected property has a specific reason and a fix plan below. Click Resubmit per property — Twilio re-checks the URL and approves the campaign once the issue clears.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setFilter("needs-action")
+                  Array.from(rejectedIds).forEach(id => handleResubmit(id))
+                }}
+                className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0 gap-1.5 border-red-300 text-red-800 hover:bg-red-100")}>
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+                Resubmit all
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Filter tabs + primary action */}
         <div className="flex items-center justify-between gap-4">
           <div className="flex gap-1">
@@ -1300,35 +1401,77 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
                   const isPublishing = publishingIds.has(prop.id)
                   const isTP         = meta.siteType === "third-party"
                   const isCovered    = isTP ? tpConfirmedIds.has(prop.id) : publishedIds.has(prop.id)
+                  const isRejected   = rejectedIds.has(prop.id)
+                  const reason       = rejectionReasons[prop.id]
 
                   return (
-                    <tr key={prop.id} className="bg-white hover:bg-zinc-50 transition-colors">
-                      <td className="px-4 py-2.5">
-                        <p className="font-medium text-foreground leading-tight">{prop.name}</p>
-                        <p className="text-[11px] text-muted-foreground mt-0.5">{prop.city}, {prop.state}</p>
-                      </td>
-                      <td className="px-4 py-2.5 max-w-[195px]">
-                        <span className="font-mono text-[11px] text-muted-foreground block truncate" title={url}>{url}</span>
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <span className="text-xs text-muted-foreground">{isTP ? "Third-party" : "Prospect Portal"}</span>
-                      </td>
-                      <td className="px-4 py-2.5">
-                        {isCovered ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 whitespace-nowrap">
-                            <CheckCircle2 className="h-3.5 w-3.5" />Covered
-                          </span>
-                        ) : isPublishing ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 whitespace-nowrap">
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />Publishing…
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 whitespace-nowrap">
-                            <AlertTriangle className="h-3.5 w-3.5" />Needs coverage
-                          </span>
-                        )}
-                      </td>
-                    </tr>
+                    <Fragment key={prop.id}>
+                      <tr className={cn(
+                        "bg-white hover:bg-zinc-50 transition-colors",
+                        isRejected && "bg-red-50/30 hover:bg-red-50/50",
+                      )}>
+                        <td className="px-4 py-2.5">
+                          <p className="font-medium text-foreground leading-tight">{prop.name}</p>
+                          <p className="text-[11px] text-muted-foreground mt-0.5">{prop.city}, {prop.state}</p>
+                        </td>
+                        <td className="px-4 py-2.5 max-w-[195px]">
+                          <span className="font-mono text-[11px] text-muted-foreground block truncate" title={url}>{url}</span>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <span className="text-xs text-muted-foreground">{isTP ? "Third-party" : "Prospect Portal"}</span>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          {isCovered ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 whitespace-nowrap">
+                              <CheckCircle2 className="h-3.5 w-3.5" />Covered
+                            </span>
+                          ) : isPublishing ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 whitespace-nowrap">
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />{isRejected ? "Resubmitting…" : "Publishing…"}
+                            </span>
+                          ) : isRejected ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-700 whitespace-nowrap">
+                              <XCircle className="h-3.5 w-3.5" />Rejected
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 whitespace-nowrap">
+                              <AlertTriangle className="h-3.5 w-3.5" />Needs coverage
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                      {isRejected && reason && !isPublishing && (
+                        <tr className="bg-red-50/40">
+                          <td colSpan={4} className="px-4 py-3 border-t border-red-100/80">
+                            <div className="flex items-start gap-3">
+                              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-100">
+                                <XCircle className="h-3.5 w-3.5 text-red-700" aria-hidden />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="text-[11px] font-semibold uppercase tracking-wider text-red-700">Twilio rejection</p>
+                                  <span className="font-mono text-[10px] text-red-700/70 bg-red-100/70 rounded px-1.5 py-0.5">
+                                    {reason.code}
+                                  </span>
+                                </div>
+                                <p className="text-sm font-semibold text-red-950 mt-1">{reason.title}</p>
+                                <p className="text-xs text-red-900/80 mt-1 leading-relaxed">{reason.detail}</p>
+                                <p className="text-xs text-foreground/80 mt-2 leading-relaxed">
+                                  <span className="font-medium">What we'll do:</span> {reason.fix}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleResubmit(prop.id)}
+                                className={cn(buttonVariants({ variant: "eli", size: "sm" }), "shrink-0 gap-1.5")}>
+                                <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+                                Resubmit
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   )
                 })}
               </tbody>
