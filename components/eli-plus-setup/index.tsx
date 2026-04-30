@@ -1,9 +1,6 @@
 "use client"
 
 import React, { useState, useEffect, useCallback, useRef } from "react"
-import { Clock, ArrowLeft } from "lucide-react"
-import { cn } from "@/lib/utils"
-import { buttonVariants } from "@/components/ui/button"
 import { HybridShell } from "./components/HybridShell"
 import { GlobalToast } from "./components/GlobalToast"
 import { OverviewPage } from "./pages/OverviewPage"
@@ -11,14 +8,7 @@ import { CompanyPage } from "./pages/CompanyPage"
 import type { SimMode } from "./pages/CompanyPage"
 import { PrivacyPage } from "./pages/PrivacyPage"
 import { EmailPage } from "./pages/EmailPage"
-import { PaymentsSummaryPage } from "./pages/PaymentsSummaryPage"
-import { PaymentsPage } from "./pages/PaymentsPage"
 import { GoLivePage } from "./pages/GoLivePage"
-import { MaintenancePage } from "./pages/MaintenancePage"
-import { MaintenanceFullPage } from "./pages/MaintenanceFullPage"
-import { RenewalsPage } from "./pages/RenewalsPage"
-import { RenewalsFullPage } from "./pages/RenewalsFullPage"
-import { LeasingPage } from "./pages/LeasingPage"
 import { CommunicationsPage } from "./pages/CommunicationsPage"
 import { IvrSetupPage, type IvrChoice } from "./pages/IvrSetupPage"
 import { makeDefaultRenewalDays, isValidDays } from "./components/RenewalLeadTimeSheetContent"
@@ -37,43 +27,9 @@ import {
   ENTRATA_AFTER_PHONES,
 } from "./data/entrata-imports"
 
-export type PageId = "overview" | "company" | "privacy" | "email" | "communications" | "ivr-setup" | "leasing" | "payments" | "maintenance" | "renewals" | "renewals-channels" | "golive"
+export type PageId = "overview" | "company" | "privacy" | "email" | "communications" | "ivr-setup" | "golive"
 export type BrandStatus = "idle" | "submitting" | "carrier-rejected" | "approved"
 export type CampaignStatus = "idle" | "creating" | "ready"
-
-function RenewalsChannelsPage({ navigate }: { navigate: (to: PageId) => void }) {
-  return (
-    <div className="p-6 md:p-8 max-w-6xl space-y-6">
-      <button
-        type="button"
-        onClick={() => navigate("renewals")}
-        className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-1 -ml-2 text-muted-foreground")}
-      >
-        <ArrowLeft className="h-4 w-4" aria-hidden />
-        Renewals AI
-      </button>
-
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Communication Channels</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Define which channels ELI uses for renewal outreach per property.
-        </p>
-      </div>
-
-      <div className="flex flex-col items-center justify-center py-24 gap-4">
-        <div className="h-14 w-14 rounded-full bg-zinc-100 flex items-center justify-center">
-          <Clock className="h-7 w-7 text-zinc-400" aria-hidden />
-        </div>
-        <div className="text-center space-y-1.5">
-          <p className="text-base font-semibold text-foreground">Coming Soon</p>
-          <p className="text-sm text-muted-foreground max-w-sm">
-            Communication channel configuration for Renewals AI is on the roadmap. This will let you control which channels — email, SMS, in-app — ELI uses when reaching out to residents about lease renewals.
-          </p>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 export type BasePageProps = {
   navigate: (to: PageId) => void
@@ -294,40 +250,6 @@ export default function EliOnboardingHybrid() {
             immediateMovein={immediateMovein}
             onImmediateMoveinChange={(id, val) => setImmediateMovein((p) => ({ ...p, [id]: val }))}
           />
-          ) : page === "leasing" ? (
-          <LeasingPage
-            navigate={navigate}
-            showToast={showToast}
-            agentGoals={agentGoals}
-            onAgentGoalChange={(id, val) => setAgentGoals((p) => ({ ...p, [id]: val }))}
-            modelUnits={modelUnits}
-            onModelUnitChange={(id, val) => setModelUnits((p) => ({ ...p, [id]: val }))}
-            tourSettings={tourSettings}
-            onTourSettingChange={(id, field, val) => setTourSettings((p) => ({ ...p, [id]: { ...p[id], [field]: val } }))}
-            tourPriority={tourPriority}
-            onTourPriorityChange={(propId, order) => setTourPriority((p) => ({ ...p, [propId]: order }))}
-            leasingPolicies={leasingPolicies}
-            onLeasingPolicyChange={(policyId, propId, val) => setLeasingPolicies((p) => ({ ...p, [policyId]: { ...p[policyId], [propId]: val } }))}
-            campusProximity={campusProximity}
-            onCampusProximityChange={(id, val) => setCampusProximity((p) => ({ ...p, [id]: val }))}
-            studySpaces={studySpaces}
-            onStudySpacesChange={(id, val) => setStudySpaces((p) => ({ ...p, [id]: val }))}
-            semesterLeases={semesterLeases}
-            onSemesterLeasesChange={(id, val) => setSemesterLeases((p) => ({ ...p, [id]: val }))}
-            immediateMovein={immediateMovein}
-            onImmediateMoveinChange={(id, val) => setImmediateMovein((p) => ({ ...p, [id]: val }))}
-          />
-        ) : page === "maintenance" ? (
-          <MaintenanceFullPage
-            navigate={navigate}
-            showToast={showToast}
-          />
-        ) : page === "renewals" ? (
-          <RenewalsFullPage navigate={navigate} showToast={showToast} />
-        ) : page === "renewals-channels" ? (
-          <RenewalsChannelsPage navigate={navigate} />
-        ) : page === "payments" ? (
-          <PaymentsPage navigate={navigate} showToast={showToast} />
         ) : page === "communications" ? (
           <CommunicationsPage
             navigate={navigate}

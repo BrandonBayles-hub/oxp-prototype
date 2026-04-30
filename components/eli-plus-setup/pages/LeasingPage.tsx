@@ -74,27 +74,31 @@ const TOUR_ADDITIONAL_SETTINGS = [
 interface Props {
   navigate: (to: PageId) => void
   showToast: (message: string) => void
-  agentGoals: Record<string, string>
-  onAgentGoalChange: (id: string, val: string) => void
-  modelUnits: Record<string, string>
-  onModelUnitChange: (id: string, val: string) => void
-  tourSettings: Record<string, TourPropertySettings>
-  onTourSettingChange: (id: string, field: keyof TourPropertySettings, val: string | boolean) => void
-  tourPriority: Record<string, string[]>
-  onTourPriorityChange: (propId: string, priority: string[]) => void
-  leasingPolicies: LeasingPoliciesState
-  onLeasingPolicyChange: (policyId: string, propertyId: string, val: string) => void
-  campusProximity: Record<string, string>
-  onCampusProximityChange: (id: string, val: string) => void
-  studySpaces: Record<string, string>
-  onStudySpacesChange: (id: string, val: string) => void
-  semesterLeases: Record<string, string>
-  onSemesterLeasesChange: (id: string, val: string) => void
-  immediateMovein: Record<string, string>
-  onImmediateMoveinChange: (id: string, val: string) => void
+  agentGoals?: Record<string, string>
+  onAgentGoalChange?: (id: string, val: string) => void
+  modelUnits?: Record<string, string>
+  onModelUnitChange?: (id: string, val: string) => void
+  tourSettings?: Record<string, TourPropertySettings>
+  onTourSettingChange?: (id: string, field: keyof TourPropertySettings, val: string | boolean) => void
+  tourPriority?: Record<string, string[]>
+  onTourPriorityChange?: (propId: string, priority: string[]) => void
+  leasingPolicies?: LeasingPoliciesState
+  onLeasingPolicyChange?: (policyId: string, propertyId: string, val: string) => void
+  campusProximity?: Record<string, string>
+  onCampusProximityChange?: (id: string, val: string) => void
+  studySpaces?: Record<string, string>
+  onStudySpacesChange?: (id: string, val: string) => void
+  semesterLeases?: Record<string, string>
+  onSemesterLeasesChange?: (id: string, val: string) => void
+  immediateMovein?: Record<string, string>
+  onImmediateMoveinChange?: (id: string, val: string) => void
+  variant?: "flyout"
+  propertyName?: string
+  agentLabel?: string
+  onBack?: () => void
 }
 
-export function LeasingPage({ navigate, showToast }: Props) {
+export function LeasingPage({ navigate, showToast, variant, propertyName, agentLabel, onBack }: Props) {
   const [activeTab, setActiveTab] = useState<LeasingTab>("general")
   const [propertyPickerOpen, setPropertyPickerOpen] = useState(false)
   const [selectedProperties, setSelectedProperties] = useState<string[]>(() => PROPERTIES.map(p => p.id))
@@ -178,6 +182,92 @@ export function LeasingPage({ navigate, showToast }: Props) {
     )
   }
 
+  const tabContent = (
+    <>
+      {activeTab === "general" && <GeneralInfoTab agentGoal={agentGoal} onAgentGoalChange={setAgentGoal} officeHours={officeHours} onOfficeHourChange={updateOfficeHour} />}
+      {activeTab === "property" && <PropertyInfoTab address={propertyAddress} />}
+      {activeTab === "tours" && (
+        <ToursTab
+          tourHoursMode={tourHoursMode}
+          onTourHoursModeChange={setTourHoursMode}
+          tourScheduleHours={tourScheduleHours}
+          onTourScheduleHourChange={updateTourScheduleHour}
+          selectedModelUnits={selectedModelUnits}
+          modelUnitDropdownOpen={modelUnitDropdownOpen}
+          onModelUnitDropdownToggle={() => setModelUnitDropdownOpen(!modelUnitDropdownOpen)}
+          onToggleModelUnit={toggleModelUnit}
+          agentTourEnabled={agentTourEnabled}
+          onAgentTourToggle={() => setAgentTourEnabled(!agentTourEnabled)}
+          agentTourLength={agentTourLength}
+          onAgentTourLengthChange={setAgentTourLength}
+          agentTourInstructions={agentTourInstructions}
+          onAgentTourInstructionsChange={setAgentTourInstructions}
+          selfGuidedEnabled={selfGuidedEnabled}
+          onSelfGuidedToggle={() => setSelfGuidedEnabled(!selfGuidedEnabled)}
+          selfGuidedProvider={selfGuidedProvider}
+          onSelfGuidedProviderChange={setSelfGuidedProvider}
+          selfGuidedLink={selfGuidedLink}
+          onSelfGuidedLinkChange={setSelfGuidedLink}
+          selfGuidedLength={selfGuidedLength}
+          onSelfGuidedLengthChange={setSelfGuidedLength}
+          selfGuidedInstructions={selfGuidedInstructions}
+          onSelfGuidedInstructionsChange={setSelfGuidedInstructions}
+          virtualTourEnabled={virtualTourEnabled}
+          onVirtualTourToggle={() => setVirtualTourEnabled(!virtualTourEnabled)}
+          virtualProvider={virtualProvider}
+          onVirtualProviderChange={setVirtualProvider}
+          tourPriorityOrder={tourPriorityOrder}
+          tourTypeLabels={TOUR_TYPE_LABELS}
+          draggedTourId={draggedTourId}
+          dragOverTourId={dragOverTourId}
+          onTourDragStart={handleTourDragStart}
+          onTourDragEnd={handleTourDragEnd}
+          onTourDragOver={handleTourDragOver}
+          onTourDrop={handleTourDrop}
+        />
+      )}
+      {activeTab === "policies" && <PoliciesTab />}
+      {activeTab === "marketing" && <MarketingTab />}
+    </>
+  )
+
+  if (variant === "flyout") {
+    return (
+      <div className="flex h-full">
+        <aside className="w-52 shrink-0 border-r border-border bg-white overflow-y-auto">
+          <div className="p-5">
+            <button type="button" onClick={onBack} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
+              <ArrowLeft className="h-3 w-3" aria-hidden />
+              {agentLabel}
+            </button>
+            <div className="mt-4">
+              <p className="text-base font-bold text-foreground">{propertyName}</p>
+              <p className="text-xs text-emerald-600 mt-0.5">Active</p>
+            </div>
+            <nav className="mt-6 space-y-0.5">
+              {LEASING_TABS.map(tab => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={cn(
+                    "w-full text-left px-3 py-2 rounded-md text-sm transition-colors",
+                    activeTab === tab.id
+                      ? "bg-zinc-100 font-medium text-foreground"
+                      : "text-muted-foreground hover:bg-zinc-50 hover:text-foreground",
+                  )}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
+          </div>
+        </aside>
+        <main className="flex-1 min-w-0 overflow-y-auto">{tabContent}</main>
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* Top header with back link + tab bar */}
@@ -247,52 +337,7 @@ export function LeasingPage({ navigate, showToast }: Props) {
       )}
 
       {/* Scrollable content area */}
-      <div className="flex-1 min-w-0 overflow-y-auto">
-        {activeTab === "general" && <GeneralInfoTab agentGoal={agentGoal} onAgentGoalChange={setAgentGoal} officeHours={officeHours} onOfficeHourChange={updateOfficeHour} />}
-        {activeTab === "property" && <PropertyInfoTab address={propertyAddress} />}
-        {activeTab === "tours" && (
-          <ToursTab
-            tourHoursMode={tourHoursMode}
-            onTourHoursModeChange={setTourHoursMode}
-            tourScheduleHours={tourScheduleHours}
-            onTourScheduleHourChange={updateTourScheduleHour}
-            selectedModelUnits={selectedModelUnits}
-            modelUnitDropdownOpen={modelUnitDropdownOpen}
-            onModelUnitDropdownToggle={() => setModelUnitDropdownOpen(!modelUnitDropdownOpen)}
-            onToggleModelUnit={toggleModelUnit}
-            agentTourEnabled={agentTourEnabled}
-            onAgentTourToggle={() => setAgentTourEnabled(!agentTourEnabled)}
-            agentTourLength={agentTourLength}
-            onAgentTourLengthChange={setAgentTourLength}
-            agentTourInstructions={agentTourInstructions}
-            onAgentTourInstructionsChange={setAgentTourInstructions}
-            selfGuidedEnabled={selfGuidedEnabled}
-            onSelfGuidedToggle={() => setSelfGuidedEnabled(!selfGuidedEnabled)}
-            selfGuidedProvider={selfGuidedProvider}
-            onSelfGuidedProviderChange={setSelfGuidedProvider}
-            selfGuidedLink={selfGuidedLink}
-            onSelfGuidedLinkChange={setSelfGuidedLink}
-            selfGuidedLength={selfGuidedLength}
-            onSelfGuidedLengthChange={setSelfGuidedLength}
-            selfGuidedInstructions={selfGuidedInstructions}
-            onSelfGuidedInstructionsChange={setSelfGuidedInstructions}
-            virtualTourEnabled={virtualTourEnabled}
-            onVirtualTourToggle={() => setVirtualTourEnabled(!virtualTourEnabled)}
-            virtualProvider={virtualProvider}
-            onVirtualProviderChange={setVirtualProvider}
-            tourPriorityOrder={tourPriorityOrder}
-            tourTypeLabels={TOUR_TYPE_LABELS}
-            draggedTourId={draggedTourId}
-            dragOverTourId={dragOverTourId}
-            onTourDragStart={handleTourDragStart}
-            onTourDragEnd={handleTourDragEnd}
-            onTourDragOver={handleTourDragOver}
-            onTourDrop={handleTourDrop}
-          />
-        )}
-        {activeTab === "policies" && <PoliciesTab />}
-        {activeTab === "marketing" && <MarketingTab />}
-      </div>
+      <div className="flex-1 min-w-0 overflow-y-auto">{tabContent}</div>
     </div>
   )
 }
@@ -462,12 +507,6 @@ function GeneralInfoTab({
           <h1 className="text-2xl font-bold tracking-tight">General Info</h1>
           <p className="text-sm text-muted-foreground mt-1">General settings specific to the AI Agent.</p>
         </div>
-        <button
-          type="button"
-          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
-        >
-          View Help Article
-        </button>
       </div>
 
       {/* Agent Goal */}
@@ -629,12 +668,6 @@ function PropertyInfoTab({
           <h1 className="text-2xl font-bold tracking-tight">Property Info</h1>
           <p className="text-sm text-muted-foreground mt-1">General property settings</p>
         </div>
-        <button
-          type="button"
-          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
-        >
-          View Help Article
-        </button>
       </div>
 
       {/* Primary Address */}
@@ -867,12 +900,6 @@ function ToursTab({
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Tours</h1>
         </div>
-        <button
-          type="button"
-          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
-        >
-          View Help Article
-        </button>
       </div>
 
       {/* Tour Schedule Hours */}
@@ -1397,12 +1424,6 @@ function PoliciesTab() {
           <h1 className="text-2xl font-bold tracking-tight">Policies</h1>
           <p className="text-sm text-muted-foreground mt-1">Manage the policies your agent will reference</p>
         </div>
-        <button
-          type="button"
-          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
-        >
-          View Help Article
-        </button>
       </div>
 
       {LEASING_POLICIES_CONFIG.map(policy => (
@@ -1443,12 +1464,6 @@ function MarketingTab() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Marketing</h1>
         </div>
-        <button
-          type="button"
-          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
-        >
-          View Help Article
-        </button>
       </div>
 
       {/* Websites */}

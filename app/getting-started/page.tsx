@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { useSetup } from "@/lib/setup-context";
 import { useVault } from "@/lib/vault-context";
@@ -57,7 +57,6 @@ const STEPS = [
   { id: "train-workforce",     title: "Train Your Workforce — Upload Documents & SOPs",             href: "/trainings-sop" },
   { id: "playbooks-tasks",     title: "Create Playbooks & Tasks",                                   href: "/escalations" },
   { id: "workforce",           title: "Configure Your Workforce",                                   href: "/workforce" },
-  { id: "eli-plus",            title: "Activate ELI Plus Agents",                                    href: "/agent-roster" },
   { id: "workflows",           title: "Set up Agent Builder",                                        href: "/workflows" },
   { id: "voice-brand",         title: "Configure Voice & Brand",                                     href: "/voice" },
   { id: "governance",          title: "Set up Governance",                                           href: "/governance" },
@@ -103,7 +102,10 @@ export default function GettingStartedPage() {
   const { isR1Release } = useR1Release();
   const { isR1_2Release } = useR1_2Release();
   const isFullVersion = !isR1Release && !isR1_2Release;
-  const [activeTab, setActiveTab] = useState<"activation" | "eli-plus">("activation");
+  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState<"activation" | "eli-plus">(
+    searchParams.get("tab") === "eli-plus" ? "eli-plus" : "activation"
+  );
 
   useEffect(() => {
     if (isFullVersion && activeTab === "eli-plus") {
