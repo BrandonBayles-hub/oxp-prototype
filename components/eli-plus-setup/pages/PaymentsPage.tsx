@@ -36,9 +36,13 @@ const ADDITIONAL_PROPERTY_SETTINGS = [
 interface Props {
   navigate: (to: PageId) => void
   showToast: (message: string) => void
+  variant?: "flyout"
+  propertyName?: string
+  agentLabel?: string
+  onBack?: () => void
 }
 
-export function PaymentsPage({ navigate, showToast }: Props) {
+export function PaymentsPage({ navigate, showToast, variant, propertyName, agentLabel, onBack }: Props) {
   const [activeTab, setActiveTab] = useState<PaymentsTab>("property")
   const [propertyPickerOpen, setPropertyPickerOpen] = useState(false)
   const [selectedProperties, setSelectedProperties] = useState<string[]>(() => PROPERTIES.map(p => p.id))
@@ -53,6 +57,53 @@ export function PaymentsPage({ navigate, showToast }: Props) {
     zip: "84043",
     timezone: "Mountain Time (GMT -0700)",
   })
+
+  const tabContent = (
+    <>
+      {activeTab === "property" && <PropertyInfoTab address={propertyAddress} />}
+      {activeTab === "payment-info" && <PaymentInfoTab />}
+      {activeTab === "payment-options" && <PaymentOptionsTab />}
+      {activeTab === "policies" && <PoliciesTab />}
+      {activeTab === "marketing" && <MarketingTab />}
+    </>
+  )
+
+  if (variant === "flyout") {
+    return (
+      <div className="flex h-full">
+        <aside className="w-52 shrink-0 border-r border-border bg-white overflow-y-auto">
+          <div className="p-5">
+            <button type="button" onClick={onBack} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
+              <ArrowLeft className="h-3 w-3" aria-hidden />
+              {agentLabel}
+            </button>
+            <div className="mt-4">
+              <p className="text-base font-bold text-foreground">{propertyName}</p>
+              <p className="text-xs text-emerald-600 mt-0.5">Active</p>
+            </div>
+            <nav className="mt-6 space-y-0.5">
+              {PAYMENTS_TABS.map(tab => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={cn(
+                    "w-full text-left px-3 py-2 rounded-md text-sm transition-colors",
+                    activeTab === tab.id
+                      ? "bg-zinc-100 font-medium text-foreground"
+                      : "text-muted-foreground hover:bg-zinc-50 hover:text-foreground",
+                  )}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
+          </div>
+        </aside>
+        <main className="flex-1 min-w-0 overflow-y-auto">{tabContent}</main>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -123,13 +174,7 @@ export function PaymentsPage({ navigate, showToast }: Props) {
       )}
 
       {/* Scrollable content area */}
-      <div className="flex-1 min-w-0 overflow-y-auto">
-        {activeTab === "property" && <PropertyInfoTab address={propertyAddress} />}
-        {activeTab === "payment-info" && <PaymentInfoTab />}
-        {activeTab === "payment-options" && <PaymentOptionsTab />}
-        {activeTab === "policies" && <PoliciesTab />}
-        {activeTab === "marketing" && <MarketingTab />}
-      </div>
+      <div className="flex-1 min-w-0 overflow-y-auto">{tabContent}</div>
     </div>
   )
 }
@@ -296,12 +341,6 @@ function PropertyInfoTab({
           <h1 className="text-2xl font-bold tracking-tight">Property Info</h1>
           <p className="text-sm text-muted-foreground mt-1">General property settings</p>
         </div>
-        <button
-          type="button"
-          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
-        >
-          View Help Article
-        </button>
       </div>
 
       {/* Primary Address */}
@@ -482,12 +521,6 @@ function PaymentInfoTab() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Payment Info</h1>
         </div>
-        <button
-          type="button"
-          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
-        >
-          View Help Article
-        </button>
       </div>
 
       {/* Rent Due and Payment Start Dates */}
@@ -726,12 +759,6 @@ function PaymentOptionsTab() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Payment Options</h1>
         </div>
-        <button
-          type="button"
-          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
-        >
-          View Help Article
-        </button>
       </div>
 
       {/* Payment Options checklist */}
@@ -824,12 +851,6 @@ function PoliciesTab() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Policies</h1>
         </div>
-        <button
-          type="button"
-          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
-        >
-          View Help Article
-        </button>
       </div>
 
       {/* Late Fee */}
@@ -898,12 +919,6 @@ function MarketingTab() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Marketing</h1>
         </div>
-        <button
-          type="button"
-          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
-        >
-          View Help Article
-        </button>
       </div>
 
       {/* Websites */}
