@@ -50,6 +50,7 @@ import { LeasingPage } from "@/components/eli-plus-setup/pages/LeasingPage";
 import { PaymentsPage } from "@/components/eli-plus-setup/pages/PaymentsPage";
 import { MaintenanceFullPage } from "@/components/eli-plus-setup/pages/MaintenanceFullPage";
 import { RenewalsFullPage } from "@/components/eli-plus-setup/pages/RenewalsFullPage";
+import { LeasingAISettingsPanel } from "@/components/leasing-ai-settings-panel";
 
 const DATA_SOURCE_OPTIONS = [
   "Entrata Ledger",
@@ -3304,7 +3305,15 @@ function generateSimulationResponse(
 
 /* ═══════════════════════════════════════════════════════════════════════ */
 
-function AgentSimulationPanel({ agentName, propertyName }: { agentName: string; propertyName: string }) {
+function AgentSimulationPanel({
+  agentName,
+  propertyName,
+  onSimulationStarted,
+}: {
+  agentName: string;
+  propertyName: string;
+  onSimulationStarted?: () => void;
+}) {
   const scenarios = SIMULATION_SCENARIOS[agentName] ?? [];
   const [activeScenario, setActiveScenario] = useState<SimScenario | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -3315,6 +3324,7 @@ function AgentSimulationPanel({ agentName, propertyName }: { agentName: string; 
   const startScenario = (scenario: SimScenario) => {
     setActiveScenario(scenario);
     turnRef.current = 0;
+    onSimulationStarted?.();
     const opening: ChatMessage = { role: "resident", text: scenario.openingMessage };
     setMessages([opening]);
     setActions([]);
@@ -4311,6 +4321,9 @@ function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: 
   const tabs = AGENT_SETTINGS_TABS[agentName] ?? [];
   const agentSubPages = useMemo(() => getAgentSubPages(agentName), [agentName]);
   const [activeNav, setActiveNav] = useState<SettingsNav>("property");
+  // Count simulations the user has started in the Simulation tab for THIS property.
+  // Component remounts per property, so the counter is automatically per-property.
+  const [simulationCount, setSimulationCount] = useState(0);
 
   return (
     <div className="flex h-full">
@@ -4397,27 +4410,42 @@ function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: 
             </div>
           </div>
         ) : activeNav === "agent-settings" ? (
-          <div className="p-8 max-w-3xl">
-            <h2 className="text-xl font-bold text-foreground">{agentName} Settings</h2>
-            <p className="text-sm text-muted-foreground mt-1.5">
-              Configure agent-specific settings that control how {agentName} operates at {property.name}.
-            </p>
-            <div className="flex flex-col items-center justify-center py-24 gap-4">
-              <div className="h-14 w-14 rounded-full bg-zinc-100 flex items-center justify-center">
-                <Bot className="h-7 w-7 text-zinc-400" aria-hidden />
-              </div>
-              <div className="text-center space-y-1.5">
-                <p className="text-base font-semibold text-foreground">Coming Soon</p>
-                <p className="text-sm text-muted-foreground max-w-sm">
-                  Agent-specific settings for {agentName} will allow you to configure escalation rules, response thresholds, operating hours, handoff behavior, and other parameters unique to this agent.
-                </p>
+          agentName === "Leasing AI" ? (
+            <div className="relative h-full">
+              <LeasingAISettingsPanel
+                propertyName={property.name}
+                agentDisplayLabel={`ELI+ ${agentName}`}
+                simulationCount={simulationCount}
+                onOpenSimulation={() => setActiveNav("simulation")}
+              />
+            </div>
+          ) : (
+            <div className="p-8 max-w-3xl">
+              <h2 className="text-xl font-bold text-foreground">{agentName} Settings</h2>
+              <p className="text-sm text-muted-foreground mt-1.5">
+                Configure agent-specific settings that control how {agentName} operates at {property.name}.
+              </p>
+              <div className="flex flex-col items-center justify-center py-24 gap-4">
+                <div className="h-14 w-14 rounded-full bg-zinc-100 flex items-center justify-center">
+                  <Bot className="h-7 w-7 text-zinc-400" aria-hidden />
+                </div>
+                <div className="text-center space-y-1.5">
+                  <p className="text-base font-semibold text-foreground">Coming Soon</p>
+                  <p className="text-sm text-muted-foreground max-w-sm">
+                    Agent-specific settings for {agentName} will allow you to configure escalation rules, response thresholds, operating hours, handoff behavior, and other parameters unique to this agent.
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
+          )
         ) : activeNav === "brand-tone" ? (
           <AgentBrandTonePanel agentName={agentName} property={property} />
         ) : activeNav === "simulation" ? (
-          <AgentSimulationPanel agentName={agentName} propertyName={property.name} />
+          <AgentSimulationPanel
+            agentName={agentName}
+            propertyName={property.name}
+            onSimulationStarted={() => setSimulationCount((n) => n + 1)}
+          />
         ) : (
           <AgentHistoryPanel agentName={agentName} propertyName={property.name} />
         )}
