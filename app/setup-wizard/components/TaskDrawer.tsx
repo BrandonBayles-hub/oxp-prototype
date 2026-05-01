@@ -82,10 +82,10 @@ function DrawerErrorState({ onClose }: { onClose: () => void }) {
           <AlertCircle className="h-6 w-6 text-red-600" aria-hidden="true" />
         </div>
         <p className="mt-3 text-sm font-semibold text-foreground">
-          Couldn't load this step
+          Couldn&apos;t load this step
         </p>
         <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-          We couldn't pull the data needed for this task. Check your connection and try again — your progress is saved.
+          We couldn&apos;t pull the data needed for this task. Check your connection and try again — your progress is saved.
         </p>
         <Button size="sm" variant="outline" className="mt-5" onClick={onClose}>
           <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
@@ -393,263 +393,246 @@ function ConfirmMigrationDrawer({
 
 /* ── Individual field pane ── */
 
-function FieldPane({
-  property,
-  fieldIndex,
-  fields,
-  setFields,
-  celebrate,
-  advanceStep,
-}: {
+type FieldSharedProps = {
   property: typeof UNCONFIRMED[0];
-  fieldIndex: number;
   fields: FieldState;
   setFields: React.Dispatch<React.SetStateAction<FieldState>>;
   celebrate: (label: string, then: () => void) => void;
   advanceStep: () => void;
-}) {
+};
+
+function FieldPane(props: FieldSharedProps & { fieldIndex: number }) {
+  const { fieldIndex } = props;
+  if (fieldIndex === 0) return <UnitCountField {...props} />;
+  if (fieldIndex === 1) return <ProductsField {...props} />;
+  if (fieldIndex === 2) return <MigrationTypeField {...props} />;
+  if (fieldIndex === 3) return <AnchorDateField {...props} />;
+  return null;
+}
+
+function UnitCountField({ property, fields, setFields, celebrate, advanceStep }: FieldSharedProps) {
   const pid = property.id;
+  const status = fields.unitStatus[pid];
+  const [editMode, setEditMode] = useState(false);
+  const [inputVal, setInputVal] = useState(String(property.units));
 
-  if (fieldIndex === 0) {
-    const status = fields.unitStatus[pid];
-    const [editMode, setEditMode] = useState(false);
-    const [inputVal, setInputVal] = useState(String(property.units));
+  const confirmUnit = (type: "correct" | "corrected") => {
+    setFields((f) => ({ ...f, unitStatus: { ...f.unitStatus, [pid]: type } }));
+    celebrate("Unit count", advanceStep);
+  };
 
-    const confirmUnit = (type: "correct" | "corrected") => {
-      setFields((f) => ({ ...f, unitStatus: { ...f.unitStatus, [pid]: type } }));
-      celebrate("Unit count", advanceStep);
-    };
-
-    return (
-      <IsolatedField
-        propertyName={property.name}
-        label="Unit count"
-        value={
-          status === "corrected"
-            ? `${fields.correctedUnits[pid]} units`
-            : `${property.units} units`
-        }
-        context="Drives billing — if wrong, we'll file an amendment before charging goes live."
-      >
-        {!editMode && (
+  return (
+    <IsolatedField
+      propertyName={property.name}
+      label="Unit count"
+      value={status === "corrected" ? `${fields.correctedUnits[pid]} units` : `${property.units} units`}
+      context="Drives billing — if wrong, we'll file an amendment before charging goes live."
+    >
+      {!editMode && (
+        <ConfirmActions onCorrect={() => confirmUnit("correct")} onWrong={() => setEditMode(true)} />
+      )}
+      {editMode && (
+        <div className="w-full space-y-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-foreground" htmlFor={`unit-${pid}`}>
+              What&rsquo;s the actual count?
+            </label>
+            <input
+              id={`unit-${pid}`}
+              type="number"
+              min={1}
+              value={inputVal}
+              onChange={(e) => setInputVal(e.target.value)}
+              className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-foreground focus:outline-none"
+              placeholder="Enter correct unit count"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              We&rsquo;ll file a contract amendment to reflect this change.
+            </p>
+          </div>
           <ConfirmActions
-            onCorrect={() => confirmUnit("correct")}
-            onWrong={() => setEditMode(true)}
+            primaryLabel="Save & confirm"
+            primaryDisabled={!inputVal || Number(inputVal) < 1}
+            onCorrect={() => {
+              setFields((f) => ({
+                ...f,
+                correctedUnits: { ...f.correctedUnits, [pid]: inputVal },
+                unitStatus: { ...f.unitStatus, [pid]: "corrected" },
+              }));
+              setEditMode(false);
+              celebrate("Unit count", advanceStep);
+            }}
+            onWrong={() => setEditMode(false)}
+            wrongLabel="Never mind"
+          />
+        </div>
+      )}
+    </IsolatedField>
+  );
+}
+
+function ProductsField({ property, fields, setFields, celebrate, advanceStep }: FieldSharedProps) {
+  const pid = property.id;
+  const status = fields.productStatus[pid];
+  return (
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="px-10 pt-10 text-center">
+        <p className="text-xl font-bold text-foreground">{property.name}</p>
+        <p className="mt-4 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+          Products on this property
+        </p>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Determines which tasks appear in your setup queue. If the list is wrong, your account rep will update the contract.
+        </p>
+        {status !== "pending" && (
+          <div className="mt-3">
+            <Badge
+              variant="outline"
+              className={cn(
+                "text-xs",
+                status === "correct" && "border-emerald-500/40 bg-emerald-50 text-emerald-700",
+                status === "flagged" && "border-amber-400/60 bg-amber-50 text-amber-800",
+              )}
+            >
+              {status === "correct" && <Check className="mr-1 h-3 w-3" aria-hidden="true" />}
+              {status === "correct" ? "Confirmed" : "Flagged for account rep"}
+            </Badge>
+          </div>
+        )}
+      </div>
+      <div className="mx-10 mt-5 flex-1 overflow-y-auto rounded-lg border border-border">
+        <ul className="divide-y divide-border">
+          {property.products.map((product) => (
+            <li key={product} className="flex items-center gap-2 px-4 py-2">
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/30" aria-hidden="true" />
+              <span className="text-sm text-foreground">{product}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="border-t border-border px-4 py-2 text-xs text-muted-foreground">
+          {property.products.length} products total
+        </p>
+      </div>
+      <div className="px-10 py-6 text-center">
+        {status === "pending" && (
+          <ConfirmActions
+            onCorrect={() => {
+              setFields((f) => ({ ...f, productStatus: { ...f.productStatus, [pid]: "correct" } }));
+              celebrate("Products confirmed", advanceStep);
+            }}
+            onWrong={() => {
+              setFields((f) => ({ ...f, productStatus: { ...f.productStatus, [pid]: "flagged" } }));
+              celebrate("Flagged for account rep", advanceStep);
+            }}
+            wrongLabel="Something's off"
           />
         )}
-        {editMode && (
-          <div className="w-full space-y-3">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-foreground" htmlFor={`unit-${pid}`}>
-                What's the actual count?
-              </label>
-              <input
-                id={`unit-${pid}`}
-                type="number"
-                min={1}
-                value={inputVal}
-                onChange={(e) => setInputVal(e.target.value)}
-                className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-foreground focus:outline-none"
-                placeholder="Enter correct unit count"
-              />
-              <p className="mt-1 text-xs text-muted-foreground">
-                We'll file a contract amendment to reflect this change.
-              </p>
-            </div>
-            <ConfirmActions
-              primaryLabel="Save & confirm"
-              primaryDisabled={!inputVal || Number(inputVal) < 1}
-              onCorrect={() => {
-                setFields((f) => ({
-                  ...f,
-                  correctedUnits: { ...f.correctedUnits, [pid]: inputVal },
-                  unitStatus: { ...f.unitStatus, [pid]: "corrected" },
-                }));
-                setEditMode(false);
-                celebrate("Unit count", advanceStep);
-              }}
-              onWrong={() => setEditMode(false)}
-              wrongLabel="Never mind"
-            />
+        {status === "flagged" && (
+          <div className="w-full rounded-lg border border-amber-400/60 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+            <p className="font-semibold">Flagged for your account rep.</p>
+            <p className="mt-1 text-amber-800">
+              They&rsquo;ll reach out to correct the product list. You can keep going — this will stay pending until resolved.
+            </p>
           </div>
         )}
-      </IsolatedField>
-    );
-  }
-
-  if (fieldIndex === 1) {
-    const status = fields.productStatus[pid];
-    return (
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Fixed header section */}
-        <div className="px-10 pt-10 text-center">
-          <p className="text-xl font-bold text-foreground">{property.name}</p>
-          <p className="mt-4 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-            Products on this property
-          </p>
-          <p className="mt-2 text-xs text-muted-foreground">
-            Determines which tasks appear in your setup queue. If the list is wrong, your account rep will update the contract.
-          </p>
-          {status !== "pending" && (
-            <div className="mt-3">
-              <Badge
-                variant="outline"
-                className={cn(
-                  "text-xs",
-                  status === "correct" && "border-emerald-500/40 bg-emerald-50 text-emerald-700",
-                  status === "flagged" && "border-amber-400/60 bg-amber-50 text-amber-800",
-                )}
-              >
-                {status === "correct" && <Check className="mr-1 h-3 w-3" aria-hidden="true" />}
-                {status === "correct" ? "Confirmed" : "Flagged for account rep"}
-              </Badge>
-            </div>
-          )}
-        </div>
-
-        {/* Scrollable product list */}
-        <div className="mx-10 mt-5 flex-1 overflow-y-auto rounded-lg border border-border">
-          <ul className="divide-y divide-border">
-            {property.products.map((product) => (
-              <li key={product} className="flex items-center gap-2 px-4 py-2">
-                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/30" aria-hidden="true" />
-                <span className="text-sm text-foreground">{product}</span>
-              </li>
-            ))}
-          </ul>
-          <p className="border-t border-border px-4 py-2 text-xs text-muted-foreground">
-            {property.products.length} products total
-          </p>
-        </div>
-
-        {/* Actions */}
-        <div className="px-10 py-6 text-center">
-          {status === "pending" && (
-            <ConfirmActions
-              onCorrect={() => {
-                setFields((f) => ({ ...f, productStatus: { ...f.productStatus, [pid]: "correct" } }));
-                celebrate("Products confirmed", advanceStep);
-              }}
-              onWrong={() => {
-                setFields((f) => ({ ...f, productStatus: { ...f.productStatus, [pid]: "flagged" } }));
-                celebrate("Flagged for account rep", advanceStep);
-              }}
-              wrongLabel="Something's off"
-            />
-          )}
-          {status === "flagged" && (
-            <div className="w-full rounded-lg border border-amber-400/60 bg-amber-50 px-4 py-3 text-xs text-amber-900">
-              <p className="font-semibold">Flagged for your account rep.</p>
-              <p className="mt-1 text-amber-800">
-                They'll reach out to correct the product list. You can keep going — this will stay pending until resolved.
-              </p>
-            </div>
-          )}
-        </div>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
-  if (fieldIndex === 2) {
-    const selected = fields.migrationType[pid];
-    return (
-      <IsolatedField
-        propertyName={property.name}
-        label="Migration type"
-        value={selected ? undefined : undefined}
-        context="This shapes every downstream task. Select the type that applies to this property."
-        statusBadge={selected ? `${MIGRATION_TYPES.find(t => t.id === selected)?.label} selected` : undefined}
-        statusVariant={selected ? "emerald" : undefined}
-      >
-        <div className="w-full space-y-2">
-          {MIGRATION_TYPES.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => {
-                setFields((f) => ({ ...f, migrationType: { ...f.migrationType, [pid]: t.id } }));
-                celebrate(t.label, advanceStep);
-              }}
-              className="flex w-full items-start gap-3 rounded-lg border border-border px-4 py-3 text-left transition-colors hover:border-foreground/40 hover:bg-foreground/[0.02] active:bg-foreground/5"
-            >
-              <span
-                className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 border-muted-foreground"
-                aria-hidden="true"
-              />
-              <div>
-                <p className="text-sm font-semibold text-foreground">{t.label}</p>
-                <p className="text-xs text-muted-foreground">{t.description}</p>
-              </div>
-            </button>
-          ))}
-        </div>
-      </IsolatedField>
-    );
-  }
-
-  if (fieldIndex === 3) {
-    const anchorStatus = fields.anchorStatus[pid];
-    const migrationType = fields.migrationType[pid];
-    const dateLabel =
-      migrationType === "lease-up" ? "Certificate of occupancy date" :
-      migrationType === "takeover" ? "Legal close date" :
-      migrationType === "notd" ? "Ownership transfer date" :
-      "Migration date";
-
-    return (
-      <IsolatedField
-        propertyName={property.name}
-        label={dateLabel}
-        value={fields.anchorDate[pid] || undefined}
-        context={
-          migrationType === "lease-up"
-            ? "Unlocks banking and resident products. Required before go-live."
-            : migrationType === "takeover"
-              ? "Nothing activates for residents until this date. Required to schedule activation."
-              : "Helps us schedule migration tasks. Required before go-live."
-        }
-        statusBadge={
-          anchorStatus === "set" ? "Date confirmed" :
-          anchorStatus === "deferred" ? "Set later — pending" : undefined
-        }
-        statusVariant={anchorStatus === "set" ? "emerald" : anchorStatus === "deferred" ? "amber" : undefined}
-      >
-        {anchorStatus === "pending" && (
-          <div className="w-full space-y-4">
+function MigrationTypeField({ property, fields, setFields, celebrate, advanceStep }: FieldSharedProps) {
+  const pid = property.id;
+  const selected = fields.migrationType[pid];
+  return (
+    <IsolatedField
+      propertyName={property.name}
+      label="Migration type"
+      context="This shapes every downstream task. Select the type that applies to this property."
+      statusBadge={selected ? `${MIGRATION_TYPES.find(t => t.id === selected)?.label} selected` : undefined}
+      statusVariant={selected ? "emerald" : undefined}
+    >
+      <div className="w-full space-y-2">
+        {MIGRATION_TYPES.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => {
+              setFields((f) => ({ ...f, migrationType: { ...f.migrationType, [pid]: t.id } }));
+              celebrate(t.label, advanceStep);
+            }}
+            className="flex w-full items-start gap-3 rounded-lg border border-border px-4 py-3 text-left transition-colors hover:border-foreground/40 hover:bg-foreground/[0.02] active:bg-foreground/5"
+          >
+            <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 border-muted-foreground" aria-hidden="true" />
             <div>
-              <label className="mb-1 block text-xs font-medium text-foreground" htmlFor={`date-${pid}`}>
-                Select date
-              </label>
-              <input
-                id={`date-${pid}`}
-                type="date"
-                value={fields.anchorDate[pid]}
-                onChange={(e) =>
-                  setFields((f) => ({ ...f, anchorDate: { ...f.anchorDate, [pid]: e.target.value } }))
-                }
-                className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-foreground focus:outline-none"
-              />
+              <p className="text-sm font-semibold text-foreground">{t.label}</p>
+              <p className="text-xs text-muted-foreground">{t.description}</p>
             </div>
-            <ConfirmActions
-              primaryLabel="Confirm date"
-              primaryDisabled={!fields.anchorDate[pid]}
-              onCorrect={() => {
-                setFields((f) => ({ ...f, anchorStatus: { ...f.anchorStatus, [pid]: "set" } }));
-                celebrate("Date confirmed", advanceStep);
-              }}
-              onWrong={() => {
-                setFields((f) => ({ ...f, anchorStatus: { ...f.anchorStatus, [pid]: "deferred" } }));
-                celebrate("Set later — noted", advanceStep);
-              }}
-              wrongLabel="I'll set this later"
+          </button>
+        ))}
+      </div>
+    </IsolatedField>
+  );
+}
+
+function AnchorDateField({ property, fields, setFields, celebrate, advanceStep }: FieldSharedProps) {
+  const pid = property.id;
+  const anchorStatus = fields.anchorStatus[pid];
+  const migrationType = fields.migrationType[pid];
+  const dateLabel =
+    migrationType === "lease-up" ? "Certificate of occupancy date" :
+    migrationType === "takeover" ? "Legal close date" :
+    migrationType === "notd" ? "Ownership transfer date" :
+    "Migration date";
+
+  return (
+    <IsolatedField
+      propertyName={property.name}
+      label={dateLabel}
+      value={fields.anchorDate[pid] || undefined}
+      context={
+        migrationType === "lease-up"
+          ? "Unlocks banking and resident products. Required before go-live."
+          : migrationType === "takeover"
+            ? "Nothing activates for residents until this date. Required to schedule activation."
+            : "Helps us schedule migration tasks. Required before go-live."
+      }
+      statusBadge={
+        anchorStatus === "set" ? "Date confirmed" :
+        anchorStatus === "deferred" ? "Set later — pending" : undefined
+      }
+      statusVariant={anchorStatus === "set" ? "emerald" : anchorStatus === "deferred" ? "amber" : undefined}
+    >
+      {anchorStatus === "pending" && (
+        <div className="w-full space-y-4">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-foreground" htmlFor={`date-${pid}`}>
+              Select date
+            </label>
+            <input
+              id={`date-${pid}`}
+              type="date"
+              value={fields.anchorDate[pid]}
+              onChange={(e) => setFields((f) => ({ ...f, anchorDate: { ...f.anchorDate, [pid]: e.target.value } }))}
+              className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-foreground focus:outline-none"
             />
           </div>
-        )}
-      </IsolatedField>
-    );
-  }
-
-  return null;
+          <ConfirmActions
+            primaryLabel="Confirm date"
+            primaryDisabled={!fields.anchorDate[pid]}
+            onCorrect={() => {
+              setFields((f) => ({ ...f, anchorStatus: { ...f.anchorStatus, [pid]: "set" } }));
+              celebrate("Date confirmed", advanceStep);
+            }}
+            onWrong={() => {
+              setFields((f) => ({ ...f, anchorStatus: { ...f.anchorStatus, [pid]: "deferred" } }));
+              celebrate("Set later \u2014 noted", advanceStep);
+            }}
+            wrongLabel="I'll set this later"
+          />
+        </div>
+      )}
+    </IsolatedField>
+  );
 }
 
 /* ── Shared confirm actions — same layout, same position on every field ──
@@ -907,7 +890,7 @@ function PickTemplateDrawer({ task, onClose, onComplete }: { task: QueueItem; on
               </p>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 Each property inherited a template based on its occupancy type and group.
-                Confirm the assignments below or change any that don't look right.
+                Confirm the assignments below or change any that don&apos;t look right.
               </p>
             </div>
           </div>
@@ -1001,7 +984,7 @@ function PickTemplateDrawer({ task, onClose, onComplete }: { task: QueueItem; on
                     <p className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">
                       Need a different template?{" "}
                       <span className="font-medium text-foreground">Contact your consultant</span>
-                      {" "}— they'll set it up and it will appear in this list.
+                      {" "}— they&apos;ll set it up and it will appear in this list.
                     </p>
                   </div>
                 )}

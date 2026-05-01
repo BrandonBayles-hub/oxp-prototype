@@ -104,8 +104,7 @@ export default function SetupWizardPage() {
   const [queueCompletions, setQueueCompletions] = useState<Record<string, string[]>>({});
 
   // Persisted field state for the confirm drawer — preserves progress between opens.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [confirmFieldState, setConfirmFieldState] = useState<any>(null);
+  const [confirmFieldState, setConfirmFieldState] = useState<Parameters<typeof TaskDrawer>[0]["savedFieldState"]>(null);
 
   const showToast = useCallback((message: string) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
