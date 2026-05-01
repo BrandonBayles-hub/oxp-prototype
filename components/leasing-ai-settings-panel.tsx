@@ -270,7 +270,7 @@ export function LeasingAISettingsPanel({
             <h2 className="text-xl font-bold text-foreground">{agentDisplayLabel} Settings</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               Configure how {agentDisplayLabel} behaves at <strong>{propertyName}</strong>. Most fields auto-populate from
-              Entrata — review and adjust only what's specific to this property.
+              Entrata — review and adjust only what&apos;s specific to this property.
             </p>
           </div>
           <Badge variant="gray" className="shrink-0">
@@ -509,9 +509,9 @@ function SectionAgentIdentity({
 
         <div className="rounded-lg border border-zinc-200 bg-zinc-50/60 px-3 py-2.5">
           <p className="text-[11px] leading-relaxed text-zinc-700">
-            <Info className="mr-1 inline h-3 w-3" /> The agent's compliance, workflow, and Fair-Housing rules
+            <Info className="mr-1 inline h-3 w-3" /> The agent&apos;s compliance, workflow, and Fair-Housing rules
             are locked. Tone affects phrasing, not behavior. Custom names never let the agent impersonate a human —
-            asking <em>"are you a bot?"</em> always triggers an honest disclosure.
+            asking <em>&ldquo;are you a bot?&rdquo;</em> always triggers an honest disclosure.
           </p>
         </div>
       </div>
@@ -793,7 +793,7 @@ function SectionLanguages({
           <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-700" />
             <p className="text-[11px] text-amber-900">
-              Spanish enabled — you'll need to run a test conversation in Spanish before this property can go live.
+              Spanish enabled — you&apos;ll need to run a test conversation in Spanish before this property can go live.
             </p>
           </div>
         )}
@@ -1310,7 +1310,7 @@ function FooterActionBar({
         <div className="text-xs">
           {dirty ? (
             <span className="font-medium text-amber-900">
-              <AlertTriangle className="mr-1 inline h-3.5 w-3.5" /> Unsaved changes — won't take effect until saved.
+              <AlertTriangle className="mr-1 inline h-3.5 w-3.5" /> Unsaved changes — won&apos;t take effect until saved.
             </span>
           ) : (
             <span className="text-muted-foreground">No pending changes</span>
