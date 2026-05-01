@@ -21,6 +21,7 @@ import {
   Wrench,
   Shield,
   Sparkles,
+  Palette,
 } from "lucide-react";
 
 const activationItem = { href: "/getting-started", label: "AI & Agent Activation", icon: Rocket };
@@ -49,7 +50,8 @@ const navGroups = [
       activationItem,
       { href: "/workflows", label: "Agent Builder", icon: GitBranch },
       { href: "/trainings-sop", label: "Trainings & SOP", icon: BookOpen },
-      { href: "/voice", label: "Voice & Brand", icon: Mic },
+      { href: "/voice", label: "Agent Voice & Tone", icon: Mic },
+      { href: "/brand-center", label: "Brand Center", icon: Palette },
       // { href: "/tools", label: "Tools", icon: Wrench },
       { href: "/governance", label: "Governance", icon: Shield },
     ],
@@ -99,7 +101,7 @@ export function Sidebar() {
   const { isR1Release } = useR1Release();
   const { badges, activation } = useNavBadges();
 
-  const r1HiddenRoutes = ["/conversations", "/performance", "/voice", "/governance"];
+  const r1HiddenRoutes = ["/conversations", "/performance", "/voice", "/brand-center", "/governance"];
 
   const navGroupsWithVisibility = navGroups
     .map((group) => ({

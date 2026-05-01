@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 
-const STORAGE_KEY = "janet-poc-voice-v3";
+const STORAGE_KEY = "janet-poc-voice-v4";
 
 export type PhrasingRule = {
   id: string;
@@ -10,6 +10,34 @@ export type PhrasingRule = {
   type: "avoid" | "require" | "replace";
   phrase: string;
   replacement?: string;
+};
+
+export type VoiceSettings = {
+  aiVoiceEnabled: boolean;
+  voiceGender: "female" | "male";
+  voiceAccent: "american" | "british" | "australian" | "indian";
+  voiceLanguages: string[];
+  autoDetectLanguage: boolean;
+  recordAudio: boolean;
+  generateTranscripts: boolean;
+  legalDisclosureEnabled: boolean;
+  legalDisclosureText: string;
+  greeting: string;
+  holdPhrase: string;
+  maxCallLength: number;
+  aiDisclosureEnabled: boolean;
+};
+
+export type BrandColors = {
+  primary: string;
+  secondary: string;
+  accent: string;
+};
+
+export type BrandSettings = {
+  colors: BrandColors;
+  logoUrl: string;
+  fontFamily: string;
 };
 
 export type VerticalOverride = {
@@ -22,6 +50,8 @@ export type VerticalOverride = {
   toneUrgency?: number;
   doExamples?: string[];
   dontExamples?: string[];
+  voiceSettings?: Partial<VoiceSettings>;
+  brandSettings?: Partial<BrandSettings>;
 };
 
 export type PropertyOverride = {
@@ -36,7 +66,11 @@ export type PropertyOverride = {
   dontExamples?: string[];
   channels?: { voice: boolean; chat: boolean; sms: boolean; portal: boolean };
   phrasingRules?: PhrasingRule[];
+  voiceSettings?: Partial<VoiceSettings>;
+  brandSettings?: Partial<BrandSettings>;
 };
+
+export type AgentVoiceOverrides = Partial<VoiceSettings>;
 
 export type AgentVoiceTuning = {
   agentId: string;
@@ -49,6 +83,7 @@ export type AgentVoiceTuning = {
   allowEmoji?: boolean;
   doExamples?: string[];
   dontExamples?: string[];
+  voiceOverrides?: AgentVoiceOverrides;
 };
 
 export type VoiceState = {
@@ -70,6 +105,8 @@ export type VoiceState = {
   verticalOverrides: VerticalOverride[];
   propertyOverrides: PropertyOverride[];
   agentTuning: AgentVoiceTuning[];
+  voiceSettings: VoiceSettings;
+  brandSettings: BrandSettings;
 };
 
 const DEFAULT_STATE: VoiceState = {
@@ -136,6 +173,30 @@ const DEFAULT_STATE: VoiceState = {
     { agentId: "4", agentName: "Leasing AI", propertyName: "Sunset Ridge Apartments", toneOverride: "Refined and consultative", responseLength: "detailed", personality: "Luxury lifestyle advisor", customInstructions: "Emphasize exclusivity and premium amenities. Use aspirational language. Reference concierge services.", allowEmoji: false, doExamples: ["Use aspirational, luxury language", "Reference concierge-level services", "Highlight exclusive resident perks"], dontExamples: ["Mention pricing before value", "Use generic apartment terminology", "Compare to non-luxury competitors"] },
     { agentId: "4", agentName: "Leasing AI", propertyName: "University Commons", toneOverride: "Fun and relatable", responseLength: "concise", personality: "Campus life enthusiast", customInstructions: "Reference campus proximity, student discounts, and roommate matching. Keep it casual.", allowEmoji: true, doExamples: ["Mention roommate matching options", "Reference campus shuttle and proximity", "Highlight student-specific amenities"], dontExamples: ["Use formal corporate language", "Assume parental involvement", "Ignore move-in/move-out academic schedules"] },
   ],
+  voiceSettings: {
+    aiVoiceEnabled: true,
+    voiceGender: "female",
+    voiceAccent: "american",
+    voiceLanguages: ["English", "Spanish", "French", "German", "Italian", "Portuguese", "Hindi"],
+    autoDetectLanguage: true,
+    recordAudio: true,
+    generateTranscripts: true,
+    legalDisclosureEnabled: true,
+    legalDisclosureText: "This call is being recorded and transcribed for quality assurance and training purposes. If you do not consent to recording, please press 9 or stay on the line to be connected to a live agent.",
+    greeting: "Thank you for calling {property}. How can I help you today?",
+    holdPhrase: "One moment while I pull that up for you.",
+    maxCallLength: 10,
+    aiDisclosureEnabled: true,
+  },
+  brandSettings: {
+    colors: {
+      primary: "#6366f1",
+      secondary: "#0ea5e9",
+      accent: "#10b981",
+    },
+    logoUrl: "",
+    fontFamily: "Inter",
+  },
 };
 
 type VoiceContextValue = VoiceState & {

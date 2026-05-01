@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { PageHeader } from "@/components/page-header";
 import {
   useVoice,
   type PropertyOverride,
@@ -76,10 +75,9 @@ export default function VoicePage() {
 
   return (
     <>
-      <PageHeader
-        title="Voice & Brand"
-        description="Define how your AI agents communicate — set the tone, personality, and brand guidelines at every level from company-wide defaults down to individual agents."
-      />
+          <p className="mb-6 text-sm text-muted-foreground">
+            Control how your AI agents communicate through text channels like SMS, chat, and resident portal — set the persona, tone guidelines, and do&apos;s and don&apos;ts at every cascade level.
+          </p>
 
           <CascadeVisual activeLevel={activeTab} onLevelClick={setActiveTab} />
 
@@ -650,6 +648,7 @@ function AgentTuningCard({
   onResetToDefault?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [tone, setTone] = useState(tuning.toneOverride ?? "");
   const [personality, setPersonality] = useState(tuning.personality ?? "");
   const [instructions, setInstructions] = useState(tuning.customInstructions ?? "");
@@ -724,7 +723,7 @@ function AgentTuningCard({
                   </Button>
                 )}
                 {onResetToDefault && (
-                  <Button variant="ghost" size="sm" onClick={onResetToDefault}>
+                  <Button variant="ghost" size="sm" onClick={() => setResetConfirmOpen(true)}>
                     <RotateCcw className="h-3 w-3" /> Reset
                   </Button>
                 )}
@@ -737,6 +736,38 @@ function AgentTuningCard({
             )}
           </div>
         </div>
+
+        {onResetToDefault && (
+          <Dialog open={resetConfirmOpen} onOpenChange={setResetConfirmOpen}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Reset agent tone & guidelines?</DialogTitle>
+                <DialogDescription className="space-y-2 pt-1">
+                  <span className="block">
+                    This will remove all custom tone and guideline settings for <span className="font-medium text-foreground">{displayName}</span>{propertyName ? <> at <span className="font-medium text-foreground">{propertyName}</span></> : ""}.
+                  </span>
+                  <span className="block">
+                    The agent will revert to inheriting settings from the {propertyName ? "property, vertical, or company" : "company"} level — whichever applies. Any custom tone overrides, personality, instructions, and do&apos;s/don&apos;ts you&apos;ve configured at this level will be permanently removed.
+                  </span>
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter className="gap-2 sm:gap-0">
+                <Button variant="outline" onClick={() => setResetConfirmOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    onResetToDefault();
+                    setResetConfirmOpen(false);
+                  }}
+                >
+                  <RotateCcw className="h-3.5 w-3.5" /> Reset to inherited
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
 
         {!editing ? (
           <div className="mt-3 space-y-2 text-sm">
