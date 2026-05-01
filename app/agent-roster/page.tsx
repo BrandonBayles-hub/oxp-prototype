@@ -34,8 +34,8 @@ import { useGovernance } from "@/lib/governance-context";
 import { useAgentCompliance } from "@/lib/use-agent-compliance";
 import { useR1Release } from "@/lib/r1-release-context";
 import { useR1_2Release } from "@/lib/r1-2-release-context";
-import { Tag, X, Search, DollarSign, Megaphone, Users, Wrench, ShieldCheck, Power, Activity, AlertCircle, Play, Clock, CheckCircle, CheckCircle2, XCircle, Calendar, Lightbulb, Target, Database, BarChart3, Pencil, Save, ArrowLeft, ArrowRight, Sparkles, BookOpen, Cog, Bot, Box, MessageSquare, Shield, Zap, Eye, EyeOff, Globe, Mail, Phone, Volume2, History, RotateCcw, Lock, ExternalLink, CirclePlay, TrendingUp, TrendingDown, Minus, ArrowUpDown, ChevronDown, Building2, Layers, Home, Plus, Info } from "lucide-react";
-import { useVoice, type AgentVoiceTuning } from "@/lib/voice-context";
+import { Tag, X, Search, DollarSign, Megaphone, Users, Wrench, ShieldCheck, Power, Activity, AlertCircle, Play, Clock, CheckCircle, CheckCircle2, XCircle, Calendar, Lightbulb, Target, Database, BarChart3, Pencil, Save, ArrowLeft, ArrowRight, Sparkles, BookOpen, Cog, Bot, Box, MessageSquare, Shield, Zap, Eye, EyeOff, Globe, Mail, Phone, Volume2, History, RotateCcw, Lock, ExternalLink, CirclePlay, TrendingUp, TrendingDown, Minus, ArrowUpDown, ChevronDown, ChevronUp, Building2, Layers, Home, Plus, Info } from "lucide-react";
+import { useVoice, type AgentVoiceTuning, type VoiceSettings } from "@/lib/voice-context";
 import { Chat, type ChatMessage, type ChatSource, type ChatToolCall } from "@/components/ui/chat";
 
 const AGENT_TYPE_ICON: Record<AgentType, string> = {
@@ -3902,7 +3902,7 @@ function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; pro
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   Agent Brand & Tone Panel — cascade-aware settings display in flyout
+   Agent Voice & Tone Panel — cascade-aware settings display in flyout
    ═══════════════════════════════════════════════════════════════════════ */
 
 const AGENT_NAME_TO_ID: Record<string, string> = {
@@ -3926,6 +3926,17 @@ function resolveListField(
   if (propOvr?.[field]?.length) return { value: propOvr[field]!, source: "Property" };
   if (vertOvr?.[field]?.length) return { value: vertOvr[field]!, source: "Vertical" };
   return { value: voice[field], source: "Company" };
+}
+
+function resolveVoiceField<K extends keyof VoiceSettings>(
+  voice: ReturnType<typeof useVoice>,
+  field: K,
+  vertOvr: ReturnType<typeof useVoice>["verticalOverrides"][0] | undefined,
+  propOvr: ReturnType<typeof useVoice>["propertyOverrides"][0] | undefined,
+): ResolvedField<VoiceSettings[K]> {
+  if (propOvr?.voiceSettings?.[field] !== undefined) return { value: propOvr.voiceSettings[field] as VoiceSettings[K], source: "Property" };
+  if (vertOvr?.voiceSettings?.[field] !== undefined) return { value: vertOvr.voiceSettings[field] as VoiceSettings[K], source: "Vertical" };
+  return { value: voice.voiceSettings[field], source: "Company" };
 }
 
 const LEVEL_ICONS: Record<CascadeLevel, React.ComponentType<{ className?: string }>> = {
@@ -3984,9 +3995,14 @@ function CascadeDots({ hasVertical, hasProperty, hasAgent }: { hasVertical: bool
   );
 }
 
-function AgentBrandTonePanel({ agentName, property }: { agentName: string; property: { name: string; vertical: string } }) {
+const ACCENT_LABELS: Record<string, string> = { american: "American", british: "British", australian: "Australian", indian: "Indian" };
+
+type VoiceToneSection = "tone" | "voice";
+
+function AgentVoiceTonePanel({ agentName, property }: { agentName: string; property: { name: string; vertical: string } }) {
   const voice = useVoice();
   const agentId = AGENT_NAME_TO_ID[agentName] ?? "0";
+  const [section, setSection] = useState<VoiceToneSection>("tone");
 
   const vertOvr = voice.verticalOverrides.find(v => v.vertical === property.vertical && v.enabled);
   const propOvr = voice.propertyOverrides.find(p => p.property === property.name);
@@ -3994,6 +4010,56 @@ function AgentBrandTonePanel({ agentName, property }: { agentName: string; prope
     t => t.agentId === agentId && t.propertyName === property.name,
   );
 
+  return (
+    <div className="p-8 max-w-3xl">
+      <h2 className="text-xl font-bold text-foreground">Voice & Tone</h2>
+      <p className="text-sm text-muted-foreground mt-1.5">
+        How {agentName} communicates at {property.name}. Settings cascade from Company → Vertical → Property → Agent.
+      </p>
+
+      <div className="mt-5 flex gap-1 rounded-lg border border-border bg-zinc-50/50 p-1 w-fit">
+        <button
+          type="button"
+          onClick={() => setSection("tone")}
+          className={`flex items-center gap-1.5 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+            section === "tone" ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <MessageSquare className="h-3.5 w-3.5" /> Tone
+        </button>
+        <button
+          type="button"
+          onClick={() => setSection("voice")}
+          className={`flex items-center gap-1.5 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+            section === "voice" ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Phone className="h-3.5 w-3.5" /> Voice
+        </button>
+      </div>
+
+      {section === "tone" ? (
+        <AgentToneSection agentName={agentName} property={property} voice={voice} agentId={agentId} vertOvr={vertOvr} propOvr={propOvr} agentOvr={agentOvr} />
+      ) : (
+        <AgentVoiceSection agentName={agentName} agentId={agentId} property={property} voice={voice} vertOvr={vertOvr} propOvr={propOvr} />
+      )}
+    </div>
+  );
+}
+
+/* ─── Tone Section ─── */
+
+function AgentToneSection({
+  agentName, property, voice, agentId, vertOvr, propOvr, agentOvr,
+}: {
+  agentName: string;
+  property: { name: string; vertical: string };
+  voice: ReturnType<typeof useVoice>;
+  agentId: string;
+  vertOvr: ReturnType<typeof useVoice>["verticalOverrides"][0] | undefined;
+  propOvr: ReturnType<typeof useVoice>["propertyOverrides"][0] | undefined;
+  agentOvr: AgentVoiceTuning | undefined;
+}) {
   const persona = (() => {
     if (agentOvr?.personality) return { value: agentOvr.personality, source: "Agent" as CascadeLevel };
     if (propOvr?.persona) return { value: propOvr.persona, source: "Property" as CascadeLevel };
@@ -4056,12 +4122,7 @@ function AgentBrandTonePanel({ agentName, property }: { agentName: string; prope
   };
 
   return (
-    <div className="p-8 max-w-3xl">
-      <h2 className="text-xl font-bold text-foreground">Brand & Tone</h2>
-      <p className="text-sm text-muted-foreground mt-1.5">
-        How {agentName} communicates at {property.name}. Settings cascade from Company → Vertical → Property → Agent.
-      </p>
-
+    <>
       {/* Cascade status bar */}
       <div className="mt-6 rounded-xl border border-border bg-zinc-50/50 p-4">
         <div className="flex items-center justify-between">
@@ -4091,7 +4152,6 @@ function AgentBrandTonePanel({ agentName, property }: { agentName: string; prope
       {/* Effective settings (read-only) */}
       {!editing && (
         <div className="mt-6 space-y-4">
-          {/* Persona */}
           <div className="rounded-xl border border-border bg-white p-5">
             <div className="flex items-center justify-between mb-2">
               <p className="text-sm font-semibold text-foreground">AI Persona</p>
@@ -4100,16 +4160,14 @@ function AgentBrandTonePanel({ agentName, property }: { agentName: string; prope
             <p className="text-sm text-muted-foreground">{persona.value || "Not configured"}</p>
           </div>
 
-          {/* Brand & Tone Guidelines */}
           <div className="rounded-xl border border-border bg-white p-5">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-sm font-semibold text-foreground">Brand & Tone Guidelines</p>
+              <p className="text-sm font-semibold text-foreground">Tone Guidelines</p>
               <SourceBadge source={guidelines.source} />
             </div>
             <p className="text-sm text-muted-foreground whitespace-pre-wrap">{guidelines.value || "Not configured"}</p>
           </div>
 
-          {/* Do's and Don'ts */}
           <div className="grid grid-cols-2 gap-4">
             <div className="rounded-xl border border-border bg-white p-5">
               <div className="flex items-center justify-between mb-3">
@@ -4187,14 +4245,13 @@ function AgentBrandTonePanel({ agentName, property }: { agentName: string; prope
               <textarea
                 className="input-base w-full resize-y text-sm !h-auto min-h-[120px]"
                 rows={5}
-                placeholder={guidelines.value || "Enter custom brand & tone instructions for this agent at this property..."}
+                placeholder={guidelines.value || "Enter custom tone instructions for this agent at this property..."}
                 value={draftInstructions}
                 onChange={e => setDraftInstructions(e.target.value)}
               />
               <p className="text-xs text-muted-foreground mt-1">Inherited: {guidelines.source} level</p>
             </div>
 
-            {/* Do's editor */}
             <div>
               <label className="mb-2 block text-sm font-medium text-emerald-700">Do&apos;s</label>
               <div className="space-y-1.5 mb-2">
@@ -4236,7 +4293,6 @@ function AgentBrandTonePanel({ agentName, property }: { agentName: string; prope
               </div>
             </div>
 
-            {/* Don'ts editor */}
             <div>
               <label className="mb-2 block text-sm font-medium text-red-700">Don&apos;ts</label>
               <div className="space-y-1.5 mb-2">
@@ -4279,7 +4335,6 @@ function AgentBrandTonePanel({ agentName, property }: { agentName: string; prope
             </div>
           </div>
 
-          {/* Actions */}
           <div className="flex items-center gap-3">
             <Button size="sm" onClick={saveOverride} className="gap-1">
               <Save className="h-3.5 w-3.5" /> Save Override
@@ -4295,7 +4350,480 @@ function AgentBrandTonePanel({ agentName, property }: { agentName: string; prope
           </div>
         </div>
       )}
-    </div>
+    </>
+  );
+}
+
+/* ─── Voice Section ─── */
+
+const ALL_VOICE_LANGUAGES = ["English", "Spanish", "French", "German", "Italian", "Portuguese", "Hindi"];
+const VOICE_ACCENT_OPTIONS: { id: VoiceSettings["voiceAccent"]; label: string }[] = [
+  { id: "american", label: "American" },
+  { id: "british", label: "British" },
+  { id: "australian", label: "Australian" },
+  { id: "indian", label: "Indian" },
+];
+
+function AgentVoiceSection({
+  agentName, agentId, property, voice, vertOvr, propOvr,
+}: {
+  agentName: string;
+  agentId: string;
+  property: { name: string; vertical: string };
+  voice: ReturnType<typeof useVoice>;
+  vertOvr: ReturnType<typeof useVoice>["verticalOverrides"][0] | undefined;
+  propOvr: ReturnType<typeof useVoice>["propertyOverrides"][0] | undefined;
+}) {
+  const gender = resolveVoiceField(voice, "voiceGender", vertOvr, propOvr);
+  const accent = resolveVoiceField(voice, "voiceAccent", vertOvr, propOvr);
+  const languages = resolveVoiceField(voice, "voiceLanguages", vertOvr, propOvr);
+  const aiVoiceEnabled = resolveVoiceField(voice, "aiVoiceEnabled", vertOvr, propOvr);
+  const autoDetectLanguage = resolveVoiceField(voice, "autoDetectLanguage", vertOvr, propOvr);
+  const recordAudio = resolveVoiceField(voice, "recordAudio", vertOvr, propOvr);
+  const generateTranscripts = resolveVoiceField(voice, "generateTranscripts", vertOvr, propOvr);
+  const legalDisclosureEnabled = resolveVoiceField(voice, "legalDisclosureEnabled", vertOvr, propOvr);
+  const legalDisclosureText = resolveVoiceField(voice, "legalDisclosureText", vertOvr, propOvr);
+  const greeting = resolveVoiceField(voice, "greeting", vertOvr, propOvr);
+  const holdPhrase = resolveVoiceField(voice, "holdPhrase", vertOvr, propOvr);
+  const maxCallLength = resolveVoiceField(voice, "maxCallLength", vertOvr, propOvr);
+  const aiDisclosure = resolveVoiceField(voice, "aiDisclosureEnabled", vertOvr, propOvr);
+
+  const hasVerticalVoice = vertOvr?.voiceSettings && Object.keys(vertOvr.voiceSettings).length > 0;
+  const hasPropertyVoice = propOvr?.voiceSettings && Object.keys(propOvr.voiceSettings).length > 0;
+
+  const agentOvr = voice.agentTuning.find(
+    t => t.agentId === agentId && t.propertyName === property.name,
+  );
+  const ovr = agentOvr?.voiceOverrides;
+  const hasAgentVoiceOverride = !!ovr;
+
+  const [editing, setEditing] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [draftGender, setDraftGender] = useState<VoiceSettings["voiceGender"]>(ovr?.voiceGender ?? gender.value);
+  const [draftAccent, setDraftAccent] = useState<VoiceSettings["voiceAccent"]>(ovr?.voiceAccent ?? accent.value);
+  const [draftLanguages, setDraftLanguages] = useState<string[]>(ovr?.voiceLanguages ?? languages.value);
+  const [draftAutoDetect, setDraftAutoDetect] = useState(ovr?.autoDetectLanguage ?? autoDetectLanguage.value);
+  const [draftRecordAudio, setDraftRecordAudio] = useState(ovr?.recordAudio ?? recordAudio.value);
+  const [draftGenerateTranscripts, setDraftGenerateTranscripts] = useState(ovr?.generateTranscripts ?? generateTranscripts.value);
+  const [draftLegalEnabled, setDraftLegalEnabled] = useState(ovr?.legalDisclosureEnabled ?? legalDisclosureEnabled.value);
+  const [draftLegalText, setDraftLegalText] = useState(ovr?.legalDisclosureText ?? legalDisclosureText.value);
+  const [draftGreeting, setDraftGreeting] = useState(ovr?.greeting ?? greeting.value);
+  const [draftHoldPhrase, setDraftHoldPhrase] = useState(ovr?.holdPhrase ?? holdPhrase.value);
+  const [draftMaxCallLength, setDraftMaxCallLength] = useState(ovr?.maxCallLength ?? maxCallLength.value);
+  const [draftAiDisclosure, setDraftAiDisclosure] = useState(ovr?.aiDisclosureEnabled ?? aiDisclosure.value);
+
+  const startEditing = () => {
+    setDraftGender(ovr?.voiceGender ?? gender.value);
+    setDraftAccent(ovr?.voiceAccent ?? accent.value);
+    setDraftLanguages(ovr?.voiceLanguages ?? [...languages.value]);
+    setDraftAutoDetect(ovr?.autoDetectLanguage ?? autoDetectLanguage.value);
+    setDraftRecordAudio(ovr?.recordAudio ?? recordAudio.value);
+    setDraftGenerateTranscripts(ovr?.generateTranscripts ?? generateTranscripts.value);
+    setDraftLegalEnabled(ovr?.legalDisclosureEnabled ?? legalDisclosureEnabled.value);
+    setDraftLegalText(ovr?.legalDisclosureText ?? legalDisclosureText.value);
+    setDraftGreeting(ovr?.greeting ?? greeting.value);
+    setDraftHoldPhrase(ovr?.holdPhrase ?? holdPhrase.value);
+    setDraftMaxCallLength(ovr?.maxCallLength ?? maxCallLength.value);
+    setDraftAiDisclosure(ovr?.aiDisclosureEnabled ?? aiDisclosure.value);
+    setAdvancedOpen(false);
+    setEditing(true);
+  };
+
+  const saveOverride = () => {
+    const voiceOverrides: Partial<VoiceSettings> = {
+      voiceGender: draftGender,
+      voiceAccent: draftAccent,
+      voiceLanguages: draftLanguages,
+      autoDetectLanguage: draftAutoDetect,
+      recordAudio: draftRecordAudio,
+      generateTranscripts: draftGenerateTranscripts,
+      legalDisclosureEnabled: draftLegalEnabled,
+      legalDisclosureText: draftLegalText,
+      greeting: draftGreeting,
+      holdPhrase: draftHoldPhrase,
+      maxCallLength: draftMaxCallLength,
+      aiDisclosureEnabled: draftAiDisclosure,
+    };
+    if (agentOvr) {
+      voice.updateAgentTuning(agentId, { voiceOverrides }, property.name);
+    } else {
+      voice.addAgentTuning({ agentId, agentName, propertyName: property.name, voiceOverrides });
+    }
+    setEditing(false);
+  };
+
+  const resetOverride = () => {
+    if (agentOvr) {
+      voice.updateAgentTuning(agentId, { voiceOverrides: undefined }, property.name);
+    }
+    setEditing(false);
+  };
+
+  const effectiveGender = hasAgentVoiceOverride ? ovr!.voiceGender ?? gender.value : gender.value;
+  const effectiveAccent = hasAgentVoiceOverride ? ovr!.voiceAccent ?? accent.value : accent.value;
+  const effectiveLanguages = hasAgentVoiceOverride ? ovr!.voiceLanguages ?? languages.value : languages.value;
+  const genderSource: CascadeLevel = hasAgentVoiceOverride && ovr!.voiceGender ? "Agent" : gender.source;
+  const accentSource: CascadeLevel = hasAgentVoiceOverride && ovr!.voiceAccent ? "Agent" : accent.source;
+  const languagesSource: CascadeLevel = hasAgentVoiceOverride && ovr!.voiceLanguages ? "Agent" : languages.source;
+  const autoDetectSource: CascadeLevel = hasAgentVoiceOverride && ovr!.autoDetectLanguage !== undefined ? "Agent" : autoDetectLanguage.source;
+  const recordAudioSource: CascadeLevel = hasAgentVoiceOverride && ovr!.recordAudio !== undefined ? "Agent" : recordAudio.source;
+  const transcriptsSource: CascadeLevel = hasAgentVoiceOverride && ovr!.generateTranscripts !== undefined ? "Agent" : generateTranscripts.source;
+  const legalSource: CascadeLevel = hasAgentVoiceOverride && ovr!.legalDisclosureEnabled !== undefined ? "Agent" : legalDisclosureEnabled.source;
+  const greetingSource: CascadeLevel = hasAgentVoiceOverride && ovr!.greeting !== undefined ? "Agent" : greeting.source;
+  const holdPhraseSource: CascadeLevel = hasAgentVoiceOverride && ovr!.holdPhrase !== undefined ? "Agent" : holdPhrase.source;
+  const maxCallSource: CascadeLevel = hasAgentVoiceOverride && ovr!.maxCallLength !== undefined ? "Agent" : maxCallLength.source;
+  const disclosureSource: CascadeLevel = hasAgentVoiceOverride && ovr!.aiDisclosureEnabled !== undefined ? "Agent" : aiDisclosure.source;
+
+  const effectiveRecordAudio = hasAgentVoiceOverride && ovr!.recordAudio !== undefined ? ovr!.recordAudio : recordAudio.value;
+  const effectiveTranscripts = hasAgentVoiceOverride && ovr!.generateTranscripts !== undefined ? ovr!.generateTranscripts : generateTranscripts.value;
+  const effectiveAutoDetect = hasAgentVoiceOverride && ovr!.autoDetectLanguage !== undefined ? ovr!.autoDetectLanguage : autoDetectLanguage.value;
+  const effectiveLegalEnabled = hasAgentVoiceOverride && ovr!.legalDisclosureEnabled !== undefined ? ovr!.legalDisclosureEnabled : legalDisclosureEnabled.value;
+  const effectiveGreeting = hasAgentVoiceOverride && ovr!.greeting !== undefined ? ovr!.greeting : greeting.value;
+  const effectiveHoldPhrase = hasAgentVoiceOverride && ovr!.holdPhrase !== undefined ? ovr!.holdPhrase : holdPhrase.value;
+  const effectiveMaxCallLength = hasAgentVoiceOverride && ovr!.maxCallLength !== undefined ? ovr!.maxCallLength : maxCallLength.value;
+  const effectiveAiDisclosure = hasAgentVoiceOverride && ovr!.aiDisclosureEnabled !== undefined ? ovr!.aiDisclosureEnabled : aiDisclosure.value;
+
+  return (
+    <>
+      <div className="mt-6 rounded-xl border border-border bg-zinc-50/50 p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Cascade Inheritance</p>
+            <CascadeDots hasVertical={!!hasVerticalVoice} hasProperty={!!hasPropertyVoice} hasAgent={hasAgentVoiceOverride} />
+          </div>
+          <div className="flex items-center gap-2">
+            {hasAgentVoiceOverride ? (
+              <>
+                <Badge variant="outline" className="text-emerald-700 border-emerald-300 bg-emerald-50 text-xs">Agent Override Active</Badge>
+                {!editing && (
+                  <Button variant="outline" size="sm" onClick={startEditing} className="gap-1">
+                    <Pencil className="h-3 w-3" /> Edit
+                  </Button>
+                )}
+              </>
+            ) : (
+              <Button variant="outline" size="sm" onClick={startEditing} className="gap-1">
+                <Plus className="h-3.5 w-3.5" /> Add Agent Override
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {!editing && (
+        <div className="mt-6 space-y-4">
+          <div className="rounded-xl border border-border bg-white p-5">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-foreground">AI Voice</p>
+              <SourceBadge source={aiVoiceEnabled.source} />
+            </div>
+            <p className="text-sm text-muted-foreground">{aiVoiceEnabled.value ? "Enabled" : "Disabled"}</p>
+          </div>
+
+          {aiVoiceEnabled.value && (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="rounded-xl border border-border bg-white p-5">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-semibold text-foreground">Voice</p>
+                    <SourceBadge source={genderSource} />
+                  </div>
+                  <p className="text-sm text-muted-foreground capitalize">{effectiveGender}</p>
+                </div>
+                <div className="rounded-xl border border-border bg-white p-5">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-semibold text-foreground">Accent</p>
+                    <SourceBadge source={accentSource} />
+                  </div>
+                  <p className="text-sm text-muted-foreground">{ACCENT_LABELS[effectiveAccent] ?? effectiveAccent}</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border bg-white p-5">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-semibold text-foreground">Languages</p>
+                  <SourceBadge source={languagesSource} />
+                </div>
+                <div className="flex flex-wrap gap-1.5 mt-1">
+                  {effectiveLanguages.map((lang) => (
+                    <span key={lang} className="inline-flex rounded-full border border-border bg-zinc-50 px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                      {lang}
+                    </span>
+                  ))}
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Auto-detect: {effectiveAutoDetect ? "On" : "Off"}</span>
+                  <SourceBadge source={autoDetectSource} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="rounded-xl border border-border bg-white p-5">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-semibold text-foreground">Record Audio</p>
+                    <SourceBadge source={recordAudioSource} />
+                  </div>
+                  <p className="text-sm text-muted-foreground">{effectiveRecordAudio ? "On" : "Off"}</p>
+                </div>
+                <div className="rounded-xl border border-border bg-white p-5">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-semibold text-foreground">Transcripts</p>
+                    <SourceBadge source={transcriptsSource} />
+                  </div>
+                  <p className="text-sm text-muted-foreground">{effectiveTranscripts ? "On" : "Off"}</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border bg-white p-5">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-semibold text-foreground">Legal Disclosure</p>
+                  <SourceBadge source={legalSource} />
+                </div>
+                <p className="text-sm text-muted-foreground">{effectiveLegalEnabled ? "On" : "Off"}</p>
+              </div>
+
+              <div className="rounded-xl border border-border bg-white p-5">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-semibold text-foreground">Greeting</p>
+                  <SourceBadge source={greetingSource} />
+                </div>
+                <p className="text-sm text-muted-foreground">{effectiveGreeting || "Not configured"}</p>
+              </div>
+
+              <div className="rounded-xl border border-border bg-white p-5">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-semibold text-foreground">Hold Phrase</p>
+                  <SourceBadge source={holdPhraseSource} />
+                </div>
+                <p className="text-sm text-muted-foreground">{effectiveHoldPhrase || "Not configured"}</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="rounded-xl border border-border bg-white p-5">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-semibold text-foreground">Max Call Length</p>
+                    <SourceBadge source={maxCallSource} />
+                  </div>
+                  <p className="text-sm text-muted-foreground">{effectiveMaxCallLength} minutes</p>
+                </div>
+                <div className="rounded-xl border border-border bg-white p-5">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-semibold text-foreground">AI Disclosure</p>
+                    <SourceBadge source={disclosureSource} />
+                  </div>
+                  <p className="text-sm text-muted-foreground">{effectiveAiDisclosure ? "On" : "Off"}</p>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {editing && (
+        <div className="mt-6 space-y-5">
+          <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50/30 p-5 space-y-5">
+            <div className="flex items-center gap-2 mb-1">
+              <Bot className="h-4 w-4 text-emerald-600" />
+              <p className="text-sm font-semibold text-foreground">Agent-Level Voice Override</p>
+              <span className="text-xs text-muted-foreground">for {agentName} at {property.name}</span>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium">Voice Gender</label>
+              <div className="flex gap-2">
+                {(["female", "male"] as const).map((g) => (
+                  <button
+                    key={g}
+                    type="button"
+                    onClick={() => setDraftGender(g)}
+                    className={`flex-1 rounded-lg border-2 px-4 py-3 text-sm font-medium capitalize transition-all ${
+                      draftGender === g ? "border-emerald-500 bg-emerald-50 text-foreground" : "border-border text-muted-foreground hover:border-emerald-300"
+                    }`}
+                  >
+                    {g}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">Inherited: {gender.value} ({gender.source})</p>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium">Accent</label>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {VOICE_ACCENT_OPTIONS.map((a) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => setDraftAccent(a.id)}
+                    className={`rounded-lg border-2 px-3 py-2 text-sm font-medium transition-all ${
+                      draftAccent === a.id ? "border-emerald-500 bg-emerald-50 text-foreground" : "border-border text-muted-foreground hover:border-emerald-300"
+                    }`}
+                  >
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">Inherited: {ACCENT_LABELS[accent.value] ?? accent.value} ({accent.source})</p>
+            </div>
+
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <label className="text-sm font-medium">Languages</label>
+                <label className="relative inline-flex cursor-pointer items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Auto-detect</span>
+                  <div className="relative">
+                    <input type="checkbox" checked={draftAutoDetect} onChange={(e) => setDraftAutoDetect(e.target.checked)} className="peer sr-only" />
+                    <div className="h-5 w-9 rounded-full bg-muted peer-checked:bg-emerald-500 transition-colors" />
+                    <div className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+                  </div>
+                </label>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {ALL_VOICE_LANGUAGES.map((lang) => {
+                  const enabled = draftLanguages.includes(lang);
+                  return (
+                    <button
+                      key={lang}
+                      type="button"
+                      onClick={() => {
+                        setDraftLanguages(prev => enabled ? prev.filter(l => l !== lang) : [...prev, lang]);
+                      }}
+                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                        enabled ? "border-emerald-400 bg-emerald-50 text-foreground" : "border-border text-muted-foreground hover:border-emerald-300"
+                      }`}
+                    >
+                      {lang}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">Inherited: {languages.source} level</p>
+            </div>
+
+            <div className="space-y-3">
+              <label className="block text-sm font-medium">Recording & Transcripts</label>
+              <div className="flex items-center justify-between rounded-lg border border-border bg-white px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Record audio</p>
+                  <p className="text-xs text-muted-foreground">Inherited: {recordAudio.value ? "On" : "Off"} ({recordAudio.source})</p>
+                </div>
+                <label className="relative inline-flex cursor-pointer items-center">
+                  <input type="checkbox" checked={draftRecordAudio} onChange={(e) => setDraftRecordAudio(e.target.checked)} className="peer sr-only" />
+                  <div className="h-6 w-11 rounded-full bg-muted peer-checked:bg-emerald-500 transition-colors" />
+                  <div className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5" />
+                </label>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-border bg-white px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Generate transcripts</p>
+                  <p className="text-xs text-muted-foreground">Inherited: {generateTranscripts.value ? "On" : "Off"} ({generateTranscripts.source})</p>
+                </div>
+                <label className="relative inline-flex cursor-pointer items-center">
+                  <input type="checkbox" checked={draftGenerateTranscripts} onChange={(e) => setDraftGenerateTranscripts(e.target.checked)} className="peer sr-only" />
+                  <div className="h-6 w-11 rounded-full bg-muted peer-checked:bg-emerald-500 transition-colors" />
+                  <div className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5" />
+                </label>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">Legal Disclosure</label>
+                <label className="relative inline-flex cursor-pointer items-center">
+                  <input type="checkbox" checked={draftLegalEnabled} onChange={(e) => setDraftLegalEnabled(e.target.checked)} className="peer sr-only" />
+                  <div className="h-6 w-11 rounded-full bg-muted peer-checked:bg-emerald-500 transition-colors" />
+                  <div className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5" />
+                </label>
+              </div>
+              {draftLegalEnabled && (
+                <textarea
+                  value={draftLegalText}
+                  onChange={(e) => setDraftLegalText(e.target.value)}
+                  rows={3}
+                  className="input-base resize-y text-sm"
+                  placeholder="This call may be recorded for quality assurance..."
+                />
+              )}
+              <p className="text-xs text-muted-foreground">Inherited: {legalDisclosureEnabled.value ? "On" : "Off"} ({legalDisclosureEnabled.source})</p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen(!advancedOpen)}
+              className="flex w-full items-center justify-between rounded-lg border border-border bg-white px-4 py-3 text-left transition-colors hover:bg-zinc-50"
+            >
+              <p className="text-sm font-medium text-foreground">Advanced — greeting, hold phrase, call limits</p>
+              {advancedOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+            </button>
+
+            {advancedOpen && (
+              <div className="space-y-4 rounded-lg border border-border bg-white p-4">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-foreground">Greeting</label>
+                  <input
+                    type="text"
+                    value={draftGreeting}
+                    onChange={(e) => setDraftGreeting(e.target.value)}
+                    className="input-base text-sm"
+                    placeholder="Hi, thank you for calling {property}..."
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">Inherited: {greeting.source} level</p>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-foreground">Hold phrase</label>
+                  <input
+                    type="text"
+                    value={draftHoldPhrase}
+                    onChange={(e) => setDraftHoldPhrase(e.target.value)}
+                    className="input-base text-sm"
+                    placeholder="One moment while I look that up..."
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">Inherited: {holdPhrase.source} level</p>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-foreground">Max call length: {draftMaxCallLength} min</label>
+                  <input
+                    type="range"
+                    min={1}
+                    max={60}
+                    value={draftMaxCallLength}
+                    onChange={(e) => setDraftMaxCallLength(Number(e.target.value))}
+                    className="w-full accent-emerald-500"
+                  />
+                  <div className="flex justify-between text-[10px] text-muted-foreground"><span>1 min</span><span>60 min</span></div>
+                  <p className="mt-1 text-xs text-muted-foreground">Inherited: {maxCallLength.value} min ({maxCallLength.source})</p>
+                </div>
+                <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">AI disclosure</p>
+                    <p className="text-xs text-muted-foreground">Inherited: {aiDisclosure.value ? "On" : "Off"} ({aiDisclosure.source})</p>
+                  </div>
+                  <label className="relative inline-flex cursor-pointer items-center">
+                    <input type="checkbox" checked={draftAiDisclosure} onChange={(e) => setDraftAiDisclosure(e.target.checked)} className="peer sr-only" />
+                    <div className="h-6 w-11 rounded-full bg-muted peer-checked:bg-emerald-500 transition-colors" />
+                    <div className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5" />
+                  </label>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Button size="sm" onClick={saveOverride} className="gap-1">
+              <Save className="h-3.5 w-3.5" /> Save Override
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
+            {hasAgentVoiceOverride && (
+              <Button variant="outline" size="sm" onClick={resetOverride} className="text-red-600 hover:text-red-700 hover:bg-red-50 ml-auto gap-1">
+                <RotateCcw className="h-3.5 w-3.5" /> Reset to Inherited
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -4306,12 +4834,12 @@ const AGENT_FLYOUT_DESCRIPTIONS: Record<string, string> = {
   "Renewal AI": "Automate renewal conversations, offers, and retention outreach.",
 };
 
-type SettingsNav = "property" | "agent-settings" | "brand-tone" | "simulation" | "history";
+type SettingsNav = "property" | "agent-settings" | "voice-tone" | "simulation" | "history";
 
 function getAgentSubPages(agentName: string): { id: SettingsNav; label: string }[] {
   return [
     { id: "agent-settings", label: `${agentName} Settings` },
-    { id: "brand-tone", label: "Brand & Tone" },
+    { id: "voice-tone", label: "Voice & Tone" },
     { id: "simulation", label: "Simulation" },
     { id: "history", label: "History & Logging" },
   ];
@@ -4438,8 +4966,8 @@ function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: 
               </div>
             </div>
           )
-        ) : activeNav === "brand-tone" ? (
-          <AgentBrandTonePanel agentName={agentName} property={property} />
+        ) : activeNav === "voice-tone" ? (
+          <AgentVoiceTonePanel agentName={agentName} property={property} />
         ) : activeNav === "simulation" ? (
           <AgentSimulationPanel
             agentName={agentName}
