@@ -27,7 +27,7 @@ import {
   ENTRATA_AFTER_PHONES,
 } from "./data/entrata-imports"
 
-export type PageId = "overview" | "company" | "privacy" | "email" | "communications" | "ivr-setup" | "golive" | "payments" | "maintenance"
+export type PageId = "overview" | "company" | "privacy" | "email" | "communications" | "ivr-setup" | "golive" | "payments" | "maintenance" | "leasing" | "renewals"
 export type BrandStatus = "idle" | "submitting" | "carrier-rejected" | "approved"
 export type CampaignStatus = "idle" | "creating" | "ready"
 

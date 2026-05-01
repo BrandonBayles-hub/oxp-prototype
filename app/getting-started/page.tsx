@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
@@ -84,6 +84,14 @@ const STEP_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
    ═══════════════════════════════════════════════════════════════════════ */
 
 export default function GettingStartedPage() {
+  return (
+    <Suspense>
+      <GettingStartedContent />
+    </Suspense>
+  );
+}
+
+function GettingStartedContent() {
   const router = useRouter();
   const {
     goLiveComplete,
