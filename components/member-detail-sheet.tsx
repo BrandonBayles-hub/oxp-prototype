@@ -167,7 +167,7 @@ export function MemberDetailSheet({
     );
   }, [conversationItems, member]);
 
-  const properties = member?.properties ?? [];
+  const properties = useMemo(() => member?.properties ?? [], [member]);
   const hasAllProperties = properties.includes("All properties");
 
   const propertyListTree = portfolioData;
