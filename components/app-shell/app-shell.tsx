@@ -15,12 +15,14 @@ import { RoadmapOverlay } from "@/components/roadmap-overlay";
 const CHROMELESS_ROUTES: string[] = [];
 const FULL_BLEED_ROUTES = ["/conversations"];
 const NAV_ONLY_ROUTES = ["/escalations/settings", "/communications-setup/custom-email"];
+const NO_SIDEBAR_ROUTES = ["/setup-wizard"];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const chromeless = CHROMELESS_ROUTES.some((r) => pathname.startsWith(r));
   const fullBleed = FULL_BLEED_ROUTES.some((r) => pathname.startsWith(r));
   const navOnly = NAV_ONLY_ROUTES.some((r) => pathname.startsWith(r));
+  const noSidebar = NO_SIDEBAR_ROUTES.some((r) => pathname.startsWith(r));
 
   if (chromeless) {
     return (
@@ -52,7 +54,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <EntrataTopNav />
       <MobileNav />
       <div className="flex flex-1 overflow-hidden">
-        {!fullBleed && (
+        {!fullBleed && !noSidebar && (
           <div className="hidden shrink-0 lg:block">
             <Sidebar />
           </div>
