@@ -26,9 +26,7 @@ const SUB_ITEMS = [
   { id: "communications"     as PageId, label: "Communications",            icon: Phone,           taskIds: [] as string[], indent: false },
 ]
 
-const STATUS: Partial<Record<PageId, "complete" | "warning" | "blocked">> = {
-  payments: "warning",
-}
+const STATUS: Partial<Record<PageId, "complete" | "warning" | "blocked">> = {}
 
 function StatusIcon({ status }: { status?: "complete" | "warning" | "blocked" }) {
   if (status === "complete") return <CheckCircle2 className="h-4 w-4 text-emerald-700 shrink-0" />
