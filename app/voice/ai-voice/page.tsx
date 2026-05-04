@@ -1,14 +1,29 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { useVoice, type VoiceSettings, type AgentVoiceTuning } from "@/lib/voice-context";
+import {
+  useVoice,
+  NOVA2_VOICES,
+  DEFAULT_NOVA2_VOICE_ID,
+  getNova2Voice,
+  getNova2VoicesByGender,
+  type VoiceSettings,
+  type AgentVoiceTuning,
+} from "@/lib/voice-context";
 import { useAgents } from "@/lib/agents-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
   Building2, Layers, Home, ChevronRight, ChevronDown, ChevronUp,
@@ -16,12 +31,9 @@ import {
   GraduationCap, Briefcase, Filter, Plus, X,
 } from "lucide-react";
 
-const ACCENTS = [
-  { id: "american" as const, label: "American", desc: "Standard US English" },
-  { id: "british" as const, label: "British", desc: "UK English" },
-  { id: "australian" as const, label: "Australian", desc: "AU English" },
-  { id: "indian" as const, label: "Indian", desc: "Indian English" },
-];
+// Voice catalog comes from `NOVA2_VOICES` in lib/voice-context. The catalog is
+// filtered by the currently-selected gender so users only see voices that
+// match their persona choice.
 
 const ALL_LANGUAGES = ["English", "Spanish", "French", "German", "Italian", "Portuguese", "Hindi"];
 
@@ -80,7 +92,7 @@ export default function AIVoicePage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogTarget, setDialogTarget] = useState<{ type: "vertical" | "property"; name: string; vertical?: string } | null>(null);
   const [dialogGender, setDialogGender] = useState<"female" | "male">("female");
-  const [dialogAccent, setDialogAccent] = useState<"american" | "british" | "australian" | "indian">("american");
+  const [dialogAccent, setDialogAccent] = useState<string>(DEFAULT_NOVA2_VOICE_ID.female);
   const [dialogLanguages, setDialogLanguages] = useState<string[]>(["English"]);
   const [dialogAutoDetect, setDialogAutoDetect] = useState(false);
   const [dialogRecordAudio, setDialogRecordAudio] = useState(false);
@@ -147,13 +159,6 @@ export default function AIVoicePage() {
       <VoiceCascadeVisual activeLevel={activeTab} onLevelClick={setActiveTab} />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="mb-6">
-          <TabsTrigger value="company">Company Defaults</TabsTrigger>
-          <TabsTrigger value="verticals">Verticals</TabsTrigger>
-          <TabsTrigger value="properties">Properties</TabsTrigger>
-          <TabsTrigger value="agents">Agent Overrides</TabsTrigger>
-        </TabsList>
-
         <TabsContent value="company" className="space-y-8 pb-12">
           <CompanyVoiceSettings settings={vs} onUpdate={updateVS} />
         </TabsContent>
@@ -192,7 +197,7 @@ export default function AIVoicePage() {
                           <p className="text-xs"><span className="font-medium text-foreground">Gender:</span> <span className="text-muted-foreground capitalize">{override.voiceSettings.voiceGender}</span></p>
                         )}
                         {override.voiceSettings.voiceAccent && (
-                          <p className="text-xs"><span className="font-medium text-foreground">Accent:</span> <span className="text-muted-foreground capitalize">{override.voiceSettings.voiceAccent}</span></p>
+                          <p className="text-xs"><span className="font-medium text-foreground">Voice:</span> <span className="text-muted-foreground">{getNova2Voice(override.voiceSettings.voiceAccent)?.label ?? override.voiceSettings.voiceAccent}</span></p>
                         )}
                         {override.voiceSettings.voiceLanguages && override.voiceSettings.voiceLanguages.length > 0 && (
                           <p className="text-xs"><span className="font-medium text-foreground">Languages:</span> <span className="text-muted-foreground">{override.voiceSettings.voiceLanguages.join(", ")}</span></p>
@@ -466,8 +471,8 @@ function VoiceOverrideDialog({
   description: string;
   gender: "female" | "male";
   onGenderChange: (g: "female" | "male") => void;
-  accent: "american" | "british" | "australian" | "indian";
-  onAccentChange: (a: "american" | "british" | "australian" | "indian") => void;
+  accent: string;
+  onAccentChange: (a: string) => void;
   languages: string[];
   onLanguagesChange: (l: string[]) => void;
   autoDetect: boolean;
@@ -515,7 +520,13 @@ function VoiceOverrideDialog({
                   <button
                     key={g}
                     type="button"
-                    onClick={() => onGenderChange(g)}
+                    onClick={() => {
+                      onGenderChange(g);
+                      const current = getNova2Voice(accent);
+                      if (!current || current.gender !== g) {
+                        onAccentChange(DEFAULT_NOVA2_VOICE_ID[g]);
+                      }
+                    }}
                     className={cn(
                       "flex items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition-all",
                       gender === g ? "border-primary bg-primary/5 shadow-sm" : "border-border hover:border-primary/30",
@@ -537,20 +548,21 @@ function VoiceOverrideDialog({
             </div>
 
             <div>
-              <p className="mb-2 text-sm font-medium text-foreground">Accent</p>
+              <p className="mb-2 text-sm font-medium text-foreground">Voice <span className="text-xs font-normal text-muted-foreground">· Amazon Nova 2 Sonic</span></p>
               <div className="grid grid-cols-2 gap-2">
-                {ACCENTS.map((a) => (
+                {getNova2VoicesByGender(gender).map((v) => (
                   <button
-                    key={a.id}
+                    key={v.id}
                     type="button"
-                    onClick={() => onAccentChange(a.id)}
+                    onClick={() => onAccentChange(v.id)}
                     className={cn(
                       "rounded-lg border-2 px-3 py-2.5 text-left transition-all",
-                      accent === a.id ? "border-primary bg-primary/5" : "border-border hover:border-primary/30",
+                      accent === v.id ? "border-primary bg-primary/5" : "border-border hover:border-primary/30",
                     )}
                   >
-                    <p className="text-sm font-semibold text-foreground">{a.label}</p>
-                    <p className="text-[11px] text-muted-foreground">{a.desc}</p>
+                    <p className="text-sm font-semibold text-foreground">{v.label}</p>
+                    <p className="text-[11px] text-muted-foreground">{v.accent}</p>
+                    <p className="text-[11px] text-muted-foreground">{v.desc}</p>
                   </button>
                 ))}
               </div>
@@ -562,10 +574,10 @@ function VoiceOverrideDialog({
               </div>
               <div>
                 <p className="text-sm font-medium text-foreground">
-                  {ACCENTS.find((a) => a.id === accent)?.label ?? "American"} — {gender === "male" ? "Male" : "Female"}
+                  {getNova2Voice(accent)?.label ?? "Tiffany"} — {gender === "male" ? "Male" : "Female"}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {ACCENTS.find((a) => a.id === accent)?.desc ?? "Standard US English"} accent. {gender === "female" ? "Warm, approachable." : "Confident, professional."}
+                  {getNova2Voice(accent)?.accent ?? "American (en-US)"} · {getNova2Voice(accent)?.desc ?? "Warm polyglot"}
                 </p>
               </div>
               <Button variant="outline" size="sm" className="ml-auto shrink-0">
@@ -770,38 +782,8 @@ function CompanyVoiceSettings({
   settings: VoiceSettings;
   onUpdate: (updates: Partial<VoiceSettings>) => void;
 }) {
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-
   return (
     <div className="space-y-8">
-      {/* AI Voice toggle */}
-      <div className="flex items-center justify-between rounded-xl border border-border p-5">
-        <div className="flex items-center gap-4">
-          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10">
-            <Phone className="h-5 w-5 text-primary" />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold text-foreground">AI Voice</h3>
-            <p className="text-xs text-muted-foreground">How your AI sounds when speaking with leads and residents on the phone.</p>
-          </div>
-        </div>
-        <label className="relative inline-flex cursor-pointer items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">{settings.aiVoiceEnabled ? "On" : "Off"}</span>
-          <div className="relative">
-            <input
-              type="checkbox"
-              checked={settings.aiVoiceEnabled}
-              onChange={(e) => onUpdate({ aiVoiceEnabled: e.target.checked })}
-              className="peer sr-only"
-            />
-            <div className="h-6 w-11 rounded-full bg-muted peer-checked:bg-primary transition-colors" />
-            <div className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5" />
-          </div>
-        </label>
-      </div>
-
-      {settings.aiVoiceEnabled && (
-        <>
           {/* Step 1: How it sounds */}
           <div className="space-y-4">
             <div>
@@ -813,7 +795,14 @@ function CompanyVoiceSettings({
             <div className="grid gap-3 sm:grid-cols-2">
               <button
                 type="button"
-                onClick={() => onUpdate({ voiceGender: "female" })}
+                onClick={() => {
+                  const next: Partial<VoiceSettings> = { voiceGender: "female" };
+                  const current = getNova2Voice(settings.voiceAccent);
+                  if (!current || current.gender !== "female") {
+                    next.voiceAccent = DEFAULT_NOVA2_VOICE_ID.female;
+                  }
+                  onUpdate(next);
+                }}
                 className={cn(
                   "flex items-center gap-3 rounded-xl border-2 px-5 py-4 text-left transition-all",
                   settings.voiceGender === "female"
@@ -835,7 +824,14 @@ function CompanyVoiceSettings({
 
               <button
                 type="button"
-                onClick={() => onUpdate({ voiceGender: "male" })}
+                onClick={() => {
+                  const next: Partial<VoiceSettings> = { voiceGender: "male" };
+                  const current = getNova2Voice(settings.voiceAccent);
+                  if (!current || current.gender !== "male") {
+                    next.voiceAccent = DEFAULT_NOVA2_VOICE_ID.male;
+                  }
+                  onUpdate(next);
+                }}
                 className={cn(
                   "flex items-center gap-3 rounded-xl border-2 px-5 py-4 text-left transition-all",
                   settings.voiceGender === "male"
@@ -857,42 +853,73 @@ function CompanyVoiceSettings({
             </div>
 
             <div>
-              <p className="mb-2 text-sm font-medium text-foreground">Accent</p>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {ACCENTS.map((accent) => (
-                  <button
-                    key={accent.id}
-                    type="button"
-                    onClick={() => onUpdate({ voiceAccent: accent.id })}
-                    className={cn(
-                      "rounded-lg border-2 px-4 py-3 text-left transition-all",
-                      settings.voiceAccent === accent.id
-                        ? "border-primary bg-primary/5"
-                        : "border-border hover:border-primary/30",
-                    )}
-                  >
-                    <p className="text-sm font-semibold text-foreground">{accent.label}</p>
-                    <p className="text-[11px] text-muted-foreground">{accent.desc}</p>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 rounded-lg bg-muted/50 px-4 py-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
-                <Volume2 className="h-4 w-4 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-foreground">
-                  {ACCENTS.find((a) => a.id === settings.voiceAccent)?.label ?? "American"} — {settings.voiceGender === "male" ? "Male" : "Female"}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {ACCENTS.find((a) => a.id === settings.voiceAccent)?.desc ?? "Standard US English"} accent. {settings.voiceGender === "female" ? "Warm, approachable." : "Confident, professional."}
+              <div className="mb-2 flex items-baseline justify-between gap-2">
+                <p className="text-sm font-medium text-foreground">Voice</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Amazon Nova 2 Sonic · {settings.voiceGender === "male" ? "male" : "female"} voices
                 </p>
               </div>
-              <Button variant="outline" size="sm" className="ml-auto">
-                <Volume2 className="h-3 w-3" /> Listen to a sample
-              </Button>
+              {(() => {
+                const selectedVoice = getNova2Voice(settings.voiceAccent);
+                return (
+                  <div className="flex items-stretch gap-2">
+                    <Select
+                      value={settings.voiceAccent}
+                      onValueChange={(value) => onUpdate({ voiceAccent: value })}
+                    >
+                      <SelectTrigger
+                        aria-label="Select voice"
+                        className="h-auto min-h-[3.25rem] flex-1 items-center gap-3 py-2.5 pr-3 text-left [&>span]:flex-1 [&>span]:text-left [&>svg]:h-5 [&>svg]:w-5 [&>svg]:shrink-0 [&>svg]:rounded-md [&>svg]:border [&>svg]:border-border [&>svg]:bg-muted/50 [&>svg]:p-0.5 [&>svg]:text-muted-foreground [&>svg]:opacity-100"
+                      >
+                        <SelectValue placeholder="Select a voice">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-semibold text-foreground">
+                              {selectedVoice?.label ?? "Select a voice"}
+                              {selectedVoice && (
+                                <span className="ml-2 text-[11px] font-normal text-muted-foreground">
+                                  {selectedVoice.accent}
+                                </span>
+                              )}
+                            </span>
+                            {selectedVoice && (
+                              <span className="text-[11px] text-muted-foreground">
+                                {selectedVoice.desc}
+                              </span>
+                            )}
+                          </div>
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[320px] w-[var(--radix-select-trigger-width)]">
+                        {getNova2VoicesByGender(settings.voiceGender).map((voice) => (
+                          <SelectItem
+                            key={voice.id}
+                            value={voice.id}
+                            className="py-2 [&>span:last-child]:flex-1"
+                          >
+                            <div className="flex flex-col">
+                              <span className="text-sm font-medium text-foreground">
+                                {voice.label}
+                                <span className="ml-2 text-[11px] font-normal text-muted-foreground">
+                                  {voice.accent}
+                                </span>
+                              </span>
+                              <span className="text-[11px] text-muted-foreground">{voice.desc}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-auto self-stretch px-3"
+                    >
+                      <Volume2 className="h-3.5 w-3.5" />
+                      <span className="ml-1.5">Listen</span>
+                    </Button>
+                  </div>
+                );
+              })()}
             </div>
           </div>
 
@@ -988,9 +1015,10 @@ function CompanyVoiceSettings({
                 </div>
                 <textarea
                   value={settings.legalDisclosureText}
-                  onChange={(e) => onUpdate({ legalDisclosureText: e.target.value })}
-                  rows={3}
-                  className="input-base mt-3 resize-y text-sm"
+                  readOnly
+                  rows={2}
+                  aria-readonly="true"
+                  className="input-base mt-3 resize-none bg-muted/30 text-sm leading-relaxed text-foreground/90 cursor-text"
                 />
                 <p className="mt-1.5 text-[11px] text-emerald-600 dark:text-emerald-400">
                   Auto-played in the AI voice you selected above.
@@ -999,85 +1027,6 @@ function CompanyVoiceSettings({
             </Card>
           </div>
 
-          {/* Advanced */}
-          <div className="space-y-4">
-            <button
-              type="button"
-              onClick={() => setAdvancedOpen(!advancedOpen)}
-              className="flex w-full items-center justify-between gap-4 rounded-lg border border-border px-5 py-3 text-left transition-colors hover:bg-muted/50"
-            >
-              <h3 className="text-sm font-semibold text-foreground shrink-0">Advanced — greeting, hold phrase, and call limits</h3>
-              <div className="flex items-center gap-2 shrink-0">
-                <span className="hidden sm:inline text-xs text-muted-foreground">Most operators leave these alone</span>
-                {advancedOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-              </div>
-            </button>
-
-            {advancedOpen && (
-              <div className="space-y-5 rounded-lg border border-border p-5">
-                <div>
-                  <label className="mb-1 flex items-center gap-2 text-sm font-medium text-foreground">
-                    <span className="flex h-5 w-5 items-center justify-center rounded bg-muted text-[10px] font-bold text-muted-foreground">01</span>
-                    Greeting (first thing the AI says)
-                  </label>
-                  <input
-                    type="text"
-                    value={settings.greeting}
-                    onChange={(e) => onUpdate({ greeting: e.target.value })}
-                    className="input-base text-sm"
-                  />
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    Use <code className="rounded bg-muted px-1 py-0.5 text-[10px]">{"{property}"}</code> to insert the property name automatically.
-                  </p>
-                </div>
-
-                <div>
-                  <label className="mb-1 flex items-center gap-2 text-sm font-medium text-foreground">
-                    <span className="flex h-5 w-5 items-center justify-center rounded bg-muted text-[10px] font-bold text-muted-foreground">02</span>
-                    Hold phrase (when the AI is looking something up)
-                  </label>
-                  <input
-                    type="text"
-                    value={settings.holdPhrase}
-                    onChange={(e) => onUpdate({ holdPhrase: e.target.value })}
-                    className="input-base text-sm"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 flex items-center gap-2 text-sm font-medium text-foreground">
-                    <span className="flex h-5 w-5 items-center justify-center rounded bg-muted text-[10px] font-bold text-muted-foreground">03</span>
-                    Maximum call length: {settings.maxCallLength} minutes
-                  </label>
-                  <div className="mt-2">
-                    <input
-                      type="range"
-                      min={1}
-                      max={60}
-                      value={settings.maxCallLength}
-                      onChange={(e) => onUpdate({ maxCallLength: Number(e.target.value) })}
-                      className="w-full accent-primary"
-                    />
-                    <div className="flex justify-between text-[10px] text-muted-foreground">
-                      <span>1 min</span>
-                      <span className="text-xs text-muted-foreground">If a call runs long, the AI offers to transfer to schedule a callback.</span>
-                      <span>60 min</span>
-                    </div>
-                  </div>
-                </div>
-
-                <ToggleRow
-                  icon={<div className="h-2 w-2 rounded-full bg-emerald-500" />}
-                  title="Disclose to callers that they're speaking with an AI"
-                  description="Adds a short AI disclosure on first call. Required by law in some states (e.g. CA, CO)."
-                  checked={settings.aiDisclosureEnabled}
-                  onChange={(v) => onUpdate({ aiDisclosureEnabled: v })}
-                />
-              </div>
-            )}
-          </div>
-        </>
-      )}
     </div>
   );
 }
@@ -1197,7 +1146,7 @@ function AgentVoiceTuningCard({
                 </span>
               </div>
               <p className="text-xs text-muted-foreground capitalize">
-                {ACCENTS.find((a) => a.id === effectiveAccent)?.label ?? effectiveAccent} — {effectiveGender}
+                {getNova2Voice(effectiveAccent)?.label ?? effectiveAccent} — {effectiveGender}
               </p>
               {!hasVoiceOverride && (
                 <p className="mt-0.5 text-[10px] text-muted-foreground italic">Using inherited voice — customize to override for this property</p>
@@ -1261,7 +1210,13 @@ function AgentVoiceTuningCard({
                   <button
                     key={g}
                     type="button"
-                    onClick={() => setDraftGender(g)}
+                    onClick={() => {
+                      setDraftGender(g);
+                      const current = getNova2Voice(draftAccent);
+                      if (!current || current.gender !== g) {
+                        setDraftAccent(DEFAULT_NOVA2_VOICE_ID[g]);
+                      }
+                    }}
                     className={cn(
                       "flex-1 rounded-lg border-2 px-3 py-2 text-xs font-medium capitalize transition-all",
                       draftGender === g ? "border-primary bg-primary/5 text-foreground" : "border-border text-muted-foreground hover:border-primary/30",
@@ -1274,19 +1229,20 @@ function AgentVoiceTuningCard({
             </div>
 
             <div>
-              <label className="mb-2 block text-xs font-medium text-muted-foreground">Accent</label>
+              <label className="mb-2 block text-xs font-medium text-muted-foreground">Voice <span className="text-[10px] font-normal">· Nova 2 Sonic</span></label>
               <div className="grid grid-cols-2 gap-2">
-                {ACCENTS.map((a) => (
+                {getNova2VoicesByGender(draftGender).map((v) => (
                   <button
-                    key={a.id}
+                    key={v.id}
                     type="button"
-                    onClick={() => setDraftAccent(a.id)}
+                    onClick={() => setDraftAccent(v.id)}
                     className={cn(
-                      "rounded-lg border-2 px-3 py-2 text-xs font-medium transition-all",
-                      draftAccent === a.id ? "border-primary bg-primary/5 text-foreground" : "border-border text-muted-foreground hover:border-primary/30",
+                      "rounded-lg border-2 px-3 py-2 text-left text-xs font-medium transition-all",
+                      draftAccent === v.id ? "border-primary bg-primary/5 text-foreground" : "border-border text-muted-foreground hover:border-primary/30",
                     )}
                   >
-                    {a.label}
+                    <span className="block font-semibold text-foreground">{v.label}</span>
+                    <span className="block text-[10px] font-normal text-muted-foreground">{v.accent}</span>
                   </button>
                 ))}
               </div>

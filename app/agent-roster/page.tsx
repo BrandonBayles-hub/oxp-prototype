@@ -35,7 +35,15 @@ import { useAgentCompliance } from "@/lib/use-agent-compliance";
 import { useR1Release } from "@/lib/r1-release-context";
 import { useR1_2Release } from "@/lib/r1-2-release-context";
 import { Tag, X, Search, DollarSign, Megaphone, Users, Wrench, ShieldCheck, Power, Activity, AlertCircle, Play, Clock, CheckCircle, CheckCircle2, XCircle, Calendar, Lightbulb, Target, Database, BarChart3, Pencil, Save, ArrowLeft, ArrowRight, Sparkles, BookOpen, Cog, Bot, Box, MessageSquare, Shield, Zap, Eye, EyeOff, Globe, Mail, Phone, Volume2, History, RotateCcw, Lock, ExternalLink, CirclePlay, TrendingUp, TrendingDown, Minus, ArrowUpDown, ChevronDown, ChevronUp, Building2, Layers, Home, Plus, Info } from "lucide-react";
-import { useVoice, type AgentVoiceTuning, type VoiceSettings } from "@/lib/voice-context";
+import {
+  useVoice,
+  NOVA2_VOICES,
+  DEFAULT_NOVA2_VOICE_ID,
+  getNova2Voice,
+  getNova2VoicesByGender,
+  type AgentVoiceTuning,
+  type VoiceSettings,
+} from "@/lib/voice-context";
 import { Chat, type ChatMessage, type ChatSource, type ChatToolCall } from "@/components/ui/chat";
 
 const AGENT_TYPE_ICON: Record<AgentType, string> = {
@@ -4311,7 +4319,11 @@ function CascadeDots({ hasVertical, hasProperty, hasAgent }: { hasVertical: bool
   );
 }
 
-const ACCENT_LABELS: Record<string, string> = { american: "American", british: "British", australian: "Australian", indian: "Indian" };
+/** Voice ID -> friendly label, derived from the Nova 2 Sonic catalog. */
+const ACCENT_LABELS: Record<string, string> = NOVA2_VOICES.reduce<Record<string, string>>(
+  (acc, v) => ({ ...acc, [v.id]: v.label }),
+  {},
+);
 
 type VoiceToneSection = "tone" | "voice";
 
@@ -4673,12 +4685,6 @@ function AgentToneSection({
 /* ─── Voice Section ─── */
 
 const ALL_VOICE_LANGUAGES = ["English", "Spanish", "French", "German", "Italian", "Portuguese", "Hindi"];
-const VOICE_ACCENT_OPTIONS: { id: VoiceSettings["voiceAccent"]; label: string }[] = [
-  { id: "american", label: "American" },
-  { id: "british", label: "British" },
-  { id: "australian", label: "Australian" },
-  { id: "indian", label: "Indian" },
-];
 
 function AgentVoiceSection({
   agentName, agentId, property, voice, vertOvr, propOvr,
@@ -4848,7 +4854,7 @@ function AgentVoiceSection({
                 </div>
                 <div className="rounded-xl border border-border bg-white p-5">
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-sm font-semibold text-foreground">Accent</p>
+                    <p className="text-sm font-semibold text-foreground">Voice</p>
                     <SourceBadge source={accentSource} />
                   </div>
                   <p className="text-sm text-muted-foreground">{ACCENT_LABELS[effectiveAccent] ?? effectiveAccent}</p>
@@ -4951,7 +4957,13 @@ function AgentVoiceSection({
                   <button
                     key={g}
                     type="button"
-                    onClick={() => setDraftGender(g)}
+                    onClick={() => {
+                      setDraftGender(g);
+                      const current = getNova2Voice(draftAccent);
+                      if (!current || current.gender !== g) {
+                        setDraftAccent(DEFAULT_NOVA2_VOICE_ID[g]);
+                      }
+                    }}
                     className={`flex-1 rounded-lg border-2 px-4 py-3 text-sm font-medium capitalize transition-all ${
                       draftGender === g ? "border-emerald-500 bg-emerald-50 text-foreground" : "border-border text-muted-foreground hover:border-emerald-300"
                     }`}
@@ -4964,18 +4976,22 @@ function AgentVoiceSection({
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-medium">Accent</label>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {VOICE_ACCENT_OPTIONS.map((a) => (
+              <div className="mb-2 flex items-baseline justify-between gap-2">
+                <label className="block text-sm font-medium">Voice</label>
+                <span className="text-[11px] text-muted-foreground">Nova 2 Sonic · {draftGender} voices</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                {getNova2VoicesByGender(draftGender).map((v) => (
                   <button
-                    key={a.id}
+                    key={v.id}
                     type="button"
-                    onClick={() => setDraftAccent(a.id)}
-                    className={`rounded-lg border-2 px-3 py-2 text-sm font-medium transition-all ${
-                      draftAccent === a.id ? "border-emerald-500 bg-emerald-50 text-foreground" : "border-border text-muted-foreground hover:border-emerald-300"
+                    onClick={() => setDraftAccent(v.id)}
+                    className={`rounded-lg border-2 px-3 py-2 text-left text-sm font-medium transition-all ${
+                      draftAccent === v.id ? "border-emerald-500 bg-emerald-50 text-foreground" : "border-border text-muted-foreground hover:border-emerald-300"
                     }`}
                   >
-                    {a.label}
+                    <span className="block font-semibold text-foreground">{v.label}</span>
+                    <span className="block text-[10px] font-normal text-muted-foreground">{v.accent}</span>
                   </button>
                 ))}
               </div>

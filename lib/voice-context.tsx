@@ -2,7 +2,11 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 
-const STORAGE_KEY = "janet-poc-voice-v4";
+// Bumped to v5 when voiceAccent changed from accent literals (american|british|...) to
+// Amazon Nova 2 Sonic voice IDs (tiffany|matthew|...). Stale keys would otherwise leave
+// the voice picker unhighlighted.
+// Bumped to v6 when the legal disclosure default copy was shortened.
+const STORAGE_KEY = "janet-poc-voice-v6";
 
 export type PhrasingRule = {
   id: string;
@@ -15,7 +19,8 @@ export type PhrasingRule = {
 export type VoiceSettings = {
   aiVoiceEnabled: boolean;
   voiceGender: "female" | "male";
-  voiceAccent: "american" | "british" | "australian" | "indian";
+  /** Voice ID from the Amazon Nova 2 Sonic catalog (e.g. "tiffany", "matthew"). */
+  voiceAccent: string;
   voiceLanguages: string[];
   autoDetectLanguage: boolean;
   recordAudio: boolean;
@@ -27,6 +32,54 @@ export type VoiceSettings = {
   maxCallLength: number;
   aiDisclosureEnabled: boolean;
 };
+
+/**
+ * Amazon Nova 2 Sonic voice catalog.
+ * Source: https://docs.aws.amazon.com/nova/latest/userguide/available-voices.html
+ *
+ * Each option exposes the voice ID we store on `VoiceSettings.voiceAccent`,
+ * a friendly label, the speaker's gender (used to filter options by the
+ * selected voiceGender), the accent/locale, and a short descriptor.
+ */
+export type Nova2Voice = {
+  id: string;
+  label: string;
+  gender: "female" | "male";
+  accent: string;
+  desc: string;
+};
+
+export const NOVA2_VOICES: readonly Nova2Voice[] = [
+  { id: "tiffany", label: "Tiffany", gender: "female", accent: "American (en-US)", desc: "Warm polyglot — speaks every supported language" },
+  { id: "amy",     label: "Amy",     gender: "female", accent: "British (en-GB)",  desc: "Clear, polished UK English" },
+  { id: "olivia",  label: "Olivia",  gender: "female", accent: "Australian (en-AU)", desc: "Friendly, easygoing AU English" },
+  { id: "kiara",   label: "Kiara",   gender: "female", accent: "Indian (en-IN)",   desc: "Confident Indian English" },
+  { id: "lupe",    label: "Lupe",    gender: "female", accent: "Spanish (es-US)",  desc: "Bilingual US Spanish" },
+  { id: "ambre",   label: "Ambre",   gender: "female", accent: "French (fr-FR)",   desc: "Refined Parisian French" },
+  { id: "tina",    label: "Tina",    gender: "female", accent: "German (de-DE)",   desc: "Crisp Hochdeutsch" },
+  { id: "beatrice",label: "Beatrice",gender: "female", accent: "Italian (it-IT)",  desc: "Bright, expressive Italian" },
+  { id: "carolina",label: "Carolina",gender: "female", accent: "Portuguese (pt-BR)", desc: "Smooth Brazilian Portuguese" },
+  { id: "matthew", label: "Matthew", gender: "male",   accent: "American (en-US)", desc: "Confident polyglot — speaks every supported language" },
+  { id: "arjun",   label: "Arjun",   gender: "male",   accent: "Indian (en-IN)",   desc: "Steady, professional Indian English" },
+  { id: "carlos",  label: "Carlos",  gender: "male",   accent: "Spanish (es-US)",  desc: "Bilingual US Spanish" },
+  { id: "florian", label: "Florian", gender: "male",   accent: "French (fr-FR)",   desc: "Cool, articulate French" },
+  { id: "lennart", label: "Lennart", gender: "male",   accent: "German (de-DE)",   desc: "Measured, professional German" },
+  { id: "lorenzo", label: "Lorenzo", gender: "male",   accent: "Italian (it-IT)",  desc: "Charismatic Italian baritone" },
+  { id: "leo",     label: "Leo",     gender: "male",   accent: "Portuguese (pt-BR)", desc: "Friendly Brazilian Portuguese" },
+];
+
+export const DEFAULT_NOVA2_VOICE_ID: Record<"female" | "male", string> = {
+  female: "tiffany",
+  male: "matthew",
+};
+
+export function getNova2Voice(id: string): Nova2Voice | undefined {
+  return NOVA2_VOICES.find((v) => v.id === id);
+}
+
+export function getNova2VoicesByGender(gender: "female" | "male"): Nova2Voice[] {
+  return NOVA2_VOICES.filter((v) => v.gender === gender);
+}
 
 export type BrandColors = {
   primary: string;
@@ -176,13 +229,13 @@ const DEFAULT_STATE: VoiceState = {
   voiceSettings: {
     aiVoiceEnabled: true,
     voiceGender: "female",
-    voiceAccent: "american",
+    voiceAccent: "tiffany",
     voiceLanguages: ["English", "Spanish", "French", "German", "Italian", "Portuguese", "Hindi"],
     autoDetectLanguage: true,
     recordAudio: true,
     generateTranscripts: true,
     legalDisclosureEnabled: true,
-    legalDisclosureText: "This call is being recorded and transcribed for quality assurance and training purposes. If you do not consent to recording, please press 9 or stay on the line to be connected to a live agent.",
+    legalDisclosureText: "This call is being recorded and transcribed for quality assurance and training purposes.",
     greeting: "Thank you for calling {property}. How can I help you today?",
     holdPhrase: "One moment while I pull that up for you.",
     maxCallLength: 10,
