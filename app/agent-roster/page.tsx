@@ -3553,7 +3553,7 @@ type ConversationMessage = {
   role: "resident" | "agent";
   text: string;
   timestamp: string;
-  /** Per-reply trace (e.g. Renewal AI — one trace per agent message). */
+  /** Per-reply trace (L4 conversational agents — one trace per agent message). */
   trace?: TraceStep[];
 };
 
@@ -3569,13 +3569,15 @@ type ConversationLog = {
   duration: string;
   turns: number;
   messages: ConversationMessage[];
-  /** Whole-conversation trace (non–Renewal AI). Renewal AI uses `messages[].trace` instead. */
+  /** Whole-conversation trace (legacy). L4 agents use `messages[].trace` per agent reply instead. */
   trace: TraceStep[];
   monitors: { label: string; passed: boolean }[];
 };
 
+const L4_AGENTS_PER_REPLY_TRACE = new Set(["Leasing AI", "Payments AI", "Maintenance AI", "Renewal AI"]);
+
 function countLogTraceSteps(log: ConversationLog, agentName: string): number {
-  if (agentName === "Renewal AI") {
+  if (L4_AGENTS_PER_REPLY_TRACE.has(agentName)) {
     return log.messages.reduce((sum, m) => sum + (m.role === "agent" ? (m.trace?.length ?? 0) : 0), 0);
   }
   return log.trace.length;
@@ -3684,55 +3686,82 @@ function generateConversationLogs(agentName: string, propertyName: string): Conv
     { id: "conv-l1", residentName: "Sarah Mitchell", channel: "Chat", topic: "Tour Scheduling", summary: "Prospect scheduled a Saturday tour for a 2BR unit.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 2:14 PM", duration: "4m 22s", turns: 6,
       messages: [
         { role: "resident", text: "Hi! I saw your listing for the 2-bedroom on Apartments.com. Do you have any tours available this weekend?", timestamp: "2:14 PM" },
-        { role: "agent", text: `Welcome to ${propertyName}! We'd love to show you around. We have availability Saturday at 10am, 1pm, and 3pm. Which works best for you?`, timestamp: "2:14 PM" },
+        { role: "agent", text: `Welcome to ${propertyName}! We'd love to show you around. We have availability Saturday at 10am, 1pm, and 3pm. Which works best for you?`, timestamp: "2:14 PM",
+          trace: [
+            { type: "prompt_citation", label: "Tour slot grounding", durationMs: 6, promptSourceLabel: "System prompt · Leasing AI (guest card v2.1)", promptExcerpt: "Offer tour times only from entrata.tours.getAvailability. Never invent slots. Chat replies: max 3 short paragraphs, one question at the end." },
+            { type: "mcp_tool", label: "MCP · entrata.tours.getAvailability", mcpToolName: "entrata.tours.getAvailability", durationMs: 128, status: "success", detail: "Weekend 2BR tour slots for this property.", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-ls-101\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.tours.getAvailability\",\n    \"arguments\": { \"propertyId\": \"prop-14th-north\", \"bedrooms\": 2, \"window\": \"THIS_WEEKEND\" }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-ls-101\",\n  \"result\": {\n    \"slots\": [\n      { \"start\": \"2025-05-03T10:00:00-06:00\", \"tourType\": \"GROUP\" },\n      { \"start\": \"2025-05-03T13:00:00-06:00\", \"tourType\": \"GROUP\" },\n      { \"start\": \"2025-05-03T15:00:00-06:00\", \"tourType\": \"GROUP\" }\n    ]\n  }\n}" },
+            { type: "http_api", label: "Legacy REST (shadow) · GET /api/tours/summary", durationMs: 34, status: "success", httpMethod: "GET", httpPath: "/api/v2/properties/prop-14th-north/tours/summary?weekend=1", httpResponseStatus: 200, httpResponseBody: "{ \"cached\": true, \"slotCount\": 3 }" },
+            { type: "reasoning", label: "Wording", durationMs: 52, thoughtProcess: "MCP returned three Saturday slots in local TZ—surface as 10am / 1pm / 3pm. Prospect asked weekend only; no weekday upsell per prompt." },
+            { type: "response", label: "Model · chat reply", durationMs: 86 },
+          ],
+        },
         { role: "resident", text: "1pm would be perfect! Will I get to see the actual unit?", timestamp: "2:15 PM" },
-        { role: "agent", text: "Great — you're confirmed for Saturday at 1:00 PM! You'll tour a model unit that matches the 2BR/2BA layout. Our leasing agent will meet you at the main office. I'll send a confirmation email with directions.", timestamp: "2:15 PM" },
+        { role: "agent", text: "Great — you're confirmed for Saturday at 1:00 PM! You'll tour a model unit that matches the 2BR/2BA layout. Our leasing agent will meet you at the main office. I'll send a confirmation email with directions.", timestamp: "2:15 PM",
+          trace: [
+            { type: "mcp_tool", label: "MCP · entrata.tours.bookTour", mcpToolName: "entrata.tours.bookTour", durationMs: 156, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-ls-102\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.tours.bookTour\",\n    \"arguments\": {\n      \"propertyId\": \"prop-14th-north\",\n      \"slot\": \"2025-05-03T13:00:00-06:00\",\n      \"prospectEmail\": \"sarah.mitchell@gmail.com\",\n      \"tourType\": \"GROUP\"\n    }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-ls-102\",\n  \"result\": { \"confirmationId\": \"tour-8aa21\", \"unitShown\": \"MODEL_MATCH_2BR2BA\" }\n}" },
+            { type: "mcp_tool", label: "MCP · entrata.comms.sendTransactionalEmail", mcpToolName: "entrata.comms.sendTransactionalEmail", durationMs: 98, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-ls-103\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.comms.sendTransactionalEmail\",\n    \"arguments\": { \"templateId\": \"leasing-tour-confirm\", \"to\": \"sarah.mitchell@gmail.com\", \"mergeFields\": { \"TIME\": \"1:00 PM Saturday\", \"PROPERTY\": \"14th North Parkway\" } }\n  }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"id\": \"mcp-ls-103\", \"result\": { \"queued\": true } }" },
+            { type: "prompt_citation", label: "Model vs actual unit", durationMs: 4, promptSourceLabel: "Leasing AI · tour disclosure", promptExcerpt: "If the booked tour is a model, say so explicitly and name the layout match (e.g. 2BR/2BA); never claim it is the exact listed unit unless inventory tool confirms it." },
+            { type: "reasoning", label: "Copy", durationMs: 44, thoughtProcess: "bookTour returned MODEL_MATCH_2BR2BA—reply must disclose model tour, not actual unit, per disclosure pack." },
+            { type: "response", label: "Model · confirmation", durationMs: 91 },
+          ],
+        },
         { role: "resident", text: "Awesome, thank you! One more thing — do you allow dogs?", timestamp: "2:16 PM" },
-        { role: "agent", text: "Yes! We're pet-friendly. Dogs are welcome with a $300 refundable deposit and $25/month pet rent. There is a 50 lb weight limit and some breed restrictions. I can email you the full policy if you'd like!", timestamp: "2:16 PM" },
+        { role: "agent", text: "Yes! We're pet-friendly. Dogs are welcome with a $300 refundable deposit and $25/month pet rent. There is a 50 lb weight limit and some breed restrictions. I can email you the full policy if you'd like!", timestamp: "2:16 PM",
+          trace: [
+            { type: "mcp_tool", label: "MCP · entrata.policy.getPetPolicy", mcpToolName: "entrata.policy.getPetPolicy", durationMs: 112, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-ls-104\",\n  \"method\": \"tools/call\",\n  \"params\": { \"name\": \"entrata.policy.getPetPolicy\", \"arguments\": { \"propertyId\": \"prop-14th-north\" } }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-ls-104\",\n  \"result\": {\n    \"dogsAllowed\": true,\n    \"deposit\": 300,\n    \"depositRefundable\": true,\n    \"monthlyPetRent\": 25,\n    \"weightLimitLb\": 50,\n    \"breedRestrictions\": [\"AGGRESSIVE_BREED_LIST_V3\"]\n  }\n}" },
+            { type: "reasoning", label: "Numbers in reply", durationMs: 38, thoughtProcess: "All dollar amounts and limits come straight from MCP JSON; offer full policy PDF via email to avoid SMS-length breed list." },
+            { type: "response", label: "Model · pet policy", durationMs: 74 },
+          ],
+        },
       ],
-      trace: [
-        { type: "instruction", label: "Load agent persona", detail: "Leasing AI — friendly, helpful tone", durationMs: 12 },
-        { type: "knowledge", label: "Retrieve property availability", detail: "Queried calendar for Saturday openings", durationMs: 145 },
-        { type: "tool_call", label: "Check Calendar Availability", detail: "3 slots found: 10am, 1pm, 3pm", durationMs: 210, status: "success" },
-        { type: "reasoning", label: "Determine response", detail: "Prospect asked about weekend tours — present available times", durationMs: 85 },
-        { type: "response", label: "Generated reply", detail: "Offered 3 time slots", durationMs: 120 },
-        { type: "tool_call", label: "Schedule Tour", detail: "Confirmed Saturday 1:00 PM — 2BR model unit", durationMs: 180, status: "success" },
-        { type: "tool_call", label: "Send Confirmation Email", detail: "Email sent to sarah.mitchell@gmail.com", durationMs: 95, status: "success" },
-        { type: "knowledge", label: "Lookup Pet Policy", detail: "Dogs allowed, 50lb limit, $300 deposit", durationMs: 130 },
-        { type: "response", label: "Generated final reply", detail: "Answered pet policy question", durationMs: 110 },
-      ],
+      trace: [],
       monitors: [{ label: "Coherent response", passed: true }, { label: "Factually grounded", passed: true }, { label: "Positive sentiment", passed: true }, { label: "No repetition", passed: true }],
     },
     { id: "conv-l2", residentName: "David Park", channel: "SMS", topic: "Pricing Inquiry", summary: "Prospect asked about 1BR pricing. Sent floor plans. No tour scheduled yet.", outcome: "pending", sentiment: "neutral", startedAt: "Today, 11:43 AM", duration: "2m 10s", turns: 4,
       messages: [
         { role: "resident", text: "Hey, what's the price for a 1 bedroom?", timestamp: "11:43 AM" },
-        { role: "agent", text: `Thanks for reaching out about ${propertyName}! Our 1BR units start at $1,350/mo for the standard layout and $1,475/mo for the upgraded finish package. We're currently offering $500 off the first month. Want me to send you floor plans?`, timestamp: "11:43 AM" },
+        { role: "agent", text: `Thanks for reaching out about ${propertyName}! Our 1BR units start at $1,350/mo for the standard layout and $1,475/mo for the upgraded finish package. We're currently offering $500 off the first month. Want me to send you floor plans?`, timestamp: "11:43 AM",
+          trace: [
+            { type: "mcp_tool", label: "MCP · entrata.pricing.getUnitBands", mcpToolName: "entrata.pricing.getUnitBands", durationMs: 142, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-ls-201\",\n  \"method\": \"tools/call\",\n  \"params\": { \"name\": \"entrata.pricing.getUnitBands\", \"arguments\": { \"propertyId\": \"prop-rails-main\", \"bedrooms\": 1 } }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"standardFrom\": 1350, \"upgradedFrom\": 1475, \"currency\": \"USD\" } }" },
+            { type: "mcp_tool", label: "MCP · entrata.specials.getActive", mcpToolName: "entrata.specials.getActive", durationMs: 101, status: "success", mcpRequestJson: "{}", mcpResponseJson: "{ \"result\": { \"concessions\": [ { \"type\": \"FIRST_MONTH\", \"amount\": 500 } ] } }" },
+            { type: "reasoning", label: "SMS brevity", durationMs: 36, thoughtProcess: "Two price anchors + one special; end with single yes/no question for SMS length." },
+            { type: "response", label: "Model · pricing SMS", durationMs: 88 },
+          ],
+        },
         { role: "resident", text: "Yeah send them over", timestamp: "11:44 AM" },
-        { role: "agent", text: "Done! I just sent the 1BR floor plans and pricing to your email. Let me know when you'd like to schedule a tour — we have availability all week!", timestamp: "11:44 AM" },
+        { role: "agent", text: "Done! I just sent the 1BR floor plans and pricing to your email. Let me know when you'd like to schedule a tour — we have availability all week!", timestamp: "11:44 AM",
+          trace: [
+            { type: "mcp_tool", label: "MCP · entrata.comms.sendFloorPlans", mcpToolName: "entrata.comms.sendFloorPlans", durationMs: 128, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-ls-202\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.comms.sendFloorPlans\",\n    \"arguments\": { \"prospectPhone\": \"+15551234567\", \"layout\": \"1BR\", \"propertyId\": \"prop-rails-main\" }\n  }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"sent\": true, \"messageId\": \"msg-sms-901\" } }" },
+            { type: "http_api", label: "Legacy · POST /api/marketing/attach-pdf", durationMs: 41, status: "success", httpMethod: "POST", httpPath: "/api/marketing/attach-pdf", httpResponseStatus: 200, httpResponseBody: "{ \"bytes\": 842102 }" },
+            { type: "response", label: "Model · follow-up CTA", durationMs: 72 },
+          ],
+        },
       ],
-      trace: [
-        { type: "instruction", label: "Load agent persona", durationMs: 11 },
-        { type: "tool_call", label: "Query Unit Pricing", detail: "1BR: $1,350-$1,475/mo", durationMs: 165, status: "success" },
-        { type: "tool_call", label: "Check Active Specials", detail: "$500 off first month", durationMs: 120, status: "success" },
-        { type: "response", label: "Generated pricing reply", durationMs: 95 },
-        { type: "tool_call", label: "Send Floor Plans Email", detail: "1BR floor plans sent", durationMs: 140, status: "success" },
-      ],
+      trace: [],
       monitors: [{ label: "Coherent response", passed: true }, { label: "Factually grounded", passed: true }, { label: "Positive sentiment", passed: true }, { label: "No repetition", passed: true }],
     },
     { id: "conv-l3", residentName: "Maria Gonzalez", channel: "Chat", topic: "Application Questions", summary: "Prospect had questions about income requirements. Escalated to leasing manager due to Section 8 voucher.", outcome: "escalated", sentiment: "neutral", startedAt: "Yesterday, 4:30 PM", duration: "6m 15s", turns: 8,
       messages: [
         { role: "resident", text: "I want to apply but I have a Section 8 voucher. Do you accept those?", timestamp: "4:30 PM" },
-        { role: "agent", text: `Great question! ${propertyName} does accept Section 8 Housing Choice Vouchers. The process is slightly different from a standard application — let me connect you with our leasing manager who can walk you through the specific requirements and timeline.`, timestamp: "4:31 PM" },
+        { role: "agent", text: `Great question! ${propertyName} does accept Section 8 Housing Choice Vouchers. The process is slightly different from a standard application — let me connect you with our leasing manager who can walk you through the specific requirements and timeline.`, timestamp: "4:31 PM",
+          trace: [
+            { type: "mcp_tool", label: "MCP · entrata.compliance.getSubsidyPolicy", mcpToolName: "entrata.compliance.getSubsidyPolicy", durationMs: 118, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-ls-301\",\n  \"method\": \"tools/call\",\n  \"params\": { \"name\": \"entrata.compliance.getSubsidyPolicy\", \"arguments\": { \"propertyId\": \"prop-ivy-gate\", \"program\": \"HCV\" } }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"hcvAccepted\": true, \"requiresManagerBrief\": true } }" },
+            { type: "prompt_citation", label: "Escalation when voucher", durationMs: 5, promptSourceLabel: "Leasing AI · affordable / voucher SOP", promptExcerpt: "When HCV or project-based voucher is mentioned and property accepts subsidies, do not quote income math in chat—offer manager handoff and log intent." },
+            { type: "reasoning", label: "No DIY income rules", durationMs: 49, thoughtProcess: "MCP says HCV accepted but requiresManagerBrief—reply confirms acceptance and routes to human without improvising income thresholds." },
+            { type: "response", label: "Model · handoff intro", durationMs: 81 },
+          ],
+        },
         { role: "resident", text: "Okay, how long does that usually take?", timestamp: "4:31 PM" },
-        { role: "agent", text: "The Section 8 approval process typically takes 2-4 weeks after your housing authority completes their inspection. Our leasing manager, Jennifer, will be able to give you a more specific timeline. I'm transferring you now — she'll reach out within the hour.", timestamp: "4:32 PM" },
+        { role: "agent", text: "The Section 8 approval process typically takes 2-4 weeks after your housing authority completes their inspection. Our leasing manager, Jennifer, will be able to give you a more specific timeline. I'm transferring you now — she'll reach out within the hour.", timestamp: "4:32 PM",
+          trace: [
+            { type: "mcp_tool", label: "MCP · entrata.crm.createEscalation", mcpToolName: "entrata.crm.createEscalation", durationMs: 134, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-ls-302\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.crm.createEscalation\",\n    \"arguments\": {\n      \"propertyId\": \"prop-ivy-gate\",\n      \"assignee\": \"jennifer.torres@example.com\",\n      \"topic\": \"HCV_APPLICATION\",\n      \"slaMinutes\": 60\n    }\n  }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"ticketId\": \"esc-4412\", \"status\": \"OPEN\" } }" },
+            { type: "knowledge", label: "KB · HCV timeline band", durationMs: 62, detail: "Default messaging: 2–4 weeks post HA inspection when property has no custom SLA text." },
+            { type: "reasoning", label: "SLA promise", durationMs: 41, thoughtProcess: "Escalation SLA is 60 minutes from MCP—surface as 'within the hour' to match without overpromising minutes." },
+            { type: "response", label: "Model · timeline + transfer", durationMs: 77 },
+          ],
+        },
       ],
-      trace: [
-        { type: "instruction", label: "Load agent persona", durationMs: 12 },
-        { type: "knowledge", label: "Lookup Section 8 Policy", detail: "Vouchers accepted — specialized process", durationMs: 175 },
-        { type: "reasoning", label: "Escalation decision", detail: "Section 8 requires leasing manager approval — flagging for handoff", durationMs: 90 },
-        { type: "tool_call", label: "Create Escalation", detail: "Assigned to Jennifer Torres (Leasing Manager)", durationMs: 155, status: "success" },
-        { type: "response", label: "Generated handoff reply", durationMs: 105 },
-      ],
+      trace: [],
       monitors: [{ label: "Coherent response", passed: true }, { label: "Factually grounded", passed: true }, { label: "Positive sentiment", passed: true }, { label: "Appropriate escalation", passed: true }],
     },
   ];
@@ -3740,35 +3769,58 @@ function generateConversationLogs(agentName: string, propertyName: string): Conv
   if (agentName === "Payments AI") return [
     { id: "conv-p1", residentName: "James Wilson", channel: "SMS", topic: "Late Rent Follow-Up", summary: "Resident paid after receiving reminder. Payment confirmed.", outcome: "resolved", sentiment: "neutral", startedAt: "Today, 10:08 AM", duration: "3m 45s", turns: 6,
       messages: [
-        { role: "agent", text: `Hi James, this is a friendly reminder from ${propertyName} that your rent payment of $1,650 was due on the 3rd. Your current balance is $1,650. Would you like a link to make a payment?`, timestamp: "10:08 AM" },
+        { role: "agent", text: `Hi James, this is a friendly reminder from ${propertyName} that your rent payment of $1,650 was due on the 3rd. Your current balance is $1,650. Would you like a link to make a payment?`, timestamp: "10:08 AM",
+          trace: [
+            { type: "prompt_citation", label: "Payment reminder tone", durationMs: 5, promptSourceLabel: "System prompt · Payments AI", promptExcerpt: "Balances and due dates must come from ledger tools only. Keep reminders neutral—no shaming language. Offer one-tap pay link when channel is SMS." },
+            { type: "mcp_tool", label: "MCP · entrata.ledger.getBalance", mcpToolName: "entrata.ledger.getBalance", durationMs: 154, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-pay-001\",\n  \"method\": \"tools/call\",\n  \"params\": { \"name\": \"entrata.ledger.getBalance\", \"arguments\": { \"residentId\": \"res-james-wilson\", \"asOf\": \"2025-05-04\" } }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"balance\": 1650, \"currency\": \"USD\", \"dueDate\": \"2025-05-03\" } }" },
+            { type: "http_api", label: "Legacy · GET /api/residents/{id}/billing-summary", durationMs: 33, status: "success", httpMethod: "GET", httpPath: "/api/v3/residents/res-james-wilson/billing-summary", httpResponseStatus: 200, httpResponseBody: "{ \"postedRent\": 1650, \"graceUntil\": \"2025-05-05\" }" },
+            { type: "reasoning", label: "Proactive cadence", durationMs: 36, thoughtProcess: "Campaign rules triggered day+1 after due with zero payment applied; balance matches both MCP and REST shadow." },
+            { type: "response", label: "Model · SMS reminder", durationMs: 79 },
+          ],
+        },
         { role: "resident", text: "Oh shoot, I forgot. Yes please send the link", timestamp: "10:10 AM" },
-        { role: "agent", text: "No worries! Here's your payment link: pay.entrata.com/aspen-heights/jwilson. You can pay by ACH, debit, or credit card. The grace period ends on the 5th, so paying today avoids any late fees.", timestamp: "10:10 AM" },
+        { role: "agent", text: "No worries! Here's your payment link: pay.entrata.com/aspen-heights/jwilson. You can pay by ACH, debit, or credit card. The grace period ends on the 5th, so paying today avoids any late fees.", timestamp: "10:10 AM",
+          trace: [
+            { type: "mcp_tool", label: "MCP · entrata.payments.createHostedPayLink", mcpToolName: "entrata.payments.createHostedPayLink", durationMs: 121, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-pay-002\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.payments.createHostedPayLink\",\n    \"arguments\": { \"residentId\": \"res-james-wilson\", \"amountDue\": 1650, \"channel\": \"SMS\" }\n  }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"url\": \"https://pay.entrata.com/aspen-heights/jwilson\", \"expiresAt\": \"2025-05-05T23:59:59Z\" } }" },
+            { type: "mcp_tool", label: "MCP · entrata.policy.getLateFeeRules", mcpToolName: "entrata.policy.getLateFeeRules", durationMs: 88, status: "success", mcpRequestJson: "{}", mcpResponseJson: "{ \"result\": { \"graceEnd\": \"2025-05-05\", \"feeAfterGrace\": 75 } }" },
+            { type: "reasoning", label: "Grace copy", durationMs: 34, thoughtProcess: "Quote grace end from policy tool; do not invent card network fees." },
+            { type: "response", label: "Model · pay link SMS", durationMs: 71 },
+          ],
+        },
         { role: "resident", text: "Just paid. Can you confirm you got it?", timestamp: "10:12 AM" },
-        { role: "agent", text: "Payment of $1,650 received and confirmed! Your balance is now $0.00. Thank you, James. Have a great day!", timestamp: "10:12 AM" },
+        { role: "agent", text: "Payment of $1,650 received and confirmed! Your balance is now $0.00. Thank you, James. Have a great day!", timestamp: "10:12 AM",
+          trace: [
+            { type: "mcp_tool", label: "MCP · entrata.payments.verifySettlement", mcpToolName: "entrata.payments.verifySettlement", durationMs: 198, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-pay-003\",\n  \"method\": \"tools/call\",\n  \"params\": { \"name\": \"entrata.payments.verifySettlement\", \"arguments\": { \"residentId\": \"res-james-wilson\", \"windowMinutes\": 15 } }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"matchedPayment\": { \"amount\": 1650, \"method\": \"ACH\" }, \"newBalance\": 0 } }" },
+            { type: "reasoning", label: "Confirmation safety", durationMs: 28, thoughtProcess: "Only confirm after verifySettlement returns matchedPayment; echo amount and zero balance." },
+            { type: "response", label: "Model · receipt tone", durationMs: 62 },
+          ],
+        },
       ],
-      trace: [
-        { type: "instruction", label: "Load payment reminder template", durationMs: 14 },
-        { type: "tool_call", label: "Query Account Balance", detail: "$1,650 outstanding", durationMs: 180, status: "success" },
-        { type: "tool_call", label: "Generate Payment Link", detail: "Link created for James Wilson", durationMs: 130, status: "success" },
-        { type: "tool_call", label: "Verify Payment", detail: "$1,650 ACH payment received", durationMs: 220, status: "success" },
-        { type: "response", label: "Payment confirmation sent", durationMs: 90 },
-      ],
+      trace: [],
       monitors: [{ label: "Coherent response", passed: true }, { label: "Accurate balance", passed: true }, { label: "Positive sentiment", passed: true }, { label: "No repetition", passed: true }],
     },
     { id: "conv-p2", residentName: "Amy Chen", channel: "Chat", topic: "Payment Plan Request", summary: "Resident approved for 2-installment plan. Agreement sent for signature.", outcome: "resolved", sentiment: "positive", startedAt: "Yesterday, 3:22 PM", duration: "5m 30s", turns: 6,
       messages: [
         { role: "resident", text: "I can't pay my full rent this month. Are payment plans an option?", timestamp: "3:22 PM" },
-        { role: "agent", text: "I'm sorry to hear that, Amy. Yes, we do offer payment plans. Based on your account, you're eligible for a 2-installment plan: $825 due by the 5th and $825 by the 20th. Would you like me to set that up?", timestamp: "3:22 PM" },
+        { role: "agent", text: "I'm sorry to hear that, Amy. Yes, we do offer payment plans. Based on your account, you're eligible for a 2-installment plan: $825 due by the 5th and $825 by the 20th. Would you like me to set that up?", timestamp: "3:22 PM",
+          trace: [
+            { type: "mcp_tool", label: "MCP · entrata.paymentPlans.checkEligibility", mcpToolName: "entrata.paymentPlans.checkEligibility", durationMs: 176, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-pay-101\",\n  \"method\": \"tools/call\",\n  \"params\": { \"name\": \"entrata.paymentPlans.checkEligibility\", \"arguments\": { \"residentId\": \"res-amy-chen\" } }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"eligible\": true, \"maxInstallments\": 2, \"historyBand\": \"GOOD\" } }" },
+            { type: "mcp_tool", label: "MCP · entrata.ledger.getBalance", mcpToolName: "entrata.ledger.getBalance", durationMs: 91, status: "success", mcpRequestJson: "{}", mcpResponseJson: "{ \"result\": { \"balance\": 1650 } }" },
+            { type: "reasoning", label: "Split math", durationMs: 40, thoughtProcess: "Eligible for 2 installments; split 1650/2 = 825; dates from property plan template (5th and 20th)." },
+            { type: "response", label: "Model · offer", durationMs: 84 },
+          ],
+        },
         { role: "resident", text: "Yes please, that would be a huge help.", timestamp: "3:23 PM" },
-        { role: "agent", text: "You're all set! I've sent the payment plan agreement to your email at amy.chen@email.com. Please sign it by the 4th and make the first payment of $825 by the 5th. No late fees will apply as long as both payments are on time.", timestamp: "3:24 PM" },
+        { role: "agent", text: "You're all set! I've sent the payment plan agreement to your email at amy.chen@email.com. Please sign it by the 4th and make the first payment of $825 by the 5th. No late fees will apply as long as both payments are on time.", timestamp: "3:24 PM",
+          trace: [
+            { type: "mcp_tool", label: "MCP · entrata.paymentPlans.createPlan", mcpToolName: "entrata.paymentPlans.createPlan", durationMs: 201, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-pay-102\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.paymentPlans.createPlan\",\n    \"arguments\": {\n      \"residentId\": \"res-amy-chen\",\n      \"installments\": [ { \"due\": \"2025-05-05\", \"amount\": 825 }, { \"due\": \"2025-05-20\", \"amount\": 825 } ],\n      \"waiveLateFeesIfCurrent\": true\n    }\n  }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"planId\": \"pp-8821\", \"agreementDocId\": \"doc-pp-8821\" } }" },
+            { type: "mcp_tool", label: "MCP · entrata.comms.sendTransactionalEmail", mcpToolName: "entrata.comms.sendTransactionalEmail", durationMs: 96, status: "success", mcpRequestJson: "{}", mcpResponseJson: "{ \"result\": { \"queued\": true } }" },
+            { type: "prompt_citation", label: "Fee waiver wording", durationMs: 3, promptSourceLabel: "Payments AI · plans", promptExcerpt: "State late-fee waiver only when createPlan returns waiveLateFeesIfCurrent true." },
+            { type: "response", label: "Model · confirmation", durationMs: 73 },
+          ],
+        },
       ],
-      trace: [
-        { type: "instruction", label: "Load agent persona", durationMs: 12 },
-        { type: "tool_call", label: "Check Payment Plan Eligibility", detail: "Eligible — good payment history", durationMs: 195, status: "success" },
-        { type: "reasoning", label: "Calculate installments", detail: "$1,650 / 2 = $825 each", durationMs: 45 },
-        { type: "tool_call", label: "Create Payment Plan", detail: "2 installments: 5th and 20th", durationMs: 210, status: "success" },
-        { type: "tool_call", label: "Send Agreement Email", detail: "Sent to amy.chen@email.com", durationMs: 105, status: "success" },
-      ],
+      trace: [],
       monitors: [{ label: "Coherent response", passed: true }, { label: "Policy compliant", passed: true }, { label: "Positive sentiment", passed: true }, { label: "No repetition", passed: true }],
     },
   ];
@@ -3777,36 +3829,60 @@ function generateConversationLogs(agentName: string, propertyName: string): Conv
     { id: "conv-m1", residentName: "Tom Bradley", channel: "SMS", topic: "Emergency — Kitchen Flooding", summary: "Emergency work order created. On-call tech dispatched within 5 minutes.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 7:45 AM", duration: "8m 10s", turns: 8,
       messages: [
         { role: "resident", text: "HELP my kitchen is flooding!! Water everywhere!!", timestamp: "7:45 AM" },
-        { role: "agent", text: "I'm so sorry — let me help right away! This is being flagged as an emergency. First, please locate the shutoff valve under your sink and turn it clockwise to stop the water. I'm dispatching our on-call technician now.", timestamp: "7:45 AM" },
+        { role: "agent", text: "I'm so sorry — let me help right away! This is being flagged as an emergency. First, please locate the shutoff valve under your sink and turn it clockwise to stop the water. I'm dispatching our on-call technician now.", timestamp: "7:45 AM",
+          trace: [
+            { type: "prompt_citation", label: "Emergency triage", durationMs: 4, promptSourceLabel: "Maintenance AI · water intrusion", promptExcerpt: "For active flooding: (1) instruct safe shutoff, (2) create emergency WO, (3) page on-call—do not troubleshoot beyond shutoff in SMS." },
+            { type: "mcp_tool", label: "MCP · entrata.workorders.classifyUrgency", mcpToolName: "entrata.workorders.classifyUrgency", durationMs: 56, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-mnt-001\",\n  \"method\": \"tools/call\",\n  \"params\": { \"name\": \"entrata.workorders.classifyUrgency\", \"arguments\": { \"text\": \"HELP my kitchen is flooding!! Water everywhere!!\" } }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"level\": \"EMERGENCY\", \"category\": \"WATER_ACTIVE\" } }" },
+            { type: "mcp_tool", label: "MCP · entrata.workorders.createEmergency", mcpToolName: "entrata.workorders.createEmergency", durationMs: 118, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-mnt-002\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.workorders.createEmergency\",\n    \"arguments\": { \"unitId\": \"u-tom-12b\", \"title\": \"Kitchen flooding\", \"category\": \"WATER_ACTIVE\" }\n  }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"workOrderId\": \"MNT-4892\" } }" },
+            { type: "mcp_tool", label: "MCP · entrata.dispatch.pageOnCall", mcpToolName: "entrata.dispatch.pageOnCall", durationMs: 92, status: "success", mcpRequestJson: "{}", mcpResponseJson: "{ \"result\": { \"tech\": \"Marcus Rivera\", \"etaMinutes\": 20 } }" },
+            { type: "reasoning", label: "SMS safety order", durationMs: 38, thoughtProcess: "Shutoff first per playbook; then state dispatch without promising arrival second—use ETA from pageOnCall." },
+            { type: "response", label: "Model · emergency SMS", durationMs: 81 },
+          ],
+        },
         { role: "resident", text: "Ok I found it, water is slowing down", timestamp: "7:47 AM" },
-        { role: "agent", text: "Great work! Our technician Marcus is on his way — ETA 20 minutes. In the meantime, place towels around the area to contain the water. Work order #MNT-4892 has been created. Marcus will call you when he arrives.", timestamp: "7:47 AM" },
+        { role: "agent", text: "Great work! Our technician Marcus is on his way — ETA 20 minutes. In the meantime, place towels around the area to contain the water. Work order #MNT-4892 has been created. Marcus will call you when he arrives.", timestamp: "7:47 AM",
+          trace: [
+            { type: "mcp_tool", label: "MCP · entrata.dispatch.getStatus", mcpToolName: "entrata.dispatch.getStatus", durationMs: 71, status: "success", mcpRequestJson: "{}", mcpResponseJson: "{ \"result\": { \"workOrderId\": \"MNT-4892\", \"assignee\": \"Marcus Rivera\", \"etaMinutes\": 20, \"status\": \"EN_ROUTE\" } }" },
+            { type: "http_api", label: "Legacy · POST /api/maintenance/notify-resident", durationMs: 36, status: "success", httpMethod: "POST", httpPath: "/api/maintenance/notify-resident", httpResponseStatus: 204 },
+            { type: "response", label: "Model · status update", durationMs: 68 },
+          ],
+        },
         { role: "resident", text: "He's here now, thank you so much for the fast response!", timestamp: "8:05 AM" },
-        { role: "agent", text: "So glad Marcus got there quickly! He'll take it from here. If you need anything else, don't hesitate to reach out. We'll follow up tomorrow to make sure everything is resolved.", timestamp: "8:05 AM" },
+        { role: "agent", text: "So glad Marcus got there quickly! He'll take it from here. If you need anything else, don't hesitate to reach out. We'll follow up tomorrow to make sure everything is resolved.", timestamp: "8:05 AM",
+          trace: [
+            { type: "mcp_tool", label: "MCP · entrata.workorders.logResidentUpdate", mcpToolName: "entrata.workorders.logResidentUpdate", durationMs: 64, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-mnt-003\",\n  \"method\": \"tools/call\",\n  \"params\": { \"name\": \"entrata.workorders.logResidentUpdate\", \"arguments\": { \"workOrderId\": \"MNT-4892\", \"note\": \"Tech on site — resident confirmed\" } }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"ok\": true } }" },
+            { type: "mcp_tool", label: "MCP · entrata.scheduler.scheduleFollowUp", mcpToolName: "entrata.scheduler.scheduleFollowUp", durationMs: 81, status: "success", mcpRequestJson: "{}", mcpResponseJson: "{ \"result\": { \"when\": \"2025-05-05T09:00:00-06:00\" } }" },
+            { type: "reasoning", label: "Closure tone", durationMs: 29, thoughtProcess: "Positive resident signal—acknowledge tech by name, schedule follow-up from tool output." },
+            { type: "response", label: "Model · wrap-up", durationMs: 59 },
+          ],
+        },
       ],
-      trace: [
-        { type: "instruction", label: "Load emergency protocol", detail: "Priority: Critical — skip queue", durationMs: 8 },
-        { type: "reasoning", label: "Classify urgency", detail: "Keywords: flooding, water, everywhere → EMERGENCY", durationMs: 35 },
-        { type: "tool_call", label: "Create Emergency Work Order", detail: "WO #MNT-4892 — Kitchen flooding", durationMs: 140, status: "success" },
-        { type: "tool_call", label: "Page On-Call Technician", detail: "Marcus Rivera — ETA 20 min", durationMs: 95, status: "success" },
-        { type: "tool_call", label: "Notify Property Manager", detail: "Alert sent to Jennifer Torres", durationMs: 80, status: "success" },
-        { type: "tool_call", label: "Schedule Follow-Up", detail: "Tomorrow 9 AM — confirm resolution", durationMs: 65, status: "success" },
-      ],
+      trace: [],
       monitors: [{ label: "Emergency detected", passed: true }, { label: "Fast response (<30s)", passed: true }, { label: "Tech dispatched", passed: true }, { label: "Follow-up scheduled", passed: true }],
     },
     { id: "conv-m2", residentName: "Lisa Park", channel: "Chat", topic: "AC Not Cooling", summary: "Guided troubleshooting, then created work order for HVAC technician.", outcome: "resolved", sentiment: "neutral", startedAt: "Yesterday, 2:15 PM", duration: "5m 40s", turns: 6,
       messages: [
         { role: "resident", text: "My AC has been running all day but it's still 80 degrees in here. Something is wrong.", timestamp: "2:15 PM" },
-        { role: "agent", text: "I'm sorry about that! Let's try a few things first. Can you check if the air filter is clean? It's behind the return vent, usually in the hallway. A dirty filter is the most common cause of cooling issues.", timestamp: "2:15 PM" },
+        { role: "agent", text: "I'm sorry about that! Let's try a few things first. Can you check if the air filter is clean? It's behind the return vent, usually in the hallway. A dirty filter is the most common cause of cooling issues.", timestamp: "2:15 PM",
+          trace: [
+            { type: "mcp_tool", label: "MCP · entrata.workorders.classifyUrgency", mcpToolName: "entrata.workorders.classifyUrgency", durationMs: 48, status: "success", mcpRequestJson: "{}", mcpResponseJson: "{ \"result\": { \"level\": \"ROUTINE\", \"category\": \"HVAC_COOLING\" } }" },
+            { type: "knowledge", label: "KB · HVAC triage L1", durationMs: 72, detail: "Step 1 filter, step 2 thermostat mode, step 3 schedule tech if unresolved." },
+            { type: "reasoning", label: "Non-emergency path", durationMs: 41, thoughtProcess: "No heat-stress keywords for elderly/vulnerable in thread—start with filter check before dispatch." },
+            { type: "response", label: "Model · triage chat", durationMs: 86 },
+          ],
+        },
         { role: "resident", text: "I checked, the filter looks pretty dirty actually", timestamp: "2:17 PM" },
-        { role: "agent", text: "That's likely the culprit! We have replacement filters at the leasing office — you can grab one anytime during office hours. If the AC still isn't cooling properly after 2-3 hours with the new filter, let me know and I'll schedule an HVAC tech visit.", timestamp: "2:18 PM" },
+        { role: "agent", text: "That's likely the culprit! We have replacement filters at the leasing office — you can grab one anytime during office hours. If the AC still isn't cooling properly after 2-3 hours with the new filter, let me know and I'll schedule an HVAC tech visit.", timestamp: "2:18 PM",
+          trace: [
+            { type: "mcp_tool", label: "MCP · entrata.maintenance.logSelfHelp", mcpToolName: "entrata.maintenance.logSelfHelp", durationMs: 69, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-mnt-201\",\n  \"method\": \"tools/call\",\n  \"params\": { \"name\": \"entrata.maintenance.logSelfHelp\", \"arguments\": { \"unitId\": \"u-lisa-4c\", \"step\": \"FILTER_DIRTY\", \"channel\": \"CHAT\" } }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"logged\": true } }" },
+            { type: "mcp_tool", label: "MCP · entrata.inventory.getConsumablesLocation", mcpToolName: "entrata.inventory.getConsumablesLocation", durationMs: 58, status: "success", mcpRequestJson: "{}", mcpResponseJson: "{ \"result\": { \"filtersPickup\": \"LEASING_OFFICE\", \"hours\": \"9-6 M-F\" } }" },
+            { type: "prompt_citation", label: "When to promise tech", durationMs: 3, promptSourceLabel: "Maintenance AI · HVAC", promptExcerpt: "Offer vendor dispatch only after resident confirms self-help failed or declines—avoid duplicate WO spam." },
+            { type: "reasoning", label: "Next step gate", durationMs: 35, thoughtProcess: "Dirty filter confirmed—direct to office stock; conditional tech visit after 2–3h with new filter." },
+            { type: "response", label: "Model · guidance", durationMs: 74 },
+          ],
+        },
       ],
-      trace: [
-        { type: "instruction", label: "Load maintenance persona", durationMs: 11 },
-        { type: "knowledge", label: "Pull HVAC troubleshooting guide", detail: "Step 1: Check filter, Step 2: Thermostat, Step 3: Tech visit", durationMs: 120 },
-        { type: "reasoning", label: "Triage decision", detail: "Non-emergency — guide through troubleshooting first", durationMs: 55 },
-        { type: "response", label: "Suggested filter check", durationMs: 90 },
-        { type: "tool_call", label: "Log Troubleshooting Interaction", detail: "Dirty filter identified — replacement suggested", durationMs: 75, status: "success" },
-      ],
+      trace: [],
       monitors: [{ label: "Coherent response", passed: true }, { label: "Followed troubleshooting protocol", passed: true }, { label: "Appropriate triage", passed: true }, { label: "No repetition", passed: true }],
     },
   ];
@@ -3913,13 +3989,13 @@ function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; pro
   const logs = useMemo(() => generateConversationLogs(agentName, propertyName), [agentName, propertyName]);
   const [selectedLog, setSelectedLog] = useState<ConversationLog | null>(null);
   const [traceExpanded, setTraceExpanded] = useState(true);
-  const [renewalTraceSheet, setRenewalTraceSheet] = useState<{
+  const [replyTraceSheet, setReplyTraceSheet] = useState<{
     steps: TraceStep[];
     replyPreview: string;
     precedingResident: string | null;
   } | null>(null);
 
-  const renewalPerReplyTraces = agentName === "Renewal AI";
+  const l4PerReplyTraces = L4_AGENTS_PER_REPLY_TRACE.has(agentName);
 
   const outcomeBadge = (outcome: ConversationLog["outcome"]) => {
     if (outcome === "resolved") return "bg-emerald-50 text-emerald-700 border-emerald-200";
@@ -3942,7 +4018,7 @@ function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; pro
               <button
                 type="button"
                 onClick={() => {
-                  setRenewalTraceSheet(null);
+                  setReplyTraceSheet(null);
                   setSelectedLog(null);
                 }}
                 className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -3969,7 +4045,7 @@ function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; pro
                       break;
                     }
                   }
-                  const hasReplyTrace = renewalPerReplyTraces && msg.role === "agent" && msg.trace && msg.trace.length > 0;
+                  const hasReplyTrace = l4PerReplyTraces && msg.role === "agent" && msg.trace && msg.trace.length > 0;
                   return (
                     <div key={i} className="flex flex-col gap-0.5">
                       <div className="flex items-center gap-2">
@@ -3992,7 +4068,7 @@ function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; pro
                           type="button"
                           className="mt-1.5 self-start text-xs font-medium text-emerald-700 hover:text-emerald-800 hover:underline"
                           onClick={() =>
-                            setRenewalTraceSheet({
+                            setReplyTraceSheet({
                               steps: msg.trace!,
                               replyPreview: msg.text.length > 200 ? msg.text.slice(0, 200) + "\u2026" : msg.text,
                               precedingResident,
@@ -4032,7 +4108,7 @@ function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; pro
                   ))}
                 </div>
               </div>
-              {!renewalPerReplyTraces && selectedLog.trace.length > 0 ? (
+              {!l4PerReplyTraces && selectedLog.trace.length > 0 ? (
                 <div>
                   <button
                     type="button"
@@ -4047,10 +4123,10 @@ function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; pro
                   {traceExpanded ? <AgentTraceTimeline trace={selectedLog.trace} /> : null}
                 </div>
               ) : null}
-              {renewalPerReplyTraces ? (
+              {l4PerReplyTraces ? (
                 <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3">
                   <p className="text-[11px] text-muted-foreground leading-relaxed">
-                    Traces are attached to each Renewal AI reply. Use <span className="font-medium text-foreground">View Trace</span> under a message to see tools, knowledge, and reasoning for that response.
+                    Traces are attached to each {agentName} reply. Use <span className="font-medium text-foreground">View Trace</span> under a message to see tools, knowledge, and reasoning for that response.
                   </p>
                 </div>
               ) : null}
@@ -4058,19 +4134,19 @@ function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; pro
           </aside>
         </div>
 
-        {renewalPerReplyTraces ? (
-          <Sheet open={renewalTraceSheet !== null} onOpenChange={(open) => { if (!open) setRenewalTraceSheet(null); }}>
+        {l4PerReplyTraces ? (
+          <Sheet open={replyTraceSheet !== null} onOpenChange={(open) => { if (!open) setReplyTraceSheet(null); }}>
             <SheetContent className="flex w-full flex-col overflow-y-auto sm:max-w-3xl">
               <SheetHeader>
                 <SheetTitle>Trace for this reply</SheetTitle>
-                <SheetDescription>Steps and context that led to this Renewal AI response.</SheetDescription>
+                <SheetDescription>Steps and context that led to this {agentName} response.</SheetDescription>
               </SheetHeader>
-              {renewalTraceSheet ? (
+              {replyTraceSheet ? (
                 <div className="mt-6 space-y-5">
-                  {renewalTraceSheet.precedingResident ? (
+                  {replyTraceSheet.precedingResident ? (
                     <div className="rounded-lg border border-border bg-muted/50 p-3">
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Resident message (context)</p>
-                      <p className="text-xs text-foreground leading-relaxed whitespace-pre-line">{renewalTraceSheet.precedingResident}</p>
+                      <p className="text-xs text-foreground leading-relaxed whitespace-pre-line">{replyTraceSheet.precedingResident}</p>
                     </div>
                   ) : (
                     <p className="text-xs text-muted-foreground leading-relaxed">
@@ -4079,11 +4155,11 @@ function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; pro
                   )}
                   <div>
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Agent reply</p>
-                    <p className="text-xs text-foreground leading-relaxed whitespace-pre-line">{renewalTraceSheet.replyPreview}</p>
+                    <p className="text-xs text-foreground leading-relaxed whitespace-pre-line">{replyTraceSheet.replyPreview}</p>
                   </div>
                   <div>
                     <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-3">Execution trace</h4>
-                    <AgentTraceTimeline trace={renewalTraceSheet.steps} />
+                    <AgentTraceTimeline trace={replyTraceSheet.steps} />
                   </div>
                 </div>
               ) : null}
