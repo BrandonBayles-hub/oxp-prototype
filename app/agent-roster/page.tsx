@@ -3166,9 +3166,6 @@ const AGENT_SETTINGS_TABS: Record<string, TabDef[]> = {
       { name: "Contact Points", description: "Configure renewal notification triggers — offer generated, accepted, lease approved, etc." },
       { name: "ELI+ Dashboard Permissions", description: "Permission users who directly manage the ELI+ console for this property." },
     ]},
-    { id: "renewal-info", label: "Renewal Info", settings: [
-      { name: "Renewal Lead Time", description: "Set how many days before lease end the initial renewal notification is sent." },
-    ]},
     { id: "marketing", label: "Marketing", settings: [
       { name: "Prospect Portal", description: "Configure the prospect-facing portal used for this property." },
       { name: "Property Website", description: "Set the property website URL shared in renewal communications." },
@@ -3517,11 +3514,47 @@ const AGENT_FLYOUT_PROPERTIES = [
    ═══════════════════════════════════════════════════════════════════════ */
 
 type TraceStep = {
-  type: "instruction" | "tool_call" | "knowledge" | "reasoning" | "response";
+  type:
+    | "instruction"
+    | "tool_call"
+    | "knowledge"
+    | "reasoning"
+    | "response"
+    | "mcp_tool"
+    | "http_api"
+    | "prompt_citation";
   label: string;
   detail?: string;
   durationMs: number;
   status?: "success" | "error" | "warning";
+  /** MCP tool name as registered on the gateway (e.g. entrata.renewals.getLeaseSnapshot). */
+  mcpToolName?: string;
+  /** Full MCP JSON-RPC style request payload (prototype demo). */
+  mcpRequestJson?: string;
+  /** Full MCP JSON-RPC style response payload (prototype demo). */
+  mcpResponseJson?: string;
+  /** HTTP-style trace when the host still calls REST instead of MCP. */
+  httpMethod?: string;
+  httpPath?: string;
+  httpRequestHeaders?: string;
+  httpRequestBody?: string;
+  httpResponseStatus?: number;
+  httpResponseHeaders?: string;
+  httpResponseBody?: string;
+  /** Agent chain-of-thought: how tool outputs + policy led to the visible reply. */
+  thoughtProcess?: string;
+  /** Label for where the excerpt came from (system prompt block, SOP, etc.). */
+  promptSourceLabel?: string;
+  /** Verbatim or near-verbatim excerpt from the agent prompt / policy pack. */
+  promptExcerpt?: string;
+};
+
+type ConversationMessage = {
+  role: "resident" | "agent";
+  text: string;
+  timestamp: string;
+  /** Per-reply trace (e.g. Renewal AI — one trace per agent message). */
+  trace?: TraceStep[];
 };
 
 type ConversationLog = {
@@ -3535,10 +3568,116 @@ type ConversationLog = {
   startedAt: string;
   duration: string;
   turns: number;
-  messages: { role: "resident" | "agent"; text: string; timestamp: string }[];
+  messages: ConversationMessage[];
+  /** Whole-conversation trace (non–Renewal AI). Renewal AI uses `messages[].trace` instead. */
   trace: TraceStep[];
   monitors: { label: string; passed: boolean }[];
 };
+
+function countLogTraceSteps(log: ConversationLog, agentName: string): number {
+  if (agentName === "Renewal AI") {
+    return log.messages.reduce((sum, m) => sum + (m.role === "agent" ? (m.trace?.length ?? 0) : 0), 0);
+  }
+  return log.trace.length;
+}
+
+function TracePayloadBlock({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="mt-2 rounded-md border border-border bg-muted/60">
+      <p className="border-b border-border px-2 py-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
+      <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words p-2 font-mono text-[10px] leading-snug text-foreground">{body}</pre>
+    </div>
+  );
+}
+
+function AgentTraceTimeline({ trace }: { trace: TraceStep[] }) {
+  const totalTraceMs = trace.reduce((sum, s) => sum + s.durationMs, 0);
+  const traceIcon = (type: TraceStep["type"]) => {
+    if (type === "mcp_tool") return <Box className="h-3 w-3" />;
+    if (type === "http_api") return <Globe className="h-3 w-3" />;
+    if (type === "prompt_citation") return <BookOpen className="h-3 w-3" />;
+    if (type === "tool_call") return <Wrench className="h-3 w-3" />;
+    if (type === "knowledge") return <Database className="h-3 w-3" />;
+    if (type === "reasoning") return <Lightbulb className="h-3 w-3" />;
+    if (type === "response") return <MessageSquare className="h-3 w-3" />;
+    return <Cog className="h-3 w-3" />;
+  };
+  const iconRing = (step: TraceStep) => {
+    if (step.type === "mcp_tool") return "bg-sky-50 text-sky-700";
+    if (step.type === "http_api") return "bg-cyan-50 text-cyan-700";
+    if (step.type === "prompt_citation") return "bg-violet-50 text-violet-700";
+    if (step.type === "tool_call") return "bg-blue-50 text-blue-600";
+    if (step.type === "knowledge") return "bg-purple-50 text-purple-600";
+    if (step.type === "reasoning") return "bg-amber-50 text-amber-600";
+    if (step.type === "response") return "bg-emerald-50 text-emerald-600";
+    return "bg-zinc-100 text-zinc-500";
+  };
+  return (
+    <div className="space-y-0">
+      {trace.map((step, i) => (
+        <div key={i} className="flex gap-3 pb-4 last:pb-0">
+          <div className="flex flex-col items-center">
+            <div className={`h-6 w-6 rounded-full flex items-center justify-center shrink-0 ${iconRing(step)}`}>{traceIcon(step.type)}</div>
+            {i < trace.length - 1 && <div className="w-px flex-1 bg-border mt-1" />}
+          </div>
+          <div className="min-w-0 flex-1 pt-0.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs font-medium text-foreground">{step.label}</p>
+              {step.mcpToolName && (
+                <span className="rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 font-mono text-[9px] font-medium text-sky-800">{step.mcpToolName}</span>
+              )}
+              <span className="text-[10px] text-muted-foreground">{step.durationMs}ms</span>
+              {step.status && (
+                <span className="text-[9px] font-medium uppercase text-muted-foreground">{step.status}</span>
+              )}
+            </div>
+            {step.detail && <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">{step.detail}</p>}
+
+            {step.promptSourceLabel && step.promptExcerpt && (
+              <div className="mt-2 rounded-md border border-violet-200 bg-violet-50/50 p-2">
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-violet-800">{step.promptSourceLabel}</p>
+                <blockquote className="mt-1 border-l-2 border-violet-400 pl-2 text-[11px] italic leading-relaxed text-foreground">{step.promptExcerpt}</blockquote>
+              </div>
+            )}
+
+            {step.thoughtProcess && (
+              <div className="mt-2 rounded-md border border-amber-200 bg-amber-50/40 p-2">
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-amber-900">Agent thought process</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-foreground whitespace-pre-wrap">{step.thoughtProcess}</p>
+              </div>
+            )}
+
+            {(step.type === "mcp_tool" || step.mcpRequestJson || step.mcpResponseJson) && (step.mcpRequestJson || step.mcpResponseJson) ? (
+              <div className="mt-1 space-y-2">
+                {step.mcpRequestJson ? <TracePayloadBlock title="MCP request (full)" body={step.mcpRequestJson} /> : null}
+                {step.mcpResponseJson ? <TracePayloadBlock title="MCP response (full)" body={step.mcpResponseJson} /> : null}
+              </div>
+            ) : null}
+
+            {step.type === "http_api" || step.httpMethod || step.httpResponseBody ? (
+              <div className="mt-1 space-y-2">
+                {step.httpMethod && step.httpPath ? (
+                  <p className="mt-1 font-mono text-[10px] text-foreground">
+                    {step.httpMethod} {step.httpPath}
+                    {step.httpResponseStatus != null ? <span className="ml-2 text-muted-foreground">→ {step.httpResponseStatus}</span> : null}
+                  </p>
+                ) : null}
+                {step.httpRequestHeaders ? <TracePayloadBlock title="HTTP request headers" body={step.httpRequestHeaders} /> : null}
+                {step.httpRequestBody ? <TracePayloadBlock title="HTTP request body" body={step.httpRequestBody} /> : null}
+                {step.httpResponseHeaders ? <TracePayloadBlock title="HTTP response headers" body={step.httpResponseHeaders} /> : null}
+                {step.httpResponseBody ? <TracePayloadBlock title="HTTP response body" body={step.httpResponseBody} /> : null}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ))}
+      <div className="mt-3 flex justify-between border-t border-border pt-3 text-[10px] text-muted-foreground">
+        <span>Total trace time</span>
+        <span className="font-medium text-foreground">{totalTraceMs}ms</span>
+      </div>
+    </div>
+  );
+}
 
 function generateConversationLogs(agentName: string, propertyName: string): ConversationLog[] {
   if (agentName === "Leasing AI") return [
@@ -3675,42 +3814,94 @@ function generateConversationLogs(agentName: string, propertyName: string): Conv
   if (agentName === "Renewal AI") return [
     { id: "conv-r1", residentName: "Kevin Pham", channel: "Email", topic: "Renewal Offer Accepted", summary: "Resident accepted renewal at $1,695/mo for 14-month term with loyalty adjustment.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 9:30 AM", duration: "12m 5s", turns: 8,
       messages: [
-        { role: "agent", text: "Hi Kevin! Your lease at Aspen Heights is coming up for renewal on September 14. We'd love to have you stay! Here are your options:\n\n• 12-month: $1,725/mo\n• 14-month: $1,695/mo\n• Month-to-month: $1,950/mo\n\nAs a valued 2-year resident, we're also including a complimentary carpet cleaning. Would you like to discuss these options?", timestamp: "9:30 AM" },
+        {
+          role: "agent",
+          text: "Hi Kevin! Your lease at Aspen Heights is coming up for renewal on September 14. We'd love to have you stay! Here are your options:\n\n• 12-month: $1,725/mo\n• 14-month: $1,695/mo\n• Month-to-month: $1,950/mo\n\nAs a valued 2-year resident, we're also including a complimentary carpet cleaning. Would you like to discuss these options?",
+          timestamp: "9:30 AM",
+          trace: [
+            { type: "prompt_citation", label: "Grounding: renewal voice + disclosure rules", durationMs: 6, promptSourceLabel: "System prompt · Renewal AI (production pack v3.2)", promptExcerpt: "You are Renewal AI for multifamily operators. Always (1) cite current rent and lease end from MCP tools—never invent numbers, (2) present at least two term options when available, (3) include a retention perk only when policy JSON marks the household as eligible, (4) invite dialogue before negotiating, (5) log every MCP tool call id on the trace for audit." },
+            { type: "mcp_tool", label: "MCP · entrata.renewals.getLeaseSnapshot", mcpToolName: "entrata.renewals.getLeaseSnapshot", durationMs: 118, status: "success", detail: "Resolved canonical lease + renewal window for Kevin Pham / unit 12-204.", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-a114\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.renewals.getLeaseSnapshot\",\n    \"arguments\": {\n      \"propertyId\": \"prop-aspen-heights\",\n      \"residentId\": \"res-kevin-pham\",\n      \"includeMarketBands\": true,\n      \"includePerks\": true\n    }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-a114\",\n  \"result\": {\n    \"content\": [\n      {\n        \"type\": \"text\",\n        \"text\": {\n          \"leaseId\": \"ls-991204\",\n          \"unit\": \"12-204\",\n          \"currentRent\": 1650,\n          \"currency\": \"USD\",\n          \"leaseEnd\": \"2025-09-14\",\n          \"renewalOfferState\": \"NOT_SENT\",\n          \"eligiblePerks\": [\"COMPLIMENTARY_CARPET_CLEAN\"],\n          \"tenureMonths\": 26,\n          \"ledgerStatus\": \"CURRENT\",\n          \"lastLateFeeDate\": null\n        }\n      }\n    ]\n  }\n}" },
+            { type: "mcp_tool", label: "MCP · entrata.market.getComparables", mcpToolName: "entrata.market.getComparables", durationMs: 164, status: "success", detail: "Pulled ILS + internal comps for 2BR in submarket.", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-a115\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.market.getComparables\",\n    \"arguments\": {\n      \"propertyId\": \"prop-aspen-heights\",\n      \"bedrooms\": 2,\n      \"radiusMiles\": 3,\n      \"asOf\": \"2025-05-04\"\n    }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-a115\",\n  \"result\": {\n    \"content\": [\n      {\n        \"type\": \"text\",\n        \"text\": {\n          \"medianAsk\": 1825,\n          \"p25\": 1750,\n          \"p75\": 1900,\n          \"sampleSize\": 38,\n          \"sources\": [\"ILS_AGGREGATE\", \"INTERNAL_LAST_90_LEASES\"]\n        }\n      }\n    ]\n  }\n}" },
+            { type: "http_api", label: "Legacy REST (shadow) · POST /api/internal/renewals/pricing-engine", durationMs: 41, status: "success", detail: "Same payload mirrored to REST for parity during MCP cutover.", httpMethod: "POST", httpPath: "/api/internal/renewals/v2/pricing-engine", httpRequestHeaders: "Authorization: Bearer ***redacted***\nContent-Type: application/json\nX-Idempotency-Key: idem-ren-88421-20250504", httpRequestBody: "{\n  \"leaseId\": \"ls-991204\",\n  \"policyPackId\": \"renewals-default-2025Q2\",\n  \"objectives\": [\"RETENTION\", \"MINIMIZE_DISCOUNT_DEPTH\"],\n  \"constraints\": { \"maxMtmPremiumPct\": 18 }\n}", httpResponseStatus: 200, httpResponseHeaders: "content-type: application/json\ncache-control: no-store", httpResponseBody: "{\n  \"options\": [\n    { \"termMonths\": 12, \"rent\": 1725, \"rationale\": \"BASE_TABLE\" },\n    { \"termMonths\": 14, \"rent\": 1695, \"rationale\": \"TERM_DISCOUNT_BAND_B\" },\n    { \"termMonths\": 1, \"rent\": 1950, \"rationale\": \"MTM_PREMIUM_CAP\" }\n  ],\n  \"perks\": [\"COMPLIMENTARY_CARPET_CLEAN\"],\n  \"traceId\": \"rest-9aa0f1\"\n}" },
+            { type: "reasoning", label: "Synthesis · offers + tone", durationMs: 72, thoughtProcess: "MCP lease snapshot locks current rent at $1,650 and end date 2025-09-14—so I must anchor any percentage language to those facts, not to rounded marketing numbers.\n\nComps from entrata.market.getComparables show median ask $1,825 for 2BR, which justifies the 12-mo table rate $1,725 as \"below market\" without sounding defensive.\n\nThe REST shadow response matches MCP-derived options (12 @ 1725, 14 @ 1695, MTM @ 1950). Per system prompt §4, I present at least two non-MTM options first and keep MTM as a last line because it is a churn vector.\n\nPerk COMPLIMENTARY_CARPET_CLEAN is present in both MCP and REST payloads and tenure is 26 months with CURRENT ledger—so I am allowed to mention the perk explicitly.\n\nI will structure the email with bullets (readability) and end with an open question to invite negotiation rather than pushing immediate acceptance—matching the prompt's \"invite dialogue before negotiating\" clause." },
+            { type: "prompt_citation", label: "Applied constraint from prompt", durationMs: 3, promptSourceLabel: "Policy excerpt · Renewal AI pack", promptExcerpt: "When presenting renewal options, always pair each rent with its term length in the same sentence or bullet, and never imply that MTM is the default continuation path." },
+            { type: "response", label: "Model · draft email body", durationMs: 112, detail: "Rendered structured offer block + soft CTA; injected perk only because eligibility flags were true in MCP result." },
+          ],
+        },
         { role: "resident", text: "The increase is more than I expected. Is there any flexibility on the 12-month rate?", timestamp: "9:45 AM" },
-        { role: "agent", text: "I completely understand, Kevin. Since you've been with us for 2 years with a great payment history, I've checked with our renewal team and we can offer a loyalty adjustment of $1,695/mo on the 12-month term — that's only a 2.7% increase vs. the standard 4.5%. The 14-month option at $1,695 is also a great value. What do you think?", timestamp: "9:46 AM" },
+        {
+          role: "agent",
+          text: "I completely understand, Kevin. Since you've been with us for 2 years with a great payment history, I've checked with our renewal team and we can offer a loyalty adjustment of $1,695/mo on the 12-month term — that's only a 2.7% increase vs. the standard 4.5%. The 14-month option at $1,695 is also a great value. What do you think?",
+          timestamp: "9:46 AM",
+          trace: [
+            { type: "prompt_citation", label: "Negotiation stance", durationMs: 4, promptSourceLabel: "System prompt · Renewal AI §6 (pushback)", promptExcerpt: "If the resident challenges rent, (1) acknowledge first, (2) cite tenure + payment history from MCP ledger facts, (3) only then introduce loyalty adjustments that appear in entrata.renewals.evaluateLoyaltyAdjustment, (4) never promise adjustments not returned by that tool." },
+            { type: "mcp_tool", label: "MCP · entrata.ledger.getResidentLedgerSummary", mcpToolName: "entrata.ledger.getResidentLedgerSummary", durationMs: 88, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-b201\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.ledger.getResidentLedgerSummary\",\n    \"arguments\": { \"residentId\": \"res-kevin-pham\", \"windowDays\": 730 }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-b201\",\n  \"result\": {\n    \"content\": [{ \"type\": \"text\", \"text\": {\n      \"onTimePaymentsLast24m\": 24,\n      \"nsfCount\": 0,\n      \"avgDaysPastDue\": 0.0,\n      \"riskBand\": \"LOW\"\n    }}]\n  }\n}" },
+            { type: "mcp_tool", label: "MCP · entrata.renewals.evaluateLoyaltyAdjustment", mcpToolName: "entrata.renewals.evaluateLoyaltyAdjustment", durationMs: 134, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-b202\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.renewals.evaluateLoyaltyAdjustment\",\n    \"arguments\": {\n      \"leaseId\": \"ls-991204\",\n      \"requestedTermMonths\": 12,\n      \"tableRent\": 1725,\n      \"residentRiskBand\": \"LOW\",\n      \"tenureMonths\": 26\n    }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-b202\",\n  \"result\": {\n    \"content\": [{ \"type\": \"text\", \"text\": {\n      \"approved\": true,\n      \"adjustedRent\": 1695,\n      \"maxApproverLevel\": \"REGIONAL\",\n      \"reasonCodes\": [\"TENURE_GE_24M\", \"LEDGER_CURRENT\", \"RETENTION_TIER_A\"],\n      \"disclosure\": {\n        \"standardYoYPercent\": 4.5,\n        \"effectiveYoYPercent\": 2.7\n      }\n    }}]\n  }\n}" },
+            { type: "reasoning", label: "Why this reply wording", durationMs: 81, thoughtProcess: "Resident objected to the 12-mo increase emotionally (\"more than I expected\"). Prompt §6 requires acknowledgement before numbers—so the reply opens with empathy, not with the discount.\n\nMCP ledger summary confirms LOW risk and perfect payment cadence; I reference \"2 years\" and \"great payment history\" because those phrases are directly supported by ledger facts (not flattery).\n\nevaluateLoyaltyAdjustment returned approved=true with adjustedRent 1695 on the 12-mo line. That is the only number I am allowed to quote as a loyalty price; I therefore anchor the 12-mo offer to 1695 and compute YoY vs prior rent 1650 using the disclosure block (4.5% standard vs 2.7% effective) exactly as returned—no hand-wavy percentages.\n\nI also restate the 14-mo option at 1695 because the pricing engine already showed parity; the prompt encourages transparent comparison when two options collapse to the same rent to avoid cherry-picking confusion." },
+            { type: "response", label: "Model · generated reply", durationMs: 98, detail: "Mirrored concern, cited tenure+ledger, quoted only MCP-approved rents and disclosed YoY from tool output." },
+          ],
+        },
         { role: "resident", text: "The 14 month at 1695 sounds good. Let's do that.", timestamp: "10:02 AM" },
-        { role: "agent", text: "Excellent choice! I've prepared your renewal agreement for 14 months at $1,695/mo starting September 15. The agreement has been sent to your email — please review and sign by August 15. The complimentary carpet cleaning will be scheduled after signing. Thank you for staying with us, Kevin!", timestamp: "10:02 AM" },
+        {
+          role: "agent",
+          text: "Excellent choice! I've prepared your renewal agreement for 14 months at $1,695/mo starting September 15. The agreement has been sent to your email — please review and sign by August 15. The complimentary carpet cleaning will be scheduled after signing. Thank you for staying with us, Kevin!",
+          timestamp: "10:02 AM",
+          trace: [
+            { type: "mcp_tool", label: "MCP · entrata.renewals.lockSelectedOffer", mcpToolName: "entrata.renewals.lockSelectedOffer", durationMs: 61, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-c301\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.renewals.lockSelectedOffer\",\n    \"arguments\": {\n      \"leaseId\": \"ls-991204\",\n      \"selectedTermMonths\": 14,\n      \"selectedRent\": 1695,\n      \"residentConfirmationText\": \"The 14 month at 1695 sounds good. Let's do that.\"\n    }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-c301\",\n  \"result\": {\n    \"content\": [{ \"type\": \"text\", \"text\": {\n      \"lockId\": \"lock-ren-441b\",\n      \"renewalStart\": \"2025-09-15\",\n      \"signBy\": \"2025-08-15\",\n      \"documentTemplateId\": \"tmpl-ren-2025-standard\"\n    }}]\n  }\n}" },
+            { type: "mcp_tool", label: "MCP · entrata.documents.generateRenewalAgreement", mcpToolName: "entrata.documents.generateRenewalAgreement", durationMs: 176, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-c302\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.documents.generateRenewalAgreement\",\n    \"arguments\": {\n      \"lockId\": \"lock-ren-441b\",\n      \"includePerks\": [\"COMPLIMENTARY_CARPET_CLEAN\"]\n    }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-c302\",\n  \"result\": {\n    \"content\": [{ \"type\": \"text\", \"text\": {\n      \"documentId\": \"doc-ren-77812\",\n      \"pdfUri\": \"s3://redacted-bucket/renewals/doc-ren-77812.pdf\",\n      \"sha256\": \"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"\n    }}]\n  }\n}" },
+            { type: "mcp_tool", label: "MCP · entrata.comms.sendTransactionalEmail", mcpToolName: "entrata.comms.sendTransactionalEmail", durationMs: 92, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-c303\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.comms.sendTransactionalEmail\",\n    \"arguments\": {\n      \"templateId\": \"txn-renewal-agreement-ready\",\n      \"to\": \"kevin.pham@email.com\",\n      \"mergeFields\": {\n        \"TERM_MONTHS\": \"14\",\n        \"RENT\": \"1695\",\n        \"START_DATE\": \"2025-09-15\",\n        \"SIGN_BY\": \"2025-08-15\"\n      },\n      \"attachments\": [\"doc-ren-77812\"]\n    }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-c303\",\n  \"result\": {\n    \"content\": [{ \"type\": \"text\", \"text\": { \"queued\": true, \"providerMessageId\": \"sg-aa9912\" }}]\n  }\n}" },
+            { type: "prompt_citation", label: "Closing obligations", durationMs: 3, promptSourceLabel: "System prompt · Renewal AI §9 (documents)", promptExcerpt: "After a term selection is locked, always restate sign-by date, start date, and any conditional perks tied to signature—using only fields returned by lock + document tools." },
+            { type: "reasoning", label: "Final copy decisions", durationMs: 48, thoughtProcess: "lockSelectedOffer returned renewalStart 2025-09-15 and signBy 2025-08-15; I must surface both dates verbatim.\n\nThe resident already verbally accepted 14 months @ 1695; I treat that as sufficient intent to lock, but I still avoid claiming \"signed\"—only \"prepared\" and \"sent\" per truthfulness rules.\n\nCarpet cleaning is conditional on signature per policy pack; the prompt says to mention scheduling after signing, not before.\n\nI end with gratitude to match voice guidelines without adding new financial commitments." },
+            { type: "response", label: "Model · confirmation email", durationMs: 86 },
+          ],
+        },
       ],
-      trace: [
-        { type: "instruction", label: "Load renewal outreach template", durationMs: 14 },
-        { type: "tool_call", label: "Pull Lease Details", detail: "End date: Sep 14, Current: $1,650/mo", durationMs: 165, status: "success" },
-        { type: "tool_call", label: "Run Market Comparison", detail: "Comps: $1,800-$1,900 for similar units", durationMs: 210, status: "success" },
-        { type: "tool_call", label: "Calculate Renewal Options", detail: "3 term options generated", durationMs: 95, status: "success" },
-        { type: "reasoning", label: "Negotiation assessment", detail: "2-year resident, clean payment record → eligible for loyalty discount", durationMs: 75 },
-        { type: "tool_call", label: "Check Loyalty Discount", detail: "Approved: $30/mo reduction", durationMs: 130, status: "success" },
-        { type: "tool_call", label: "Generate Renewal Agreement", detail: "14-month at $1,695/mo", durationMs: 185, status: "success" },
-        { type: "tool_call", label: "Send Agreement Email", detail: "Sent to kevin.pham@email.com", durationMs: 90, status: "success" },
-      ],
+      trace: [],
       monitors: [{ label: "Coherent response", passed: true }, { label: "Accurate pricing", passed: true }, { label: "Positive sentiment", passed: true }, { label: "Retention outcome", passed: true }],
     },
     { id: "conv-r2", residentName: "Rachel Adams", channel: "SMS", topic: "Move-Out Notice", summary: "Resident decided to move out. Notice processed, move-out checklist sent.", outcome: "resolved", sentiment: "negative", startedAt: "Yesterday, 11:15 AM", duration: "7m 20s", turns: 6,
       messages: [
         { role: "resident", text: "Hi, I've decided not to renew my lease. What do I need to do?", timestamp: "11:15 AM" },
-        { role: "agent", text: "I'm sorry to hear you'll be leaving, Rachel. To process your move-out, you'll need to submit written 60-day notice (your deadline is July 15). I can start that process for you now. Would you like me to send you the official notice form and move-out checklist?", timestamp: "11:15 AM" },
+        {
+          role: "agent",
+          text: "I'm sorry to hear you'll be leaving, Rachel. To process your move-out, you'll need to submit written 60-day notice (your deadline is July 15). I can start that process for you now. Would you like me to send you the official notice form and move-out checklist?",
+          timestamp: "11:15 AM",
+          trace: [
+            { type: "prompt_citation", label: "Move-out / churn tone", durationMs: 5, promptSourceLabel: "System prompt · Renewal AI §11 (move-out)", promptExcerpt: "When a resident states non-renewal, open with empathy, cite notice rules from MCP legal calendar only, never threaten, and always offer the official notice artifact through entrata.moveout.sendPacket rather than improvising PDF links." },
+            { type: "mcp_tool", label: "MCP · entrata.lease.getNoticeRules", mcpToolName: "entrata.lease.getNoticeRules", durationMs: 102, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-8d02-a001\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.lease.getNoticeRules\",\n    \"arguments\": { \"leaseId\": \"ls-aa4412\", \"jurisdiction\": \"US-CO\" }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-8d02-a001\",\n  \"result\": {\n    \"content\": [{ \"type\": \"text\", \"text\": {\n      \"minWrittenNoticeDays\": 60,\n      \"noticeCalendar\": \"BUSINESS\",\n      \"latestValidNoticeDate\": \"2025-07-15\",\n      \"leaseEnd\": \"2025-09-14\"\n    }}]\n  }\n}" },
+            { type: "http_api", label: "Legacy REST (read-only) · GET /api/leases/{id}/calendar", durationMs: 36, status: "success", httpMethod: "GET", httpPath: "/api/v3/leases/ls-aa4412/calendar", httpResponseStatus: 200, httpResponseBody: "{\n  \"leaseEnd\": \"2025-09-14\",\n  \"noticeDeadline\": \"2025-07-15\",\n  \"timezone\": \"America/Denver\"\n}" },
+            { type: "reasoning", label: "SMS framing", durationMs: 58, thoughtProcess: "MCP notice rules returned 60-day written notice with latestValidNoticeDate 2025-07-15. I must present that date as the deadline, not \"about two months\".\n\nChannel is SMS—prompt warns against long URLs; I therefore offer to send forms via email rather than pasting links.\n\nI keep empathy in the first sentence because the resident announced churn; the prompt forbids sounding transactional in the opening clause." },
+            { type: "response", label: "Model · SMS reply", durationMs: 91 },
+          ],
+        },
         { role: "resident", text: "Yes please. And when is the move-out inspection?", timestamp: "11:17 AM" },
-        { role: "agent", text: "I've sent the notice form and move-out checklist to your email. The pre-move-out inspection is typically scheduled 2 weeks before your lease end date. We'll contact you in early September to set that up. Is there anything that might change your mind? We may be able to offer adjusted terms.", timestamp: "11:18 AM" },
+        {
+          role: "agent",
+          text: "I've sent the notice form and move-out checklist to your email. The pre-move-out inspection is typically scheduled 2 weeks before your lease end date. We'll contact you in early September to set that up. Is there anything that might change your mind? We may be able to offer adjusted terms.",
+          timestamp: "11:18 AM",
+          trace: [
+            { type: "mcp_tool", label: "MCP · entrata.moveout.sendPacket", mcpToolName: "entrata.moveout.sendPacket", durationMs: 118, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-8d02-b010\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.moveout.sendPacket\",\n    \"arguments\": {\n      \"residentId\": \"res-rachel-adams\",\n      \"packet\": [\"NOTICE_PDF\", \"MOVEOUT_CHECKLIST\"],\n      \"channel\": \"EMAIL\"\n    }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-8d02-b010\",\n  \"result\": {\n    \"content\": [{ \"type\": \"text\", \"text\": { \"messageId\": \"msg-ff901\", \"delivered\": true }}]\n  }\n}" },
+            { type: "mcp_tool", label: "MCP · entrata.ops.getInspectionPolicy", mcpToolName: "entrata.ops.getInspectionPolicy", durationMs: 84, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-8d02-b011\",\n  \"method\": \"tools/call\",\n  \"params\": { \"name\": \"entrata.ops.getInspectionPolicy\", \"arguments\": { \"propertyId\": \"prop-aspen-heights\" } }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-8d02-b011\",\n  \"result\": {\n    \"content\": [{ \"type\": \"text\", \"text\": {\n      \"preMoveInspectionLeadDays\": 14,\n      \"schedulingWindow\": \"BUSINESS_HOURS\",\n      \"contactTemplate\": \"MAINTENANCE_COORDINATOR\"\n    }}]\n  }\n}" },
+            { type: "prompt_citation", label: "Retention boundary", durationMs: 3, promptSourceLabel: "System prompt · Renewal AI §11.3", promptExcerpt: "You may ask exactly one soft retention question per move-out thread after logistics are satisfied, and you must not repeat it if the resident declines." },
+            { type: "reasoning", label: "Why retention hook is included", durationMs: 55, thoughtProcess: "sendPacket succeeded, so logistics are handled—this satisfies the prompt gate for a single retention probe.\n\nInspection answer is driven strictly by getInspectionPolicy (14 days before lease end) translated into resident-friendly language (\"early September\" relative to Sep 14 end) without inventing a calendar appointment id.\n\nI include the win-back question once, phrased as optional adjusted terms, matching §11.3." },
+            { type: "response", label: "Model · SMS reply", durationMs: 94 },
+          ],
+        },
         { role: "resident", text: "No, I'm relocating for work. Thanks for the info.", timestamp: "11:20 AM" },
-        { role: "agent", text: "Completely understandable! We wish you the best with your move. If anything changes, we're here. I've noted the reason as work relocation. Take care, Rachel!", timestamp: "11:20 AM" },
+        {
+          role: "agent",
+          text: "Completely understandable! We wish you the best with your move. If anything changes, we're here. I've noted the reason as work relocation. Take care, Rachel!",
+          timestamp: "11:20 AM",
+          trace: [
+            { type: "prompt_citation", label: "Hard stop after explicit reason", durationMs: 2, promptSourceLabel: "System prompt · Renewal AI §11.4", promptExcerpt: "If the resident gives a concrete relocation/employer-driven reason and declines retention, do not run additional save attempts or inventory new offers in the same session." },
+            { type: "mcp_tool", label: "MCP · entrata.crm.logExitSurvey", mcpToolName: "entrata.crm.logExitSurvey", durationMs: 76, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-8d02-c020\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.crm.logExitSurvey\",\n    \"arguments\": {\n      \"residentId\": \"res-rachel-adams\",\n      \"primaryReasonCode\": \"RELOCATION_WORK\",\n      \"verbatim\": \"No, I'm relocating for work. Thanks for the info.\"\n    }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-8d02-c020\",\n  \"result\": {\n    \"content\": [{ \"type\": \"text\", \"text\": { \"crmNoteId\": \"note-aa901\", \"syncedToPMS\": true }}]\n  }\n}" },
+            { type: "mcp_tool", label: "MCP · entrata.notify.propertyManager", mcpToolName: "entrata.notify.propertyManager", durationMs: 71, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-8d02-c021\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.notify.propertyManager\",\n    \"arguments\": {\n      \"propertyId\": \"prop-aspen-heights\",\n      \"subject\": \"Move-out intent logged\",\n      \"body\": \"Rachel Adams — reason RELOCATION_WORK — lease ends 2025-09-14\"\n    }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-8d02-c021\",\n  \"result\": {\n    \"content\": [{ \"type\": \"text\", \"text\": { \"delivered\": true, \"channel\": \"SLACK_DM\" }}]\n  }\n}" },
+            { type: "reasoning", label: "Why no second save attempt", durationMs: 41, thoughtProcess: "The resident cited relocation for work and thanked me—this triggers §11.4 hard stop. CRM log captures verbatim text; manager notification is informational only.\n\nI avoid any new financial offer language because that would violate the stop rule even if models sometimes suggest \"one more promo\"." },
+            { type: "response", label: "Model · SMS closing", durationMs: 63 },
+          ],
+        },
       ],
-      trace: [
-        { type: "instruction", label: "Load move-out protocol", durationMs: 12 },
-        { type: "tool_call", label: "Pull Lease End Date", detail: "Sep 14, 2026", durationMs: 145, status: "success" },
-        { type: "tool_call", label: "Calculate Notice Deadline", detail: "60-day notice: Jul 15, 2026", durationMs: 65, status: "success" },
-        { type: "reasoning", label: "Retention attempt", detail: "Offer adjusted terms before processing move-out", durationMs: 55 },
-        { type: "tool_call", label: "Send Move-Out Package", detail: "Notice form + checklist emailed", durationMs: 120, status: "success" },
-        { type: "tool_call", label: "Log Move-Out Reason", detail: "Work relocation", durationMs: 80, status: "success" },
-        { type: "tool_call", label: "Notify Property Manager", detail: "Rachel Adams — move-out Sep 14", durationMs: 75, status: "success" },
-      ],
+      trace: [],
       monitors: [{ label: "Coherent response", passed: true }, { label: "Retention attempted", passed: true }, { label: "Empathetic tone", passed: true }, { label: "Process followed", passed: true }],
     },
   ];
@@ -3722,6 +3913,13 @@ function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; pro
   const logs = useMemo(() => generateConversationLogs(agentName, propertyName), [agentName, propertyName]);
   const [selectedLog, setSelectedLog] = useState<ConversationLog | null>(null);
   const [traceExpanded, setTraceExpanded] = useState(true);
+  const [renewalTraceSheet, setRenewalTraceSheet] = useState<{
+    steps: TraceStep[];
+    replyPreview: string;
+    precedingResident: string | null;
+  } | null>(null);
+
+  const renewalPerReplyTraces = agentName === "Renewal AI";
 
   const outcomeBadge = (outcome: ConversationLog["outcome"]) => {
     if (outcome === "resolved") return "bg-emerald-50 text-emerald-700 border-emerald-200";
@@ -3735,121 +3933,163 @@ function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; pro
     return "bg-zinc-100 text-zinc-500 border-zinc-200";
   };
 
-  const traceIcon = (type: TraceStep["type"]) => {
-    if (type === "tool_call") return <Wrench className="h-3 w-3" />;
-    if (type === "knowledge") return <Database className="h-3 w-3" />;
-    if (type === "reasoning") return <Lightbulb className="h-3 w-3" />;
-    if (type === "response") return <MessageSquare className="h-3 w-3" />;
-    return <Cog className="h-3 w-3" />;
-  };
-
   if (selectedLog) {
-    const totalTraceMs = selectedLog.trace.reduce((sum, s) => sum + s.durationMs, 0);
     return (
-      <div className="flex h-full">
-        <div className="flex-1 min-w-0 flex flex-col border-r border-border">
-          <div className="flex items-center gap-3 px-5 py-3 border-b border-border bg-white shrink-0">
-            <button type="button" onClick={() => setSelectedLog(null)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
-              <ArrowLeft className="h-3 w-3" /> All Conversations
-            </button>
-            <span className="text-xs text-border">|</span>
-            <span className="text-sm font-medium text-foreground">{selectedLog.residentName}</span>
-            <span className="inline-flex items-center gap-1 rounded-full border border-border bg-zinc-50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-              {selectedLog.channel === "SMS" ? <Phone className="h-2.5 w-2.5" /> : selectedLog.channel === "Email" ? <Mail className="h-2.5 w-2.5" /> : <MessageSquare className="h-2.5 w-2.5" />}
-              {selectedLog.channel}
-            </span>
-            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${outcomeBadge(selectedLog.outcome)}`}>
-              {selectedLog.outcome}
-            </span>
-          </div>
-          <div className="flex-1 min-h-0 overflow-y-auto bg-muted px-5 py-5">
-            <div className="space-y-4 max-w-2xl">
-              {selectedLog.messages.map((msg, i) => (
-                <div key={i} className="flex flex-col gap-0.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-medium tracking-wider text-muted-foreground">
-                      {msg.role === "resident" ? selectedLog.residentName : agentName}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground/60">{msg.timestamp}</span>
-                  </div>
-                  <div className={msg.role === "resident"
-                    ? "max-w-[85%] rounded-2xl px-3 py-2 bg-background text-foreground border border-border shadow-sm text-sm"
-                    : "max-w-full py-1 text-foreground text-sm whitespace-pre-line"
-                  }>
-                    {msg.text}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="px-5 py-3 border-t border-border bg-white shrink-0">
-            <div className="flex items-center gap-4 text-xs text-muted-foreground">
-              <span>{selectedLog.turns} turns</span>
-              <span>{selectedLog.duration}</span>
-              <span>{selectedLog.startedAt}</span>
-            </div>
-          </div>
-        </div>
-        <aside className="w-80 shrink-0 bg-white overflow-y-auto">
-          <div className="p-5 space-y-6">
-            <div>
-              <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-3">Conversation Summary</h4>
-              <p className="text-xs text-foreground leading-relaxed">{selectedLog.summary}</p>
-            </div>
-            <div>
-              <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-3">Monitors</h4>
-              <div className="space-y-1.5">
-                {selectedLog.monitors.map((m, i) => (
-                  <div key={i} className="flex items-center gap-2 text-xs">
-                    {m.passed ? <CheckCircle className="h-3.5 w-3.5 text-emerald-600 shrink-0" /> : <XCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />}
-                    <span className={m.passed ? "text-foreground" : "text-red-600 font-medium"}>{m.label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div>
+      <div className="relative h-full w-full">
+        <div className="flex h-full">
+          <div className="flex-1 min-w-0 flex flex-col border-r border-border">
+            <div className="flex items-center gap-3 px-5 py-3 border-b border-border bg-white shrink-0">
               <button
                 type="button"
-                onClick={() => setTraceExpanded(!traceExpanded)}
-                className="flex items-center justify-between w-full mb-3"
+                onClick={() => {
+                  setRenewalTraceSheet(null);
+                  setSelectedLog(null);
+                }}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
-                <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">Agent Trace ({selectedLog.trace.length} steps)</h4>
-                <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${traceExpanded ? "" : "-rotate-90"}`} />
+                <ArrowLeft className="h-3 w-3" /> All Conversations
               </button>
-              {traceExpanded && (
-                <div className="space-y-0">
-                  {selectedLog.trace.map((step, i) => (
-                    <div key={i} className="flex gap-3 pb-3 last:pb-0">
-                      <div className="flex flex-col items-center">
-                        <div className={`h-6 w-6 rounded-full flex items-center justify-center shrink-0 ${
-                          step.type === "tool_call" ? "bg-blue-50 text-blue-600" :
-                          step.type === "knowledge" ? "bg-purple-50 text-purple-600" :
-                          step.type === "reasoning" ? "bg-amber-50 text-amber-600" :
-                          step.type === "response" ? "bg-emerald-50 text-emerald-600" :
-                          "bg-zinc-100 text-zinc-500"
-                        }`}>
-                          {traceIcon(step.type)}
-                        </div>
-                        {i < selectedLog.trace.length - 1 && <div className="w-px flex-1 bg-border mt-1" />}
+              <span className="text-xs text-border">|</span>
+              <span className="text-sm font-medium text-foreground">{selectedLog.residentName}</span>
+              <span className="inline-flex items-center gap-1 rounded-full border border-border bg-zinc-50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                {selectedLog.channel === "SMS" ? <Phone className="h-2.5 w-2.5" /> : selectedLog.channel === "Email" ? <Mail className="h-2.5 w-2.5" /> : <MessageSquare className="h-2.5 w-2.5" />}
+                {selectedLog.channel}
+              </span>
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${outcomeBadge(selectedLog.outcome)}`}>
+                {selectedLog.outcome}
+              </span>
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto bg-muted px-5 py-5">
+              <div className="space-y-4 max-w-2xl">
+                {selectedLog.messages.map((msg, i) => {
+                  let precedingResident: string | null = null;
+                  for (let j = i - 1; j >= 0; j--) {
+                    if (selectedLog.messages[j].role === "resident") {
+                      precedingResident = selectedLog.messages[j].text;
+                      break;
+                    }
+                  }
+                  const hasReplyTrace = renewalPerReplyTraces && msg.role === "agent" && msg.trace && msg.trace.length > 0;
+                  return (
+                    <div key={i} className="flex flex-col gap-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-medium tracking-wider text-muted-foreground">
+                          {msg.role === "resident" ? selectedLog.residentName : agentName}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground/60">{msg.timestamp}</span>
                       </div>
-                      <div className="min-w-0 pt-0.5">
-                        <div className="flex items-center gap-2">
-                          <p className="text-xs font-medium text-foreground">{step.label}</p>
-                          <span className="text-[10px] text-muted-foreground">{step.durationMs}ms</span>
-                        </div>
-                        {step.detail && <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{step.detail}</p>}
+                      <div
+                        className={
+                          msg.role === "resident"
+                            ? "max-w-[85%] rounded-2xl px-3 py-2 bg-background text-foreground border border-border shadow-sm text-sm"
+                            : "max-w-full py-1 text-foreground text-sm whitespace-pre-line"
+                        }
+                      >
+                        {msg.text}
                       </div>
+                      {hasReplyTrace && msg.trace ? (
+                        <button
+                          type="button"
+                          className="mt-1.5 self-start text-xs font-medium text-emerald-700 hover:text-emerald-800 hover:underline"
+                          onClick={() =>
+                            setRenewalTraceSheet({
+                              steps: msg.trace!,
+                              replyPreview: msg.text.length > 200 ? msg.text.slice(0, 200) + "\u2026" : msg.text,
+                              precedingResident,
+                            })
+                          }
+                        >
+                          View Trace
+                        </button>
+                      ) : null}
                     </div>
-                  ))}
-                  <div className="mt-3 pt-3 border-t border-border flex justify-between text-[10px] text-muted-foreground">
-                    <span>Total trace time</span>
-                    <span className="font-medium text-foreground">{totalTraceMs}ms</span>
-                  </div>
-                </div>
-              )}
+                  );
+                })}
+              </div>
+            </div>
+            <div className="px-5 py-3 border-t border-border bg-white shrink-0">
+              <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                <span>{selectedLog.turns} turns</span>
+                <span>{selectedLog.duration}</span>
+                <span>{selectedLog.startedAt}</span>
+              </div>
             </div>
           </div>
-        </aside>
+          <aside className="w-80 shrink-0 bg-white overflow-y-auto">
+            <div className="p-5 space-y-6">
+              <div>
+                <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-3">Conversation Summary</h4>
+                <p className="text-xs text-foreground leading-relaxed">{selectedLog.summary}</p>
+              </div>
+              <div>
+                <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-3">Monitors</h4>
+                <div className="space-y-1.5">
+                  {selectedLog.monitors.map((m, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs">
+                      {m.passed ? <CheckCircle className="h-3.5 w-3.5 text-emerald-600 shrink-0" /> : <XCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                      <span className={m.passed ? "text-foreground" : "text-red-600 font-medium"}>{m.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {!renewalPerReplyTraces && selectedLog.trace.length > 0 ? (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setTraceExpanded(!traceExpanded)}
+                    className="flex items-center justify-between w-full mb-3"
+                  >
+                    <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
+                      Agent Trace ({selectedLog.trace.length} steps)
+                    </h4>
+                    <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${traceExpanded ? "" : "-rotate-90"}`} />
+                  </button>
+                  {traceExpanded ? <AgentTraceTimeline trace={selectedLog.trace} /> : null}
+                </div>
+              ) : null}
+              {renewalPerReplyTraces ? (
+                <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3">
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    Traces are attached to each Renewal AI reply. Use <span className="font-medium text-foreground">View Trace</span> under a message to see tools, knowledge, and reasoning for that response.
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          </aside>
+        </div>
+
+        {renewalPerReplyTraces ? (
+          <Sheet open={renewalTraceSheet !== null} onOpenChange={(open) => { if (!open) setRenewalTraceSheet(null); }}>
+            <SheetContent className="flex w-full flex-col overflow-y-auto sm:max-w-3xl">
+              <SheetHeader>
+                <SheetTitle>Trace for this reply</SheetTitle>
+                <SheetDescription>Steps and context that led to this Renewal AI response.</SheetDescription>
+              </SheetHeader>
+              {renewalTraceSheet ? (
+                <div className="mt-6 space-y-5">
+                  {renewalTraceSheet.precedingResident ? (
+                    <div className="rounded-lg border border-border bg-muted/50 p-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Resident message (context)</p>
+                      <p className="text-xs text-foreground leading-relaxed whitespace-pre-line">{renewalTraceSheet.precedingResident}</p>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Proactive agent message — there is no prior resident turn in this thread for this reply.
+                    </p>
+                  )}
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Agent reply</p>
+                    <p className="text-xs text-foreground leading-relaxed whitespace-pre-line">{renewalTraceSheet.replyPreview}</p>
+                  </div>
+                  <div>
+                    <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-3">Execution trace</h4>
+                    <AgentTraceTimeline trace={renewalTraceSheet.steps} />
+                  </div>
+                </div>
+              ) : null}
+            </SheetContent>
+          </Sheet>
+        ) : null}
       </div>
     );
   }
@@ -3868,29 +4108,29 @@ function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; pro
         Review past conversations, inspect agent reasoning traces, and monitor quality for {agentName} at {propertyName}.
       </p>
       <div className="space-y-3">
-        {logs.map(log => (
+        {logs.map((conversationLog) => (
           <button
-            key={log.id}
+            key={conversationLog.id}
             type="button"
-            onClick={() => setSelectedLog(log)}
+            onClick={() => setSelectedLog(conversationLog)}
             className="w-full flex items-center gap-4 rounded-xl border border-border bg-white p-4 text-left transition-all hover:border-zinc-400 hover:shadow-md group"
           >
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
-                <p className="text-sm font-semibold text-foreground">{log.residentName}</p>
+                <p className="text-sm font-semibold text-foreground">{conversationLog.residentName}</p>
                 <span className="inline-flex items-center gap-1 rounded-full border border-border bg-zinc-50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                  {log.channel === "SMS" ? <Phone className="h-2.5 w-2.5" /> : log.channel === "Email" ? <Mail className="h-2.5 w-2.5" /> : <MessageSquare className="h-2.5 w-2.5" />}
-                  {log.channel}
+                  {conversationLog.channel === "SMS" ? <Phone className="h-2.5 w-2.5" /> : conversationLog.channel === "Email" ? <Mail className="h-2.5 w-2.5" /> : <MessageSquare className="h-2.5 w-2.5" />}
+                  {conversationLog.channel}
                 </span>
-                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${outcomeBadge(log.outcome)}`}>{log.outcome}</span>
-                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${sentimentBadge(log.sentiment)}`}>{log.sentiment}</span>
+                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${outcomeBadge(conversationLog.outcome)}`}>{conversationLog.outcome}</span>
+                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${sentimentBadge(conversationLog.sentiment)}`}>{conversationLog.sentiment}</span>
               </div>
-              <p className="text-xs text-muted-foreground">{log.topic} — {log.summary}</p>
+              <p className="text-xs text-muted-foreground">{conversationLog.topic} — {conversationLog.summary}</p>
               <div className="flex items-center gap-3 mt-1.5 text-[10px] text-muted-foreground/70">
-                <span>{log.startedAt}</span>
-                <span>{log.turns} turns</span>
-                <span>{log.duration}</span>
-                <span>{log.trace.length} trace steps</span>
+                <span>{conversationLog.startedAt}</span>
+                <span>{conversationLog.turns} turns</span>
+                <span>{conversationLog.duration}</span>
+                <span>{countLogTraceSteps(conversationLog, agentName)} trace steps</span>
               </div>
             </div>
             <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors shrink-0" />
