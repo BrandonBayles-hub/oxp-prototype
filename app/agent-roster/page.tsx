@@ -59,6 +59,7 @@ import { PaymentsPage } from "@/components/eli-plus-setup/pages/PaymentsPage";
 import { MaintenanceFullPage } from "@/components/eli-plus-setup/pages/MaintenanceFullPage";
 import { RenewalsFullPage } from "@/components/eli-plus-setup/pages/RenewalsFullPage";
 import { LeasingAISettingsPanel } from "@/components/leasing-ai-settings-panel";
+import { MaintenanceAISettingsPanel } from "@/components/maintenance-ai-settings-panel";
 
 const DATA_SOURCE_OPTIONS = [
   "Entrata Ledger",
@@ -3152,19 +3153,15 @@ const AGENT_SETTINGS_TABS: Record<string, TabDef[]> = {
   "Maintenance AI": [
     { id: "property", label: "Property Info", settings: [
       { name: "Primary Address", description: "The property's physical address used in maintenance communications." },
-      { name: "Contact Points", description: "Review contact points for maintenance to avoid duplicate communication." },
       { name: "ELI+ Dashboard Permissions", description: "Permission users who directly manage the ELI+ console for this property." },
-      { name: "Business Hours", description: "Set operating hours for the maintenance team at this property." },
-      { name: "IVR", description: "Configure interactive voice response routing for maintenance calls." },
     ]},
     { id: "maintenance-info", label: "Maintenance Info", settings: [
-      { name: "During Hours Escalation Phone", description: "Set the phone number for maintenance emergencies during business hours." },
-      { name: "After Hours Escalation Phone", description: "Set the phone number for maintenance emergencies after business hours." },
-    ]},
-    { id: "marketing", label: "Marketing", settings: [
-      { name: "Prospect Portal", description: "Configure the prospect-facing portal used for this property." },
-      { name: "Property Website", description: "Set the property website URL shared in maintenance communications." },
-      { name: "Privacy Policy", description: "Link to the privacy policy displayed during maintenance interactions." },
+      { name: "Contact Points", description: "Review contact points for work order creation and status updates to avoid duplicate communication." },
+      { name: "Maintenance Availability/Hours", description: "Set operating hours for the maintenance team, including holidays." },
+      { name: "Call Handling", description: "Configure your IVR routing for maintenance, office hours, after office hours, and emergencies." },
+      { name: "On Call Emergency Back Up", description: "Establish one or more backup phone numbers to be used as alternative contacts if the primary on call technician cannot be reached." },
+      { name: "Permission to Enter", description: "Review the default permission for entering a unit when a work order is created by a resident through AI." },
+      { name: "Work Order Attachments Allowed", description: "If set to Yes, residents will be able to add photos when submitting work orders." },
     ]},
   ],
   "Renewal AI": [
@@ -5279,6 +5276,11 @@ function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: 
                 onOpenSimulation={() => setActiveNav("simulation")}
               />
             </div>
+          ) : agentName === "Maintenance AI" ? (
+            <MaintenanceAISettingsPanel
+              propertyName={property.name}
+              agentDisplayLabel={`ELI+ ${agentName}`}
+            />
           ) : (
             <div className="p-8 max-w-3xl">
               <h2 className="text-xl font-bold text-foreground">{agentName} Settings</h2>
