@@ -3162,6 +3162,11 @@ const AGENT_SETTINGS_TABS: Record<string, TabDef[]> = {
       { name: "On Call Emergency Back Up", description: "Establish one or more backup phone numbers to be used as alternative contacts if the primary on call technician cannot be reached." },
       { name: "Permission to Enter", description: "Review the default permission for entering a unit when a work order is created by a resident through AI." },
       { name: "Work Order Attachments Allowed", description: "If set to Yes, residents will be able to add photos when submitting work orders." },
+      { name: "Work Order Priorities", description: "Review the priorities (Emergency, High, Normal, etc.) you have established for all work orders in Entrata." },
+      { name: "Work Order Statuses", description: "Review the statuses that can be assigned to work orders in the system and define the status name for the work order created from the agent." },
+      { name: "Locations", description: "Review the Locations and their associated Problems that are available for the agent to select from." },
+      { name: "Problems", description: "Review the Problems and the optional Categories available for the agent to select from." },
+      { name: "Assignments", description: "Establish any automatic assignment of work orders upon creation." },
     ]},
   ],
   "Renewal AI": [
