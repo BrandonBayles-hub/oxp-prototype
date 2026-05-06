@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { MobileNav } from "./mobile-nav";
 import { EntrataTopNav } from "./entrata-top-nav";
@@ -18,7 +18,9 @@ const NAV_ONLY_ROUTES = ["/escalations/settings", "/communications-setup/custom-
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const chromeless = CHROMELESS_ROUTES.some((r) => pathname.startsWith(r));
+  const searchParams = useSearchParams();
+  const isEmbed = searchParams.get("embed") === "1";
+  const chromeless = isEmbed || CHROMELESS_ROUTES.some((r) => pathname.startsWith(r));
   const fullBleed = FULL_BLEED_ROUTES.some((r) => pathname.startsWith(r));
   const navOnly = NAV_ONLY_ROUTES.some((r) => pathname.startsWith(r));
 

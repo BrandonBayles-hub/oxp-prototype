@@ -797,6 +797,7 @@ function ConversationsContent() {
   );
   /** `null` = all properties (default). */
   const [threadListPropertyKeys, setThreadListPropertyKeys] = useState<Set<string> | null>(null);
+  const [threadListCompletedFilter, setThreadListCompletedFilter] = useState<"active" | "completed">("active");
 
   const isEscalationLabel = (label: string) => label.endsWith("Escalation");
 
@@ -809,7 +810,8 @@ function ConversationsContent() {
   const threadFiltersAreNonDefault =
     threadListPropertyKeys !== null ||
     threadListConvoTypes.size !== 1 ||
-    !threadListConvoTypes.has("escalated");
+    !threadListConvoTypes.has("escalated") ||
+    threadListCompletedFilter !== "active";
 
   const threadListConvoSummary = useMemo(() => {
     const parts: string[] = [];
@@ -948,16 +950,21 @@ function ConversationsContent() {
     return threadListConvoFiltered.filter((c) => threadListPropertyKeys.has(c.property));
   }, [threadListConvoFiltered, threadListPropertyKeys]);
 
+  const threadListCompletedFiltered = useMemo(() => {
+    if (threadListCompletedFilter === "active") return threadListFiltered.filter((c) => c.status === "open");
+    return threadListFiltered.filter((c) => c.status === "resolved");
+  }, [threadListFiltered, threadListCompletedFilter]);
+
   const filtered = useMemo(() => {
-    if (!searchQuery.trim()) return threadListFiltered;
+    if (!searchQuery.trim()) return threadListCompletedFiltered;
     const q = searchQuery.toLowerCase();
-    return threadListFiltered.filter(
+    return threadListCompletedFiltered.filter(
       (c) =>
         c.resident.toLowerCase().includes(q) ||
         c.preview.toLowerCase().includes(q) ||
         c.labels.some((l) => l.toLowerCase().includes(q))
     );
-  }, [threadListFiltered, searchQuery]);
+  }, [threadListCompletedFiltered, searchQuery]);
 
   const myInboxUnreadCount = useMemo(
     () =>
@@ -1865,6 +1872,24 @@ function ConversationsContent() {
                     </div>
                   </PopoverContent>
                 </Popover>
+              </div>
+
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Completed filter
+                </p>
+                <Select
+                  value={threadListCompletedFilter}
+                  onValueChange={(v) => setThreadListCompletedFilter(v as "active" | "completed")}
+                >
+                  <SelectTrigger className="h-8 w-full text-xs font-normal">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           )}
