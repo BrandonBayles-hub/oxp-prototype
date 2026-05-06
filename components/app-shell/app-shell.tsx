@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { MobileNav } from "./mobile-nav";
@@ -17,6 +18,14 @@ const FULL_BLEED_ROUTES = ["/conversations"];
 const NAV_ONLY_ROUTES = ["/escalations/settings", "/communications-setup/custom-email"];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <Suspense fallback={null}>
+      <AppShellInner>{children}</AppShellInner>
+    </Suspense>
+  );
+}
+
+function AppShellInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const isEmbed = searchParams.get("embed") === "1";
