@@ -1,6 +1,9 @@
 "use client"
 
 import React, { useState, useEffect, useCallback, useRef } from "react"
+import { Clock, ArrowLeft } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { buttonVariants } from "@/components/ui/button"
 import { HybridShell } from "./components/HybridShell"
 import { GlobalToast } from "./components/GlobalToast"
 import { OverviewPage } from "./pages/OverviewPage"
@@ -8,6 +11,7 @@ import { CompanyPage } from "./pages/CompanyPage"
 import type { SimMode } from "./pages/CompanyPage"
 import { PrivacyPage } from "./pages/PrivacyPage"
 import { EmailPage } from "./pages/EmailPage"
+import { PaymentsSummaryPage } from "./pages/PaymentsSummaryPage"
 import { GoLivePage } from "./pages/GoLivePage"
 import { CommunicationsPage } from "./pages/CommunicationsPage"
 import { IvrSetupPage, type IvrChoice } from "./pages/IvrSetupPage"
@@ -27,7 +31,7 @@ import {
   ENTRATA_AFTER_PHONES,
 } from "./data/entrata-imports"
 
-export type PageId = "overview" | "company" | "privacy" | "email" | "communications" | "ivr-setup" | "golive" | "payments" | "maintenance" | "leasing" | "renewals"
+export type PageId = "overview" | "company" | "privacy" | "email" | "communications" | "ivr-setup" | "leasing" | "payments" | "maintenance" | "renewals" | "renewals-channels" | "golive"
 export type BrandStatus = "idle" | "submitting" | "carrier-rejected" | "approved"
 export type CampaignStatus = "idle" | "creating" | "ready"
 
@@ -108,20 +112,20 @@ export default function EliOnboardingHybrid() {
   function startBrandSubmission() {
     setBrandStatus("submitting")
     if (brandTimerRef.current) clearTimeout(brandTimerRef.current)
-    // 15s: simulate carrier rejecting the phone number
+    // 2.5s: simulate carrier rejecting the phone number
     brandTimerRef.current = setTimeout(() => {
       setBrandStatus("carrier-rejected")
-    }, 15000)
+    }, 2500)
   }
 
   function resubmitAfterRejection() {
     setBrandStatus("submitting")
     if (brandTimerRef.current) clearTimeout(brandTimerRef.current)
-    // 10s second pass — carrier approves after fix
+    // 2s second pass — carrier approves after fix
     brandTimerRef.current = setTimeout(() => {
       setBrandStatus("approved")
       setCampaignStatus("creating")
-    }, 10000)
+    }, 2000)
   }
 
   function cancelBrandSubmission() {
@@ -250,6 +254,44 @@ export default function EliOnboardingHybrid() {
             immediateMovein={immediateMovein}
             onImmediateMoveinChange={(id, val) => setImmediateMovein((p) => ({ ...p, [id]: val }))}
           />
+          ) : page === "leasing" ? (
+          <LeasingPage
+            navigate={navigate}
+            showToast={showToast}
+            agentGoals={agentGoals}
+            onAgentGoalChange={(id, val) => setAgentGoals((p) => ({ ...p, [id]: val }))}
+            modelUnits={modelUnits}
+            onModelUnitChange={(id, val) => setModelUnits((p) => ({ ...p, [id]: val }))}
+            tourSettings={tourSettings}
+            onTourSettingChange={(id, field, val) => setTourSettings((p) => ({ ...p, [id]: { ...p[id], [field]: val } }))}
+            tourPriority={tourPriority}
+            onTourPriorityChange={(propId, order) => setTourPriority((p) => ({ ...p, [propId]: order }))}
+            leasingPolicies={leasingPolicies}
+            onLeasingPolicyChange={(policyId, propId, val) => setLeasingPolicies((p) => ({ ...p, [policyId]: { ...p[policyId], [propId]: val } }))}
+            campusProximity={campusProximity}
+            onCampusProximityChange={(id, val) => setCampusProximity((p) => ({ ...p, [id]: val }))}
+            studySpaces={studySpaces}
+            onStudySpacesChange={(id, val) => setStudySpaces((p) => ({ ...p, [id]: val }))}
+            semesterLeases={semesterLeases}
+            onSemesterLeasesChange={(id, val) => setSemesterLeases((p) => ({ ...p, [id]: val }))}
+            immediateMovein={immediateMovein}
+            onImmediateMoveinChange={(id, val) => setImmediateMovein((p) => ({ ...p, [id]: val }))}
+          />
+        ) : page === "maintenance" ? (
+          <MaintenancePage
+            navigate={navigate}
+            showToast={showToast}
+            duringPhones={duringPhones}
+            onDuringPhoneChange={(id, val) => setDuringPhones((p) => ({ ...p, [id]: val }))}
+            afterPhones={afterPhones}
+            onAfterPhoneChange={(id, val) => setAfterPhones((p) => ({ ...p, [id]: val }))}
+          />
+        ) : page === "renewals" ? (
+          <RenewalsPage navigate={navigate} showToast={showToast} days={renewalDays} onChange={handleRenewalDayChange} />
+        ) : page === "renewals-channels" ? (
+          <RenewalsChannelsPage navigate={navigate} />
+        ) : page === "payments" ? (
+          <PaymentsSummaryPage navigate={navigate} completedTasks={completedTasks} onComplete={handleComplete} showToast={showToast} />
         ) : page === "communications" ? (
           <CommunicationsPage
             navigate={navigate}

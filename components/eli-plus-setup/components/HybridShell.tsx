@@ -7,6 +7,10 @@ import {
   Mail,
   Phone,
   PhoneForwarded,
+  Users,
+  CreditCard,
+  Wrench,
+  RefreshCw,
   Rocket,
   CheckCircle2,
   AlertCircle,
@@ -24,6 +28,10 @@ const SUB_ITEMS = [
   { id: "email"              as PageId, label: "Email Integration",         icon: Mail,            taskIds: [] as string[], indent: false },
   { id: "ivr-setup"          as PageId, label: "IVR Setup",                 icon: PhoneForwarded,  taskIds: [] as string[], indent: false },
   { id: "communications"     as PageId, label: "Communications",            icon: Phone,           taskIds: [] as string[], indent: false },
+  { id: "leasing"            as PageId, label: "Leasing AI",                icon: Users,           taskIds: [] as string[], indent: false },
+  { id: "payments"           as PageId, label: "Payments AI",               icon: CreditCard,      taskIds: [] as string[], indent: false },
+  { id: "maintenance"        as PageId, label: "Maintenance AI",            icon: Wrench,          taskIds: [] as string[], indent: false },
+  { id: "renewals"           as PageId, label: "Renewals AI",               icon: RefreshCw,       taskIds: [] as string[], indent: false },
 ]
 
 const STATUS: Partial<Record<PageId, "complete" | "warning" | "blocked">> = {}
