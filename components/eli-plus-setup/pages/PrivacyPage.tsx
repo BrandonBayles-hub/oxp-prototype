@@ -1549,7 +1549,7 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
   return (
     <TooltipProvider delayDuration={200}>
     <div className="flex flex-col min-h-full bg-stone-50">
-      <div className="flex-1 p-6 md:p-8 space-y-5 max-w-[60%]">
+      <div className="flex-1 p-6 md:p-8 space-y-5 max-w-[50%]">
 
         {/* ── Page header ── */}
         <div>
