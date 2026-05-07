@@ -1030,10 +1030,7 @@ function ActionCard({
   const [multiQ, setMultiQ]             = useState("")
   const [ppDraft, setPpDraft]           = useState(() => (isFailed ? ppUrl : ""))
   const [verifyStatus, setVerifyStatus] = useState<"idle" | "checking" | "ok" | "fail">("idle")
-  const [scrapeBusy, setScrapeBusy]     = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const scrapeRef   = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const lastScrapeHost = useRef("")
 
   const resolvedWebsite = isMultiUnresolved
     ? (useCustom ? customUrl : multiDraft)
@@ -1058,23 +1055,7 @@ function ActionCard({
 
   useEffect(() => { setWebsiteDraft(websiteUrl) }, [websiteUrl])
 
-  // AI auto-scrape: when website host changes, briefly "crawl" then pre-fill policy URL (empty only)
-  useEffect(() => {
-    if (scrapeRef.current) clearTimeout(scrapeRef.current)
-    const base = normalizeSiteInput(resolvedWebsite)
-    if (!base || !websiteReadyForPolicy || isFailed) return
-    const hostKey = base.split("/")[0]
-    if (lastScrapeHost.current === hostKey) return
-    lastScrapeHost.current = hostKey
-    setScrapeBusy(true)
-    scrapeRef.current = setTimeout(() => {
-      const guess = `https://${hostKey}/privacy-policy`
-      setPpDraft(prev => (prev.trim() === "" ? guess : prev))
-      setScrapeBusy(false)
-    }, 120)
-    return () => { if (scrapeRef.current) clearTimeout(scrapeRef.current) }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resolvedWebsite, isFailed, websiteReadyForPolicy])
+  // Auto-scrape disabled for demo — policy URL stays blank until user types it
 
   // Heartbeat / carrier-ready ping — debounced, no manual Verify
   useEffect(() => {
