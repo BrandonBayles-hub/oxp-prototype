@@ -35,6 +35,9 @@ import {
   BarChart3,
   Settings,
   Phone,
+  PhoneCall,
+  PhoneForwarded,
+  Headphones,
   Mail,
   Building,
   Hash,
@@ -112,6 +115,7 @@ import { useClickToCallDemo } from "@/lib/click-to-call-demo-context";
 import { useConversationsDemo } from "@/lib/conversations-demo-context";
 import {
   ClickToCallFloatingPanel,
+  CLICK_TO_CALL_FOLLOWUP_UNASSIGNED,
   type ClickToCallSessionInput,
 } from "@/components/click-to-call-floating-panel";
 import {
@@ -125,6 +129,8 @@ import {
   ConversationBulkEmailCard,
   ConversationBulkEmailModal,
 } from "@/components/conversation-bulk-email";
+import { VoicemailPlayer } from "@/components/voicemail-player";
+import { MissedCallBubble } from "@/components/missed-call-bubble";
 
 const AVATAR_COLORS = [
   "bg-emerald-100 text-emerald-700",
@@ -420,7 +426,12 @@ function conversationMatchesAllThreadsInbox(c: ConversationItem): boolean {
 
 function isPublicThreadMessageForUnreadCount(m: ConversationMessage): boolean {
   if (m.type === "label_activity" || m.type === "thread_activity") return false;
-  return m.type === undefined || m.type === "message";
+  return (
+    m.type === undefined ||
+    m.type === "message" ||
+    m.type === "voicemail" ||
+    m.type === "missed_call"
+  );
 }
 
 /** Count resident public messages after the last agent/staff public message (unread batch when thread is marked unread). */
@@ -575,6 +586,17 @@ function ConversationListChannelChip({ channel }: { channel: string }) {
       </span>
     );
   }
+  if (channel === "Phone") {
+    return (
+      <span
+        className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-purple-200 bg-purple-50 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-purple-800 dark:border-purple-900/60 dark:bg-purple-950/50 dark:text-purple-200"
+        aria-label="Phone thread"
+      >
+        <PhoneCall className="h-3 w-3 shrink-0 opacity-80" aria-hidden />
+        Phone
+      </span>
+    );
+  }
   return (
     <span
       className="inline-flex max-w-[9rem] shrink-0 items-center gap-0.5 truncate rounded-md border border-border bg-muted/60 px-1.5 py-px text-[9px] font-semibold text-muted-foreground"
@@ -600,10 +622,66 @@ type EntrataProfileThreadRow = {
   channel: "SMS" | "Email";
   status: "active" | "closed";
   assignee: string | null;
+  labels?: string[];
   messages: EntrataProfileThreadMessage[];
   bulkOutboundEmail?: BulkOutboundEmailRef;
   emailSubject?: string;
 };
+
+/**
+ * Parse a thread message timestamp (e.g. "Aug 21 2025 · 9:10am") into ms.
+ * Returns 0 if it can't be parsed so unparseable rows sort to the bottom.
+ */
+function parseThreadMessageTimestamp(ts: string | undefined): number {
+  if (!ts) return 0;
+  const cleaned = ts.replace("·", " ").replace(/\s+/g, " ").trim();
+  const match = cleaned.match(
+    /^([A-Za-z]+)\s+(\d{1,2})\s+(\d{4})(?:\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm|AM|PM))?$/
+  );
+  if (!match) {
+    const fallback = Date.parse(cleaned);
+    return Number.isFinite(fallback) ? fallback : 0;
+  }
+  const [, monthStr, dayStr, yearStr, hourStr, minStr, mer] = match;
+  const months: Record<string, number> = {
+    jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+    jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+  };
+  const monthKey = monthStr.slice(0, 3).toLowerCase();
+  const month = months[monthKey];
+  if (month === undefined) return 0;
+  const day = parseInt(dayStr, 10);
+  const year = parseInt(yearStr, 10);
+  let hour = hourStr ? parseInt(hourStr, 10) % 12 : 0;
+  if (mer && mer.toLowerCase() === "pm") hour += 12;
+  const minute = minStr ? parseInt(minStr, 10) : 0;
+  return new Date(year, month, day, hour, minute).getTime();
+}
+
+/** Treat the most recent message timestamp on a thread as its close date. */
+function getThreadCloseTimestamp(thread: EntrataProfileThreadRow): number {
+  if (!thread.messages.length) return 0;
+  let latest = 0;
+  for (const m of thread.messages) {
+    const ms = parseThreadMessageTimestamp(m.timestamp);
+    if (ms > latest) latest = ms;
+  }
+  return latest;
+}
+
+function formatThreadCloseDate(thread: EntrataProfileThreadRow): string | null {
+  const ms = getThreadCloseTimestamp(thread);
+  if (!ms) return null;
+  try {
+    return new Date(ms).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return null;
+  }
+}
 
 function ConversationsContent() {
   const {
@@ -671,28 +749,38 @@ function ConversationsContent() {
   const { profileCommsPopupRequest } = useConversationsDemo();
 
   const clickToCallAssigneeOptions = useMemo(() => {
-    const opts: { value: string; label: string }[] = [
+    const rest = humanMembers
+      .filter((m) => m.name !== MY_INBOX_ASSIGNEE)
+      .map((m) => ({ value: m.name, label: m.name }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    return [
+      { value: CLICK_TO_CALL_FOLLOWUP_UNASSIGNED, label: "Unassigned" },
       { value: MY_INBOX_ASSIGNEE, label: "Assign to me" },
+      ...rest,
     ];
-    for (const m of humanMembers) {
-      if (m.name === MY_INBOX_ASSIGNEE) continue;
-      opts.push({ value: m.name, label: m.name });
-    }
-    return opts;
   }, [humanMembers]);
 
   const [clickToCallSession, setClickToCallSession] = useState<ClickToCallSessionInput | null>(null);
   const [callConfirmOpen, setCallConfirmOpen] = useState(false);
   const [callConfirmDraft, setCallConfirmDraft] = useState<ClickToCallSessionInput | null>(null);
+  const [showCallbackInput, setShowCallbackInput] = useState(false);
+  const [callbackNumber, setCallbackNumber] = useState("");
 
   const beginClickToCallForConversation = useCallback(
-    (convo: Pick<ConversationItem, "id" | "resident" | "property">) => {
-      const { residentPhone } = getVoiceOrSmsThreadRoutingNumbers(convo.resident, convo.property);
+    (convo: Pick<ConversationItem, "id" | "resident" | "property" | "contactType">) => {
+      const { residentPhone, propertyLine } = getVoiceOrSmsThreadRoutingNumbers(
+        convo.resident,
+        convo.property
+      );
       setCallConfirmDraft({
         conversationId: convo.id,
         residentName: convo.resident,
         propertyName: convo.property,
         phoneDisplay: formatClickToCallDisplayPhone(residentPhone),
+        propertyRingNumberDisplay: propertyLine
+          ? formatClickToCallDisplayPhone(propertyLine)
+          : undefined,
+        contactRole: convo.contactType?.toLowerCase() === "lead" ? "lead" : "resident",
       });
       setCallConfirmOpen(true);
     },
@@ -709,6 +797,7 @@ function ConversationsContent() {
   );
   /** `null` = all properties (default). */
   const [threadListPropertyKeys, setThreadListPropertyKeys] = useState<Set<string> | null>(null);
+  const [threadListCompletedFilter, setThreadListCompletedFilter] = useState<"active" | "completed">("active");
 
   const isEscalationLabel = (label: string) => label.endsWith("Escalation");
 
@@ -721,7 +810,8 @@ function ConversationsContent() {
   const threadFiltersAreNonDefault =
     threadListPropertyKeys !== null ||
     threadListConvoTypes.size !== 1 ||
-    !threadListConvoTypes.has("escalated");
+    !threadListConvoTypes.has("escalated") ||
+    threadListCompletedFilter !== "active";
 
   const threadListConvoSummary = useMemo(() => {
     const parts: string[] = [];
@@ -860,16 +950,21 @@ function ConversationsContent() {
     return threadListConvoFiltered.filter((c) => threadListPropertyKeys.has(c.property));
   }, [threadListConvoFiltered, threadListPropertyKeys]);
 
+  const threadListCompletedFiltered = useMemo(() => {
+    if (threadListCompletedFilter === "active") return threadListFiltered.filter((c) => c.status === "open");
+    return threadListFiltered.filter((c) => c.status === "resolved");
+  }, [threadListFiltered, threadListCompletedFilter]);
+
   const filtered = useMemo(() => {
-    if (!searchQuery.trim()) return threadListFiltered;
+    if (!searchQuery.trim()) return threadListCompletedFiltered;
     const q = searchQuery.toLowerCase();
-    return threadListFiltered.filter(
+    return threadListCompletedFiltered.filter(
       (c) =>
         c.resident.toLowerCase().includes(q) ||
         c.preview.toLowerCase().includes(q) ||
         c.labels.some((l) => l.toLowerCase().includes(q))
     );
-  }, [threadListFiltered, searchQuery]);
+  }, [threadListCompletedFiltered, searchQuery]);
 
   const myInboxUnreadCount = useMemo(
     () =>
@@ -1072,6 +1167,7 @@ function ConversationsContent() {
     return [
     {
       property: "Sun Valley", type: "Facilities", channel: "SMS", status: "active", assignee: "Court White",
+      labels: ["Resident", "Maintenance AI", "Work Order"],
       messages: [
         { role: "user" as const, text: "Hi, my kitchen sink has been leaking for two days now. Can someone come take a look?", timestamp: "Sep 15 2025 · 3:12pm" },
         { role: "agent" as const, text: "I'm sorry to hear that! I've submitted a work order for your kitchen sink leak. A maintenance technician will reach out to schedule a time.", timestamp: "Sep 15 2025 · 3:14pm" },
@@ -1081,6 +1177,7 @@ function ConversationsContent() {
     },
     {
       property: "Sun Valley", type: "Office", channel: "SMS", status: "active", assignee: null,
+      labels: ["Resident", "Payments AI"],
       messages: [
         { role: "user" as const, text: "I noticed a late fee on my account but I paid rent on time. Can you look into this?", timestamp: "Sep 14 2025 · 10:05am" },
         { role: "staff" as const, text: "Let me pull up your payment history. One moment please.", timestamp: "Sep 14 2025 · 10:08am" },
@@ -1090,6 +1187,7 @@ function ConversationsContent() {
     },
     {
       property: "Sun Valley", type: "Facilities", channel: "SMS", status: "active", assignee: "Jane Doe",
+      labels: ["Resident", "Maintenance AI", "Work Order"],
       messages: [
         { role: "user" as const, text: "The A/C in my unit isn't blowing cold air. It's been warm all day.", timestamp: "Sep 13 2025 · 1:30pm" },
         { role: "agent" as const, text: "I'm sorry about the discomfort. I've created a work order for your A/C unit. Our maintenance team will be in touch to schedule a visit.", timestamp: "Sep 13 2025 · 1:32pm" },
@@ -1100,6 +1198,7 @@ function ConversationsContent() {
     },
     {
       property: "Sun Valley", type: "Leasing", channel: "Email", status: "closed", assignee: "Court White",
+      labels: ["Resident", "Renewals AI", "Renewal Offer"],
       messages: [
         { role: "user" as const, text: "Hi, I'm interested in renewing my lease. What are the renewal options?", timestamp: "Aug 20 2025 · 9:00am" },
         { role: "agent" as const, text: "Great to hear you'd like to stay! We have 6-month and 12-month renewal options available. I'll have our leasing team send over the details.", timestamp: "Aug 20 2025 · 9:03am" },
@@ -1110,10 +1209,36 @@ function ConversationsContent() {
     },
     {
       property: "Sun Valley", type: "Office", channel: "SMS", status: "closed", assignee: "Court White",
+      labels: ["Resident", "Payments AI"],
       messages: [
         { role: "user" as const, text: "I need a copy of my payment history for the last 6 months for my tax filing.", timestamp: "Aug 10 2025 · 2:00pm" },
         { role: "staff" as const, text: "Of course! I've generated a ledger statement for the past 6 months and uploaded it to your resident portal under Documents.", timestamp: "Aug 10 2025 · 2:15pm" },
         { role: "user" as const, text: "Perfect, I see it. Thank you!", timestamp: "Aug 10 2025 · 2:20pm" },
+      ],
+    },
+    {
+      property: "Sun Valley", type: "Facilities", channel: "SMS", status: "closed", assignee: "Jane Doe",
+      labels: ["Resident", "Work Order"],
+      messages: [
+        { role: "user" as const, text: "The garage gate clicker stopped working again.", timestamp: "Jul 18 2025 · 4:42pm" },
+        { role: "staff" as const, text: "Sorry about that. I've reprogrammed your remote and tested it just now — please let me know if it gives you any more trouble.", timestamp: "Jul 18 2025 · 5:01pm" },
+        { role: "user" as const, text: "Working great, thank you!", timestamp: "Jul 18 2025 · 5:10pm" },
+      ],
+    },
+    {
+      property: "Sun Valley", type: "Leasing", channel: "Email", status: "closed", assignee: "Mark Lee",
+      labels: ["Resident", "Leasing AI"],
+      messages: [
+        { role: "user" as const, text: "Following up on the parking permit transfer to my new vehicle.", timestamp: "Jun 30 2025 · 10:15am" },
+        { role: "staff" as const, text: "Got it — transferred the permit to your new plate and emailed the updated decal info.", timestamp: "Jun 30 2025 · 11:02am" },
+      ],
+    },
+    {
+      property: "Sun Valley", type: "Office", channel: "SMS", status: "closed", assignee: "Court White",
+      labels: ["Resident"],
+      messages: [
+        { role: "user" as const, text: "Can you confirm the office is closed on the Fourth of July?", timestamp: "Jun 15 2025 · 9:30am" },
+        { role: "staff" as const, text: "Yes, the leasing office will be closed July 4th and reopen on the 5th at 9am.", timestamp: "Jun 15 2025 · 9:45am" },
       ],
     },
     ];
@@ -1127,6 +1252,7 @@ function ConversationsContent() {
         channel: "Email",
         status: "active",
         assignee: selected.assignee,
+        labels: selected.labels,
         bulkOutboundEmail: selected.bulkOutboundEmail,
         emailSubject: selected.emailSubject,
         messages: selected.messages
@@ -1746,6 +1872,24 @@ function ConversationsContent() {
                     </div>
                   </PopoverContent>
                 </Popover>
+              </div>
+
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Completed filter
+                </p>
+                <Select
+                  value={threadListCompletedFilter}
+                  onValueChange={(v) => setThreadListCompletedFilter(v as "active" | "completed")}
+                >
+                  <SelectTrigger className="h-8 w-full text-xs font-normal">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           )}
@@ -2525,6 +2669,50 @@ function ConversationsContent() {
 
                   if (msg.type === "thread_activity" && msg.threadActivity) {
                     return <ConversationThreadActivityRow key={idx} message={msg} />;
+                  }
+
+                  if (msg.type === "missed_call" && msg.missedCall) {
+                    return (
+                      <div key={idx} className="flex flex-col items-start gap-1">
+                        <MissedCallBubble
+                          fromNumber={msg.missedCall.fromNumber}
+                          attemptCount={msg.missedCall.attemptCount}
+                          rangForSec={msg.missedCall.rangForSec}
+                          onCallBack={
+                            clickToCallEnabled
+                              ? () => beginClickToCallForConversation(selected)
+                              : undefined
+                          }
+                        />
+                        {msg.timestamp && (
+                          <p className="pl-1 text-[10px] text-muted-foreground">
+                            {msg.timestamp}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  if (msg.type === "voicemail" && msg.voicemail) {
+                    return (
+                      <div key={idx} className="flex flex-col items-start gap-1">
+                        <VoicemailPlayer
+                          durationSec={msg.voicemail.durationSec}
+                          transcript={msg.voicemail.transcript}
+                          fromNumber={msg.voicemail.fromNumber}
+                          onCallBack={
+                            clickToCallEnabled
+                              ? () => beginClickToCallForConversation(selected)
+                              : undefined
+                          }
+                        />
+                        {msg.timestamp && (
+                          <p className="pl-1 text-[10px] text-muted-foreground">
+                            {msg.timestamp}
+                          </p>
+                        )}
+                      </div>
+                    );
                   }
 
                   if (msg.type === "label_activity" && msg.labelActivity) {
@@ -3662,6 +3850,26 @@ function ConversationsContent() {
                       if (msg.type === "thread_activity" && msg.threadActivity) {
                         return <ConversationThreadActivityRow key={idx} message={msg} />;
                       }
+                      if (msg.type === "missed_call" && msg.missedCall) {
+                        return (
+                          <MissedCallBubble
+                            key={idx}
+                            fromNumber={msg.missedCall.fromNumber}
+                            attemptCount={msg.missedCall.attemptCount}
+                            rangForSec={msg.missedCall.rangForSec}
+                          />
+                        );
+                      }
+                      if (msg.type === "voicemail" && msg.voicemail) {
+                        return (
+                          <VoicemailPlayer
+                            key={idx}
+                            durationSec={msg.voicemail.durationSec}
+                            transcript={msg.voicemail.transcript}
+                            fromNumber={msg.voicemail.fromNumber}
+                          />
+                        );
+                      }
                       if (msg.type === "label_activity" && msg.labelActivity) {
                         const { actor, labelsAdded } = msg.labelActivity;
                         return (
@@ -3929,22 +4137,38 @@ function ConversationsContent() {
               <>
                 {/* Header */}
                 <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4 shrink-0">
-                  <div className="flex items-center gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
                     <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-200 text-[11px] font-bold text-gray-600">
                       {initials(selected.resident)}
                     </div>
-                    <span className="text-sm font-semibold text-gray-900">{selected.resident}</span>
+                    <span className="truncate text-sm font-semibold text-gray-900">
+                      {selected.resident}
+                    </span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setThreadsPanelOpen(false);
-                      setProfilePanelInboxOpen(false);
-                    }}
-                    className="text-gray-400 hover:text-gray-600 transition-colors"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {clickToCallEnabled && (
+                      <button
+                        type="button"
+                        title="Call primary number"
+                        onClick={() => beginClickToCallForConversation(selected)}
+                        className="flex h-8 items-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 text-[11px] font-medium text-gray-700 hover:bg-gray-50"
+                      >
+                        <Phone className="h-3.5 w-3.5 text-gray-500" />
+                        Call
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setThreadsPanelOpen(false);
+                        setProfilePanelInboxOpen(false);
+                      }}
+                      className="flex h-8 w-8 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                      aria-label="Close profile panel"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Threads */}
@@ -3967,51 +4191,87 @@ function ConversationsContent() {
                     ))}
                   </div>
                   <div className="space-y-5">
-                    {profilePanelThreads.filter((t) => t.status === threadsFilter).map((thread, i) => {
-                      const globalIdx = profilePanelThreads.indexOf(thread);
-                      return (
-                      <div
-                        key={i}
-                        className="flex items-start gap-3 cursor-pointer rounded-lg p-1.5 -mx-1.5 transition-colors hover:bg-gray-50"
-                        onClick={() => {
-                          setProfilePanelInboxOpen(false);
-                          setNewThreadOutbound(null);
-                          setOpenThreadIdx(globalIdx);
-                        }}
-                      >
-                        <div className="mt-0.5 flex items-center">
-                          <span className={`inline-block h-2 w-2 rounded-full ${thread.status === "active" ? "bg-blue-500" : "bg-transparent"}`} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[13px] font-semibold text-gray-900">{thread.property}: {thread.type}</p>
-                          {getThreadAssignee(globalIdx) && <p className="text-[11px] text-gray-500 mt-0.5">Active: {getThreadAssignee(globalIdx)}</p>}
-                          <span className="mt-1 inline-block rounded bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">{thread.channel}</span>
-                        </div>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <button
-                              className={
-                                getThreadAssignee(globalIdx)
-                                  ? `flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[9px] font-bold transition-colors hover:ring-2 hover:ring-gray-300 ${avatarColor(getThreadAssignee(globalIdx)!)}`
-                                  : "shrink-0 flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-gray-300 text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
-                              }
-                              title={getThreadAssignee(globalIdx) ? `Assigned to ${getThreadAssignee(globalIdx)}. Click to reassign.` : "Assign someone to this thread"}
-                              onClick={(e) => e.stopPropagation()}
+                    {profilePanelThreads
+                        .map((thread, originalIdx) => ({ thread, originalIdx }))
+                        .filter(({ thread }) => thread.status === threadsFilter)
+                        .sort((a, b) => {
+                          const aTs = getThreadCloseTimestamp(a.thread);
+                          const bTs = getThreadCloseTimestamp(b.thread);
+                          return bTs - aTs;
+                        })
+                        .map(({ thread, originalIdx }, i) => {
+                          const globalIdx = originalIdx;
+                          const assignee = getThreadAssignee(globalIdx);
+                          const dateLabel = formatThreadCloseDate(thread);
+                          const isClosed = thread.status === "closed";
+                          return (
+                            <div
+                              key={i}
+                              className="flex items-start gap-3 cursor-pointer rounded-lg p-1.5 -mx-1.5 transition-colors hover:bg-gray-50"
+                              onClick={() => {
+                                setProfilePanelInboxOpen(false);
+                                setNewThreadOutbound(null);
+                                setOpenThreadIdx(globalIdx);
+                              }}
                             >
-                              {getThreadAssignee(globalIdx) ? initials(getThreadAssignee(globalIdx)!) : <Plus className="h-4 w-4" />}
-                            </button>
-                          </PopoverTrigger>
-                          <PopoverContent className="z-[70] w-[280px] p-0" align="end" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-                            <ThreadAssignPicker
-                              agents={THREAD_AGENTS}
-                              currentAssignee={getThreadAssignee(globalIdx)}
-                              onAssign={(name) => assignThread(globalIdx, name)}
-                            />
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-                      );
-                    })}
+                              <div className="mt-0.5 flex items-center">
+                                <span className={`inline-block h-2 w-2 rounded-full ${thread.status === "active" ? "bg-blue-500" : "bg-transparent"}`} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[13px] font-semibold text-gray-900">{thread.property}: {thread.type}</p>
+                                {assignee && (
+                                  <p className="text-[11px] text-gray-500 mt-0.5">
+                                    {isClosed ? `Closed by ${assignee}` : assignee}
+                                  </p>
+                                )}
+                                {dateLabel && (
+                                  <p className="text-[11px] text-gray-500 mt-0.5">
+                                    {isClosed ? `Closed on ${dateLabel}` : `Last message ${dateLabel}`}
+                                  </p>
+                                )}
+                                <div className="mt-1 flex flex-wrap items-center gap-1">
+                                  {(thread.labels ?? []).map((label) => (
+                                    <Badge
+                                      key={label}
+                                      variant={isEscalationLabel(label) ? "destructive" : "secondary"}
+                                      className="h-auto px-1.5 py-0 text-[10px]"
+                                    >
+                                      {label}
+                                    </Badge>
+                                  ))}
+                                  <Badge
+                                    variant="secondary"
+                                    className="h-auto px-1.5 py-0 text-[10px]"
+                                  >
+                                    {thread.channel}
+                                  </Badge>
+                                </div>
+                              </div>
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <button
+                                    className={
+                                      assignee
+                                        ? `flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[9px] font-bold transition-colors hover:ring-2 hover:ring-gray-300 ${avatarColor(assignee)}`
+                                        : "shrink-0 flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-gray-300 text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
+                                    }
+                                    title={assignee ? `Assigned to ${assignee}. Click to reassign.` : "Assign someone to this thread"}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {assignee ? initials(assignee) : <Plus className="h-4 w-4" />}
+                                  </button>
+                                </PopoverTrigger>
+                                <PopoverContent className="z-[70] w-[280px] p-0" align="end" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+                                  <ThreadAssignPicker
+                                    agents={THREAD_AGENTS}
+                                    currentAssignee={assignee}
+                                    onAssign={(name) => assignThread(globalIdx, name)}
+                                  />
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+                          );
+                        })}
                   </div>
                   {/* New Thread button */}
                   <button
@@ -4172,48 +4432,199 @@ function ConversationsContent() {
         open={callConfirmOpen}
         onOpenChange={(open) => {
           setCallConfirmOpen(open);
-          if (!open) setCallConfirmDraft(null);
+          if (!open) {
+            setCallConfirmDraft(null);
+            setShowCallbackInput(false);
+            setCallbackNumber("");
+          }
         }}
       >
-        <DialogContent className="gap-6 sm:max-w-md">
-          <DialogHeader>
+        <DialogContent className="gap-5 sm:max-w-md">
+          <DialogHeader className="space-y-1.5">
             <DialogTitle>Place this call?</DialogTitle>
             <DialogDescription className="text-sm leading-relaxed text-muted-foreground">
               {callConfirmDraft ? (
                 <>
-                  You are about to call{" "}
-                  <span className="font-semibold">{callConfirmDraft.residentName}</span> on{" "}
-                  <span className="font-semibold tabular-nums">{callConfirmDraft.phoneDisplay}</span>{" "}
-                  (primary on file). Continue?
+                  You are about to call the {callConfirmDraft.contactRole ?? "resident"},{" "}
+                  <span className="font-semibold text-foreground">
+                    {callConfirmDraft.residentName}
+                  </span>
+                  , on{" "}
+                  <span className="font-semibold tabular-nums text-foreground">
+                    {callConfirmDraft.phoneDisplay}
+                  </span>{" "}
+                  (primary on file). Choose how you&apos;d like to connect.
                 </>
               ) : (
                 "Confirm the outbound call."
               )}
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter className="flex w-full flex-col-reverse gap-3 pt-1 sm:flex-row sm:justify-end sm:gap-3 sm:pt-0">
+
+          <div className="grid gap-2.5">
+            {/* Option A — VoIP / computer audio */}
+            <button
+              type="button"
+              className="group flex items-start gap-3 rounded-lg border border-border bg-background p-3 text-left transition hover:border-primary/60 hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => {
+                if (callConfirmDraft) {
+                  setClickToCallSession({ ...callConfirmDraft, origin: "voip" });
+                }
+                setCallConfirmOpen(false);
+                setCallConfirmDraft(null);
+                setShowCallbackInput(false);
+                setCallbackNumber("");
+              }}
+            >
+              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                <Headphones className="h-4 w-4" aria-hidden />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold text-foreground">
+                  Call from computer (VoIP)
+                </span>
+                <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
+                  Use your computer&apos;s mic and speakers to connect directly to the{" "}
+                  {callConfirmDraft?.contactRole ?? "resident"}.
+                </span>
+              </span>
+            </button>
+
+            {/* Option B — Click-to-call to another number */}
+            {!showCallbackInput ? (
+              <button
+                type="button"
+                className="group flex items-start gap-3 rounded-lg border border-border bg-background p-3 text-left transition hover:border-primary/60 hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => {
+                  setShowCallbackInput(true);
+                  setCallbackNumber(callConfirmDraft?.propertyRingNumberDisplay ?? "");
+                }}
+              >
+                <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                  <PhoneForwarded className="h-4 w-4" aria-hidden />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold text-foreground">
+                    Call from another number
+                  </span>
+                  <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
+                    We&apos;ll ring the number your property set for callbacks
+                    {callConfirmDraft?.propertyRingNumberDisplay ? (
+                      <>
+                        {" "}
+                        (
+                        <span className="font-mono tabular-nums text-foreground">
+                          {callConfirmDraft.propertyRingNumberDisplay}
+                        </span>
+                        )
+                      </>
+                    ) : null}
+                    , or a custom number from your profile. Once you pick up, we&apos;ll connect you
+                    to {callConfirmDraft?.residentName ?? "the contact"}.
+                  </span>
+                </span>
+              </button>
+            ) : (
+              <div className="rounded-lg border border-primary/50 bg-accent/40 p-3">
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                    <PhoneForwarded className="h-4 w-4" aria-hidden />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-foreground">
+                      Call from another number
+                    </p>
+                    <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
+                      We&apos;ll ring this number first. Once you pick up, we&apos;ll connect the{" "}
+                      {callConfirmDraft?.contactRole ?? "resident"},{" "}
+                      <span className="font-semibold text-foreground">
+                        {callConfirmDraft?.residentName ?? "contact"}
+                      </span>
+                      .
+                    </p>
+                    <div className="mt-2.5 space-y-1.5">
+                      <label
+                        htmlFor="callback-number"
+                        className="flex items-center justify-between text-[11px] font-medium text-muted-foreground"
+                      >
+                        <span>Number we&apos;ll ring</span>
+                        {callConfirmDraft?.propertyRingNumberDisplay && (
+                          <span className="font-normal text-[10px] text-muted-foreground/80">
+                            Default: property callback line
+                          </span>
+                        )}
+                      </label>
+                      <Input
+                        id="callback-number"
+                        type="tel"
+                        inputMode="tel"
+                        autoFocus
+                        value={callbackNumber}
+                        onChange={(e) => setCallbackNumber(e.target.value)}
+                        placeholder="+1 (555) 123-4567"
+                        className="h-9 font-mono tabular-nums"
+                      />
+                      <p className="text-[10px] leading-snug text-muted-foreground">
+                        {callConfirmDraft?.propertyRingNumberDisplay
+                          ? "Pre-filled with the number your property chose for callbacks. Edit to use a profile or custom number for this call only."
+                          : "Use a number from your profile, or enter a custom one for this call."}
+                      </p>
+                    </div>
+                    <div className="mt-3 flex items-center justify-end gap-2">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8"
+                        onClick={() => {
+                          setShowCallbackInput(false);
+                          setCallbackNumber("");
+                        }}
+                      >
+                        Back
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-8 gap-1.5"
+                        disabled={callbackNumber.trim().length < 7}
+                        onClick={() => {
+                          if (callConfirmDraft && callbackNumber.trim()) {
+                            setClickToCallSession({
+                              ...callConfirmDraft,
+                              origin: "callback",
+                              callbackNumberDisplay: callbackNumber.trim(),
+                            });
+                          }
+                          setCallConfirmOpen(false);
+                          setCallConfirmDraft(null);
+                          setShowCallbackInput(false);
+                          setCallbackNumber("");
+                        }}
+                      >
+                        <Phone className="h-3.5 w-3.5 shrink-0" />
+                        Ring this number
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="flex w-full flex-col-reverse gap-3 border-t border-border pt-4 sm:flex-row sm:justify-end sm:gap-3">
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               className="w-full sm:w-auto"
               onClick={() => {
                 setCallConfirmOpen(false);
                 setCallConfirmDraft(null);
+                setShowCallbackInput(false);
+                setCallbackNumber("");
               }}
             >
               Cancel
-            </Button>
-            <Button
-              type="button"
-              className="w-full gap-2 sm:w-auto"
-              onClick={() => {
-                if (callConfirmDraft) setClickToCallSession(callConfirmDraft);
-                setCallConfirmOpen(false);
-                setCallConfirmDraft(null);
-              }}
-            >
-              <Phone className="h-4 w-4 shrink-0" />
-              Yes, call
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -4223,7 +4634,7 @@ function ConversationsContent() {
         session={clickToCallSession}
         onDismiss={() => setClickToCallSession(null)}
         assigneeOptions={clickToCallAssigneeOptions}
-        defaultAssigneeValue={MY_INBOX_ASSIGNEE}
+        defaultAssigneeValue={CLICK_TO_CALL_FOLLOWUP_UNASSIGNED}
       />
     </div>
   );

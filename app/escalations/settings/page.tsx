@@ -52,6 +52,7 @@ import {
   ALL_WEEKDAYS,
   getSpecialtyDetail,
   type TaskTemplate,
+  type Specialty,
   type SpecialtyTaskRepeats,
   type SpecialtyTaskPriority,
   type AssignmentMode,
@@ -794,10 +795,16 @@ function SpecialtiesView() {
   const router = useRouter();
   const [specialties, setSpecialties] = useState(SPECIALTIES);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [specialtyToDelete, setSpecialtyToDelete] = useState<Specialty | null>(null);
 
   const handleAddSpecialty = (name: string) => {
     const id = name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
     setSpecialties((prev) => [...prev, { id: `${id}-${Date.now()}`, name }]);
+  };
+
+  const handleDeleteSpecialty = (id: string) => {
+    setSpecialties((prev) => prev.filter((s) => s.id !== id));
+    setSpecialtyToDelete(null);
   };
 
   const details = useMemo(
@@ -832,7 +839,7 @@ function SpecialtiesView() {
               <th className="min-w-[70px] px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Tasks</th>
               <th className="min-w-[90px] px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Members</th>
               <th className="min-w-[140px] px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Assignment</th>
-              <th className="w-10 min-w-[48px] px-2 py-2.5" />
+              <th className="w-20 min-w-[80px] px-2 py-2.5" />
             </tr>
           </thead>
           <tbody>
@@ -846,7 +853,7 @@ function SpecialtiesView() {
                 <tr
                   key={s.id}
                   className="border-b border-border last:border-b-0 hover:bg-muted/20 transition-colors cursor-pointer"
-                  onClick={() => router.push(`/escalations/settings/specialty/${s.id}`)}
+                  onClick={() => router.push(`/escalations/settings/specialty/${s.id}/`)}
                 >
                   <td className="sticky left-0 z-10 min-w-[180px] border-r border-border bg-background px-4 py-3">
                     <span className="text-sm font-medium text-foreground">{s.name}</span>
@@ -870,15 +877,25 @@ function SpecialtiesView() {
                       {modeInfo.label}
                     </span>
                   </td>
-                  <td className="w-10 min-w-[48px] px-2 py-3 text-center">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                      onClick={(e) => { e.stopPropagation(); router.push(`/escalations/settings/specialty/${s.id}`); }}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
+                  <td className="w-20 min-w-[80px] px-2 py-3 text-center">
+                    <div className="flex items-center justify-center gap-0.5">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                        onClick={(e) => { e.stopPropagation(); router.push(`/escalations/settings/specialty/${s.id}/`); }}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                        onClick={(e) => { e.stopPropagation(); setSpecialtyToDelete(s); }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -899,6 +916,29 @@ function SpecialtiesView() {
         onOpenChange={setShowCreateDialog}
         onSave={handleAddSpecialty}
       />
+
+      <Dialog open={specialtyToDelete !== null} onOpenChange={(v) => { if (!v) setSpecialtyToDelete(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Specialty</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete <span className="font-medium text-foreground">{specialtyToDelete?.name}</span>? Tasks and member assignments for this specialty will no longer be available. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setSpecialtyToDelete(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => specialtyToDelete && handleDeleteSpecialty(specialtyToDelete.id)}
+            >
+              Delete Specialty
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

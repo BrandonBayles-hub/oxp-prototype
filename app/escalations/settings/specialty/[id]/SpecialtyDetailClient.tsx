@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { useRouter, useParams } from "next/navigation";
 import {
   ArrowLeft,
@@ -45,7 +46,15 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { useWorkforce } from "@/lib/workforce-context";
-import { CreateCustomTaskDialog } from "@/components/create-custom-task-dialog";
+
+/** TipTap lives in a separate client chunk (avoids flaky dev bundling on this page). */
+const CreateCustomTaskDialog = dynamic(
+  () =>
+    import("@/components/create-custom-task-dialog").then(
+      (mod) => mod.CreateCustomTaskDialog
+    ),
+  { ssr: false, loading: () => null }
+);
 import {
   getSpecialtyDetail,
   SYSTEM_TASK_CATALOG,
@@ -59,6 +68,7 @@ import {
   type SpecialtyTaskPriority,
   type Weekday,
   type SpecialtyTeammate,
+  type TeammateTaskParticipation,
   type SpecialtyAssignment,
   type AssignmentMode,
   type SmartDistributionConfig,
@@ -91,10 +101,19 @@ const PRIORITY_RANK: Record<string, number> = { P1: 0, P2: 1, P3: 2 };
 
 // ── Page ────────────────────────────────────────────────────────────────────
 
-export function SpecialtyDetailClient() {
+export function SpecialtyDetailClient({
+  initialSpecialtyId,
+}: {
+  /** Server-provided id (static export / first paint); `useParams` wins after hydration. */
+  initialSpecialtyId?: string;
+} = {}) {
   const router = useRouter();
-  const params = useParams<{ id: string }>();
-  const detail = getSpecialtyDetail(params.id);
+  const params = useParams();
+  const rawId = params?.id;
+  const fromParams =
+    typeof rawId === "string" ? rawId : Array.isArray(rawId) ? rawId[0] : undefined;
+  const specialtyId = fromParams ?? initialSpecialtyId;
+  const detail = specialtyId ? getSpecialtyDetail(specialtyId) : undefined;
 
   const [activeTab, setActiveTab] = useState<"tasks" | "teammates" | "assignment">("tasks");
   const [specialtyName, setSpecialtyName] = useState(detail?.specialty.name ?? "");
@@ -129,9 +148,9 @@ export function SpecialtyDetailClient() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-background">
+    <div className="flex min-h-0 flex-1 flex-col bg-background">
       {/* Top bar */}
-      <header className="flex shrink-0 items-center justify-between border-b border-border px-6 py-3">
+      <header className="flex shrink-0 items-center justify-between px-6 py-3">
         <div className="flex items-center gap-3">
           <button
             onClick={() => router.push("/escalations/settings")}
@@ -739,9 +758,8 @@ function EditTaskDialog({
   const isOpen = task !== null;
   const isCustom = task?.source === "custom";
 
-  const [loadedId, setLoadedId] = useState<string | null>(null);
-  if (task && task.id !== loadedId) {
-    setLoadedId(task.id);
+  useEffect(() => {
+    if (!task) return;
     setName(task.name);
     setWorkflow(task.workflow);
     setSchedule({
@@ -755,7 +773,7 @@ function EditTaskDialog({
     setDueIn(task.dueIn);
     setAssignee(task.assignee ?? "");
     setProperty(task.property ?? "");
-  }
+  }, [task]);
 
   const handleSave = () => {
     if (!task) return;
@@ -787,7 +805,6 @@ function EditTaskDialog({
   };
 
   const handleClose = () => {
-    setLoadedId(null);
     onOpenChange(false);
   };
 
@@ -1124,7 +1141,11 @@ function AddSystemTasksDialog({
 
 // ── Teammates Tab ───────────────────────────────────────────────────────────
 
-type TeammateSortKey = "name" | "permission" | "property";
+type TeammateSortKey = "name" | "permission" | "property" | "taskParticipation";
+
+function teammateParticipationLabel(t: SpecialtyTeammate): string {
+  return t.taskParticipation === "view-only" ? "View only" : "Assignable";
+}
 
 function getInitials(name: string): string {
   return name
@@ -1135,13 +1156,23 @@ function getInitials(name: string): string {
     .slice(0, 2);
 }
 
+function groupTeammateId(teamName: string) {
+  return `group:${encodeURIComponent(teamName)}`;
+}
+
 function TeammatesTab({ teammates: initialTeammates }: { teammates: SpecialtyTeammate[] }) {
-  const [teammates, setTeammates] = useState(initialTeammates);
+  const [teammates, setTeammates] = useState<SpecialtyTeammate[]>(() =>
+    initialTeammates.map((t) => ({
+      ...t,
+      taskParticipation: t.taskParticipation ?? "assignable",
+    }))
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [sort, setSort] = useState<{ key: TeammateSortKey; dir: SortDir } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [addSearch, setAddSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selectedTeams, setSelectedTeams] = useState<Set<string>>(new Set());
 
   const { humanMembers } = useWorkforce();
 
@@ -1152,16 +1183,28 @@ function TeammatesTab({ teammates: initialTeammates }: { teammates: SpecialtyTea
 
   const existingIds = useMemo(() => new Set(teammates.map((t) => t.id)), [teammates]);
 
+  const existingGroupTeamNames = useMemo(
+    () => new Set(teammates.filter((t) => t.permission === "Group").map((t) => t.name)),
+    [teammates]
+  );
+
   const availableMembers = useMemo(
-    () => humanMembers.filter((m) => !existingIds.has(m.id)),
-    [humanMembers, existingIds]
+    () =>
+      humanMembers.filter(
+        (m) =>
+          !existingIds.has(m.id) &&
+          !(m.team && existingGroupTeamNames.has(m.team))
+      ),
+    [humanMembers, existingIds, existingGroupTeamNames]
   );
 
   const addSearchLower = addSearch.toLowerCase().trim();
-  const filteredTeams = useMemo(
-    () => (addSearchLower ? teams.filter((t) => t.toLowerCase().includes(addSearchLower)) : teams),
-    [teams, addSearchLower]
-  );
+  const filteredTeams = useMemo(() => {
+    const q = addSearchLower;
+    return teams
+      .filter((t) => !existingGroupTeamNames.has(t))
+      .filter((t) => (q ? t.toLowerCase().includes(q) : true));
+  }, [teams, addSearchLower, existingGroupTeamNames]);
   const filteredMembers = useMemo(
     () =>
       addSearchLower
@@ -1184,50 +1227,61 @@ function TeammatesTab({ teammates: initialTeammates }: { teammates: SpecialtyTea
     });
   }, []);
 
-  const toggleTeam = useCallback(
-    (team: string) => {
-      const teamMemberIds = availableMembers.filter((m) => m.team === team).map((m) => m.id);
-      setSelected((prev) => {
-        const next = new Set(prev);
-        const allSelected = teamMemberIds.every((id) => next.has(id));
-        if (allSelected) {
-          teamMemberIds.forEach((id) => next.delete(id));
-        } else {
-          teamMemberIds.forEach((id) => next.add(id));
-        }
-        return next;
-      });
-    },
-    [availableMembers]
-  );
+  const toggleTeam = useCallback((team: string) => {
+    setSelectedTeams((prev) => {
+      const next = new Set(prev);
+      if (next.has(team)) next.delete(team);
+      else next.add(team);
+      return next;
+    });
+  }, []);
 
   const handleAddSelected = useCallback(() => {
-    const newTeammates: SpecialtyTeammate[] = humanMembers
-      .filter((m) => selected.has(m.id))
-      .map((m) => ({
-        id: m.id,
-        name: m.name,
-        permission: "User" as const,
-        properties: (m as Record<string, unknown>).properties
-          ? ((m as Record<string, unknown>).properties as string[])
-          : [],
-      }));
+    const newTeammates: SpecialtyTeammate[] = [];
+
+    selectedTeams.forEach((teamName) => {
+      newTeammates.push({
+        id: groupTeammateId(teamName),
+        name: teamName,
+        permission: "Group",
+        properties: [],
+        taskParticipation: "assignable",
+      });
+    });
+
+    humanMembers
+      .filter((m) => selected.has(m.id) && !(m.team && selectedTeams.has(m.team)))
+      .forEach((m) => {
+        newTeammates.push({
+          id: m.id,
+          name: m.name,
+          permission: "User",
+          properties: (m as Record<string, unknown>).properties
+            ? ((m as Record<string, unknown>).properties as string[])
+            : [],
+          taskParticipation: "assignable",
+        });
+      });
+
     setTeammates((prev) => [...prev, ...newTeammates]);
     setSelected(new Set());
+    setSelectedTeams(new Set());
     setAddSearch("");
     setAddOpen(false);
-  }, [humanMembers, selected]);
+  }, [humanMembers, selected, selectedTeams]);
 
   const filtered = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
+    const propertyLabel = (t: SpecialtyTeammate) =>
+      t.permission === "Group" ? "N/A" : t.properties.join(", ");
+
     let result = teammates.filter((t) => {
-      if (
-        q &&
-        !t.name.toLowerCase().includes(q) &&
-        !t.properties.some((p) => p.toLowerCase().includes(q))
-      )
-        return false;
-      return true;
+      if (!q) return true;
+      if (t.name.toLowerCase().includes(q)) return true;
+      if (t.permission.toLowerCase().includes(q)) return true;
+      if (teammateParticipationLabel(t).toLowerCase().includes(q)) return true;
+      const propStr = (t.permission === "Group" ? "n/a" : t.properties.join(", ")).toLowerCase();
+      return propStr.includes(q);
     });
 
     if (sort) {
@@ -1241,7 +1295,10 @@ function TeammatesTab({ teammates: initialTeammates }: { teammates: SpecialtyTea
             cmp = a.permission.localeCompare(b.permission);
             break;
           case "property":
-            cmp = a.properties.join(", ").localeCompare(b.properties.join(", "));
+            cmp = propertyLabel(a).localeCompare(propertyLabel(b));
+            break;
+          case "taskParticipation":
+            cmp = teammateParticipationLabel(a).localeCompare(teammateParticipationLabel(b));
             break;
         }
         return sort.dir === "asc" ? cmp : -cmp;
@@ -1255,16 +1312,26 @@ function TeammatesTab({ teammates: initialTeammates }: { teammates: SpecialtyTea
     setTeammates((prev) => prev.filter((t) => t.id !== id));
   };
 
+  const handleTaskParticipationChange = (id: string, value: TeammateTaskParticipation) => {
+    setTeammates((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, taskParticipation: value } : t))
+    );
+  };
+
   const thClass =
     "px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors";
 
   return (
     <>
       <h2 className="text-base font-semibold text-foreground">Teammates</h2>
+      <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">Task access:</span> Assignable teammates can be chosen as assignees.
+        View only is for oversight (for example, managers who need to see direct reports&apos; work on the escalations list without being in the assignment pool).
+      </p>
 
       {/* Toolbar */}
       <div className="mt-4 flex items-center gap-2">
-        <Popover open={addOpen} onOpenChange={(open) => { setAddOpen(open); if (!open) { setAddSearch(""); setSelected(new Set()); } }}>
+        <Popover open={addOpen} onOpenChange={(open) => { setAddOpen(open); if (!open) { setAddSearch(""); setSelected(new Set()); setSelectedTeams(new Set()); } }}>
           <PopoverTrigger asChild>
             <Button variant={teammates.length === 0 ? "default" : "outline"} size="sm" className="h-8 gap-1.5 text-xs">
               <Plus className="h-3.5 w-3.5" />
@@ -1291,9 +1358,8 @@ function TeammatesTab({ teammates: initialTeammates }: { teammates: SpecialtyTea
                   <div className="px-2 pt-2 pb-1">
                     <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Groups</p>
                     {filteredTeams.map((team) => {
-                      const teamMemberIds = availableMembers.filter((m) => m.team === team).map((m) => m.id);
-                      const allChecked = teamMemberIds.length > 0 && teamMemberIds.every((id) => selected.has(id));
-                      const someChecked = teamMemberIds.some((id) => selected.has(id));
+                      const teamSize = humanMembers.filter((m) => m.team === team).length;
+                      const checked = selectedTeams.has(team);
                       return (
                         <button
                           key={team}
@@ -1303,18 +1369,15 @@ function TeammatesTab({ teammates: initialTeammates }: { teammates: SpecialtyTea
                         >
                           <span className={cn(
                             "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
-                            allChecked
+                            checked
                               ? "border-primary bg-primary text-primary-foreground"
-                              : someChecked
-                                ? "border-primary bg-primary/20"
-                                : "border-muted-foreground/30"
+                              : "border-muted-foreground/30"
                           )}>
-                            {allChecked && <Check className="h-3 w-3" />}
-                            {someChecked && !allChecked && <span className="block h-0.5 w-2 bg-primary rounded" />}
+                            {checked && <Check className="h-3 w-3" />}
                           </span>
                           <Users className="h-3.5 w-3.5 text-muted-foreground" />
                           <span className="flex-1 truncate text-foreground">{team}</span>
-                          <span className="text-[10px] text-muted-foreground">{teamMemberIds.length}</span>
+                          <span className="text-[10px] text-muted-foreground">{teamSize}</span>
                         </button>
                       );
                     })}
@@ -1355,10 +1418,10 @@ function TeammatesTab({ teammates: initialTeammates }: { teammates: SpecialtyTea
                   <p className="px-3 py-4 text-center text-xs text-muted-foreground">No results found.</p>
                 )}
               </div>
-              {selected.size > 0 && (
+              {(selected.size > 0 || selectedTeams.size > 0) && (
                 <div className="border-t border-border p-2">
                   <Button size="sm" className="h-8 w-full text-xs" onClick={handleAddSelected}>
-                    Add {selected.size} Teammate{selected.size !== 1 ? "s" : ""}
+                    Add {selectedTeams.size + selected.size} Teammate{selectedTeams.size + selected.size !== 1 ? "s" : ""}
                   </Button>
                 </div>
               )}
@@ -1380,7 +1443,7 @@ function TeammatesTab({ teammates: initialTeammates }: { teammates: SpecialtyTea
 
       {/* Table */}
       <div className="mt-4 rounded-lg border border-border overflow-x-auto scrollbar-hover">
-        <table className="w-full min-w-[500px]">
+        <table className="w-full min-w-[720px]">
           <thead>
             <tr className="border-b border-border bg-muted/30">
               <th className={cn(thClass, "sticky left-0 z-10 min-w-[160px] border-r border-border bg-muted")} onClick={() => setSort(toggleSort(sort, "name"))}>
@@ -1392,6 +1455,10 @@ function TeammatesTab({ teammates: initialTeammates }: { teammates: SpecialtyTea
               </th>
               <th className={cn(thClass, "min-w-[140px]")} onClick={() => setSort(toggleSort(sort, "property"))}>
                 Property <SortIcon active={sort?.key === "property"} dir={sort?.dir ?? "asc"} />
+              </th>
+              <th className={cn(thClass, "min-w-[200px]")} onClick={() => setSort(toggleSort(sort, "taskParticipation"))}>
+                Task access{" "}
+                <SortIcon active={sort?.key === "taskParticipation"} dir={sort?.dir ?? "asc"} />
               </th>
               <th className="w-10 min-w-[48px] px-2 py-2.5" />
             </tr>
@@ -1405,16 +1472,40 @@ function TeammatesTab({ teammates: initialTeammates }: { teammates: SpecialtyTea
                 <td className="sticky left-0 z-10 min-w-[160px] border-r border-border bg-background px-4 py-3">
                   <div className="flex items-center gap-3">
                     <Avatar className="h-8 w-8">
-                      <AvatarFallback className="text-xs font-medium">
-                        {getInitials(tm.name)}
-                      </AvatarFallback>
+                      {tm.permission === "Group" ? (
+                        <AvatarFallback className="bg-muted text-muted-foreground">
+                          <Users className="h-4 w-4" />
+                        </AvatarFallback>
+                      ) : (
+                        <AvatarFallback className="text-xs font-medium">
+                          {getInitials(tm.name)}
+                        </AvatarFallback>
+                      )}
                     </Avatar>
                     <span className="text-sm font-medium text-foreground">{tm.name}</span>
                   </div>
                 </td>
                 <td className="min-w-[120px] px-4 py-3 text-sm text-muted-foreground">{tm.permission}</td>
                 <td className="min-w-[140px] px-4 py-3 text-sm text-muted-foreground">
-                  {tm.properties.join(", ")}
+                  {tm.permission === "Group" ? "N/A" : tm.properties.join(", ")}
+                </td>
+                <td className="min-w-[200px] px-4 py-3">
+                  <Select
+                    value={tm.taskParticipation ?? "assignable"}
+                    onValueChange={(v) => handleTaskParticipationChange(tm.id, v as TeammateTaskParticipation)}
+                  >
+                    <SelectTrigger className="h-8 max-w-[220px] text-xs" onClick={(e) => e.stopPropagation()}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="assignable" className="text-xs">
+                        Assignable
+                      </SelectItem>
+                      <SelectItem value="view-only" className="text-xs">
+                        View only
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
                 </td>
                 <td className="w-10 min-w-[48px] px-2 py-3 text-center">
                   <Button
@@ -1430,7 +1521,7 @@ function TeammatesTab({ teammates: initialTeammates }: { teammates: SpecialtyTea
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
                   No teammates match the current search.
                 </td>
               </tr>

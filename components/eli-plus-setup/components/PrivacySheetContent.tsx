@@ -20,8 +20,6 @@ export interface TemplateFields {
   effectiveDate: string
   lastUpdated: string
   // SMS & Communications
-  smsPhone: string
-  smsEmail: string
   messageFrequency: string
   chatbotProvider: string
   // Privacy Contact
@@ -47,8 +45,6 @@ const DEFAULT_FIELDS: TemplateFields = {
   companyName: "Sunset Property Group LLC",
   effectiveDate: "April 15, 2026",
   lastUpdated: "April 15, 2026",
-  smsPhone: "(602) 555-0100",
-  smsEmail: "sms@sunsetproperties.com",
   messageFrequency: "4",
   chatbotProvider: "Entrata",
   privacyEmail: "privacy@sunsetproperties.com",
@@ -68,7 +64,7 @@ const DEFAULT_FIELDS: TemplateFields = {
 }
 
 const REQUIRED_FIELDS: (keyof TemplateFields)[] = [
-  "companyName", "effectiveDate", "smsPhone", "smsEmail",
+  "companyName", "effectiveDate",
   "messageFrequency", "chatbotProvider", "privacyEmail",
   "companyAddress", "appealContact",
 ]
@@ -105,8 +101,6 @@ const FIELD_SECTIONS: Array<{
     label: "SMS & Communications",
     required: true,
     fields: [
-      { key: "smsPhone", label: "Help / opt-out phone number", placeholder: "(602) 555-0100", hint: "Disclosed to residents for SMS opt-out" },
-      { key: "smsEmail", label: "Help / opt-out email", placeholder: "sms@company.com" },
       { key: "messageFrequency", label: "Approx. messages per month", placeholder: "4", hint: "Required by carriers (FCC)" },
       { key: "chatbotProvider", label: "Chatbot provider name", placeholder: "Entrata", hint: "Operator of your leasing chatbot" },
     ],
@@ -214,7 +208,7 @@ By providing your phone number and consenting to receive text messages, you agre
 
 Opt-in consent for text messaging is voluntary. You are not required to consent to text messaging as a condition of entering into a lease.
 
-Opt-out. You may opt out of promotional text messages at any time by replying STOP. For help, reply HELP or contact us at ${f.smsPhone} or ${f.smsEmail}.
+Opt-out. You may opt out of promotional text messages at any time by replying STOP to any message. Opting out of promotional messages will not affect transactional messages related to your lease.
 
 Message frequency. You will receive approximately ${f.messageFrequency} messages per month. Message and data rates may apply. Carriers are not liable for delayed or undelivered messages.
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   AlertCircle,
@@ -58,6 +58,14 @@ import {
 import { getEmailThreadRoutingAddresses } from "@/lib/email-signature";
 import { useAgents } from "@/lib/agents-context";
 import { useWorkforce } from "@/lib/workforce-context";
+import { MemberDetailSheet } from "@/components/member-detail-sheet";
+import {
+  buildLeaderIds,
+  buildTasksByAssignee,
+  buildWorkforceChildrenMap,
+  getMemberMetric,
+  type MemberMetric,
+} from "@/lib/workforce-member-metrics";
 import { useRole, matchesRoleProperties } from "@/lib/role-context";
 import { useR1Release } from "@/lib/r1-release-context";
 import { EscalationDetailSheet } from "@/components/escalation-detail-sheet";
@@ -326,7 +334,12 @@ function ICCommandCenter() {
 
 function AdminCommandCenter() {
   const { items } = useEscalations();
-  const { filteredItems: conversations, propertyCount: convoPropertyCount, addMessage } = useConversations();
+  const {
+    filteredItems: conversations,
+    items: allConversationItems,
+    propertyCount: convoPropertyCount,
+    addMessage,
+  } = useConversations();
   const { agents, agentsEnabledCount } = useAgents();
 
   const agentsByName = useMemo(() => {
@@ -334,7 +347,7 @@ function AdminCommandCenter() {
     for (const a of agents) map.set(a.name, a);
     return map;
   }, [agents]);
-  const { humanMembers } = useWorkforce();
+  const { members, humanMembers, allLabels, updateMember } = useWorkforce();
   const { role, roleProperties } = useRole();
   const isPropertyRole = role === "property";
   const isManagerRole = role === "regional" || role === "property";
@@ -374,9 +387,8 @@ function AdminCommandCenter() {
       : "/escalations";
 
   const topKpis = [
-    { label: "Revenue Impact", value: derivedKpis.totalRevenue, trendText: "+8% since last week", trendVariant: "positive" as KpiTrend, icon: DollarSign, href: "/performance" },
     { label: "Active Agents", value: agentsEnabledCount, trendText: "+1 since last week", trendVariant: "positive" as KpiTrend, icon: Users, href: "/agent-roster" },
-    { label: "Hours Saved", value: "386 hrs", trendText: "+42 hrs from last week", trendVariant: "positive" as KpiTrend, icon: Clock, href: "/performance" },
+    { label: "Conversations Handled", value: "1,847", trendText: "+12% from last week", trendVariant: "positive" as KpiTrend, icon: MessageSquare, href: "/conversations" },
   ];
 
   const outcomeCards = [
@@ -385,7 +397,6 @@ function AdminCommandCenter() {
     { label: "Renewals Generated", value: "28", trendText: "92% retention rate", trendVariant: "positive" as KpiTrend, icon: RefreshCw, agentName: "Renewal AI", href: "/performance", ctaText: "Clients with Renewal AI achieve 15% higher retention rates" },
     { label: "Work Orders Closed", value: "156", trendText: "+8 from last week", trendVariant: "positive" as KpiTrend, icon: Wrench, agentName: "Maintenance AI", href: "/performance", ctaText: "Clients with Maintenance AI see a 15% faster work order resolution time" },
     { label: "Rent Collected", value: "$218K", trendText: "90.6% collected \u00b7 Down 1.2% from last month", trendVariant: "negative" as KpiTrend, icon: DollarSign, agentName: "Payments AI", href: "/performance", ctaText: "Clients with Payments AI collect rent 20% faster" },
-    { label: "Conversations Handled", value: "1,847", trendText: "+12% from last week", trendVariant: "positive" as KpiTrend, icon: MessageSquare, agentName: null as string | null, href: "/conversations", ctaText: "" },
   ];
 
   const [selectedEscalationId, setSelectedEscalationId] = useState<string | null>(null);
@@ -400,6 +411,48 @@ function AdminCommandCenter() {
 
   const [activeMetric, setActiveMetric] = useState<string | null>(null);
   const [agentCtaOpen, setAgentCtaOpen] = useState<string | null>(null);
+  const [selectedWorkforceMemberId, setSelectedWorkforceMemberId] = useState<string | null>(null);
+
+  const selectedWorkforceMember = useMemo(
+    () => members.find((m) => m.id === selectedWorkforceMemberId) ?? null,
+    [members, selectedWorkforceMemberId],
+  );
+
+  const leaderIds = useMemo(() => buildLeaderIds(members), [members]);
+  const childrenOfMap = useMemo(
+    () => buildWorkforceChildrenMap(members, leaderIds),
+    [members, leaderIds],
+  );
+  const tasksByAssignee = useMemo(
+    () => buildTasksByAssignee(items, allConversationItems),
+    [items, allConversationItems],
+  );
+  const memberMetrics = useMemo(() => {
+    const map = new Map<string, MemberMetric>();
+    for (const m of members) {
+      map.set(m.id, getMemberMetric(m, agents, tasksByAssignee));
+    }
+    return map;
+  }, [members, agents, tasksByAssignee]);
+
+  const workforceAgentIdByName = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of members) {
+      if (m.type === "agent") map.set(m.name, m.id);
+    }
+    return map;
+  }, [members]);
+
+  const resolveWorkforceIdForRosterAgent = useCallback(
+    (agentName: string) => {
+      return (
+        workforceAgentIdByName.get(agentName)
+        ?? members.find((m) => m.type === "agent" && m.name === agentName)?.id
+        ?? null
+      );
+    },
+    [members, workforceAgentIdByName],
+  );
 
   const agentCtaConfigs: Record<string, {
     title: string;
@@ -487,27 +540,27 @@ function AdminCommandCenter() {
         icon: DollarSign,
         description: "Total revenue attributed to AI agent activity across your portfolio over the past 8 weeks.",
         summaryCards: [
-          { label: "Total Revenue Impact", value: "$42K", subtext: "+8% since last week", subtextVariant: "positive" },
-          { label: "Avg Revenue per Agent", value: "$10.5K", subtext: "Across 4 revenue-generating agents" },
+          { label: "Total Revenue Impact", value: "$38.7K", subtext: "+8% since last week", subtextVariant: "positive" },
+          { label: "Avg Revenue per Agent", value: "$12.9K", subtext: "Across 3 revenue-generating agents" },
           { label: "Revenue per Conversation", value: "$22.74", subtext: "+$3.20 from last month", subtextVariant: "positive" },
-          { label: "Projected Monthly", value: "$84K", subtext: "Based on current 8-week trend" },
+          { label: "Projected Monthly", value: "$77.4K", subtext: "Based on current 8-week trend" },
         ],
         byProperty: {
           a: { chartMultiplier: 0.44, summaryCards: [
             { label: "Total Revenue Impact", value: "$18.6K", subtext: "+11% since last week", subtextVariant: "positive" },
-            { label: "Avg Revenue per Agent", value: "$4.7K", subtext: "Across 4 revenue-generating agents" },
+            { label: "Avg Revenue per Agent", value: "$4.7K", subtext: "Across 3 revenue-generating agents" },
             { label: "Revenue per Conversation", value: "$24.10", subtext: "+$4.50 from last month", subtextVariant: "positive" },
             { label: "Projected Monthly", value: "$37.2K", subtext: "Based on current 8-week trend" },
           ]},
           b: { chartMultiplier: 0.34, summaryCards: [
             { label: "Total Revenue Impact", value: "$14.2K", subtext: "+7% since last week", subtextVariant: "positive" },
-            { label: "Avg Revenue per Agent", value: "$3.6K", subtext: "Across 4 revenue-generating agents" },
+            { label: "Avg Revenue per Agent", value: "$3.6K", subtext: "Across 3 revenue-generating agents" },
             { label: "Revenue per Conversation", value: "$19.80", subtext: "+$2.10 from last month", subtextVariant: "positive" },
             { label: "Projected Monthly", value: "$28.4K", subtext: "Based on current 8-week trend" },
           ]},
           c: { chartMultiplier: 0.22, summaryCards: [
             { label: "Total Revenue Impact", value: "$9.2K", subtext: "+4% since last week", subtextVariant: "positive" },
-            { label: "Avg Revenue per Agent", value: "$2.3K", subtext: "Across 4 revenue-generating agents" },
+            { label: "Avg Revenue per Agent", value: "$2.3K", subtext: "Across 3 revenue-generating agents" },
             { label: "Revenue per Conversation", value: "$16.50", subtext: "+$1.40 from last month", subtextVariant: "positive" },
             { label: "Projected Monthly", value: "$18.4K", subtext: "Based on current 8-week trend" },
           ]},
@@ -528,10 +581,9 @@ function AdminCommandCenter() {
           {
             type: "list", title: "Revenue by Agent",
             items: [
-              { name: "Leasing AI", detail: "37 leases \u00d7 $497 avg commission", value: "$18.4K", percentage: "44%", trend: "+12%", trendVariant: "positive", iconSrc: "/eli-cube.svg" },
-              { name: "Payments AI", detail: "$218K collected, recovered $12.2K in late fees", value: "$12.2K", percentage: "29%", trend: "+6%", trendVariant: "positive", iconSrc: "/eli-cube.svg" },
-              { name: "Renewal AI", detail: "28 renewals with avg $289 rent increase", value: "$8.1K", percentage: "19%", trend: "+15%", trendVariant: "positive", iconSrc: "/eli-cube.svg" },
-              { name: "Compliance Agent", detail: "3 HUD claims identified, $14.2K recoverable", value: "$3.3K", percentage: "8%", trend: "+22%", trendVariant: "positive", iconSrc: "/eli-cube.svg" },
+              { name: "Leasing AI", detail: "37 leases \u00d7 $497 avg commission", value: "$18.4K", percentage: "48%", trend: "+12%", trendVariant: "positive", iconSrc: "/eli-cube.svg" },
+              { name: "Payments AI", detail: "$218K collected, recovered $12.2K in late fees", value: "$12.2K", percentage: "31%", trend: "+6%", trendVariant: "positive", iconSrc: "/eli-cube.svg" },
+              { name: "Renewal AI", detail: "28 renewals with avg $289 rent increase", value: "$8.1K", percentage: "21%", trend: "+15%", trendVariant: "positive", iconSrc: "/eli-cube.svg" },
             ],
           },
           {
@@ -994,13 +1046,14 @@ function AdminCommandCenter() {
       .map((a) => {
         const isActive = a.status === "Active";
         const outcomeInfo = agentOutcomeMap[a.name];
+        /* Subtitle line: inactive agents already show status in the title-row badge — avoid repeating "Off". */
         const activity = isR1Release
-          ? (isActive ? "Active" : a.status)
+          ? (isActive ? "Active" : "")
           : isActive
             ? a.conversationCount > 0
               ? `${a.conversationCount} conversations · ${outcomeInfo?.outcome ?? ""}`
               : outcomeInfo?.outcome ?? ""
-            : a.status;
+            : "";
         return {
           id: a.id,
           name: a.name,
@@ -1054,7 +1107,7 @@ function AdminCommandCenter() {
       {!isR1Release && !isManagerRole && (
         <>
         {/* Top KPI Cards */}
-        <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-2">
           {topKpis.map(({ label, value, icon: Icon, trendText, trendVariant }) => (
             <button key={label} type="button" className="text-left" onClick={() => setActiveMetric(label)}>
               <Card className="h-full cursor-pointer transition-colors hover:border-primary/40 hover:bg-muted/30">
@@ -1090,7 +1143,7 @@ function AdminCommandCenter() {
           <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Outcomes Achieved by AI Agents
           </p>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             {outcomeCards.map((card) => {
               const agent = card.agentName
                 ? agents.find((a) => a.name === card.agentName && a.type === "autonomous")
@@ -1379,28 +1432,46 @@ function AdminCommandCenter() {
                 <ul className="divide-y divide-border">
                   {teamAgents.map((agent) => (
                     <li key={agent.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
-                        <img src="/eli-cube.svg" alt="" className="h-4 w-4" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                          {agent.name}
-                          {!agent.isActive && (
-                            <Badge variant="outline" className="text-[9px] px-1.5 py-0">{agent.status}</Badge>
-                          )}
-                        </p>
-                        <p className="text-xs text-muted-foreground">{agent.activity}</p>
-                      </div>
-                      {agent.isActive && !isR1Release ? (
-                        <div className="shrink-0 text-right">
-                          <p className="text-sm font-semibold text-foreground">{agent.metric}</p>
-                          <p className="text-[10px] text-muted-foreground">{agent.metricLabel}</p>
+                      <button
+                        type="button"
+                        className={cn(
+                          "flex min-w-0 flex-1 items-center gap-3 rounded-md text-left outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring",
+                          agent.isActive && !isR1Release && "w-full",
+                        )}
+                        onClick={() => {
+                          const wfId = resolveWorkforceIdForRosterAgent(agent.name);
+                          if (wfId) setSelectedWorkforceMemberId(wfId);
+                        }}
+                      >
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                          <img src="/eli-cube.svg" alt="" className="h-4 w-4" />
                         </div>
-                      ) : !agent.isActive && agentCtaConfigs[agent.name] ? (
+                        <div className="min-w-0 flex-1">
+                          <p className="flex items-center gap-1.5 text-sm font-medium text-foreground hover:underline">
+                            {agent.name}
+                            {!agent.isActive && (
+                              <Badge variant="outline" className="text-[9px] px-1.5 py-0">{agent.status}</Badge>
+                            )}
+                          </p>
+                          {agent.activity ? (
+                            <p className="text-xs text-muted-foreground">{agent.activity}</p>
+                          ) : null}
+                        </div>
+                        {agent.isActive && !isR1Release ? (
+                          <div className="shrink-0 text-right">
+                            <p className="text-sm font-semibold text-foreground">{agent.metric}</p>
+                            <p className="text-[10px] text-muted-foreground">{agent.metricLabel}</p>
+                          </div>
+                        ) : null}
+                      </button>
+                      {!agent.isActive && agentCtaConfigs[agent.name] ? (
                         <Button
                           size="sm"
                           className="shrink-0 text-xs"
-                          onClick={() => setAgentCtaOpen(agent.name)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAgentCtaOpen(agent.name);
+                          }}
                         >
                           Activate Agent
                         </Button>
@@ -1419,20 +1490,26 @@ function AdminCommandCenter() {
               {teamStaff.length > 0 ? (
                 <ul className="divide-y divide-border">
                   {teamStaff.map((member) => (
-                    <li key={member.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground">
-                        {member.name.split(" ").map((w: string) => w[0]).join("")}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-foreground">{member.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {member.role} · {member.activity}
-                        </p>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <p className="text-sm font-semibold text-foreground">{member.metric}</p>
-                        <p className="text-[10px] text-muted-foreground">{member.metricLabel}</p>
-                      </div>
+                    <li key={member.id} className="py-3 first:pt-0 last:pb-0">
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 rounded-md text-left outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring"
+                        onClick={() => setSelectedWorkforceMemberId(member.id)}
+                      >
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground">
+                          {member.name.split(" ").map((w: string) => w[0]).join("")}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-foreground hover:underline">{member.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {member.role} · {member.activity}
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="text-sm font-semibold text-foreground">{member.metric}</p>
+                          <p className="text-[10px] text-muted-foreground">{member.metricLabel}</p>
+                        </div>
+                      </button>
                     </li>
                   ))}
                 </ul>
@@ -1465,6 +1542,18 @@ function AdminCommandCenter() {
         onClose={() => setConvoId(null)}
         agentsByName={agentsByName}
         onSend={(message) => convoItem && addMessage(convoItem.id, message)}
+      />
+
+      <MemberDetailSheet
+        member={selectedWorkforceMember}
+        open={selectedWorkforceMember !== null}
+        onOpenChange={(open) => { if (!open) setSelectedWorkforceMemberId(null); }}
+        members={members}
+        allLabels={allLabels}
+        childrenOfMap={childrenOfMap}
+        memberMetrics={memberMetrics}
+        updateMember={updateMember}
+        onMemberClick={setSelectedWorkforceMemberId}
       />
 
       <MetricDetailDialog

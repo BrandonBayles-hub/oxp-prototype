@@ -284,6 +284,7 @@ function ListBreakdown({ section }: { section: Extract<BreakdownSection, { type:
             <li key={item.name} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
               <div className="flex items-center gap-3">
                 {item.iconSrc && (
+                  // eslint-disable-next-line @next/next/no-img-element
                   <img src={item.iconSrc} alt="" width={20} height={20} className="shrink-0" />
                 )}
                 <div>
@@ -336,6 +337,7 @@ function AgentListBreakdown({
             key={agent.name}
             className="flex items-center gap-3 rounded-lg border border-border bg-card p-3"
           >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={agent.iconSrc ?? "/eli-cube.svg"}
               alt=""

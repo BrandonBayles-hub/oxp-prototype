@@ -2,7 +2,11 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 
-const STORAGE_KEY = "janet-poc-voice-v3";
+// Bumped to v5 when voiceAccent changed from accent literals (american|british|...) to
+// Amazon Nova 2 Sonic voice IDs (tiffany|matthew|...). Stale keys would otherwise leave
+// the voice picker unhighlighted.
+// Bumped to v6 when the legal disclosure default copy was shortened.
+const STORAGE_KEY = "janet-poc-voice-v6";
 
 export type PhrasingRule = {
   id: string;
@@ -10,6 +14,83 @@ export type PhrasingRule = {
   type: "avoid" | "require" | "replace";
   phrase: string;
   replacement?: string;
+};
+
+export type VoiceSettings = {
+  aiVoiceEnabled: boolean;
+  voiceGender: "female" | "male";
+  /** Voice ID from the Amazon Nova 2 Sonic catalog (e.g. "tiffany", "matthew"). */
+  voiceAccent: string;
+  voiceLanguages: string[];
+  autoDetectLanguage: boolean;
+  recordAudio: boolean;
+  generateTranscripts: boolean;
+  legalDisclosureEnabled: boolean;
+  legalDisclosureText: string;
+  greeting: string;
+  holdPhrase: string;
+  maxCallLength: number;
+  aiDisclosureEnabled: boolean;
+};
+
+/**
+ * Amazon Nova 2 Sonic voice catalog.
+ * Source: https://docs.aws.amazon.com/nova/latest/userguide/available-voices.html
+ *
+ * Each option exposes the voice ID we store on `VoiceSettings.voiceAccent`,
+ * a friendly label, the speaker's gender (used to filter options by the
+ * selected voiceGender), the accent/locale, and a short descriptor.
+ */
+export type Nova2Voice = {
+  id: string;
+  label: string;
+  gender: "female" | "male";
+  accent: string;
+  desc: string;
+};
+
+export const NOVA2_VOICES: readonly Nova2Voice[] = [
+  { id: "tiffany", label: "Tiffany", gender: "female", accent: "American (en-US)", desc: "Warm polyglot — speaks every supported language" },
+  { id: "amy",     label: "Amy",     gender: "female", accent: "British (en-GB)",  desc: "Clear, polished UK English" },
+  { id: "olivia",  label: "Olivia",  gender: "female", accent: "Australian (en-AU)", desc: "Friendly, easygoing AU English" },
+  { id: "kiara",   label: "Kiara",   gender: "female", accent: "Indian (en-IN)",   desc: "Confident Indian English" },
+  { id: "lupe",    label: "Lupe",    gender: "female", accent: "Spanish (es-US)",  desc: "Bilingual US Spanish" },
+  { id: "ambre",   label: "Ambre",   gender: "female", accent: "French (fr-FR)",   desc: "Refined Parisian French" },
+  { id: "tina",    label: "Tina",    gender: "female", accent: "German (de-DE)",   desc: "Crisp Hochdeutsch" },
+  { id: "beatrice",label: "Beatrice",gender: "female", accent: "Italian (it-IT)",  desc: "Bright, expressive Italian" },
+  { id: "carolina",label: "Carolina",gender: "female", accent: "Portuguese (pt-BR)", desc: "Smooth Brazilian Portuguese" },
+  { id: "matthew", label: "Matthew", gender: "male",   accent: "American (en-US)", desc: "Confident polyglot — speaks every supported language" },
+  { id: "arjun",   label: "Arjun",   gender: "male",   accent: "Indian (en-IN)",   desc: "Steady, professional Indian English" },
+  { id: "carlos",  label: "Carlos",  gender: "male",   accent: "Spanish (es-US)",  desc: "Bilingual US Spanish" },
+  { id: "florian", label: "Florian", gender: "male",   accent: "French (fr-FR)",   desc: "Cool, articulate French" },
+  { id: "lennart", label: "Lennart", gender: "male",   accent: "German (de-DE)",   desc: "Measured, professional German" },
+  { id: "lorenzo", label: "Lorenzo", gender: "male",   accent: "Italian (it-IT)",  desc: "Charismatic Italian baritone" },
+  { id: "leo",     label: "Leo",     gender: "male",   accent: "Portuguese (pt-BR)", desc: "Friendly Brazilian Portuguese" },
+];
+
+export const DEFAULT_NOVA2_VOICE_ID: Record<"female" | "male", string> = {
+  female: "tiffany",
+  male: "matthew",
+};
+
+export function getNova2Voice(id: string): Nova2Voice | undefined {
+  return NOVA2_VOICES.find((v) => v.id === id);
+}
+
+export function getNova2VoicesByGender(gender: "female" | "male"): Nova2Voice[] {
+  return NOVA2_VOICES.filter((v) => v.gender === gender);
+}
+
+export type BrandColors = {
+  primary: string;
+  secondary: string;
+  accent: string;
+};
+
+export type BrandSettings = {
+  colors: BrandColors;
+  logoUrl: string;
+  fontFamily: string;
 };
 
 export type VerticalOverride = {
@@ -20,6 +101,10 @@ export type VerticalOverride = {
   toneFormality?: number;
   toneWarmth?: number;
   toneUrgency?: number;
+  doExamples?: string[];
+  dontExamples?: string[];
+  voiceSettings?: Partial<VoiceSettings>;
+  brandSettings?: Partial<BrandSettings>;
 };
 
 export type PropertyOverride = {
@@ -30,18 +115,28 @@ export type PropertyOverride = {
   toneFormality?: number;
   toneWarmth?: number;
   toneUrgency?: number;
+  doExamples?: string[];
+  dontExamples?: string[];
   channels?: { voice: boolean; chat: boolean; sms: boolean; portal: boolean };
   phrasingRules?: PhrasingRule[];
+  voiceSettings?: Partial<VoiceSettings>;
+  brandSettings?: Partial<BrandSettings>;
 };
+
+export type AgentVoiceOverrides = Partial<VoiceSettings>;
 
 export type AgentVoiceTuning = {
   agentId: string;
   agentName: string;
+  propertyName?: string;
   toneOverride?: string;
   responseLength?: "concise" | "standard" | "detailed";
   personality?: string;
   customInstructions?: string;
   allowEmoji?: boolean;
+  doExamples?: string[];
+  dontExamples?: string[];
+  voiceOverrides?: AgentVoiceOverrides;
 };
 
 export type VoiceState = {
@@ -63,6 +158,8 @@ export type VoiceState = {
   verticalOverrides: VerticalOverride[];
   propertyOverrides: PropertyOverride[];
   agentTuning: AgentVoiceTuning[];
+  voiceSettings: VoiceSettings;
+  brandSettings: BrandSettings;
 };
 
 const DEFAULT_STATE: VoiceState = {
@@ -103,9 +200,9 @@ const DEFAULT_STATE: VoiceState = {
   ],
   verticalOverrides: [
     { vertical: "Conventional", enabled: false },
-    { vertical: "Student", enabled: true, persona: "Friendly campus guide", brandingTone: "Casual, upbeat, and approachable. Use conversational language that resonates with college-age residents. Reference campus life and student-friendly amenities.", toneFormality: 35, toneWarmth: 85, toneUrgency: 30 },
-    { vertical: "Affordable", enabled: true, persona: "Supportive community assistant", brandingTone: "Warm, empathetic, and clear. Use simple, accessible language. Be sensitive to financial concerns and emphasize available resources and community support.", toneFormality: 55, toneWarmth: 90, toneUrgency: 35 },
-    { vertical: "Commercial", enabled: true, persona: "Professional property consultant", brandingTone: "Polished, efficient, and business-focused. Use industry terminology appropriately. Prioritize ROI, business outcomes, and professional service.", toneFormality: 85, toneWarmth: 50, toneUrgency: 55 },
+    { vertical: "Student", enabled: true, persona: "Friendly campus guide", brandingTone: "Casual, upbeat, and approachable. Use conversational language that resonates with college-age residents. Reference campus life and student-friendly amenities.", toneFormality: 35, toneWarmth: 85, toneUrgency: 30, doExamples: ["Use casual, relatable language", "Reference campus events and deadlines", "Mention roommate-matching options"], dontExamples: ["Use overly formal or corporate tone", "Assume financial independence", "Ignore academic calendar timing"] },
+    { vertical: "Affordable", enabled: true, persona: "Supportive community assistant", brandingTone: "Warm, empathetic, and clear. Use simple, accessible language. Be sensitive to financial concerns and emphasize available resources and community support.", toneFormality: 55, toneWarmth: 90, toneUrgency: 35, doExamples: ["Use simple, accessible language", "Highlight available assistance programs", "Show empathy for financial concerns"], dontExamples: ["Use jargon or complex terminology", "Make assumptions about income", "Rush conversations about eligibility"] },
+    { vertical: "Commercial", enabled: true, persona: "Professional property consultant", brandingTone: "Polished, efficient, and business-focused. Use industry terminology appropriately. Prioritize ROI, business outcomes, and professional service.", toneFormality: 85, toneWarmth: 50, toneUrgency: 55, doExamples: ["Use professional business terminology", "Lead with ROI and value propositions", "Reference market data and comparables"], dontExamples: ["Use casual or overly friendly tone", "Discuss non-business topics", "Provide unsubstantiated market claims"] },
   ],
   propertyOverrides: [
     {
@@ -116,15 +213,43 @@ const DEFAULT_STATE: VoiceState = {
       toneFormality: 80,
       toneWarmth: 70,
       toneUrgency: 35,
+      doExamples: ["Use luxury and premium language", "Address residents by title and last name", "Highlight exclusive amenities"],
+      dontExamples: ["Use generic or budget-oriented phrasing", "Be overly casual or use slang", "Compare to other properties"],
       channels: { voice: true, chat: true, sms: true, portal: true },
     },
   ],
   agentTuning: [
-    { agentId: "4", agentName: "Leasing AI", toneOverride: "Enthusiastic and sales-oriented", responseLength: "detailed", personality: "Excited about helping people find their new home", customInstructions: "Always mention current specials. Proactively offer tour scheduling.", allowEmoji: true },
-    { agentId: "7", agentName: "Renewal AI", toneOverride: "Warm and appreciative", responseLength: "standard", personality: "Grateful for the resident's continued tenancy", customInstructions: "Lead with appreciation. Highlight community improvements since move-in.", allowEmoji: false },
-    { agentId: "10", agentName: "Maintenance AI", toneOverride: "Efficient and reassuring", responseLength: "concise", personality: "Focused on getting things fixed fast", customInstructions: "Always provide an estimated timeline. Follow up after resolution.", allowEmoji: false },
-    { agentId: "1", agentName: "Payments AI", toneOverride: "Empathetic and solution-focused", responseLength: "standard", personality: "Understanding about financial situations", customInstructions: "Never be judgmental about late payments. Always offer payment plan options when applicable.", allowEmoji: false },
+    { agentId: "4", agentName: "Leasing AI", toneOverride: "Enthusiastic and sales-oriented", responseLength: "detailed", personality: "Excited about helping people find their new home", customInstructions: "Always mention current specials. Proactively offer tour scheduling.", allowEmoji: true, doExamples: ["Highlight current specials and promotions", "Proactively suggest tour scheduling", "Emphasize unique property features"], dontExamples: ["Pressure prospects into decisions", "Disparage competing properties", "Guarantee availability without checking"] },
+    { agentId: "7", agentName: "Renewal AI", toneOverride: "Warm and appreciative", responseLength: "standard", personality: "Grateful for the resident's continued tenancy", customInstructions: "Lead with appreciation. Highlight community improvements since move-in.", allowEmoji: false, doExamples: ["Lead with gratitude for their residency", "Mention community improvements", "Offer flexible renewal terms"], dontExamples: ["Threaten lease non-renewal", "Rush renewal decisions", "Ignore resident concerns or complaints"] },
+    { agentId: "10", agentName: "Maintenance AI", toneOverride: "Efficient and reassuring", responseLength: "concise", personality: "Focused on getting things fixed fast", customInstructions: "Always provide an estimated timeline. Follow up after resolution.", allowEmoji: false, doExamples: ["Provide clear estimated timelines", "Confirm the issue has been understood", "Follow up after resolution"], dontExamples: ["Blame the resident for the issue", "Promise exact completion times", "Dismiss concerns as minor"] },
+    { agentId: "1", agentName: "Payments AI", toneOverride: "Empathetic and solution-focused", responseLength: "standard", personality: "Understanding about financial situations", customInstructions: "Never be judgmental about late payments. Always offer payment plan options when applicable.", allowEmoji: false, doExamples: ["Offer payment plan options proactively", "Show empathy for financial situations", "Clearly explain fees and deadlines"], dontExamples: ["Be judgmental about late payments", "Use threatening language about collections", "Discuss other residents' payment history"] },
+    { agentId: "4", agentName: "Leasing AI", propertyName: "Sunset Ridge Apartments", toneOverride: "Refined and consultative", responseLength: "detailed", personality: "Luxury lifestyle advisor", customInstructions: "Emphasize exclusivity and premium amenities. Use aspirational language. Reference concierge services.", allowEmoji: false, doExamples: ["Use aspirational, luxury language", "Reference concierge-level services", "Highlight exclusive resident perks"], dontExamples: ["Mention pricing before value", "Use generic apartment terminology", "Compare to non-luxury competitors"] },
+    { agentId: "4", agentName: "Leasing AI", propertyName: "University Commons", toneOverride: "Fun and relatable", responseLength: "concise", personality: "Campus life enthusiast", customInstructions: "Reference campus proximity, student discounts, and roommate matching. Keep it casual.", allowEmoji: true, doExamples: ["Mention roommate matching options", "Reference campus shuttle and proximity", "Highlight student-specific amenities"], dontExamples: ["Use formal corporate language", "Assume parental involvement", "Ignore move-in/move-out academic schedules"] },
   ],
+  voiceSettings: {
+    aiVoiceEnabled: true,
+    voiceGender: "female",
+    voiceAccent: "tiffany",
+    voiceLanguages: ["English", "Spanish", "French", "German", "Italian", "Portuguese", "Hindi"],
+    autoDetectLanguage: true,
+    recordAudio: true,
+    generateTranscripts: true,
+    legalDisclosureEnabled: true,
+    legalDisclosureText: "This call is being recorded and transcribed for quality assurance and training purposes.",
+    greeting: "Thank you for calling {property}. How can I help you today?",
+    holdPhrase: "One moment while I pull that up for you.",
+    maxCallLength: 10,
+    aiDisclosureEnabled: true,
+  },
+  brandSettings: {
+    colors: {
+      primary: "#6366f1",
+      secondary: "#0ea5e9",
+      accent: "#10b981",
+    },
+    logoUrl: "",
+    fontFamily: "Inter",
+  },
 };
 
 type VoiceContextValue = VoiceState & {
@@ -134,7 +259,9 @@ type VoiceContextValue = VoiceState & {
   addPropertyOverride: (override: PropertyOverride) => void;
   updatePropertyOverride: (property: string, updates: Partial<PropertyOverride>) => void;
   removePropertyOverride: (property: string) => void;
-  updateAgentTuning: (agentId: string, updates: Partial<AgentVoiceTuning>) => void;
+  updateAgentTuning: (agentId: string, updates: Partial<AgentVoiceTuning>, propertyName?: string) => void;
+  addAgentTuning: (entry: AgentVoiceTuning) => void;
+  removeAgentTuning: (agentId: string, propertyName: string) => void;
   updateVerticalOverride: (vertical: string, updates: Partial<VerticalOverride>) => void;
   resetVerticalOverride: (vertical: string) => void;
   configured: boolean;
@@ -207,10 +334,26 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
-  const updateAgentTuning = useCallback((agentId: string, updates: Partial<AgentVoiceTuning>) => {
+  const updateAgentTuning = useCallback((agentId: string, updates: Partial<AgentVoiceTuning>, propertyName?: string) => {
     setState((prev) => ({
       ...prev,
-      agentTuning: prev.agentTuning.map((t) => t.agentId === agentId ? { ...t, ...updates } : t),
+      agentTuning: prev.agentTuning.map((t) =>
+        t.agentId === agentId && t.propertyName === propertyName ? { ...t, ...updates } : t
+      ),
+    }));
+  }, []);
+
+  const addAgentTuning = useCallback((entry: AgentVoiceTuning) => {
+    setState((prev) => ({
+      ...prev,
+      agentTuning: [...prev.agentTuning.filter((t) => !(t.agentId === entry.agentId && t.propertyName === entry.propertyName)), entry],
+    }));
+  }, []);
+
+  const removeAgentTuning = useCallback((agentId: string, propertyName: string) => {
+    setState((prev) => ({
+      ...prev,
+      agentTuning: prev.agentTuning.filter((t) => !(t.agentId === agentId && t.propertyName === propertyName)),
     }));
   }, []);
 
@@ -245,6 +388,8 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
         updatePropertyOverride,
         removePropertyOverride,
         updateAgentTuning,
+        addAgentTuning,
+        removeAgentTuning,
         updateVerticalOverride,
         resetVerticalOverride,
         configured,

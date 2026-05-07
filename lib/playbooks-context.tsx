@@ -9,6 +9,12 @@ export type PlaybookPriority = "P0" | "P1" | "P2" | "P3";
 
 export type PlaybookStatus = "In Progress" | "On Hold" | "Completed" | "Due Today" | "Overdue";
 
+export type PlaybookNote = {
+  at: string;
+  by: string;
+  text: string;
+};
+
 export type Playbook = {
   id: string;
   templateName: string;
@@ -25,6 +31,7 @@ export type Playbook = {
   tasks: Task[];
   sourceDocId?: string;
   recurring?: { frequency: "daily" | "weekly" | "monthly" | "quarterly" };
+  notes?: PlaybookNote[];
 };
 
 /* ─────────────────────────────── Seed Data ───────────────────────────── */
@@ -72,6 +79,7 @@ const INITIAL_PLAYBOOKS: Playbook[] = [
     priority: "P0",
     assignee: "Jayion Korsgaard",
     description: "This playbook outlines the steps for successful action when there has been a burst pipe on the property.",
+    sourceDocId: "2",
     tasks: [
       t("t-1-1", "Work Order", "P2", "Today", "In Progress", "Hillary Gonzalez", "Summit Park", "34-A", "Vendor"),
       t("t-1-2", "Work Order", "P1", "Today", "In Progress", "Marcus Herwitz", "Summit Park", "34-B", "Resident"),
@@ -434,6 +442,29 @@ const INITIAL_PLAYBOOKS: Playbook[] = [
       t("t-12-16", "Close-out Report", "P2", "Tomorrow", "Not Started", "", "Summit Park", "", "Teammate"),
     ],
   },
+  {
+    id: "pb-13",
+    templateName: "Unit make-ready (turnover)",
+    property: "Summit Park",
+    properties: ["Summit Park"],
+    unit: "8-B",
+    createdAt: "2026-04-20",
+    dueAt: "2026-04-30",
+    launchedAt: "2026-04-20",
+    status: "In Progress",
+    priority: "P1",
+    assignee: "Angela Park",
+    description:
+      "End-to-end make-ready for a single unit at Summit Park. Scope is limited to home 8-B: inspection, work orders, punch list, and pre-lease sign-off.",
+    tasks: [
+      t("t-13-1", "Pre-turn inspection", "P1", "Today", "Completed", "Hillary Gonzalez", "Summit Park", "8-B", "Teammate"),
+      t("t-13-2", "Punch list & work orders", "P1", "Today", "In Progress", "Carlos Reyes", "Summit Park", "8-B", "Teammate"),
+      t("t-13-3", "Paint & flooring touch-up", "P2", "Today", "In Progress", "", "Summit Park", "8-B", "Vendor"),
+      t("t-13-4", "Appliance & fixture check", "P2", "Today", "Not Started", "", "Summit Park", "8-B", "Vendor"),
+      t("t-13-5", "Utilities & re-key", "P1", "Tomorrow", "Not Started", "Angela Park", "Summit Park", "8-B", "Teammate"),
+      t("t-13-6", "Pre-lease walkthrough (ready)", "P0", "Tomorrow", "Not Started", "Angela Park", "Summit Park", "8-B", "Teammate"),
+    ],
+  },
 ];
 
 /* ─────────────────────────────── Persistence ─────────────────────────── */
@@ -457,6 +488,13 @@ function saveState(playbooks: Playbook[]) {
   } catch { /* quota exceeded — silently ignore */ }
 }
 
+/** Append new seed playbooks (by id) so localStorage from older builds still gets fresh demo rows. */
+function mergeNewSeedPlaybooks(saved: Playbook[]): Playbook[] {
+  const seen = new Set(saved.map((p) => p.id));
+  const toAdd = INITIAL_PLAYBOOKS.filter((p) => !seen.has(p.id));
+  return toAdd.length > 0 ? [...saved, ...toAdd] : saved;
+}
+
 /* ─────────────────────────────── Context ─────────────────────────────── */
 
 type PlaybooksContextValue = {
@@ -467,6 +505,10 @@ type PlaybooksContextValue = {
   addPlaybookTask: (playbookId: string, task: Omit<Task, "id">) => void;
   removePlaybookTask: (playbookId: string, taskId: string) => void;
   addPlaybook: (playbook: Omit<Playbook, "id">) => void;
+  removePlaybook: (id: string) => void;
+  addPlaybookNote: (playbookId: string, by: string, text: string, at?: string) => void;
+  updatePlaybookNote: (playbookId: string, noteAt: string, newText: string) => void;
+  removePlaybookNote: (playbookId: string, noteAt: string) => void;
 };
 
 const PlaybooksContext = createContext<PlaybooksContextValue | null>(null);
@@ -477,7 +519,11 @@ export function PlaybooksProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const saved = loadState();
     if (saved && saved.length > 0) {
-      setPlaybooks(saved);
+      const merged = mergeNewSeedPlaybooks(saved);
+      setPlaybooks(merged);
+      if (merged.length !== saved.length) {
+        saveState(merged);
+      }
     }
   }, []);
 
@@ -558,6 +604,65 @@ export function PlaybooksProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  const removePlaybook = useCallback((id: string) => {
+    setPlaybooks((prev) => {
+      const next = prev.filter((p) => p.id !== id);
+      saveState(next);
+      return next;
+    });
+  }, []);
+
+  const addPlaybookNote = useCallback(
+    (playbookId: string, by: string, text: string, at?: string) => {
+      const note: PlaybookNote = { at: at ?? new Date().toISOString(), by, text };
+      setPlaybooks((prev) => {
+        const next = prev.map((p) =>
+          p.id === playbookId
+            ? { ...p, notes: [...(p.notes ?? []), note] }
+            : p
+        );
+        saveState(next);
+        return next;
+      });
+    },
+    []
+  );
+
+  const updatePlaybookNote = useCallback(
+    (playbookId: string, noteAt: string, newText: string) => {
+      setPlaybooks((prev) => {
+        const next = prev.map((p) =>
+          p.id === playbookId
+            ? {
+                ...p,
+                notes: (p.notes ?? []).map((n) =>
+                  n.at === noteAt ? { ...n, text: newText } : n
+                ),
+              }
+            : p
+        );
+        saveState(next);
+        return next;
+      });
+    },
+    []
+  );
+
+  const removePlaybookNote = useCallback(
+    (playbookId: string, noteAt: string) => {
+      setPlaybooks((prev) => {
+        const next = prev.map((p) =>
+          p.id === playbookId
+            ? { ...p, notes: (p.notes ?? []).filter((n) => n.at !== noteAt) }
+            : p
+        );
+        saveState(next);
+        return next;
+      });
+    },
+    []
+  );
+
   const value = useMemo<PlaybooksContextValue>(
     () => ({
       playbooks,
@@ -567,8 +672,12 @@ export function PlaybooksProvider({ children }: { children: React.ReactNode }) {
       addPlaybookTask,
       removePlaybookTask,
       addPlaybook,
+      removePlaybook,
+      addPlaybookNote,
+      updatePlaybookNote,
+      removePlaybookNote,
     }),
-    [playbooks, getPlaybook, updatePlaybook, updatePlaybookTask, addPlaybookTask, removePlaybookTask, addPlaybook]
+    [playbooks, getPlaybook, updatePlaybook, updatePlaybookTask, addPlaybookTask, removePlaybookTask, addPlaybook, removePlaybook, addPlaybookNote, updatePlaybookNote, removePlaybookNote]
   );
 
   return <PlaybooksContext.Provider value={value}>{children}</PlaybooksContext.Provider>;

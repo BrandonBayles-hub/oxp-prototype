@@ -1,7 +1,9 @@
 "use client";
 
-import React, { createContext, useCallback, useContext, useState } from "react";
+import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { useRole, matchesRoleProperties } from "@/lib/role-context";
+import { useClickToCallDemo } from "@/lib/click-to-call-demo-context";
+import { CLICK_TO_CALL_DEMO_THREADS } from "@/lib/click-to-call-demo-threads";
 
 export type EmailAttachmentRef = {
   name: string;
@@ -52,13 +54,47 @@ export type ThreadActivity =
       notes: string;
       followUpAssignee?: string;
       followUpDue?: string;
+      /** Free-form notes attached to the follow-up task itself (separate from call notes). */
+      followUpNotes?: string;
+      /** "voip" = computer audio, "callback" = platform rings agent's phone first. */
+      origin?: "voip" | "callback";
+      /** Display form of agent's callback number when origin === "callback". */
+      callbackNumber?: string;
     };
+
+export type VoicemailRef = {
+  /** Length of the recording in seconds. */
+  durationSec: number;
+  /** AI-generated transcript (rendered inline below the audio player). */
+  transcript: string;
+  /**
+   * Inbound phone number the voicemail came from (display form, e.g. "+1 (720) 555-5264").
+   * Used to render a "Call back" action on the voicemail card.
+   */
+  fromNumber?: string;
+};
+
+export type MissedCallRef = {
+  /** Inbound phone number that called in. */
+  fromNumber: string;
+  /** How many times they tried to reach out in a row (optional). */
+  attemptCount?: number;
+  /** How long the phone rang before the caller gave up, in seconds (optional). */
+  rangForSec?: number;
+};
 
 export type ConversationMessage = {
   role: "resident" | "agent" | "staff";
   text: string;
   timestamp?: string;
-  type?: "message" | "private_note" | "handoff" | "label_activity" | "thread_activity";
+  type?:
+    | "message"
+    | "private_note"
+    | "handoff"
+    | "label_activity"
+    | "thread_activity"
+    | "missed_call"
+    | "voicemail";
   /** Rendered in email-channel threads: footer block after the body. */
   emailSignature?: string;
   /** Rendered as file/image chips (and thumbnail for images) in email-channel threads. */
@@ -73,6 +109,10 @@ export type ConversationMessage = {
   };
   /** Structured staff activity (resolve, assignment, read, etc.). */
   threadActivity?: ThreadActivity;
+  /** Populated when `type === "voicemail"` — inbound recording with transcript. */
+  voicemail?: VoicemailRef;
+  /** Populated when `type === "missed_call"` — inbound call that went unanswered. */
+  missedCall?: MissedCallRef;
 };
 
 export type ConversationItem = {
@@ -137,7 +177,12 @@ export function getLinkedConversationsByEscalation(
 
 function isPublicThreadMessage(m: ConversationMessage): boolean {
   if (m.type === "label_activity" || m.type === "thread_activity") return false;
-  return m.type === undefined || m.type === "message";
+  return (
+    m.type === undefined ||
+    m.type === "message" ||
+    m.type === "voicemail" ||
+    m.type === "missed_call"
+  );
 }
 
 function getLastPublicMessage(messages: ConversationMessage[]): ConversationMessage | undefined {
@@ -168,10 +213,19 @@ function nextHasUnreadAfterAppend(c: ConversationItem, message: ConversationMess
   return message.role === "resident";
 }
 
+/** A logged phone call by staff/agent counts as a reply to inbound voicemail/missed calls. */
+function isStaffPhoneCallReplyActivity(m: ConversationMessage): boolean {
+  if (m.type !== "thread_activity") return false;
+  if (m.role !== "staff" && m.role !== "agent") return false;
+  return m.threadActivity?.kind === "phone_call";
+}
+
 /**
  * Unattended thread: still open, fully read (no unread indicator), and the last
  * resident-visible message is from the lead/resident with no agent or staff
- * public reply after it. Private notes and handoffs do not count as replies.
+ * response after it. Private notes and handoffs do not count as replies, but a
+ * logged phone call activity does — so that a missed-call / voicemail thread
+ * drops out of Open Threads once staff has called the lead/resident back.
  */
 export function isConversationUnattended(c: ConversationItem): boolean {
   if (c.status !== "open" || c.hasUnread) return false;
@@ -187,6 +241,7 @@ export function isConversationUnattended(c: ConversationItem): boolean {
 
   for (let i = lastResidentPublicIdx + 1; i < msgs.length; i++) {
     const m = msgs[i];
+    if (isStaffPhoneCallReplyActivity(m)) return false;
     if (!isPublicThreadMessage(m)) continue;
     if (m.role === "agent" || m.role === "staff") return false;
   }
@@ -863,17 +918,31 @@ type ConversationsContextValue = {
 
 const ConversationsContext = createContext<ConversationsContextValue | null>(null);
 
+const CLICK_TO_CALL_DEMO_THREAD_IDS = new Set(CLICK_TO_CALL_DEMO_THREADS.map((c) => c.id));
+
+/** True when the thread was injected by the click-to-call demo toggle. */
+export function isClickToCallDemoThread(id: string): boolean {
+  return CLICK_TO_CALL_DEMO_THREAD_IDS.has(id);
+}
+
 export function ConversationsProvider({ children }: { children: React.ReactNode }) {
   const { roleProperties } = useRole();
-  const [items, setItems] = useState<ConversationItem[]>(() =>
-    INITIAL.map((c) => {
+  const { clickToCallEnabled } = useClickToCallDemo();
+  const [items, setItems] = useState<ConversationItem[]>(() => {
+    const seeded = [...CLICK_TO_CALL_DEMO_THREADS, ...INITIAL];
+    return seeded.map((c) => {
       const labels = ensureAiLabelCompanions(c.labels);
       return { ...c, labels, hasUnread: clampHasUnread(c.messages, c.hasUnread) };
-    })
-  );
+    });
+  });
 
-  const filteredItems = items.filter((c) =>
-    matchesRoleProperties(c.property, roleProperties)
+  const filteredItems = useMemo(
+    () =>
+      items.filter((c) => {
+        if (!clickToCallEnabled && isClickToCallDemoThread(c.id)) return false;
+        return matchesRoleProperties(c.property, roleProperties);
+      }),
+    [items, clickToCallEnabled, roleProperties]
   );
 
   const propertyCount = new Set(filteredItems.map((c) => c.property)).size;

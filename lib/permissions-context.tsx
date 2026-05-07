@@ -81,18 +81,40 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: "p-tasks-view", capability: "View Escalations", description: "Access the Escalations page and view assigned escalations", section: "Escalations" },
   { id: "p-tasks-edit-specialty", capability: "Edit Specialty", description: "Modify the escalations and users associated with a Specialty", section: "Escalations" },
   { id: "p-tasks-view-all", capability: "View All Escalations", description: "View and edit all Escalations", section: "Escalations" },
+  { id: "p-tasks-delete", capability: "Delete Escalations", description: "Permanently remove an escalation or task from the queue", section: "Escalations" },
   { id: "p-tasks-create-custom", capability: "Create Custom Escalations", description: "Create new custom escalation types", section: "Escalations" },
   { id: "p-tasks-manage-routing", capability: "Manage Routing Rules", description: "Create, edit, and delete escalation routing rules", section: "Escalations" },
   { id: "p-tasks-bulk-actions", capability: "Bulk Escalation Actions", description: "Perform bulk assign, status update, and label operations", section: "Escalations" },
   { id: "p-playbooks-view", capability: "View Playbooks", description: "View all playbooks and their task progress", section: "Escalations" },
   { id: "p-playbooks-launch", capability: "Launch Playbooks", description: "Manually launch new playbooks from SOP templates", section: "Escalations" },
   { id: "p-playbooks-manage", capability: "Manage Playbooks", description: "Edit, cancel, and configure recurring playbooks", section: "Escalations" },
+  { id: "p-playbooks-delete", capability: "Delete Playbooks", description: "Permanently remove a playbook and its tasks from the system", section: "Escalations" },
   { id: "p-playbooks-assign", capability: "Assign Playbook Tasks", description: "Reassign tasks within a playbook to other team members", section: "Escalations" },
+
+  // ── Calling Communications ──
+  {
+    id: "p-calling-view",
+    capability: "Access Calling Communications",
+    description: "Master access to Click-to-Call features in the OXP conversation panel.",
+    section: "Calling Communications",
+  },
+  {
+    id: "p-calling-click-to-call",
+    capability: "Click To Call Functionality",
+    description:
+      "Ability to place outbound calls to leads and residents directly from the OXP conversation panel using their computer or a default vanity number assigned to them.",
+    section: "Calling Communications",
+  },
+  {
+    id: "p-calling-custom-vanity",
+    capability: "Click To Call Custom Vanity Number",
+    description:
+      "Ability to place outbound calls using a custom vanity number selected by the user in their profile, instead of the default assigned number selected by the property.",
+    section: "Calling Communications",
+  },
 
   // ── Performance ──
   { id: "p-report-performance", capability: "View Performance", description: "Access the performance analytics dashboard", section: "Performance" },
-  { id: "p-report-export", capability: "Export Reports", description: "Download reports and data exports", section: "Performance" },
-  { id: "p-report-workforce", capability: "View Workforce Analytics", description: "Access workforce utilization and capacity metrics", section: "Performance" },
 
   // ── Agent Roster ──
   { id: "p-agents-view", capability: "View Agent Roster", description: "Access the Agent Roster page and view AI Agents", section: "Agent Roster" },
@@ -142,12 +164,13 @@ export const ALL_PERMISSIONS: Permission[] = [
 ];
 
 export const PERMISSION_SECTIONS = [
-  "Communications", "Escalations", "Entrata Experts", "Performance", "Agent Roster", "Workforce",
+  "Communications", "Calling Communications", "Escalations", "Entrata Experts", "Performance", "Agent Roster", "Workforce",
   "Activation", "Workflows", "Trainings & SOP", "Voice", "Governance",
 ];
 
 export const SECTION_VIEW_PERMISSION: Record<string, string> = {
   "Communications": "p-cc-view",
+  "Calling Communications": "p-calling-view",
   "Escalations": "p-tasks-view",
   "Performance": "p-report-performance",
   "Agent Roster": "p-agents-view",
@@ -174,9 +197,10 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Set<string>> = {
     "p-comms-reopen-threads",
     "p-comms-create-inbox", "p-comms-edit-inbox-props", "p-comms-edit-inbox-labels",
     "p-comms-edit-inbox-users", "p-comms-add-labels", "p-comms-edit-labels", "p-comms-reporting",
-    "p-tasks-view", "p-tasks-edit-specialty", "p-tasks-view-all", "p-tasks-bulk-actions",
-    "p-playbooks-view", "p-playbooks-launch", "p-playbooks-manage", "p-playbooks-assign",
-    "p-report-performance", "p-report-export", "p-report-workforce",
+    "p-calling-view", "p-calling-click-to-call", "p-calling-custom-vanity",
+    "p-tasks-view", "p-tasks-edit-specialty", "p-tasks-view-all", "p-tasks-delete", "p-tasks-bulk-actions",
+    "p-playbooks-view", "p-playbooks-launch", "p-playbooks-manage", "p-playbooks-delete", "p-playbooks-assign",
+    "p-report-performance",
     "p-agents-view", "p-agents-operational", "p-agents-view-logs",
     "p-wf-members-view", "p-wf-members-edit", "p-wf-groups",
     "p-activation-view", "p-activation-complete",
@@ -197,8 +221,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Set<string>> = {
     "p-comms-resolve-threads",
     "p-comms-reopen-threads",
     "p-comms-edit-inbox-props", "p-comms-edit-inbox-users", "p-comms-add-labels", "p-comms-reporting",
-    "p-tasks-view", "p-tasks-view-all", "p-tasks-bulk-actions",
-    "p-playbooks-view", "p-playbooks-launch", "p-playbooks-assign",
+    "p-calling-view", "p-calling-click-to-call", "p-calling-custom-vanity",
+    "p-tasks-view", "p-tasks-view-all", "p-tasks-delete", "p-tasks-bulk-actions",
+    "p-playbooks-view", "p-playbooks-launch", "p-playbooks-delete", "p-playbooks-assign",
     "p-report-performance",
     "p-agents-view", "p-agents-operational",
     "p-wf-members-view",
@@ -219,6 +244,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Set<string>> = {
     "p-comms-assign-conversation",
     "p-comms-resolve-threads",
     "p-comms-reopen-threads",
+    "p-calling-view", "p-calling-click-to-call",
     "p-tasks-view", "p-tasks-view-all",
     "p-playbooks-view",
     "p-comms-reporting",

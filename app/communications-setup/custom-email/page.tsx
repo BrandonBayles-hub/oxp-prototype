@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   Globe,
@@ -44,25 +44,25 @@ const SERVICE_TYPES = [
   "ELI+ Maintenance AI",
   "ELI+ Payments AI",
   "ELI+ Renewals AI",
-  "Entrata Email",
+  "Custom Email Address",
 ];
 
-/** Set to `true` to show "Entrata Email" again in Google/Microsoft and assignment service-type pickers. */
-const SHOW_ENTRATA_EMAIL_IN_SERVICE_SELECTOR = false;
+/** Set to `true` to show "Custom Email Address" again in Google/Microsoft and assignment service-type pickers. */
+const SHOW_ENTRATA_EMAIL_IN_SERVICE_SELECTOR = true;
 
 /** Full ELI picker list (OAuth + edit assignment); IMAP "Other providers" still uses `OTHER_PROVIDER_SERVICE_TYPES` only. */
 const ELI_CONNECT_SERVICE_TYPES: readonly string[] = SHOW_ENTRATA_EMAIL_IN_SERVICE_SELECTOR
   ? SERVICE_TYPES
-  : SERVICE_TYPES.filter((s) => s !== "Entrata Email");
+  : SERVICE_TYPES.filter((s) => s !== "Custom Email Address");
 
 /** IMAP/SMTP ("Other Service Providers") — no ELI+ AI lanes; Entrata Email only. */
-const OTHER_PROVIDER_SERVICE_TYPES = ["Entrata Email"] as const;
+const OTHER_PROVIDER_SERVICE_TYPES = ["Custom Email Address"] as const;
 
 /** Shows the "Other Service Providers" (IMAP/SMTP) connect button next to Google/Microsoft. */
 const SHOW_OTHER_SERVICE_PROVIDERS_BUTTON = true;
 
 /** Toggle to `true` to show the "Entrata Email / Optional" column in the property status table again. */
-const SHOW_ENTRATA_EMAIL_OPTIONAL_COLUMN = false;
+const SHOW_ENTRATA_EMAIL_OPTIONAL_COLUMN = true;
 
 const RESIDENT_ELI_SERVICES = ["ELI+ Maintenance AI", "ELI+ Payments AI", "ELI+ Renewals AI"];
 const ALL_ELI_SERVICES = ["ELI+ Leasing AI", ...RESIDENT_ELI_SERVICES];
@@ -84,11 +84,11 @@ function filterToOtherProviderServiceTypes(types: string[]): string[] {
 }
 
 function applyServiceRules(current: string[], toggled: string): string[] {
-  if (toggled === "Entrata Email") {
-    if (current.includes("Entrata Email")) return current.filter((s) => s !== "Entrata Email");
-    return ["Entrata Email"];
+  if (toggled === "Custom Email Address") {
+    if (current.includes("Custom Email Address")) return current.filter((s) => s !== "Custom Email Address");
+    return ["Custom Email Address"];
   }
-  const base = current.filter((s) => s !== "Entrata Email");
+  const base = current.filter((s) => s !== "Custom Email Address");
   if (toggled === "All Resident ELI+ AI Services") {
     const allSelected = RESIDENT_ELI_SERVICES.every((s) => base.includes(s));
     if (allSelected) return base.filter((s) => !RESIDENT_ELI_SERVICES.includes(s));
@@ -134,7 +134,7 @@ function ServiceTypeSelector({
 
   const displayText = selected.length > 0
     ? (showEliGroupLabel
-        ? ["All Resident ELI+ AI Services", ...(selected.includes("Entrata Email") ? ["Entrata Email"] : []), ...(selected.includes("ELI+ Leasing AI") ? ["ELI+ Leasing AI"] : [])].join(", ")
+        ? ["All Resident ELI+ AI Services", ...(selected.includes("Custom Email Address") ? ["Custom Email Address"] : []), ...(selected.includes("ELI+ Leasing AI") ? ["ELI+ Leasing AI"] : [])].join(", ")
         : selected.join(", "))
     : "Select service types...";
 
@@ -157,12 +157,12 @@ function ServiceTypeSelector({
             const isChecked = isGroup
               ? RESIDENT_ELI_SERVICES.every((s) => selected.includes(s))
               : selected.includes(svc);
-            const hasEntrata = selected.includes("Entrata Email");
-            const hasAnyEli = selected.some((s) => ALL_ELI_SERVICES.includes(s));
+            const hasEntrata = selected.includes("Custom Email Address");
+            const hasAnyNonEntrata = selected.some((s) => s !== "Custom Email Address");
             const isDisabled = isGroup
               ? hasEntrata
-              : svc === "Entrata Email"
-                ? hasAnyEli
+              : svc === "Custom Email Address"
+                ? hasAnyNonEntrata
                 : hasEntrata || (
                     (svc === "ELI+ Leasing AI" && selected.some((s) => RESIDENT_ELI_SERVICES.includes(s)))
                     || (RESIDENT_ELI_SERVICES.includes(svc) && selected.includes("ELI+ Leasing AI"))
@@ -240,7 +240,7 @@ function EliPropertyStatusTable() {
   const entrataDone = (propName: string): boolean => {
     const email = getEmailForProperty(propName);
     if (!email) return false;
-    return email.serviceTypes.includes("Entrata Email");
+    return email.serviceTypes.includes("Custom Email Address");
   };
   const propEliComplete = (prop: typeof ELI_PLUS_PROPERTIES[number]) =>
     prop.contracted.every((c) => colDone(prop.name, c));
@@ -279,7 +279,6 @@ function EliPropertyStatusTable() {
           <thead>
             <tr className="border-b border-[hsl(var(--border))] text-left bg-[hsl(var(--muted))]/30">
               <th className="px-6 py-2.5 font-medium text-[hsl(var(--muted-foreground))] whitespace-nowrap">Property</th>
-              <th className="px-4 py-2.5 text-center font-medium text-[hsl(var(--muted-foreground))] whitespace-nowrap text-xs">Connected Email</th>
               {ELI_AI_COLS.map((col) => (
                 <th key={col} className="px-3 py-2.5 text-center font-medium text-[hsl(var(--muted-foreground))] whitespace-nowrap text-xs">
                   <span>{ELI_AI_COL_LABELS[col]}</span>
@@ -288,7 +287,7 @@ function EliPropertyStatusTable() {
               ))}
               {SHOW_ENTRATA_EMAIL_OPTIONAL_COLUMN && (
                 <th className="px-3 py-2.5 text-center font-medium text-[hsl(var(--muted-foreground))] whitespace-nowrap text-xs">
-                  <span>Entrata Email</span>
+                  <span>Custom Email Address</span>
                   <span className="block text-[9px] font-normal text-[hsl(var(--muted-foreground))]/60">Optional</span>
                 </th>
               )}
@@ -297,7 +296,6 @@ function EliPropertyStatusTable() {
           <tbody>
             {paged.map((prop) => {
               const eliDone = propEliComplete(prop);
-              const email = getEmailForProperty(prop.name);
               return (
                 <tr key={prop.id} className={`border-b border-[hsl(var(--border))]/50 ${eliDone ? "bg-emerald-50/30" : ""}`}>
                   <td className="px-6 py-3">
@@ -310,13 +308,6 @@ function EliPropertyStatusTable() {
                         </span>
                       )}
                     </div>
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {email ? (
-                      <span className="text-xs text-[hsl(var(--muted-foreground))] truncate max-w-[140px] inline-block">{email.emailAddress}</span>
-                    ) : (
-                      <span className="text-xs text-gray-400">—</span>
-                    )}
                   </td>
                   {ELI_AI_COLS.map((col) => {
                     const isContracted = prop.contracted.includes(col);
@@ -338,7 +329,7 @@ function EliPropertyStatusTable() {
                         ) : (
                           <div className="flex flex-col items-center gap-0.5">
                             <Circle className="h-5 w-5 text-amber-400" />
-                            <span className="text-[9px] font-medium text-amber-500">Pending</span>
+                            <span className="text-[9px] font-medium text-amber-500">Not Complete</span>
                           </div>
                         )}
                       </td>
@@ -401,6 +392,8 @@ function EliPropertyStatusTable() {
 
 export default function CustomEmailPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isEmbed = searchParams.get("embed") === "1";
   const { emails, setEmails } = useEliEmails();
 
   const handleDeleteEmail = (emailId: number) => {
@@ -637,14 +630,16 @@ export default function CustomEmailPage() {
 
   return (
     <div className="mx-auto max-w-[56rem] px-4 pb-12 pt-8 sm:px-6">
-      <button
-        type="button"
-        onClick={() => router.back()}
-        className="mb-6 inline-flex items-center gap-1.5 text-sm font-medium text-[hsl(var(--muted-foreground))] transition-colors hover:text-[hsl(var(--foreground))]"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back
-      </button>
+      {!isEmbed && (
+        <button
+          type="button"
+          onClick={() => router.back()}
+          className="mb-6 inline-flex items-center gap-1.5 text-sm font-medium text-[hsl(var(--muted-foreground))] transition-colors hover:text-[hsl(var(--foreground))]"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back
+        </button>
+      )}
 
       <div className="mb-8">
         <h1
@@ -874,10 +869,10 @@ export default function CustomEmailPage() {
                   <div className="pt-4">
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="text-sm font-semibold text-[hsl(var(--foreground))]">
-                        Pending Configuration
+                        Not Complete
                       </h4>
                       <span className="rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-                        {pending.length} pending
+                        {pending.length} not complete
                       </span>
                     </div>
                     <p className="mb-2 text-xs text-[hsl(var(--muted-foreground))]">
@@ -1396,6 +1391,22 @@ export default function CustomEmailPage() {
             </div>
             <div className="px-6 py-5 space-y-4">
               <div>
+                <label className="block text-sm font-medium text-[hsl(var(--foreground))] mb-1.5">Service Types</label>
+                <ServiceTypeSelector
+                  serviceOptions={ELI_CONNECT_SERVICE_TYPES}
+                  selected={assignmentEdit.serviceTypes}
+                  onToggle={(svc) => {
+                    setAssignmentEdit((prev) => {
+                      if (!prev) return prev;
+                      return { ...prev, serviceTypes: applyServiceRules(prev.serviceTypes, svc) };
+                    });
+                  }}
+                  open={assignSvcDropdown}
+                  onOpenChange={(v) => { setAssignSvcDropdown(v); if (v) setAssignPropDropdown(false); }}
+                  accentColor="violet"
+                />
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-[hsl(var(--foreground))] mb-1.5">Properties</label>
                 <div className="relative">
                   <button
@@ -1449,22 +1460,6 @@ export default function CustomEmailPage() {
                     );
                   })()}
                 </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-[hsl(var(--foreground))] mb-1.5">Service Types</label>
-                <ServiceTypeSelector
-                  serviceOptions={ELI_CONNECT_SERVICE_TYPES}
-                  selected={assignmentEdit.serviceTypes}
-                  onToggle={(svc) => {
-                    setAssignmentEdit((prev) => {
-                      if (!prev) return prev;
-                      return { ...prev, serviceTypes: applyServiceRules(prev.serviceTypes, svc) };
-                    });
-                  }}
-                  open={assignSvcDropdown}
-                  onOpenChange={(v) => { setAssignSvcDropdown(v); if (v) setAssignPropDropdown(false); }}
-                  accentColor="violet"
-                />
               </div>
             </div>
             <div className="flex items-center justify-end gap-3 border-t border-[hsl(var(--border))] px-6 py-4">

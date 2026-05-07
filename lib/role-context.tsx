@@ -50,7 +50,13 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
     (href: string) => {
       const allowed = ALLOWED_ROUTES[role];
       if (allowed === "all") return true;
-      return allowed.includes(href);
+
+      const normalizedHref =
+        href !== "/" && href.endsWith("/") ? href.slice(0, -1) : href;
+      return allowed.some(
+        (prefix) =>
+          normalizedHref === prefix || normalizedHref.startsWith(`${prefix}/`)
+      );
     },
     [role]
   );

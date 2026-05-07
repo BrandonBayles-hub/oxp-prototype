@@ -1,7 +1,6 @@
 "use client"
 
 import type { PageId } from "../index"
-import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { ArrowLeft } from "lucide-react"
 import type { TourPropertySettings } from "../components/TourTypesSheetContent"

@@ -102,7 +102,7 @@ export type Agent = {
   trendDirection?: "up" | "down" | "flat";
 };
 
-const STORAGE_KEY = "janet-poc-agents-v8";
+const STORAGE_KEY = "janet-poc-agents-v9";
 
 function seedUsage(name: string, status: string, type: AgentType): { weeklyUsage: number; trendDirection: "up" | "down" | "flat" } {
   let h = 0;
@@ -165,7 +165,7 @@ const defaultAgentFields = (
 
 const INITIAL_AGENTS: Agent[] = [
   // Revenue & Financial Management — autonomous, intelligence, operations
-  { id: "1", ...defaultAgentFields("Revenue & Financial Management", "autonomous", "Payments AI", "Rent, fees, payment questions", { status: "Off", vaultBinding: "SOPs: Payments, Refund policy", toolsAllowed: ["Entrata MCP", "Work orders"], guardrails: "Approval gate for refunds >$500", conversationCount: 42, resolutionRate: "88%", escalationsCount: 5, revenueImpact: "$1.2K", labels: ["Payments"] }) },
+  { id: "1", ...defaultAgentFields("Revenue & Financial Management", "autonomous", "Payments AI", "Rent, fees, payment questions", { status: "Active", vaultBinding: "SOPs: Payments, Refund policy", toolsAllowed: ["Entrata MCP", "Work orders"], guardrails: "Approval gate for refunds >$500", conversationCount: 42, resolutionRate: "88%", escalationsCount: 5, revenueImpact: "$1.2K", labels: ["Payments"] }) },
   // L2 · Operational Efficiency — Revenue & Financial Management (35)
   { id: "100", ...defaultAgentFields("Revenue & Financial Management", "intelligence", "Activate & Sync Templates", "Push changes from a budget template to multiple linked budgets in one operation.", { status: "Active", labels: ["Accounting"] }) },
   { id: "101", ...defaultAgentFields("Revenue & Financial Management", "intelligence", "Advance Period Select All AP Agent", "Select all checkbox automatically in AP period closing module of AP Payment.", { status: "Active", labels: ["Accounting"] }) },
@@ -256,7 +256,7 @@ const INITIAL_AGENTS: Agent[] = [
   { id: "321", ...defaultAgentFields("Resident Relations & Retention", "intelligence", "Transfer Move-Out", "Auto-process the move-out side of unit transfers.", { status: "Active", labels: ["Resident relations"] }) },
   { id: "9", ...defaultAgentFields("Resident Relations & Retention", "operations", "Renewal Operations", "Sends renewal offers, generates lease documents, schedules follow-ups, and processes renewal executions.", { labels: ["Resident relations"], runsCompleted: 67, lastRunAt: "2026-02-19T10:00:00Z", lastRunStatus: "success", errorCount: 0, avgRunDuration: "1m 30s", schedule: "Daily at 10:00 AM" }) },
   // Operations & Maintenance
-  { id: "10", ...defaultAgentFields("Operations & Maintenance", "autonomous", "Maintenance AI", "Work orders, follow-up, scheduling", { status: "Off", vaultBinding: "SOPs: Maintenance escalation", channels: ["Chat", "Voice"], toolsAllowed: ["Entrata MCP", "Work orders"], conversationCount: 78, resolutionRate: "89%", escalationsCount: 8, revenueImpact: "$3.2K", labels: ["Maintenance"] }) },
+  { id: "10", ...defaultAgentFields("Operations & Maintenance", "autonomous", "Maintenance AI", "Work orders, follow-up, scheduling", { status: "Active", vaultBinding: "SOPs: Maintenance escalation", channels: ["Chat", "Voice"], toolsAllowed: ["Entrata MCP", "Work orders"], conversationCount: 78, resolutionRate: "89%", escalationsCount: 8, revenueImpact: "$3.2K", labels: ["Maintenance"] }) },
   // L2 · Operational Efficiency — Operations & Maintenance (14)
   { id: "400", ...defaultAgentFields("Operations & Maintenance", "intelligence", "Add Baseline Images to Inspections", "Automatically pulls images from the baseline inspection into the current inspection.", { status: "Active", labels: ["Maintenance"] }) },
   { id: "401", ...defaultAgentFields("Operations & Maintenance", "intelligence", "Add Home Warranty Agent", "Enter warranty details for multiple homes at once with consistent information.", { status: "Active", labels: ["Maintenance"] }) },

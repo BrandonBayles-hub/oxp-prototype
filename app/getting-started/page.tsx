@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { useSetup } from "@/lib/setup-context";
 import { useVault } from "@/lib/vault-context";
@@ -57,7 +57,6 @@ const STEPS = [
   { id: "train-workforce",     title: "Train Your Workforce — Upload Documents & SOPs",             href: "/trainings-sop" },
   { id: "playbooks-tasks",     title: "Create Playbooks & Tasks",                                   href: "/escalations" },
   { id: "workforce",           title: "Configure Your Workforce",                                   href: "/workforce" },
-  { id: "eli-plus",            title: "Activate ELI Plus Agents",                                    href: "/agent-roster" },
   { id: "workflows",           title: "Set up Agent Builder",                                        href: "/workflows" },
   { id: "voice-brand",         title: "Configure Voice & Brand",                                     href: "/voice" },
   { id: "governance",          title: "Set up Governance",                                           href: "/governance" },
@@ -85,6 +84,14 @@ const STEP_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
    ═══════════════════════════════════════════════════════════════════════ */
 
 export default function GettingStartedPage() {
+  return (
+    <Suspense>
+      <GettingStartedContent />
+    </Suspense>
+  );
+}
+
+function GettingStartedContent() {
   const router = useRouter();
   const {
     goLiveComplete,
@@ -103,7 +110,10 @@ export default function GettingStartedPage() {
   const { isR1Release } = useR1Release();
   const { isR1_2Release } = useR1_2Release();
   const isFullVersion = !isR1Release && !isR1_2Release;
-  const [activeTab, setActiveTab] = useState<"activation" | "eli-plus">("activation");
+  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState<"activation" | "eli-plus">(
+    searchParams.get("tab") === "eli-plus" ? "eli-plus" : "activation"
+  );
 
   useEffect(() => {
     if (isFullVersion && activeTab === "eli-plus") {
@@ -158,6 +168,8 @@ export default function GettingStartedPage() {
   const isStepDone = (id: string, i: number) => completedSteps.includes(i) || autoDetected[id];
 
   const doneCount = visibleSteps.reduce((n, step, i) => n + (isStepDone(step.id, i) ? 1 : 0), 0);
+  const progressPct =
+    visibleSteps.length > 0 ? (doneCount / visibleSteps.length) * 100 : 0;
 
   const goLiveChecklist = {
     docs: docCount > 0,
@@ -213,7 +225,10 @@ export default function GettingStartedPage() {
             onClick={() => setActiveTab("eli-plus")}
             className="flex w-full items-center gap-4 rounded-xl border border-[hsl(var(--border))] bg-white p-4 text-left transition-all hover:border-zinc-400 hover:shadow-md"
           >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-900">
+            <div
+              className="flex shrink-0 items-center justify-center rounded-lg bg-zinc-900"
+              style={{ width: 40, height: 40 }}
+            >
               <Rocket className="h-5 w-5 text-white" />
             </div>
             <div className="min-w-0 flex-1">
@@ -225,12 +240,15 @@ export default function GettingStartedPage() {
         </div>
       )}
 
-      {/* Progress bar */}
+      {/* Progress bar — inline height so layout stays correct if utility CSS is delayed */}
       <div className="mb-8 flex items-center gap-3">
-        <div className="h-2 flex-1 overflow-hidden rounded-full bg-[hsl(var(--muted))]">
+        <div
+          className="flex-1 overflow-hidden rounded-full bg-[hsl(var(--muted))]"
+          style={{ height: 8, minHeight: 8, maxHeight: 8 }}
+        >
           <div
             className="h-full rounded-full bg-emerald-600 transition-all duration-500"
-            style={{ width: `${(doneCount / visibleSteps.length) * 100}%` }}
+            style={{ width: `${progressPct}%` }}
           />
         </div>
         <span className="text-sm font-medium tabular-nums text-[hsl(var(--muted-foreground))]">

@@ -115,11 +115,16 @@ export const SYSTEM_TASK_CATALOG: SystemTaskEntry[] = [
   { id: "sys-25", name: "Acknowledge SOP Update", workflow: "Trainings & SOP", description: "Read and acknowledge an updated SOP document" },
 ];
 
+/** Assignable = can be an assignee for this specialty; view-only = see tasks on the escalations list but never as assignee (e.g. managers overseeing direct reports). */
+export type TeammateTaskParticipation = "assignable" | "view-only";
+
 export type SpecialtyTeammate = {
   id: string;
   name: string;
-  permission: "Admin" | "User";
+  permission: "Admin" | "User" | "Group";
   properties: string[];
+  /** Defaults to assignable when omitted (legacy / seed data). */
+  taskParticipation?: TeammateTaskParticipation;
   avatar?: string;
 };
 
