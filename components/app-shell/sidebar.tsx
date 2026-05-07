@@ -18,6 +18,7 @@ import {
   GitBranch,
   BookOpen,
   Mic,
+  Palette,
   Wrench,
   Shield,
   Sparkles,

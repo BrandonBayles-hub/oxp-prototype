@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import type { PageId } from "../index"
 import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -176,6 +177,15 @@ function isEliComplete(p: EmailProperty) {
 interface Props { navigate: (to: PageId) => void }
 
 export function EmailPage({ navigate }: Props) {
+  const [page, setPage] = useState(0)
+
+  const totalPages = Math.ceil(PROPERTIES.length / PAGE_SIZE)
+  const paged = PROPERTIES.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+  const completeCount = PROPERTIES.filter(isEliComplete).length
+
+  const start = page * PAGE_SIZE + 1
+  const end = Math.min((page + 1) * PAGE_SIZE, PROPERTIES.length)
+
   return (
     <div className="p-6 md:p-8 flex gap-8 items-start">
     {/* ── Main content ─────────────────────────────────────────────────── */}

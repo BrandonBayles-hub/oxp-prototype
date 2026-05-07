@@ -13,6 +13,9 @@ import { PrivacyPage } from "./pages/PrivacyPage"
 import { EmailPage } from "./pages/EmailPage"
 import { PaymentsSummaryPage } from "./pages/PaymentsSummaryPage"
 import { GoLivePage } from "./pages/GoLivePage"
+import { MaintenancePage } from "./pages/MaintenancePage"
+import { RenewalsPage } from "./pages/RenewalsPage"
+import { LeasingPage } from "./pages/LeasingPage"
 import { CommunicationsPage } from "./pages/CommunicationsPage"
 import { IvrSetupPage, type IvrChoice } from "./pages/IvrSetupPage"
 import { makeDefaultRenewalDays, isValidDays } from "./components/RenewalLeadTimeSheetContent"
@@ -34,6 +37,40 @@ import {
 export type PageId = "overview" | "company" | "privacy" | "email" | "communications" | "ivr-setup" | "leasing" | "payments" | "maintenance" | "renewals" | "renewals-channels" | "golive"
 export type BrandStatus = "idle" | "submitting" | "carrier-rejected" | "approved"
 export type CampaignStatus = "idle" | "creating" | "ready"
+
+function RenewalsChannelsPage({ navigate }: { navigate: (to: PageId) => void }) {
+  return (
+    <div className="p-6 md:p-8 max-w-6xl space-y-6">
+      <button
+        type="button"
+        onClick={() => navigate("renewals")}
+        className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-1 -ml-2 text-muted-foreground")}
+      >
+        <ArrowLeft className="h-4 w-4" aria-hidden />
+        Renewals AI
+      </button>
+
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Communication Channels</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Define which channels ELI uses for renewal outreach per property.
+        </p>
+      </div>
+
+      <div className="flex flex-col items-center justify-center py-24 gap-4">
+        <div className="h-14 w-14 rounded-full bg-zinc-100 flex items-center justify-center">
+          <Clock className="h-7 w-7 text-zinc-400" aria-hidden />
+        </div>
+        <div className="text-center space-y-1.5">
+          <p className="text-base font-semibold text-foreground">Coming Soon</p>
+          <p className="text-sm text-muted-foreground max-w-sm">
+            Communication channel configuration for Renewals AI is on the roadmap. This will let you control which channels — email, SMS, in-app — ELI uses when reaching out to residents about lease renewals.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export type BasePageProps = {
   navigate: (to: PageId) => void
