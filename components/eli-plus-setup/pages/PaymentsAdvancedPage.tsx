@@ -88,12 +88,6 @@ export function PaymentsAdvancedPage({ navigate }: Props) {
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <button type="button" onClick={() => handleNavigate("overview")} className="hover:text-foreground transition-colors">Overview</button>
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbLink asChild>
                 <button type="button" onClick={() => handleNavigate("payments")} className="hover:text-foreground transition-colors">Payments AI</button>
               </BreadcrumbLink>
             </BreadcrumbItem>

@@ -127,7 +127,7 @@ function ModeSelector({ mode, setMode, preferredExpanded, onTogglePreferred, pre
                   Recommended
                 </span>
               </div>
-              <p className="text-xs text-muted-foreground mt-0.5">Pre-configured routing optimized for leasing, maintenance, and resident calls.</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Two-level menu optimized for leasing, maintenance, and resident calls. Routes directly to Leasing AI and Maintenance AI — no manual per-property setup needed.</p>
               {mode === "preferred" && (
                 <div className="mt-3 space-y-4">
                   <PreferredPreview options={DEFAULT_IVR} expanded={preferredExpanded} onToggle={onTogglePreferred} />
@@ -262,6 +262,13 @@ export function IvrSetupSheetContent({ onValidChange }: Props) {
 
   return (
     <div className="space-y-6">
+      <div>
+        <h2 className="text-sm font-semibold text-foreground">Choose your go-live routing</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Pick how calls should be handled when your AI products activate. You can change this later.
+        </p>
+      </div>
+
       <ModeSelector
         mode={mode}
         setMode={setMode}

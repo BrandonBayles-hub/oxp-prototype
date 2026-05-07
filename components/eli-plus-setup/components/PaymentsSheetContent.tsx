@@ -1,11 +1,7 @@
 "use client"
 
-import type { PageId } from "../index"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ArrowRight, Table2 } from "lucide-react"
-import { buttonVariants } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
 
 const CONFIRMATION_GROUPS = [
   { label: "Rent charge & due dates", count: 24, status: "needs_review" as const },
@@ -17,12 +13,7 @@ const CONFIRMATION_GROUPS = [
   { label: "Auto-pay settings", count: 24, status: "prefilled" as const },
 ]
 
-interface Props {
-  navigate: (to: PageId) => void
-  onSheetClose: () => void
-}
-
-export function PaymentsSheetContent({ navigate, onSheetClose }: Props) {
+export function PaymentsSheetContent() {
   const needsReview = CONFIRMATION_GROUPS.filter((g) => g.status === "needs_review").length
 
   return (
@@ -69,26 +60,7 @@ export function PaymentsSheetContent({ navigate, onSheetClose }: Props) {
         </CardContent>
       </Card>
 
-      {/* Advanced view shortcut */}
-      <div className="rounded-lg border border-border/70 bg-muted/30 p-4 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-md bg-background border border-border shrink-0">
-            <Table2 className="h-4 w-4 text-muted-foreground" aria-hidden />
-          </div>
-          <div>
-            <p className="text-sm font-medium">Need to edit individual values?</p>
-            <p className="text-xs text-muted-foreground">Search, filter, and edit per-property in the advanced view.</p>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => { onSheetClose(); navigate("payments-advanced") }}
-          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "whitespace-nowrap shrink-0")}
-        >
-          Advanced
-          <ArrowRight className="h-3.5 w-3.5 ml-1" aria-hidden />
-        </button>
-      </div>
+      {/* (Advanced view removed) */}
     </div>
   )
 }

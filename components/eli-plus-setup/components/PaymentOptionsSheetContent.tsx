@@ -148,6 +148,9 @@ export function PaymentOptionsSheetContent({ onValidChange }: Props) {
           >
             Apply to All Properties
           </button>
+          {enabledCount === 0 && (
+            <span className="text-xs text-muted-foreground">Enable at least one payment method above to apply to all properties.</span>
+          )}
           {applied && (
             <span className="flex items-center gap-1 text-xs text-emerald-700 font-medium">
               <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />

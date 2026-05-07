@@ -357,15 +357,6 @@ export function GoLivePage({ navigate }: Props) {
 
   return (
     <div className="p-6 md:p-8 max-w-6xl space-y-6">
-      <button
-        type="button"
-        onClick={() => navigate("overview")}
-        className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-1 -ml-2 text-muted-foreground")}
-      >
-        <ArrowLeft className="h-4 w-4" aria-hidden />
-        Overview
-      </button>
-
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Go Live</h1>
         <p className="text-sm text-muted-foreground mt-1 max-w-xl">

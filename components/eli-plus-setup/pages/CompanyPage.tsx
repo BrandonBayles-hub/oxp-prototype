@@ -1,61 +1,195 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import type { PageId } from "../index"
 import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import {
-  ArrowLeft, Lock, CheckCircle2, XCircle, Loader2, ExternalLink,
-  Code2, Globe, ChevronDown, ChevronUp, Zap, MessageSquare, X, TriangleAlert,
+  ArrowLeft, Lock, CheckCircle2, XCircle, Loader2,
+  X, TriangleAlert, ChevronRight,
+  RefreshCw, Info,
 } from "lucide-react"
 import type { BrandStatus } from "../index"
 
+export type SimMode = "none" | "missing" | "rejected"
+
 interface Props {
   navigate: (to: PageId) => void
-  privacyPublished: boolean
-  onPrivacyPublish: () => void
   brandStatus: BrandStatus
+  showToast: (message: string) => void
+  simMode: SimMode
+  onSimModeChange: (mode: SimMode) => void
+  onSubmitToTwilio: () => void
+  onCancelSubmission: () => void
+  onResubmitToCarrier: () => void
+  onActionCountChange: (count: number) => void
 }
 
 const PREFILLED_EIN = "98-7654321"
 const maskedEin = `••-•••${PREFILLED_EIN.slice(-4)}`
-
-// Privacy policy Mad-lib template — fields in [brackets] are replaced with user values
-const POLICY_TEMPLATE = (f: PolicyFields) => `
-${f.companyName} Privacy Policy
-Last updated: ${f.lastUpdated}
-
-${f.companyName} ("we," "us," or "our") operates ${f.websiteUrl}. We are committed to protecting your personal information and your right to privacy.
-
-Information We Collect
-We may collect the following types of personal information: ${f.dataTypes || "[data types]"}.
-
-How We Use Your Information
-We use the information we collect to ${f.purpose || "[describe purpose]"} and to communicate with you about our services.
-
-Data Retention
-We retain your personal information for ${f.retentionPeriod} unless a longer retention period is required by law.
-
-Your Rights
-You have the right to access, correct, or delete your personal data at any time.
-
-Contact Us
-If you have questions about this Privacy Policy, please contact us at ${f.contactEmail}.
-
-${f.companyName} | ${f.address} | ${f.state}
-`.trim()
+const TODAY = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
 
 interface PolicyFields {
   companyName: string
   websiteUrl: string
+  companyPhone: string
   contactEmail: string
   address: string
-  state: string
-  dataTypes: string
-  purpose: string
-  retentionPeriod: string
-  lastUpdated: string
+  repName: string
+  messageFrequency: string
+  retentionApplication: string
+  retentionResident: string
+  retentionComms: string
+  retentionWebActivity: string
+  retentionBackground: string
 }
+
+const DEFAULT_FIELDS: PolicyFields = {
+  companyName: "Sunset Properties LLC",
+  websiteUrl: "https://www.sunsetproperties.com",
+  companyPhone: "(512) 555-0123",
+  contactEmail: "sarah.johnson@sunsetproperties.com",
+  address: "123 Main Street, Suite 200, Austin, TX 78701",
+  repName: "Sarah Johnson",
+  messageFrequency: "",
+  retentionApplication: "",
+  retentionResident: "",
+  retentionComms: "",
+  retentionWebActivity: "",
+  retentionBackground: "",
+}
+
+const POLICY_TEMPLATE = (f: PolicyFields) => `PRIVACY POLICY
+${f.companyName}
+Effective Date: ${TODAY}
+Last Updated: ${TODAY}
+
+1. Introduction
+This Privacy Policy describes how ${f.companyName} ("we," "us," or "our") collects, uses, discloses, and otherwise processes personal information in connection with our websites, mobile applications, text messaging and chatbot services, email communications, and the leasing, management, and operation of our residential apartment communities (collectively, the "Services"). This Privacy Policy applies to prospective residents, current residents, former residents, website visitors, and other individuals who interact with us through the Services.
+
+2. Information We Collect
+We collect the following categories of personal information:
+
+A. Identifiers and Contact Information. Name, email address, phone number, mailing address, date of birth, and government-issued identification numbers (such as Social Security number, driver's license number, or passport number).
+B. Financial and Payment Information. Bank account numbers, credit or debit card numbers, income and employment verification records, credit history and credit scores, and payment history.
+C. Background Screening Information. Criminal background check results, eviction history, and credit reports obtained in connection with lease applications, subject to applicable law, including the Fair Credit Reporting Act.
+D. Lease and Tenancy Information. Lease terms, unit number, move-in and move-out dates, rent payment records, maintenance request details, and other information related to your tenancy.
+E. Communications Data. Transcripts and records of communications with us, including chatbot conversations, text messages, emails, and telephone call records.
+F. Device and Online Activity Information. IP address, browser type and version, device identifiers, operating system, referring URLs, pages visited on our website, and similar tracking technologies.
+G. Smart Home and IoT Device Data. Data generated by smart home devices installed in our communities, including smart lock access logs, thermostat usage, and connected device activity.
+H. Inferences. Inferences drawn from the categories above to create a profile reflecting your preferences, characteristics, or behavior.
+I. Sensitive Personal Information. Certain information we collect may be classified as sensitive under applicable state law, including Social Security numbers, government-issued identification numbers, financial account information, and background screening data.
+
+3. Sources of Personal Information
+We collect personal information:
+• Directly from you, when you submit a lease application, sign a lease, make a payment, submit a maintenance request, or otherwise interact with us.
+• From third-party service providers, including consumer reporting agencies, payment processors, and identity verification services.
+• Automatically, through cookies and similar tracking technologies when you visit our website.
+• From our technology platform providers, which operate our property management platform, chatbot, and text messaging services on our behalf.
+
+4. How We Use Your Information
+We use personal information for: leasing operations; rent collection and financial management; maintenance and property operations; resident communications; marketing and advertising (where permitted and where you have opted in); compliance with applicable laws; safety and security; and internal business operations and analytics.
+
+5. How We Share Your Information
+We share personal information with background screening providers, payment processors, maintenance vendors, insurance providers, smart lock and IoT providers, technology platform providers (including Entrata, which operates our property management platform), advertising networks, analytics providers, law enforcement and government entities, and professional advisors, as necessary for the purposes described above.
+
+No mobile information will be shared with third parties or affiliates for marketing or promotional purposes.
+
+6. Text Messaging, Chatbot, and Email Communications
+By providing your phone number and consenting to receive text messages, you agree to receive transactional and, where you have separately opted in, promotional text messages from ${f.companyName} or our service providers, including through automated means.
+
+Opt-in consent for text messaging is voluntary. You are not required to consent to text messaging as a condition of entering into a lease.
+
+Opt-out. You may opt out of promotional text messages at any time by replying STOP to any message. For help, reply HELP or contact us at ${f.companyPhone} or ${f.contactEmail}.
+
+Message frequency. ${f.messageFrequency === "varies" ? "Message frequency varies." : `You will receive approximately ${f.messageFrequency} messages per month.`} Message and data rates may apply. Carriers are not liable for delayed or undelivered messages.
+
+No mobile information will be shared with third parties or affiliates for marketing or promotional purposes.
+
+Our chatbot is operated by Entrata on our behalf. Communications through the chatbot are collected and processed in accordance with this Privacy Policy.
+
+7. Cookies and Tracking Technologies
+Our website uses cookies, web beacons, pixels, and similar tracking technologies. You may manage your cookie preferences through your browser settings. Disabling certain cookies may affect your ability to use some features of our website.
+
+8. Your Privacy Rights
+Depending on the state in which you reside, you may have rights to: know and access your personal information; correct inaccurate information; delete your personal information; data portability; opt out of sale or sharing; opt out of targeted advertising; opt out of profiling; limit use of sensitive personal information; and non-discrimination.
+
+To exercise your rights, contact us at:
+• Email: ${f.contactEmail}
+• Mail: ${f.address}
+• Phone: ${f.companyPhone}
+
+We will respond to your request within the timeframe required by applicable law (generally 45 days). If we deny your request, you may appeal by contacting us at ${f.contactEmail}.
+
+9. Data Security
+We maintain reasonable administrative, technical, and physical safeguards to protect personal information, including encryption of data in transit and at rest, access controls, employee training, and periodic security assessments.
+
+10. Children's Privacy
+We do not knowingly collect personal information from individuals under the age of 16, and do not sell or share the personal information of individuals we know to be under 18.
+
+11. Third-Party Links
+Our website and communications may contain links to third-party websites. We are not responsible for the privacy practices of those third parties.
+
+12. Changes to This Privacy Policy
+We may update this Privacy Policy from time to time. Material changes will be posted on our website with a revised "Last Updated" date.
+
+13. Contact Us
+${f.companyName}
+${f.address}
+${f.companyPhone}
+${f.contactEmail}
+${f.websiteUrl}
+
+14. State-Specific Supplements
+
+14.1 California Residents (CCPA/CPRA)
+Data retention periods:
+• Lease application data (non-residents): ${f.retentionApplication} years from date of application.
+• Resident data: Duration of lease plus ${f.retentionResident} years following lease termination.
+• Communications records (texts, chatbot, email): ${f.retentionComms} years.
+• Website activity data (cookies, analytics): ${f.retentionWebActivity} months.
+• Background screening reports: ${f.retentionBackground} years, subject to FCRA requirements.
+
+We do not offer financial incentive programs related to the collection of personal information.
+To opt out of the sale or sharing of personal information, contact us at ${f.contactEmail}.
+
+14.2 Minnesota Residents
+Privacy Officer: ${f.repName}, ${f.contactEmail}, ${f.companyPhone}.
+
+14.3 Maryland Residents
+We do not sell sensitive personal information of Maryland residents and do not use geofencing technology near health care facilities.
+
+14.4 Colorado, Oregon, and Connecticut Residents
+We honor universal opt-out mechanisms, including the Global Privacy Control. We will obtain your consent before processing sensitive personal information where required by applicable law.
+
+14.5 Virginia, Texas, Delaware, Montana, New Hampshire, New Jersey, Nebraska, Iowa, Tennessee, Indiana, Kentucky, Rhode Island, Utah, and Florida Residents
+Residents of these states have the rights described in Section 8, subject to each state's specific scope and limitations. For questions, contact our Privacy Officer at ${f.contactEmail}.`.trim()
+
+type RejectedField = "legal" | "ein" | "address" | "phone" | "website" | "rep-name" | "rep-email" | "rep-phone"
+
+const CARRIER_REJECTION_MESSAGES: Record<RejectedField, string> = {
+  "legal":     "Your business name couldn't be matched against official registration records. Update it to exactly match your state or federal business registration.",
+  "ein":       "Your Federal Tax ID couldn't be verified against IRS records. Make sure it matches your official registration exactly (format: XX-XXXXXXX).",
+  "address":   "Your business address wasn't recognized. Make sure it matches your state registration and is formatted as a standard mailing address.",
+  "phone":     "This number couldn't be verified as a business line. Use a direct business phone — not a forwarding or virtual number.",
+  "website":   "Your website URL couldn't be verified. Make sure it's publicly accessible and belongs to your registered business.",
+  "rep-name":  "The authorized representative name doesn't match registration records. Use the full legal name of someone authorized to act for the company.",
+  "rep-email": "This email couldn't be verified as associated with your business domain.",
+  "rep-phone": "The representative phone number couldn't be verified. Use a direct business or personal number.",
+}
+
+const MISSING_MESSAGES: Record<RejectedField, string> = {
+  "legal":     "Please provide your legal business name.",
+  "ein":       "Your Federal Tax ID is required for carrier registration.",
+  "address":   "Please provide your complete business address.",
+  "phone":     "Please provide a company phone number.",
+  "website":   "Please provide your business website URL.",
+  "rep-name":  "Please provide the authorized representative's full name.",
+  "rep-email": "Please provide the authorized representative's email address.",
+  "rep-phone": "Please provide the authorized representative's phone number.",
+}
+
+// ── Small reusable components ────────────────────────────────────────────────
 
 function RequiredLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -65,37 +199,145 @@ function RequiredLabel({ children }: { children: React.ReactNode }) {
   )
 }
 
+interface FieldInfoData { what: string; why: string; tip?: string }
+
+function FieldInfo({ data }: { data: FieldInfoData }) {
+  const [open, setOpen] = useState(false)
+  const [openUp, setOpenUp] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  function handleEnter() {
+    if (ref.current) {
+      const rect = ref.current.getBoundingClientRect()
+      // If less than 280px below the icon, open upward
+      setOpenUp(window.innerHeight - rect.bottom < 280)
+    }
+    setOpen(true)
+  }
+
+  return (
+    <div
+      ref={ref}
+      className="relative inline-flex items-center ml-1.5 cursor-default align-middle"
+      onMouseEnter={handleEnter}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <Info className="h-3.5 w-3.5 text-zinc-400 hover:text-zinc-600 transition-colors" />
+      {open && (
+        <div className={cn(
+          "pointer-events-none absolute left-full ml-2 w-72 rounded-xl border border-zinc-200 bg-white shadow-xl z-50 overflow-hidden",
+          openUp ? "bottom-0" : "top-0",
+        )}>
+          <div className="px-4 py-3 space-y-2.5">
+            <div>
+              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wide mb-0.5">What it is</p>
+              <p className="text-xs text-zinc-700 leading-relaxed">{data.what}</p>
+            </div>
+            <div className="border-t border-zinc-100 pt-2.5">
+              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wide mb-0.5">Why it matters</p>
+              <p className="text-xs text-zinc-700 leading-relaxed">{data.why}</p>
+            </div>
+            {data.tip && (
+              <div className="border-t border-zinc-100 pt-2.5">
+                <p className="text-xs text-blue-700 leading-relaxed bg-blue-50 rounded-md px-2.5 py-1.5">{data.tip}</p>
+              </div>
+            )}
+          </div>
+          {/* Arrow pointing left, positioned to match the icon */}
+          <div className={cn(
+            "absolute right-full w-0 h-0 border-t-4 border-b-4 border-r-4 border-t-transparent border-b-transparent border-r-zinc-200",
+            openUp ? "bottom-3" : "top-3",
+          )} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function LabelWithInfo({ children, info }: { children: React.ReactNode; info: FieldInfoData }) {
+  return (
+    <div className="flex items-center mb-1.5">
+      <label className="text-sm font-semibold text-foreground">
+        <span className="text-red-500 mr-1">*</span>{children}
+      </label>
+      <FieldInfo data={info} />
+    </div>
+  )
+}
+
+// ── Field-level guidance (sourced from Twilio A2P 10DLC docs) ─────────────────
+const FIELD_INFO = {
+  legal: {
+    what: "The exact name registered with your state or the IRS — not a DBA, trade name, or abbreviation.",
+    why: "Carriers verify against federal and state records. Even minor differences in spelling or structure (e.g. 'LLC' vs 'L.L.C.') will cause rejection.",
+    tip: "Check your IRS EIN confirmation letter or state filing certificate for the exact format.",
+  },
+  ein: {
+    what: "Your IRS-issued 9-digit Employer Identification Number, formatted as XX-XXXXXXX.",
+    why: "Required for Standard brand registration and must match your IRS filing exactly. Businesses with an EIN cannot register as a Sole Proprietor.",
+    tip: "Found on your IRS EIN assignment letter (CP-575) or any federal tax filing.",
+  },
+  address: {
+    what: "The physical address on file with your state business registration.",
+    why: "Carriers cross-reference against state records. P.O. boxes, virtual offices, and addresses that differ from your state filing are rejected.",
+    tip: "Use the address from your state filing or EIN application — not necessarily your current mailing address.",
+  },
+  phone: {
+    what: "A direct, verifiable business line — not a forwarding, VoIP, or virtual number.",
+    why: "Carriers confirm this is an active, real business number. Forwarding and virtual lines are frequently flagged and rejected.",
+    tip: "Use a landline or direct business mobile associated with your company, not a receptionist relay.",
+  },
+  website: {
+    what: "Your publicly accessible business website — must match your registered business name.",
+    why: "Carriers visit your site to verify it's live and belongs to your registered business. Password-protected, under-construction, or mismatched URLs cause rejection.",
+    tip: "If your site is unavailable, a public LinkedIn company page can be used as a substitute.",
+  },
+  privacy: {
+    what: "A public page describing how you collect, use, and protect consumer data.",
+    why: "Required by all carriers. Must explicitly state that mobile data will never be sold or shared with third parties — missing this language is a top rejection cause.",
+    tip: "Make sure the page is publicly accessible (not behind a login or set to draft) before submitting.",
+  },
+  repName: {
+    what: "The full legal name of a person authorized to legally act on behalf of the company.",
+    why: "Used for identity verification against business records. Nicknames, initials, or names without signing authority will be rejected.",
+    tip: "This person assumes legal responsibility for messaging compliance. Use the name as it appears on official company documents.",
+  },
+  repEmail: {
+    what: "An email at your registered business domain (e.g. name@yourcompany.com).",
+    why: "Carriers verify the email domain matches your registered website. Gmail, Yahoo, or personal email addresses significantly increase rejection risk.",
+  },
+  repPhone: {
+    what: "A direct phone number for the authorized representative.",
+    why: "Used for identity verification. VoIP and forwarding numbers may cause issues — use a direct mobile or business line.",
+  },
+} satisfies Record<string, FieldInfoData>
+
 function Field({ children, className }: { children: React.ReactNode; className?: string }) {
   return <div className={cn("space-y-0", className)}>{children}</div>
 }
 
-function TextInput({ id, defaultValue, placeholder, className, fieldLabel, onAutoSave }: {
-  id?: string; defaultValue?: string; placeholder?: string; className?: string
-  fieldLabel?: string; onAutoSave?: (label: string) => void
-}) {
+function InlineError({ message }: { message: string }) {
   return (
-    <input id={id} type="text" defaultValue={defaultValue} placeholder={placeholder}
-      onBlur={() => fieldLabel && onAutoSave?.(fieldLabel)}
-      className={cn("w-full h-11 rounded-lg border border-border bg-white px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-zinc-900/20 transition-colors", className)}
-    />
+    <p className="mt-1.5 flex items-center gap-1.5 text-xs text-red-600">
+      <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
+      {message}
+    </p>
   )
 }
 
-type RejectedField = "legal" | "ein" | "website"
-
-function RejectionCard({ reason, onDismiss }: { reason: string; onDismiss: () => void }) {
+function CarrierRejectionCard({ reason, onDismiss }: { reason: string; onDismiss: () => void }) {
   return (
     <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 space-y-3">
       <div className="flex items-start gap-2.5">
         <XCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
         <div>
-          <p className="text-sm font-medium text-red-900">Our carrier could not verify this</p>
-          <p className="text-xs text-red-700 mt-0.5 leading-relaxed">{reason}</p>
+          <p className="text-sm font-medium text-red-900">Not recognized by our carrier</p>
+          <p className="text-xs text-red-700 mt-1 leading-relaxed">{reason}</p>
         </div>
       </div>
       <div className="border-t border-red-200 pt-2.5 flex justify-end">
         <button type="button" onClick={onDismiss}
-          className="text-xs font-medium text-red-800 hover:text-red-900 transition-colors"
+          className="text-xs font-medium text-red-700 hover:text-red-900 transition-colors"
         >
           I've updated this →
         </button>
@@ -104,437 +346,580 @@ function RejectionCard({ reason, onDismiss }: { reason: string; onDismiss: () =>
   )
 }
 
-function DevNote({ number, children }: { number: number; children: React.ReactNode }) {
+// ── Retention periods accordion (optional, collapsed by default) ─────────────
+
+function RetentionAccordion({
+  fields,
+  setField,
+}: {
+  fields: PolicyFields
+  setField: (key: keyof PolicyFields, val: string) => void
+}) {
+  const retentionRows: { label: string; key: keyof PolicyFields; unit: string; hint: string }[] = [
+    { label: "Lease application data (non-residents)", key: "retentionApplication", unit: "yrs", hint: "Common: 5 yrs" },
+    { label: "Resident data after lease ends", key: "retentionResident", unit: "yrs", hint: "Common: 7 yrs" },
+    { label: "Communications (texts, email, chat)", key: "retentionComms", unit: "yrs", hint: "Common: 3 yrs" },
+    { label: "Website activity & cookies", key: "retentionWebActivity", unit: "mo", hint: "Common: 24 mo" },
+    { label: "Background screening reports", key: "retentionBackground", unit: "yrs", hint: "FCRA min: 7 yrs" },
+  ]
+  const allFilled = retentionRows.every(r => fields[r.key] !== "")
   return (
-    <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-      <div className="flex items-start gap-2.5">
-        <div className="flex items-center justify-center h-5 w-5 rounded-full bg-amber-400 text-[10px] font-bold text-white shrink-0 mt-0.5">
-          {number}
-        </div>
-        <div className="text-xs text-amber-900 leading-relaxed">{children}</div>
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <label className="text-[11px] font-semibold text-amber-900">
+          <span className="text-red-500 mr-1">*</span>Data retention periods
+        </label>
+        {!allFilled && (
+          <span className="text-[10px] text-red-600 flex items-center gap-1">
+            <TriangleAlert className="h-3 w-3" /> All fields required
+          </span>
+        )}
+      </div>
+      <p className="text-[11px] text-amber-700">How long you keep each type of data. Your legal team should confirm these. Common industry values are shown as a guide.</p>
+      <div className="rounded-lg border border-amber-200 bg-white divide-y divide-amber-100">
+        {retentionRows.map(({ label, key, unit, hint }) => (
+          <div key={key} className="flex items-center gap-3 px-4 py-2.5">
+            <span className="text-[11px] text-zinc-700 flex-1 leading-snug">{label}</span>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <input
+                type="number"
+                min={1}
+                value={fields[key]}
+                placeholder="—"
+                onChange={(e) => setField(key, e.target.value)}
+                className={cn(
+                  "w-14 h-7 rounded-md border px-2 text-xs text-center focus:outline-none focus:ring-2 focus:ring-amber-400/30 bg-white",
+                  fields[key] === "" ? "border-amber-300 placeholder:text-amber-300" : "border-amber-200 text-foreground",
+                )}
+              />
+              <span className="text-[11px] text-zinc-500">{unit}</span>
+            </div>
+            <span className="text-[10px] text-zinc-400 shrink-0 w-24 text-right">{hint}</span>
+          </div>
+        ))}
       </div>
     </div>
   )
 }
 
-export function CompanyPage({ navigate, privacyPublished, onPrivacyPublish, brandStatus }: Props) {
-  const [einRevealed, setEinRevealed] = useState(false)
-  const [scanning, setScanning] = useState(true)
-  const [foundPrivacyUrl, setFoundPrivacyUrl] = useState("")
+// ── Main page ────────────────────────────────────────────────────────────────
 
-  // Mad-lib form state — pre-populated from "Entrata system"
-  const [fields, setFields] = useState<PolicyFields>({
-    companyName: "Sunset Properties LLC",
-    websiteUrl: "https://www.sunsetproperties.com",
-    contactEmail: "sarah.johnson@sunsetproperties.com",
-    address: "123 Main Street, Suite 200, Austin",
-    state: "TX",
-    dataTypes: "name, email address, phone number, mailing address, payment information",
-    purpose: "process lease applications and rental payments, communicate service updates",
-    retentionPeriod: "3 years",
-    lastUpdated: new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
-  })
-  const [policyPreviewOpen, setPolicyPreviewOpen] = useState(false)
-  // Fades the green privacy policy success state back to a plain white input
-  const [privacyFaded, setPrivacyFaded] = useState(false)
-  // Toast for brand & profile approved
-  const [toastVisible, setToastVisible] = useState(false)
-  // Twilio rejection simulation
+export function CompanyPage({ navigate, brandStatus, showToast, simMode, onSimModeChange, onSubmitToTwilio, onCancelSubmission, onResubmitToCarrier, onActionCountChange }: Props) {
+  const [einRevealed, setEinRevealed] = useState(false)
+  const [isEditing, setIsEditing]     = useState(false)
+
   const [rejectedFields, setRejectedFields] = useState<Set<RejectedField>>(new Set())
-  // Auto-save toast
-  const [savedLabel, setSavedLabel] = useState<string | null>(null)
+  const [missingFields, setMissingFields] = useState<Set<RejectedField>>(new Set())
+  const [restarting, setRestarting] = useState(false)
+  const [restartDone, setRestartDone] = useState(false)
+  // Start with legal name empty to demo the "one field missing" state
+  const [simFields, setSimFields] = useState<Record<string, string>>({ legal: "" })
+
+  // Fields lock while submitting or after approval — carrier-rejected stays editable so user can fix
+  const locked = (brandStatus === "submitting" || brandStatus === "approved") && !isEditing
+
+  // When carrier rejects, clear the phone field so the user must re-enter it
+  useEffect(() => {
+    if (brandStatus === "carrier-rejected") {
+      setSimFields(prev => ({ ...prev, phone: "" }))
+    }
+  }, [brandStatus])
 
   function triggerAutoSave(label: string) {
-    setSavedLabel(label)
-    setTimeout(() => setSavedLabel(null), 2200)
+    if (locked) return
+    showToast(`${label} saved`)
+  }
+
+  function handleSaveAndResubmit() {
+    setIsEditing(false)
+    setRestarting(true)
+    setTimeout(() => { setRestarting(false); setRestartDone(true) }, 2500)
+    showToast("Resubmitting to carrier — processing takes ~15 minutes")
+  }
+
+  function activateMissingSim() {
+    onSimModeChange("missing")
+    setRejectedFields(new Set())
+    setRestartDone(false)
+    setRestarting(false)
+    setMissingFields(new Set(Object.keys(CARRIER_REJECTION_MESSAGES) as RejectedField[]))
+    setSimFields({
+      "legal": "", "address-street": "", "address-city": "", "address-state": "", "address-zip": "",
+      "phone": "", "website": "", "rep-name": "", "rep-email": "", "rep-phone": "",
+    })
+  }
+
+  function activateRejectedSim() {
+    onSimModeChange("rejected")
+    setMissingFields(new Set())
+    setRestartDone(false)
+    setRestarting(false)
+    setSimFields({})
+    setRejectedFields(new Set(Object.keys(CARRIER_REJECTION_MESSAGES) as RejectedField[]))
+  }
+
+  function resetSim() {
+    onSimModeChange("none")
+    setRejectedFields(new Set())
+    setMissingFields(new Set())
+    setSimFields({ legal: "" })  // restore to one-field-missing default
+    setRestarting(false)
+    setRestartDone(false)
   }
 
   function dismissRejection(field: RejectedField) {
-    setRejectedFields((prev) => { const s = new Set(prev); s.delete(field); return s })
+    setRejectedFields(prev => {
+      const next = new Set(prev)
+      next.delete(field)
+      if (next.size === 0) {
+        setRestarting(true)
+        setTimeout(() => { setRestarting(false); setRestartDone(true); onSimModeChange("none") }, 2500)
+      }
+      return next
+    })
   }
-  function simulateRejection() {
-    setRejectedFields(new Set<RejectedField>(["legal", "ein", "website"]))
-  }
 
-  function setField(key: keyof PolicyFields, val: string) {
-    setFields((p) => ({ ...p, [key]: val }))
-  }
-
-  // Auto-scan on mount — simulates "not found" so the Mad-lib builder is shown
-  useEffect(() => {
-    const t = setTimeout(() => setScanning(false), 1800)
-    return () => clearTimeout(t)
-  }, [])
-
-  // After publishing: briefly show green, then fade to plain white
-  useEffect(() => {
-    if (!privacyPublished) return
-    const t = setTimeout(() => setPrivacyFaded(true), 1500)
-    return () => clearTimeout(t)
-  }, [privacyPublished])
-
-  // Show toast when brand is approved; auto-dismiss after 3s
   useEffect(() => {
     if (brandStatus !== "approved") return
-    setToastVisible(true)
-    const t = setTimeout(() => setToastVisible(false), 3000)
-    return () => clearTimeout(t)
+    showToast("Business registered with carrier — phone numbers are being set up")
   }, [brandStatus])
 
-  const generatedPolicy = POLICY_TEMPLATE(fields)
+  // ── Auto-demo: type the legal name → submit → fix rejected phone → resubmit ─
+  // Helper: type text one character at a time into a simFields key
+  function typeInto(
+    text: string,
+    setter: (updater: (prev: Record<string, string>) => Record<string, string>) => void,
+    key: string,
+    msPerChar = 42,
+  ) {
+    return new Promise<void>(resolve => {
+      let i = 0
+      function next() {
+        i++
+        setter(p => ({ ...p, [key]: text.slice(0, i) }))
+        if (i < text.length) setTimeout(next, msPerChar)
+        else resolve()
+      }
+      next()
+    })
+  }
+
+  // Stage 1: on mount — type the legal business name then submit.
+  // No demoStarted ref: rely on `cancelled` so Strict Mode double-mount works correctly.
+  useEffect(() => {
+    const cancelled = { v: false }
+    ;(async () => {
+      await new Promise(r => setTimeout(r, 700))
+      if (cancelled.v) return
+      await typeInto("Sunset Properties LLC", setSimFields, "legal")
+      await new Promise(r => setTimeout(r, 500))
+      if (cancelled.v) return
+      onSubmitToTwilio()
+    })()
+    return () => { cancelled.v = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Stage 2: carrier rejects → retype phone → resubmit.
+  // Guard with a module-level flag so this only fires once even across Strict Mode remounts.
+  const phoneFixStarted = useRef(false)
+  useEffect(() => {
+    if (brandStatus !== "carrier-rejected") return
+    if (phoneFixStarted.current) return
+    phoneFixStarted.current = true
+    const cancelled = { v: false }
+    ;(async () => {
+      await new Promise(r => setTimeout(r, 900))
+      if (cancelled.v) return
+      await typeInto("(512) 555-0123", setSimFields, "phone", 38)
+      await new Promise(r => setTimeout(r, 500))
+      if (cancelled.v) return
+      onResubmitToCarrier()
+    })()
+    return () => { cancelled.v = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brandStatus])
+
+  // simFields takes precedence over hardcoded defaults for all modes
+  function sv(key: string, fallback: string) {
+    return key in simFields ? simFields[key] : fallback
+  }
+  const isMissing = (f: RejectedField) => simMode === "missing" && missingFields.has(f)
+  const isRejected = (f: RejectedField) => simMode === "rejected" && rejectedFields.has(f)
+  const redBorder = (f: RejectedField) =>
+    isMissing(f) || isRejected(f) ? "border-red-400 focus:ring-red-400/20" : undefined
+
+  const websiteValue = sv("website", "https://www.sunsetproperties.com")
+
+  // Track completeness for the sticky footer
+  const REQUIRED_FIELDS = [
+    { key: "legal",          label: "Legal Business Name",      fallback: "Sunset Properties LLC" },
+    { key: "address-street", label: "Street Address",           fallback: "123 Main Street, Suite 200" },
+    { key: "address-city",   label: "City",                     fallback: "Austin" },
+    { key: "address-state",  label: "State",                    fallback: "TX" },
+    { key: "address-zip",    label: "ZIP Code",                 fallback: "78701" },
+    { key: "phone",          label: "Company Phone",            fallback: "(512) 555-0123" },
+    { key: "rep-name",       label: "Representative Name",      fallback: "Sarah Johnson" },
+    { key: "rep-email",      label: "Representative Email",     fallback: "sarah.johnson@sunsetproperties.com" },
+    { key: "rep-phone",      label: "Representative Phone",     fallback: "(512) 555-0124" },
+  ] as const
+  const missingRequired = REQUIRED_FIELDS.filter(({ key, fallback }) => !sv(key, fallback).trim())
+  const allFieldsFilled = missingRequired.length === 0
+
+  // Keep parent sidebar badge in sync (0 during submitting/approved)
+  useEffect(() => {
+    const count = (brandStatus === "submitting" || brandStatus === "approved") ? 0 : missingRequired.length
+    onActionCountChange(count)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [missingRequired.length, brandStatus])
+
+  // Shared class builder for all editable inputs
+  function inputCls(field?: RejectedField, emptyKey?: string, emptyFallback?: string) {
+    const errorBorder = field ? redBorder(field) : undefined
+    const isEmpty = !locked && emptyKey !== undefined && !sv(emptyKey, emptyFallback ?? "").trim()
+    return cn(
+      "w-full h-11 rounded-lg border px-3 text-sm transition-colors focus:outline-none",
+      locked
+        ? "bg-zinc-50 text-muted-foreground cursor-default border-border"
+        : cn(
+            "bg-white text-foreground placeholder:text-muted-foreground/60 focus:ring-2 focus:ring-zinc-900/20",
+            errorBorder || (isEmpty ? "border-red-400 focus:ring-red-400/20" : undefined),
+          ),
+    )
+  }
 
   return (
-    <div className="p-6 md:p-8">
-      {/* ── Toast — auto-save confirmation ───────────────────────────────── */}
-      {savedLabel && (
-        <div className="fixed top-4 right-6 z-50 flex items-center gap-2.5 bg-white border border-border rounded-xl shadow-lg px-4 py-3 min-w-[260px] animate-in fade-in slide-in-from-top-2 duration-150">
-          <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-          <p className="text-sm font-medium text-foreground">{savedLabel} updated</p>
-        </div>
-      )}
+    <div className="flex flex-col min-h-full bg-stone-50">
+    <div className="p-6 md:p-8 pb-32 flex-1">
 
-      {/* ── Toast — brand & profile approved ────────────────────────────── */}
-      {toastVisible && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-white border border-border rounded-xl shadow-lg px-4 py-3 min-w-[320px] animate-in fade-in slide-in-from-top-2 duration-200">
-          <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-foreground">Carrier registration approved</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Your business is verified. We're setting up your phone numbers now.</p>
-          </div>
-          <button type="button" onClick={() => setToastVisible(false)}
-            className="h-6 w-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-zinc-100 transition-colors shrink-0"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
+      <div className="flex-1 min-w-0 max-w-2xl space-y-8">
 
-      <div className="flex items-center justify-between mb-6">
-        <button
-          type="button"
-          onClick={() => navigate("overview")}
-          className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-1 -ml-2 text-muted-foreground")}
-        >
-          <ArrowLeft className="h-4 w-4" aria-hidden />
-          Overview
-        </button>
-        <button
-          type="button"
-          onClick={simulateRejection}
-          className="flex items-center gap-1.5 h-8 px-3 rounded-md border border-dashed border-red-300 bg-white text-xs font-medium text-red-600 hover:bg-red-50 hover:border-red-400 transition-colors"
-        >
-          <TriangleAlert className="h-3.5 w-3.5" />
-          Simulate carrier rejection
-        </button>
-      </div>
-
-      <div className="flex gap-8 items-start">
-        {/* ── Main form ─────────────────────────────────────────────────────── */}
-        <div className="flex-1 min-w-0 max-w-6xl space-y-8">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Carrier Compliance</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Confirm your business details so we can register your company with our carrier. This keeps your texts and calls compliant — without it, your messages can be blocked or result in fines.
-            </p>
-          </div>
-
-          {/* Company Information */}
-          <div className="space-y-5">
-            <Field>
-              <RequiredLabel>Legal Business Name</RequiredLabel>
-              <TextInput
-                id="legal"
-                defaultValue="Sunset Properties LLC"
-                fieldLabel="Legal Business Name"
-                onAutoSave={triggerAutoSave}
-                className={rejectedFields.has("legal") ? "border-red-400 focus:ring-red-400/20" : undefined}
-              />
-              {rejectedFields.has("legal") && (
-                <RejectionCard
-                  reason="Our carrier could not match this name against official registration records. Update it to exactly match your official state or federal business registration."
-                  onDismiss={() => dismissRejection("legal")}
-                />
-              )}
-            </Field>
-
-            <Field>
-              <RequiredLabel>EIN (Federal Tax ID)</RequiredLabel>
-              <div className="relative">
-                <input id="ein" type="text" readOnly
-                  value={einRevealed ? PREFILLED_EIN : maskedEin}
-                  className={cn(
-                    "w-full h-11 rounded-lg border bg-zinc-50 px-3 pr-10 text-sm text-muted-foreground cursor-default focus:outline-none",
-                    rejectedFields.has("ein") ? "border-red-400" : "border-border",
-                  )}
-                />
-                <button type="button" onClick={() => setEinRevealed((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2"
-                  aria-label={einRevealed ? "Hide EIN" : "Reveal EIN"}
-                >
-                  <Lock className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground transition-colors" />
-                </button>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1.5">Pulled from your Entrata account. Contact support to update.</p>
-              {rejectedFields.has("ein") && (
-                <RejectionCard
-                  reason="Our carrier could not verify this EIN against IRS records. Make sure it matches your official IRS registration exactly (format: XX-XXXXXXX)."
-                  onDismiss={() => dismissRejection("ein")}
-                />
-              )}
-            </Field>
-
-            <Field>
-              <RequiredLabel>Business Address</RequiredLabel>
-              <TextInput id="address-street" defaultValue="123 Main Street, Suite 200" className="mb-2"
-                fieldLabel="Business Address" onAutoSave={triggerAutoSave} />
-              <div className="grid grid-cols-3 gap-2">
-                <TextInput id="address-city" defaultValue="Austin" placeholder="City"
-                  fieldLabel="City" onAutoSave={triggerAutoSave} />
-                <TextInput id="address-state" defaultValue="TX" placeholder="State"
-                  fieldLabel="State" onAutoSave={triggerAutoSave} />
-                <TextInput id="address-zip" defaultValue="78701" placeholder="ZIP"
-                  fieldLabel="ZIP Code" onAutoSave={triggerAutoSave} />
-              </div>
-            </Field>
-
-            <Field>
-              <RequiredLabel>Company Phone Number</RequiredLabel>
-              <TextInput id="company-phone" defaultValue="(512) 555-0123"
-                fieldLabel="Company Phone Number" onAutoSave={triggerAutoSave} />
-            </Field>
-
-            {/* Website URL */}
-            <Field>
-              <RequiredLabel>Website URL</RequiredLabel>
-              <TextInput
-                id="website"
-                defaultValue="https://www.sunsetproperties.com"
-                fieldLabel="Website URL"
-                onAutoSave={triggerAutoSave}
-                className={rejectedFields.has("website") ? "border-red-400 focus:ring-red-400/20" : undefined}
-              />
-              {scanning && (
-                <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
-                  Scanning for a privacy policy…
-                </div>
-              )}
-              {rejectedFields.has("website") && (
-                <RejectionCard
-                  reason="Our carrier could not verify this website. Make sure the URL is publicly accessible, belongs to your registered business, and doesn't redirect to an error or parked page."
-                  onDismiss={() => dismissRejection("website")}
-                />
-              )}
-            </Field>
-
-            {/* Privacy Policy URL — appears after scan */}
-            {!scanning && (
-              <Field>
-                <RequiredLabel>Privacy Policy URL</RequiredLabel>
-
-                {/* Input — briefly green on publish, fades to white */}
-                <div className="relative">
-                  <input
-                    type="text"
-                    readOnly={privacyPublished}
-                    value={privacyPublished ? `${fields.websiteUrl}/privacy-policy` : foundPrivacyUrl}
-                    onChange={(e) => setFoundPrivacyUrl(e.target.value)}
-                    placeholder="No privacy policy detected"
-                    className={cn(
-                      "w-full h-11 rounded-lg border px-3 pr-10 text-sm focus:outline-none focus:ring-2 transition-colors duration-1000",
-                      privacyPublished && !privacyFaded
-                        ? "border-emerald-300 bg-emerald-50 text-foreground focus:ring-emerald-500/20"
-                        : privacyPublished && privacyFaded
-                        ? "border-border bg-white text-foreground focus:ring-zinc-900/20"
-                        : "border-red-300 bg-white text-foreground placeholder:text-red-400 focus:ring-red-400/20",
-                    )}
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                    {privacyPublished
-                      ? <CheckCircle2 className={cn("h-4 w-4 transition-colors duration-1000", privacyFaded ? "text-emerald-600/40" : "text-emerald-600")} />
-                      : <XCircle className="h-4 w-4 text-red-500" />}
-                  </span>
-                </div>
-
-                {/* Inline success — fades out */}
-                {privacyPublished && !privacyFaded && (
-                  <p className="mt-1.5 text-xs text-emerald-700 flex items-center gap-1.5 transition-opacity duration-700">
-                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-                    Valid privacy policy published and verified
-                  </p>
-                )}
-
-                {/* Error + Mad-lib builder */}
-                {!privacyPublished && (
-                  <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 space-y-4">
-                    <div className="flex items-start gap-2.5">
-                      <XCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
-                      <div>
-                        <p className="text-sm font-medium text-red-900">No valid privacy policy detected</p>
-                        <p className="text-xs text-red-700 mt-0.5 leading-relaxed">
-                          A publicly accessible privacy policy is required to keep your business compliant. Fill in the details below to generate one for your website.
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Mad-lib fields */}
-                    <div className="space-y-3 pt-1">
-                      <p className="text-xs font-semibold text-red-900 uppercase tracking-wide">Generate a privacy policy</p>
-
-                      <div className="grid grid-cols-2 gap-3">
-                        {[
-                          { label: "Company name", key: "companyName" as const, placeholder: "Your company name" },
-                          { label: "Website URL", key: "websiteUrl" as const, placeholder: "https://yoursite.com" },
-                          { label: "Contact email", key: "contactEmail" as const, placeholder: "privacy@yourcompany.com" },
-                          { label: "State", key: "state" as const, placeholder: "e.g. TX" },
-                        ].map(({ label, key, placeholder }) => (
-                          <div key={key}>
-                            <label className="block text-[11px] font-medium text-red-800 mb-1">{label}</label>
-                            <input type="text" value={fields[key]} placeholder={placeholder}
-                              onChange={(e) => setField(key, e.target.value)}
-                              className="w-full h-8 rounded-md border border-red-200 bg-white px-2.5 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-red-400/20"
-                            />
-                          </div>
-                        ))}
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] font-medium text-red-800 mb-1">Types of data you collect</label>
-                        <input type="text" value={fields.dataTypes}
-                          onChange={(e) => setField("dataTypes", e.target.value)}
-                          placeholder="e.g. name, email, phone number, payment info"
-                          className="w-full h-8 rounded-md border border-red-200 bg-white px-2.5 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-red-400/20"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] font-medium text-red-800 mb-1">Purpose of data collection</label>
-                        <input type="text" value={fields.purpose}
-                          onChange={(e) => setField("purpose", e.target.value)}
-                          placeholder="e.g. process applications and payments"
-                          className="w-full h-8 rounded-md border border-red-200 bg-white px-2.5 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-red-400/20"
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-[11px] font-medium text-red-800 mb-1">Data retention period</label>
-                          <select value={fields.retentionPeriod}
-                            onChange={(e) => setField("retentionPeriod", e.target.value)}
-                            className="w-full h-8 rounded-md border border-red-200 bg-white px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-red-400/20"
-                          >
-                            <option>1 year</option>
-                            <option>2 years</option>
-                            <option>3 years</option>
-                            <option>5 years</option>
-                            <option>7 years</option>
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Policy preview toggle */}
-                    <div className="border-t border-red-200 pt-3">
-                      <button type="button"
-                        onClick={() => setPolicyPreviewOpen((v) => !v)}
-                        className="flex items-center gap-1.5 text-xs font-medium text-red-800 hover:text-red-900 transition-colors"
-                      >
-                        {policyPreviewOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                        {policyPreviewOpen ? "Hide preview" : "Preview generated policy"}
-                      </button>
-                      {policyPreviewOpen && (
-                        <div className="mt-2 rounded-md border border-red-200 bg-white p-3 max-h-48 overflow-y-auto">
-                          <pre className="text-[11px] text-foreground/80 leading-relaxed whitespace-pre-wrap font-sans">
-                            {generatedPolicy}
-                          </pre>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Publish action */}
-                    <div className="border-t border-red-200 pt-3 flex items-center justify-between gap-3">
-                      <p className="text-xs text-red-700 leading-snug">
-                        This will add a <code className="font-mono bg-red-100 px-1 rounded">/privacy-policy</code> page to your website and submit it to carriers.
-                      </p>
-                      <button type="button" onClick={onPrivacyPublish}
-                        className="h-8 px-3.5 rounded-md bg-zinc-900 text-xs font-medium text-white hover:bg-zinc-800 transition-colors flex items-center gap-1.5 shrink-0"
-                      >
-                        <Globe className="h-3.5 w-3.5" />
-                        Publish to website
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </Field>
+        <div>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">Carrier Compliance</h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                Confirm your business details so we can register your company with our carrier. This keeps your texts and calls compliant — without it, messages can be blocked or result in fines.
+              </p>
+            </div>
+            {/* Global status badge */}
+            {brandStatus === "idle" && (
+              <span className="shrink-0 mt-1 inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-medium text-zinc-500">
+                <span className="h-1.5 w-1.5 rounded-full bg-zinc-400" />Not submitted
+              </span>
+            )}
+            {brandStatus === "submitting" && !isEditing && (
+              <span className="shrink-0 mt-1 inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+                <Loader2 className="h-3 w-3 animate-spin" />Processing
+              </span>
+            )}
+            {brandStatus === "carrier-rejected" && !isEditing && (
+              <span className="shrink-0 mt-1 inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-medium text-red-700">
+                <TriangleAlert className="h-3 w-3" />Action required
+              </span>
+            )}
+            {brandStatus === "approved" && !isEditing && (
+              <span className="shrink-0 mt-1 inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                <CheckCircle2 className="h-3.5 w-3.5" />Carrier verified
+              </span>
+            )}
+            {isEditing && (
+              <span className="shrink-0 mt-1 inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
+                Editing — unsaved
+              </span>
             )}
           </div>
+        </div>
 
-          {/* Authorized Representative */}
-          <div className="space-y-5">
+        {/* Editing mode notice */}
+        {isEditing && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex items-start gap-3">
+            <TriangleAlert className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-amber-900">Editing your Twilio submission</p>
+              <p className="text-xs text-amber-700 mt-0.5">Changes you make here will be resubmitted to Twilio. Fields auto-save as you type.</p>
+            </div>
+          </div>
+        )}        {/* Restarting banner */}
+        {restarting && (
+          <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 flex items-center gap-3">
+            <Loader2 className="h-5 w-5 text-blue-600 animate-spin shrink-0" />
             <div>
-              <h2 className="text-lg font-bold tracking-tight">Authorized Representative</h2>
-              <p className="text-sm text-muted-foreground mt-0.5">Contact person authorized to manage this account</p>
+              <p className="text-sm font-semibold text-blue-900">Restarting carrier registration…</p>
+              <p className="text-xs text-blue-700 mt-0.5">We've received your updated information and are re-submitting. This usually takes around 15 minutes.</p>
             </div>
-            <Field>
-              <RequiredLabel>Full Name</RequiredLabel>
-              <TextInput id="rep-name" defaultValue="Sarah Johnson"
-                fieldLabel="Full Name" onAutoSave={triggerAutoSave} />
-            </Field>
-            <Field>
-              <RequiredLabel>Email Address</RequiredLabel>
-              <TextInput id="rep-email" defaultValue="sarah.johnson@sunsetproperties.com"
-                fieldLabel="Email Address" onAutoSave={triggerAutoSave} />
-            </Field>
-            <Field>
-              <RequiredLabel>Phone Number</RequiredLabel>
-              <TextInput id="rep-phone" defaultValue="(512) 555-0124"
-                fieldLabel="Phone Number" onAutoSave={triggerAutoSave} />
-            </Field>
           </div>
+        )}
 
-          {/* Brand submission progress — inline card only while submitting */}
-          {brandStatus === "submitting" && (
-            <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
-              <div className="flex items-center gap-3">
-                <Loader2 className="h-5 w-5 text-blue-600 animate-spin shrink-0" />
-                <div>
-                  <p className="text-sm font-semibold text-blue-900">Registering your business with our carrier…</p>
-                  <p className="text-xs text-blue-700 mt-0.5">This usually takes around 15 minutes. We'll notify you when it's approved.</p>
-                </div>
-              </div>
+        {/* Restart success */}
+        {restartDone && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 flex items-center gap-3">
+            <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-emerald-900">Re-submitted successfully</p>
+              <p className="text-xs text-emerald-700 mt-0.5">Your updated information has been sent to our carrier. We'll notify you once it's verified — typically within 15 minutes.</p>
             </div>
-          )}
-
-        </div>
-
-        {/* ── Developer notes sidebar ────────────────────────────────────────── */}
-        <div className="w-[380px] shrink-0 space-y-3 sticky top-6 self-start">
-          <div className="flex items-center gap-2 mb-1">
-            <Code2 className="h-4 w-4 text-amber-600" />
-            <p className="text-xs font-semibold uppercase tracking-widest text-amber-700">Developer notes</p>
           </div>
+        )}
 
-          <DevNote number={1}>
-            <p className="font-semibold mb-1">Auto-fill the form — don't make the user type</p>
-            We already have most of this in Entrata. Pull company name, EIN, and address from <span className="font-medium">Client Admin → Merchant Services</span>. Pull contact details from the <span className="font-medium">Communications tab</span> (Patrick Muir's team). If a field isn't found, leave it blank and let the user fill it in. This page should almost never be empty for an active customer.
-          </DevNote>
+        {/* ── Company Information ──────────────────────────────────────────── */}
+        {!restarting && (
+        <div className="space-y-5">
+          <Field>
+            <LabelWithInfo info={FIELD_INFO.legal}>Legal Business Name</LabelWithInfo>
+            <input type="text" readOnly={locked}
+              value={sv("legal", "Sunset Properties LLC")}
+              placeholder="Enter your legal business name"
+              onChange={locked ? undefined : (e) => setSimFields(p => ({ ...p, legal: e.target.value }))}
+              onBlur={locked ? undefined : () => triggerAutoSave("Legal Business Name")}
+              className={inputCls("legal", "legal", "Sunset Properties LLC")}
+            />
+            {!locked && !sv("legal", "Sunset Properties LLC").trim() && simMode === "none" && (
+              <p className="mt-1.5 flex items-center gap-1.5 text-xs text-red-600">
+                <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
+                Required — enter the name exactly as it appears on your state or IRS filing.
+              </p>
+            )}
+            {!locked && isMissing("legal") && <InlineError message={MISSING_MESSAGES["legal"]} />}
+            {!locked && isRejected("legal") && <CarrierRejectionCard reason={CARRIER_REJECTION_MESSAGES["legal"]} onDismiss={() => dismissRejection("legal")} />}
+          </Field>
 
-          <DevNote number={2}>
-            <p className="font-semibold mb-1">Find the website and privacy policy automatically</p>
-            Two HTTP calls: (1) take the company name + address we already have → web search → grab the first result that looks like their real website → save it to the Website URL field. (2) visit that website → look for any link that says "privacy" → if found, mark yes. If either call fails, show the field and ask the user to fill it in manually.
-          </DevNote>
+          <Field>
+            <LabelWithInfo info={FIELD_INFO.ein}>EIN (Federal Tax ID)</LabelWithInfo>
+            <div className="relative">
+              <input type="text" readOnly value={einRevealed ? PREFILLED_EIN : maskedEin}
+                className={cn("w-full h-11 rounded-lg border bg-zinc-50 px-3 pr-10 text-sm text-muted-foreground cursor-default focus:outline-none", isRejected("ein") || isMissing("ein") ? "border-red-400" : "border-border")}
+              />
+              <button type="button" onClick={() => setEinRevealed(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2" aria-label={einRevealed ? "Hide EIN" : "Reveal EIN"}>
+                <Lock className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground transition-colors" />
+              </button>
+            </div>
+            {!locked && isMissing("ein") && <InlineError message={MISSING_MESSAGES["ein"]} />}
+            {!locked && isRejected("ein") && <CarrierRejectionCard reason={CARRIER_REJECTION_MESSAGES["ein"]} onDismiss={() => dismissRejection("ein")} />}
+          </Field>
 
-          <DevNote number={3}>
-            <p className="font-semibold mb-1">Submit to Twilio as soon as the form is complete</p>
-            The moment all required fields are filled, automatically submit a brand &amp; profile to Twilio in the background — no button needed. Takes about 15 minutes. Almost always approved. Note: Entrata has two Twilio environments today (Colleen and Entrata). Engineering decides which one to use — that's an open question for that team.
-          </DevNote>
+          <Field>
+            <LabelWithInfo info={FIELD_INFO.address}>Business Address</LabelWithInfo>
+            <input type="text" readOnly={locked}
+              value={sv("address-street", "123 Main Street, Suite 200")}
+              placeholder="Street address"
+              onChange={locked ? undefined : (e) => setSimFields(p => ({ ...p, "address-street": e.target.value }))}
+              onBlur={locked ? undefined : () => triggerAutoSave("Business Address")}
+              className={cn(inputCls("address"), "mb-2")}
+            />
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { key: "address-city", fallback: "Austin", placeholder: "City" },
+                { key: "address-state", fallback: "TX", placeholder: "State" },
+                { key: "address-zip", fallback: "78701", placeholder: "ZIP" },
+              ].map(({ key, fallback, placeholder }) => (
+                <input key={key} type="text" readOnly={locked}
+                  value={sv(key, fallback)} placeholder={placeholder}
+                  onChange={locked ? undefined : (e) => setSimFields(p => ({ ...p, [key]: e.target.value }))}
+                  className={inputCls("address")}
+                />
+              ))}
+            </div>
+            {!locked && isMissing("address") && <InlineError message={MISSING_MESSAGES["address"]} />}
+            {!locked && isRejected("address") && <CarrierRejectionCard reason={CARRIER_REJECTION_MESSAGES["address"]} onDismiss={() => dismissRejection("address")} />}
+          </Field>
 
-          <DevNote number={4}>
-            <p className="font-semibold mb-1">Handle rejections with a self-serve loop</p>
-            If Twilio rejects a field (wrong EIN, bad website URL, etc.), we need Twilio to send back which field failed and why. Show that reason as a red error on the exact field. User fixes it → we resubmit automatically. Repeat until approved. Once approved, the Communications tab takes over: 4 campaigns are created, numbers are purchased, and properties get assigned — all automatic.
-          </DevNote>
+          <Field>
+            <LabelWithInfo info={FIELD_INFO.phone}>Company Phone Number</LabelWithInfo>
+            <input type="text" readOnly={locked}
+              value={sv("phone", "(512) 555-0123")}
+              placeholder="Enter your business phone number"
+              onChange={locked ? undefined : (e) => setSimFields(p => ({ ...p, phone: e.target.value }))}
+              onBlur={locked ? undefined : () => triggerAutoSave("Company Phone Number")}
+              className={inputCls("phone", "phone", "(512) 555-0123")}
+            />
+            {brandStatus === "carrier-rejected" && !sv("phone", "(512) 555-0123").trim() && (
+              <p className="mt-1.5 flex items-center gap-1.5 text-xs text-red-600">
+                <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
+                Rejected by our carrier — please re-enter your company phone number and resubmit.
+              </p>
+            )}
+            {!locked && isMissing("phone") && <InlineError message={MISSING_MESSAGES["phone"]} />}
+            {!locked && isRejected("phone") && <CarrierRejectionCard reason={CARRIER_REJECTION_MESSAGES["phone"]} onDismiss={() => dismissRejection("phone")} />}
+          </Field>
         </div>
+        )}
+
+        {/* ── Authorized Representative ────────────────────────────────────── */}
+        {!restarting && (
+        <div className="space-y-5">
+          <div>
+            <h2 className="text-lg font-bold tracking-tight">Authorized Representative</h2>
+            <p className="text-sm text-muted-foreground mt-0.5">Contact person authorized to manage this account</p>
+          </div>
+          <Field>
+            <LabelWithInfo info={FIELD_INFO.repName}>Full Name</LabelWithInfo>
+            <input type="text" readOnly={locked}
+              value={sv("rep-name", "Sarah Johnson")}
+              placeholder="Full legal name"
+              onChange={locked ? undefined : (e) => setSimFields(p => ({ ...p, "rep-name": e.target.value }))}
+              onBlur={locked ? undefined : () => triggerAutoSave("Full Name")}
+              className={inputCls("rep-name")}
+            />
+            {!locked && isMissing("rep-name") && <InlineError message={MISSING_MESSAGES["rep-name"]} />}
+            {!locked && isRejected("rep-name") && <CarrierRejectionCard reason={CARRIER_REJECTION_MESSAGES["rep-name"]} onDismiss={() => dismissRejection("rep-name")} />}
+          </Field>
+          <Field>
+            <LabelWithInfo info={FIELD_INFO.repEmail}>Email Address</LabelWithInfo>
+            <input type="text" readOnly={locked}
+              value={sv("rep-email", "sarah.johnson@sunsetproperties.com")}
+              placeholder="Email address"
+              onChange={locked ? undefined : (e) => setSimFields(p => ({ ...p, "rep-email": e.target.value }))}
+              onBlur={locked ? undefined : () => triggerAutoSave("Email Address")}
+              className={inputCls("rep-email")}
+            />
+            {!locked && isMissing("rep-email") && <InlineError message={MISSING_MESSAGES["rep-email"]} />}
+            {!locked && isRejected("rep-email") && <CarrierRejectionCard reason={CARRIER_REJECTION_MESSAGES["rep-email"]} onDismiss={() => dismissRejection("rep-email")} />}
+          </Field>
+          <Field>
+            <LabelWithInfo info={FIELD_INFO.repPhone}>Phone Number</LabelWithInfo>
+            <input type="text" readOnly={locked}
+              value={sv("rep-phone", "(512) 555-0124")}
+              placeholder="Phone number"
+              onChange={locked ? undefined : (e) => setSimFields(p => ({ ...p, "rep-phone": e.target.value }))}
+              onBlur={locked ? undefined : () => triggerAutoSave("Phone Number")}
+              className={inputCls("rep-phone")}
+            />
+            {!locked && isMissing("rep-phone") && <InlineError message={MISSING_MESSAGES["rep-phone"]} />}
+            {!locked && isRejected("rep-phone") && <CarrierRejectionCard reason={CARRIER_REJECTION_MESSAGES["rep-phone"]} onDismiss={() => dismissRejection("rep-phone")} />}
+          </Field>
+        </div>
+        )}
+
       </div>
+    </div>
+
+    {/* ── Sticky footer — always visible ──────────────────────────────── */}
+    <div className="sticky bottom-0 z-20 border-t border-border bg-background shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
+      <div className="px-6 md:px-8 py-4 max-w-2xl flex items-center gap-5">
+
+        {/* Restarting / resubmitting */}
+        {restarting && (
+          <>
+            <Loader2 className="h-4 w-4 text-blue-600 animate-spin shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-foreground">Resubmitting to Twilio…</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Your updated details are being sent. This usually takes up to 15 minutes.</p>
+            </div>
+          </>
+        )}
+
+        {/* Editing mode */}
+        {!restarting && isEditing && (
+          <>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-foreground">Editing your submission</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Changes auto-save as you type. Resubmit when ready.</p>
+            </div>
+            <button type="button" onClick={() => setIsEditing(false)}
+              className={cn(buttonVariants({ variant: "outline" }), "shrink-0")}>
+              Cancel
+            </button>
+            <button type="button" onClick={handleSaveAndResubmit}
+              className={cn(buttonVariants({ variant: "eli" }), "shrink-0 gap-2")}>
+              <RefreshCw className="h-4 w-4" />Save &amp; resubmit
+            </button>
+          </>
+        )}
+
+        {/* Idle — incomplete */}
+        {!restarting && !isEditing && brandStatus === "idle" && !allFieldsFilled && (
+          <>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-foreground">
+                {missingRequired.length} required field{missingRequired.length !== 1 ? "s" : ""} missing
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {missingRequired.length === 1
+                  ? `${missingRequired[0].label} is required before you can submit.`
+                  : "Fill in all required fields to submit your business details to Twilio."}
+              </p>
+            </div>
+            <button type="button" disabled
+              className="shrink-0 inline-flex items-center gap-2 rounded-lg bg-zinc-200 px-5 py-2.5 text-sm font-semibold text-zinc-400 cursor-not-allowed whitespace-nowrap">
+              Submit to Twilio
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </>
+        )}
+
+        {/* Idle — all fields filled, ready */}
+        {!restarting && !isEditing && brandStatus === "idle" && allFieldsFilled && (
+          <>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-foreground">Ready to submit</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Brand Registration should be done at the Company level. Please ensure that the business details entered are for your Company and NOT for a single Property. Edits cannot be made after submission. Would you like to submit your Brand Registration now?</p>
+            </div>
+            <button type="button" onClick={onSubmitToTwilio}
+              className="shrink-0 inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-zinc-700 transition-colors whitespace-nowrap">
+              Submit Registration
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </>
+        )}
+
+        {/* Carrier rejected — phone needs fixing */}
+        {!restarting && !isEditing && brandStatus === "carrier-rejected" && (
+          <>
+            <TriangleAlert className="h-4 w-4 text-red-500 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-red-900">Carrier flagged your phone number</p>
+              <p className="text-xs text-red-700 mt-0.5">
+                {sv("phone", "").trim()
+                  ? "Phone number updated — ready to resubmit."
+                  : "Re-enter your company phone number above, then resubmit."}
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={!sv("phone", "").trim()}
+              onClick={sv("phone", "").trim() ? onResubmitToCarrier : undefined}
+              className={cn(
+                "shrink-0 inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold transition-colors whitespace-nowrap",
+                sv("phone", "").trim()
+                  ? "bg-zinc-900 text-white hover:bg-zinc-700 cursor-pointer"
+                  : "bg-zinc-200 text-zinc-400 cursor-not-allowed",
+              )}
+            >
+              Resubmit to carrier
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </>
+        )}
+
+        {/* Submitting — processing */}
+        {!restarting && !isEditing && brandStatus === "submitting" && (
+          <>
+            <Loader2 className="h-4 w-4 text-blue-600 animate-spin shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-blue-900">Registering your business with our carrier…</p>
+              <p className="text-xs text-blue-700 mt-0.5">This typically takes up to 15 minutes. We'll notify you once it's approved.</p>
+            </div>
+            <button type="button" onClick={onCancelSubmission}
+              className="shrink-0 inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-medium text-red-700 hover:bg-red-100 transition-colors whitespace-nowrap">
+              Stop submission
+            </button>
+          </>
+        )}
+
+        {/* Approved */}
+        {!restarting && !isEditing && brandStatus === "approved" && (
+          <>
+            <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-emerald-900">Your business &amp; profile are registered with our carrier</p>
+              <p className="text-xs text-emerald-700 mt-0.5">This registration is active and cannot be easily changed. Contact support if you need to make updates.</p>
+            </div>
+          </>
+        )}
+
+      </div>
+    </div>
     </div>
   )
 }

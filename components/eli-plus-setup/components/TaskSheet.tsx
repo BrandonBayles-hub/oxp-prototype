@@ -13,10 +13,11 @@ interface TaskSheetProps {
   onSave: () => void
   saveLabel?: string
   saveDisabled?: boolean
+  hideFooter?: boolean
   children: React.ReactNode
 }
 
-export function TaskSheet({ open, title, description, onClose, onSave, saveLabel = "Save & Mark Complete", saveDisabled = false, children }: TaskSheetProps) {
+export function TaskSheet({ open, title, description, onClose, onSave, saveLabel = "Confirm & Save", saveDisabled = false, hideFooter = false, children }: TaskSheetProps) {
   // Lock body scroll while open
   useEffect(() => {
     if (open) {
@@ -53,9 +54,9 @@ export function TaskSheet({ open, title, description, onClose, onSave, saveLabel
         aria-modal="true"
         aria-label={title}
         className={cn(
-          "fixed top-0 right-0 h-full w-full max-w-[680px] bg-background shadow-2xl z-50 flex flex-col",
+          "fixed top-0 right-0 h-full w-full max-w-[680px] bg-background z-50 flex flex-col",
           "transition-transform duration-250 ease-in-out",
-          open ? "translate-x-0" : "translate-x-full",
+          open ? "translate-x-0 shadow-2xl" : "translate-x-full shadow-none",
         )}
       >
         {/* Header */}
@@ -70,7 +71,7 @@ export function TaskSheet({ open, title, description, onClose, onSave, saveLabel
             <button
               type="button"
               onClick={onClose}
-              aria-label="Close panel"
+              aria-label="Close without saving"
               className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
             >
               <X className="h-4 w-4" />
@@ -84,7 +85,15 @@ export function TaskSheet({ open, title, description, onClose, onSave, saveLabel
         </div>
 
         {/* Footer */}
-        <div className="shrink-0 border-t border-border px-6 py-4 flex items-center justify-end bg-background">
+        {!hideFooter && (
+        <div className="shrink-0 border-t border-border px-6 py-4 flex items-center justify-between bg-background">
+          <button
+            type="button"
+            onClick={onClose}
+            className={cn(buttonVariants({ variant: "outline" }))}
+          >
+            Cancel
+          </button>
           <button
             type="button"
             onClick={onSave}
@@ -94,6 +103,7 @@ export function TaskSheet({ open, title, description, onClose, onSave, saveLabel
             {saveLabel}
           </button>
         </div>
+        )}
       </div>
     </>
   )

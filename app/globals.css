@@ -180,4 +180,8 @@
   .section-title-muted {
     @apply text-lg font-semibold leading-none tracking-tight text-muted-foreground;
   }
+  /* Hide Next.js dev tools badge — not intended for client-facing prototypes */
+  nextjs-portal {
+    display: none !important;
+  }
 }

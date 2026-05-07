@@ -1,22 +1,23 @@
 "use client"
 
-import type { PageId } from "../index"
-import { NEEDS_ATTENTION } from "../data/mock"
+import type { PageId, BrandStatus } from "../index"
+import type { SimMode } from "../pages/CompanyPage"
 import {
-  LayoutDashboard,
   Building2,
   Mail,
   Phone,
+  PhoneForwarded,
   Users,
   CreditCard,
   Wrench,
   RefreshCw,
   Rocket,
-  Settings2,
   CheckCircle2,
   AlertCircle,
   Info,
-  Clock,
+  ShieldCheck,
+  Loader2,
+  Lock,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Progress } from "@/components/ui/progress"
@@ -51,13 +52,15 @@ const LEASING_TASK_IDS = [
 ]
 
 const SUB_ITEMS = [
-  { id: "company"            as PageId, label: "Carrier Compliance",     icon: Building2,      taskIds: [] as string[], indent: false },
-  { id: "email"              as PageId, label: "Email Integration",      icon: Mail,           taskIds: [] as string[], indent: false },
-  { id: "communications"     as PageId, label: "Communications",         icon: Phone,          taskIds: [] as string[], indent: false },
-  { id: "leasing"            as PageId, label: "Leasing AI",             icon: Users,          taskIds: LEASING_TASK_IDS, indent: false },
-  { id: "payments"           as PageId, label: "Payments AI",            icon: CreditCard,     taskIds: PAYMENT_TASK_IDS, indent: false },
-  { id: "maintenance"        as PageId, label: "Maintenance AI",         icon: Wrench,     taskIds: MAINTENANCE_TASK_IDS, indent: false },
-  { id: "renewals"           as PageId, label: "Renewals AI",            icon: RefreshCw,  taskIds: RENEWALS_TASK_IDS, indent: false },
+  { id: "company"            as PageId, label: "Carrier Compliance",        icon: Building2,       taskIds: [] as string[], indent: false },
+  { id: "privacy"            as PageId, label: "Privacy Policies",          icon: ShieldCheck,     taskIds: [] as string[], indent: false },
+  { id: "email"              as PageId, label: "Email Integration",         icon: Mail,            taskIds: [] as string[], indent: false },
+  { id: "ivr-setup"          as PageId, label: "IVR Setup",                 icon: PhoneForwarded,  taskIds: [] as string[], indent: false },
+  { id: "communications"     as PageId, label: "Communications",            icon: Phone,           taskIds: [] as string[], indent: false },
+  { id: "leasing"            as PageId, label: "Leasing AI",                icon: Users,           taskIds: [] as string[], indent: false },
+  { id: "payments"           as PageId, label: "Payments AI",               icon: CreditCard,      taskIds: [] as string[], indent: false },
+  { id: "maintenance"        as PageId, label: "Maintenance AI",            icon: Wrench,          taskIds: [] as string[], indent: false },
+  { id: "renewals"           as PageId, label: "Renewals AI",               icon: RefreshCw,       taskIds: [] as string[], indent: false },
 ]
 
 const STATUS: Partial<Record<PageId, "complete" | "warning" | "blocked">> = {
@@ -70,8 +73,6 @@ function StatusIcon({ status }: { status?: "complete" | "warning" | "blocked" })
   return null
 }
 
-const ROLLOUT_PCT = 62
-
 interface HybridShellProps {
   page: PageId
   navigate: (to: PageId) => void
@@ -80,10 +81,17 @@ interface HybridShellProps {
   emailComplete: boolean
   commsComplete: boolean
   ivrComplete: boolean
+  maintenancePending: number
+  progressPct: number
+  carrierSimMode: SimMode
+  brandStatus: BrandStatus
+  carrierActionCount: number
+  privacyActionCount: number
+  ivrActionCount: number
   children: React.ReactNode
 }
 
-export function HybridShell({ page, navigate, completedTasks, privacyPublished, emailComplete, commsComplete, ivrComplete, children }: HybridShellProps) {
+export function HybridShell({ page, navigate, completedTasks, privacyPublished, emailComplete, commsComplete, ivrComplete, maintenancePending, progressPct, carrierSimMode, brandStatus, carrierActionCount, privacyActionCount, ivrActionCount, children }: HybridShellProps) {
   return (
     <div className="flex h-full bg-background">
       <aside
@@ -107,13 +115,13 @@ export function HybridShell({ page, navigate, completedTasks, privacyPublished, 
                 <span className="group relative inline-flex">
                   <Info className="h-3 w-3 text-muted-foreground/60 cursor-default" />
                   <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-48 rounded-md bg-popover border border-border px-2.5 py-1.5 text-[11px] text-popover-foreground shadow-md opacity-0 group-hover:opacity-100 transition-opacity normal-case tracking-normal font-normal leading-snug whitespace-normal z-50">
-                    48 of 52 properties pending Payments &amp; Leasing AI
+                    48/52 properties remaining
                   </span>
                 </span>
               </span>
-              <span className="text-emerald-700">{ROLLOUT_PCT}%</span>
+              <span className="text-emerald-700">{progressPct}%</span>
             </div>
-            <Progress value={ROLLOUT_PCT} className="h-1.5" />
+            <Progress value={progressPct} className="h-1.5" />
           </div>
         </div>
 
@@ -127,43 +135,32 @@ export function HybridShell({ page, navigate, completedTasks, privacyPublished, 
             </p>
 
 
-            {/* Overview — top-level */}
-            {(() => {
-              const blockingCount = NEEDS_ATTENTION.filter(
-                (i) => !completedTasks.has(i.id) && (i.severity === "critical" || i.severity === "attention"),
-              ).length + (privacyPublished ? 0 : 1) + (emailComplete ? 0 : 1) + (commsComplete && !ivrComplete ? 1 : 0) // IVR only counts when unlocked
-              return (
-                <button
-                  type="button"
-                  onClick={() => navigate("overview")}
-                  className={cn(
-                    "w-full flex items-center gap-2.5 rounded-md px-2 py-2 text-sm transition-colors mb-0.5",
-                    page === "overview"
-                      ? "bg-accent text-foreground font-medium"
-                      : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-                  )}
-                >
-                  <LayoutDashboard className="h-4 w-4 shrink-0" aria-hidden />
-                  <span className="flex-1 text-left">Overview</span>
-                  {blockingCount > 0 && (
-                    <span className="inline-flex items-center justify-center h-4 w-4 rounded-full bg-red-500 text-[10px] font-bold text-white leading-none">
-                      {blockingCount}
-                    </span>
-                  )}
-                </button>
-              )
-            })()}
+            {/* Overview hidden for MVP — may return later */}
 
             {/* Sub-tabs with vertical line */}
             <div className="ml-[18px] border-l border-border pl-2 space-y-0.5">
-              {SUB_ITEMS.map(({ id, label, icon: Icon, taskIds }) => {
+              {SUB_ITEMS.map(({ id, label, icon: Icon, taskIds, indent }) => {
                 const allDone = taskIds.length > 0 && taskIds.every((t) => completedTasks.has(t))
-                // 10DLC tab: complete only after privacy published; shows alert badge if not
                 const isTenDlc = id === "company"
+                const isPrivacy = id === "privacy"
                 const isEmail = id === "email"
                 const isComms = id === "communications"
-                const isComplete = isTenDlc ? privacyPublished : isEmail ? emailComplete : isComms ? commsComplete : (STATUS[id] === "complete" || allDone)
-                const alertCount = (isTenDlc && !privacyPublished) || (isEmail && !emailComplete) ? 1 : 0
+                const isIvr = id === "ivr-setup"
+                // Carrier compliance has 3 states driven by brandStatus
+                const isTenDlcApproved   = isTenDlc && brandStatus === "approved"
+                const isTenDlcSubmitting = isTenDlc && brandStatus === "submitting"
+                const isTenDlcRejected   = isTenDlc && brandStatus === "carrier-rejected"
+                const isTenDlcIdle       = isTenDlc && brandStatus === "idle"
+                // Communications is locked until CC is approved
+                const isCommsLocked = isComms && brandStatus !== "approved"
+                const isComplete =
+                  isTenDlc ? isTenDlcApproved
+                : isPrivacy ? privacyPublished
+                : isEmail ? emailComplete
+                : isComms ? commsComplete
+                : isIvr ? ivrComplete
+                : (STATUS[id] === "complete" || allDone)
+                const needsAction = (isTenDlcIdle || isTenDlcRejected) || (isPrivacy && !privacyPublished) || (isEmail && !emailComplete) || (!isComplete && taskIds.length > 0)
                 return (
                   <button
                     key={id}
@@ -171,19 +168,47 @@ export function HybridShell({ page, navigate, completedTasks, privacyPublished, 
                     onClick={() => navigate(id)}
                     className={cn(
                       "w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+                      indent && "ml-3 w-[calc(100%-12px)]",
+                      isCommsLocked && "opacity-50",
                       page === id
                         ? "bg-accent text-foreground font-medium"
                         : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                     )}
                   >
-                    {Icon && <Icon className={cn("h-3.5 w-3.5 shrink-0", isComplete ? "text-emerald-700" : undefined)} aria-hidden />}
+                    {Icon && <Icon className={cn("h-3.5 w-3.5 shrink-0", isComplete ? "text-emerald-700" : isTenDlcSubmitting ? "text-blue-500" : undefined)} aria-hidden />}
                     <span className="flex-1 text-left text-xs">{label}</span>
-                    {alertCount === 0 && <StatusIcon status={isComplete ? "complete" : STATUS[id]} />}
-                    {alertCount > 0 && (
-                      <span className="inline-flex items-center justify-center h-4 w-4 rounded-full bg-red-500 text-[10px] font-bold text-white leading-none">
-                        {alertCount}
+                    {isComplete && <StatusIcon status="complete" />}
+                    {isTenDlcSubmitting && <Loader2 className="h-3.5 w-3.5 text-blue-500 shrink-0 animate-spin" aria-label="Processing" />}
+                    {/* Carrier Compliance: show numbered badge instead of plain dot */}
+                    {isTenDlc && !isComplete && !isTenDlcSubmitting && carrierActionCount > 0 && (
+                      <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-0.5 rounded-full bg-red-500 text-[10px] font-bold text-white leading-none shrink-0">
+                        {carrierActionCount}
                       </span>
                     )}
+                    {/* Privacy Policies: numbered badge */}
+                    {isPrivacy && !isComplete && privacyActionCount > 0 && (
+                      <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-0.5 rounded-full bg-red-500 text-[10px] font-bold text-white leading-none shrink-0">
+                        {privacyActionCount}
+                      </span>
+                    )}
+                    {/* IVR Setup: single-action numbered badge */}
+                    {isIvr && !isComplete && ivrActionCount > 0 && (
+                      <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-0.5 rounded-full bg-red-500 text-[10px] font-bold text-white leading-none shrink-0">
+                        {ivrActionCount}
+                      </span>
+                    )}
+                    {/* Email Integration: mocked numbered badge */}
+                    {isEmail && !isComplete && (
+                      <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-0.5 rounded-full bg-red-500 text-[10px] font-bold text-white leading-none shrink-0">
+                        3
+                      </span>
+                    )}
+                    {/* Communications: lock icon when CC not approved */}
+                    {isCommsLocked && <Lock className="h-3 w-3 shrink-0 text-muted-foreground/60" aria-label="Requires Carrier Compliance" />}
+                    {!isTenDlc && !isPrivacy && !isIvr && !isEmail && !isCommsLocked && !isComplete && !isTenDlcSubmitting && needsAction && (
+                      <span className="h-2 w-2 rounded-full bg-red-500 shrink-0" aria-label="Action required" />
+                    )}
+                    {!isComplete && !isTenDlcSubmitting && !needsAction && <StatusIcon status={STATUS[id]} />}
                   </button>
                 )
               })}
@@ -192,22 +217,6 @@ export function HybridShell({ page, navigate, completedTasks, privacyPublished, 
 
         </nav>
 
-        {/* Advanced shortcut */}
-        <div className="px-2 pb-3 border-t border-border pt-3">
-          <button
-            type="button"
-            onClick={() => navigate("payments-advanced")}
-            className={cn(
-              "w-full flex items-center gap-2 rounded-md px-2 py-2 text-sm border border-dashed transition-colors",
-              page === "payments-advanced"
-                ? "border-foreground bg-foreground text-background font-medium"
-                : "border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground",
-            )}
-          >
-            <Settings2 className="h-4 w-4 shrink-0" aria-hidden />
-            <span className="text-xs font-medium">Advanced — Payments</span>
-          </button>
-        </div>
       </aside>
 
       <div id="main-content" className="flex-1 min-w-0 bg-background overflow-auto">
