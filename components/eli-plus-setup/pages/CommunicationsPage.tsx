@@ -75,6 +75,20 @@ const DEFAULT_MAINTENANCE_VOICE = buildMaintenanceVoiceDefaults()
 // Mirrors INITIALLY_COMPLETED in PrivacyPage.
 const NUMBERS_ASSIGNED = new Set(["p1", "p2", "p3", "p4", "p5", "p7", "p10", "p12"])
 
+// Products not contracted for specific properties — these cells show "Not contracted"
+// instead of a phone number even when the property is otherwise approved.
+const NOT_CONTRACTED: Record<string, Set<ProductId>> = {
+  p3:  new Set<ProductId>(["payments"]),
+  p10: new Set<ProductId>(["renewals"]),
+  p5:  new Set<ProductId>(["maintenance"]),
+}
+
+// Approved properties first, then awaiting
+const SORTED_PROPERTIES = [
+  ...PROPERTIES.filter(p => NUMBERS_ASSIGNED.has(p.id)),
+  ...PROPERTIES.filter(p => !NUMBERS_ASSIGNED.has(p.id)),
+]
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export function CommunicationsPage({ navigate, brandStatus }: Props) {
@@ -186,15 +200,20 @@ export function CommunicationsPage({ navigate, brandStatus }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {PROPERTIES.map((prop) => {
+                {SORTED_PROPERTIES.map((prop) => {
                   const hasNumbers = NUMBERS_ASSIGNED.has(prop.id)
+                  const notContracted = NOT_CONTRACTED[prop.id] ?? new Set<ProductId>()
                   const nums   = DEFAULT_NUMBERS[prop.id]
                   const extras = DEFAULT_LEASING_EXTRAS[prop.id]
                   const maint  = DEFAULT_MAINTENANCE_VOICE[prop.id]
 
-                  const numCell = (value: string) => hasNumbers
-                    ? <span className="font-mono text-xs text-foreground">{value}</span>
-                    : <span className="text-xs text-muted-foreground/40">—</span>
+                  const numCell = (value: string, product: ProductId) => {
+                    if (!hasNumbers) return <span className="text-xs text-muted-foreground/40">—</span>
+                    if (notContracted.has(product)) return (
+                      <span className="text-xs italic text-muted-foreground/60">Not contracted</span>
+                    )
+                    return <span className="font-mono text-xs text-foreground">{value}</span>
+                  }
 
                   return (
                     <tr key={prop.id} className={cn("transition-colors", hasNumbers ? "bg-white hover:bg-zinc-50" : "bg-zinc-50/50")}>
@@ -206,13 +225,13 @@ export function CommunicationsPage({ navigate, brandStatus }: Props) {
                             : <span className="text-muted-foreground/60 italic">Awaiting policy approval</span>}
                         </p>
                       </td>
-                      <td className="px-3 py-2.5 border-b border-l border-border">{numCell(nums.leasing)}</td>
-                      <td className="px-3 py-2.5 border-b border-border">{numCell(extras.voice)}</td>
-                      <td className="px-3 py-2.5 border-b border-border">{numCell(extras.ivr)}</td>
-                      <td className="px-3 py-2.5 border-b border-l border-border">{numCell(nums.payments)}</td>
-                      <td className="px-3 py-2.5 border-b border-l border-border">{numCell(nums.maintenance)}</td>
-                      <td className="px-3 py-2.5 border-b border-border">{numCell(maint)}</td>
-                      <td className="px-3 py-2.5 border-b border-l border-border">{numCell(nums.renewals)}</td>
+                      <td className="px-3 py-2.5 border-b border-l border-border">{numCell(nums.leasing,   "leasing")}</td>
+                      <td className="px-3 py-2.5 border-b border-border">{numCell(extras.voice,            "leasing")}</td>
+                      <td className="px-3 py-2.5 border-b border-border">{numCell(extras.ivr,              "leasing")}</td>
+                      <td className="px-3 py-2.5 border-b border-l border-border">{numCell(nums.payments,  "payments")}</td>
+                      <td className="px-3 py-2.5 border-b border-l border-border">{numCell(nums.maintenance,"maintenance")}</td>
+                      <td className="px-3 py-2.5 border-b border-border">{numCell(maint,                   "maintenance")}</td>
+                      <td className="px-3 py-2.5 border-b border-l border-border">{numCell(nums.renewals,  "renewals")}</td>
                     </tr>
                   )
                 })}
