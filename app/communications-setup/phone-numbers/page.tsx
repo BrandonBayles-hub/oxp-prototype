@@ -111,6 +111,7 @@ function buildSuperAgentDefaults(): Record<string, string> {
 }
 
 const DEFAULT_SUPER_AGENT = buildSuperAgentDefaults();
+DEFAULT_SUPER_AGENT["p1"] = "(877) 428-0948";
 
 function buildClickToCallDefaults(): Record<string, string> {
   const result: Record<string, string> = {};
@@ -124,6 +125,7 @@ function buildClickToCallDefaults(): Record<string, string> {
 }
 
 const DEFAULT_CLICK_TO_CALL = buildClickToCallDefaults();
+DEFAULT_CLICK_TO_CALL["p1"] = "(877) 428-0948";
 
 function buildOutboundDefaultNumbers(): Record<string, string> {
   const result: Record<string, string> = {};
@@ -137,6 +139,7 @@ function buildOutboundDefaultNumbers(): Record<string, string> {
 }
 
 const DEFAULT_OUTBOUND = buildOutboundDefaultNumbers();
+DEFAULT_OUTBOUND["p1"] = "(877) 428-0948";
 
 const CLICK_TO_CALL_NOT_CONTRACTED = new Set(["p2", "p6", "p9", "p11", "p14"]);
 
@@ -179,15 +182,7 @@ export default function PhoneNumbersPage() {
   const [activeIds, setActiveIds] = useState<Set<string>>(() => new Set(INITIALLY_ACTIVE));
   const [inReviewIds, setInReviewIds] = useState<Set<string>>(() => new Set(INITIALLY_IN_REVIEW));
   const [vanityNumbers, setVanityNumbers] = useState(VANITY_NUMBERS);
-  const [vanityPropertyFilter, setVanityPropertyFilter] = useState<string>(() => {
-    const ids = [...new Set(VANITY_NUMBERS.map((v) => v.propertyId))];
-    const sorted = ids.sort((a, b) => {
-      const nameA = PROPERTIES.find((p) => p.id === a)?.name ?? "";
-      const nameB = PROPERTIES.find((p) => p.id === b)?.name ?? "";
-      return nameA.localeCompare(nameB);
-    });
-    return sorted[0] ?? "p1";
-  });
+  const [vanityPropertyFilter, setVanityPropertyFilter] = useState<string>("all");
   const [deleteModalId, setDeleteModalId] = useState<string | null>(null);
   const [editModalId, setEditModalId] = useState<string | null>(null);
   const [editSmsEnabled, setEditSmsEnabled] = useState(false);
@@ -198,7 +193,7 @@ export default function PhoneNumbersPage() {
   const [addVanityOpen, setAddVanityOpen] = useState(false);
   const [addVanityTab, setAddVanityTab] = useState<"preferences" | "request">("preferences");
   const [addTollFree, setAddTollFree] = useState(false);
-  const [addUseSms, setAddUseSms] = useState(false);
+  const [addUseSms] = useState(true);
   const [addOutboundDefault, setAddOutboundDefault] = useState(false);
   const [addExpiration, setAddExpiration] = useState("");
 
@@ -210,6 +205,21 @@ export default function PhoneNumbersPage() {
 
   type StatusFilter = "all" | "active" | "review" | "awaiting";
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
+
+  function vanityOptionsForProperty(propId: string, currentValue: string) {
+    const unique = [...new Map(vanityNumbers.map((v) => [v.phoneNumber, v])).values()];
+    const propNums = unique.filter((v) => v.propertyId === propId && v.phoneNumber !== currentValue).sort((a, b) => a.phoneNumber.localeCompare(b.phoneNumber));
+    const companyNums = unique.filter((v) => v.propertyId !== propId && v.phoneNumber !== currentValue).sort((a, b) => a.phoneNumber.localeCompare(b.phoneNumber));
+    return { propNums, companyNums };
+  }
+
+  function openAddVanityModal() {
+    setAddVanityTab("preferences");
+    setAddTollFree(false);
+    setAddOutboundDefault(false);
+    setAddExpiration("");
+    setAddVanityOpen(true);
+  }
 
   function simulateApproval() {
     setActiveIds((prev) => {
@@ -242,7 +252,7 @@ export default function PhoneNumbersPage() {
       {!isEmbed && (
         <button
           type="button"
-          onClick={() => router.back()}
+          onClick={() => router.push("/conversations")}
           className="mb-6 inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -337,14 +347,6 @@ export default function PhoneNumbersPage() {
             ))}
           </div>
 
-          <button
-            type="button"
-            onClick={() => { setAddVanityTab("preferences"); setAddTollFree(false); setAddUseSms(false); setAddOutboundDefault(false); setAddExpiration(""); setAddVanityOpen(true); }}
-            className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-border bg-white px-3 py-1.5 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-zinc-50"
-          >
-            <CirclePlus className="h-3.5 w-3.5" />
-            Request Vanity Number
-          </button>
         </div>
 
         {/* Table */}
@@ -486,53 +488,80 @@ export default function PhoneNumbersPage() {
                           )}
                         </td>
 
-                        <td className="px-3 py-2.5 align-middle text-center border-b border-l border-border">
-                          {renderCell(
-                            <select defaultValue={sa} className="font-mono text-xs text-foreground bg-transparent border-none outline-none cursor-pointer p-0 text-center">
-                              <option value={sa}>{sa}</option>
-                              {vanityNumbers
-                                .filter((v) => v.propertyId === prop.id && v.phoneNumber !== sa)
-                                .map((v) => (
-                                  <option key={v.id} value={v.phoneNumber}>{v.phoneNumber}</option>
-                                ))}
-                            </select>
-                          )}
-                        </td>
+                        {(() => {
+                          const saOpts = vanityOptionsForProperty(prop.id, sa);
+                          const ctcOpts = vanityOptionsForProperty(prop.id, ctc);
+                          const outOpts = vanityOptionsForProperty(prop.id, outbound);
+                          return (
+                            <>
+                              <td className="px-3 py-2.5 align-middle text-center border-b border-l border-border">
+                                {renderCell(
+                                  <select defaultValue={sa} onChange={(e) => { if (e.target.value === "__new__") { e.target.value = sa; openAddVanityModal(); } }} className="font-mono text-xs text-foreground bg-transparent border-none outline-none cursor-pointer p-0 text-center">
+                                    <option value="__new__" className="font-sans text-blue-600">+ New Vanity Number</option>
+                                    <option value={sa}>{sa}</option>
+                                    {saOpts.propNums.length > 0 && (
+                                      <optgroup label={`— ${prop.name} —`}>
+                                        {saOpts.propNums.map((v) => <option key={v.id} value={v.phoneNumber}>{v.phoneNumber}</option>)}
+                                      </optgroup>
+                                    )}
+                                    {saOpts.companyNums.length > 0 && (
+                                      <optgroup label="— Company —">
+                                        {saOpts.companyNums.map((v) => <option key={v.id} value={v.phoneNumber}>{v.phoneNumber}</option>)}
+                                      </optgroup>
+                                    )}
+                                  </select>
+                                )}
+                              </td>
 
-                        <td className="px-3 py-2.5 align-middle text-center border-b border-l border-border">
-                          {CLICK_TO_CALL_NOT_CONTRACTED.has(prop.id) ? (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="inline-block rounded bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-400 cursor-default">N/A</span>
-                              </TooltipTrigger>
-                              <TooltipContent side="top" className="text-xs">Not Contracted</TooltipContent>
-                            </Tooltip>
-                          ) : (
-                            renderCell(
-                              <select defaultValue={ctc} className="font-mono text-xs text-foreground bg-transparent border-none outline-none cursor-pointer p-0 text-center">
-                                <option value={ctc}>{ctc}</option>
-                                {vanityNumbers
-                                  .filter((v) => v.propertyId === prop.id && v.phoneNumber !== ctc)
-                                  .map((v) => (
-                                    <option key={v.id} value={v.phoneNumber}>{v.phoneNumber}</option>
-                                  ))}
-                              </select>
-                            )
-                          )}
-                        </td>
+                              <td className="px-3 py-2.5 align-middle text-center border-b border-l border-border">
+                                {CLICK_TO_CALL_NOT_CONTRACTED.has(prop.id) ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className="inline-block rounded bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-400 cursor-default">N/A</span>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top" className="text-xs">Not Contracted</TooltipContent>
+                                  </Tooltip>
+                                ) : (
+                                  renderCell(
+                                    <select defaultValue={ctc} onChange={(e) => { if (e.target.value === "__new__") { e.target.value = ctc; openAddVanityModal(); } }} className="font-mono text-xs text-foreground bg-transparent border-none outline-none cursor-pointer p-0 text-center">
+                                      <option value="__new__" className="font-sans text-blue-600">+ New Vanity Number</option>
+                                      <option value={ctc}>{ctc}</option>
+                                      {ctcOpts.propNums.length > 0 && (
+                                        <optgroup label={`— ${prop.name} —`}>
+                                          {ctcOpts.propNums.map((v) => <option key={v.id} value={v.phoneNumber}>{v.phoneNumber}</option>)}
+                                        </optgroup>
+                                      )}
+                                      {ctcOpts.companyNums.length > 0 && (
+                                        <optgroup label="— Company —">
+                                          {ctcOpts.companyNums.map((v) => <option key={v.id} value={v.phoneNumber}>{v.phoneNumber}</option>)}
+                                        </optgroup>
+                                      )}
+                                    </select>
+                                  )
+                                )}
+                              </td>
 
-                        <td className="px-3 py-2.5 align-middle text-center border-b border-l border-border">
-                          {renderCell(
-                            <select defaultValue={outbound} className="font-mono text-xs text-foreground bg-transparent border-none outline-none cursor-pointer p-0 text-center">
-                              <option value={outbound}>{outbound}</option>
-                              {vanityNumbers
-                                .filter((v) => v.propertyId === prop.id && v.phoneNumber !== outbound)
-                                .map((v) => (
-                                  <option key={v.id} value={v.phoneNumber}>{v.phoneNumber}</option>
-                                ))}
-                            </select>
-                          )}
-                        </td>
+                              <td className="px-3 py-2.5 align-middle text-center border-b border-l border-border">
+                                {renderCell(
+                                  <select defaultValue={outbound} onChange={(e) => { if (e.target.value === "__new__") { e.target.value = outbound; openAddVanityModal(); } }} className="font-mono text-xs text-foreground bg-transparent border-none outline-none cursor-pointer p-0 text-center">
+                                    <option value="__new__" className="font-sans text-blue-600">+ New Vanity Number</option>
+                                    <option value={outbound}>{outbound}</option>
+                                    {outOpts.propNums.length > 0 && (
+                                      <optgroup label={`— ${prop.name} —`}>
+                                        {outOpts.propNums.map((v) => <option key={v.id} value={v.phoneNumber}>{v.phoneNumber}</option>)}
+                                      </optgroup>
+                                    )}
+                                    {outOpts.companyNums.length > 0 && (
+                                      <optgroup label="— Company —">
+                                        {outOpts.companyNums.map((v) => <option key={v.id} value={v.phoneNumber}>{v.phoneNumber}</option>)}
+                                      </optgroup>
+                                    )}
+                                  </select>
+                                )}
+                              </td>
+                            </>
+                          );
+                        })()}
 
                         <td className="px-3 py-2.5 align-middle text-center border-b border-l border-border">
                           {renderCell(<span className="font-mono text-xs text-foreground">{nums.leasing}</span>)}
@@ -578,6 +607,7 @@ export default function PhoneNumbersPage() {
               onChange={(e) => setVanityPropertyFilter(e.target.value)}
               className="rounded-md border border-border bg-white px-2.5 py-1 text-xs text-foreground"
             >
+              <option value="all">Company Vanity Numbers</option>
               {vanityPropertyIds
                 .map((pid) => ({ pid, name: PROPERTY_MAP[pid] ?? pid }))
                 .sort((a, b) => a.name.localeCompare(b.name))
@@ -609,26 +639,22 @@ export default function PhoneNumbersPage() {
                 {filteredVanityNumbers.map((row) => (
                   <tr key={row.id} className="bg-white hover:bg-zinc-50/60 transition-colors">
                     <td className="px-4 py-2.5 border-b border-border font-mono text-xs text-foreground">{row.phoneNumber}</td>
-                    <td className="px-4 py-2.5 border-b border-border text-xs text-foreground">{row.type}</td>
+                    <td className="px-4 py-2.5 border-b border-border text-xs text-foreground">Company Vanity Number</td>
                     <td className="px-4 py-2.5 border-b border-border text-xs text-foreground">{row.leadSource}</td>
                     <td className="px-4 py-2.5 border-b border-border text-xs text-foreground">{row.forwardPreference || "—"}</td>
                     <td className="px-4 py-2.5 border-b border-border text-xs font-mono text-foreground">{row.routeCalls && row.routeCalls !== "—" && row.routeCalls.length === 10 ? `(${row.routeCalls.slice(0,3)}) ${row.routeCalls.slice(3,6)}-${row.routeCalls.slice(6)}` : (row.routeCalls || "—")}</td>
-                    <td className="px-4 py-2.5 border-b border-border text-xs text-foreground">{row.smsRegistrationStatus || ""}</td>
+                    <td className="px-4 py-2.5 border-b border-border text-xs text-foreground">VERIFIED</td>
                     <td className="px-4 py-2.5 border-b border-border text-center">
-                      {row.smsEnabled ? (
-                        <span className="inline-flex items-center gap-1 text-xs">
-                          <button
-                            type="button"
-                            onClick={() => setDeleteModalId(row.id)}
-                            className="inline-block rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-700 hover:bg-red-100 transition-colors cursor-pointer"
-                          >
-                            Delete
-                          </button>
-                          <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                        </span>
-                      ) : row.smsRegistrationStatus ? (
-                        <CheckCircle2 className="h-4 w-4 text-emerald-500 mx-auto" />
-                      ) : null}
+                      <span className="inline-flex items-center gap-1 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => setDeleteModalId(row.id)}
+                          className="inline-block rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-700 hover:bg-red-100 transition-colors cursor-pointer"
+                        >
+                          Delete
+                        </button>
+                        <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                      </span>
                     </td>
                     <td className="px-4 py-2.5 border-b border-border text-center">
                       {row.outboundDefault && <CheckCircle2 className="h-4 w-4 text-emerald-500 mx-auto" />}
@@ -1014,12 +1040,19 @@ export default function PhoneNumbersPage() {
                   {/* Phone Number Type */}
                   <div className="flex items-center gap-4">
                     <label className="w-40 text-right text-xs font-medium text-foreground shrink-0">Phone Number Type:</label>
-                    <select className="flex-1 rounded-md border border-border bg-white px-3 py-2 text-xs text-foreground">
-                      <option>Please Select</option>
-                      <option>Lead</option>
-                      <option>SMS Only</option>
-                      <option>General</option>
-                    </select>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-foreground">Company Vanity Number</span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button type="button" className="rounded p-1.5 text-muted-foreground hover:text-foreground hover:bg-zinc-100 transition-colors border border-border">
+                            <HelpCircle className="h-3.5 w-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[300px] text-xs">
+                          A company vanity number is a shared number that can be assigned across multiple properties and configured for various purposes, including Super Agent AI, Click To Call Default, and Outbound Default.
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
                   </div>
 
                   {/* Toll-Free */}
@@ -1077,16 +1110,10 @@ export default function PhoneNumbersPage() {
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => { setAddUseSms((v) => { if (v) setAddOutboundDefault(false); return !v; }); }}
-                        className={cn(
-                          "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
-                          addUseSms ? "bg-emerald-500" : "bg-zinc-300"
-                        )}
+                        disabled
+                        className="relative inline-flex h-5 w-9 items-center rounded-full bg-emerald-500 cursor-not-allowed opacity-75"
                       >
-                        <span className={cn(
-                          "inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform",
-                          addUseSms ? "translate-x-[18px]" : "translate-x-[3px]"
-                        )} />
+                        <span className="inline-block h-3.5 w-3.5 rounded-full bg-white shadow translate-x-[18px]" />
                       </button>
                       <span className={cn(
                         "text-[10px] font-semibold rounded px-1.5 py-0.5",
