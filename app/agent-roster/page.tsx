@@ -60,6 +60,7 @@ import { MaintenanceFullPage } from "@/components/eli-plus-setup/pages/Maintenan
 import { RenewalsFullPage } from "@/components/eli-plus-setup/pages/RenewalsFullPage";
 import { LeasingAISettingsPanel } from "@/components/leasing-ai-settings-panel";
 import { MaintenanceAISettingsPanel } from "@/components/maintenance-ai-settings-panel";
+import { LeadToLeaseSettings } from "@/components/lead-to-lease-settings";
 
 const DATA_SOURCE_OPTIONS = [
   "Entrata Ledger",
@@ -249,6 +250,8 @@ function AgentRosterContent() {
   const [opsAgentId, setOpsAgentId] = useState<string | null>(null);
   const [intelAgentId, setIntelAgentId] = useState<string | null>(null);
   const [autoAgentId, setAutoAgentId] = useState<string | null>(null);
+  const [leadToLeaseOpen, setLeadToLeaseOpen] = useState(false);
+  const [leadToLeaseActivateOpen, setLeadToLeaseActivateOpen] = useState(false);
   const [expandedBucket, setExpandedBucket] = useState<string | null>(null);
   const [videoAgentName, setVideoAgentName] = useState<string | null>(null);
   const [cardSortBy, setCardSortBy] = useState<"recently_added" | "name" | "level">("recently_added");
@@ -316,6 +319,11 @@ function AgentRosterContent() {
     if (!agentId) return;
     const agent = agents.find((a) => a.id === agentId);
     if (!agent) return;
+    if (agent.name === "Autonomous Lead To Lease") {
+      if (agent.status === "Active") setLeadToLeaseOpen(true);
+      else setLeadToLeaseActivateOpen(true);
+      return;
+    }
     if (agent.type === "operations" || agent.type === "intelligence" || agent.type === "efficiency") setOpsAgentId(agentId);
     else setAutoAgentId(agentId);
   }, [searchParams, agents]);
@@ -501,6 +509,11 @@ function AgentRosterContent() {
                     type="button"
                     onClick={() => {
                       if (isOffEliPlus) { setEliPlusActivateAgent(agent.name); return; }
+                      if (agent.name === "Autonomous Lead To Lease") {
+                        if (agent.status === "Active") setLeadToLeaseOpen(true);
+                        else setLeadToLeaseActivateOpen(true);
+                        return;
+                      }
                       if (agent.type === "operations" || agent.type === "efficiency" || agent.type === "intelligence") setOpsAgentId(agent.id);
                       else setAutoAgentId(agent.id);
                     }}
@@ -679,6 +692,11 @@ function AgentRosterContent() {
                               }`}
                               onClick={() => {
                                 if (isOffEliPlus) return;
+                                if (agent.name === "Autonomous Lead To Lease") {
+                                  if (agent.status === "Active") setLeadToLeaseOpen(true);
+                                  else setLeadToLeaseActivateOpen(true);
+                                  return;
+                                }
                                 if (agent.type === "operations" || agent.type === "efficiency" || agent.type === "intelligence") setOpsAgentId(agent.id);
                                 else setAutoAgentId(agent.id);
                               }}
@@ -981,6 +999,102 @@ function AgentRosterContent() {
             onOpenChange={(open) => { if (!open) setAutoAgentId(null); }}
             onUpdate={(updates) => updateAgent(autoAgent.id, updates)}
           />
+        );
+      })()}
+
+      {(() => {
+        const l2lAgent = agents.find((a) => a.name === "Autonomous Lead To Lease");
+        const l2lIsActive = l2lAgent?.status === "Active";
+        const toggleL2L = () => {
+          if (!l2lAgent) return;
+          updateAgent(l2lAgent.id, { status: l2lIsActive ? "Off" : "Active" });
+        };
+        return (
+          <>
+            <Sheet open={leadToLeaseOpen} onOpenChange={setLeadToLeaseOpen}>
+              <SheetContent className="w-full flex flex-col overflow-hidden p-0 sm:max-w-[90vw]">
+                <SheetHeader className="sr-only">
+                  <SheetTitle>Autonomous Lead To Lease</SheetTitle>
+                  <SheetDescription>Lead to lease settings and configuration</SheetDescription>
+                </SheetHeader>
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  <LeadToLeaseSettings
+                    isActive={l2lIsActive ?? false}
+                    onToggleActive={toggleL2L}
+                  />
+                </div>
+              </SheetContent>
+            </Sheet>
+
+            <Dialog open={leadToLeaseActivateOpen} onOpenChange={setLeadToLeaseActivateOpen}>
+              <DialogContent className="max-w-md p-0">
+                <div className="p-6 pb-0">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#7c3aed]/10">
+                      <img src="/eli-cube.svg" alt="" width={24} height={24} />
+                    </div>
+                    <div>
+                      <DialogTitle className="text-base font-semibold">Autonomous Lead To Lease</DialogTitle>
+                      <DialogDescription className="text-sm text-muted-foreground">
+                        End-to-end leasing intelligence for your portfolio
+                      </DialogDescription>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="px-6 pt-4">
+                  <div className="rounded-lg border border-border p-4">
+                    <p className="mb-3 text-sm font-semibold text-foreground">What this agent does</p>
+                    <ul className="space-y-2">
+                      {[
+                        "Orchestrates the full lead-to-lease pipeline — from guest card to signed lease",
+                        "Configures screening criteria, application rules, and lease execution per property type",
+                        "Coordinates Guest Cards, Applications, Screening, and Lease Creation as one unified workflow",
+                        "Applies property-type-specific settings across Affordable, Conventional, Student, and more",
+                      ].map((item) => (
+                        <li key={item} className="flex items-start gap-2">
+                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
+                          <span className="text-sm text-muted-foreground">{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+
+                <div className="px-6 pt-4">
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4">
+                    <p className="mb-3 text-sm font-semibold text-foreground">Impact from similar properties</p>
+                    <div className="grid grid-cols-3 gap-4 text-center">
+                      {[
+                        { value: "62%", label: "Faster lease execution time" },
+                        { value: "41%", label: "Increase in application completion" },
+                        { value: "3.2x", label: "More leads processed per agent" },
+                      ].map((m) => (
+                        <div key={m.label}>
+                          <p className="text-xs text-muted-foreground/60 mb-0.5">up to</p>
+                          <p className="text-xl font-bold text-foreground">{m.value}</p>
+                          <p className="text-xs text-muted-foreground">{m.label}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-6">
+                  <Button
+                    className="w-full"
+                    onClick={() => {
+                      toggleL2L();
+                      setLeadToLeaseActivateOpen(false);
+                      setLeadToLeaseOpen(true);
+                    }}
+                  >
+                    Activate Autonomous Lead To Lease
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </>
         );
       })()}
     </>
