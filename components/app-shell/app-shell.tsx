@@ -15,7 +15,7 @@ import { RoadmapOverlay } from "@/components/roadmap-overlay";
 
 const CHROMELESS_ROUTES: string[] = [];
 const FULL_BLEED_ROUTES = ["/conversations"];
-const NAV_ONLY_ROUTES = ["/escalations/settings", "/communications-setup/custom-email"];
+const NAV_ONLY_ROUTES = ["/escalations/settings", "/communications-setup/custom-email", "/communications-setup/phone-numbers"];
 const NO_SIDEBAR_ROUTES = ["/setup-wizard"];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
