@@ -399,10 +399,14 @@ Hillside Living
     messages: [
       {
         role: "resident",
-        text: "Thanks for the notice. Will the gym stay open during the deck work?",
+        text: "Thanks for the notice. Will the gym stay open during the deck work? I also attached a photo of the current deck condition near unit 445 — there's a crack that might need extra attention during resurfacing.",
         timestamp: "Apr 6 2026 · 10:12am MST",
         type: "message",
         emailSignature: "—\nNina Ortiz\nUnit 445\nnina.ortiz@email.com",
+        emailAttachments: [
+          { name: "deck-crack-unit445.jpg", kind: "image" },
+          { name: "Resident-Pool-Access-Request.pdf", kind: "file" },
+        ],
       },
     ],
   },
