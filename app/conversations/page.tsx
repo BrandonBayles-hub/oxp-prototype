@@ -1634,10 +1634,16 @@ function ConversationsContent() {
             Settings
           </h3>
           <ul className="space-y-0.5">
-            {(["Email Integration", "Manage Inboxes", "Manage Labels", "Reporting"]).map((label) => (
+            {(["Email Integration", "Manage Vanity Numbers", "Manage Inboxes", "Manage Labels", "Reporting"]).map((label) => (
               <li key={label}>
                 {label === "Email Integration" ? (
                   <Link href="/communications-setup/custom-email">
+                    <Button variant="ghost" className="w-full justify-start font-normal">
+                      {label}
+                    </Button>
+                  </Link>
+                ) : label === "Manage Vanity Numbers" ? (
+                  <Link href="/communications-setup/phone-numbers">
                     <Button variant="ghost" className="w-full justify-start font-normal">
                       {label}
                     </Button>

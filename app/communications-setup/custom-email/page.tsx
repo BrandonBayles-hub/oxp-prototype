@@ -13,6 +13,7 @@ import {
   Circle,
 } from "lucide-react";
 import { useEliEmails, type EliEmailAddress, type ImapSmtpConfig } from "@/lib/eli-emails-context";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const PROPERTIES = [
   "Harvest Peak Capital",
@@ -274,6 +275,7 @@ function EliPropertyStatusTable() {
           </span>
         </div>
       </div>
+      <TooltipProvider delayDuration={200}>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -319,13 +321,21 @@ function EliPropertyStatusTable() {
                       );
                     }
                     const done = colDone(prop.name, col);
+                    const connectedEmail = getEmailForProperty(prop.name)?.emailAddress;
                     return (
                       <td key={col} className="px-3 py-3 text-center">
                         {done ? (
-                          <div className="flex flex-col items-center gap-0.5">
-                            <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-                            <span className="text-[9px] font-semibold text-emerald-600">Done</span>
-                          </div>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="flex flex-col items-center gap-0.5 cursor-default">
+                                <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                                <span className="text-[9px] font-semibold text-emerald-600">Done</span>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="text-xs">
+                              {connectedEmail}
+                            </TooltipContent>
+                          </Tooltip>
                         ) : (
                           <div className="flex flex-col items-center gap-0.5">
                             <Circle className="h-5 w-5 text-amber-400" />
@@ -338,10 +348,17 @@ function EliPropertyStatusTable() {
                   {SHOW_ENTRATA_EMAIL_OPTIONAL_COLUMN && (
                     <td className="px-3 py-3 text-center">
                       {entrataDone(prop.name) ? (
-                        <div className="flex flex-col items-center gap-0.5">
-                          <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-                          <span className="text-[9px] font-semibold text-emerald-600">Done</span>
-                        </div>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex flex-col items-center gap-0.5 cursor-default">
+                              <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                              <span className="text-[9px] font-semibold text-emerald-600">Done</span>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="text-xs">
+                            {getEmailForProperty(prop.name)?.emailAddress}
+                          </TooltipContent>
+                        </Tooltip>
                       ) : (
                         <div className="flex flex-col items-center gap-0.5">
                           <Circle className="h-5 w-5 text-gray-300" />
@@ -356,6 +373,7 @@ function EliPropertyStatusTable() {
           </tbody>
         </table>
       </div>
+      </TooltipProvider>
       {total > pageSize && (
         <div className="flex items-center justify-between border-t border-[hsl(var(--border))] px-6 py-2.5">
           <div className="flex items-center gap-2">
