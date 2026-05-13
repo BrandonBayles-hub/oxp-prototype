@@ -484,6 +484,62 @@ export function CompanyPage({ navigate, brandStatus, showToast, simMode, onSimMo
     showToast("Business registered with carrier — phone numbers are being set up")
   }, [brandStatus])
 
+  // ── Auto-demo: type the legal name → submit → fix rejected phone → resubmit ─
+  // Helper: type text one character at a time into a simFields key
+  function typeInto(
+    text: string,
+    setter: (updater: (prev: Record<string, string>) => Record<string, string>) => void,
+    key: string,
+    msPerChar = 42,
+  ) {
+    return new Promise<void>(resolve => {
+      let i = 0
+      function next() {
+        i++
+        setter(p => ({ ...p, [key]: text.slice(0, i) }))
+        if (i < text.length) setTimeout(next, msPerChar)
+        else resolve()
+      }
+      next()
+    })
+  }
+
+  // Stage 1: on mount — type the legal business name then submit.
+  // No demoStarted ref: rely on `cancelled` so Strict Mode double-mount works correctly.
+  useEffect(() => {
+    const cancelled = { v: false }
+    ;(async () => {
+      await new Promise(r => setTimeout(r, 700))
+      if (cancelled.v) return
+      await typeInto("Sunset Properties LLC", setSimFields, "legal")
+      await new Promise(r => setTimeout(r, 500))
+      if (cancelled.v) return
+      onSubmitToTwilio()
+    })()
+    return () => { cancelled.v = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Stage 2: carrier rejects → retype phone → resubmit.
+  // Guard with a module-level flag so this only fires once even across Strict Mode remounts.
+  const phoneFixStarted = useRef(false)
+  useEffect(() => {
+    if (brandStatus !== "carrier-rejected") return
+    if (phoneFixStarted.current) return
+    phoneFixStarted.current = true
+    const cancelled = { v: false }
+    ;(async () => {
+      await new Promise(r => setTimeout(r, 900))
+      if (cancelled.v) return
+      await typeInto("(512) 555-0123", setSimFields, "phone", 38)
+      await new Promise(r => setTimeout(r, 500))
+      if (cancelled.v) return
+      onResubmitToCarrier()
+    })()
+    return () => { cancelled.v = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brandStatus])
+
   // simFields takes precedence over hardcoded defaults for all modes
   function sv(key: string, fallback: string) {
     return key in simFields ? simFields[key] : fallback

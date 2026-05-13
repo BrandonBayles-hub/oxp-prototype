@@ -1,5 +1,5 @@
 "use client"
-import { Fragment, useState, useCallback, useMemo, useEffect, useRef } from "react"
+import { useState, useCallback, useMemo, useEffect, useRef } from "react"
 import type { BasePageProps } from "../index"
 import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -14,19 +14,20 @@ import {
   Info,
   Loader2,
   X,
-  XCircle,
   Lock,
   ExternalLink,
   WandSparkles,
   LinkIcon,
   Pencil,
   RotateCcw,
+  Clock,
+  Search,
 } from "lucide-react"
 import { generatePrivacyPolicy, type TemplateFields } from "../components/PrivacySheetContent"
 import { GlobalToast } from "../components/GlobalToast"
 import { PROPERTIES } from "../data/properties"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { LegalAckModal, useLegalAck } from "../components/LegalAckModal"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 // ── Property meta ─────────────────────────────────────────────────────────────
 
@@ -65,39 +66,47 @@ const PROPERTY_META: PropertyMeta[] = PROPERTIES.map(p => {
 })
 const META_MAP = Object.fromEntries(PROPERTY_META.map(m => [m.id, m]))
 
-const INITIALLY_COVERED = new Set(["p1", "p2", "p3", "p4", "p5", "p7", "p10", "p12"])
-
-// ── Twilio rejection simulation ──────────────────────────────────────────────
-// When a privacy policy + URL is submitted to Twilio for 10DLC campaign
-// approval, Twilio crawls the URL and validates the policy against CTIA
-// guidelines. The properties below simulate the most common rejection
-// reasons we see in real-world Gong calls. After the user clicks "Resubmit"
-// we treat it as approved on the second attempt (mirrors the TP retry flow).
-
-interface RejectionReason {
-  code: string
-  title: string
-  detail: string
-  fix: string
+function normalizeSiteInput(s: string): string {
+  return s.trim().replace(/^https?:\/\//i, "").replace(/\/$/, "")
+}
+/** Enough structure to show policy row without premature noise */
+function isLikelyValidWebsite(s: string): boolean {
+  const t = normalizeSiteInput(s)
+  if (t.length < 4) return false
+  return t.includes(".") || t.startsWith("localhost")
+}
+function isEntrataProspectPortalHost(host: string): boolean {
+  return normalizeSiteInput(host).includes("prospectportal.entrata.com")
+}
+/** Swap policy URL onto another Entrata portal hostname (prototype heuristic). */
+function adaptPrivacyUrlToHost(ppUrl: string, targetWebsiteNoProto: string): string {
+  const target = normalizeSiteInput(targetWebsiteNoProto)
+  const raw = ppUrl.trim().startsWith("http") ? ppUrl.trim() : `https://${ppUrl.trim()}`
+  try {
+    const u = new URL(raw)
+    u.hostname = target.split("/")[0]
+    return u.toString()
+  } catch {
+    return `https://${target}/privacy-policy`
+  }
 }
 
-const REJECTION_FIXTURES: Record<string, RejectionReason> = {
-  // Bay Breeze (San Francisco) — policy text missing CTIA-required language
-  p14: {
-    code: "POLICY_MISSING_DISCLOSURE",
-    title: "Privacy policy is missing required SMS disclosure",
-    detail:
-      "Twilio's crawler reached the page but didn't find consumer instructions for STOP and HELP, which CTIA guidelines require for 10DLC campaign approval.",
-    fix: "We'll re-publish the updated policy template (which already includes STOP/HELP language) to this property's site. No action needed from you — just click Resubmit.",
-  },
-  // Coastal View (San Diego) — page returned 404
-  p15: {
-    code: "URL_NOT_FOUND",
-    title: "Privacy policy URL returned 404",
-    detail:
-      "Twilio couldn't reach https://coastalview.prospectportal.entrata.com/privacy. The page either doesn't exist or hasn't been published yet.",
-    fix: "We'll re-publish the policy file to the standard /privacy path on this property's Prospect Portal site, then resubmit to Twilio.",
-  },
+// ── Privacy policy status per property ────────────────────────────────────────
+type PPStatus = "needs-pp" | "review-in-progress" | "failed" | "completed"
+
+// "Policy approved" = carrier accepted the privacy policy URL; number purchase is tracked in Communications tab
+const INITIALLY_COMPLETED = new Set(["p1", "p2", "p3", "p4", "p5", "p7", "p10", "p12"])
+// "Carrier review in progress" — submitted to Twilio, awaiting approval (2–3 days)
+const INITIALLY_REVIEW = new Set(["p14", "p15", "p16", "p18", "p21", "p23", "p25", "p28"])
+// "Failed" — carrier rejected
+const INITIALLY_FAILED = new Set(["p6", "p30"])
+// Legacy alias used elsewhere in the file
+const INITIALLY_COVERED = INITIALLY_COMPLETED
+
+// Carrier rejection reasons per property (for failed state)
+const FAILED_REASONS: Record<string, string> = {
+  p6:  "We couldn't find a page at this link. Double-check the spelling, or copy the URL directly from your browser's address bar.",
+  p30: "The page took too long to respond. Make sure the URL is publicly accessible — not behind a login, password prompt, or firewall — then try again.",
 }
 
 // ── State supplement detection ────────────────────────────────────────────────
@@ -121,6 +130,8 @@ const CARRIER_DATA = {
 // ── User-supplied fields ──────────────────────────────────────────────────────
 
 interface UserFields {
+  smsPhone:        string
+  smsEmail:        string
   messageFreq:     string
   privacyEmail:    string
   retentionApp:    string
@@ -135,6 +146,8 @@ interface UserFields {
 }
 
 const DEFAULT_USER: UserFields = {
+  smsPhone:       CARRIER_DATA.phone,           // pre-filled from Carrier Compliance — overrideable
+  smsEmail:       "sms@sunsetproperties.com",
   messageFreq:    "4",
   privacyEmail:   CARRIER_DATA.email,           // pre-filled from Carrier Compliance — overrideable
   retentionApp:   CA_REQUIRED ? "3" : "3",
@@ -148,7 +161,7 @@ const DEFAULT_USER: UserFields = {
   poPhone:        "(512) 555-0123",
 }
 
-const CORE_REQUIRED: (keyof UserFields)[] = ["messageFreq", "privacyEmail"]
+const CORE_REQUIRED: (keyof UserFields)[] = ["smsPhone", "smsEmail", "messageFreq", "privacyEmail"]
 const CA_REQUIRED_KEYS: (keyof UserFields)[] = CA_REQUIRED
   ? ["retentionApp", "retentionRes", "retentionComms", "retentionWeb", "retentionBg"] : []
 const MN_REQUIRED_KEYS: (keyof UserFields)[] = MN_REQUIRED
@@ -160,6 +173,8 @@ function userFieldsToTemplate(u: UserFields): TemplateFields {
     companyName:          CARRIER_DATA.companyName,
     effectiveDate:        CARRIER_DATA.effectiveDate,
     lastUpdated:          CARRIER_DATA.effectiveDate,
+    smsPhone:             u.smsPhone,
+    smsEmail:             u.smsEmail,
     messageFrequency:     u.messageFreq,
     chatbotProvider:      CARRIER_DATA.chatbot,
     privacyEmail:         u.privacyEmail || CARRIER_DATA.email,
@@ -179,7 +194,7 @@ function userFieldsToTemplate(u: UserFields): TemplateFields {
   }
 }
 
-type FilterTab  = "all" | "needs-action" | "covered"
+type FilterTab  = "all" | "needs-action" | "failed" | "pending" | "covered"
 type StepId     = "form" | "template" | "third-party" | "publish"
 
 const STEP_LABELS: Record<StepId, string> = {
@@ -197,7 +212,7 @@ function buildHighlightedSegments(text: string, fields: UserFields): Segment[] {
   const values = [
     CARRIER_DATA.companyName, CARRIER_DATA.address, CARRIER_DATA.phone,
     CARRIER_DATA.email, CARRIER_DATA.effectiveDate, CARRIER_DATA.chatbot,
-    fields.messageFreq,
+    fields.smsPhone, fields.smsEmail, fields.messageFreq,
     fields.privacyEmail || CARRIER_DATA.email,
     fields.retentionApp || "3", fields.retentionRes || "7",
     fields.retentionComms || "3", fields.retentionWeb || "13",
@@ -224,40 +239,14 @@ function buildHighlightedSegments(text: string, fields: UserFields): Segment[] {
 
 // ── Disclaimer ────────────────────────────────────────────────────────────────
 
-export const DISCLAIMER_PARAGRAPHS = [
+const DISCLAIMER_PARAGRAPHS = [
   "THIS TEMPLATE WAS CREATED BY A GENERAL PURPOSE LARGE LANGUAGE MODEL FOR INFORMATIONAL PURPOSES ONLY AND IS NOT LEGAL ADVICE. This template is intended to serve as a starting point for organizations developing their own privacy notices and should not be relied upon as a substitute for consultation with qualified legal counsel. Use of this template is at your own risk. Entrata shall not be liable for any damages, losses, or other consequences arising from its use or adaptation.",
   "Each organization's privacy practices, data processing activities, and regulatory obligations are unique. Applicable privacy laws and regulations vary by jurisdiction, industry, and the nature of personal data collected and processed.",
   "Before using or adapting this template, conduct a thorough review of your organization's specific data collection and processing activities and consult with legal counsel.",
   "Privacy laws are subject to frequent amendment and evolving regulatory guidance; accordingly, periodically review and update any privacy notice derived from this template.",
 ]
 
-// Versioned key — bump LEGAL_ACK_VERSION whenever DISCLAIMER_PARAGRAPHS changes
-// in a way that legal wants users to re-acknowledge. Real implementation would
-// persist the ack record (user_id + version + timestamp) to a backend audit log.
-export const LEGAL_ACK_KEY = "eli-plus:legal-ack:privacy-policy"
-export const LEGAL_ACK_VERSION = "v1"
-
-// DEMO MODE — when true, the modal shows on every click and is never persisted.
-// Set to false to enable real one-time-acknowledgement behavior.
-const LEGAL_ACK_DEMO_MODE = true
-
-function formatAckDate(iso: string): string {
-  try {
-    const d = new Date(iso)
-    return d.toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    })
-  } catch {
-    return iso
-  }
-}
-
 function DisclaimerLink() {
-  const { record } = useLegalAck(LEGAL_ACK_KEY, LEGAL_ACK_VERSION)
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -279,15 +268,6 @@ function DisclaimerLink() {
         {DISCLAIMER_PARAGRAPHS.map((p, i) => (
           <p key={i} className="text-[11px] text-muted-foreground leading-relaxed">{p}</p>
         ))}
-        {record && (
-          <div className="pt-2 mt-1 border-t border-border">
-            <p className="text-[10px] text-muted-foreground/80 leading-relaxed">
-              <span className="font-medium text-foreground/80">Last acknowledged:</span>{" "}
-              {formatAckDate(record.timestamp)}
-              <span className="text-muted-foreground/60"> · {record.version}</span>
-            </p>
-          </div>
-        )}
       </PopoverContent>
     </Popover>
   )
@@ -488,7 +468,7 @@ function TemplateSheet({
         setTpVerifyStatus(prev => ({ ...prev, [id]: "verified" }))
         onConfirmTp(id)
       }
-    }, 1800)
+    }, 900)
   }
   function handleVerifyAll() {
     if (!tpUnlocked) return
@@ -628,6 +608,17 @@ function TemplateSheet({
           {/* Step 1 — Form */}
           {currentStep === "form" && (
             <div className="px-6 py-5 space-y-6">
+              {/* Company-level banner */}
+              <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 flex items-start gap-2.5">
+                <Info className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-foreground">This policy applies to your entire company</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
+                    Fill these fields out once. The same policy text publishes to every property's website.
+                  </p>
+                </div>
+              </div>
+
               <p className="text-xs">
                 {filledRequired < totalRequired
                   ? <span className="text-amber-600 font-medium">{filledRequired} of {totalRequired} required fields filled.</span>
@@ -636,6 +627,14 @@ function TemplateSheet({
 
               {/* Required user fields */}
               <div className="space-y-5">
+                <Field label="Support phone for SMS HELP/STOP" hint="One company-wide number for the whole portfolio. Pre-filled from your business phone — change it if you have a dedicated SMS line.">
+                  <input type="text" value={fields.smsPhone} onChange={e => onChange("smsPhone", e.target.value)}
+                    placeholder="(602) 555-0100" className={inputCls(fields.smsPhone.trim() !== "")} />
+                </Field>
+                <Field label="Support email for SMS HELP/STOP" hint="Generic shared inbox is best (e.g. sms@). Same address for every property.">
+                  <input type="text" value={fields.smsEmail} onChange={e => onChange("smsEmail", e.target.value)}
+                    placeholder="sms@yourcompany.com" className={inputCls(fields.smsEmail.trim() !== "")} />
+                </Field>
                 <Field label="Approximate message frequency" hint="Required by carriers (FCC). One company-wide estimate across all properties.">
                   <select value={fields.messageFreq} onChange={e => onChange("messageFreq", e.target.value)}
                     className={cn("w-full h-10 rounded-lg border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-zinc-900/20 transition-colors appearance-none",
@@ -711,6 +710,13 @@ function TemplateSheet({
           {/* Step 2 — Template preview / editor */}
           {currentStep === "template" && (
             <div className="flex flex-col h-full">
+              <div className="px-6 py-3 border-b border-border bg-blue-50/40 shrink-0">
+                <p className="text-xs text-foreground leading-relaxed">
+                  <span className="font-semibold">One policy for your whole company.</span>{" "}
+                  <span className="text-muted-foreground">This same text publishes to every property — you don't write a different version per property. Review or edit, then continue.</span>
+                </p>
+              </div>
+
               {/* Toolbar */}
               <div className="flex items-center justify-between gap-3 px-6 py-3 border-b border-border bg-zinc-50/60 shrink-0">
                 <div className="flex items-center gap-2 min-w-0">
@@ -988,534 +994,872 @@ function TemplateSheet({
   )
 }
 
+
+// ── Action card (Zone 1 — always-visible form per property) ──────────────────
+
+interface ActionCardProps {
+  prop: typeof PROPERTIES[0]
+  status: PPStatus
+  ppUrl: string
+  websiteUrl: string
+  isMissing: boolean
+  isMultiUnresolved: boolean
+  multiOptions: string[]
+  failReason?: string
+  submitted?: boolean
+  submittedPpUrl?: string
+  onSubmit: (propId: string, website: string, ppUrl: string) => void
+  onDismiss: (propId: string) => void
+  onViewPending: () => void
+  /** Fires when heartbeat says carrier-ready and required edits exist — powers Submit All. */
+  onCardReadyChange?: (id: string, meta: { ready: boolean; website: string; ppUrl: string }) => void
+}
+
+function ActionCard({
+  prop, status, ppUrl, websiteUrl, isMissing, isMultiUnresolved,
+  multiOptions, failReason, submitted, submittedPpUrl,
+  onSubmit, onDismiss, onViewPending, onCardReadyChange,
+}: ActionCardProps) {
+  const isFailed = status === "failed"
+
+  const [websiteDraft, setWebsiteDraft] = useState(websiteUrl)
+  const [multiDraft, setMultiDraft]     = useState("")
+  const [useCustom, setUseCustom]       = useState(false)
+  const [customUrl, setCustomUrl]       = useState("")
+  const [multiOpen, setMultiOpen]       = useState(false)
+  const [multiQ, setMultiQ]             = useState("")
+  const [ppDraft, setPpDraft]           = useState(() => (isFailed ? ppUrl : ""))
+  const [verifyStatus, setVerifyStatus] = useState<"idle" | "checking" | "ok" | "fail">("idle")
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const resolvedWebsite = isMultiUnresolved
+    ? (useCustom ? customUrl : multiDraft)
+    : (websiteDraft.trim() || websiteUrl)
+  const websiteReadyForPolicy = isFailed
+    || (!isMissing && !isMultiUnresolved)
+    || (isMissing && isLikelyValidWebsite(websiteDraft))
+    || (isMultiUnresolved && !!normalizeSiteInput(resolvedWebsite))
+
+  const showPolicyColumn = websiteReadyForPolicy && (normalizeSiteInput(resolvedWebsite).length > 0 || isFailed)
+
+  const ppChanged = isFailed
+    ? ppDraft.trim() !== "" && ppDraft.trim() !== ppUrl.trim()
+    : ppDraft.trim() !== ""
+  const canSubmit = !!(resolvedWebsite.trim()) && ppChanged
+
+  const filteredMulti = useMemo(() => {
+    const q = multiQ.trim().toLowerCase()
+    if (!q) return multiOptions
+    return multiOptions.filter(u => u.toLowerCase().includes(q))
+  }, [multiOptions, multiQ])
+
+  useEffect(() => { setWebsiteDraft(websiteUrl) }, [websiteUrl])
+
+  // Auto-scrape disabled for demo — policy URL stays blank until user types it
+
+  // Heartbeat / carrier-ready ping — debounced, no manual Verify
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    if (!ppDraft.trim() || !showPolicyColumn) { setVerifyStatus("idle"); return }
+    if (isFailed && ppDraft.trim() === ppUrl.trim()) { setVerifyStatus("idle"); return }
+    setVerifyStatus("checking")
+    debounceRef.current = setTimeout(() => {
+      // Carrier rejection copy lives below the field — keep heartbeat at idle for unchanged reject URL
+      setVerifyStatus("ok")
+    }, 800)
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ppDraft, showPolicyColumn, isFailed, ppUrl])
+
+  useEffect(() => {
+    const ready = verifyStatus === "ok" && canSubmit
+    onCardReadyChange?.(prop.id, {
+      ready,
+      website: resolvedWebsite.trim(),
+      ppUrl: ppDraft.trim(),
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [verifyStatus, canSubmit, prop.id, resolvedWebsite, ppDraft, onCardReadyChange])
+
+  useEffect(() => {
+    if (!submitted) return
+    const t = setTimeout(() => onDismiss(prop.id), 1500)
+    return () => clearTimeout(t)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [submitted])
+
+  /** One line height for inputs, dropdown trigger, and submit (grid-aligned). */
+  const ROW_H = "min-h-[2.5rem] h-10"
+  // 10 px text + mb-1.5 (6 px) = 16 px label block. Col-3 button uses pt-4 to match.
+  const labelCls = "text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/90 leading-none mb-1.5 block"
+  const rowInput = cn(
+    "w-full rounded-md border px-3.5 py-2.5 text-sm leading-snug transition-colors focus:outline-none focus:ring-2",
+    ROW_H, "flex items-center",
+    "bg-white text-foreground placeholder:text-muted-foreground/45 focus:ring-zinc-900/15",
+  )
+
+  const showCarrierRejectBelow = isFailed && failReason && verifyStatus === "idle" && ppDraft.trim() === ppUrl.trim()
+  const showWebsiteMissing = isMissing && !websiteDraft.trim()
+
+  const websiteBorder = cn(
+    rowInput,
+    showWebsiteMissing ? "border-amber-300 focus:ring-amber-400/25" : "border-border",
+  )
+  const ppInputHasCarrierError = !!(showCarrierRejectBelow && failReason)
+
+  const ppBorder = cn(
+    rowInput, "min-w-0",
+    verifyStatus === "ok"  ? "border-emerald-500 focus:ring-emerald-500/25" :
+    ppInputHasCarrierError ? "border-red-400 focus:ring-red-400/20" :
+                             "border-border focus:ring-zinc-900/15",
+  )
+
+  const submitIsPrimary = canSubmit && verifyStatus === "ok"
+
+  function doSubmit() {
+    if (!canSubmit || verifyStatus !== "ok") return
+    onSubmit(prop.id, resolvedWebsite.trim(), ppDraft.trim())
+  }
+
+  // ── Success state (compressed) ─────────────────────────────────────────────
+  if (submitted) {
+    return (
+      <div className="bg-white rounded-xl border border-emerald-200 overflow-hidden">
+        <div className="px-4 py-2.5 bg-emerald-50 border-b border-emerald-200 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+            <p className="text-sm font-semibold text-emerald-900 truncate">{prop.name}</p>
+            <span className="text-xs text-emerald-700 shrink-0">· Submitted</span>
+          </div>
+          <button type="button" onClick={() => onDismiss(prop.id)} className="shrink-0 rounded p-1 text-emerald-600 hover:bg-emerald-100" aria-label="Dismiss">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <div className="px-4 py-2 flex items-center gap-2 border-t border-emerald-100">
+          <p className="font-mono text-[11px] text-muted-foreground truncate flex-1">{submittedPpUrl}</p>
+          <button type="button" onClick={() => { onViewPending(); onDismiss(prop.id) }}
+            className="shrink-0 text-[11px] font-semibold text-emerald-800 hover:underline whitespace-nowrap">
+            View in Carrier Review →
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className="bg-white rounded-xl border border-border outline-none"
+      tabIndex={0}
+      onKeyDown={e => {
+        if (e.key !== "Enter") return
+        const t = e.target as HTMLElement
+        if (t.tagName === "TEXTAREA") return
+        if (t.tagName === "BUTTON" || t.closest("button")) return
+        if (canSubmit && verifyStatus === "ok") {
+          e.preventDefault()
+          doSubmit()
+        }
+      }}
+    >
+      {/* ── Property header (single horizontal rule separates it from inputs) ── */}
+      <div className="px-4 py-2 flex items-center gap-2 border-b border-border">
+        <p className="text-sm font-semibold text-foreground truncate">{prop.name}</p>
+        <span className={cn(
+          "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold shrink-0",
+          isFailed ? "border-red-200 bg-red-50 text-red-700" : "border-amber-200 bg-amber-50 text-amber-700",
+        )}>
+          <span className={cn("h-1.5 w-1.5 rounded-full", isFailed ? "bg-red-500" : "bg-amber-400")} />
+          {isFailed ? "Failed" : "Needs action"}
+        </span>
+        <span className="text-muted-foreground/30 text-xs shrink-0">·</span>
+        <span className="text-xs text-muted-foreground truncate">{prop.city}, {prop.state}</span>
+      </div>
+
+      {/*
+        ── 3-column grid: 30% / 50% / 20% ──────────────────────────────────────
+        • No vertical dividers — columns defined by alignment alone
+        • No "Action" label in col 3 — button is the anchor
+        • Col 3 button uses pt-4 to skip past label height and lock to input row
+        • Error wells weld to the bottom of their input (rounded-t-none, no top border)
+        • Middle column expands when an error appears; col 1 & col 3 never move
+      */}
+      <div className="px-4 py-3">
+        <div className="grid grid-cols-[5fr_5fr_2fr] gap-x-6 items-start">
+
+          {/* ── Col 1: Website URL ── */}
+          <div className="min-w-0">
+            <span className={labelCls}>Website URL</span>
+
+            {isMultiUnresolved ? (
+              <div className="relative w-full">
+                <button
+                  type="button"
+                  onClick={() => setMultiOpen(o => !o)}
+                  className={cn(rowInput, "border-border w-full text-left justify-between gap-2")}
+                >
+                  <span className="truncate text-sm">
+                    {normalizeSiteInput(useCustom ? customUrl : multiDraft) || "Select website…"}
+                  </span>
+                  <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", multiOpen && "rotate-180")} />
+                </button>
+                {multiOpen && (
+                  <div className="absolute z-30 left-0 right-0 top-full mt-1 rounded-md border border-border bg-white shadow-lg overflow-hidden max-h-44 flex flex-col">
+                    <div className="flex items-center gap-1.5 border-b border-border px-2.5 py-1.5 bg-zinc-50">
+                      <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <input
+                        value={multiQ}
+                        onChange={e => setMultiQ(e.target.value)}
+                        placeholder="Search domains…"
+                        className="flex-1 min-w-0 bg-transparent text-xs py-0.5 outline-none"
+                      />
+                    </div>
+                    <div className="overflow-y-auto max-h-36 p-1 space-y-0.5">
+                      {filteredMulti.map(url => (
+                        <button
+                          key={url}
+                          type="button"
+                          onClick={() => { setMultiDraft(url); setUseCustom(false); setMultiOpen(false); setMultiQ("") }}
+                          className={cn(
+                            "w-full text-left rounded px-2.5 py-2 text-[11px] font-mono truncate hover:bg-zinc-100",
+                            multiDraft === url && !useCustom && "bg-blue-50 text-blue-900",
+                          )}
+                        >
+                          {url}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => { setUseCustom(true); setMultiDraft(""); setMultiOpen(false) }}
+                        className="w-full text-left rounded px-2.5 py-2 text-[11px] text-muted-foreground hover:bg-zinc-100 italic"
+                      >
+                        None of these — custom URL
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {useCustom && (
+                  <input
+                    type="text"
+                    value={customUrl}
+                    onChange={e => setCustomUrl(e.target.value)}
+                    placeholder="yoursite.com"
+                    className={cn(rowInput, "border-border mt-1.5 w-full")}
+                  />
+                )}
+              </div>
+            ) : isMissing ? (
+              <>
+                <input
+                  type="text"
+                  value={websiteDraft}
+                  onChange={e => setWebsiteDraft(e.target.value)}
+                  placeholder="yoursite.com"
+                  className={websiteBorder}
+                />
+                {showWebsiteMissing && (
+                  <div className="mt-1.5 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[11px] leading-snug text-amber-900">
+                    <span className="font-semibold">Website required.</span>{" "}
+                    Privacy policy field unlocks once a site is entered.
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className={cn(rowInput, "border-border justify-between gap-2")}>
+                <span className="truncate text-sm text-foreground">{websiteUrl}</span>
+                <a
+                  href={`https://${normalizeSiteInput(websiteUrl)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="shrink-0 text-muted-foreground/60 hover:text-muted-foreground"
+                  title="Open site"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              </div>
+            )}
+          </div>
+
+          {/* ── Col 2: Privacy policy URL ── */}
+          <div className="min-w-0">
+            <div className={cn(labelCls, "flex flex-wrap items-center gap-x-1.5 gap-y-0 !mb-1.5")}>
+              <span>Privacy policy URL</span>
+              {verifyStatus === "ok" && ppDraft.trim() && (
+                <span className="font-medium normal-case text-emerald-600">· Carrier-ready</span>
+              )}
+            </div>
+
+            {showPolicyColumn ? (
+              <>
+                {/* Input row: text field only */}
+                <input
+                  type="text"
+                  value={ppDraft}
+                  onChange={e => setPpDraft(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter" && canSubmit && verifyStatus === "ok") {
+                      e.preventDefault()
+                      doSubmit()
+                    }
+                  }}
+                  placeholder={resolvedWebsite.trim() ? `https://${normalizeSiteInput(resolvedWebsite)}/privacy-policy` : "https://…/privacy-policy"}
+                  className={cn(ppBorder, "w-full")}
+                />
+                {/* Warning — policy URL not yet entered */}
+                {!ppDraft.trim() && (
+                  <div className="mt-1.5 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[11px] leading-snug text-amber-900">
+                    <span className="font-semibold">Privacy policy URL required.</span>{" "}
+                    Paste the link to your property's privacy policy page.
+                  </div>
+                )}
+                {/* Error well — carrier rejection */}
+                {ppInputHasCarrierError && failReason && (
+                  <div className="mt-1.5 rounded-md border border-red-300 bg-red-50 px-2.5 py-1.5 text-[11px] leading-snug text-red-900">
+                    <span className="font-semibold">Carrier rejected this URL.</span>{" "}
+                    {failReason}
+                  </div>
+                )}
+              </>
+            ) : (
+              /* Locked placeholder — maintains column height without italic prose */
+              <div className={cn(rowInput, "border-dashed border-zinc-200 bg-zinc-50/80 pointer-events-none justify-start gap-2")}>
+                <span className="text-xs italic text-muted-foreground/70 truncate">
+                  {isMissing ? "Unlocks after website is entered" : "—"}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* ── Col 3: Action button — the anchor ── */}
+          {/* pt-4 offsets past the 16 px label block above, locking button to input row */}
+          <div className="min-w-0 pt-4">
+            <button
+              type="button"
+              disabled={!submitIsPrimary}
+              onClick={doSubmit}
+              className={cn(
+                ROW_H,
+                "w-full rounded-md border text-xs font-semibold transition-colors",
+                submitIsPrimary
+                  ? "border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800 shadow-sm"
+                  : "border-zinc-200 bg-zinc-100 text-zinc-400 cursor-not-allowed",
+              )}
+            >
+              {verifyStatus === "checking" ? "Checking…" : isFailed ? "Resubmit" : "Submit"}
+            </button>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BasePageProps) {
-  const [filter, setFilter]             = useState<FilterTab>("needs-action")
-  const [userFields, setUserFields]     = useState<UserFields>(DEFAULT_USER)
-  const [publishedIds, setPublishedIds] = useState<Set<string>>(new Set(INITIALLY_COVERED))
-  const [publishingIds, setPublishingIds] = useState<Set<string>>(new Set())
-  const [rejectedIds, setRejectedIds] = useState<Set<string>>(new Set())
-  const [rejectionReasons, setRejectionReasons] = useState<Record<string, RejectionReason>>({})
-  const [tpConfirmedIds, setTpConfirmedIds] = useState<Set<string>>(new Set())
-  const [sheetOpen, setSheetOpen]       = useState(false)
-  // URLs provided by client for properties where none was auto-detected
-  const [providedUrls, setProvidedUrls] = useState<Record<string, string>>({})
-  const [urlInputs, setUrlInputs]       = useState<Record<string, string>>({
-    p13: "https://pacificcrest.com",
-    p19: "https://vineyardterrace.com",
-    p22: "https://trinityheights.com",
-    p31: "https://cypresslanding.com",
+  const [ppStatuses, setPpStatuses] = useState<Record<string, PPStatus>>(() => {
+    const m: Record<string, PPStatus> = {}
+    PROPERTIES.forEach(p => {
+      if (INITIALLY_COMPLETED.has(p.id))   m[p.id] = "completed"
+      else if (INITIALLY_REVIEW.has(p.id)) m[p.id] = "review-in-progress"
+      else if (INITIALLY_FAILED.has(p.id)) m[p.id] = "failed"
+      else                                 m[p.id] = "needs-pp"
+    })
+    return m
   })
-  // For properties with multiple Prospect Portal sites: client's chosen URL
-  const [selectedSiteUrl, setSelectedSiteUrl] = useState<Record<string, string>>({})
-  // Pending radio selection (before Confirm is clicked)
-  const [draftSiteSelection, setDraftSiteSelection] = useState<Record<string, string>>({})
 
-  // Toast
-  const [toastMsg, setToastMsg]       = useState("")
+  const [ppUrls, setPpUrls] = useState<Record<string, string>>(() => {
+    const m: Record<string, string> = {}
+    PROPERTIES.forEach(p => {
+      const url = META_MAP[p.id]?.detectedUrl
+      if (url && (INITIALLY_COMPLETED.has(p.id) || INITIALLY_REVIEW.has(p.id) || INITIALLY_FAILED.has(p.id))) {
+        m[p.id] = `${url}/privacy-policy`
+      }
+    })
+    return m
+  })
+
+  const [providedUrls, setProvidedUrls]       = useState<Record<string, string>>({})
+  const [selectedSiteUrl, setSelectedSiteUrl] = useState<Record<string, string>>({})
+  const [userFields, setUserFields]           = useState<UserFields>(DEFAULT_USER)
+  const [sheetOpen, setSheetOpen]             = useState(false)
+
+  type FilterView = "needs-action" | "pending" | "approved" | "all"
+  const [filterView, setFilterView] = useState<FilterView>("needs-action")
+
+  // Cards in "submitted" success state — status not moved to review-in-progress until dismissed
+  const [submittedIds, setSubmittedIds]   = useState<Set<string>>(new Set())
+  const [submittedUrls, setSubmittedUrls] = useState<Record<string, string>>({})
+
+  /** Cards reporting heartbeat OK + submittable — powers global "Submit all verified". */
+  const [readyToSubmit, setReadyToSubmit] = useState<Record<string, { website: string; ppUrl: string }>>({})
+  const [bulkOffer, setBulkOffer] = useState<null | {
+    templatePp: string
+    sourceHost: string
+    targets: { id: string; website: string }[]
+  }>(null)
+
+  const [toastMsg, setToastMsg]         = useState("")
   const [toastVisible, setToastVisible] = useState(false)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   function showToast(msg: string) {
     if (toastTimer.current) clearTimeout(toastTimer.current)
-    setToastMsg(msg)
-    setToastVisible(true)
+    setToastMsg(msg); setToastVisible(true)
     toastTimer.current = setTimeout(() => setToastVisible(false), 3500)
-  }
-
-  // ── Legal acknowledgement gate ─────────────────────────────────────────────
-  // Show the disclaimer modal the first time a user enters the editing flow.
-  // Once acknowledged for the current version, never shown again unless legal
-  // bumps LEGAL_ACK_VERSION. In demo mode (LEGAL_ACK_DEMO_MODE), we clear the
-  // record on mount so the modal shows every demo run.
-  const { record: legalAckRecord, acknowledge: acknowledgeLegal } = useLegalAck(
-    LEGAL_ACK_KEY,
-    LEGAL_ACK_VERSION,
-  )
-  const [showLegalModal, setShowLegalModal] = useState(false)
-
-  useEffect(() => {
-    if (LEGAL_ACK_DEMO_MODE && typeof window !== "undefined") {
-      window.localStorage.removeItem(LEGAL_ACK_KEY)
-    }
-  }, [])
-
-  function openSheet() {
-    // In demo mode, always show the modal on click (never persist).
-    // In real mode, only show it the first time per version.
-    if (LEGAL_ACK_DEMO_MODE || !legalAckRecord) {
-      setShowLegalModal(true)
-    } else {
-      setSheetOpen(true)
-    }
-  }
-
-  function handleLegalAcknowledged() {
-    if (!LEGAL_ACK_DEMO_MODE) acknowledgeLegal()
-    setShowLegalModal(false)
-    setSheetOpen(true)
   }
 
   function effectiveUrl(id: string): string | null {
     if (selectedSiteUrl[id]) return selectedSiteUrl[id]
-    if (MULTI_SITE_IDS.has(id)) return null   // pending site selection
+    if (MULTI_SITE_IDS.has(id)) return null
     return providedUrls[id] ?? META_MAP[id]?.detectedUrl ?? null
   }
 
-  // Properties still missing a website URL (auto-detection failed, no candidates)
-  const missingUrlProperties = PROPERTIES.filter(p => !MULTI_SITE_IDS.has(p.id) && effectiveUrl(p.id) === null)
-  // Properties with multiple Prospect Portal sites that haven't been chosen yet
-  const multiSiteProperties  = PROPERTIES.filter(p => MULTI_SITE_IDS.has(p.id) && !selectedSiteUrl[p.id])
-  // Properties with a known URL — these appear in the main table
-  const knownUrlProperties   = PROPERTIES.filter(p => effectiveUrl(p.id) !== null)
-
-  const templateReady = ALL_REQUIRED_KEYS.every(k => userFields[k].trim() !== "")
-  const policyText    = generatePrivacyPolicy(userFieldsToTemplate(userFields))
-
-  const ppPending      = knownUrlProperties.filter(p => META_MAP[p.id]?.siteType === "prospect-portal" && !publishedIds.has(p.id) && !publishingIds.has(p.id))
-  const tpProperties   = knownUrlProperties.filter(p => META_MAP[p.id]?.siteType === "third-party")
-  const tpCoveredCount = tpProperties.filter(p => tpConfirmedIds.has(p.id)).length
-  const coveredCount   = publishedIds.size + tpCoveredCount
+  // Derived counts
+  const completedCount = PROPERTIES.filter(p => ppStatuses[p.id] === "completed").length
+  const reviewCount    = PROPERTIES.filter(p => ppStatuses[p.id] === "review-in-progress").length
+  const failedCount    = PROPERTIES.filter(p => ppStatuses[p.id] === "failed").length
   const totalCount     = PROPERTIES.length
-  const needsActionCount = totalCount - coveredCount - missingUrlProperties.length - multiSiteProperties.length
-  const allDone        = coveredCount === totalCount
-  const progressPct    = Math.round((coveredCount / totalCount) * 100)
+  const progressPct    = Math.round((completedCount / totalCount) * 100)
+  const allDone        = completedCount === totalCount
 
-  // Emit total action count (uncovered + missing URL + multi-site) to parent for sidebar badge
-  const privacyBadgeCount = needsActionCount + missingUrlProperties.length + multiSiteProperties.length
+  // Zone 1: action-required + submitted-but-not-yet-dismissed
+  const actionProperties = PROPERTIES
+    .filter(p => {
+      const s = ppStatuses[p.id] ?? "needs-pp"
+      return s === "needs-pp" || s === "failed" || submittedIds.has(p.id)
+    })
+    .sort((a, b) => {
+      // Failed first, then submitted (success state), then needs-pp
+      const rank = (p: typeof PROPERTIES[0]) =>
+        ppStatuses[p.id] === "failed" ? 0 : submittedIds.has(p.id) ? 1 : 2
+      return rank(a) - rank(b)
+    })
+
   useEffect(() => {
-    onActionCountChange?.(privacyBadgeCount)
+    onActionCountChange?.(actionProperties.length)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [privacyBadgeCount])
+  }, [actionProperties.length])
 
-  // Auto-complete when all properties are covered (must be after allDone is declared)
   const completedRef = useRef(false)
   useEffect(() => {
     if (allDone && !completedRef.current) {
       completedRef.current = true
       onComplete?.("privacy")
-      setFilter("covered")
-      showToast("Congrats! All property privacy policies are now live 🎉")
+      showToast("All privacy policies approved — phone number assignment is in progress in Communications")
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allDone])
 
-  // Uncovered TP properties with known URLs — passed to template sheet for bulk confirm
-  const tpUncoveredForSheet = tpProperties
-    .filter(p => !tpConfirmedIds.has(p.id))
-    .map(p => ({ id: p.id, name: p.name, url: effectiveUrl(p.id) ?? "" }))
+  const onCardReadyChange = useCallback((id: string, meta: { ready: boolean; website: string; ppUrl: string }) => {
+    setReadyToSubmit(prev => {
+      const next = { ...prev }
+      if (meta.ready) next[id] = { website: meta.website, ppUrl: meta.ppUrl }
+      else delete next[id]
+      return next
+    })
+  }, [])
 
-  const filteredProperties = knownUrlProperties.filter(p => {
-    const meta = META_MAP[p.id]; if (!meta) return false
-    const isCovered = meta.siteType === "prospect-portal" ? publishedIds.has(p.id) : tpConfirmedIds.has(p.id)
-    if (filter === "needs-action") return !isCovered
-    if (filter === "covered") return isCovered
-    return true
-  })
-
-  function handleFieldChange(key: keyof UserFields, val: string) {
-    setUserFields(prev => ({ ...prev, [key]: val }))
-  }
-  function handlePublishAll(selectedIds: string[]) {
-    setPublishingIds(new Set(selectedIds))
-    setTimeout(() => {
-      // Twilio campaign approval check happens on each property's URL.
-      // A subset gets rejected with a specific reason — the rest are approved.
-      const rejected = selectedIds.filter(id => REJECTION_FIXTURES[id])
-      const approved = selectedIds.filter(id => !REJECTION_FIXTURES[id])
-
-      setPublishedIds(prev => new Set([...prev, ...approved]))
-      if (rejected.length > 0) {
-        setRejectedIds(prev => new Set([...prev, ...rejected]))
-        setRejectionReasons(prev => {
-          const next = { ...prev }
-          rejected.forEach(id => { next[id] = REJECTION_FIXTURES[id] })
-          return next
+  function handleCardSubmit(
+    propId: string,
+    website: string,
+    ppUrl: string,
+    opts?: { silentBulk?: boolean },
+  ) {
+    const host = normalizeSiteInput(website)
+    if (!opts?.silentBulk && isEntrataProspectPortalHost(host)) {
+      const siblings = PROPERTIES.filter(p => {
+        if (p.id === propId) return false
+        const st = ppStatuses[p.id]
+        if (st !== "needs-pp" && st !== "failed") return false
+        if (submittedIds.has(p.id)) return false
+        let eff: string | null = null
+        if (selectedSiteUrl[p.id]) eff = selectedSiteUrl[p.id]
+        else if (MULTI_SITE_IDS.has(p.id)) eff = MULTI_SITE_OPTIONS[p.id]?.[0] ?? null
+        else eff = providedUrls[p.id] ?? META_MAP[p.id]?.detectedUrl ?? null
+        return !!eff && isEntrataProspectPortalHost(eff)
+      })
+      if (siblings.length > 0) {
+        setBulkOffer({
+          templatePp: ppUrl,
+          sourceHost: host,
+          targets: siblings.map(p => ({
+            id: p.id,
+            website: normalizeSiteInput(
+              selectedSiteUrl[p.id] ?? providedUrls[p.id] ?? META_MAP[p.id]?.detectedUrl ?? "",
+            ),
+          })).filter(t => t.website),
         })
       }
-      setPublishingIds(new Set())
+    }
 
-      if (rejected.length === 0) {
-        showToast(`Congrats! Privacy policies published to ${approved.length} ${approved.length === 1 ? "property" : "properties"}`)
-      } else if (approved.length === 0) {
-        showToast(`Twilio rejected ${rejected.length} ${rejected.length === 1 ? "policy" : "policies"} — review reasons below`)
-      } else {
-        showToast(`${approved.length} approved · ${rejected.length} rejected by Twilio — review below`)
-      }
-      setSheetOpen(false)
-    }, 2000)
+    const current = effectiveUrl(propId)
+    if (website && website !== current) {
+      setProvidedUrls(prev => ({ ...prev, [propId]: website }))
+      setSelectedSiteUrl(prev => ({ ...prev, [propId]: website }))
+    }
+    setPpUrls(prev => ({ ...prev, [propId]: ppUrl }))
+    setSubmittedUrls(prev => ({ ...prev, [propId]: ppUrl }))
+    setSubmittedIds(prev => new Set([...prev, propId]))
+    setReadyToSubmit(prev => {
+      const next = { ...prev }
+      delete next[propId]
+      return next
+    })
   }
-  function handleResubmit(id: string) {
-    // Keep the rejected flag set while in flight so the row pill reads
-    // "Resubmitting…" — the inline reason panel hides itself while publishing.
-    setPublishingIds(prev => new Set([...prev, id]))
-    setTimeout(() => {
-      setPublishedIds(prev => new Set([...prev, id]))
-      setPublishingIds(prev => { const n = new Set(prev); n.delete(id); return n })
-      setRejectedIds(prev => { const n = new Set(prev); n.delete(id); return n })
-      setRejectionReasons(prev => { const n = { ...prev }; delete n[id]; return n })
-      const prop = PROPERTIES.find(p => p.id === id)
-      showToast(`${prop?.name ?? "Property"} privacy policy approved by Twilio`)
-    }, 1800)
+
+  function applyBulkOffer() {
+    if (!bulkOffer || bulkOffer.targets.length === 0) return
+    const snap = bulkOffer
+    setBulkOffer(null)
+    snap.targets.forEach(t => {
+      const adapted = adaptPrivacyUrlToHost(snap.templatePp, t.website)
+      handleCardSubmit(t.id, t.website, adapted, { silentBulk: true })
+    })
+    showToast(`Bulk-applied carrier-ready URL to ${snap.targets.length} matching Entrata Prospect Portal ${snap.targets.length === 1 ? "site" : "sites"}`)
   }
+
+  function submitAllVerified() {
+    const entries = Object.entries(readyToSubmit)
+    if (entries.length === 0) return
+    entries.forEach(([id, v]) => handleCardSubmit(id, v.website, v.ppUrl, { silentBulk: true }))
+    setReadyToSubmit({})
+    showToast(`Submitted ${entries.length} ${entries.length === 1 ? "property" : "properties"} for carrier review`)
+  }
+
+  function handleCardDismiss(propId: string) {
+    setPpStatuses(prev => ({ ...prev, [propId]: "review-in-progress" }))
+    setSubmittedIds(prev => { const n = new Set(prev); n.delete(propId); return n })
+  }
+
   const handleConfirmTp = useCallback((id: string) => {
-    setTpConfirmedIds(prev => new Set([...prev, id]))
     const prop = PROPERTIES.find(p => p.id === id)
-    showToast(`Congrats! ${prop?.name ?? "Third-party"} privacy policy updated`)
+    showToast(`${prop?.name ?? "Third-party"} privacy policy updated`)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  function handleConfirmUrl(id: string) {
-    const url = urlInputs[id]?.trim()
-    if (!url) return
-    const prop = PROPERTIES.find(p => p.id === id)
-    setProvidedUrls(prev => ({ ...prev, [id]: url }))
-    setUrlInputs(prev => { const next = { ...prev }; delete next[id]; return next })
-    showToast(`${prop?.name ?? "Property"} website confirmed — it's now in the table below`)
-  }
-  function handleConfirmSiteSelection(id: string) {
-    const url = draftSiteSelection[id]
-    if (!url) return
-    const prop = PROPERTIES.find(p => p.id === id)
-    setSelectedSiteUrl(prev => ({ ...prev, [id]: url }))
-    setDraftSiteSelection(prev => { const next = { ...prev }; delete next[id]; return next })
-    showToast(`${prop?.name ?? "Property"} site set — Eli+ will use ${url}`)
-  }
 
-  const FILTER_TABS: Array<{ id: FilterTab; label: string; count: number }> = [
-    { id: "needs-action", label: "Needs action", count: needsActionCount              },
-    { id: "covered",      label: "Completed",    count: coveredCount                  },
-    { id: "all",          label: "All",          count: knownUrlProperties.length     },
-  ]
+  // Derived property lists per filter
+  const reviewProperties   = PROPERTIES.filter(p => ppStatuses[p.id] === "review-in-progress")
+  const approvedProperties = PROPERTIES.filter(p => ppStatuses[p.id] === "completed")
+
+  // Auto-switch to needs-action when a submit lands from another filter
+  const needsActionCount = actionProperties.length
+
+  const verifiedReadyCount = Object.keys(readyToSubmit).length
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="p-6 md:p-8 space-y-6 max-w-4xl">
+    <TooltipProvider delayDuration={200}>
+    <div className="flex flex-col min-h-full bg-stone-50">
+      <div className="flex-1 p-6 md:p-8">
+        <div className="space-y-5 max-w-[640px]">
 
+        {/* ── Page header ── */}
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Privacy Policies</h1>
-          <p className="text-sm text-muted-foreground mt-1 max-w-xl leading-relaxed">
-            Each property needs its own privacy policy for Twilio carrier compliance.
-            Campaigns submit per-property. When applicable, these updates will reflect
-            and sync under your current Prospect Portal settings.
+          <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
+            Each property needs a carrier-approved privacy policy before a vanity phone number can be assigned.
+            Confirm the website and privacy policy URL for each property below.
           </p>
-          <div className="mt-3">
-            <button
-              type="button"
-              onClick={() => window.open("#", "_blank")}
-              className={cn(buttonVariants({ variant: "eli", size: "sm" }))}
-            >
-              Open Prospect Portal Settings
-              <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-            </button>
-          </div>
         </div>
 
-        {/* ── Missing website URLs callout ── */}
-        {missingUrlProperties.length > 0 && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50/40 overflow-hidden">
-            <div className="flex items-center gap-2.5 px-4 py-3 border-b border-amber-200 bg-amber-50">
-              <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-foreground">
-                  Website URL required — {missingUrlProperties.length} {missingUrlProperties.length === 1 ? "property" : "properties"}
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  We couldn't find a website for these properties. A URL is required before a privacy policy can be published.
-                </p>
-              </div>
-            </div>
-            <table className="w-full text-xs">
-              <tbody className="divide-y divide-amber-100/80">
-                {missingUrlProperties.map(prop => (
-                  <tr key={prop.id} className="bg-white/60">
-                    <td className="px-4 py-3 w-[200px]">
-                      <p className="font-medium text-foreground">{prop.name}</p>
-                      <p className="text-[11px] text-muted-foreground mt-0.5">{prop.city}, {prop.state}</p>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <LinkIcon className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
-                        <input type="text"
-                          value={urlInputs[prop.id] ?? ""}
-                          onChange={e => setUrlInputs(prev => ({ ...prev, [prop.id]: e.target.value }))}
-                          onKeyDown={e => { if (e.key === "Enter") handleConfirmUrl(prop.id) }}
-                          placeholder="https://yourproperty.com"
-                          className="h-8 flex-1 rounded-md border border-amber-300 bg-white px-2.5 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-amber-400/40 transition-colors" />
-                        <button type="button"
-                          disabled={!urlInputs[prop.id]?.trim()}
-                          onClick={() => handleConfirmUrl(prop.id)}
-                          className="h-8 rounded-md bg-zinc-900 px-3 text-[11px] font-semibold text-white hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap">
-                          Confirm URL
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {/* ── Progress bar (Submit all lives in sticky footer) ── */}
+        <div className="space-y-1.5 max-w-3xl">
+          <div className="flex items-center justify-between text-xs gap-2">
+            <span className="text-muted-foreground">{completedCount} of {totalCount} properties — policy approved</span>
+            <span className={cn("font-semibold shrink-0", allDone ? "text-emerald-700" : "text-foreground")}>{progressPct}%</span>
           </div>
-        )}
-
-        {/* ── Multiple Prospect Portal sites callout ── */}
-        {multiSiteProperties.length > 0 && (
-          <div className="rounded-xl border border-blue-200 bg-blue-50/40 overflow-hidden">
-            <div className="flex items-center gap-2.5 px-4 py-3 border-b border-blue-200 bg-blue-50">
-              <Info className="h-4 w-4 text-blue-600 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-foreground">
-                  Multiple websites detected — {multiSiteProperties.length} {multiSiteProperties.length === 1 ? "property" : "properties"}
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  We found more than one Prospect Portal site for these properties. Pick which one Eli+ should use.
-                </p>
-              </div>
-            </div>
-            <div className="divide-y divide-blue-100/80">
-              {multiSiteProperties.map(prop => {
-                const options = MULTI_SITE_OPTIONS[prop.id] ?? []
-                const draft = draftSiteSelection[prop.id]
-                return (
-                  <div key={prop.id} className="bg-white/60 px-4 py-3">
-                    <div className="flex items-start gap-3">
-                      <div className="w-[180px] shrink-0 pt-0.5">
-                        <p className="text-xs font-medium text-foreground">{prop.name}</p>
-                        <p className="text-[11px] text-muted-foreground mt-0.5">{prop.city}, {prop.state}</p>
-                      </div>
-                      <div className="flex-1 min-w-0 space-y-1.5">
-                        {options.map(url => {
-                          const checked = draft === url
-                          return (
-                            <label key={url}
-                              className={cn(
-                                "flex items-center gap-2 cursor-pointer rounded-md border px-2.5 py-1.5 transition-colors",
-                                checked ? "border-blue-300 bg-blue-50" : "border-border bg-white hover:border-zinc-300",
-                              )}>
-                              <input type="radio" name={`site-${prop.id}`} checked={checked}
-                                onChange={() => setDraftSiteSelection(prev => ({ ...prev, [prop.id]: url }))}
-                                className="accent-zinc-900 h-3.5 w-3.5 shrink-0" />
-                              <Globe className="h-3 w-3 text-muted-foreground shrink-0" />
-                              <span className="text-[11px] font-mono text-foreground truncate">{url}</span>
-                            </label>
-                          )
-                        })}
-                      </div>
-                      <button type="button"
-                        disabled={!draft}
-                        onClick={() => handleConfirmSiteSelection(prop.id)}
-                        className="h-8 shrink-0 rounded-md bg-zinc-900 px-3 text-[11px] font-semibold text-white hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap">
-                        Confirm
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Progress */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">{coveredCount} of {totalCount} properties have a privacy policy</span>
-            <span className={cn("font-semibold", allDone ? "text-emerald-700" : "text-foreground")}>{progressPct}%</span>
-          </div>
-          <div className="w-full h-1.5 rounded-full bg-zinc-100 overflow-hidden">
+          <div className="w-full h-1.5 rounded-full bg-zinc-200 overflow-hidden">
             <div className="h-full rounded-full bg-emerald-500 transition-all duration-500" style={{ width: `${progressPct}%` }} />
           </div>
         </div>
 
-        {/* Twilio rejection summary — surfaces when 1+ properties are rejected */}
-        {rejectedIds.size > 0 && (
-          <div className="rounded-xl border-2 border-red-300 bg-red-50/60 px-4 py-3.5">
-            <div className="flex items-start gap-3">
-              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-100">
-                <XCircle className="h-4 w-4 text-red-700" aria-hidden />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-red-700">
-                  Campaign approval blocked
+        {/* ── Filter strip (~40% smaller than default metric tiles) ── */}
+        <div className="grid grid-cols-4 gap-2">
+          {([
+            {
+              id: "needs-action" as FilterView,
+              label: "Needs action",
+              count: needsActionCount,
+              // Red when failures exist, amber otherwise — failures are a subset of needs-action
+              dot:         failedCount > 0 ? "bg-red-500"     : "bg-amber-400",
+              activeBg:    failedCount > 0 ? "bg-red-50"      : "bg-amber-50",
+              activeBorder:failedCount > 0 ? "border-red-300" : "border-amber-300",
+              activeLine:  failedCount > 0 ? "#f87171"        : "#fbbf24",
+              countColor:  failedCount > 0 ? "text-red-700"   : "text-amber-700",
+              labelColor:  failedCount > 0 ? "text-red-800"   : "text-amber-800",
+            },
+            {
+              id: "pending" as FilterView,
+              label: "Carrier review",
+              count: reviewCount,
+              dot: "bg-blue-400", activeBg: "bg-blue-50", activeBorder: "border-blue-300",
+              activeLine: "#60a5fa", countColor: "text-blue-700", labelColor: "text-blue-800",
+            },
+            {
+              id: "approved" as FilterView,
+              label: "Policy approved",
+              count: completedCount,
+              dot: "bg-emerald-500", activeBg: "bg-emerald-50", activeBorder: "border-emerald-300",
+              activeLine: "#34d399", countColor: "text-emerald-700", labelColor: "text-emerald-800",
+            },
+            {
+              id: "all" as FilterView,
+              label: "All properties",
+              count: totalCount,
+              dot: "bg-zinc-400", activeBg: "bg-zinc-100", activeBorder: "border-zinc-400",
+              activeLine: "#a1a1aa", countColor: "text-zinc-700", labelColor: "text-zinc-700",
+            },
+          ]).map(tile => {
+            const isActive = filterView === tile.id
+            return (
+              <button key={tile.id} type="button"
+                onClick={() => setFilterView(tile.id)}
+                style={isActive ? { borderBottomColor: tile.activeLine, borderBottomWidth: '2px' } : {}}
+                className={cn(
+                  "rounded-lg border px-2.5 py-2 text-left transition-all",
+                  isActive
+                    ? `${tile.activeBg} ${tile.activeBorder} shadow-sm`
+                    : "border-border bg-white hover:border-zinc-300",
+                )}>
+                <p className={cn("text-xl font-bold leading-none mb-1 tabular-nums",
+                  isActive ? tile.countColor : "text-foreground")}>
+                  {tile.count}
                 </p>
-                <h2 className="text-sm font-semibold text-red-950 mt-0.5">
-                  Twilio rejected {rejectedIds.size} privacy {rejectedIds.size === 1 ? "policy" : "policies"}
-                </h2>
-                <p className="text-xs text-red-900/80 mt-1 leading-relaxed">
-                  Each rejected property has a specific reason and a fix plan below. Click Resubmit per property — Twilio re-checks the URL and approves the campaign once the issue clears.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setFilter("needs-action")
-                  Array.from(rejectedIds).forEach(id => handleResubmit(id))
-                }}
-                className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0 gap-1.5 border-red-300 text-red-800 hover:bg-red-100")}>
-                <RotateCcw className="h-3.5 w-3.5" aria-hidden />
-                Resubmit all
+                <div className="flex items-center gap-1">
+                  <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", tile.dot)} />
+                  <span className={cn("text-[10px] font-semibold uppercase tracking-wide leading-tight",
+                    isActive ? tile.labelColor : "text-muted-foreground")}>
+                    {tile.label}
+                  </span>
+                </div>
+                {tile.id === "needs-action" && failedCount > 0 && (
+                  <p className="text-[9px] font-medium mt-1 text-red-600 leading-tight">
+                    {failedCount} failed · {needsActionCount - failedCount} awaiting
+                  </p>
+                )}
               </button>
+            )
+          })}
+        </div>
+
+        {/* ── Content area (switches per filter) ── */}
+
+        {/* Needs action */}
+        {filterView === "needs-action" && (
+          <div className="space-y-4">
+            {actionProperties.length > 0 ? (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  {failedCount > 0
+                    ? `${failedCount} failed carrier review · ${needsActionCount - failedCount} awaiting submission`
+                    : `${needsActionCount} ${needsActionCount === 1 ? "property needs" : "properties need"} a privacy policy URL`}
+                </p>
+                {actionProperties.map(prop => (
+                  <ActionCard
+                    key={prop.id}
+                    prop={prop}
+                    status={ppStatuses[prop.id] ?? "needs-pp"}
+                    ppUrl={ppUrls[prop.id] ?? ""}
+                    websiteUrl={effectiveUrl(prop.id) ?? ""}
+                    isMissing={!MULTI_SITE_IDS.has(prop.id) && effectiveUrl(prop.id) === null}
+                    isMultiUnresolved={MULTI_SITE_IDS.has(prop.id) && !selectedSiteUrl[prop.id]}
+                    multiOptions={MULTI_SITE_OPTIONS[prop.id] ?? []}
+                    failReason={FAILED_REASONS[prop.id]}
+                    submitted={submittedIds.has(prop.id)}
+                    submittedPpUrl={submittedUrls[prop.id]}
+                    onSubmit={handleCardSubmit}
+                    onDismiss={handleCardDismiss}
+                    onViewPending={() => setFilterView("pending")}
+                    onCardReadyChange={onCardReadyChange}
+                  />
+                ))}
+              </>
+            ) : (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-5 py-10 flex flex-col items-center text-center gap-3">
+                <CheckCircle2 className="h-8 w-8 text-emerald-500" />
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Nothing needs attention</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {reviewCount > 0
+                      ? `${reviewCount} ${reviewCount === 1 ? "property is" : "properties are"} awaiting carrier review.`
+                      : "All privacy policies have been approved."}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Carrier review */}
+        {filterView === "pending" && (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              {reviewCount > 0
+                ? `${reviewCount} ${reviewCount === 1 ? "property" : "properties"} submitted — carrier review typically takes 2–3 business days.`
+                : "No properties are currently in carrier review."}
+            </p>
+            {reviewCount > 0 && (
+              <div className="rounded-xl border border-border overflow-hidden bg-white">
+                <table className="w-full text-xs border-separate border-spacing-0">
+                  <thead>
+                    <tr className="bg-zinc-50">
+                      <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border w-[220px]">Property</th>
+                      <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border w-[32%]">
+                        <span className="flex items-center gap-1.5"><Globe className="h-3 w-3" />Website URL</span>
+                      </th>
+                      <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border">Privacy Policy URL</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reviewProperties.map(prop => (
+                      <tr key={prop.id} className="bg-white hover:bg-blue-50/30 transition-colors">
+                        <td className="px-4 py-3 border-b border-border">
+                          <p className="font-medium text-foreground text-xs leading-tight">{prop.name}</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">{prop.city}, {prop.state}</p>
+                          <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-medium text-blue-600">
+                            <span className="h-1.5 w-1.5 rounded-full bg-blue-400 shrink-0" />Carrier review
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 border-b border-l border-border">
+                          <span className="font-mono text-[11px] text-foreground block truncate">{effectiveUrl(prop.id) ?? "—"}</span>
+                        </td>
+                        <td className="px-4 py-3 border-b border-l border-border">
+                          <span className="font-mono text-[11px] text-foreground block truncate">{ppUrls[prop.id] ?? "—"}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Policy approved */}
+        {filterView === "approved" && (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              {completedCount > 0
+                ? `${completedCount} ${completedCount === 1 ? "property has" : "properties have"} a carrier-approved privacy policy. Phone number assignment is handled in the Communications tab.`
+                : "No properties have been approved yet."}
+            </p>
+            {completedCount > 0 && (
+              <div className="rounded-xl border border-border overflow-hidden bg-white">
+                <table className="w-full text-xs border-separate border-spacing-0">
+                  <thead>
+                    <tr className="bg-zinc-50">
+                      <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border w-[220px]">Property</th>
+                      <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border w-[32%]">
+                        <span className="flex items-center gap-1.5"><Globe className="h-3 w-3" />Website URL</span>
+                      </th>
+                      <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border">Privacy Policy URL</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {approvedProperties.map(prop => (
+                      <tr key={prop.id} className="bg-white hover:bg-emerald-50/30 transition-colors">
+                        <td className="px-4 py-3 border-b border-border">
+                          <p className="font-medium text-foreground text-xs leading-tight">{prop.name}</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">{prop.city}, {prop.state}</p>
+                          <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-medium text-emerald-700">
+                            <CheckCircle2 className="h-3 w-3 shrink-0" />Policy approved
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 border-b border-l border-border">
+                          <span className="font-mono text-[11px] text-foreground block truncate">{effectiveUrl(prop.id) ?? "—"}</span>
+                        </td>
+                        <td className="px-4 py-3 border-b border-l border-border">
+                          <span className="font-mono text-[11px] text-foreground block truncate">{ppUrls[prop.id] ?? "—"}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* All properties */}
+        {filterView === "all" && (
+          <div className="rounded-xl border border-border overflow-hidden bg-white">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs border-separate border-spacing-0">
+                <thead>
+                  <tr className="bg-zinc-50">
+                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border w-[220px]">Property</th>
+                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border w-[28%]">
+                      <span className="flex items-center gap-1.5"><Globe className="h-3 w-3" />Website URL</span>
+                    </th>
+                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border">Privacy Policy URL</th>
+                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border w-[140px]">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {PROPERTIES.map(prop => {
+                    const status     = ppStatuses[prop.id] ?? "needs-pp"
+                    const ppUrl      = ppUrls[prop.id] ?? ""
+                    const websiteUrl = effectiveUrl(prop.id) ?? ""
+                    return (
+                      <tr key={prop.id} className="bg-white hover:bg-zinc-50/80 transition-colors">
+                        <td className="px-4 py-2.5 border-b border-border">
+                          <p className="font-medium text-foreground text-xs leading-tight">{prop.name}</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">{prop.city}, {prop.state}</p>
+                        </td>
+                        <td className="px-4 py-2.5 border-b border-l border-border">
+                          {websiteUrl
+                            ? <span className="font-mono text-[11px] text-foreground block truncate">{websiteUrl}</span>
+                            : <span className="text-[11px] text-muted-foreground/50 italic">Not set</span>}
+                        </td>
+                        <td className="px-4 py-2.5 border-b border-l border-border">
+                          {ppUrl
+                            ? <span className={cn("font-mono text-[11px] block truncate", status === "failed" ? "text-red-400 line-through" : "text-foreground")}>{ppUrl}</span>
+                            : <span className="text-[11px] text-muted-foreground/50 italic">Not submitted</span>}
+                        </td>
+                        <td className="px-4 py-2.5 border-b border-l border-border">
+                          <span className={cn("inline-flex items-center gap-1 text-[11px] font-medium",
+                            status === "completed"          ? "text-emerald-700" :
+                            status === "review-in-progress" ? "text-blue-600" :
+                            status === "failed"             ? "text-red-600" : "text-amber-600",
+                          )}>
+                            <span className={cn("h-1.5 w-1.5 rounded-full shrink-0",
+                              status === "completed"          ? "bg-emerald-500" :
+                              status === "review-in-progress" ? "bg-blue-400" :
+                              status === "failed"             ? "bg-red-500" : "bg-amber-400",
+                            )} />
+                            {status === "completed"          ? "Approved" :
+                             status === "review-in-progress" ? "In review" :
+                             status === "failed"             ? "Failed" : "Needs action"}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
 
-        {/* Filter tabs + primary action */}
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex gap-1">
-            {FILTER_TABS.map(tab => (
-              <button key={tab.id} type="button" onClick={() => setFilter(tab.id)}
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors border",
-                  filter === tab.id ? "bg-zinc-900 text-white border-zinc-900"
-                    : "bg-white text-muted-foreground border-border hover:border-zinc-400 hover:text-foreground",
-                )}>
-                {tab.label}
-                <span className={cn("text-[10px] font-semibold", filter === tab.id ? "text-white/60" : "text-muted-foreground/60")}>{tab.count}</span>
-              </button>
-            ))}
-          </div>
-          {!allDone && (
-            <button type="button" onClick={() => openSheet()}
-              className="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-2 text-xs font-semibold text-white hover:bg-zinc-700 transition-colors whitespace-nowrap">
-              Update privacy policies
-              <ChevronRight className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-
-        {/* Table */}
-        <div className="rounded-xl border border-border overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-border bg-zinc-50">
-                  <th className="text-left px-4 py-3 font-semibold text-foreground w-[175px]">Property</th>
-                  <th className="text-left px-4 py-3 font-semibold text-foreground w-[195px]">
-                    <span className="flex items-center gap-1.5"><Globe className="h-3.5 w-3.5 text-muted-foreground" />Website</span>
-                  </th>
-                  <th className="text-left px-4 py-3 font-semibold text-foreground w-[120px]">Type</th>
-                  <th className="text-left px-4 py-3 font-semibold text-foreground w-[130px]">Privacy policy</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {filteredProperties.map(prop => {
-                  const meta = META_MAP[prop.id]; if (!meta) return null
-                  const url        = effectiveUrl(prop.id) ?? ""
-                  const isPublishing = publishingIds.has(prop.id)
-                  const isTP         = meta.siteType === "third-party"
-                  const isCovered    = isTP ? tpConfirmedIds.has(prop.id) : publishedIds.has(prop.id)
-                  const isRejected   = rejectedIds.has(prop.id)
-                  const reason       = rejectionReasons[prop.id]
-
-                  return (
-                    <Fragment key={prop.id}>
-                      <tr className={cn(
-                        "bg-white hover:bg-zinc-50 transition-colors",
-                        isRejected && "bg-red-50/30 hover:bg-red-50/50",
-                      )}>
-                        <td className="px-4 py-2.5">
-                          <p className="font-medium text-foreground leading-tight">{prop.name}</p>
-                          <p className="text-[11px] text-muted-foreground mt-0.5">{prop.city}, {prop.state}</p>
-                        </td>
-                        <td className="px-4 py-2.5 max-w-[195px]">
-                          <span className="font-mono text-[11px] text-muted-foreground block truncate" title={url}>{url}</span>
-                        </td>
-                        <td className="px-4 py-2.5">
-                          <span className="text-xs text-muted-foreground">{isTP ? "Third-party" : "Prospect Portal"}</span>
-                        </td>
-                        <td className="px-4 py-2.5">
-                          {isCovered ? (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 whitespace-nowrap">
-                              <CheckCircle2 className="h-3.5 w-3.5" />Covered
-                            </span>
-                          ) : isPublishing ? (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 whitespace-nowrap">
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />{isRejected ? "Resubmitting…" : "Publishing…"}
-                            </span>
-                          ) : isRejected ? (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-700 whitespace-nowrap">
-                              <XCircle className="h-3.5 w-3.5" />Rejected
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 whitespace-nowrap">
-                              <AlertTriangle className="h-3.5 w-3.5" />Needs coverage
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                      {isRejected && reason && !isPublishing && (
-                        <tr className="bg-red-50/40">
-                          <td colSpan={4} className="px-4 py-3 border-t border-red-100/80">
-                            <div className="flex items-start gap-3">
-                              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-100">
-                                <XCircle className="h-3.5 w-3.5 text-red-700" aria-hidden />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <p className="text-[11px] font-semibold uppercase tracking-wider text-red-700">Twilio rejection</p>
-                                  <span className="font-mono text-[10px] text-red-700/70 bg-red-100/70 rounded px-1.5 py-0.5">
-                                    {reason.code}
-                                  </span>
-                                </div>
-                                <p className="text-sm font-semibold text-red-950 mt-1">{reason.title}</p>
-                                <p className="text-xs text-red-900/80 mt-1 leading-relaxed">{reason.detail}</p>
-                                <p className="text-xs text-foreground/80 mt-2 leading-relaxed">
-                                  <span className="font-medium">What we'll do:</span> {reason.fix}
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => handleResubmit(prop.id)}
-                                className={cn(buttonVariants({ variant: "eli", size: "sm" }), "shrink-0 gap-1.5")}>
-                                <RotateCcw className="h-3.5 w-3.5" aria-hidden />
-                                Resubmit
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Complete */}
-        <div className="pt-1 border-t border-border">
-          {allDone && (
-            <div className="flex items-center gap-2 text-sm text-emerald-700 font-medium">
-              <CheckCircle2 className="h-4 w-4" />All {totalCount} property privacy policies are live.
-            </div>
-          )}
-        </div>
       </div>
+        </div>
 
       <GlobalToast message={toastMsg} visible={toastVisible} />
 
+      {/* TemplateSheet — entry point hidden for Phase 1 */}
       <TemplateSheet
         open={sheetOpen}
         fields={userFields}
-        onChange={handleFieldChange}
-        ppPendingProps={ppPending}
-        publishingCount={publishingIds.size}
-        templateReady={templateReady}
-        tpUncoveredProps={tpUncoveredForSheet}
-        onPublish={handlePublishAll}
+        onChange={(k, v) => setUserFields(prev => ({ ...prev, [k]: v }))}
+        ppPendingProps={[]}
+        publishingCount={0}
+        templateReady={ALL_REQUIRED_KEYS.every(k => userFields[k].trim() !== "")}
+        tpUncoveredProps={[]}
+        onPublish={() => {}}
         onConfirmTp={handleConfirmTp}
         onClose={() => setSheetOpen(false)}
         onNavigateToCarrier={() => navigate("company")}
       />
-
-      <LegalAckModal
-        open={showLegalModal}
-        storageKey={LEGAL_ACK_KEY}
-        version={LEGAL_ACK_VERSION}
-        title="Before you edit privacy policy text"
-        intro="This is a one-time acknowledgement. We'll record it so you won't see this again unless the disclaimer changes."
-        paragraphs={DISCLAIMER_PARAGRAPHS}
-        acknowledgeLabel="I have read and understood the disclaimer above."
-        continueLabel="Continue to privacy policy"
-        onAcknowledged={handleLegalAcknowledged}
-      />
     </div>
+    </TooltipProvider>
   )
 }

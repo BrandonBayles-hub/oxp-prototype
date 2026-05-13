@@ -18,9 +18,10 @@ import {
   GitBranch,
   BookOpen,
   Mic,
+  Palette,
   Wrench,
   Shield,
-  Palette,
+  Wand2,
 } from "lucide-react";
 
 const activationItem = { href: "/getting-started", label: "AI & Agent Activation", icon: Rocket };
@@ -51,6 +52,7 @@ const navGroups = [
       { href: "/brand-center", label: "Brand Center", icon: Palette },
       // { href: "/tools", label: "Tools", icon: Wrench },
       { href: "/governance", label: "Governance", icon: Shield },
+      { href: "/setup-wizard", label: "Setup Wizard", icon: Wand2 },
     ],
   },
 ];

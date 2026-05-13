@@ -2,7 +2,7 @@
 
 **THIS TEMPLATE WAS CREATED BY A GENERAL PURPOSE LARGE LANGUAGE MODEL FOR INFORMATIONAL PURPOSES ONLY AND IS NOT LEGAL ADVICE. This template is intended to serve as a starting point for organizations developing their own standard operating procedures and should not be relied upon as a substitute for consultation with qualified legal counsel. This template may not address all legal requirements applicable to your organization. Use of this template is at your own risk. Entrata shall not be liable for any damages, losses, or other consequences arising from its use or adaptation.**
 
-# **Before using or adapting this template, you should conduct a thorough review of your organization's practices and policies, assess all applicable legal and regulatory requirements, and consult with legal counsel to ensure compliance with all relevant laws. This template should be customized to accurately reflect your organization's actual practices. While brackets are included for ease of reference, that does not mean that is the only portion of this template that should be revised.**
+**Before using or adapting this template, you should conduct a thorough review of your organization's practices and policies, assess all applicable legal and regulatory requirements, and consult with legal counsel to ensure compliance with all relevant laws. This template should be customized to accurately reflect your organization's actual practices. While brackets are included for ease of reference, that does not mean that is the only portion of this template that should be revised.**
 
 # **Security Deposit Handling**
 
