@@ -198,7 +198,7 @@ export default function PhoneNumbersPage() {
   const [addVanityOpen, setAddVanityOpen] = useState(false);
   const [addVanityTab, setAddVanityTab] = useState<"preferences" | "request">("preferences");
   const [addTollFree, setAddTollFree] = useState(false);
-  const [addUseSms, setAddUseSms] = useState(false);
+  const [addUseSms] = useState(true);
   const [addOutboundDefault, setAddOutboundDefault] = useState(false);
   const [addExpiration, setAddExpiration] = useState("");
 
@@ -210,6 +210,14 @@ export default function PhoneNumbersPage() {
 
   type StatusFilter = "all" | "active" | "review" | "awaiting";
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
+
+  function openAddVanityModal() {
+    setAddVanityTab("preferences");
+    setAddTollFree(false);
+    setAddOutboundDefault(false);
+    setAddExpiration("");
+    setAddVanityOpen(true);
+  }
 
   function simulateApproval() {
     setActiveIds((prev) => {
@@ -242,7 +250,7 @@ export default function PhoneNumbersPage() {
       {!isEmbed && (
         <button
           type="button"
-          onClick={() => router.back()}
+          onClick={() => router.push("/conversations")}
           className="mb-6 inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -337,14 +345,6 @@ export default function PhoneNumbersPage() {
             ))}
           </div>
 
-          <button
-            type="button"
-            onClick={() => { setAddVanityTab("preferences"); setAddTollFree(false); setAddUseSms(false); setAddOutboundDefault(false); setAddExpiration(""); setAddVanityOpen(true); }}
-            className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-border bg-white px-3 py-1.5 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-zinc-50"
-          >
-            <CirclePlus className="h-3.5 w-3.5" />
-            Request Vanity Number
-          </button>
         </div>
 
         {/* Table */}
@@ -488,7 +488,8 @@ export default function PhoneNumbersPage() {
 
                         <td className="px-3 py-2.5 align-middle text-center border-b border-l border-border">
                           {renderCell(
-                            <select defaultValue={sa} className="font-mono text-xs text-foreground bg-transparent border-none outline-none cursor-pointer p-0 text-center">
+                            <select defaultValue={sa} onChange={(e) => { if (e.target.value === "__new__") { e.target.value = sa; openAddVanityModal(); } }} className="font-mono text-xs text-foreground bg-transparent border-none outline-none cursor-pointer p-0 text-center">
+                              <option value="__new__" className="font-sans text-blue-600">+ New Vanity Number</option>
                               <option value={sa}>{sa}</option>
                               {vanityNumbers
                                 .filter((v) => v.propertyId === prop.id && v.phoneNumber !== sa)
@@ -509,7 +510,8 @@ export default function PhoneNumbersPage() {
                             </Tooltip>
                           ) : (
                             renderCell(
-                              <select defaultValue={ctc} className="font-mono text-xs text-foreground bg-transparent border-none outline-none cursor-pointer p-0 text-center">
+                              <select defaultValue={ctc} onChange={(e) => { if (e.target.value === "__new__") { e.target.value = ctc; openAddVanityModal(); } }} className="font-mono text-xs text-foreground bg-transparent border-none outline-none cursor-pointer p-0 text-center">
+                                <option value="__new__" className="font-sans text-blue-600">+ New Vanity Number</option>
                                 <option value={ctc}>{ctc}</option>
                                 {vanityNumbers
                                   .filter((v) => v.propertyId === prop.id && v.phoneNumber !== ctc)
@@ -523,7 +525,8 @@ export default function PhoneNumbersPage() {
 
                         <td className="px-3 py-2.5 align-middle text-center border-b border-l border-border">
                           {renderCell(
-                            <select defaultValue={outbound} className="font-mono text-xs text-foreground bg-transparent border-none outline-none cursor-pointer p-0 text-center">
+                            <select defaultValue={outbound} onChange={(e) => { if (e.target.value === "__new__") { e.target.value = outbound; openAddVanityModal(); } }} className="font-mono text-xs text-foreground bg-transparent border-none outline-none cursor-pointer p-0 text-center">
+                              <option value="__new__" className="font-sans text-blue-600">+ New Vanity Number</option>
                               <option value={outbound}>{outbound}</option>
                               {vanityNumbers
                                 .filter((v) => v.propertyId === prop.id && v.phoneNumber !== outbound)
@@ -1014,12 +1017,19 @@ export default function PhoneNumbersPage() {
                   {/* Phone Number Type */}
                   <div className="flex items-center gap-4">
                     <label className="w-40 text-right text-xs font-medium text-foreground shrink-0">Phone Number Type:</label>
-                    <select className="flex-1 rounded-md border border-border bg-white px-3 py-2 text-xs text-foreground">
-                      <option>Please Select</option>
-                      <option>Lead</option>
-                      <option>SMS Only</option>
-                      <option>General</option>
-                    </select>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-foreground">Company Vanity Number</span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button type="button" className="rounded p-1.5 text-muted-foreground hover:text-foreground hover:bg-zinc-100 transition-colors border border-border">
+                            <HelpCircle className="h-3.5 w-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[300px] text-xs">
+                          A company vanity number is a shared number that can be assigned across multiple properties and configured for various purposes, including Super Agent AI, Click To Call Default, and Outbound Default.
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
                   </div>
 
                   {/* Toll-Free */}
@@ -1077,16 +1087,10 @@ export default function PhoneNumbersPage() {
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => { setAddUseSms((v) => { if (v) setAddOutboundDefault(false); return !v; }); }}
-                        className={cn(
-                          "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
-                          addUseSms ? "bg-emerald-500" : "bg-zinc-300"
-                        )}
+                        disabled
+                        className="relative inline-flex h-5 w-9 items-center rounded-full bg-emerald-500 cursor-not-allowed opacity-75"
                       >
-                        <span className={cn(
-                          "inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform",
-                          addUseSms ? "translate-x-[18px]" : "translate-x-[3px]"
-                        )} />
+                        <span className="inline-block h-3.5 w-3.5 rounded-full bg-white shadow translate-x-[18px]" />
                       </button>
                       <span className={cn(
                         "text-[10px] font-semibold rounded px-1.5 py-0.5",
