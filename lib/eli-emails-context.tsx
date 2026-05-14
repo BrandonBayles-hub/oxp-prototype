@@ -24,11 +24,12 @@ export type EliEmailAddress = {
   status: "active" | "disabled";
   created: string;
   integration?: IntegrationMethod;
+  outboundDefault?: boolean;
 };
 
 const INITIAL_EMAILS: EliEmailAddress[] = [
   { id: 1, emailAddress: "test-prod@entrata-nexus.com", forwardTo: "test-prod@entrata-nexus.com", properties: ["Oakwood Terrace"], serviceTypes: ["ELI+ Renewals AI"], imapConfig: { enabled: false, address: "", port: "", email: "", password: "", enableSsl: false }, smtpConfig: { enabled: false, address: "", port: "", email: "", password: "", enableSsl: false }, status: "active", created: "2026-01-21" },
-  { id: 3, emailAddress: "test1@gmail.com", forwardTo: "test1@gmail.com", properties: ["Azure Heights", "Pine Valley Estates"], serviceTypes: ["ELI+ Leasing AI"], imapConfig: { enabled: true, address: "imap.gmail.com", port: "993", email: "test1@gmail.com", password: "••••••••", enableSsl: true }, smtpConfig: { enabled: true, address: "smtp.gmail.com", port: "465", email: "test1@gmail.com", password: "••••••••", enableSsl: true }, status: "active", created: "2026-01-21", integration: "google" },
+  { id: 3, emailAddress: "test1@gmail.com", forwardTo: "test1@gmail.com", properties: ["Azure Heights", "Pine Valley Estates"], serviceTypes: ["ELI+ Leasing AI"], imapConfig: { enabled: true, address: "imap.gmail.com", port: "993", email: "test1@gmail.com", password: "••••••••", enableSsl: true }, smtpConfig: { enabled: true, address: "smtp.gmail.com", port: "465", email: "test1@gmail.com", password: "••••••••", enableSsl: true }, status: "active", created: "2026-01-21", integration: "google", outboundDefault: true },
   { id: 4, emailAddress: "test2@gmail.com", forwardTo: "test2@gmail.com", properties: ["Cambridge Suites", "Sunset Ridge"], serviceTypes: ["ELI+ Payments AI"], imapConfig: { enabled: true, address: "imap.gmail.com", port: "993", email: "test2@gmail.com", password: "••••••••", enableSsl: true }, smtpConfig: { enabled: true, address: "smtp.gmail.com", port: "465", email: "test2@gmail.com", password: "••••••••", enableSsl: true }, status: "active", created: "2026-01-21", integration: "microsoft" },
 ];
 

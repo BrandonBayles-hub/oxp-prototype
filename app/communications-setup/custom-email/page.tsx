@@ -11,6 +11,7 @@ import {
   Info,
   Pencil,
   Circle,
+  HelpCircle,
 } from "lucide-react";
 import { useEliEmails, type EliEmailAddress, type ImapSmtpConfig } from "@/lib/eli-emails-context";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -229,7 +230,7 @@ const SVC_TO_ELI_COL: Record<string, EliAiCol> = {
 };
 
 function EliPropertyStatusTable() {
-  const { getEmailForProperty } = useEliEmails();
+  const { getEmailForProperty, emails } = useEliEmails();
   const [page, setPage] = useState(1);
   const pageSize = 5;
 
@@ -239,9 +240,8 @@ function EliPropertyStatusTable() {
     return email.serviceTypes.some((svc) => SVC_TO_ELI_COL[svc] === col);
   };
   const entrataDone = (propName: string): boolean => {
-    const email = getEmailForProperty(propName);
-    if (!email) return false;
-    return email.serviceTypes.includes("Custom Email Address");
+    const email = emails.find((e) => e.properties.includes(propName) && e.outboundDefault);
+    return !!email;
   };
   const propEliComplete = (prop: typeof ELI_PLUS_PROPERTIES[number]) =>
     prop.contracted.every((c) => colDone(prop.name, c));
@@ -259,7 +259,7 @@ function EliPropertyStatusTable() {
             <p className="mt-0.5 text-xs text-[hsl(var(--muted-foreground))]">
               All contracted ELI+ AI service email integrations must be completed for each property before they can operate within the new Communications Inbox.
               {SHOW_ENTRATA_EMAIL_OPTIONAL_COLUMN && (
-                <> Entrata Email is optional and not required for ELI+ activation.</>
+                <> Entrata Outbound Default is optional and indicates which properties have an outbound default email configured.</>
               )}{" "}
               Services marked N/A are not contracted for that property.
             </p>
@@ -289,7 +289,7 @@ function EliPropertyStatusTable() {
               ))}
               {SHOW_ENTRATA_EMAIL_OPTIONAL_COLUMN && (
                 <th className="px-3 py-2.5 text-center font-medium text-[hsl(var(--muted-foreground))] whitespace-nowrap text-xs">
-                  <span>Custom Email Address</span>
+                  <span>Entrata Outbound Default</span>
                   <span className="block text-[9px] font-normal text-[hsl(var(--muted-foreground))]/60">Optional</span>
                 </th>
               )}
@@ -356,7 +356,7 @@ function EliPropertyStatusTable() {
                             </div>
                           </TooltipTrigger>
                           <TooltipContent side="top" className="text-xs">
-                            {getEmailForProperty(prop.name)?.emailAddress}
+                            {emails.find((e) => e.properties.includes(prop.name) && e.outboundDefault)?.emailAddress}
                           </TooltipContent>
                         </Tooltip>
                       ) : (
@@ -450,7 +450,7 @@ export default function CustomEmailPage() {
   const [emailFormSvcDropdown, setEmailFormSvcDropdown] = useState(false);
   const [forwardToCopied, setForwardToCopied] = useState(false);
 
-  const [assignmentEdit, setAssignmentEdit] = useState<{ emailId: number; properties: string[]; serviceTypes: string[] } | null>(null);
+  const [assignmentEdit, setAssignmentEdit] = useState<{ emailId: number; properties: string[]; serviceTypes: string[]; outboundDefault: boolean } | null>(null);
   const [assignPropDropdown, setAssignPropDropdown] = useState(false);
   const [assignSvcDropdown, setAssignSvcDropdown] = useState(false);
 
@@ -472,6 +472,7 @@ export default function CustomEmailPage() {
     selectedServiceTypes: string[];
     propDropdownOpen: boolean;
     svcDropdownOpen: boolean;
+    outboundDefault: boolean;
   } | null>(null);
 
   const openOauthModal = (provider: "google" | "microsoft") => {
@@ -480,6 +481,7 @@ export default function CustomEmailPage() {
       selectedEmail: "", selectedName: "", ongoingAccess: false,
       selectedProperties: [], selectedServiceTypes: [],
       propDropdownOpen: false, svcDropdownOpen: false,
+      outboundDefault: false,
     });
   };
 
@@ -538,6 +540,7 @@ export default function CustomEmailPage() {
           status: "active" as const,
           created: new Date().toISOString().split("T")[0],
           integration: oauthModal.provider,
+          outboundDefault: oauthModal.outboundDefault,
         },
       ], newId, claimedProps));
       setOauthModal((prev) => prev && { ...prev, step: "done" });
@@ -769,6 +772,11 @@ export default function CustomEmailPage() {
                           IMAP/SMTP
                         </span>
                       )}
+                      {email.outboundDefault && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 border border-blue-200 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+                          Outbound Default
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       <button
@@ -777,7 +785,7 @@ export default function CustomEmailPage() {
                           if (!email.integration) {
                             openEditEmailModal(email);
                           } else {
-                            setAssignmentEdit({ emailId: email.id, properties: [...email.properties], serviceTypes: [...email.serviceTypes] });
+                            setAssignmentEdit({ emailId: email.id, properties: [...email.properties], serviceTypes: [...email.serviceTypes], outboundDefault: !!email.outboundDefault });
                           }
                         }}
                         className="rounded p-1.5 text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--muted))]/40 hover:text-[hsl(var(--foreground))]"
@@ -1151,6 +1159,7 @@ export default function CustomEmailPage() {
       )}
 
       {oauthModal && (
+        <TooltipProvider delayDuration={200}>
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="fixed inset-0 bg-black/40" onClick={() => setOauthModal(null)} />
           <div className="relative z-10 w-full max-w-lg rounded-2xl bg-white shadow-2xl">
@@ -1230,6 +1239,39 @@ export default function CustomEmailPage() {
                             <button type="button" onClick={() => toggleOauthProp(prop)} className="ml-0.5 text-gray-400 hover:text-gray-600"><svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
                           </span>
                         ))}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm font-semibold text-gray-900">Outbound Default</label>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <HelpCircle className="h-3.5 w-3.5 text-gray-400 cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-sm rounded-lg bg-gray-900 px-4 py-3 text-sm leading-relaxed text-white shadow-lg">
+                          <p>Use this email address as the default sender for Message Center, bulk emails, Contact Points, and other lead/resident emails.</p>
+                          <p className="mt-2">This overrides existing <a href="/settings/from-email-address" className="font-medium text-blue-400 underline hover:text-blue-300">&ldquo;From Email Address&rdquo;</a> and email relay settings for all properties connected to this address.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    <div className="mt-2 flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setOauthModal((prev) => prev && { ...prev, outboundDefault: !prev.outboundDefault })}
+                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors ${oauthModal.outboundDefault ? "bg-blue-600" : "bg-gray-200"}`}
+                      >
+                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${oauthModal.outboundDefault ? "translate-x-[18px]" : "translate-x-[3px]"}`} />
+                      </button>
+                      <span className="text-sm text-gray-600">{oauthModal.outboundDefault ? "Yes" : "No"}</span>
+                    </div>
+                    {oauthModal.outboundDefault && (
+                      <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+                        <p className="text-xs text-amber-800">
+                          Use this email address as the default sender for Message Center, bulk emails, Contact Points, and other lead/resident emails. This overrides existing{" "}
+                          <a href="/settings/from-email-address" className="font-medium text-blue-600 underline hover:text-blue-800">&ldquo;From Email Address&rdquo;</a>
+                          {" "}and email relay settings for all properties connected to this address.
+                        </p>
                       </div>
                     )}
                   </div>
@@ -1391,6 +1433,7 @@ export default function CustomEmailPage() {
             )}
           </div>
         </div>
+        </TooltipProvider>
       )}
       {assignmentEdit && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -1479,6 +1522,41 @@ export default function CustomEmailPage() {
                   })()}
                 </div>
               </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium text-[hsl(var(--foreground))]">Outbound Default</label>
+                  <TooltipProvider delayDuration={200}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <HelpCircle className="h-3.5 w-3.5 text-[hsl(var(--muted-foreground))] cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-sm rounded-lg bg-gray-900 px-4 py-3 text-sm leading-relaxed text-white shadow-lg">
+                        <p>Use this email address as the default sender for Message Center, bulk emails, Contact Points, and other lead/resident emails.</p>
+                        <p className="mt-2">This overrides existing <a href="/settings/from-email-address" className="font-medium text-blue-400 underline hover:text-blue-300">&ldquo;From Email Address&rdquo;</a> and email relay settings for all properties connected to this address.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+                <div className="mt-2 flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setAssignmentEdit((prev) => prev && { ...prev, outboundDefault: !prev.outboundDefault })}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors ${assignmentEdit.outboundDefault ? "bg-blue-600" : "bg-gray-200"}`}
+                  >
+                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${assignmentEdit.outboundDefault ? "translate-x-[18px]" : "translate-x-[3px]"}`} />
+                  </button>
+                  <span className="text-sm text-[hsl(var(--muted-foreground))]">{assignmentEdit.outboundDefault ? "Yes" : "No"}</span>
+                </div>
+                {assignmentEdit.outboundDefault && (
+                  <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+                    <p className="text-xs text-amber-800">
+                      Use this email address as the default sender for Message Center, bulk emails, Contact Points, and other lead/resident emails. This overrides existing{" "}
+                      <a href="/settings/from-email-address" className="font-medium text-blue-600 underline hover:text-blue-800">&ldquo;From Email Address&rdquo;</a>
+                      {" "}and email relay settings for all properties connected to this address.
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
             <div className="flex items-center justify-end gap-3 border-t border-[hsl(var(--border))] px-6 py-4">
               <button
@@ -1494,7 +1572,7 @@ export default function CustomEmailPage() {
                   setEmails((prev) => stripClaimedProperties(
                     prev.map((e) =>
                       e.id === assignmentEdit.emailId
-                        ? { ...e, properties: assignmentEdit.properties, serviceTypes: assignmentEdit.serviceTypes.filter((s) => s !== "All Resident ELI+ AI Services") }
+                        ? { ...e, properties: assignmentEdit.properties, serviceTypes: assignmentEdit.serviceTypes.filter((s) => s !== "All Resident ELI+ AI Services"), outboundDefault: assignmentEdit.outboundDefault }
                         : e
                     ),
                     assignmentEdit.emailId,
