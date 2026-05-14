@@ -265,7 +265,7 @@ export default function PhoneNumbersPage() {
           className="text-2xl font-medium tracking-tight text-foreground"
           style={{ fontFamily: "Nohemi, Plus Jakarta Sans, Inter, sans-serif" }}
         >
-          Communications
+          Vanity Number Settings
         </h1>
         <p className="mt-1.5 text-sm text-muted-foreground">
           One dedicated phone number is set up per AI product using your company&apos;s area code. Each property gets its own number — pre-assigned automatically.
