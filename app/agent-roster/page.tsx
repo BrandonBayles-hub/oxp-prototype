@@ -61,6 +61,7 @@ import { RenewalsFullPage } from "@/components/eli-plus-setup/pages/RenewalsFull
 import { LeasingAISettingsPanel } from "@/components/leasing-ai-settings-panel";
 import { MaintenanceAISettingsPanel } from "@/components/maintenance-ai-settings-panel";
 import { LeadToLeaseSettings } from "@/components/lead-to-lease-settings";
+import { L3AgentSheet, getL3AgentConfig } from "@/components/l3-agent-flyout";
 
 const DATA_SOURCE_OPTIONS = [
   "Entrata Ledger",
@@ -252,6 +253,7 @@ function AgentRosterContent() {
   const [autoAgentId, setAutoAgentId] = useState<string | null>(null);
   const [leadToLeaseOpen, setLeadToLeaseOpen] = useState(false);
   const [leadToLeaseActivateOpen, setLeadToLeaseActivateOpen] = useState(false);
+  const [l3AgentId, setL3AgentId] = useState<string | null>(null);
   const [expandedBucket, setExpandedBucket] = useState<string | null>(null);
   const [videoAgentName, setVideoAgentName] = useState<string | null>(null);
   const [cardSortBy, setCardSortBy] = useState<"recently_added" | "name" | "level">("recently_added");
@@ -324,6 +326,7 @@ function AgentRosterContent() {
       else setLeadToLeaseActivateOpen(true);
       return;
     }
+    if (agent.type === "efficiency" && getL3AgentConfig(agent.name)) { setL3AgentId(agentId); return; }
     if (agent.type === "operations" || agent.type === "intelligence" || agent.type === "efficiency") setOpsAgentId(agentId);
     else setAutoAgentId(agentId);
   }, [searchParams, agents]);
@@ -403,7 +406,7 @@ function AgentRosterContent() {
               <div>
                 <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Level</p>
                 <div className="space-y-1.5">
-                  {AGENT_TYPES.filter((t) => t.value !== "fully_autonomous").map((t) => (
+                  {AGENT_TYPES.map((t) => (
                     <label key={t.value} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-sm text-foreground transition-colors hover:bg-muted/50">
                       <input
                         type="checkbox"
@@ -514,6 +517,7 @@ function AgentRosterContent() {
                         else setLeadToLeaseActivateOpen(true);
                         return;
                       }
+                      if (agent.type === "efficiency" && getL3AgentConfig(agent.name)) { setL3AgentId(agent.id); return; }
                       if (agent.type === "operations" || agent.type === "efficiency" || agent.type === "intelligence") setOpsAgentId(agent.id);
                       else setAutoAgentId(agent.id);
                     }}
@@ -532,7 +536,6 @@ function AgentRosterContent() {
                         <p className="text-[13px] font-semibold leading-tight text-foreground truncate">
                           {agent.type === "autonomous" ? `ELI+ ${agent.name}` : agent.name}
                         </p>
-                        <p className="mt-0.5 text-[11px] text-muted-foreground">Entrata</p>
                       </div>
                       {agent.type === "intelligence" && (
                         <button
@@ -631,7 +634,7 @@ function AgentRosterContent() {
                 <option value="All">All types</option>
                 {AGENT_TYPES.map((t) => (
                   <option key={t.value} value={t.value}>
-                    {t.label}{t.value === "fully_autonomous" ? " (Coming Soon)" : ""}
+                    {t.label}
                   </option>
                 ))}
               </select>
@@ -648,7 +651,7 @@ function AgentRosterContent() {
           </div>
 
           <div>
-            {typeFilter === "fully_autonomous" && (
+            {typeFilter === "fully_autonomous" && !filtered.some(a => a.type === "fully_autonomous") && (
               <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-purple-300 bg-purple-50/50 py-16 text-center dark:border-purple-800/40 dark:bg-purple-950/10">
                 <img src="/eli-cube.svg" alt="" width={48} height={48} className="mb-4" />
                 <h3 className="text-lg font-semibold text-foreground">L5 · Autonomous Agents</h3>
@@ -660,7 +663,7 @@ function AgentRosterContent() {
                 </Badge>
               </div>
             )}
-            <div className={`space-y-8 ${typeFilter === "fully_autonomous" ? "hidden" : ""}`}>
+            <div className={`space-y-8 ${typeFilter === "fully_autonomous" && !filtered.some(a => a.type === "fully_autonomous") ? "hidden" : ""}`}>
               {BUCKETS.map((bucket) => {
                 const items = byBucket[bucket] ?? [];
 
@@ -697,6 +700,7 @@ function AgentRosterContent() {
                                   else setLeadToLeaseActivateOpen(true);
                                   return;
                                 }
+                                if (agent.type === "efficiency" && getL3AgentConfig(agent.name)) { setL3AgentId(agent.id); return; }
                                 if (agent.type === "operations" || agent.type === "efficiency" || agent.type === "intelligence") setOpsAgentId(agent.id);
                                 else setAutoAgentId(agent.id);
                               }}
@@ -782,6 +786,20 @@ function AgentRosterContent() {
             open
             onOpenChange={(open) => { if (!open) setOpsAgentId(null); }}
             onToggle={(status) => updateAgent(opsAgent.id, { status })}
+            onVideoClick={setVideoAgentName}
+          />
+        );
+      })()}
+
+      {l3AgentId && (() => {
+        const l3Agent = agents.find((a) => a.id === l3AgentId);
+        if (!l3Agent) return null;
+        return (
+          <L3AgentSheet
+            agent={l3Agent}
+            open
+            onOpenChange={(open) => { if (!open) setL3AgentId(null); }}
+            onToggle={(status) => updateAgent(l3Agent.id, { status })}
             onVideoClick={setVideoAgentName}
           />
         );

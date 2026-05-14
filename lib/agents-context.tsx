@@ -102,7 +102,7 @@ export type Agent = {
   trendDirection?: "up" | "down" | "flat";
 };
 
-const STORAGE_KEY = "janet-poc-agents-v9";
+const STORAGE_KEY = "janet-poc-agents-v11";
 
 function seedUsage(name: string, status: string, type: AgentType): { weeklyUsage: number; trendDirection: "up" | "down" | "flat" } {
   let h = 0;
@@ -275,9 +275,14 @@ const INITIAL_AGENTS: Agent[] = [
   { id: "12", ...defaultAgentFields("Operations & Maintenance", "operations", "Maintenance Operations", "Dispatches work orders to vendors, tracks SLA compliance, sends resident updates, and closes completed orders.", { labels: ["Maintenance"], runsCompleted: 234, lastRunAt: "2026-02-20T07:30:00Z", lastRunStatus: "success", errorCount: 7, avgRunDuration: "3m 05s", schedule: "On new work order" }) },
   // Risk Management & Compliance
   { id: "500", ...defaultAgentFields("Risk Management & Compliance", "operations", "AI Settings", "Currently AI settings allow users to set preferred words. These will allow users to set preferred words to replace words. For example, instead of 'tenant' use 'resident'. This list of words will then be taken into account where ELI is used to generate content i.e. blog, email and review responses.", { status: "Active", labels: ["Compliance"] }) },
-  // L3 · Efficiency — Orchestrators
-  { id: "31", ...defaultAgentFields("Operations & Maintenance", "efficiency", "Property Operations Orchestrator", "Coordinates maintenance workflows, vendor assignments, and unit turn scheduling across properties.", { labels: ["Maintenance"], runsCompleted: 112, lastRunAt: "2026-02-20T07:00:00Z", lastRunStatus: "success", errorCount: 3, avgRunDuration: "5m 15s", schedule: "Daily at 7:00 AM" }) },
-  { id: "32", ...defaultAgentFields("Leasing & Marketing", "efficiency", "Autonomous Lead To Lease", "Unified leasing intelligence — orchestrates application processing, screening decisions, lease execution, and resident communications through coordinated autonomous agents.", { status: "Active", labels: ["Leasing"], runsCompleted: 247, lastRunAt: "2026-05-13T08:00:00Z", lastRunStatus: "success", errorCount: 2, avgRunDuration: "3m 42s", schedule: "Continuous" }) },
+  // L3 · Processing at Scale
+  { id: "33", ...defaultAgentFields("Revenue & Financial Management", "efficiency", "Auto Post Recurring Charges", "Automatically posts recurring charges on your configured schedule each month — eliminating the need for manual charge posting across your entire portfolio.", { status: "Active", labels: ["Accounting"], runsCompleted: 1842, lastRunAt: "2026-05-14T06:00:00Z", lastRunStatus: "success", errorCount: 4, avgRunDuration: "2m 18s", schedule: "Daily" }) },
+  { id: "34", ...defaultAgentFields("Resident Relations & Retention", "efficiency", "Auto Generate Renewal Offers", "Automatically generates renewal offers ahead of lease expirations, manages renewal pricing, controls approval workflows, and handles month-to-month options across your portfolio.", { status: "Active", labels: ["Resident relations"], runsCompleted: 968, lastRunAt: "2026-05-14T07:00:00Z", lastRunStatus: "success", errorCount: 2, avgRunDuration: "3m 05s", schedule: "Daily" }) },
+  { id: "35", ...defaultAgentFields("Leasing & Marketing", "efficiency", "Automatically Assign a Leasing Agent", "Controls how new leads are automatically assigned to leasing agents. Determines the logic used to distribute incoming leads across your team — from manual assignment to load-balanced auto-distribution.", { status: "Active", labels: ["Leasing"], runsCompleted: 3214, lastRunAt: "2026-05-14T09:30:00Z", lastRunStatus: "success", errorCount: 1, avgRunDuration: "0m 08s", schedule: "On new lead" }) },
+  { id: "36", ...defaultAgentFields("Resident Relations & Retention", "efficiency", "Rebuild Renewal Offers When Pricing Changes", "Automates the rebuilding of renewal offers whenever your rent pricing or any other pricing (e.g. fees, pet rent, parking charges, etc.) changes. Ensures residents always see current pricing until they lock in their renewal.", { status: "Active", labels: ["Resident relations"], runsCompleted: 587, lastRunAt: "2026-05-14T08:15:00Z", lastRunStatus: "success", errorCount: 0, avgRunDuration: "1m 42s", schedule: "On pricing change" }) },
+  { id: "37", ...defaultAgentFields("Revenue & Financial Management", "efficiency", "Advance Accounting Periods", "Automatically advances AR, AP, and GL accounting periods on your configured schedule each month — eliminating manual period advancement and ensuring your books stay on track without staff intervention.", { status: "Active", labels: ["Accounting"], runsCompleted: 426, lastRunAt: "2026-05-14T06:00:00Z", lastRunStatus: "success", errorCount: 1, avgRunDuration: "1m 55s", schedule: "Monthly" }) },
+  { id: "38", ...defaultAgentFields("Revenue & Financial Management", "efficiency", "Lock Accounting Periods", "Automatically locks AR, AP, and GL accounting periods on your configured schedule — preventing retroactive changes to closed periods and ensuring month-end reporting integrity across your portfolio.", { status: "Active", labels: ["Accounting"], runsCompleted: 398, lastRunAt: "2026-05-14T06:30:00Z", lastRunStatus: "success", errorCount: 0, avgRunDuration: "1m 12s", schedule: "Monthly" }) },
+  { id: "32", ...defaultAgentFields("Leasing & Marketing", "fully_autonomous", "Autonomous Lead To Lease", "Unified leasing intelligence — orchestrates application processing, screening decisions, lease execution, and resident communications through coordinated autonomous agents.", { status: "Active", labels: ["Leasing"], runsCompleted: 247, lastRunAt: "2026-05-13T08:00:00Z", lastRunStatus: "success", errorCount: 2, avgRunDuration: "3m 42s", schedule: "Continuous" }) },
   // Placeholder agents (so "View all" is visible and list looks populated)
   { id: "17", ...defaultAgentFields("Revenue & Financial Management", "operations", "Fees & Refunds Ops", "Processes fee waivers, refund requests, and ledger adjustments based on approval rules.", { labels: ["Payments"], runsCompleted: 56, lastRunAt: "2026-02-19T14:00:00Z", lastRunStatus: "success", errorCount: 1, avgRunDuration: "1m 15s", schedule: "On fee waiver request" }) },
   { id: "19", ...defaultAgentFields("Leasing & Marketing", "operations", "Move-in Coordinator", "Schedules move-ins, generates welcome packets, assigns parking, and triggers utility setup reminders.", { labels: ["Leasing"], runsCompleted: 34, lastRunAt: "2026-02-20T09:00:00Z", lastRunStatus: "success", errorCount: 0, avgRunDuration: "2m 00s", schedule: "On lease execution" }) },
@@ -310,15 +315,11 @@ export function AgentsProvider({ children }: { children: React.ReactNode }) {
         if (Array.isArray(parsed)) {
           const defaultsById = new Map(INITIAL_AGENTS.map((a) => [a.id, a]));
           const validTypes = new Set(AGENT_TYPES.map((t) => t.value));
-          const merged = parsed.map((stored: Agent) => {
+          const initialIds = new Set(INITIAL_AGENTS.map((a) => a.id));
+          const merged = parsed.filter((stored: Agent) => initialIds.has(stored.id) || !defaultsById.get(stored.id) === false).map((stored: Agent) => {
             const defaults = defaultsById.get(stored.id);
             const fixStatus = (s: string) => s === "Training" ? "Active" : s;
-            if (!defaults) {
-              if (!validTypes.has(stored.type)) {
-                return { ...stored, type: "operations" as AgentType, status: fixStatus(stored.status) };
-              }
-              return { ...stored, status: fixStatus(stored.status) };
-            }
+            if (!defaults) return null;
             return {
               ...defaults,
               ...stored,
@@ -326,7 +327,7 @@ export function AgentsProvider({ children }: { children: React.ReactNode }) {
               bucket: defaults.bucket,
               status: defaults.status === "Off" ? ("Off" as const) : fixStatus(stored.status),
             };
-          });
+          }).filter(Boolean) as Agent[];
           const existingIds = new Set(parsed.map((a: Agent) => a.id));
           const missing = INITIAL_AGENTS.filter((a) => !existingIds.has(a.id));
           setAgents(missing.length > 0 ? [...merged, ...missing] : merged);
