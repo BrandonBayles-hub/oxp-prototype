@@ -426,7 +426,7 @@ export function LeadToLeaseSettings({ isActive, onToggleActive }: { isActive: bo
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            Setup & Configure Sub Agents
+            Set Up Jobs & Sub Agents
           </button>
           <button
             type="button"
@@ -503,33 +503,6 @@ export function LeadToLeaseSettings({ isActive, onToggleActive }: { isActive: bo
                           </div>
                         </button>
                         <div className="flex items-center gap-3 shrink-0 ml-4">
-                          <div className="flex items-center gap-2.5">
-                            {isAgentEnabled ? (
-                              <div className="flex items-center gap-1.5">
-                                <div className="flex h-6 w-6 items-center justify-center rounded-md bg-[#7c3aed]/10">
-                                  <img src="/eli-cube.svg" alt="" width={14} height={14} />
-                                </div>
-                                <span className="text-xs font-semibold text-[#7c3aed]">Agent</span>
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-1.5">
-                                <div className="flex h-6 w-6 items-center justify-center rounded-md bg-zinc-100">
-                                  <Users className="h-3.5 w-3.5 text-zinc-500" />
-                                </div>
-                                <span className="text-xs font-medium text-zinc-500">Manual</span>
-                              </div>
-                            )}
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEnabledAgents((prev) => ({ ...prev, [agent.id]: !prev[agent.id] }));
-                              }}
-                              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors ${isAgentEnabled ? "bg-[#7c3aed]" : "bg-zinc-300"}`}
-                            >
-                              <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${isAgentEnabled ? "translate-x-[18px]" : "translate-x-[3px]"}`} />
-                            </button>
-                          </div>
                           <ChevronDown className="h-4 w-4 text-muted-foreground rotate-[-90deg]" />
                         </div>
                       </div>
@@ -828,96 +801,99 @@ function SubAgentSettingsView({ agent, propertyName, onBack }: { agent: L3SubAge
   };
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="shrink-0 border-b border-border px-8 pt-5 pb-4">
-        <button
-          type="button"
-          onClick={onBack}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-3"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Back to all properties
-        </button>
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <h2 className="text-lg font-bold text-foreground">{propertyName}</h2>
-              <span className="rounded-md border border-border bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">Conventional</span>
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={onBack} />
+      <div className="relative w-full max-w-4xl bg-white shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
+        {/* Header */}
+        <div className="shrink-0 border-b border-border px-8 pt-6 pb-5">
+          <button
+            type="button"
+            onClick={onBack}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-4"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Back to all agents
+          </button>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-3">
+                <h2 className="text-xl font-bold text-foreground">{propertyName}</h2>
+                <span className="rounded-md border border-border bg-muted/40 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">Conventional</span>
+              </div>
+              <p className="text-sm text-muted-foreground mt-1">
+                {agent.name} settings for this property
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {agent.name} settings for this property
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {saveToast && (
-              <span className="text-xs font-medium text-emerald-600">Saved</span>
-            )}
-            <button
-              type="button"
-              onClick={handleSave}
-              className="flex items-center gap-1.5 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 transition-colors"
-            >
-              <Save className="h-3.5 w-3.5" />
-              Save Changes
-            </button>
+            <div className="flex items-center gap-3">
+              {saveToast && (
+                <span className="text-sm font-medium text-emerald-600">Saved</span>
+              )}
+              <button
+                type="button"
+                onClick={handleSave}
+                className="flex items-center gap-2 rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-zinc-800 transition-colors"
+              >
+                <Save className="h-4 w-4" />
+                Save Changes
+              </button>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Settings */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-8 py-6">
-        <div className="mb-5">
-          <div className="flex items-center gap-2.5 mb-1">
-            <img src="/eli-cube.svg" alt="" width={18} height={18} />
-            <h3 className="text-base font-semibold text-foreground">{agent.name}</h3>
-            <span className="rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[9px] font-medium text-muted-foreground">L3 Agent</span>
-            <span className="rounded-full bg-[#7c3aed]/10 px-2 py-0.5 text-[10px] font-semibold text-[#7c3aed]">
-              {agent.settingsCount} setting{agent.settingsCount !== 1 ? "s" : ""}
-            </span>
+        {/* Settings */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-8 py-8">
+          <div className="mb-6">
+            <div className="flex items-center gap-3 mb-1.5">
+              <img src="/eli-cube.svg" alt="" width={20} height={20} />
+              <h3 className="text-lg font-semibold text-foreground">{agent.name}</h3>
+              <span className="rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground">L3 Agent</span>
+              <span className="rounded-full bg-[#7c3aed]/10 px-2.5 py-0.5 text-[11px] font-semibold text-[#7c3aed]">
+                {agent.settingsCount} setting{agent.settingsCount !== 1 ? "s" : ""}
+              </span>
+            </div>
+            <p className="text-sm text-muted-foreground max-w-2xl leading-relaxed">{agent.description}</p>
           </div>
-          <p className="text-xs text-muted-foreground max-w-xl">{agent.description}</p>
-        </div>
 
-        {/* Settings table */}
-        <div className="rounded-xl border border-border overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-zinc-50">
-                <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Setting</th>
-                <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Status</th>
-                <th className="px-5 py-3 text-right text-xs font-medium text-muted-foreground">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {agent.settings.map((setting) => (
-                <tr key={setting.id} className="border-b border-border/50 last:border-b-0">
-                  <td className="px-5 py-4">
-                    <p className="text-sm font-medium text-foreground">{setting.name}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{setting.description}</p>
-                  </td>
-                  <td className="px-5 py-4">
+          {/* Settings cards */}
+          <div className="space-y-4">
+            {agent.settings.map((setting) => (
+              <div key={setting.id} className="rounded-xl border border-border bg-white p-5 hover:shadow-sm transition-shadow">
+                <div className="flex items-start justify-between gap-6">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-foreground">{setting.name}</p>
+                    <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{setting.description}</p>
+                  </div>
+                  <div className="flex items-center gap-4 shrink-0">
                     {setting.type === "toggle" ? (
-                      values[setting.id] ? (
-                        <div className="flex items-center gap-1.5">
-                          <div className="flex h-6 w-6 items-center justify-center rounded-md bg-[#7c3aed]/10">
-                            <img src="/eli-cube.svg" alt="" width={14} height={14} />
+                      <div className="flex items-center gap-3">
+                        {values[setting.id] ? (
+                          <div className="flex items-center gap-1.5">
+                            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-[#7c3aed]/10">
+                              <img src="/eli-cube.svg" alt="" width={14} height={14} />
+                            </div>
+                            <span className="text-xs font-semibold text-[#7c3aed]">Agent</span>
                           </div>
-                          <span className="text-xs font-semibold text-[#7c3aed]">Agent</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1.5">
-                          <div className="flex h-6 w-6 items-center justify-center rounded-md bg-zinc-100">
-                            <Users className="h-3.5 w-3.5 text-zinc-500" />
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-zinc-100">
+                              <Users className="h-3.5 w-3.5 text-zinc-500" />
+                            </div>
+                            <span className="text-xs font-medium text-zinc-500">Manual</span>
                           </div>
-                          <span className="text-xs font-medium text-zinc-500">Manual</span>
-                        </div>
-                      )
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => updateValue(setting.id, !values[setting.id])}
+                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors ${values[setting.id] ? "bg-[#7c3aed]" : "bg-zinc-300"}`}
+                        >
+                          <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${values[setting.id] ? "translate-x-[22px]" : "translate-x-[3px]"}`} />
+                        </button>
+                      </div>
                     ) : setting.type === "select" ? (
                       <select
                         value={values[setting.id] as string}
                         onChange={(e) => updateValue(setting.id, e.target.value)}
-                        className="h-9 rounded-lg border border-border bg-white px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-zinc-300"
+                        className="h-10 rounded-lg border border-border bg-white px-4 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-[#7c3aed]/30"
                       >
                         {setting.options?.map((opt) => (
                           <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -929,25 +905,16 @@ function SubAgentSettingsView({ agent, propertyName, onBack }: { agent: L3SubAge
                           type="number"
                           value={values[setting.id] as number}
                           onChange={(e) => updateValue(setting.id, parseInt(e.target.value) || 0)}
-                          className="h-9 w-24 rounded-lg border border-border bg-white px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-zinc-300"
+                          className="h-10 w-28 rounded-lg border border-border bg-white px-4 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-[#7c3aed]/30"
                         />
                         {setting.suffix && <span className="text-xs text-muted-foreground">{setting.suffix}</span>}
                       </div>
                     ) : null}
-                  </td>
-                  <td className="px-5 py-4 text-right">
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-zinc-50 transition-colors"
-                    >
-                      <Settings className="h-3 w-3" />
-                      Configure
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
