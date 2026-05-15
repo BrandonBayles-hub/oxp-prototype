@@ -424,7 +424,7 @@ const MultiSelect = React.forwardRef<
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" variant="primary">Save</Button>
+                  <Button type="submit" variant="default">Save</Button>
                 </DialogFooter>
               </form>
             </DialogContent>
@@ -551,7 +551,7 @@ const MultiSelect = React.forwardRef<
                 >
                   Cancel
                 </Button>
-                <Button type="submit" variant="primary">Save</Button>
+                <Button type="submit" variant="default">Save</Button>
               </DialogFooter>
             </form>
           </DialogContent>
