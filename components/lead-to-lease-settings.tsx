@@ -27,6 +27,7 @@ type SettingDef = {
   defaultValue: string | number | boolean;
   options?: { label: string; value: string }[];
   suffix?: string;
+  subSettings?: SettingDef[];
 };
 
 type L3SubAgent = {
@@ -98,37 +99,74 @@ const STAGES: Stage[] = [
     shortDescription: "Automates configurable application workflows — routing, co-applicant coordination...",
     icon: FileText,
     subAgents: [
-      { id: "app-avail", name: "Check Availability & Unit Selection", description: "Control whether prospects pick a floorplan, a unit space, or both during the application — and whether either selection is required.", settingsCount: 5, settings: [
-        { id: "app-avail-floorplan", name: "Show Floor Plan Selection", description: "Allow prospects to select a floor plan during application.", type: "toggle", defaultValue: true },
-        { id: "app-avail-unit", name: "Show Unit Space Selection", description: "Allow prospects to select a specific unit during application.", type: "toggle", defaultValue: true },
-        { id: "app-avail-require-fp", name: "Require Floor Plan Selection", description: "Require floor plan selection to proceed with application.", type: "toggle", defaultValue: false },
-        { id: "app-avail-require-unit", name: "Require Unit Selection", description: "Require specific unit selection to proceed.", type: "toggle", defaultValue: false },
-        { id: "app-avail-waitlist", name: "Enable Waitlist", description: "Allow prospects to join a waitlist when preferred units are unavailable.", type: "toggle", defaultValue: true },
+      { id: "app-lifecycle", name: "Application Lifecycle Management", description: "Control validation rules and lock-down points throughout the application lifecycle.", settingsCount: 2, settings: [
+        { id: "app-lc-validate", name: "Validate Application Before Allowing Marking as Complete", description: "Require all mandatory fields and documents to be validated before the application can be marked as complete.", type: "toggle", defaultValue: true },
+        { id: "app-lc-lockdown", name: "Lock Down Application At", description: "Automatically lock the application at a specific milestone so it can no longer be edited.", type: "toggle", defaultValue: true, subSettings: [
+          { id: "app-lc-lockdown-status", name: "Lock Down Status", description: "Select the milestone at which the application becomes read-only.", type: "select", defaultValue: "application-complete", options: [
+            { label: "Application Complete", value: "application-complete" },
+            { label: "Application is Partially Completed", value: "application-partially-completed" },
+            { label: "Application Approved", value: "application-approved" },
+            { label: "Lease Started", value: "lease-started" },
+            { label: "Lease Complete", value: "lease-complete" },
+            { label: "Lease Approved", value: "lease-approved" },
+          ]},
+        ]},
       ]},
-      { id: "app-lifecycle", name: "Application Lifecycle Management", description: "Handle cancellations, archival, and reopens — enforce property-level policies and ensure clean state transitions.", settingsCount: 4, settings: [
-        { id: "app-lc-autocancel", name: "Auto-Cancel After Inactivity", description: "Automatically cancel applications after a period of inactivity.", type: "toggle", defaultValue: true },
-        { id: "app-lc-canceldays", name: "Inactivity Days Before Cancel", description: "Number of days of inactivity before auto-cancellation.", type: "number", defaultValue: 30, suffix: "days" },
-        { id: "app-lc-archive", name: "Auto-Archive Cancelled Applications", description: "Automatically archive applications after cancellation.", type: "toggle", defaultValue: true },
-        { id: "app-lc-reopen", name: "Allow Application Reopen", description: "Allow cancelled applications to be reopened.", type: "toggle", defaultValue: true },
-      ]},
-      { id: "app-pricing", name: "Pricing & Fees", description: "Application fees, payment methods, pet charges, deposit alternatives, fee disclosures, and dynamic pricing configuration.", settingsCount: 7, settings: [
-        { id: "app-fee-amount", name: "Application Fee Amount", description: "Base application fee charged to each applicant.", type: "number", defaultValue: 50, suffix: "USD" },
-        { id: "app-fee-payment", name: "Payment Methods", description: "Accepted payment methods for application fees.", type: "select", defaultValue: "all", options: [{ label: "All Methods", value: "all" }, { label: "Credit/Debit Only", value: "card" }, { label: "ACH Only", value: "ach" }] },
-        { id: "app-fee-pet", name: "Pet Deposit", description: "Pet deposit amount.", type: "number", defaultValue: 250, suffix: "USD" },
-        { id: "app-fee-petrent", name: "Monthly Pet Rent", description: "Monthly pet rent charge.", type: "number", defaultValue: 35, suffix: "USD/mo" },
-        { id: "app-fee-deposit-alt", name: "Deposit Alternatives", description: "Enable deposit alternative programs (surety bonds, deposit insurance).", type: "toggle", defaultValue: false },
-        { id: "app-fee-disclosure", name: "Fee Disclosures", description: "Show all required fee disclosures per local regulations.", type: "toggle", defaultValue: true },
-        { id: "app-fee-promo", name: "Promotional Pricing", description: "Enable promotional pricing and concessions.", type: "toggle", defaultValue: false },
+      { id: "app-pricing", name: "Pricing & Fees", description: "Application fees, scheduled charges, and dynamic pricing configuration.", settingsCount: 3, settings: [
+        { id: "app-fee-dynamic", name: "Dynamically Update Application Charges", description: "Enable dynamic pricing adjustments based on market conditions and availability.", type: "toggle", defaultValue: false },
+        { id: "app-fee-autopost", name: "Automatically Post Application Fee Scheduled Charges", description: "Automatically post scheduled application fee charges when an application is submitted.", type: "toggle", defaultValue: false },
+        { id: "app-fee-reverse-cancel", name: "Reverse Posted Scheduled Charges For Canceled Applications", description: "Automatically reverse any posted scheduled charges when an application is canceled.", type: "toggle", defaultValue: false },
       ]},
       { id: "app-holds", name: "Unit Holds & Reservations", description: "Reserve units during the application process — hold duration, rentable items, and unit status transitions.", settingsCount: 2, settings: [
-        { id: "app-hold-duration", name: "Hold Duration", description: "Maximum hours a unit can be held during the application process.", type: "number", defaultValue: 48, suffix: "hours" },
-        { id: "app-hold-autorelease", name: "Auto-Release on Expiry", description: "Automatically release held units back to available inventory when hold expires.", type: "toggle", defaultValue: true },
+        { id: "app-hold-enable", name: "Hold Units During the Application", description: "Automatically place a hold on the selected unit while the application is in progress.", type: "toggle", defaultValue: true, subSettings: [
+          { id: "app-hold-duration", name: "Hold Duration", description: "Maximum hours a unit can be held during the application process.", type: "number", defaultValue: 48, suffix: "hours" },
+        ]},
+        { id: "app-hold-rented-status", name: "Change Unit and Rentable Item Status To Rented", description: "Automatically update the unit and rentable item status to rented at a specific milestone.", type: "toggle", defaultValue: true, subSettings: [
+          { id: "app-hold-rented-status-at", name: "Rented Status Trigger", description: "Select the application or lease milestone that triggers the unit status change to rented.", type: "select", defaultValue: "application-complete", options: [
+            { label: "Application Complete", value: "application-complete" },
+            { label: "Application is Partially Completed", value: "application-partially-completed" },
+            { label: "Application Approved", value: "application-approved" },
+            { label: "Lease Started", value: "lease-started" },
+            { label: "Lease Complete", value: "lease-complete" },
+            { label: "Lease Approved", value: "lease-approved" },
+          ]},
+        ]},
+        { id: "app-hold-autorelease", name: "Auto-Release Unit When Application is Cancelled", description: "Automatically release held units back to available inventory when the application is cancelled.", type: "toggle", defaultValue: true },
       ]},
-      { id: "app-portal", name: "Portal Display & Configuration", description: "Online application portal settings — enable/disable, affordable housing, exit links, and multi-factor authentication.", settingsCount: 4, settings: [
-        { id: "app-portal-enable", name: "Enable Online Applications", description: "Enable the online application portal for prospects.", type: "toggle", defaultValue: true },
-        { id: "app-portal-affordable", name: "Affordable Housing Mode", description: "Display affordable housing unit rules and income qualifications.", type: "toggle", defaultValue: false },
-        { id: "app-portal-exit", name: "Show Exit Links", description: "Display exit links on the application portal.", type: "toggle", defaultValue: true },
-        { id: "app-portal-mfa", name: "Multi-Factor Authentication", description: "Require MFA for application submission and document access.", type: "toggle", defaultValue: false },
+      { id: "app-quotes", name: "Quotes Lifecycle & Management", description: "Configure how quotes are generated, delivered, and tracked — control pricing snapshots, expiration windows, and applicant visibility.", settingsCount: 6, settings: [
+        { id: "app-quotes-auto", name: "Auto-Generate Quote", description: "Automatically generate a quote when a prospect selects a unit.", type: "toggle", defaultValue: true },
+        { id: "app-quotes-valid", name: "Quote Is Valid For", description: "Set how long a quote remains valid before it expires.", type: "toggle", defaultValue: true, subSettings: [
+          { id: "app-quotes-valid-unit", name: "Duration Type", description: "Choose whether the validity period is measured in days or hours.", type: "select", defaultValue: "days", options: [
+            { label: "Days", value: "days" },
+            { label: "Hours", value: "hours" },
+          ]},
+          { id: "app-quotes-valid-value", name: "Duration", description: "Number of days or hours the quote remains valid.", type: "number", defaultValue: 7 },
+        ]},
+        { id: "app-quotes-expire", name: "Expire Quote", description: "Choose when an expiring quote is officially marked as expired.", type: "toggle", defaultValue: true, subSettings: [
+          { id: "app-quotes-expire-at", name: "Expiration Timing", description: "Select when the quote expires on the expiration date.", type: "select", defaultValue: "exact-hour", options: [
+            { label: "Exact Hour", value: "exact-hour" },
+            { label: "Close of Business", value: "close-of-business" },
+            { label: "11:59 PM MDT", value: "end-of-day-mdt" },
+          ]},
+        ]},
+        { id: "app-quotes-notify", name: "Send Expiration Reminder", description: "Send a reminder to the prospect before their quote expires.", type: "toggle", defaultValue: true },
+        { id: "app-quotes-lock", name: "Lock Pricing on Accept", description: "Lock the quoted price once the prospect accepts.", type: "toggle", defaultValue: true },
+      ]},
+      { id: "app-waitlist", name: "Waitlist Lifecycle & Management", description: "Manage waitlist behavior when preferred units are unavailable — offer timing, expiration, and automatic advancement.", settingsCount: 6, settings: [
+        { id: "app-wl-enable", name: "Enable Waitlist", description: "Allow prospects to join a waitlist when preferred units are unavailable.", type: "toggle", defaultValue: true },
+        { id: "app-wl-auto-offer", name: "Auto-Send Offers", description: "Automatically send an offer to the next prospect on the waitlist when a unit becomes available.", type: "toggle", defaultValue: true },
+        { id: "app-wl-offer-expiry", name: "Expire Offer After", description: "Hours before a waitlist offer expires if not accepted.", type: "number", defaultValue: 48, suffix: "hours" },
+        { id: "app-wl-wait-days", name: "Wait Day(s) for Offer Response", description: "Set the number of days to wait for an applicant to respond to a waitlist offer before it expires.", type: "toggle", defaultValue: true, subSettings: [
+          { id: "app-wl-wait-days-value", name: "Number of Days", description: "Days to wait for the applicant to respond.", type: "number", defaultValue: 3, suffix: "days" },
+        ]},
+        { id: "app-wl-validate-status", name: "Validate Status Before Adding Applicant to the Waitlist", description: "Require the applicant to reach a specific status before they can be added to the waitlist.", type: "toggle", defaultValue: true, subSettings: [
+          { id: "app-wl-validate-status-at", name: "Required Status", description: "Select the minimum status an applicant must reach to be added to the waitlist.", type: "select", defaultValue: "guest-card-complete", options: [
+            { label: "Guest Card Complete", value: "guest-card-complete" },
+            { label: "Application Started", value: "application-started" },
+            { label: "Application Complete", value: "application-complete" },
+          ]},
+        ]},
+        { id: "app-wl-auto-advance", name: "Auto-Advance on Decline", description: "Automatically advance to the next prospect when an offer is declined or expires.", type: "toggle", defaultValue: true },
       ]},
     ],
   },
@@ -786,7 +824,10 @@ function L4SettingsFlyout({ stageId, onClose }: { stageId: StageId; onClose: () 
 function SubAgentSettingsView({ agent, propertyName, onBack }: { agent: L3SubAgent; propertyName: string; onBack: () => void }) {
   const [values, setValues] = useState<Record<string, string | number | boolean>>(() => {
     const init: Record<string, string | number | boolean> = {};
-    agent.settings.forEach((s) => { init[s.id] = s.defaultValue; });
+    agent.settings.forEach((s) => {
+      init[s.id] = s.defaultValue;
+      s.subSettings?.forEach((sub) => { init[sub.id] = sub.defaultValue; });
+    });
     return init;
   });
   const [saveToast, setSaveToast] = useState(false);
@@ -857,7 +898,8 @@ function SubAgentSettingsView({ agent, propertyName, onBack }: { agent: L3SubAge
           {/* Settings cards */}
           <div className="space-y-4">
             {agent.settings.map((setting) => (
-              <div key={setting.id} className="rounded-xl border border-border bg-white p-5 hover:shadow-sm transition-shadow">
+              <div key={setting.id} className="rounded-xl border border-border bg-white hover:shadow-sm transition-shadow">
+                <div className="p-5">
                 <div className="flex items-start justify-between gap-6">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-foreground">{setting.name}</p>
@@ -912,6 +954,51 @@ function SubAgentSettingsView({ agent, propertyName, onBack }: { agent: L3SubAge
                     ) : null}
                   </div>
                 </div>
+                </div>
+
+                {setting.type === "toggle" && setting.subSettings && values[setting.id] && (
+                  <div className="border-t border-border/50 bg-zinc-50/50 px-5 py-4 space-y-3">
+                    {setting.subSettings.map((sub) => (
+                      <div key={sub.id} className="flex items-start justify-between gap-6">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-foreground">{sub.name}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{sub.description}</p>
+                        </div>
+                        <div className="flex items-center gap-4 shrink-0">
+                          {sub.type === "number" ? (
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                value={values[sub.id] as number}
+                                onChange={(e) => updateValue(sub.id, parseInt(e.target.value) || 0)}
+                                className="h-9 w-24 rounded-lg border border-border bg-white px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-[#7c3aed]/30"
+                              />
+                              {sub.suffix && <span className="text-xs text-muted-foreground">{sub.suffix}</span>}
+                            </div>
+                          ) : sub.type === "toggle" ? (
+                            <button
+                              type="button"
+                              onClick={() => updateValue(sub.id, !values[sub.id])}
+                              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors ${values[sub.id] ? "bg-[#7c3aed]" : "bg-zinc-300"}`}
+                            >
+                              <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${values[sub.id] ? "translate-x-[22px]" : "translate-x-[3px]"}`} />
+                            </button>
+                          ) : sub.type === "select" ? (
+                            <select
+                              value={values[sub.id] as string}
+                              onChange={(e) => updateValue(sub.id, e.target.value)}
+                              className="h-9 rounded-lg border border-border bg-white px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-[#7c3aed]/30"
+                            >
+                              {sub.options?.map((opt) => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                              ))}
+                            </select>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>
