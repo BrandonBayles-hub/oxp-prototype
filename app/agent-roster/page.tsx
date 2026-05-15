@@ -497,9 +497,53 @@ function AgentRosterContent() {
               </div>
             )}
 
+            {/* L5 Hero Agent */}
+            {(() => {
+              const l5Agent = cardSorted.find((a) => a.type === "fully_autonomous");
+              if (!l5Agent) return null;
+              return (
+                <button
+                  key={l5Agent.id}
+                  type="button"
+                  onClick={() => {
+                    if (l5Agent.status === "Active") setLeadToLeaseOpen(true);
+                    else setLeadToLeaseActivateOpen(true);
+                  }}
+                  className="mb-6 w-full rounded-2xl border-2 border-[#7c3aed]/30 bg-gradient-to-r from-[#7c3aed]/[0.04] via-white to-[#7c3aed]/[0.04] p-6 text-left transition-all hover:shadow-lg hover:border-[#7c3aed]/50 group"
+                >
+                  <div className="flex items-center gap-5">
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#7c3aed]/10">
+                      <img src="/eli-cube.svg" alt="" width={30} height={30} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-3 mb-1">
+                        <p className="text-lg font-bold text-foreground">Autonomous Lead To Lease</p>
+                        <span className="rounded-full bg-gradient-to-r from-[#7c3aed] to-[#6d28d9] px-2.5 py-0.5 text-[10px] font-bold text-white tracking-wide">L5</span>
+                        <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${l5Agent.status === "Active" ? "bg-[#B3FFCC] text-black" : "bg-amber-400 text-amber-950"}`}>
+                          {l5Agent.status}
+                        </span>
+                      </div>
+                      <p className="text-sm text-muted-foreground leading-relaxed max-w-3xl">
+                        {l5Agent.description}
+                      </p>
+                    </div>
+                    <div className="shrink-0 flex items-center gap-3">
+                      <div className="flex flex-col items-end gap-1 text-right mr-2">
+                        <span className="text-xs font-semibold text-[#7c3aed]">4 Stages</span>
+                        <span className="text-[11px] text-muted-foreground">15 L3 + 8 L4 agents</span>
+                      </div>
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#7c3aed]/10 group-hover:bg-[#7c3aed]/20 transition-colors">
+                        <ArrowRight className="h-5 w-5 text-[#7c3aed]" />
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              );
+            })()}
+
             {/* Card grid */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {cardSorted.map((agent) => {
+              {cardSorted.filter((a) => a.type !== "fully_autonomous").map((agent) => {
                 const isOffEliPlus = agent.type === "autonomous" && agent.status === "Off";
                 const typeInfo = AGENT_TYPES.find((t) => t.value === agent.type);
                 const levelLabel = typeInfo?.label ?? "L1 · ELI Essentials";
@@ -512,11 +556,6 @@ function AgentRosterContent() {
                     type="button"
                     onClick={() => {
                       if (isOffEliPlus) { setEliPlusActivateAgent(agent.name); return; }
-                      if (agent.name === "Autonomous Lead To Lease") {
-                        if (agent.status === "Active") setLeadToLeaseOpen(true);
-                        else setLeadToLeaseActivateOpen(true);
-                        return;
-                      }
                       if (agent.type === "efficiency" && getL3AgentConfig(agent.name)) { setL3AgentId(agent.id); return; }
                       if (agent.type === "operations" || agent.type === "efficiency" || agent.type === "intelligence") setOpsAgentId(agent.id);
                       else setAutoAgentId(agent.id);

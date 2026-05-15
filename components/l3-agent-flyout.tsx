@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   Power, CirclePlay, ExternalLink, ChevronDown, ChevronUp, Search,
-  CheckCircle, XCircle, Clock, Settings, ArrowLeft, Save,
+  CheckCircle, XCircle, Clock, Settings, ArrowLeft, Save, Users,
 } from "lucide-react";
 import type { Agent } from "@/lib/agents-context";
 
@@ -495,6 +495,7 @@ function L3AgentFlyoutContent({
         property={prop}
         config={config}
         onBack={() => setSelectedPropertyId(null)}
+        onStatusChange={(status) => setPropertyStatuses((prev) => ({ ...prev, [selectedPropertyId]: status }))}
       />
     );
   }
@@ -621,30 +622,28 @@ function L3AgentFlyoutContent({
                       <td className="py-3 text-center text-muted-foreground">{prop.units}</td>
                       <td className="py-3 text-center">
                         <div className="flex items-center justify-center gap-2">
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); handlePropertyToggle(prop.id); }}
-                            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors ${propIsActive ? "bg-emerald-500" : "bg-zinc-300"}`}
-                          >
-                            <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${propIsActive ? "translate-x-[18px]" : "translate-x-[3px]"}`} />
-                          </button>
-                          <span
-                            className={`text-[11px] font-medium text-emerald-600 transition-opacity duration-300 w-10 ${justSaved ? "opacity-100" : "opacity-0"}`}
-                          >
-                            Saved
-                          </span>
+                          {propIsActive ? (
+                            <div className="flex items-center gap-1.5">
+                              <div className="flex h-6 w-6 items-center justify-center rounded-md bg-[#7c3aed]/10">
+                                <img src="/eli-cube.svg" alt="" width={14} height={14} />
+                              </div>
+                              <span className="text-xs font-semibold text-[#7c3aed]">Agent</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5">
+                              <div className="flex h-6 w-6 items-center justify-center rounded-md bg-zinc-100">
+                                <Users className="h-3.5 w-3.5 text-zinc-500" />
+                              </div>
+                              <span className="text-xs font-medium text-zinc-500">Manual</span>
+                            </div>
+                          )}
                         </div>
                       </td>
                       <td className="py-3 text-right">
                         <button
                           type="button"
-                          onClick={() => { if (propIsActive) setSelectedPropertyId(prop.id); }}
-                          disabled={!propIsActive}
-                          className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium transition-colors ${
-                            propIsActive
-                              ? "border-border bg-white text-foreground hover:bg-zinc-100 cursor-pointer"
-                              : "border-border/50 bg-muted/30 text-muted-foreground/50 cursor-not-allowed"
-                          }`}
+                          onClick={() => setSelectedPropertyId(prop.id)}
+                          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-white px-3 text-xs font-medium text-foreground transition-colors hover:bg-zinc-100 cursor-pointer"
                         >
                           <Settings className="h-3.5 w-3.5" />
                           Configure
@@ -728,11 +727,13 @@ function PropertySettingsView({
   property,
   config,
   onBack,
+  onStatusChange,
 }: {
   agentName: string;
   property: typeof L3_PROPERTIES[number];
   config: L3AgentConfig;
   onBack: () => void;
+  onStatusChange: (status: "Active" | "Off") => void;
 }) {
   const [values, setValues] = useState<Record<string, string | number | boolean>>(() => {
     const init: Record<string, string | number | boolean> = {};
@@ -762,6 +763,9 @@ function PropertySettingsView({
   };
 
   const handleSave = () => {
+    const toggleFields = config.settingsGroups.flatMap((g) => g.fields).filter((f) => f.type === "toggle");
+    const anyEnabled = toggleFields.some((f) => values[f.id] === true);
+    onStatusChange(anyEnabled ? "Active" : "Off");
     setSaveToast(true);
     setTimeout(() => setSaveToast(false), 2000);
   };
