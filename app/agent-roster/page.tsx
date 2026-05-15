@@ -41,6 +41,7 @@ import {
   DEFAULT_NOVA2_VOICE_ID,
   getNova2Voice,
   getNova2VoicesByGender,
+  type AgentToneId,
   type AgentVoiceTuning,
   type VoiceSettings,
 } from "@/lib/voice-context";
@@ -4413,7 +4414,14 @@ const AGENT_NAME_TO_ID: Record<string, string> = {
   "Payments AI": "1",
 };
 
-type CascadeLevel = "Company" | "Vertical" | "Property" | "Agent";
+const AGENT_NAME_TO_TONE_ID: Record<string, AgentToneId> = {
+  "Leasing AI": "leasing",
+  "Renewal AI": "renewal",
+  "Maintenance AI": "maintenance",
+  "Payments AI": "payments",
+};
+
+type CascadeLevel = "Company" | "Default" | "Vertical" | "Property" | "Agent";
 type ResolvedField<T> = { value: T; source: CascadeLevel };
 
 function resolveListField(
@@ -4442,6 +4450,7 @@ function resolveVoiceField<K extends keyof VoiceSettings>(
 
 const LEVEL_ICONS: Record<CascadeLevel, React.ComponentType<{ className?: string }>> = {
   Company: Building2,
+  Default: Building2,
   Vertical: Layers,
   Property: Home,
   Agent: Bot,
@@ -4449,6 +4458,7 @@ const LEVEL_ICONS: Record<CascadeLevel, React.ComponentType<{ className?: string
 
 const LEVEL_COLORS: Record<CascadeLevel, string> = {
   Company: "bg-blue-500",
+  Default: "bg-blue-500",
   Vertical: "bg-purple-500",
   Property: "bg-amber-500",
   Agent: "bg-emerald-500",
@@ -4463,12 +4473,24 @@ function SourceBadge({ source }: { source: CascadeLevel }) {
   );
 }
 
-function CascadeDots({ hasVertical, hasProperty, hasAgent }: { hasVertical: boolean; hasProperty: boolean; hasAgent: boolean }) {
+function CascadeDots({
+  hasVertical,
+  hasProperty,
+  hasAgent,
+  rootLabel = "Company",
+  includeAgent = true,
+}: {
+  hasVertical: boolean;
+  hasProperty: boolean;
+  hasAgent: boolean;
+  rootLabel?: "Company" | "Default";
+  includeAgent?: boolean;
+}) {
   const levels: { label: CascadeLevel; active: boolean }[] = [
-    { label: "Company", active: true },
+    { label: rootLabel, active: true },
     { label: "Vertical", active: hasVertical },
     { label: "Property", active: hasProperty },
-    { label: "Agent", active: hasAgent },
+    ...(includeAgent ? [{ label: "Agent" as CascadeLevel, active: hasAgent }] : []),
   ];
   return (
     <div className="flex items-center gap-1">
@@ -4507,19 +4529,17 @@ type VoiceToneSection = "tone" | "voice";
 function AgentVoiceTonePanel({ agentName, property }: { agentName: string; property: { name: string; vertical: string } }) {
   const voice = useVoice();
   const agentId = AGENT_NAME_TO_ID[agentName] ?? "0";
+  const toneAgentId = AGENT_NAME_TO_TONE_ID[agentName] ?? null;
   const [section, setSection] = useState<VoiceToneSection>("tone");
 
   const vertOvr = voice.verticalOverrides.find(v => v.vertical === property.vertical && v.enabled);
   const propOvr = voice.propertyOverrides.find(p => p.property === property.name);
-  const agentOvr = voice.agentTuning.find(
-    t => t.agentId === agentId && t.propertyName === property.name,
-  );
 
   return (
     <div className="p-8 max-w-3xl">
       <h2 className="text-xl font-bold text-foreground">Voice & Tone</h2>
       <p className="text-sm text-muted-foreground mt-1.5">
-        How {agentName} communicates at {property.name}. Settings cascade from Company → Vertical → Property → Agent.
+        How {agentName} communicates at {property.name}. Tone settings cascade from Default → Vertical → Property, while voice settings still resolve through the platform voice configuration.
       </p>
 
       <div className="mt-5 flex gap-1 rounded-lg border border-border bg-zinc-50/50 p-1 w-fit">
@@ -4544,7 +4564,7 @@ function AgentVoiceTonePanel({ agentName, property }: { agentName: string; prope
       </div>
 
       {section === "tone" ? (
-        <AgentToneSection agentName={agentName} property={property} voice={voice} agentId={agentId} vertOvr={vertOvr} propOvr={propOvr} agentOvr={agentOvr} />
+        <AgentToneSection agentName={agentName} property={property} voice={voice} toneAgentId={toneAgentId} />
       ) : (
         <AgentVoiceSection agentName={agentName} agentId={agentId} property={property} voice={voice} vertOvr={vertOvr} propOvr={propOvr} />
       )}
@@ -4555,306 +4575,137 @@ function AgentVoiceTonePanel({ agentName, property }: { agentName: string; prope
 /* ─── Tone Section ─── */
 
 function AgentToneSection({
-  agentName, property, voice, agentId, vertOvr, propOvr, agentOvr,
+  agentName,
+  property,
+  voice,
+  toneAgentId,
 }: {
   agentName: string;
   property: { name: string; vertical: string };
   voice: ReturnType<typeof useVoice>;
-  agentId: string;
-  vertOvr: ReturnType<typeof useVoice>["verticalOverrides"][0] | undefined;
-  propOvr: ReturnType<typeof useVoice>["propertyOverrides"][0] | undefined;
-  agentOvr: AgentVoiceTuning | undefined;
+  toneAgentId: AgentToneId | null;
 }) {
+  const defaultTone = toneAgentId ? voice.agentToneDefaults[toneAgentId] : undefined;
+  const vertOvr = toneAgentId
+    ? voice.agentVerticalToneOverrides.find(
+        (override) => override.agentId === toneAgentId && override.vertical === property.vertical,
+      )
+    : undefined;
+  const propOvr = toneAgentId
+    ? voice.agentPropertyToneOverrides.find(
+        (override) => override.agentId === toneAgentId && override.propertyName === property.name,
+      )
+    : undefined;
+
   const persona = (() => {
-    if (agentOvr?.personality) return { value: agentOvr.personality, source: "Agent" as CascadeLevel };
-    if (propOvr?.persona) return { value: propOvr.persona, source: "Property" as CascadeLevel };
-    if (vertOvr?.persona) return { value: vertOvr.persona, source: "Vertical" as CascadeLevel };
-    return { value: voice.persona, source: "Company" as CascadeLevel };
+    if (propOvr?.settings.persona) return { value: propOvr.settings.persona, source: "Property" as CascadeLevel };
+    if (vertOvr?.settings.persona) return { value: vertOvr.settings.persona, source: "Vertical" as CascadeLevel };
+    return { value: defaultTone?.persona ?? "", source: "Default" as CascadeLevel };
   })();
 
   const guidelines = (() => {
-    if (agentOvr?.customInstructions) return { value: agentOvr.customInstructions, source: "Agent" as CascadeLevel };
-    if (propOvr?.brandingTone) return { value: propOvr.brandingTone, source: "Property" as CascadeLevel };
-    if (vertOvr?.brandingTone) return { value: vertOvr.brandingTone, source: "Vertical" as CascadeLevel };
-    return { value: voice.brandingTone, source: "Company" as CascadeLevel };
+    if (propOvr?.settings.guidelines) return { value: propOvr.settings.guidelines, source: "Property" as CascadeLevel };
+    if (vertOvr?.settings.guidelines) return { value: vertOvr.settings.guidelines, source: "Vertical" as CascadeLevel };
+    return { value: defaultTone?.guidelines ?? "", source: "Default" as CascadeLevel };
   })();
 
-  const doList = resolveListField(voice, "doExamples", vertOvr, propOvr, agentOvr);
-  const dontList = resolveListField(voice, "dontExamples", vertOvr, propOvr, agentOvr);
+  const doList = (() => {
+    if (propOvr?.settings.doExamples.length) return { value: propOvr.settings.doExamples, source: "Property" as CascadeLevel };
+    if (vertOvr?.settings.doExamples.length) return { value: vertOvr.settings.doExamples, source: "Vertical" as CascadeLevel };
+    return { value: defaultTone?.doExamples ?? [], source: "Default" as CascadeLevel };
+  })();
 
-  const [editing, setEditing] = useState(false);
-  const [draftPersonality, setDraftPersonality] = useState(agentOvr?.personality ?? "");
-  const [draftInstructions, setDraftInstructions] = useState(agentOvr?.customInstructions ?? "");
-  const [draftTone, setDraftTone] = useState(agentOvr?.toneOverride ?? "");
-  const [draftDos, setDraftDos] = useState<string[]>(agentOvr?.doExamples ?? []);
-  const [draftDonts, setDraftDonts] = useState<string[]>(agentOvr?.dontExamples ?? []);
-  const [newDo, setNewDo] = useState("");
-  const [newDont, setNewDont] = useState("");
+  const dontList = (() => {
+    if (propOvr?.settings.dontExamples.length) return { value: propOvr.settings.dontExamples, source: "Property" as CascadeLevel };
+    if (vertOvr?.settings.dontExamples.length) return { value: vertOvr.settings.dontExamples, source: "Vertical" as CascadeLevel };
+    return { value: defaultTone?.dontExamples ?? [], source: "Default" as CascadeLevel };
+  })();
 
-  const startEditing = () => {
-    setDraftPersonality(agentOvr?.personality ?? "");
-    setDraftInstructions(agentOvr?.customInstructions ?? "");
-    setDraftTone(agentOvr?.toneOverride ?? "");
-    setDraftDos(agentOvr?.doExamples ?? []);
-    setDraftDonts(agentOvr?.dontExamples ?? []);
-    setNewDo("");
-    setNewDont("");
-    setEditing(true);
-  };
-
-  const saveOverride = () => {
-    const entry: AgentVoiceTuning = {
-      agentId,
-      agentName,
-      propertyName: property.name,
-      personality: draftPersonality || undefined,
-      customInstructions: draftInstructions || undefined,
-      toneOverride: draftTone || undefined,
-      doExamples: draftDos.length > 0 ? draftDos : undefined,
-      dontExamples: draftDonts.length > 0 ? draftDonts : undefined,
-    };
-    if (agentOvr) {
-      voice.updateAgentTuning(agentId, entry, property.name);
-    } else {
-      voice.addAgentTuning(entry);
-    }
-    setEditing(false);
-  };
-
-  const resetOverride = () => {
-    voice.removeAgentTuning(agentId, property.name);
-    setEditing(false);
-  };
+  const editHref = toneAgentId
+    ? `/voice?agent=${toneAgentId}&property=${encodeURIComponent(property.name)}`
+    : "/voice";
 
   return (
     <>
-      {/* Cascade status bar */}
       <div className="mt-6 rounded-xl border border-border bg-zinc-50/50 p-4">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Cascade Inheritance</p>
-            <CascadeDots hasVertical={!!vertOvr} hasProperty={!!propOvr} hasAgent={!!agentOvr} />
+            <CascadeDots
+              hasVertical={!!vertOvr}
+              hasProperty={!!propOvr}
+              hasAgent={false}
+              rootLabel="Default"
+              includeAgent={false}
+            />
           </div>
-          <div className="flex items-center gap-2">
-            {agentOvr ? (
-              <>
-                <Badge variant="outline" className="text-emerald-700 border-emerald-300 bg-emerald-50 text-xs">Agent Override Active</Badge>
-                {!editing && (
-                  <Button variant="outline" size="sm" onClick={startEditing} className="gap-1">
-                    <Pencil className="h-3 w-3" /> Edit
-                  </Button>
-                )}
-              </>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.location.assign(editHref)}
+            className="gap-1"
+          >
+            <Pencil className="h-3 w-3" /> Edit in Voice & Tone settings
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-6 space-y-4">
+        <div className="rounded-xl border border-border bg-white p-5">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-semibold text-foreground">AI Persona</p>
+            <SourceBadge source={persona.source} />
+          </div>
+          <p className="text-sm text-muted-foreground">{persona.value || "Not configured"}</p>
+        </div>
+
+        <div className="rounded-xl border border-border bg-white p-5">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-semibold text-foreground">Agent Tone & Instructions</p>
+            <SourceBadge source={guidelines.source} />
+          </div>
+          <p className="text-sm text-muted-foreground whitespace-pre-wrap">{guidelines.value || "Not configured"}</p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="rounded-xl border border-border bg-white p-5">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-emerald-700">Do&apos;s</p>
+              <SourceBadge source={doList.source} />
+            </div>
+            {doList.value.length > 0 ? (
+              <ul className="space-y-1.5">
+                {doList.value.map((item, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                    <CheckCircle className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
             ) : (
-              <Button variant="outline" size="sm" onClick={startEditing} className="gap-1">
-                <Plus className="h-3.5 w-3.5" /> Add Agent Override
-              </Button>
+              <p className="text-sm text-muted-foreground">No items configured</p>
+            )}
+          </div>
+          <div className="rounded-xl border border-border bg-white p-5">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-red-700">Don&apos;ts</p>
+              <SourceBadge source={dontList.source} />
+            </div>
+            {dontList.value.length > 0 ? (
+              <ul className="space-y-1.5">
+                {dontList.value.map((item, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                    <XCircle className="h-3.5 w-3.5 text-red-500 mt-0.5 shrink-0" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">No items configured</p>
             )}
           </div>
         </div>
       </div>
-
-      {/* Effective settings (read-only) */}
-      {!editing && (
-        <div className="mt-6 space-y-4">
-          <div className="rounded-xl border border-border bg-white p-5">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm font-semibold text-foreground">AI Persona</p>
-              <SourceBadge source={persona.source} />
-            </div>
-            <p className="text-sm text-muted-foreground">{persona.value || "Not configured"}</p>
-          </div>
-
-          <div className="rounded-xl border border-border bg-white p-5">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm font-semibold text-foreground">Tone Guidelines</p>
-              <SourceBadge source={guidelines.source} />
-            </div>
-            <p className="text-sm text-muted-foreground whitespace-pre-wrap">{guidelines.value || "Not configured"}</p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="rounded-xl border border-border bg-white p-5">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-semibold text-emerald-700">Do&apos;s</p>
-                <SourceBadge source={doList.source} />
-              </div>
-              {doList.value.length > 0 ? (
-                <ul className="space-y-1.5">
-                  {doList.value.map((item, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
-                      <CheckCircle className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-sm text-muted-foreground">No items configured</p>
-              )}
-            </div>
-            <div className="rounded-xl border border-border bg-white p-5">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-semibold text-red-700">Don&apos;ts</p>
-                <SourceBadge source={dontList.source} />
-              </div>
-              {dontList.value.length > 0 ? (
-                <ul className="space-y-1.5">
-                  {dontList.value.map((item, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
-                      <XCircle className="h-3.5 w-3.5 text-red-500 mt-0.5 shrink-0" />
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-sm text-muted-foreground">No items configured</p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Agent override editor */}
-      {editing && (
-        <div className="mt-6 space-y-5">
-          <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50/30 p-5 space-y-5">
-            <div className="flex items-center gap-2 mb-1">
-              <Bot className="h-4 w-4 text-emerald-600" />
-              <p className="text-sm font-semibold text-foreground">Agent-Level Override</p>
-              <span className="text-xs text-muted-foreground">for {agentName} at {property.name}</span>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm font-medium">Personality / Persona</label>
-              <input
-                className="input-base w-full text-sm"
-                placeholder={persona.value || "e.g. Friendly leasing specialist"}
-                value={draftPersonality}
-                onChange={e => setDraftPersonality(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground mt-1">Inherited: {persona.value} ({persona.source})</p>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm font-medium">Tone Override</label>
-              <input
-                className="input-base w-full text-sm"
-                placeholder="e.g. Warm and enthusiastic"
-                value={draftTone}
-                onChange={e => setDraftTone(e.target.value)}
-              />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm font-medium">Custom Instructions / Guidelines</label>
-              <textarea
-                className="input-base w-full resize-y text-sm !h-auto min-h-[120px]"
-                rows={5}
-                placeholder={guidelines.value || "Enter custom tone instructions for this agent at this property..."}
-                value={draftInstructions}
-                onChange={e => setDraftInstructions(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground mt-1">Inherited: {guidelines.source} level</p>
-            </div>
-
-            <div>
-              <label className="mb-2 block text-sm font-medium text-emerald-700">Do&apos;s</label>
-              <div className="space-y-1.5 mb-2">
-                {draftDos.map((item, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <CheckCircle className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                    <span className="flex-1 text-sm">{item}</span>
-                    <button
-                      type="button"
-                      onClick={() => setDraftDos(prev => prev.filter((_, idx) => idx !== i))}
-                      className="text-muted-foreground hover:text-red-500 transition-colors"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <input
-                  className="input-base flex-1 text-sm"
-                  placeholder="Add a do…"
-                  value={newDo}
-                  onChange={e => setNewDo(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === "Enter" && newDo.trim()) {
-                      setDraftDos(prev => [...prev, newDo.trim()]);
-                      setNewDo("");
-                    }
-                  }}
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!newDo.trim()}
-                  onClick={() => { setDraftDos(prev => [...prev, newDo.trim()]); setNewDo(""); }}
-                >
-                  Add
-                </Button>
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-2 block text-sm font-medium text-red-700">Don&apos;ts</label>
-              <div className="space-y-1.5 mb-2">
-                {draftDonts.map((item, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <XCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />
-                    <span className="flex-1 text-sm">{item}</span>
-                    <button
-                      type="button"
-                      onClick={() => setDraftDonts(prev => prev.filter((_, idx) => idx !== i))}
-                      className="text-muted-foreground hover:text-red-500 transition-colors"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <input
-                  className="input-base flex-1 text-sm"
-                  placeholder="Add a don't…"
-                  value={newDont}
-                  onChange={e => setNewDont(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === "Enter" && newDont.trim()) {
-                      setDraftDonts(prev => [...prev, newDont.trim()]);
-                      setNewDont("");
-                    }
-                  }}
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!newDont.trim()}
-                  onClick={() => { setDraftDonts(prev => [...prev, newDont.trim()]); setNewDont(""); }}
-                >
-                  Add
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <Button size="sm" onClick={saveOverride} className="gap-1">
-              <Save className="h-3.5 w-3.5" /> Save Override
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setEditing(false)}>
-              Cancel
-            </Button>
-            {agentOvr && (
-              <Button variant="outline" size="sm" onClick={resetOverride} className="text-red-600 hover:text-red-700 hover:bg-red-50 ml-auto gap-1">
-                <RotateCcw className="h-3.5 w-3.5" /> Reset to Inherited
-              </Button>
-            )}
-          </div>
-        </div>
-      )}
     </>
   );
 }

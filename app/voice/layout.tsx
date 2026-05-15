@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
 import { MessageSquareText, Phone } from "lucide-react";
+
+const AGENT_QUERY_IDS = new Set(["leasing", "renewal", "payments", "maintenance"]);
 
 const TABS = [
   { href: "/voice", label: "Tone & Guidelines", icon: MessageSquareText, exact: true },
@@ -13,6 +15,9 @@ const TABS = [
 
 export default function VoiceLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const selectedAgent = searchParams.get("agent");
+  const hasSelectedAgent = Boolean(selectedAgent && AGENT_QUERY_IDS.has(selectedAgent));
 
   const isActive = (tab: (typeof TABS)[number]) => {
     if (tab.exact) return pathname === tab.href;
@@ -30,10 +35,11 @@ export default function VoiceLayout({ children }: { children: React.ReactNode })
           {TABS.map((tab) => {
             const Icon = tab.icon;
             const active = isActive(tab);
+            const href = hasSelectedAgent ? `${tab.href}?agent=${selectedAgent}` : tab.href;
             return (
               <Link
                 key={tab.href}
-                href={tab.href}
+                href={href}
                 className={cn(
                   "inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px",
                   active

@@ -496,6 +496,7 @@ function L3AgentFlyoutContent({
         config={config}
         onBack={() => setSelectedPropertyId(null)}
         onStatusChange={(status) => setPropertyStatuses((prev) => ({ ...prev, [selectedPropertyId]: status }))}
+        initialActive={propertyStatuses[selectedPropertyId] === "Active"}
       />
     );
   }
@@ -728,13 +729,16 @@ function PropertySettingsView({
   config,
   onBack,
   onStatusChange,
+  initialActive = true,
 }: {
   agentName: string;
   property: typeof L3_PROPERTIES[number];
   config: L3AgentConfig;
   onBack: () => void;
   onStatusChange: (status: "Active" | "Off") => void;
+  initialActive?: boolean;
 }) {
+  const [agentEnabled, setAgentEnabled] = useState(initialActive);
   const [values, setValues] = useState<Record<string, string | number | boolean>>(() => {
     const init: Record<string, string | number | boolean> = {};
     config.settingsGroups.forEach((group) => {
@@ -762,10 +766,14 @@ function PropertySettingsView({
     setValues((prev) => ({ ...prev, [id]: value }));
   };
 
+  const handleToggleAgent = () => {
+    const next = !agentEnabled;
+    setAgentEnabled(next);
+    onStatusChange(next ? "Active" : "Off");
+  };
+
   const handleSave = () => {
-    const toggleFields = config.settingsGroups.flatMap((g) => g.fields).filter((f) => f.type === "toggle");
-    const anyEnabled = toggleFields.some((f) => values[f.id] === true);
-    onStatusChange(anyEnabled ? "Active" : "Off");
+    onStatusChange(agentEnabled ? "Active" : "Off");
     setSaveToast(true);
     setTimeout(() => setSaveToast(false), 2000);
   };
@@ -805,8 +813,49 @@ function PropertySettingsView({
         </div>
       </div>
 
+      {/* Agent / Manual toggle */}
+      <div className="shrink-0 border-b border-border px-8 py-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {agentEnabled ? (
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#7c3aed]/10">
+                  <img src="/eli-cube.svg" alt="" width={16} height={16} />
+                </div>
+                <span className="text-sm font-semibold text-[#7c3aed]">Agent</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-zinc-100">
+                  <Users className="h-4 w-4 text-zinc-500" />
+                </div>
+                <span className="text-sm font-semibold text-zinc-500">Manual</span>
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={handleToggleAgent}
+            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
+              agentEnabled ? "bg-[#7c3aed]" : "bg-zinc-300"
+            }`}
+          >
+            <span
+              className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                agentEnabled ? "translate-x-6" : "translate-x-1"
+              }`}
+            />
+          </button>
+        </div>
+        {!agentEnabled && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            This property is managed manually. Toggle to Agent to automate this workflow.
+          </p>
+        )}
+      </div>
+
       {/* Settings groups */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-8 py-6 space-y-4">
+      <div className={`flex-1 min-h-0 overflow-y-auto px-8 py-6 space-y-4 ${!agentEnabled ? "opacity-50 pointer-events-none" : ""}`}>
         {config.settingsGroups.map((group) => {
           const isExpanded = expandedGroups.has(group.id);
           return (
