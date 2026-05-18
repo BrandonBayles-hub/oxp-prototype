@@ -200,6 +200,71 @@ function InfoPopover({ label, children }: { label: string; children: React.React
   )
 }
 
+// ── Icon-only IVR menu popover (used inline in Default IVR row descriptions) ───
+
+function IvrMenuIconPopover() {
+  const [open, setOpen] = useState(false)
+  const [pos, setPos]   = useState<{ top: number; left: number } | null>(null)
+  const btnRef          = useRef<HTMLButtonElement>(null)
+  const popRef          = useRef<HTMLDivElement>(null)
+
+  const openPopover = () => {
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect()
+      setPos({ top: r.bottom + 8, left: Math.max(8, r.left - 220) })
+    }
+    setOpen(true)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (
+        popRef.current && !popRef.current.contains(e.target as Node) &&
+        btnRef.current && !btnRef.current.contains(e.target as Node)
+      ) setOpen(false)
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [open])
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => open ? setOpen(false) : openPopover()}
+        className="inline align-middle ml-0.5 text-muted-foreground hover:text-foreground transition-colors"
+        aria-label="View Default IVR Menu"
+      >
+        <Info className="inline h-3 w-3" />
+      </button>
+      {open && pos && (
+        <div
+          ref={popRef}
+          className="fixed z-[9999] w-[480px] rounded-xl border border-border bg-white shadow-2xl"
+          style={{ top: pos.top, left: pos.left }}
+        >
+          <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+            <p className="text-xs font-semibold text-foreground">Default IVR Menu</p>
+            <button type="button" onClick={() => setOpen(false)} className="text-muted-foreground hover:text-foreground">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <div className="px-4 py-3 text-xs text-muted-foreground leading-relaxed">
+            <p className="mb-3">
+              When a property uses <strong className="text-foreground">Default IVR</strong>, callers hear a
+              two-level menu optimized for leasing, maintenance, and resident calls — routing directly to
+              Leasing AI and Maintenance AI.
+            </p>
+            <MenuPreviewTable />
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
 // ── IVR menu preview (used inside popover) ─────────────────────────────────────
 
 function MenuPreviewTable() {
@@ -433,14 +498,6 @@ export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) 
             </div>
             {/* Info pills */}
             <div className="flex items-center gap-2 shrink-0">
-              <InfoPopover label="Default IVR Menu">
-                <p className="mb-3">
-                  When a property uses <strong className="text-foreground">Default IVR</strong>, callers hear a
-                  two-level menu optimized for leasing, maintenance, and resident calls — routing directly to
-                  Leasing AI and Maintenance AI.
-                </p>
-                <MenuPreviewTable />
-              </InfoPopover>
               <InfoPopover label="Why this matters">
                 <p className="mb-3 text-foreground font-medium">A convoluted IVR is the #1 reason AI deflection KPIs underperform post-launch.</p>
                 <div className="grid grid-cols-2 gap-3">
@@ -516,7 +573,7 @@ export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) 
                           <p className="mt-0.5 text-[11px] text-muted-foreground leading-snug">
                             Entrata manages call routing — no action needed. See{" "}
                             <strong className="font-semibold text-foreground">Default IVR Menu</strong>
-                            <Info className="inline h-3 w-3 ml-0.5 align-middle" />.
+                            <IvrMenuIconPopover />.
                           </p>
                         )}
                           {isCustom && !myIvrMarked && (
