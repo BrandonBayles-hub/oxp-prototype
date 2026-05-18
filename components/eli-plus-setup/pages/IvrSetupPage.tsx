@@ -216,24 +216,13 @@ function IvrMenuIconPopover() {
     setOpen(true)
   }
 
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: MouseEvent) => {
-      if (
-        popRef.current && !popRef.current.contains(e.target as Node) &&
-        btnRef.current && !btnRef.current.contains(e.target as Node)
-      ) setOpen(false)
-    }
-    document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
-  }, [open])
-
   return (
     <>
       <button
         ref={btnRef}
         type="button"
-        onClick={() => open ? setOpen(false) : openPopover()}
+        onMouseEnter={openPopover}
+        onMouseLeave={() => setOpen(false)}
         className="inline align-middle ml-0.5 text-muted-foreground hover:text-foreground transition-colors"
         aria-label="View Default IVR Menu"
       >
