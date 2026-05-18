@@ -98,10 +98,10 @@ function CopyChipWide({ label, value, notContracted = false, onCopy, constrained
   const { copied, copy } = useCopy(value)
   const handleCopy = () => { copy(); onCopy?.() }
   return (
-    <div className={cn("flex items-center justify-between gap-2 rounded-lg border border-border bg-white px-3 py-2", constrained ? "max-w-[220px]" : "w-full")}>
+    <div className={cn("flex items-center justify-between gap-2 rounded-lg border border-border bg-white px-3 h-9", constrained ? "max-w-[220px]" : "w-full")}>
       <span className="text-[10px] font-medium text-muted-foreground whitespace-nowrap">{label}</span>
       {notContracted ? (
-        <span className="text-[11px] text-muted-foreground/60 italic">Not contracted</span>
+        <span className="text-[11px] text-muted-foreground/60 italic whitespace-nowrap">Not contracted</span>
       ) : (
         <div className="flex items-center gap-1.5 shrink-0">
           <span className="text-[13px] text-foreground tabular-nums">{value}</span>
