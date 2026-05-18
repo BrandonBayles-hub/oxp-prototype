@@ -91,15 +91,15 @@ function CopyChip({ label, value }: { label: string; value: string }) {
   )
 }
 
-// Wide chip — label left, number + copy icon right, fills grid column
+// Wide chip — label left, number + copy icon right
 function CopyChipWide({ label, value, notContracted = false, onCopy }: {
   label: string; value: string; notContracted?: boolean; onCopy?: () => void
 }) {
   const { copied, copy } = useCopy(value)
   const handleCopy = () => { copy(); onCopy?.() }
   return (
-    <div className="flex items-center justify-between gap-3 w-full rounded-lg border border-border bg-white px-3 py-2.5">
-      <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
+    <div className="inline-flex items-center justify-between gap-2 rounded-lg border border-border bg-white px-3 py-2 w-full max-w-[220px]">
+      <span className="text-[10px] font-medium text-muted-foreground whitespace-nowrap">{label}</span>
       {notContracted ? (
         <span className="text-[11px] text-muted-foreground/60 italic">Not contracted</span>
       ) : (
