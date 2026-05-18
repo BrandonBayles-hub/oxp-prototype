@@ -42,7 +42,7 @@ const NAV_ITEMS = [
   { label: "Tools", icon: Wrench },
   { label: "Apps", icon: AppWindow },
   { label: "Settings", icon: Settings },
-  { label: "Setup", icon: Settings },
+  { label: "Setup", icon: Settings, href: "/getting-started" },
 ] as const;
 
 export function EntrataTopNav() {
@@ -455,7 +455,7 @@ export function EntrataTopNav() {
           const href = "href" in item ? item.href : undefined;
           const isActive = href
             ? pathname.startsWith(href)
-            : ("active" in item && item.active && !pathname.startsWith("/setup-wizard"));
+            : ("active" in item && item.active);
           return (
             <button
               key={`${item.label}-${i}`}
