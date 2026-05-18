@@ -259,6 +259,8 @@ export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) 
   const [thirdPartyAcknowledged, setThirdPartyAcknowledged] = useState<Record<string, boolean>>({})
   const [hasCopied, setHasCopied]                           = useState<Record<string, boolean>>({})
   const [showLive, setShowLive]                             = useState(false)
+  // Warning dialog — holds the pending mode change until the user confirms
+  const [pendingChange, setPendingChange] = useState<{ propName: string; mode: PropertyIvrMode } | null>(null)
 
   // Mark complete on mount — defaults already applied
   useEffect(() => { onSave("preferred") }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -281,12 +283,24 @@ export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) 
     entrata: "Default IVR", custom: "Custom IVR", thirdparty: "3rd Party IVR",
   }
 
+  // Apply the mode change (called after warning confirmation)
   const changeMode = (name: string, mode: PropertyIvrMode) => {
     setModes(prev => ({ ...prev, [name]: mode }))
-    // Clear completion signals when switching modes
     if (mode !== "custom")     setMyIvrDone(prev => ({ ...prev, [name]: false }))
     if (mode !== "thirdparty") setThirdPartyAcknowledged(prev => ({ ...prev, [name]: false }))
     showToast?.(`IVR routing updated to ${MODE_LABELS[mode]} for ${name}`)
+  }
+
+  // Request a mode change — shows warning dialog if the user is switching away from current mode
+  const requestModeChange = (name: string, mode: PropertyIvrMode) => {
+    if (mode === modes[name]) return // no-op if same
+    setPendingChange({ propName: name, mode })
+  }
+
+  const confirmChange = () => {
+    if (!pendingChange) return
+    changeMode(pendingChange.propName, pendingChange.mode)
+    setPendingChange(null)
   }
 
   const markMyIvrDone = (name: string) => {
@@ -412,9 +426,9 @@ export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) 
           {/* Table header */}
           <div className="flex items-center justify-between gap-4 px-5 py-3 border-b border-border bg-zinc-50/60">
             <div>
-              <p className="text-sm font-semibold text-foreground">Call Routing by Property</p>
+                    <p className="text-sm font-semibold text-foreground">Call Routing by Property</p>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Defaults applied from contract. Select a row to change.
+                Routing mode is pre-selected based on your contract and any detected existing IVR. Review and adjust — changes require confirmation.
               </p>
             </div>
             {/* Info pills */}
@@ -491,12 +505,21 @@ export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) 
                           )}
                         </div>
                         <div>
-                          <p className={cn("text-sm font-medium", prop.isLive ? "text-muted-foreground" : "text-foreground")}>
-                            {prop.name}
-                            {prop.isLive && (
-                              <span className="ml-2 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">Live</span>
-                            )}
+                    <p className={cn("text-sm font-medium", prop.isLive ? "text-muted-foreground" : "text-foreground")}>
+                          {prop.name}
+                          {prop.isLive && (
+                            <span className="ml-2 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">Live</span>
+                          )}
+                        </p>
+                        {/* Default IVR — show "no action needed" note with info icon reference */}
+                        {current === "entrata" && !prop.isLive && (
+                          <p className="mt-0.5 text-[11px] text-muted-foreground leading-snug flex items-center gap-1 flex-wrap">
+                            Entrata manages call routing — no action needed.
+                            <span className="inline-flex items-center gap-0.5 text-muted-foreground/60">
+                              Reference the <Info className="h-3 w-3 inline" /> Default IVR Menu above for details.
+                            </span>
                           </p>
+                        )}
                           {isCustom && !myIvrMarked && (
                             <p className="mt-0.5 text-[11px] text-muted-foreground leading-snug">
                               Open IVR Settings and add the AI routing destinations, then save.
@@ -525,7 +548,7 @@ export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) 
                               <button
                                 key={mode}
                                 type="button"
-                                onClick={() => changeMode(prop.name, mode)}
+                                onClick={() => requestModeChange(prop.name, mode)}
                                 className={cn(
                                   "rounded-md px-2.5 py-1.5 text-xs font-medium transition-all whitespace-nowrap",
                                   isActive
@@ -614,6 +637,48 @@ export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) 
         </div>
 
       </div>
+
+      {/* ── Warning dialog — confirms routing mode changes ── */}
+      {pendingChange && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-border bg-white shadow-2xl">
+            <div className="px-6 pt-6 pb-4">
+              <div className="flex items-start gap-3 mb-4">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100">
+                  <AlertTriangle className="h-5 w-5 text-amber-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Change routing mode?</p>
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    You're switching <strong className="font-medium text-foreground">{pendingChange.propName}</strong> to{" "}
+                    <strong className="font-medium text-foreground">{MODE_LABELS[pendingChange.mode]}</strong>.
+                    This will update how calls are routed for this property and may affect your existing configuration.
+                  </p>
+                </div>
+              </div>
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[11px] text-amber-800 leading-relaxed">
+                Only change the routing mode if you're sure — incorrect settings can prevent calls from reaching your AI agents at go-live.
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-border px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setPendingChange(null)}
+                className="rounded-lg border border-border bg-white px-4 py-2 text-sm font-medium text-foreground hover:bg-zinc-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmChange}
+                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 transition-colors"
+              >
+                Yes, update routing
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
