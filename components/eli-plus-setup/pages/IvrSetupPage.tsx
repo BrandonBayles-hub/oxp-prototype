@@ -643,23 +643,20 @@ export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) 
                   </tr>
                   {isThirdParty && !tpMarked && (
                     <tr className="bg-amber-50" style={{ borderTop: "none" }}>
-                      <td colSpan={3} className="px-5 pb-4 pt-0">
-                        <div className="grid grid-cols-3 gap-4">
-                          {[
-                            { label: "Leasing AI Voice",     value: prop.leasingVoiceNumber,  notContracted: false },
-                            { label: "Leasing AI IVR SMS",   value: prop.leasingSmsNumber,    notContracted: false },
-                            { label: "Maintenance AI Voice", value: prop.maintenanceNumber,   notContracted: true  },
-                          ].map(({ label, value, notContracted }) => (
-                            <CopyChipWide
-                              key={label}
-                              label={label}
-                              value={value ?? "—"}
-                              notContracted={notContracted}
-                              onCopy={() => setHasCopied(prev => ({ ...prev, [prop.name]: true }))}
-                            />
-                          ))}
-                        </div>
-                      </td>
+                      {[
+                        { label: "Leasing AI Voice",     value: prop.leasingVoiceNumber,  notContracted: false },
+                        { label: "Leasing AI IVR SMS",   value: prop.leasingSmsNumber,    notContracted: false },
+                        { label: "Maintenance AI Voice", value: prop.maintenanceNumber,   notContracted: true  },
+                      ].map(({ label, value, notContracted }) => (
+                        <td key={label} className="px-5 pb-4 pt-0 align-top">
+                          <CopyChipWide
+                            label={label}
+                            value={value ?? "—"}
+                            notContracted={notContracted}
+                            onCopy={() => setHasCopied(prev => ({ ...prev, [prop.name]: true }))}
+                          />
+                        </td>
+                      ))}
                     </tr>
                   )}
                   </Fragment>
