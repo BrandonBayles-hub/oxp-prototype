@@ -92,13 +92,13 @@ function CopyChip({ label, value }: { label: string; value: string }) {
 }
 
 // Wide chip — label left, number + copy icon right
-function CopyChipWide({ label, value, notContracted = false, onCopy }: {
-  label: string; value: string; notContracted?: boolean; onCopy?: () => void
+function CopyChipWide({ label, value, notContracted = false, onCopy, constrained = false }: {
+  label: string; value: string; notContracted?: boolean; onCopy?: () => void; constrained?: boolean
 }) {
   const { copied, copy } = useCopy(value)
   const handleCopy = () => { copy(); onCopy?.() }
   return (
-    <div className="inline-flex items-center justify-between gap-2 rounded-lg border border-border bg-white px-3 py-2 w-full max-w-[220px]">
+    <div className={cn("flex items-center justify-between gap-2 rounded-lg border border-border bg-white px-3 py-2", constrained ? "max-w-[220px]" : "w-full")}>
       <span className="text-[10px] font-medium text-muted-foreground whitespace-nowrap">{label}</span>
       {notContracted ? (
         <span className="text-[11px] text-muted-foreground/60 italic">Not contracted</span>
@@ -644,15 +644,16 @@ export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) 
                   {isThirdParty && !tpMarked && (
                     <tr className="bg-amber-50" style={{ borderTop: "none" }}>
                       {[
-                        { label: "Leasing AI Voice",     value: prop.leasingVoiceNumber,  notContracted: false },
-                        { label: "Leasing AI IVR SMS",   value: prop.leasingSmsNumber,    notContracted: false },
-                        { label: "Maintenance AI Voice", value: prop.maintenanceNumber,   notContracted: true  },
-                      ].map(({ label, value, notContracted }) => (
+                        { label: "Leasing AI Voice",     value: prop.leasingVoiceNumber,  notContracted: false, constrained: false },
+                        { label: "Leasing AI IVR SMS",   value: prop.leasingSmsNumber,    notContracted: false, constrained: false },
+                        { label: "Maintenance AI Voice", value: prop.maintenanceNumber,   notContracted: true,  constrained: true  },
+                      ].map(({ label, value, notContracted, constrained }) => (
                         <td key={label} className="px-5 pb-4 pt-0 align-top">
                           <CopyChipWide
                             label={label}
                             value={value ?? "—"}
                             notContracted={notContracted}
+                            constrained={constrained}
                             onCopy={() => setHasCopied(prev => ({ ...prev, [prop.name]: true }))}
                           />
                         </td>
