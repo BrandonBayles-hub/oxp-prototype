@@ -1,5 +1,6 @@
 "use client";
 
+// Updated: Setup Wizard tab removed
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
