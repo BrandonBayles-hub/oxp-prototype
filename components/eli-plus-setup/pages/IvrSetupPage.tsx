@@ -524,7 +524,7 @@ export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) 
             </thead>
             <tbody>
               {visible.map((prop) => {
-                const current       = modes[prop.name]
+                const current       = modes[prop.name] ?? prop.defaultMode
                 const isCustom     = current === "custom"    && !prop.isLive
                 const isThirdParty = current === "thirdparty" && !prop.isLive
                 const myIvrMarked  = myIvrDone[prop.name]
