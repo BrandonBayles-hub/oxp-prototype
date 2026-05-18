@@ -48,6 +48,16 @@ const IVR_PROPERTIES: IvrProperty[] = [
   { name: "Oakwood Terrace",          units: 150, defaultMode: "entrata",    defaultReason: "No existing IVR detected on contract.",                                leasingVoiceNumber: "(801) 555-0116", leasingSmsNumber: "(801) 555-0117", maintenanceNumber: "(801) 555-0118" },
   { name: "Heritage Place",           units: 88,  defaultMode: "entrata",    defaultReason: "No existing IVR detected on contract.",                                leasingVoiceNumber: "(801) 555-0119", leasingSmsNumber: "(801) 555-0120", maintenanceNumber: "(801) 555-0121" },
   { name: "Metro Business Center",    units: 45,  defaultMode: "custom",     defaultReason: "Existing 3rd-party phone system detected.",                            leasingVoiceNumber: "(801) 555-0122", leasingSmsNumber: "(801) 555-0123", maintenanceNumber: "(801) 555-0124", hasCustom: true, isLive: true },
+  { name: "Riverstone Flats",         units: 210, defaultMode: "entrata",    defaultReason: "No existing IVR detected on contract.",                                leasingVoiceNumber: "(801) 555-0125", leasingSmsNumber: "(801) 555-0126", maintenanceNumber: "(801) 555-0127" },
+  { name: "Pinnacle Heights",         units: 175, defaultMode: "entrata",    defaultReason: "No existing IVR detected on contract.",                                leasingVoiceNumber: "(801) 555-0128", leasingSmsNumber: "(801) 555-0129", maintenanceNumber: "(801) 555-0130" },
+  { name: "Crestwood Village",        units: 300, defaultMode: "thirdparty", defaultReason: "An external (non-Entrata) IVR system was detected on this property.",  leasingVoiceNumber: "(801) 555-0131", leasingSmsNumber: "(801) 555-0132", maintenanceNumber: "(801) 555-0133", hasCustom: true },
+  { name: "Maple Grove Apartments",   units: 130, defaultMode: "entrata",    defaultReason: "No existing IVR detected on contract.",                                leasingVoiceNumber: "(801) 555-0134", leasingSmsNumber: "(801) 555-0135", maintenanceNumber: "(801) 555-0136" },
+  { name: "Bridgeview Lofts",         units: 95,  defaultMode: "custom",     defaultReason: "An existing Entrata IVR customization was detected on this property.", leasingVoiceNumber: "(801) 555-0137", leasingSmsNumber: "(801) 555-0138", maintenanceNumber: "(801) 555-0139", hasCustom: true },
+  { name: "Elmwood Residences",       units: 260, defaultMode: "entrata",    defaultReason: "No existing IVR detected on contract.",                                leasingVoiceNumber: "(801) 555-0140", leasingSmsNumber: "(801) 555-0141", maintenanceNumber: "(801) 555-0142" },
+  { name: "Ironwood Commons",         units: 190, defaultMode: "entrata",    defaultReason: "No existing IVR detected on contract.",                                leasingVoiceNumber: "(801) 555-0143", leasingSmsNumber: "(801) 555-0144", maintenanceNumber: "(801) 555-0145" },
+  { name: "The Pines at Valley View", units: 115, defaultMode: "thirdparty", defaultReason: "An external (non-Entrata) IVR system was detected on this property.",  leasingVoiceNumber: "(801) 555-0146", leasingSmsNumber: "(801) 555-0147", maintenanceNumber: "(801) 555-0148", hasCustom: true },
+  { name: "Lakewood Gardens",         units: 280, defaultMode: "entrata",    defaultReason: "No existing IVR detected on contract.",                                leasingVoiceNumber: "(801) 555-0149", leasingSmsNumber: "(801) 555-0150", maintenanceNumber: "(801) 555-0151" },
+  { name: "Aspen Grove Townhomes",    units: 72,  defaultMode: "custom",     defaultReason: "An existing Entrata IVR customization was detected on this property.", leasingVoiceNumber: "(801) 555-0152", leasingSmsNumber: "(801) 555-0153", maintenanceNumber: "(801) 555-0154", hasCustom: true },
 ]
 
 
@@ -502,10 +512,11 @@ export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) 
             </div>
           </div>
 
-          {/* Per-property table — uniform row heights, no layout shifting */}
+          {/* Per-property table — sticky header + scrollable body */}
+          <div className="overflow-y-auto max-h-[520px]">
           <table className="w-full min-w-[560px]">
-            <thead>
-              <tr className="border-b border-border bg-zinc-50/40">
+            <thead className="sticky top-0 z-10">
+              <tr className="border-b border-border bg-zinc-50">
                 <th className="px-5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground w-[35%]">Property</th>
                 <th className="px-5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground w-[30%]">Routing mode</th>
                 <th className="px-5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Action</th>
@@ -656,6 +667,7 @@ export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) 
               })}
             </tbody>
           </table>
+          </div>
 
           {/* Live properties toggle */}
           {live.length > 0 && (
