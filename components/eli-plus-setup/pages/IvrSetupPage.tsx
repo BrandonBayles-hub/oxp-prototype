@@ -511,13 +511,10 @@ export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) 
                             <span className="ml-2 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">Live</span>
                           )}
                         </p>
-                        {/* Default IVR — show "no action needed" note with info icon reference */}
+                        {/* Default IVR — single-line "no action needed" with bold Default IVR Menu + icon */}
                         {current === "entrata" && !prop.isLive && (
-                          <p className="mt-0.5 text-[11px] text-muted-foreground leading-snug flex items-center gap-1 flex-wrap">
-                            Entrata manages call routing — no action needed.
-                            <span className="inline-flex items-center gap-0.5 text-muted-foreground/60">
-                              Reference the <Info className="h-3 w-3 inline" /> Default IVR Menu above for details.
-                            </span>
+                          <p className="mt-0.5 text-[11px] text-muted-foreground leading-snug flex items-center gap-1">
+                            Entrata manages call routing — no action needed. See <strong className="font-semibold text-foreground">Default IVR Menu</strong><Info className="h-3 w-3 shrink-0" />.
                           </p>
                         )}
                           {isCustom && !myIvrMarked && (
