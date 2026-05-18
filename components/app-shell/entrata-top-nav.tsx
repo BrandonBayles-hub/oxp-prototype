@@ -42,7 +42,7 @@ const NAV_ITEMS = [
   { label: "Tools", icon: Wrench },
   { label: "Apps", icon: AppWindow },
   { label: "Settings", icon: Settings },
-  { label: "Setup", icon: Settings, href: "/setup-wizard" },
+  { label: "Setup", icon: Settings },
 ] as const;
 
 export function EntrataTopNav() {
@@ -497,60 +497,6 @@ export function EntrataTopNav() {
         })}
       </div>
 
-      {/* Setup sub-navigation — shown when Setup tab is active. Wizard is on the far right. */}
-      {pathname.startsWith("/setup-wizard") && (
-        <div
-          className="flex items-center overflow-x-auto"
-          style={{
-            background: "#fff",
-            borderBottom: "1px solid #E0E0E0",
-            padding: "0 16px",
-            height: 34,
-            gap: 0,
-          }}
-        >
-          {[
-            { label: "Company" },
-            { label: "Properties" },
-            { label: "Users & Groups" },
-            { label: "Websites" },
-            { label: "Websites (Beta)" },
-            { label: "Lobby Display (Legacy)" },
-            { label: "Property Setting Keys Report" },
-            { label: "AI Settings" },
-            { label: "Wizard", href: "/setup-wizard" },
-          ].map((sub) => {
-            const isActive = "href" in sub && sub.href ? pathname.startsWith(sub.href) : false;
-            return (
-              <button
-                key={sub.label}
-                type="button"
-                onClick={() => "href" in sub && sub.href && router.push(sub.href)}
-                style={{
-                  height: "100%",
-                  padding: "0 14px",
-                  fontSize: 12,
-                  fontWeight: isActive ? 600 : 400,
-                  color: isActive ? "#1a6bb5" : "rgba(0,0,0,0.65)",
-                  borderBottom: isActive ? "2px solid #1a6bb5" : "2px solid transparent",
-                  background: "transparent",
-                  whiteSpace: "nowrap",
-                  cursor: "href" in sub && sub.href ? "pointer" : "default",
-                  transition: "color 150ms",
-                }}
-                onMouseEnter={(e) => {
-                  if (!isActive) e.currentTarget.style.color = "rgba(0,0,0,0.9)";
-                }}
-                onMouseLeave={(e) => {
-                  if (!isActive) e.currentTarget.style.color = "rgba(0,0,0,0.65)";
-                }}
-              >
-                {sub.label}
-              </button>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }

@@ -134,9 +134,9 @@ export default function EliOnboardingHybrid() {
   // Email integration confirmed state
   const [emailComplete, setEmailComplete] = useState(false)
   // IVR setup — the user's saved routing choice (null = not yet confirmed)
-  const [ivrChoice, setIvrChoice] = useState<IvrChoice>(null)
-  const ivrComplete = ivrChoice !== null
-  const ivrActionCount = ivrComplete ? 0 : 1
+  const [ivrChoice, setIvrChoice]         = useState<IvrChoice>(null)
+  const [ivrActionCount, setIvrActionCount] = useState(2) // default: 2 custom IVR properties pending
+  const ivrComplete = ivrChoice !== null && ivrActionCount === 0
   // Carrier compliance simulation mode — lifted from CompanyPage so Overview can react
   const [simMode, setSimMode] = useState<SimMode>("none")
   // Count of action items in Carrier Compliance tab (drives sidebar badge)
@@ -345,6 +345,7 @@ export default function EliOnboardingHybrid() {
             ivrChoice={ivrChoice}
             onSave={setIvrChoice}
             showToast={showToast}
+            onActionCountChange={setIvrActionCount}
           />
         ) : page === "company" ? (
           <CompanyPage
