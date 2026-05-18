@@ -686,17 +686,12 @@ export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) 
                   <AlertTriangle className="h-5 w-5 text-amber-600" />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-foreground">Change routing mode?</p>
+                  <p className="text-sm font-semibold text-foreground">Update routing mode?</p>
                   <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                    You're switching <strong className="font-medium text-foreground">{pendingChange.propName}</strong> to{" "}
-                    <strong className="font-medium text-foreground">{MODE_LABELS[pendingChange.mode]}</strong>.
-                    This will update how calls are routed for this property and may affect your existing configuration.
+                    Switching <strong className="font-medium text-foreground">{pendingChange.propName}</strong> to{" "}
+                    <strong className="font-medium text-foreground">{MODE_LABELS[pendingChange.mode]}</strong> will update your existing call routing configuration and apply at go-live. Only change this if you're sure.
                   </p>
                 </div>
-              </div>
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[11px] text-amber-800 leading-relaxed">
-                Only change the routing mode if you're sure — incorrect settings can prevent calls from reaching your AI agents at go-live.
-              </div>
             </div>
             <div className="flex items-center justify-end gap-2 border-t border-border px-6 py-4">
               <button
