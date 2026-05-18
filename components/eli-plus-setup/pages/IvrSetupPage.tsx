@@ -200,45 +200,39 @@ function InfoPopover({ label, children }: { label: string; children: React.React
   )
 }
 
-// ── Icon-only IVR menu popover (used inline in Default IVR row descriptions) ───
+// ── Inline hover trigger — "Default IVR Menu ℹ" opens menu popover on hover ───
 
-function IvrMenuIconPopover() {
+function IvrMenuTrigger() {
   const [open, setOpen] = useState(false)
   const [pos, setPos]   = useState<{ top: number; left: number } | null>(null)
-  const btnRef          = useRef<HTMLButtonElement>(null)
-  const popRef          = useRef<HTMLDivElement>(null)
+  const triggerRef      = useRef<HTMLSpanElement>(null)
 
   const openPopover = () => {
-    if (btnRef.current) {
-      const r = btnRef.current.getBoundingClientRect()
-      setPos({ top: r.bottom + 8, left: Math.max(8, r.left - 220) })
+    if (triggerRef.current) {
+      const r = triggerRef.current.getBoundingClientRect()
+      setPos({ top: r.bottom + 6, left: Math.max(8, r.left - 180) })
     }
     setOpen(true)
   }
 
   return (
     <>
-      <button
-        ref={btnRef}
-        type="button"
+      <span
+        ref={triggerRef}
         onMouseEnter={openPopover}
         onMouseLeave={() => setOpen(false)}
-        className="inline align-middle ml-0.5 text-muted-foreground hover:text-foreground transition-colors"
-        aria-label="View Default IVR Menu"
+        className="inline-flex items-center gap-0.5 cursor-default"
       >
-        <Info className="inline h-3 w-3" />
-      </button>
+        <strong className="font-semibold text-foreground">Default IVR Menu</strong>
+        <Info className="inline h-3 w-3 text-muted-foreground" />
+      </span>
       {open && pos && (
         <div
-          ref={popRef}
-          className="fixed z-[9999] w-[480px] rounded-xl border border-border bg-white shadow-2xl"
+          className="fixed z-[9999] w-[480px] rounded-xl border border-border bg-white shadow-2xl pointer-events-none"
           style={{ top: pos.top, left: pos.left }}
         >
-          <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+          <div className="border-b border-border px-4 py-2.5">
             <p className="text-xs font-semibold text-foreground">Default IVR Menu</p>
-            <button type="button" onClick={() => setOpen(false)} className="text-muted-foreground hover:text-foreground">
-              <X className="h-3.5 w-3.5" />
-            </button>
           </div>
           <div className="px-4 py-3 text-xs text-muted-foreground leading-relaxed">
             <p className="mb-3">
@@ -561,8 +555,7 @@ export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) 
                         {current === "entrata" && !prop.isLive && (
                           <p className="mt-0.5 text-[11px] text-muted-foreground leading-snug">
                             Entrata manages call routing — no action needed. See{" "}
-                            <strong className="font-semibold text-foreground">Default IVR Menu</strong>
-                            <IvrMenuIconPopover />.
+                            <IvrMenuTrigger />.
                           </p>
                         )}
                           {isCustom && !myIvrMarked && (
