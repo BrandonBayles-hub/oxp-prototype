@@ -693,7 +693,8 @@ export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) 
                   </p>
                 </div>
             </div>
-            <div className="flex items-center justify-end gap-2 border-t border-border px-6 py-4">
+          </div>
+          <div className="flex items-center justify-end gap-2 border-t border-border px-6 py-4">
               <button
                 type="button"
                 onClick={() => setPendingChange(null)}
