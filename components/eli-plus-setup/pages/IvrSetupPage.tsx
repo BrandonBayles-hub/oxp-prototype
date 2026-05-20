@@ -310,7 +310,7 @@ interface Props {
 }
 
 const IVR_SETTINGS_WARNING =
-  "Once you add AI Agents to your routing settings and save, those numbers will be live. Please ensure all your other setup is complete to ensure that calls are quality."
+  "Once you add AI Agents to your routing settings and save, those numbers will go live. Please ensure the rest of your setup is complete to maintain high call quality."
 
 export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) {
   const [modes, setModes] = useState<Record<string, PropertyIvrMode>>(
