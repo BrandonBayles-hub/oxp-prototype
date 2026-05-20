@@ -266,10 +266,32 @@ interface Props {
   showToast?: (msg: string) => void
 }
 
-export function IvrSetupPage({ ivrChoice, onSave }: Props) {
+const IVR_SETTINGS_WARNING =
+  "Once you add AI Agents to your routing settings and save, those numbers will be live. Please ensure all your other setup is complete to ensure that calls are quality."
+
+export function IvrSetupPage({ ivrChoice, onSave, showToast }: Props) {
   // Prototype-only toggle: simulate a customer who already has a custom IVR.
   const [hasCustomIvr, setHasCustomIvr] = useState(true)
   const [previewOpen, setPreviewOpen] = useState(true)
+  const [ivrSettingsWarningOpen, setIvrSettingsWarningOpen] = useState(false)
+
+  const proceedToIvrSettings = () => {
+    window.open("#", "_blank", "noopener,noreferrer")
+    showToast?.("Opening IVR Settings…")
+  }
+
+  const handleOpenIvrSettings = () => {
+    if (hasCustomIvr) {
+      setIvrSettingsWarningOpen(true)
+      return
+    }
+    proceedToIvrSettings()
+  }
+
+  const confirmAndAdvanceIvrSettings = () => {
+    setIvrSettingsWarningOpen(false)
+    proceedToIvrSettings()
+  }
 
   // Mark IVR step as complete on view — the page is referential, so visiting
   // it acknowledges the default routing and keeps go-live progress intact.
@@ -297,7 +319,7 @@ export function IvrSetupPage({ ivrChoice, onSave }: Props) {
             <div className="mt-4">
               <button
                 type="button"
-                onClick={() => window.open("#", "_blank")}
+                onClick={handleOpenIvrSettings}
                 className={cn(buttonVariants({ variant: "eli", size: "sm" }))}
               >
                 Open IVR Settings
@@ -415,6 +437,52 @@ export function IvrSetupPage({ ivrChoice, onSave }: Props) {
           </div>
         </section>
       </div>
+
+      {ivrSettingsWarningOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ivr-settings-warning-title"
+        >
+          <div className="w-full max-w-md rounded-2xl border border-amber-200 bg-white shadow-2xl">
+            <div className="px-6 pt-6 pb-4">
+              <div className="flex items-start gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100">
+                  <AlertTriangle className="h-5 w-5 text-amber-600" aria-hidden />
+                </div>
+                <div>
+                  <p
+                    id="ivr-settings-warning-title"
+                    className="text-sm font-semibold text-foreground"
+                  >
+                    Before you update IVR routing
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
+                    {IVR_SETTINGS_WARNING}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-border px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setIvrSettingsWarningOpen(false)}
+                className="rounded-lg border border-border bg-white px-4 py-2 text-sm font-medium text-foreground hover:bg-zinc-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmAndAdvanceIvrSettings}
+                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 transition-colors"
+              >
+                Confirm and Advance
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
