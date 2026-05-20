@@ -96,6 +96,10 @@ export function useNavBadges(): NavBadgeResult {
       badges["/agent-roster"] = { count: agentBadgeCount, variant: "info" };
     }
 
+    /* Setup Wizard — placeholder count of properties awaiting configuration.
+       Real source will be the contract+property event stream. */
+    badges["/setup-wizard"] = { count: 4, variant: "action" };
+
     const autoDetected: Record<string, boolean> = {
       account: true,
       entrata: true,

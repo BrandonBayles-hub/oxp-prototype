@@ -47,6 +47,7 @@ export function OperationsAgentSheet({
         <SheetHeader>
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/eli-cube.svg" alt="" width={20} height={20} />
               <SheetTitle>{agent.name}</SheetTitle>
             </div>

@@ -1,765 +1,1321 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { PageHeader } from "@/components/page-header";
+/**
+ * Agent Voice & Tone — Option E (single-page, stacked overrides)
+ *
+ * IA:
+ *   1. Pick an agent
+ *   2. See the Default voice & tone card for that agent
+ *   3. Below it, two stacked sections: Vertical Overrides + Property Overrides
+ *      Each section starts as an empty state with an "Add … override" button.
+ *   4. Adding an override progressively reveals the editor inside a dialog.
+ *      Saving stamps the override into a stacked card list on the page.
+ *
+ * Implementation notes:
+ *   - Wired to the shared voice-context via additive per-agent state slices
+ *   - Conflict policy: property overrides win over vertical overrides
+ *   - Flyout deep links can land here with ?agent=...&property=...
+ */
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
+import { PropertySelector } from "@/components/property-filter";
+import {
+  VERTICALS,
+  MOCK_PROPERTIES,
+  PROPERTY_FILTER_DATA,
+  type Vertical,
+} from "@/lib/voice-properties";
 import {
   useVoice,
-  type PropertyOverride,
-  type AgentVoiceTuning,
-  type VerticalOverride,
+  AGENT_TONE_SEED_DEFAULTS,
+  type AgentToneId,
+  type ToneSettings,
+  type AgentVerticalToneOverride,
+  type AgentPropertyToneOverride,
 } from "@/lib/voice-context";
-import { useAgents } from "@/lib/agents-context";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
-} from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
-import {
-  Building2, Layers, Home,
-  ChevronRight, Plus, Pencil, X, Trash2,
-  GraduationCap, Heart, Briefcase,
+  ArrowLeft,
+  Building2,
+  ChevronRight,
+  GraduationCap,
+  Home,
+  Layers,
+  Pencil,
+  Plus,
   RotateCcw,
+  ShieldCheck,
+  Briefcase,
+  Trash2,
+  X,
+  CheckCircle,
+  XCircle,
+  AlertTriangle,
+  Info,
+  CreditCard,
+  Wrench,
+  Sparkles,
+  ChevronDown,
 } from "lucide-react";
 
-/* ─── Constants ─── */
+/* ─────────────────────────────────────────────
+ * Constants
+ * ─────────────────────────────────────────── */
 
-const VERTICALS = ["Conventional", "Student", "Affordable", "Commercial"] as const;
-
-const VERTICAL_CONFIG: Record<string, { icon: typeof Building2; color: string; bgColor: string; description: string }> = {
-  Conventional: { icon: Building2, color: "text-blue-600", bgColor: "bg-blue-50 dark:bg-blue-950/30", description: "Market-rate multifamily apartments" },
-  Student: { icon: GraduationCap, color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950/30", description: "University and college housing" },
-  Affordable: { icon: Heart, color: "text-rose-600", bgColor: "bg-rose-50 dark:bg-rose-950/30", description: "Income-restricted housing communities" },
-  Commercial: { icon: Briefcase, color: "text-amber-600", bgColor: "bg-amber-50 dark:bg-amber-950/30", description: "Office and retail properties" },
+type AgentMeta = {
+  id: AgentToneId;
+  name: string;
+  tagline: string;
+  icon: typeof Sparkles;
+  accent: string;
 };
 
-const MOCK_PROPERTIES = [
-  { name: "Sunset Ridge Apartments", vertical: "Conventional", units: 240 },
-  { name: "The Reserve at Millcreek", vertical: "Conventional", units: 180 },
-  { name: "Parkside Lofts", vertical: "Conventional", units: 96 },
-  { name: "University Commons", vertical: "Student", units: 320 },
-  { name: "Campus Edge", vertical: "Student", units: 200 },
-  { name: "Oakwood Terrace", vertical: "Affordable", units: 150 },
-  { name: "Heritage Place", vertical: "Affordable", units: 88 },
-  { name: "Metro Business Center", vertical: "Commercial", units: 45 },
+const AGENTS: AgentMeta[] = [
+  {
+    id: "leasing",
+    name: "Leasing AI",
+    tagline: "Refined and consultative · detailed responses",
+    icon: Sparkles,
+    accent: "indigo",
+  },
+  {
+    id: "renewal",
+    name: "Renewal AI",
+    tagline: "Warm and appreciative · standard responses",
+    icon: RotateCcw,
+    accent: "emerald",
+  },
+  {
+    id: "payments",
+    name: "Payments AI",
+    tagline: "Empathetic and solution-focused · standard responses",
+    icon: CreditCard,
+    accent: "amber",
+  },
+  {
+    id: "maintenance",
+    name: "Maintenance AI",
+    tagline: "Efficient and reassuring · concise responses",
+    icon: Wrench,
+    accent: "sky",
+  },
 ];
 
+const VERTICAL_META: Record<Vertical, { icon: typeof Building2; color: string; bg: string; description: string }> = {
+  Conventional: { icon: Building2, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-950/30", description: "Market-rate multifamily apartments" },
+  Student: { icon: GraduationCap, color: "text-purple-600", bg: "bg-purple-50 dark:bg-purple-950/30", description: "University and college housing" },
+  Affordable: { icon: ShieldCheck, color: "text-rose-600", bg: "bg-rose-50 dark:bg-rose-950/30", description: "Income-restricted housing communities" },
+};
 
-/* ─── Main Page ─── */
+/* ─────────────────────────────────────────────
+ * Types
+ * ─────────────────────────────────────────── */
+
+type VerticalOverrideRecord = Omit<AgentVerticalToneOverride, "agentId"> & { vertical: Vertical };
+type PropertyOverrideRecord = Omit<AgentPropertyToneOverride, "agentId"> & { vertical: Vertical };
+
+const EMPTY_TONE: ToneSettings = {
+  persona: "",
+  guidelines: "",
+  doExamples: [],
+  dontExamples: [],
+};
+
+function isAgentToneId(value: string | null): value is AgentToneId {
+  return value === "leasing" || value === "renewal" || value === "payments" || value === "maintenance";
+}
+
+/* ─────────────────────────────────────────────
+ * Main page
+ * ─────────────────────────────────────────── */
 
 export default function VoicePage() {
   const voice = useVoice();
-  const { agents } = useAgents();
-  const [activeTab, setActiveTab] = useState("company");
-  const [editingVertical, setEditingVertical] = useState<string | null>(null);
-  const [propertyDialogOpen, setPropertyDialogOpen] = useState(false);
-  const [editingProperty, setEditingProperty] = useState<string | null>(null);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [selectedAgentId, setSelectedAgentId] = useState<AgentToneId | null>(null);
 
-  const autonomousAgents = useMemo(
-    () => agents.filter((a) => a.type === "autonomous"),
-    [agents],
-  );
+  const queryAgent = searchParams.get("agent");
+  const queryProperty = searchParams.get("property");
+  const queryScrollTo = searchParams.get("scrollTo");
+
+  useEffect(() => {
+    if (isAgentToneId(queryAgent)) {
+      setSelectedAgentId(queryAgent);
+      return;
+    }
+
+    if (!queryAgent) {
+      setSelectedAgentId(null);
+    }
+  }, [queryAgent]);
+
+  const selectAgent = (agentId: AgentToneId) => {
+    setSelectedAgentId(agentId);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("agent", agentId);
+    params.delete("property");
+    router.replace(`${pathname}?${params.toString()}`);
+  };
+
+  const clearSelectedAgent = () => {
+    setSelectedAgentId(null);
+    router.replace(pathname);
+  };
+
+  if (!selectedAgentId) {
+    return (
+      <AgentPickerView
+        defaults={voice.agentToneDefaults}
+        verticalOverrides={voice.agentVerticalToneOverrides}
+        propertyOverrides={voice.agentPropertyToneOverrides}
+        onPick={selectAgent}
+      />
+    );
+  }
+
+  const defaultSettings = voice.agentToneDefaults[selectedAgentId];
+  const verticalOverrides = voice.agentVerticalToneOverrides.filter(
+    (override) => override.agentId === selectedAgentId,
+  ) as VerticalOverrideRecord[];
+  const propertyOverrides = voice.agentPropertyToneOverrides.filter(
+    (override) => override.agentId === selectedAgentId,
+  ) as PropertyOverrideRecord[];
 
   return (
-    <>
-      <PageHeader
-        title="Voice & Brand"
-        description="Define how your AI agents communicate — set the tone, personality, and brand guidelines at every level from company-wide defaults down to individual agents."
-      />
-
-          <CascadeVisual activeLevel={activeTab} onLevelClick={setActiveTab} />
-
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="mb-6">
-              <TabsTrigger value="company">Company Defaults</TabsTrigger>
-              <TabsTrigger value="verticals">Verticals</TabsTrigger>
-              <TabsTrigger value="properties">Properties</TabsTrigger>
-              <TabsTrigger value="agents">Agent Tuning</TabsTrigger>
-            </TabsList>
-
-            {/* ── COMPANY DEFAULTS ── */}
-            <TabsContent value="company" className="space-y-6">
-              <div className="grid gap-6 lg:grid-cols-2">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Brand Identity</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div>
-                      <label className="mb-1 block text-sm font-medium text-foreground">AI Persona</label>
-                      <input
-                        type="text"
-                        value={voice.persona}
-                        onChange={(e) => voice.update({ persona: e.target.value })}
-                        className="input-base"
-                        placeholder="e.g. Helpful property assistant"
-                      />
-                      <p className="mt-1 text-xs text-muted-foreground">How your AI agents identify themselves in conversations.</p>
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-sm font-medium text-foreground">Brand & Tone Guidelines</label>
-                      <textarea
-                        value={voice.brandingTone}
-                        onChange={(e) => voice.update({ brandingTone: e.target.value })}
-                        rows={6}
-                        className="input-base resize-y"
-                        placeholder="e.g. Professional and friendly. Always identify as an assistant for the property."
-                      />
-                      <p className="mt-1 text-xs text-muted-foreground">These guidelines apply as defaults across all agents and properties.</p>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Tone Profile</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-5">
-                    <ToneSliders
-                      formality={voice.toneFormality}
-                      warmth={voice.toneWarmth}
-                      urgency={voice.toneUrgency}
-                      onChange={(key, value) => voice.update({ [key]: value })}
-                    />
-                  </CardContent>
-                </Card>
-              </div>
-
-              <div className="grid gap-6 sm:grid-cols-2">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm text-emerald-700 dark:text-emerald-400">Do</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <ul className="space-y-2">
-                      {voice.doExamples.map((ex, i) => (
-                        <li key={i} className="flex items-start gap-2 text-sm">
-                          <span className="mt-0.5 text-emerald-600">&#10003;</span>
-                          <input
-                            type="text"
-                            value={ex}
-                            onChange={(e) => {
-                              const next = [...voice.doExamples];
-                              next[i] = e.target.value;
-                              voice.update({ doExamples: next });
-                            }}
-                            className="input-base h-8 flex-1 text-sm"
-                          />
-                          <button type="button" onClick={() => voice.update({ doExamples: voice.doExamples.filter((_, j) => j !== i) })} className="text-muted-foreground hover:text-foreground">
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                    <Button variant="ghost" size="sm" className="mt-2" onClick={() => voice.update({ doExamples: [...voice.doExamples, ""] })}>
-                      <Plus className="h-3.5 w-3.5" /> Add
-                    </Button>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm text-red-700 dark:text-red-400">Don&apos;t</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <ul className="space-y-2">
-                      {voice.dontExamples.map((ex, i) => (
-                        <li key={i} className="flex items-start gap-2 text-sm">
-                          <span className="mt-0.5 text-red-600">&#10007;</span>
-                          <input
-                            type="text"
-                            value={ex}
-                            onChange={(e) => {
-                              const next = [...voice.dontExamples];
-                              next[i] = e.target.value;
-                              voice.update({ dontExamples: next });
-                            }}
-                            className="input-base h-8 flex-1 text-sm"
-                          />
-                          <button type="button" onClick={() => voice.update({ dontExamples: voice.dontExamples.filter((_, j) => j !== i) })} className="text-muted-foreground hover:text-foreground">
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                    <Button variant="ghost" size="sm" className="mt-2" onClick={() => voice.update({ dontExamples: [...voice.dontExamples, ""] })}>
-                      <Plus className="h-3.5 w-3.5" /> Add
-                    </Button>
-                  </CardContent>
-                </Card>
-              </div>
-            </TabsContent>
-
-            {/* ── VERTICALS ── */}
-            <TabsContent value="verticals" className="space-y-6">
-              <p className="text-sm text-muted-foreground">
-                Customize voice and tone for different property types. Vertical-level settings override company defaults for all properties within that vertical.
-              </p>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                {VERTICALS.map((v) => {
-                  const config = VERTICAL_CONFIG[v];
-                  const override = voice.verticalOverrides.find((o) => o.vertical === v);
-                  const Icon = config.icon;
-                  const propertyCount = MOCK_PROPERTIES.filter((p) => p.vertical === v).length;
-
-                  return (
-                    <Card key={v} className={cn("transition-colors", override?.enabled && "border-primary/30")}>
-                      <CardContent className="py-5">
-                        <div className="flex items-start justify-between">
-                          <div className="flex items-start gap-3">
-                            <div className={cn("flex h-10 w-10 items-center justify-center rounded-lg", config.bgColor)}>
-                              <Icon className={cn("h-5 w-5", config.color)} />
-                            </div>
-                            <div>
-                              <h3 className="text-sm font-semibold text-foreground">{v}</h3>
-                              <p className="text-xs text-muted-foreground">{config.description}</p>
-                              <p className="mt-1 text-[10px] text-muted-foreground">{propertyCount} {propertyCount === 1 ? "property" : "properties"}</p>
-                            </div>
-                          </div>
-                          <Badge variant={override?.enabled ? "default" : "secondary"} className="text-[10px]">
-                            {override?.enabled ? "Custom" : "Inherited"}
-                          </Badge>
-                        </div>
-
-                        {override?.enabled ? (
-                          <div className="mt-4 space-y-2 rounded-lg bg-muted/50 p-3">
-                            <p className="text-xs">
-                              <span className="font-medium text-foreground">Persona:</span>{" "}
-                              <span className="text-muted-foreground">{override.persona || "—"}</span>
-                            </p>
-                            <p className="text-xs text-muted-foreground line-clamp-2">{override.brandingTone || "—"}</p>
-                            <div className="flex gap-3 pt-1">
-                              {[
-                                { label: "Formality", value: override.toneFormality },
-                                { label: "Warmth", value: override.toneWarmth },
-                                { label: "Urgency", value: override.toneUrgency },
-                              ].map(({ label, value }) => (
-                                <span key={label} className="text-[10px] text-muted-foreground">
-                                  {label}: <span className="font-medium text-foreground">{value ?? "—"}%</span>
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        ) : (
-                          <p className="mt-4 text-xs italic text-muted-foreground">
-                            Inherits all settings from company defaults.
-                          </p>
-                        )}
-
-                        <div className="mt-4 flex gap-2">
-                          <Button variant="outline" size="sm" onClick={() => setEditingVertical(v)}>
-                            {override?.enabled ? (
-                              <><Pencil className="h-3 w-3" /> Edit</>
-                            ) : (
-                              <><Plus className="h-3 w-3" /> Customize</>
-                            )}
-                          </Button>
-                          {override?.enabled && (
-                            <Button variant="ghost" size="sm" onClick={() => voice.resetVerticalOverride(v)}>
-                              <RotateCcw className="h-3 w-3" /> Reset
-                            </Button>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            </TabsContent>
-
-            {/* ── PROPERTIES ── */}
-            <TabsContent value="properties" className="space-y-6">
-              <div className="flex items-start justify-between gap-4">
-                <p className="text-sm text-muted-foreground">
-                  Override voice settings for individual properties. Properties without overrides inherit from their vertical or company defaults.
-                </p>
-                <Button size="sm" onClick={() => { setEditingProperty(null); setPropertyDialogOpen(true); }}>
-                  <Plus className="h-3.5 w-3.5" /> Add override
-                </Button>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="table-borderless w-full min-w-[600px]">
-                  <thead>
-                    <tr>
-                      <th>Property</th>
-                      <th>Vertical</th>
-                      <th>Voice Source</th>
-                      <th className="w-24">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {MOCK_PROPERTIES.map((prop) => {
-                      const override = voice.propertyOverrides.find((o) => o.property === prop.name);
-                      const verticalOverride = voice.verticalOverrides.find((v) => v.vertical === prop.vertical && v.enabled);
-                      const source = override
-                        ? "Custom"
-                        : verticalOverride
-                          ? `Vertical: ${prop.vertical}`
-                          : "Company Default";
-                      const config = VERTICAL_CONFIG[prop.vertical];
-
-                      return (
-                        <tr key={prop.name} className="table-row-hover">
-                          <td>
-                            <div>
-                              <p className="text-sm font-medium text-foreground">{prop.name}</p>
-                              <p className="text-[10px] text-muted-foreground">{prop.units} units</p>
-                            </div>
-                          </td>
-                          <td>
-                            <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium", config?.bgColor, config?.color)}>
-                              {prop.vertical}
-                            </span>
-                          </td>
-                          <td>
-                            <span className={cn(
-                              "inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium",
-                              override ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
-                            )}>
-                              {source}
-                            </span>
-                          </td>
-                          <td>
-                            <div className="flex gap-1">
-                              {override ? (
-                                <>
-                                  <button type="button" onClick={() => { setEditingProperty(prop.name); setPropertyDialogOpen(true); }} className="text-muted-foreground hover:text-foreground">
-                                    <Pencil className="h-3.5 w-3.5" />
-                                  </button>
-                                  <button type="button" onClick={() => voice.removePropertyOverride(prop.name)} className="text-muted-foreground hover:text-red-600">
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </button>
-                                </>
-                              ) : (
-                                <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setEditingProperty(prop.name); setPropertyDialogOpen(true); }}>
-                                  Customize
-                                </Button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              {voice.propertyOverrides.length > 0 && (
-                <div className="space-y-3">
-                  <h3 className="text-sm font-semibold text-foreground">Active Overrides</h3>
-                  {voice.propertyOverrides.map((ov) => {
-                    const config = ov.vertical ? VERTICAL_CONFIG[ov.vertical] : undefined;
-                    return (
-                      <Card key={ov.property} className="border-primary/20">
-                        <CardContent className="py-4">
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <h4 className="text-sm font-semibold text-foreground">{ov.property}</h4>
-                                {ov.vertical && config && (
-                                  <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-medium", config.bgColor, config.color)}>
-                                    {ov.vertical}
-                                  </span>
-                                )}
-                              </div>
-                              {ov.persona && <p className="mt-0.5 text-xs text-muted-foreground">Persona: {ov.persona}</p>}
-                            </div>
-                            <div className="flex gap-1.5">
-                              <Button variant="ghost" size="sm" onClick={() => { setEditingProperty(ov.property); setPropertyDialogOpen(true); }}>
-                                <Pencil className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button variant="ghost" size="sm" onClick={() => voice.removePropertyOverride(ov.property)}>
-                                <Trash2 className="h-3.5 w-3.5 text-red-600" />
-                              </Button>
-                            </div>
-                          </div>
-                          {ov.brandingTone && <p className="mt-2 text-sm text-muted-foreground">{ov.brandingTone}</p>}
-                          {(ov.toneFormality !== undefined || ov.toneWarmth !== undefined || ov.toneUrgency !== undefined) && (
-                            <div className="mt-2 flex gap-4">
-                              {ov.toneFormality !== undefined && (
-                                <span className="text-[10px] text-muted-foreground">Formality: <span className="font-medium text-foreground">{ov.toneFormality}%</span></span>
-                              )}
-                              {ov.toneWarmth !== undefined && (
-                                <span className="text-[10px] text-muted-foreground">Warmth: <span className="font-medium text-foreground">{ov.toneWarmth}%</span></span>
-                              )}
-                              {ov.toneUrgency !== undefined && (
-                                <span className="text-[10px] text-muted-foreground">Urgency: <span className="font-medium text-foreground">{ov.toneUrgency}%</span></span>
-                              )}
-                            </div>
-                          )}
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-                </div>
-              )}
-            </TabsContent>
-
-            {/* ── AGENT TUNING ── */}
-            <TabsContent value="agents" className="space-y-6">
-              <p className="text-sm text-muted-foreground">
-                Fine-tune how individual ELI+ agents communicate. Agent-level settings take the highest priority in the cascade, overriding company, vertical, and property defaults.
-              </p>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                {voice.agentTuning.map((tuning) => {
-                  const agent = autonomousAgents.find((a) => a.id === tuning.agentId);
-                  return (
-                    <AgentTuningCard
-                      key={tuning.agentId}
-                      tuning={tuning}
-                      agentStatus={agent?.status}
-                      onUpdate={(updates) => voice.updateAgentTuning(tuning.agentId, updates)}
-                    />
-                  );
-                })}
-              </div>
-            </TabsContent>
-          </Tabs>
-
-          {/* Vertical Edit Dialog */}
-          {editingVertical && (() => {
-            const override = voice.verticalOverrides.find((v) => v.vertical === editingVertical);
-            return (
-              <VerticalEditDialog
-                vertical={editingVertical}
-                override={override ?? { vertical: editingVertical, enabled: false }}
-                companyDefaults={{
-                  persona: voice.persona,
-                  brandingTone: voice.brandingTone,
-                  toneFormality: voice.toneFormality,
-                  toneWarmth: voice.toneWarmth,
-                  toneUrgency: voice.toneUrgency,
-                }}
-                onClose={() => setEditingVertical(null)}
-                onSave={(updates) => {
-                  voice.updateVerticalOverride(editingVertical, { ...updates, enabled: true });
-                  setEditingVertical(null);
-                }}
-              />
-            );
-          })()}
-
-          {/* Property Override Dialog */}
-          {propertyDialogOpen && (() => {
-            const existing = editingProperty
-              ? voice.propertyOverrides.find((o) => o.property === editingProperty)
-              : undefined;
-            return (
-              <PropertyOverrideDialog
-                override={existing}
-                preselectedProperty={editingProperty}
-                existingProperties={voice.propertyOverrides.map((o) => o.property)}
-                onClose={() => { setPropertyDialogOpen(false); setEditingProperty(null); }}
-                onSave={(data) => {
-                  if (existing) {
-                    voice.updatePropertyOverride(editingProperty!, data);
-                  } else {
-                    voice.addPropertyOverride(data as PropertyOverride);
-                  }
-                  setPropertyDialogOpen(false);
-                  setEditingProperty(null);
-                }}
-              />
-            );
-          })()}
-    </>
+    <AgentDetailView
+      agent={AGENTS.find((a) => a.id === selectedAgentId)!}
+      agentId={selectedAgentId}
+      defaultSettings={defaultSettings}
+      verticalOverrides={verticalOverrides}
+      propertyOverrides={propertyOverrides}
+      pendingProperty={queryProperty}
+      pendingScrollTo={queryScrollTo}
+      onBack={clearSelectedAgent}
+      onUpdateDefault={(next) => voice.updateAgentToneDefault(selectedAgentId, next)}
+      onResetDefault={() => voice.resetAgentToneDefault(selectedAgentId)}
+      onAddVertical={(record) => voice.addAgentVerticalToneOverride({ ...record, agentId: selectedAgentId })}
+      onUpdateVertical={(id, next) => voice.updateAgentVerticalToneOverride(id, { settings: next })}
+      onRemoveVertical={(id) => voice.removeAgentVerticalToneOverride(id)}
+      onAddProperties={(records) =>
+        voice.addAgentPropertyToneOverrides(
+          records.map((record) => ({ ...record, agentId: selectedAgentId })),
+        )
+      }
+      onUpdateProperty={(id, next) => voice.updateAgentPropertyToneOverride(id, { settings: next })}
+      onRemoveProperty={(id) => voice.removeAgentPropertyToneOverride(id)}
+    />
   );
 }
 
-/* ─── Cascade Visualization ─── */
+/* ─────────────────────────────────────────────
+ * Step 1 — Agent picker
+ * ─────────────────────────────────────────── */
 
-function CascadeVisual({ activeLevel, onLevelClick }: { activeLevel: string; onLevelClick: (level: string) => void }) {
-  const levels = [
-    { id: "company", label: "Company", desc: "Portfolio defaults", icon: Building2 },
-    { id: "verticals", label: "Vertical", desc: "By property type", icon: Layers },
-    { id: "properties", label: "Property", desc: "Individual overrides", icon: Home },
-    { id: "agents", label: "Agent", desc: "Per-agent tuning", icon: null },
-  ];
-
+function isCustomized(current: ToneSettings, seed: ToneSettings): boolean {
   return (
-    <div className="mb-6 flex items-center gap-1 overflow-x-auto pb-1">
-      {levels.map((level, i) => {
-        const Icon = level.icon;
-        const isActive = activeLevel === level.id;
-        return (
-          <div key={level.id} className="flex items-center">
-            <button
-              type="button"
-              onClick={() => onLevelClick(level.id)}
-              className={cn(
-                "flex items-center gap-2.5 rounded-lg border px-4 py-2.5 transition-all",
-                isActive
-                  ? "border-primary bg-primary/5 shadow-sm"
-                  : "border-border hover:border-primary/30 hover:bg-muted/50",
-              )}
+    current.persona !== seed.persona ||
+    current.guidelines !== seed.guidelines ||
+    JSON.stringify(current.doExamples) !== JSON.stringify(seed.doExamples) ||
+    JSON.stringify(current.dontExamples) !== JSON.stringify(seed.dontExamples)
+  );
+}
+
+function AgentPickerView({
+  defaults,
+  verticalOverrides,
+  propertyOverrides,
+  onPick,
+}: {
+  defaults: Record<AgentToneId, ToneSettings>;
+  verticalOverrides: AgentVerticalToneOverride[];
+  propertyOverrides: AgentPropertyToneOverride[];
+  onPick: (id: AgentToneId) => void;
+}) {
+  return (
+    <div>
+      <p className="mb-6 text-sm text-muted-foreground">
+        Choose an agent to configure its voice and tone. Each agent has its own portfolio default plus any vertical or property overrides.
+      </p>
+      <div className="grid gap-5 sm:grid-cols-2">
+        {AGENTS.map((agent) => {
+          const tone = defaults[agent.id];
+          const seed = AGENT_TONE_SEED_DEFAULTS[agent.id];
+          const custom = isCustomized(tone, seed);
+          const verticalCount = verticalOverrides.filter((override) => override.agentId === agent.id).length;
+          const propertyCount = propertyOverrides.filter((override) => override.agentId === agent.id).length;
+
+          return (
+            <div
+              key={agent.id}
+              className="rounded-xl border border-border bg-white p-5 text-left transition-all hover:border-zinc-300 hover:shadow-sm"
             >
-              <div className={cn(
-                "flex h-8 w-8 items-center justify-center rounded-md",
-                isActive ? "bg-primary/10" : "bg-muted",
-              )}>
-                {level.id === "agents" ? (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img src="/eli-cube.svg" alt="" width={18} height={18} className="shrink-0" />
-                ) : Icon ? (
-                  <Icon className={cn("h-4 w-4", isActive ? "text-primary" : "text-muted-foreground")} />
-                ) : null}
+              {/* Header */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <img src="/eli-cube.svg" alt="" width={26} height={26} className="shrink-0" />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-[15px] font-bold text-foreground">ELI+ {agent.name}</h3>
+                      <span className="rounded-full bg-[#B3FFCC] px-2 py-0.5 text-[11px] font-semibold text-black">Active</span>
+                      {custom && (
+                        <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] font-semibold text-zinc-700">
+                          Custom
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{agent.tagline}</p>
+                  </div>
+                </div>
+                {custom ? (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => onPick(agent.id)}
+                      className="inline-flex items-center gap-1 text-[13px] font-medium text-foreground hover:text-foreground/80"
+                    >
+                      <Pencil className="h-3.5 w-3.5" /> Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onPick(agent.id)}
+                      className="inline-flex items-center gap-1 text-[13px] font-medium text-muted-foreground hover:text-foreground"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" /> Reset
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onPick(agent.id)}
+                    className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-[13px] font-medium text-foreground hover:bg-muted/50 shrink-0"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Customize
+                  </button>
+                )}
               </div>
-              <div className="text-left">
-                <p className={cn("text-sm font-medium", isActive ? "text-primary" : "text-foreground")}>{level.label}</p>
-                <p className="text-[10px] text-muted-foreground">{level.desc}</p>
+
+
+              {/* Details */}
+              <div className="mt-4 space-y-2.5">
+                <div>
+                  <span className="text-[13px] font-semibold text-foreground">Personality: </span>
+                  <span className="text-[13px] text-muted-foreground">{tone.persona || "Not configured"}</span>
+                </div>
+                <div>
+                  <span className="text-[13px] font-semibold text-foreground">Agent Tone Instructions: </span>
+                  <span className="text-[13px] text-muted-foreground">{tone.guidelines || "Not configured"}</span>
+                </div>
               </div>
-            </button>
-            {i < levels.length - 1 && (
-              <ChevronRight className="mx-1 h-4 w-4 shrink-0 text-muted-foreground/50" />
-            )}
-          </div>
-        );
-      })}
+
+              {/* Do / Don't */}
+              <div className="mt-4 grid grid-cols-2 gap-4">
+                <div>
+                  <p className="mb-1.5 text-[13px] font-semibold text-emerald-700">Do</p>
+                  {tone.doExamples.length > 0 ? (
+                    <ul className="space-y-1.5">
+                      {tone.doExamples.map((item, i) => (
+                        <li key={i} className="flex items-start gap-1.5 text-[13px] text-muted-foreground">
+                          <CheckCircle className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-[13px] text-muted-foreground">None</p>
+                  )}
+                </div>
+                <div>
+                  <p className="mb-1.5 text-[13px] font-semibold text-red-700">Don&apos;t</p>
+                  {tone.dontExamples.length > 0 ? (
+                    <ul className="space-y-1.5">
+                      {tone.dontExamples.map((item, i) => (
+                        <li key={i} className="flex items-start gap-1.5 text-[13px] text-muted-foreground">
+                          <XCircle className="h-3.5 w-3.5 text-red-500 mt-0.5 shrink-0" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-[13px] text-muted-foreground">None</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Override pills */}
+              <div className="mt-4 flex items-center gap-2">
+                <Badge variant="secondary" className="text-[11px] font-normal">
+                  {verticalCount} vertical override{verticalCount === 1 ? "" : "s"}
+                </Badge>
+                <Badge variant="secondary" className="text-[11px] font-normal">
+                  {propertyCount} property override{propertyCount === 1 ? "" : "s"}
+                </Badge>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-/* ─── Tone Sliders (reusable) ─── */
+/* ─────────────────────────────────────────────
+ * Step 2 — Agent detail
+ * ─────────────────────────────────────────── */
 
-function ToneSliders({
-  formality,
-  warmth,
-  urgency,
-  onChange,
-  disabled,
+function AgentDetailView({
+  agent,
+  agentId,
+  defaultSettings,
+  verticalOverrides,
+  propertyOverrides,
+  pendingProperty,
+  pendingScrollTo,
+  onBack,
+  onUpdateDefault,
+  onResetDefault,
+  onAddVertical,
+  onUpdateVertical,
+  onRemoveVertical,
+  onAddProperties,
+  onUpdateProperty,
+  onRemoveProperty,
 }: {
-  formality: number;
-  warmth: number;
-  urgency: number;
-  onChange: (key: string, value: number) => void;
-  disabled?: boolean;
+  agent: AgentMeta;
+  agentId: AgentToneId;
+  defaultSettings: ToneSettings;
+  verticalOverrides: VerticalOverrideRecord[];
+  propertyOverrides: PropertyOverrideRecord[];
+  pendingProperty?: string | null;
+  pendingScrollTo?: string | null;
+  onBack: () => void;
+  onUpdateDefault: (next: ToneSettings) => void;
+  onResetDefault: () => void;
+  onAddVertical: (record: VerticalOverrideRecord) => void;
+  onUpdateVertical: (id: string, next: ToneSettings) => void;
+  onRemoveVertical: (id: string) => void;
+  onAddProperties: (records: PropertyOverrideRecord[]) => void;
+  onUpdateProperty: (id: string, next: ToneSettings) => void;
+  onRemoveProperty: (id: string) => void;
 }) {
-  const sliders = [
-    { key: "toneFormality", label: "Formality", value: formality, low: "Casual", high: "Formal" },
-    { key: "toneWarmth", label: "Warmth", value: warmth, low: "Neutral", high: "Warm" },
-    { key: "toneUrgency", label: "Urgency", value: urgency, low: "Relaxed", high: "Urgent" },
-  ];
+  const [addVerticalOpen, setAddVerticalOpen] = useState(false);
+  const [addPropertyOpen, setAddPropertyOpen] = useState(false);
+  const [preselectedPropertyName, setPreselectedPropertyName] = useState<string | null>(null);
+  const [autoExpandProperty, setAutoExpandProperty] = useState<string | null>(null);
+  const defaultSectionRef = useRef<HTMLElement | null>(null);
+  const verticalSectionRef = useRef<HTMLElement | null>(null);
+  const propertySectionRef = useRef<HTMLElement | null>(null);
+  const propertyCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const handledDeepLinkProperty = useRef<string | null>(null);
+
+  const Icon = agent.icon;
+
+  useEffect(() => {
+    if (!pendingProperty) {
+      handledDeepLinkProperty.current = null;
+      return;
+    }
+
+    if (handledDeepLinkProperty.current === pendingProperty) {
+      return;
+    }
+
+    handledDeepLinkProperty.current = pendingProperty;
+
+    const existing = propertyOverrides.find((override) => override.propertyName === pendingProperty);
+    if (existing) {
+      setAutoExpandProperty(pendingProperty);
+      window.setTimeout(() => {
+        propertyCardRefs.current[pendingProperty]?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 160);
+      return;
+    }
+
+    if (MOCK_PROPERTIES.some((property) => property.name === pendingProperty)) {
+      setPreselectedPropertyName(pendingProperty);
+      setAddPropertyOpen(true);
+      window.setTimeout(() => {
+        propertySectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 120);
+    }
+  }, [pendingProperty, propertyOverrides]);
+
+  useEffect(() => {
+    if (!pendingScrollTo) return;
+
+    const target =
+      pendingScrollTo === "default"
+        ? defaultSectionRef.current
+        : pendingScrollTo === "verticals"
+          ? verticalSectionRef.current
+          : pendingScrollTo === "properties"
+            ? propertySectionRef.current
+            : null;
+
+    if (target) {
+      window.setTimeout(() => {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 120);
+    }
+  }, [pendingScrollTo]);
 
   return (
-    <>
-      {sliders.map(({ key, label, value, low, high }) => (
-        <div key={key}>
-          <div className="mb-1.5 flex items-center justify-between">
-            <span className="text-sm font-medium text-foreground">{label}</span>
-            <span className="text-xs text-muted-foreground">{value}%</span>
-          </div>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={value}
-            onChange={(e) => onChange(key, Number(e.target.value))}
-            className="w-full accent-primary"
-            disabled={disabled}
-          />
-          <div className="mt-0.5 flex justify-between text-[10px] text-muted-foreground">
-            <span>{low}</span>
-            <span>{high}</span>
+    <div className="space-y-8">
+      {/* Header */}
+      <div>
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="h-3 w-3" /> All agents
+        </button>
+        <div className="mt-3 flex items-start gap-4">
+          <img src="/eli-cube.svg" alt="" width={40} height={40} className="shrink-0" />
+          <div>
+            <h2 className="text-xl font-semibold text-foreground">ELI+ {agent.name}</h2>
+            <p className="text-sm text-muted-foreground">{agent.tagline}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Settings cascade <span className="font-medium text-foreground">Portfolio default → Vertical → Property</span>. More specific scopes win.
+            </p>
           </div>
         </div>
-      ))}
-    </>
+      </div>
+
+      <StickyAnchorStrip
+        counts={{
+          vertical: verticalOverrides.length,
+          property: propertyOverrides.length,
+        }}
+        onJump={(section) => {
+          const target =
+            section === "default"
+              ? defaultSectionRef.current
+              : section === "verticals"
+                ? verticalSectionRef.current
+                : propertySectionRef.current;
+          target?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }}
+      />
+
+      {/* Default */}
+      <section ref={defaultSectionRef} className="scroll-mt-32">
+        <SectionHeader
+          icon={<Layers className="h-4 w-4 text-muted-foreground" />}
+          title="Portfolio default"
+          subtitle="Applies to every property unless overridden below."
+        />
+        <DefaultCard
+          settings={defaultSettings}
+          onChange={onUpdateDefault}
+          onReset={onResetDefault}
+        />
+      </section>
+
+      {/* Vertical overrides */}
+      <section ref={verticalSectionRef} className="scroll-mt-32">
+        <SectionHeader
+          icon={<Layers className="h-4 w-4 text-muted-foreground" />}
+          title="Vertical overrides"
+          subtitle="Customize this agent's voice for a specific property type."
+          countLabel={`${verticalOverrides.length}`}
+        />
+        {verticalOverrides.length === 0 ? (
+          <EmptyOverrideState
+            label="No vertical overrides yet."
+            actionLabel="Add vertical override"
+            onAction={() => setAddVerticalOpen(true)}
+          />
+        ) : (
+          <div className="space-y-3">
+            {verticalOverrides.map((override) => (
+              <VerticalOverrideCard
+                key={override.id}
+                record={override}
+                onChange={(next) => onUpdateVertical(override.id, next)}
+                onRemove={() => onRemoveVertical(override.id)}
+                shadowingPropertyOverrides={propertyOverrides.filter((p) => p.vertical === override.vertical)}
+              />
+            ))}
+            <Button variant="outline" size="sm" onClick={() => setAddVerticalOpen(true)} className="gap-1">
+              <Plus className="h-3.5 w-3.5" /> Add another vertical override
+            </Button>
+          </div>
+        )}
+      </section>
+
+      {/* Property overrides */}
+      <section ref={propertySectionRef} className="scroll-mt-32">
+        <SectionHeader
+          icon={<Home className="h-4 w-4 text-muted-foreground" />}
+          title="Property overrides"
+          subtitle="Customize this agent's voice for one or more individual properties."
+          countLabel={`${propertyOverrides.length}`}
+        />
+        {propertyOverrides.length === 0 ? (
+          <EmptyOverrideState
+            label="No property overrides yet."
+            actionLabel="Add property override"
+            onAction={() => setAddPropertyOpen(true)}
+          />
+        ) : (
+          <div className="space-y-3">
+            {propertyOverrides.map((override) => (
+              <PropertyOverrideCard
+                key={override.id}
+                record={override}
+                autoExpand={autoExpandProperty === override.propertyName}
+                cardRef={(node) => {
+                  propertyCardRefs.current[override.propertyName] = node;
+                }}
+                onChange={(next) => onUpdateProperty(override.id, next)}
+                onRemove={() => onRemoveProperty(override.id)}
+              />
+            ))}
+            <Button variant="outline" size="sm" onClick={() => setAddPropertyOpen(true)} className="gap-1">
+              <Plus className="h-3.5 w-3.5" /> Add another property override
+            </Button>
+          </div>
+        )}
+      </section>
+
+      {/* Add Vertical dialog */}
+      <AddVerticalOverrideDialog
+        open={addVerticalOpen}
+        onClose={() => setAddVerticalOpen(false)}
+        existingVerticals={verticalOverrides.map((v) => v.vertical)}
+        propertyOverrides={propertyOverrides}
+        defaultSettings={defaultSettings}
+        onSave={(record) => {
+          onAddVertical(record);
+          setAddVerticalOpen(false);
+        }}
+      />
+
+      {/* Add Property dialog */}
+      <AddPropertyOverrideDialog
+        open={addPropertyOpen}
+        onClose={() => {
+          setAddPropertyOpen(false);
+          setPreselectedPropertyName(null);
+        }}
+        existingPropertyOverrides={propertyOverrides}
+        defaultSettings={defaultSettings}
+        preselectedPropertyName={preselectedPropertyName}
+        onSave={(records) => {
+          onAddProperties(records);
+          setAddPropertyOpen(false);
+          setPreselectedPropertyName(null);
+        }}
+      />
+    </div>
   );
 }
 
-/* ─── Agent Tuning Card ─── */
+/* ─────────────────────────────────────────────
+ * Sticky anchor strip
+ * ─────────────────────────────────────────── */
 
-function AgentTuningCard({
-  tuning,
-  agentStatus,
-  onUpdate,
+function StickyAnchorStrip({
+  counts,
+  onJump,
 }: {
-  tuning: AgentVoiceTuning;
-  agentStatus?: string;
-  onUpdate: (updates: Partial<AgentVoiceTuning>) => void;
+  counts: { vertical: number; property: number };
+  onJump: (section: "default" | "verticals" | "properties") => void;
 }) {
+  return (
+    <div className="sticky top-0 z-20 -mx-1 border-y border-border bg-background/95 px-1 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="outline" size="sm" onClick={() => onJump("default")}>
+          Default
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => onJump("verticals")}>
+          Verticals ({counts.vertical})
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => onJump("properties")}>
+          Properties ({counts.property})
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+ * Section header (reused by Default + override sections)
+ * ─────────────────────────────────────────── */
+
+function SectionHeader({
+  icon,
+  title,
+  subtitle,
+  countLabel,
+}: {
+  icon?: React.ReactNode;
+  title: string;
+  subtitle?: string;
+  countLabel?: string;
+}) {
+  return (
+    <div className="mb-3 flex items-baseline justify-between gap-3">
+      <div className="flex items-baseline gap-2">
+        <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          {icon}
+          {title}
+        </h3>
+        {countLabel !== undefined && (
+          <span className="text-xs text-muted-foreground">({countLabel})</span>
+        )}
+      </div>
+      {subtitle && <p className="text-xs text-muted-foreground hidden sm:block">{subtitle}</p>}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+ * Empty state for an overrides section
+ * ─────────────────────────────────────────── */
+
+function EmptyOverrideState({
+  label,
+  actionLabel,
+  onAction,
+}: {
+  label: string;
+  actionLabel: string;
+  onAction: () => void;
+}) {
+  return (
+    <div className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-center">
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <Button variant="outline" size="sm" onClick={onAction} className="mt-3 gap-1">
+        <Plus className="h-3.5 w-3.5" /> {actionLabel}
+      </Button>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+ * Default card — collapsible, edit-in-place
+ * ─────────────────────────────────────────── */
+
+function DefaultCard({
+  settings,
+  onChange,
+  onReset,
+}: {
+  settings: ToneSettings;
+  onChange: (next: ToneSettings) => void;
+  onReset: () => void;
+}) {
+  const [expanded, setExpanded] = useState(true);
   const [editing, setEditing] = useState(false);
-  const [tone, setTone] = useState(tuning.toneOverride ?? "");
-  const [personality, setPersonality] = useState(tuning.personality ?? "");
-  const [instructions, setInstructions] = useState(tuning.customInstructions ?? "");
-  const [responseLength, setResponseLength] = useState(tuning.responseLength ?? "standard");
-  const [allowEmoji, setAllowEmoji] = useState(tuning.allowEmoji ?? false);
-
-  const handleSave = () => {
-    onUpdate({
-      toneOverride: tone,
-      personality,
-      customInstructions: instructions,
-      responseLength: responseLength as AgentVoiceTuning["responseLength"],
-      allowEmoji,
-    });
-    setEditing(false);
-  };
-
-  const status = agentStatus || "Active";
-  const isOff = status === "Off";
-  const displayName = `ELI+ ${tuning.agentName}`;
+  const [confirmResetOpen, setConfirmResetOpen] = useState(false);
 
   return (
-    <Card className={cn(isOff && "opacity-70")}>
-      <CardContent className="py-5">
+    <Card>
+      <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-3">
-          <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/eli-cube.svg" alt="" width={22} height={22} className="shrink-0" />
+          <button
+            type="button"
+            onClick={() => {
+              if (expanded && editing) setEditing(false);
+              setExpanded((value) => !value);
+            }}
+            className="flex-1 text-left"
+          >
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-base">Default voice & tone</CardTitle>
+              <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", expanded && "rotate-180")} />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold text-foreground">{displayName}</h3>
-                <span className={cn(
-                  "rounded-full px-1.5 py-0.5 text-[9px] font-medium",
-                  isOff ? "bg-muted text-muted-foreground" : "bg-[#B3FFCC] text-green-800",
-                )}>
-                  {status}
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {tuning.toneOverride || "Using default tone"} · {tuning.responseLength ?? "standard"} responses
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Seeded by Entrata. Edit to customize, or reset to start fresh.
+            </p>
+            {!expanded && (
+              <p className="mt-1 text-xs text-muted-foreground line-clamp-1">
+                {settings.persona || "No persona set"}
               </p>
-            </div>
+            )}
+          </button>
+          <div className="flex items-center gap-1.5">
+            {expanded && !editing ? (
+              <Button variant="ghost" size="sm" onClick={() => setEditing(true)} className="gap-1">
+                <Pencil className="h-3.5 w-3.5" /> Edit
+              </Button>
+            ) : expanded ? (
+              <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
+                Done
+              </Button>
+            ) : null}
+            {expanded && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setConfirmResetOpen(true)}
+                className="gap-1 text-muted-foreground hover:text-foreground"
+              >
+                <RotateCcw className="h-3.5 w-3.5" /> Reset
+              </Button>
+            )}
           </div>
-          {!editing ? (
-            <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
-              <Pencil className="h-3.5 w-3.5" /> Edit
-            </Button>
-          ) : (
-            <div className="flex gap-1.5">
-              <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>Cancel</Button>
-              <Button size="sm" onClick={handleSave}>Save</Button>
-            </div>
-          )}
         </div>
+      </CardHeader>
+      {expanded && (
+        <CardContent>
+          <ToneEditor settings={settings} editing={editing} onChange={onChange} />
+        </CardContent>
+      )}
 
-        {!editing ? (
-          <div className="mt-3 space-y-2 text-sm">
-            {tuning.personality && (
-              <p><span className="font-medium text-foreground">Personality:</span> <span className="text-muted-foreground">{tuning.personality}</span></p>
-            )}
-            {tuning.customInstructions && (
-              <p><span className="font-medium text-foreground">Instructions:</span> <span className="text-muted-foreground">{tuning.customInstructions}</span></p>
-            )}
-            <div className="flex items-center gap-3">
-              <span className={cn(
-                "rounded-full px-2 py-0.5 text-[10px] font-medium",
-                tuning.allowEmoji ? "bg-[#B3FFCC] text-black" : "bg-muted text-muted-foreground",
-              )}>
-                Emoji: {tuning.allowEmoji ? "On" : "Off"}
-              </span>
-            </div>
-          </div>
-        ) : (
-          <div className="mt-4 space-y-4">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">Tone override</label>
-              <input type="text" value={tone} onChange={(e) => setTone(e.target.value)} className="input-base h-8 text-sm" placeholder="e.g. Enthusiastic and sales-oriented" />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">Personality</label>
-              <input type="text" value={personality} onChange={(e) => setPersonality(e.target.value)} className="input-base h-8 text-sm" placeholder="e.g. Excited about helping people find their new home" />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">Custom instructions</label>
-              <textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={2} className="input-base resize-y text-sm" placeholder="e.g. Always mention current specials." />
-            </div>
-            <div className="flex items-center gap-6">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">Response length</label>
-                <select value={responseLength} onChange={(e) => setResponseLength(e.target.value as "concise" | "standard" | "detailed")} className="select-base h-8 text-sm">
-                  <option value="concise">Concise</option>
-                  <option value="standard">Standard</option>
-                  <option value="detailed">Detailed</option>
-                </select>
-              </div>
-              <label className="flex items-center gap-2 pt-4">
-                <input type="checkbox" checked={allowEmoji} onChange={(e) => setAllowEmoji(e.target.checked)} className="h-4 w-4 rounded border-border" />
-                <span className="text-sm text-foreground">Allow emoji</span>
-              </label>
-            </div>
-          </div>
-        )}
-      </CardContent>
+      <Dialog open={confirmResetOpen} onOpenChange={setConfirmResetOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reset to Entrata default?</DialogTitle>
+            <DialogDescription>
+              This will replace your customized portfolio default with the seeded Entrata voice and tone for this agent.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmResetOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                onReset();
+                setEditing(false);
+                setConfirmResetOpen(false);
+              }}
+            >
+              <RotateCcw className="h-3.5 w-3.5" /> Reset
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
 
-/* ─── Vertical Edit Dialog ─── */
+/* ─────────────────────────────────────────────
+ * Vertical override card — collapsible
+ * ─────────────────────────────────────────── */
 
-function VerticalEditDialog({
-  vertical,
-  override,
-  companyDefaults,
-  onClose,
-  onSave,
+function VerticalOverrideCard({
+  record,
+  onChange,
+  onRemove,
+  shadowingPropertyOverrides,
 }: {
-  vertical: string;
-  override: VerticalOverride;
-  companyDefaults: { persona: string; brandingTone: string; toneFormality: number; toneWarmth: number; toneUrgency: number };
-  onClose: () => void;
-  onSave: (updates: Partial<VerticalOverride>) => void;
+  record: VerticalOverrideRecord;
+  onChange: (next: ToneSettings) => void;
+  onRemove: () => void;
+  shadowingPropertyOverrides: PropertyOverrideRecord[];
 }) {
-  const [persona, setPersona] = useState(override.persona ?? companyDefaults.persona);
-  const [brandingTone, setBrandingTone] = useState(override.brandingTone ?? companyDefaults.brandingTone);
-  const [toneFormality, setToneFormality] = useState(override.toneFormality ?? companyDefaults.toneFormality);
-  const [toneWarmth, setToneWarmth] = useState(override.toneWarmth ?? companyDefaults.toneWarmth);
-  const [toneUrgency, setToneUrgency] = useState(override.toneUrgency ?? companyDefaults.toneUrgency);
-
-  const config = VERTICAL_CONFIG[vertical];
-  const Icon = config?.icon || Building2;
+  const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
+  const meta = VERTICAL_META[record.vertical];
+  const Icon = meta.icon;
 
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <div className="flex items-center gap-3">
-            <div className={cn("flex h-9 w-9 items-center justify-center rounded-lg", config?.bgColor)}>
-              <Icon className={cn("h-4 w-4", config?.color)} />
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="flex items-start gap-3 text-left flex-1 min-w-0"
+          >
+            <div className={cn("flex h-9 w-9 items-center justify-center rounded-lg", meta.bg)}>
+              <Icon className={cn("h-4 w-4", meta.color)} />
             </div>
-            <div>
-              <DialogTitle>Customize {vertical} Voice</DialogTitle>
-              <DialogDescription>{config?.description}</DialogDescription>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-base">{record.vertical}</CardTitle>
+                <ChevronDown
+                  className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", expanded && "rotate-180")}
+                />
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">
+                {record.settings.persona || "No persona set"} ·{" "}
+                {countPropertiesInVertical(record.vertical)} properties
+              </p>
             </div>
-          </div>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Persona</label>
-            <input type="text" value={persona} onChange={(e) => setPersona(e.target.value)} className="input-base text-sm" placeholder="e.g. Friendly campus guide" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Brand & Tone Guidelines</label>
-            <textarea value={brandingTone} onChange={(e) => setBrandingTone(e.target.value)} rows={3} className="input-base resize-y text-sm" />
-          </div>
-          <div className="rounded-lg border border-border p-4">
-            <p className="mb-3 text-xs font-medium text-foreground">Tone Profile</p>
-            <ToneSliders
-              formality={toneFormality}
-              warmth={toneWarmth}
-              urgency={toneUrgency}
-              onChange={(key, value) => {
-                if (key === "toneFormality") setToneFormality(value);
-                else if (key === "toneWarmth") setToneWarmth(value);
-                else if (key === "toneUrgency") setToneUrgency(value);
-              }}
-            />
+          </button>
+          <div className="flex items-center gap-1.5">
+            {expanded && !editing && (
+              <Button variant="ghost" size="sm" onClick={() => setEditing(true)} className="gap-1">
+                <Pencil className="h-3.5 w-3.5" /> Edit
+              </Button>
+            )}
+            {expanded && editing && (
+              <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
+                Done
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setConfirmRemoveOpen(true)}
+              className="text-red-600 hover:text-red-700"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
           </div>
         </div>
 
+        {/* Conflict warning (always visible when there are shadowing properties) */}
+        {expanded && shadowingPropertyOverrides.length > 0 && (
+          <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-900/40 dark:bg-amber-950/30">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+            <div className="text-xs text-amber-900 dark:text-amber-200">
+              <p className="font-medium">
+                {shadowingPropertyOverrides.length} {shadowingPropertyOverrides.length === 1 ? "property" : "properties"} in {record.vertical} have their own override and will not pick up these vertical settings:
+              </p>
+              <ul className="mt-1 list-inside list-disc">
+                {shadowingPropertyOverrides.map((p) => (
+                  <li key={p.id}>{p.propertyName}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
+      </CardHeader>
+      {expanded && (
+        <CardContent>
+          <ToneEditor settings={record.settings} editing={editing} onChange={onChange} />
+        </CardContent>
+      )}
+
+      <Dialog open={confirmRemoveOpen} onOpenChange={setConfirmRemoveOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Remove vertical override?</DialogTitle>
+            <DialogDescription>
+              This will delete the {record.vertical} override for this agent. Properties without their own override will fall back to the portfolio default.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmRemoveOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setEditing(false);
+                setConfirmRemoveOpen(false);
+                onRemove();
+              }}
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Remove
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
+/* ─────────────────────────────────────────────
+ * Property override card — collapsible
+ * ─────────────────────────────────────────── */
+
+function PropertyOverrideCard({
+  record,
+  autoExpand,
+  cardRef,
+  onChange,
+  onRemove,
+}: {
+  record: PropertyOverrideRecord;
+  autoExpand?: boolean;
+  cardRef?: (node: HTMLDivElement | null) => void;
+  onChange: (next: ToneSettings) => void;
+  onRemove: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
+  const meta = VERTICAL_META[record.vertical];
+
+  useEffect(() => {
+    if (autoExpand) {
+      setExpanded(true);
+    }
+  }, [autoExpand]);
+
+  return (
+    <div ref={cardRef}>
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-start justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className="flex items-start gap-3 text-left flex-1 min-w-0"
+            >
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
+                <Home className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-base">{record.propertyName}</CardTitle>
+                  <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-medium", meta.bg, meta.color)}>
+                    {record.vertical}
+                  </span>
+                  <ChevronDown
+                    className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", expanded && "rotate-180")}
+                  />
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">
+                  {record.settings.persona || "No persona set"}
+                </p>
+              </div>
+            </button>
+            <div className="flex items-center gap-1.5">
+              {expanded && !editing && (
+                <Button variant="ghost" size="sm" onClick={() => setEditing(true)} className="gap-1">
+                  <Pencil className="h-3.5 w-3.5" /> Edit
+                </Button>
+              )}
+              {expanded && editing && (
+                <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
+                  Done
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setConfirmRemoveOpen(true)}
+                className="text-red-600 hover:text-red-700"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        {expanded && (
+          <CardContent>
+            <ToneEditor settings={record.settings} editing={editing} onChange={onChange} />
+          </CardContent>
+        )}
+
+        <Dialog open={confirmRemoveOpen} onOpenChange={setConfirmRemoveOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Remove property override?</DialogTitle>
+              <DialogDescription>
+                This will delete the override for {record.propertyName}. The property will inherit from its vertical override if one exists, otherwise from the portfolio default.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConfirmRemoveOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  setEditing(false);
+                  setConfirmRemoveOpen(false);
+                  onRemove();
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Remove
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </Card>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+ * Tone editor (shared form for default + overrides)
+ * ─────────────────────────────────────────── */
+
+function ToneEditor({
+  settings,
+  editing,
+  onChange,
+}: {
+  settings: ToneSettings;
+  editing: boolean;
+  onChange: (next: ToneSettings) => void;
+}) {
+  const update = (patch: Partial<ToneSettings>) => onChange({ ...settings, ...patch });
+
+  if (!editing) {
+    return (
+      <div className="space-y-4 text-sm">
+        <div>
+          <p className="text-xs font-medium text-muted-foreground">Persona</p>
+          <p className="mt-1 text-foreground">{settings.persona || <span className="italic text-muted-foreground">Not set</span>}</p>
+        </div>
+        <div>
+          <p className="text-xs font-medium text-muted-foreground">Agent tone & instructions</p>
+          <p className="mt-1 whitespace-pre-wrap text-foreground">{settings.guidelines || <span className="italic text-muted-foreground">Not set</span>}</p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <ListReadout title="Do" entries={settings.doExamples} icon={<CheckCircle className="h-3.5 w-3.5 text-emerald-500" />} />
+          <ListReadout title="Don't" entries={settings.dontExamples} icon={<XCircle className="h-3.5 w-3.5 text-red-500" />} />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">Persona</label>
+        <input
+          type="text"
+          value={settings.persona}
+          onChange={(e) => update({ persona: e.target.value })}
+          className="input-base text-sm"
+          placeholder="e.g. Empathetic, solution-focused payments specialist"
+        />
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">Agent tone & instructions</label>
+        <textarea
+          value={settings.guidelines}
+          onChange={(e) => update({ guidelines: e.target.value })}
+          rows={6}
+          className="input-base !h-auto min-h-[140px] resize-y text-sm"
+          placeholder="e.g. Direct and clear, but never judgmental..."
+        />
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <ListEditor
+          title="Do"
+          entries={settings.doExamples}
+          accent="emerald"
+          onChange={(doExamples) => update({ doExamples })}
+        />
+        <ListEditor
+          title="Don't"
+          entries={settings.dontExamples}
+          accent="red"
+          onChange={(dontExamples) => update({ dontExamples })}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ListReadout({ title, entries, icon }: { title: string; entries: string[]; icon: React.ReactNode }) {
+  return (
+    <div className="rounded-md border border-border bg-muted/20 p-3">
+      <p className="mb-2 text-xs font-medium text-muted-foreground">{title}</p>
+      {entries.length === 0 ? (
+        <p className="text-xs italic text-muted-foreground">None</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {entries.map((e, i) => (
+            <li key={i} className="flex items-start gap-1.5 text-xs">
+              <span className="mt-0.5">{icon}</span>
+              <span className="text-foreground">{e}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ListEditor({
+  title,
+  entries,
+  accent,
+  onChange,
+}: {
+  title: string;
+  entries: string[];
+  accent: "emerald" | "red";
+  onChange: (next: string[]) => void;
+}) {
+  const accentText = accent === "emerald" ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400";
+
+  return (
+    <div className="rounded-lg border border-border p-3">
+      <p className={cn("mb-2 text-xs font-semibold", accentText)}>{title}</p>
+      <ul className="space-y-2">
+        {entries.map((entry, i) => (
+          <li key={i} className="flex items-start gap-2">
+            <input
+              type="text"
+              value={entry}
+              onChange={(e) => {
+                const next = [...entries];
+                next[i] = e.target.value;
+                onChange(next);
+              }}
+              className="input-base h-8 flex-1 text-sm"
+            />
+            <button
+              type="button"
+              onClick={() => onChange(entries.filter((_, j) => j !== i))}
+              className="text-muted-foreground hover:text-foreground"
+              aria-label="Remove"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </li>
+        ))}
+      </ul>
+      <Button variant="ghost" size="sm" className="mt-2 h-7 text-xs" onClick={() => onChange([...entries, ""])}>
+        <Plus className="h-3 w-3" /> Add
+      </Button>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+ * Add Vertical Override dialog (single-select + progressive disclosure)
+ * ─────────────────────────────────────────── */
+
+function AddVerticalOverrideDialog({
+  open,
+  onClose,
+  existingVerticals,
+  propertyOverrides,
+  defaultSettings,
+  onSave,
+}: {
+  open: boolean;
+  onClose: () => void;
+  existingVerticals: Vertical[];
+  propertyOverrides: PropertyOverrideRecord[];
+  defaultSettings: ToneSettings;
+  onSave: (record: VerticalOverrideRecord) => void;
+}) {
+  const [vertical, setVertical] = useState<Vertical | null>(null);
+  const [settings, setSettings] = useState<ToneSettings>(EMPTY_TONE);
+
+  const available = VERTICALS.filter((v) => !existingVerticals.includes(v));
+  const shadowing = vertical ? propertyOverrides.filter((p) => p.vertical === vertical) : [];
+
+  const reset = () => {
+    setVertical(null);
+    setSettings(EMPTY_TONE);
+  };
+
+  const handleClose = () => {
+    reset();
+    onClose();
+  };
+
+  const handlePickVertical = (v: Vertical) => {
+    setVertical(v);
+    setSettings(defaultSettings);
+  };
+
+  const handleSave = () => {
+    if (!vertical) return;
+    onSave({
+      id: `vertical-${vertical.toLowerCase()}-${Date.now()}`,
+      vertical,
+      settings,
+    });
+    reset();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
+      <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Add vertical override</DialogTitle>
+          <DialogDescription>
+            Override the portfolio default for one property type. The settings here apply to every property in that vertical, unless that property has its own override.
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Step 1: pick vertical */}
+        <div>
+          <label className="mb-2 block text-xs font-medium text-muted-foreground">Vertical</label>
+          {available.length === 0 ? (
+            <p className="rounded-md border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+              All verticals already have overrides. Edit them in the list below or remove one to add a new one.
+            </p>
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {available.map((v) => {
+                const meta = VERTICAL_META[v];
+                const Icon = meta.icon;
+                const active = vertical === v;
+                return (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => handlePickVertical(v)}
+                    className={cn(
+                      "flex items-start gap-3 rounded-lg border p-3 text-left transition-all",
+                      active ? "border-primary bg-primary/5" : "border-border hover:border-zinc-400",
+                    )}
+                  >
+                    <div className={cn("flex h-9 w-9 items-center justify-center rounded-lg", meta.bg)}>
+                      <Icon className={cn("h-4 w-4", meta.color)} />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">{v}</p>
+                      <p className="text-[11px] text-muted-foreground">{meta.description}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Step 2: progressive disclosure of editor */}
+        {vertical && (
+          <>
+            {shadowing.length > 0 && (
+              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-900/40 dark:bg-amber-950/30">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                <div className="text-xs text-amber-900 dark:text-amber-200">
+                  <p className="font-medium">
+                    Heads up — {shadowing.length} {shadowing.length === 1 ? "property" : "properties"} in {vertical} already have a property-level override and will continue to take precedence over this vertical override:
+                  </p>
+                  <ul className="mt-1 list-inside list-disc">
+                    {shadowing.map((p) => (
+                      <li key={p.id}>{p.propertyName}</li>
+                    ))}
+                  </ul>
+                  <p className="mt-1.5 text-amber-800/80 dark:text-amber-200/80">
+                    Remove a property override later if you want it to inherit from this vertical instead.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="rounded-lg border border-border p-4">
+              <p className="mb-3 text-xs text-muted-foreground">
+                Pre-filled with the portfolio default. Edit any field below to override for {vertical}.
+              </p>
+              <ToneEditor settings={settings} editing={true} onChange={setSettings} />
+            </div>
+          </>
+        )}
+
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => onSave({ persona, brandingTone, toneFormality, toneWarmth, toneUrgency })}>
-            Save
+          <Button variant="outline" onClick={handleClose}>
+            Cancel
+          </Button>
+          <Button onClick={handleSave} disabled={!vertical}>
+            Save vertical override
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -767,98 +1323,282 @@ function VerticalEditDialog({
   );
 }
 
-/* ─── Property Override Dialog ─── */
+/* ─────────────────────────────────────────────
+ * Add Property Override dialog (multi-select + bulk-write)
+ * ─────────────────────────────────────────── */
 
-function PropertyOverrideDialog({
-  override,
-  preselectedProperty,
-  existingProperties,
+function AddPropertyOverrideDialog({
+  open,
   onClose,
+  existingPropertyOverrides,
+  defaultSettings,
+  preselectedPropertyName,
   onSave,
 }: {
-  override?: PropertyOverride;
-  preselectedProperty?: string | null;
-  existingProperties: string[];
+  open: boolean;
   onClose: () => void;
-  onSave: (data: PropertyOverride | Partial<PropertyOverride>) => void;
+  existingPropertyOverrides: PropertyOverrideRecord[];
+  defaultSettings: ToneSettings;
+  preselectedPropertyName?: string | null;
+  onSave: (records: PropertyOverrideRecord[]) => void;
 }) {
-  const isEditing = !!override;
-  const available = MOCK_PROPERTIES.filter((p) => !existingProperties.includes(p.name) || p.name === override?.property || p.name === preselectedProperty);
-  const [property, setProperty] = useState(override?.property ?? preselectedProperty ?? available[0]?.name ?? "");
-  const [persona, setPersona] = useState(override?.persona ?? "");
-  const [brandingTone, setBrandingTone] = useState(override?.brandingTone ?? "");
-  const [toneFormality, setToneFormality] = useState(override?.toneFormality ?? 65);
-  const [toneWarmth, setToneWarmth] = useState(override?.toneWarmth ?? 75);
-  const [toneUrgency, setToneUrgency] = useState(override?.toneUrgency ?? 40);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [settings, setSettings] = useState<ToneSettings>(EMPTY_TONE);
+  const selectedNames = selectedIds;
+  const existingOverridesByProperty = useMemo(
+    () => new Map(existingPropertyOverrides.map((override) => [override.propertyName, override])),
+    [existingPropertyOverrides],
+  );
+  const selectionAnalysis = useMemo(
+    () => computePropertySelectionMode(selectedNames, existingOverridesByProperty),
+    [selectedNames, existingOverridesByProperty],
+  );
 
-  const selectedProperty = MOCK_PROPERTIES.find((p) => p.name === property);
+  const selectedPropertySummaries = useMemo(
+    () =>
+      selectedNames.map((propertyName) => ({
+        propertyName,
+        settings: existingOverridesByProperty.get(propertyName)?.settings ?? null,
+      })),
+    [selectedNames, existingOverridesByProperty],
+  );
+
+  const reset = () => {
+    setSelectedIds([]);
+    setSettings(EMPTY_TONE);
+  };
+
+  useEffect(() => {
+    if (!open || !preselectedPropertyName) return;
+    if (!MOCK_PROPERTIES.some((property) => property.name === preselectedPropertyName)) return;
+    setSelectedIds([preselectedPropertyName]);
+  }, [open, preselectedPropertyName]);
+
+  useEffect(() => {
+    if (!open || selectedNames.length === 0) return;
+    if (selectionAnalysis.mode === "shared" && selectionAnalysis.sharedSettings) {
+      setSettings(cloneToneSettingsForDialog(selectionAnalysis.sharedSettings));
+      return;
+    }
+    if (selectionAnalysis.mode === "mixed") {
+      setSettings(cloneToneSettingsForDialog(EMPTY_TONE));
+      return;
+    }
+    setSettings(cloneToneSettingsForDialog(defaultSettings));
+  }, [open, selectedNames, selectionAnalysis, defaultSettings]);
+
+  const handleClose = () => {
+    reset();
+    onClose();
+  };
+
+  const handleSave = () => {
+    if (selectedNames.length === 0) return;
+    const now = Date.now();
+    const records: PropertyOverrideRecord[] = selectedNames.map((name, i) => {
+      const meta = MOCK_PROPERTIES.find((p) => p.name === name)!;
+      return {
+        id: `property-${name.toLowerCase().replace(/\s+/g, "-")}-${now}-${i}`,
+        propertyName: name,
+        vertical: meta.vertical,
+        settings,
+      };
+    });
+    onSave(records);
+    reset();
+  };
 
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="sm:max-w-lg">
+    <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
+      <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isEditing ? `Edit ${override.property}` : "Add Property Override"}</DialogTitle>
+          <DialogTitle>Add property override{selectedNames.length > 1 ? "s" : ""}</DialogTitle>
           <DialogDescription>
-            {isEditing
-              ? "Modify voice settings for this property."
-              : "Customize voice settings for a specific property. This overrides vertical and company defaults."}
+            Pick one or more properties. The settings you save will be applied to each selected property as its own individual override — they can be edited or removed independently later.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          {!isEditing && (
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">Property</label>
-              <select value={property} onChange={(e) => setProperty(e.target.value)} className="select-base w-full text-sm">
-                {available.map((p) => (
-                  <option key={p.name} value={p.name}>{p.name} ({p.vertical})</option>
-                ))}
-              </select>
+        {/* Step 1: multi-select */}
+        <div>
+          <div className="mb-2 flex items-baseline justify-between">
+            <label className="block text-xs font-medium text-muted-foreground">Properties</label>
+            <span className="text-xs text-muted-foreground">
+              {selectedNames.length} selected
+            </span>
+          </div>
+          {selectedNames.filter((name) => existingOverridesByProperty.has(name)).length > 0 && (
+            <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-900/40 dark:bg-amber-950/30">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+              <div className="text-xs text-amber-900 dark:text-amber-200">
+                <p className="font-medium">
+                  {selectedNames.filter((name) => existingOverridesByProperty.has(name)).length} of {selectedNames.length} selected {selectedNames.length === 1 ? "property already has" : "properties already have"} an override and will be replaced when you save:
+                </p>
+                <ul className="mt-1 list-inside list-disc">
+                  {selectedNames
+                    .filter((name) => existingOverridesByProperty.has(name))
+                    .map((name) => (
+                      <li key={name}>{name}</li>
+                    ))}
+                </ul>
+              </div>
             </div>
           )}
-
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Persona override</label>
-            <input type="text" value={persona} onChange={(e) => setPersona(e.target.value)} className="input-base text-sm" placeholder="e.g. Luxury concierge" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Brand & tone override</label>
-            <textarea value={brandingTone} onChange={(e) => setBrandingTone(e.target.value)} rows={3} className="input-base resize-y text-sm" placeholder="e.g. Upscale and sophisticated." />
-          </div>
-
-          <div className="rounded-lg border border-border p-4">
-            <p className="mb-3 text-xs font-medium text-foreground">Tone Profile</p>
-            <ToneSliders
-              formality={toneFormality}
-              warmth={toneWarmth}
-              urgency={toneUrgency}
-              onChange={(key, value) => {
-                if (key === "toneFormality") setToneFormality(value);
-                else if (key === "toneWarmth") setToneWarmth(value);
-                else if (key === "toneUrgency") setToneUrgency(value);
-              }}
-            />
-          </div>
+          <PropertySelector
+            data={PROPERTY_FILTER_DATA}
+            triggerWidthClassName="w-full"
+            panelHeight={420}
+            showChips
+            chipsPosition="below"
+            chipsClearAll
+            selectedPropertyIds={selectedIds}
+            onSelectedIdsChange={setSelectedIds}
+          />
         </div>
 
+        {/* Step 2: progressive disclosure of editor */}
+        {selectedNames.length > 0 && (
+          <div className="rounded-lg border border-border p-4">
+            {selectionAnalysis.mode === "shared" && (
+              <div className="mb-3 flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 dark:border-blue-900/40 dark:bg-blue-950/30">
+                <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-600" />
+                <p className="text-xs text-blue-900 dark:text-blue-200">
+                  Editing the existing override shared by these {selectedNames.length} {selectedNames.length === 1 ? "property" : "properties"}.
+                  Saving will update all of them.
+                </p>
+              </div>
+            )}
+            {selectionAnalysis.mode === "mixed" && (
+              <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-900/40 dark:bg-amber-950/30">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                <div className="text-xs text-amber-900 dark:text-amber-200">
+                  <p className="font-medium">
+                    These {selectedNames.length} properties currently have different (or no) voice & tone settings.
+                    Saving will completely replace whatever is set on each selected property.
+                  </p>
+                  <details className="mt-1.5">
+                    <summary className="cursor-pointer text-amber-800/90 dark:text-amber-200/90">See current settings</summary>
+                    <ul className="mt-1 list-inside list-disc">
+                      {selectedPropertySummaries.map(({ propertyName, settings: currentSettings }) => (
+                        <li key={propertyName}>
+                          {propertyName}: {currentSettings?.persona?.trim() ? currentSettings.persona : "No override yet"}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                </div>
+              </div>
+            )}
+            <p className="mb-3 text-xs text-muted-foreground">
+              {selectionAnalysis.mode === "shared"
+                ? "Pre-filled from the current shared override. Edit before saving to apply updates to all selected properties."
+                : selectionAnalysis.mode === "mixed"
+                  ? "Starts blank because selected properties do not share one exact override. Enter the new settings to apply across all selected properties."
+                  : "These settings will be saved to each selected property as an individual override. Pre-filled with the portfolio default — edit to customize."}
+            </p>
+            <ToneEditor settings={settings} editing={true} onChange={setSettings} />
+          </div>
+        )}
+
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button
-            onClick={() => onSave({
-              property,
-              vertical: selectedProperty?.vertical,
-              persona: persona || undefined,
-              brandingTone: brandingTone || undefined,
-              toneFormality,
-              toneWarmth,
-              toneUrgency,
-            })}
-            disabled={!property}
-          >
-            {isEditing ? "Save" : "Add"}
+          <Button variant="outline" onClick={handleClose}>
+            Cancel
+          </Button>
+          <Button onClick={handleSave} disabled={selectedNames.length === 0}>
+            Save {selectedNames.length > 0 ? `${selectedNames.length} ` : ""}property override{selectedNames.length === 1 ? "" : "s"}
+            {selectionAnalysis.overriddenCount > 0 ? " (replaces existing)" : ""}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
+}
+
+/* ─────────────────────────────────────────────
+ * Helpers
+ * ─────────────────────────────────────────── */
+
+function countPropertiesInVertical(vertical: Vertical): number {
+  return MOCK_PROPERTIES.filter((p) => p.vertical === vertical).length;
+}
+
+function cloneToneSettingsForDialog(settings: ToneSettings): ToneSettings {
+  return {
+    persona: settings.persona,
+    guidelines: settings.guidelines,
+    doExamples: [...settings.doExamples],
+    dontExamples: [...settings.dontExamples],
+  };
+}
+
+function tonesEqual(a: ToneSettings, b: ToneSettings): boolean {
+  return (
+    a.persona === b.persona &&
+    a.guidelines === b.guidelines &&
+    a.doExamples.length === b.doExamples.length &&
+    a.doExamples.every((entry, idx) => entry === b.doExamples[idx]) &&
+    a.dontExamples.length === b.dontExamples.length &&
+    a.dontExamples.every((entry, idx) => entry === b.dontExamples[idx])
+  );
+}
+
+function computePropertySelectionMode(
+  selectedNames: string[],
+  overridesByProperty: Map<string, PropertyOverrideRecord>,
+): { mode: "empty" | "shared" | "mixed"; sharedSettings?: ToneSettings; overriddenCount: number } {
+  if (selectedNames.length === 0) {
+    return { mode: "empty", overriddenCount: 0 };
+  }
+
+  const matchingOverrides = selectedNames
+    .map((name) => overridesByProperty.get(name))
+    .filter((override): override is PropertyOverrideRecord => Boolean(override));
+
+  if (matchingOverrides.length === 0) {
+    return { mode: "empty", overriddenCount: 0 };
+  }
+
+  if (matchingOverrides.length !== selectedNames.length) {
+    return { mode: "mixed", overriddenCount: matchingOverrides.length };
+  }
+
+  const [first, ...rest] = matchingOverrides;
+  if (rest.every((override) => tonesEqual(override.settings, first.settings))) {
+    return {
+      mode: "shared",
+      sharedSettings: first.settings,
+      overriddenCount: matchingOverrides.length,
+    };
+  }
+
+  return { mode: "mixed", overriddenCount: matchingOverrides.length };
+}
+
+function agentBgClass(accent: string): string {
+  switch (accent) {
+    case "indigo":
+      return "bg-indigo-50 dark:bg-indigo-950/30";
+    case "emerald":
+      return "bg-emerald-50 dark:bg-emerald-950/30";
+    case "amber":
+      return "bg-amber-50 dark:bg-amber-950/30";
+    case "sky":
+      return "bg-sky-50 dark:bg-sky-950/30";
+    default:
+      return "bg-muted";
+  }
+}
+
+function agentTextClass(accent: string): string {
+  switch (accent) {
+    case "indigo":
+      return "text-indigo-600";
+    case "emerald":
+      return "text-emerald-600";
+    case "amber":
+      return "text-amber-600";
+    case "sky":
+      return "text-sky-600";
+    default:
+      return "text-muted-foreground";
+  }
 }

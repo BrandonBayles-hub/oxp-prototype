@@ -12,12 +12,9 @@ import type { SimMode } from "./pages/CompanyPage"
 import { PrivacyPage } from "./pages/PrivacyPage"
 import { EmailPage } from "./pages/EmailPage"
 import { PaymentsSummaryPage } from "./pages/PaymentsSummaryPage"
-import { PaymentsPage } from "./pages/PaymentsPage"
 import { GoLivePage } from "./pages/GoLivePage"
 import { MaintenancePage } from "./pages/MaintenancePage"
-import { MaintenanceFullPage } from "./pages/MaintenanceFullPage"
 import { RenewalsPage } from "./pages/RenewalsPage"
-import { RenewalsFullPage } from "./pages/RenewalsFullPage"
 import { LeasingPage } from "./pages/LeasingPage"
 import { CommunicationsPage } from "./pages/CommunicationsPage"
 import { IvrSetupPage, type IvrChoice } from "./pages/IvrSetupPage"
@@ -137,9 +134,9 @@ export default function EliOnboardingHybrid() {
   // Email integration confirmed state
   const [emailComplete, setEmailComplete] = useState(false)
   // IVR setup — the user's saved routing choice (null = not yet confirmed)
-  const [ivrChoice, setIvrChoice] = useState<IvrChoice>(null)
-  const ivrComplete = ivrChoice !== null
-  const ivrActionCount = ivrComplete ? 0 : 1
+  const [ivrChoice, setIvrChoice]         = useState<IvrChoice>(null)
+  const [ivrActionCount, setIvrActionCount] = useState(2) // default: 2 custom IVR properties pending
+  const ivrComplete = ivrChoice !== null && ivrActionCount === 0
   // Carrier compliance simulation mode — lifted from CompanyPage so Overview can react
   const [simMode, setSimMode] = useState<SimMode>("none")
   // Count of action items in Carrier Compliance tab (drives sidebar badge)
@@ -152,20 +149,20 @@ export default function EliOnboardingHybrid() {
   function startBrandSubmission() {
     setBrandStatus("submitting")
     if (brandTimerRef.current) clearTimeout(brandTimerRef.current)
-    // 15s: simulate carrier rejecting the phone number
+    // 2.5s: simulate carrier rejecting the phone number
     brandTimerRef.current = setTimeout(() => {
       setBrandStatus("carrier-rejected")
-    }, 15000)
+    }, 2500)
   }
 
   function resubmitAfterRejection() {
     setBrandStatus("submitting")
     if (brandTimerRef.current) clearTimeout(brandTimerRef.current)
-    // 10s second pass — carrier approves after fix
+    // 2s second pass — carrier approves after fix
     brandTimerRef.current = setTimeout(() => {
       setBrandStatus("approved")
       setCampaignStatus("creating")
-    }, 10000)
+    }, 2000)
   }
 
   function cancelBrandSubmission() {
@@ -318,16 +315,20 @@ export default function EliOnboardingHybrid() {
             onImmediateMoveinChange={(id, val) => setImmediateMovein((p) => ({ ...p, [id]: val }))}
           />
         ) : page === "maintenance" ? (
-          <MaintenanceFullPage
+          <MaintenancePage
             navigate={navigate}
             showToast={showToast}
+            duringPhones={duringPhones}
+            onDuringPhoneChange={(id, val) => setDuringPhones((p) => ({ ...p, [id]: val }))}
+            afterPhones={afterPhones}
+            onAfterPhoneChange={(id, val) => setAfterPhones((p) => ({ ...p, [id]: val }))}
           />
         ) : page === "renewals" ? (
-          <RenewalsFullPage navigate={navigate} showToast={showToast} />
+          <RenewalsPage navigate={navigate} showToast={showToast} days={renewalDays} onChange={handleRenewalDayChange} />
         ) : page === "renewals-channels" ? (
           <RenewalsChannelsPage navigate={navigate} />
         ) : page === "payments" ? (
-          <PaymentsPage navigate={navigate} showToast={showToast} />
+          <PaymentsSummaryPage navigate={navigate} completedTasks={completedTasks} onComplete={handleComplete} showToast={showToast} />
         ) : page === "communications" ? (
           <CommunicationsPage
             navigate={navigate}
@@ -344,6 +345,7 @@ export default function EliOnboardingHybrid() {
             ivrChoice={ivrChoice}
             onSave={setIvrChoice}
             showToast={showToast}
+            onActionCountChange={setIvrActionCount}
           />
         ) : page === "company" ? (
           <CompanyPage

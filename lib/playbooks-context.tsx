@@ -9,6 +9,12 @@ export type PlaybookPriority = "P0" | "P1" | "P2" | "P3";
 
 export type PlaybookStatus = "In Progress" | "On Hold" | "Completed" | "Due Today" | "Overdue";
 
+export type PlaybookNote = {
+  at: string;
+  by: string;
+  text: string;
+};
+
 export type Playbook = {
   id: string;
   templateName: string;
@@ -25,6 +31,7 @@ export type Playbook = {
   tasks: Task[];
   sourceDocId?: string;
   recurring?: { frequency: "daily" | "weekly" | "monthly" | "quarterly" };
+  notes?: PlaybookNote[];
 };
 
 /* ─────────────────────────────── Seed Data ───────────────────────────── */
@@ -72,6 +79,7 @@ const INITIAL_PLAYBOOKS: Playbook[] = [
     priority: "P0",
     assignee: "Jayion Korsgaard",
     description: "This playbook outlines the steps for successful action when there has been a burst pipe on the property.",
+    sourceDocId: "2",
     tasks: [
       t("t-1-1", "Work Order", "P2", "Today", "In Progress", "Hillary Gonzalez", "Summit Park", "34-A", "Vendor"),
       t("t-1-2", "Work Order", "P1", "Today", "In Progress", "Marcus Herwitz", "Summit Park", "34-B", "Resident"),
@@ -498,6 +506,9 @@ type PlaybooksContextValue = {
   removePlaybookTask: (playbookId: string, taskId: string) => void;
   addPlaybook: (playbook: Omit<Playbook, "id">) => void;
   removePlaybook: (id: string) => void;
+  addPlaybookNote: (playbookId: string, by: string, text: string, at?: string) => void;
+  updatePlaybookNote: (playbookId: string, noteAt: string, newText: string) => void;
+  removePlaybookNote: (playbookId: string, noteAt: string) => void;
 };
 
 const PlaybooksContext = createContext<PlaybooksContextValue | null>(null);
@@ -601,6 +612,57 @@ export function PlaybooksProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const addPlaybookNote = useCallback(
+    (playbookId: string, by: string, text: string, at?: string) => {
+      const note: PlaybookNote = { at: at ?? new Date().toISOString(), by, text };
+      setPlaybooks((prev) => {
+        const next = prev.map((p) =>
+          p.id === playbookId
+            ? { ...p, notes: [...(p.notes ?? []), note] }
+            : p
+        );
+        saveState(next);
+        return next;
+      });
+    },
+    []
+  );
+
+  const updatePlaybookNote = useCallback(
+    (playbookId: string, noteAt: string, newText: string) => {
+      setPlaybooks((prev) => {
+        const next = prev.map((p) =>
+          p.id === playbookId
+            ? {
+                ...p,
+                notes: (p.notes ?? []).map((n) =>
+                  n.at === noteAt ? { ...n, text: newText } : n
+                ),
+              }
+            : p
+        );
+        saveState(next);
+        return next;
+      });
+    },
+    []
+  );
+
+  const removePlaybookNote = useCallback(
+    (playbookId: string, noteAt: string) => {
+      setPlaybooks((prev) => {
+        const next = prev.map((p) =>
+          p.id === playbookId
+            ? { ...p, notes: (p.notes ?? []).filter((n) => n.at !== noteAt) }
+            : p
+        );
+        saveState(next);
+        return next;
+      });
+    },
+    []
+  );
+
   const value = useMemo<PlaybooksContextValue>(
     () => ({
       playbooks,
@@ -611,8 +673,11 @@ export function PlaybooksProvider({ children }: { children: React.ReactNode }) {
       removePlaybookTask,
       addPlaybook,
       removePlaybook,
+      addPlaybookNote,
+      updatePlaybookNote,
+      removePlaybookNote,
     }),
-    [playbooks, getPlaybook, updatePlaybook, updatePlaybookTask, addPlaybookTask, removePlaybookTask, addPlaybook, removePlaybook]
+    [playbooks, getPlaybook, updatePlaybook, updatePlaybookTask, addPlaybookTask, removePlaybookTask, addPlaybook, removePlaybook, addPlaybookNote, updatePlaybookNote, removePlaybookNote]
   );
 
   return <PlaybooksContext.Provider value={value}>{children}</PlaybooksContext.Provider>;

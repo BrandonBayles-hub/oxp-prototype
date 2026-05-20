@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   Globe,
@@ -11,8 +11,10 @@ import {
   Info,
   Pencil,
   Circle,
+  HelpCircle,
 } from "lucide-react";
 import { useEliEmails, type EliEmailAddress, type ImapSmtpConfig } from "@/lib/eli-emails-context";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const PROPERTIES = [
   "Harvest Peak Capital",
@@ -44,25 +46,25 @@ const SERVICE_TYPES = [
   "ELI+ Maintenance AI",
   "ELI+ Payments AI",
   "ELI+ Renewals AI",
-  "Entrata Email",
+  "Custom Email Address",
 ];
 
-/** Set to `true` to show "Entrata Email" again in Google/Microsoft and assignment service-type pickers. */
-const SHOW_ENTRATA_EMAIL_IN_SERVICE_SELECTOR = false;
+/** Set to `true` to show "Custom Email Address" again in Google/Microsoft and assignment service-type pickers. */
+const SHOW_ENTRATA_EMAIL_IN_SERVICE_SELECTOR = true;
 
 /** Full ELI picker list (OAuth + edit assignment); IMAP "Other providers" still uses `OTHER_PROVIDER_SERVICE_TYPES` only. */
 const ELI_CONNECT_SERVICE_TYPES: readonly string[] = SHOW_ENTRATA_EMAIL_IN_SERVICE_SELECTOR
   ? SERVICE_TYPES
-  : SERVICE_TYPES.filter((s) => s !== "Entrata Email");
+  : SERVICE_TYPES.filter((s) => s !== "Custom Email Address");
 
 /** IMAP/SMTP ("Other Service Providers") — no ELI+ AI lanes; Entrata Email only. */
-const OTHER_PROVIDER_SERVICE_TYPES = ["Entrata Email"] as const;
+const OTHER_PROVIDER_SERVICE_TYPES = ["Custom Email Address"] as const;
 
 /** Shows the "Other Service Providers" (IMAP/SMTP) connect button next to Google/Microsoft. */
 const SHOW_OTHER_SERVICE_PROVIDERS_BUTTON = true;
 
 /** Toggle to `true` to show the "Entrata Email / Optional" column in the property status table again. */
-const SHOW_ENTRATA_EMAIL_OPTIONAL_COLUMN = false;
+const SHOW_ENTRATA_EMAIL_OPTIONAL_COLUMN = true;
 
 const RESIDENT_ELI_SERVICES = ["ELI+ Maintenance AI", "ELI+ Payments AI", "ELI+ Renewals AI"];
 const ALL_ELI_SERVICES = ["ELI+ Leasing AI", ...RESIDENT_ELI_SERVICES];
@@ -84,11 +86,11 @@ function filterToOtherProviderServiceTypes(types: string[]): string[] {
 }
 
 function applyServiceRules(current: string[], toggled: string): string[] {
-  if (toggled === "Entrata Email") {
-    if (current.includes("Entrata Email")) return current.filter((s) => s !== "Entrata Email");
-    return ["Entrata Email"];
+  if (toggled === "Custom Email Address") {
+    if (current.includes("Custom Email Address")) return current.filter((s) => s !== "Custom Email Address");
+    return ["Custom Email Address"];
   }
-  const base = current.filter((s) => s !== "Entrata Email");
+  const base = current.filter((s) => s !== "Custom Email Address");
   if (toggled === "All Resident ELI+ AI Services") {
     const allSelected = RESIDENT_ELI_SERVICES.every((s) => base.includes(s));
     if (allSelected) return base.filter((s) => !RESIDENT_ELI_SERVICES.includes(s));
@@ -134,7 +136,7 @@ function ServiceTypeSelector({
 
   const displayText = selected.length > 0
     ? (showEliGroupLabel
-        ? ["All Resident ELI+ AI Services", ...(selected.includes("Entrata Email") ? ["Entrata Email"] : []), ...(selected.includes("ELI+ Leasing AI") ? ["ELI+ Leasing AI"] : [])].join(", ")
+        ? ["All Resident ELI+ AI Services", ...(selected.includes("Custom Email Address") ? ["Custom Email Address"] : []), ...(selected.includes("ELI+ Leasing AI") ? ["ELI+ Leasing AI"] : [])].join(", ")
         : selected.join(", "))
     : "Select service types...";
 
@@ -157,12 +159,12 @@ function ServiceTypeSelector({
             const isChecked = isGroup
               ? RESIDENT_ELI_SERVICES.every((s) => selected.includes(s))
               : selected.includes(svc);
-            const hasEntrata = selected.includes("Entrata Email");
-            const hasAnyEli = selected.some((s) => ALL_ELI_SERVICES.includes(s));
+            const hasEntrata = selected.includes("Custom Email Address");
+            const hasAnyNonEntrata = selected.some((s) => s !== "Custom Email Address");
             const isDisabled = isGroup
               ? hasEntrata
-              : svc === "Entrata Email"
-                ? hasAnyEli
+              : svc === "Custom Email Address"
+                ? hasAnyNonEntrata
                 : hasEntrata || (
                     (svc === "ELI+ Leasing AI" && selected.some((s) => RESIDENT_ELI_SERVICES.includes(s)))
                     || (RESIDENT_ELI_SERVICES.includes(svc) && selected.includes("ELI+ Leasing AI"))
@@ -228,7 +230,7 @@ const SVC_TO_ELI_COL: Record<string, EliAiCol> = {
 };
 
 function EliPropertyStatusTable() {
-  const { getEmailForProperty } = useEliEmails();
+  const { getEmailForProperty, emails } = useEliEmails();
   const [page, setPage] = useState(1);
   const pageSize = 5;
 
@@ -238,9 +240,8 @@ function EliPropertyStatusTable() {
     return email.serviceTypes.some((svc) => SVC_TO_ELI_COL[svc] === col);
   };
   const entrataDone = (propName: string): boolean => {
-    const email = getEmailForProperty(propName);
-    if (!email) return false;
-    return email.serviceTypes.includes("Entrata Email");
+    const email = emails.find((e) => e.properties.includes(propName) && e.outboundDefault);
+    return !!email;
   };
   const propEliComplete = (prop: typeof ELI_PLUS_PROPERTIES[number]) =>
     prop.contracted.every((c) => colDone(prop.name, c));
@@ -258,7 +259,7 @@ function EliPropertyStatusTable() {
             <p className="mt-0.5 text-xs text-[hsl(var(--muted-foreground))]">
               All contracted ELI+ AI service email integrations must be completed for each property before they can operate within the new Communications Inbox.
               {SHOW_ENTRATA_EMAIL_OPTIONAL_COLUMN && (
-                <> Entrata Email is optional and not required for ELI+ activation.</>
+                <> Entrata Outbound Default is optional and indicates which properties have an outbound default email configured.</>
               )}{" "}
               Services marked N/A are not contracted for that property.
             </p>
@@ -274,12 +275,12 @@ function EliPropertyStatusTable() {
           </span>
         </div>
       </div>
+      <TooltipProvider delayDuration={200}>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-[hsl(var(--border))] text-left bg-[hsl(var(--muted))]/30">
               <th className="px-6 py-2.5 font-medium text-[hsl(var(--muted-foreground))] whitespace-nowrap">Property</th>
-              <th className="px-4 py-2.5 text-center font-medium text-[hsl(var(--muted-foreground))] whitespace-nowrap text-xs">Connected Email</th>
               {ELI_AI_COLS.map((col) => (
                 <th key={col} className="px-3 py-2.5 text-center font-medium text-[hsl(var(--muted-foreground))] whitespace-nowrap text-xs">
                   <span>{ELI_AI_COL_LABELS[col]}</span>
@@ -288,7 +289,7 @@ function EliPropertyStatusTable() {
               ))}
               {SHOW_ENTRATA_EMAIL_OPTIONAL_COLUMN && (
                 <th className="px-3 py-2.5 text-center font-medium text-[hsl(var(--muted-foreground))] whitespace-nowrap text-xs">
-                  <span>Entrata Email</span>
+                  <span>Entrata Outbound Default</span>
                   <span className="block text-[9px] font-normal text-[hsl(var(--muted-foreground))]/60">Optional</span>
                 </th>
               )}
@@ -297,7 +298,6 @@ function EliPropertyStatusTable() {
           <tbody>
             {paged.map((prop) => {
               const eliDone = propEliComplete(prop);
-              const email = getEmailForProperty(prop.name);
               return (
                 <tr key={prop.id} className={`border-b border-[hsl(var(--border))]/50 ${eliDone ? "bg-emerald-50/30" : ""}`}>
                   <td className="px-6 py-3">
@@ -311,13 +311,6 @@ function EliPropertyStatusTable() {
                       )}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-center">
-                    {email ? (
-                      <span className="text-xs text-[hsl(var(--muted-foreground))] truncate max-w-[140px] inline-block">{email.emailAddress}</span>
-                    ) : (
-                      <span className="text-xs text-gray-400">—</span>
-                    )}
-                  </td>
                   {ELI_AI_COLS.map((col) => {
                     const isContracted = prop.contracted.includes(col);
                     if (!isContracted) {
@@ -328,17 +321,25 @@ function EliPropertyStatusTable() {
                       );
                     }
                     const done = colDone(prop.name, col);
+                    const connectedEmail = getEmailForProperty(prop.name)?.emailAddress;
                     return (
                       <td key={col} className="px-3 py-3 text-center">
                         {done ? (
-                          <div className="flex flex-col items-center gap-0.5">
-                            <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-                            <span className="text-[9px] font-semibold text-emerald-600">Done</span>
-                          </div>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="flex flex-col items-center gap-0.5 cursor-default">
+                                <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                                <span className="text-[9px] font-semibold text-emerald-600">Done</span>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="text-xs">
+                              {connectedEmail}
+                            </TooltipContent>
+                          </Tooltip>
                         ) : (
                           <div className="flex flex-col items-center gap-0.5">
                             <Circle className="h-5 w-5 text-amber-400" />
-                            <span className="text-[9px] font-medium text-amber-500">Pending</span>
+                            <span className="text-[9px] font-medium text-amber-500">Not Complete</span>
                           </div>
                         )}
                       </td>
@@ -347,10 +348,17 @@ function EliPropertyStatusTable() {
                   {SHOW_ENTRATA_EMAIL_OPTIONAL_COLUMN && (
                     <td className="px-3 py-3 text-center">
                       {entrataDone(prop.name) ? (
-                        <div className="flex flex-col items-center gap-0.5">
-                          <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-                          <span className="text-[9px] font-semibold text-emerald-600">Done</span>
-                        </div>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex flex-col items-center gap-0.5 cursor-default">
+                              <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                              <span className="text-[9px] font-semibold text-emerald-600">Done</span>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="text-xs">
+                            {emails.find((e) => e.properties.includes(prop.name) && e.outboundDefault)?.emailAddress}
+                          </TooltipContent>
+                        </Tooltip>
                       ) : (
                         <div className="flex flex-col items-center gap-0.5">
                           <Circle className="h-5 w-5 text-gray-300" />
@@ -365,6 +373,7 @@ function EliPropertyStatusTable() {
           </tbody>
         </table>
       </div>
+      </TooltipProvider>
       {total > pageSize && (
         <div className="flex items-center justify-between border-t border-[hsl(var(--border))] px-6 py-2.5">
           <div className="flex items-center gap-2">
@@ -401,6 +410,8 @@ function EliPropertyStatusTable() {
 
 export default function CustomEmailPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isEmbed = searchParams.get("embed") === "1";
   const { emails, setEmails } = useEliEmails();
 
   const handleDeleteEmail = (emailId: number) => {
@@ -439,7 +450,7 @@ export default function CustomEmailPage() {
   const [emailFormSvcDropdown, setEmailFormSvcDropdown] = useState(false);
   const [forwardToCopied, setForwardToCopied] = useState(false);
 
-  const [assignmentEdit, setAssignmentEdit] = useState<{ emailId: number; properties: string[]; serviceTypes: string[] } | null>(null);
+  const [assignmentEdit, setAssignmentEdit] = useState<{ emailId: number; properties: string[]; serviceTypes: string[]; outboundDefault: boolean } | null>(null);
   const [assignPropDropdown, setAssignPropDropdown] = useState(false);
   const [assignSvcDropdown, setAssignSvcDropdown] = useState(false);
 
@@ -461,6 +472,7 @@ export default function CustomEmailPage() {
     selectedServiceTypes: string[];
     propDropdownOpen: boolean;
     svcDropdownOpen: boolean;
+    outboundDefault: boolean;
   } | null>(null);
 
   const openOauthModal = (provider: "google" | "microsoft") => {
@@ -469,6 +481,7 @@ export default function CustomEmailPage() {
       selectedEmail: "", selectedName: "", ongoingAccess: false,
       selectedProperties: [], selectedServiceTypes: [],
       propDropdownOpen: false, svcDropdownOpen: false,
+      outboundDefault: false,
     });
   };
 
@@ -527,6 +540,7 @@ export default function CustomEmailPage() {
           status: "active" as const,
           created: new Date().toISOString().split("T")[0],
           integration: oauthModal.provider,
+          outboundDefault: oauthModal.outboundDefault,
         },
       ], newId, claimedProps));
       setOauthModal((prev) => prev && { ...prev, step: "done" });
@@ -637,14 +651,16 @@ export default function CustomEmailPage() {
 
   return (
     <div className="mx-auto max-w-[56rem] px-4 pb-12 pt-8 sm:px-6">
-      <button
-        type="button"
-        onClick={() => router.back()}
-        className="mb-6 inline-flex items-center gap-1.5 text-sm font-medium text-[hsl(var(--muted-foreground))] transition-colors hover:text-[hsl(var(--foreground))]"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back
-      </button>
+      {!isEmbed && (
+        <button
+          type="button"
+          onClick={() => router.back()}
+          className="mb-6 inline-flex items-center gap-1.5 text-sm font-medium text-[hsl(var(--muted-foreground))] transition-colors hover:text-[hsl(var(--foreground))]"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back
+        </button>
+      )}
 
       <div className="mb-8">
         <h1
@@ -756,6 +772,11 @@ export default function CustomEmailPage() {
                           IMAP/SMTP
                         </span>
                       )}
+                      {email.outboundDefault && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 border border-blue-200 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+                          Outbound Default
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       <button
@@ -764,7 +785,7 @@ export default function CustomEmailPage() {
                           if (!email.integration) {
                             openEditEmailModal(email);
                           } else {
-                            setAssignmentEdit({ emailId: email.id, properties: [...email.properties], serviceTypes: [...email.serviceTypes] });
+                            setAssignmentEdit({ emailId: email.id, properties: [...email.properties], serviceTypes: [...email.serviceTypes], outboundDefault: !!email.outboundDefault });
                           }
                         }}
                         className="rounded p-1.5 text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--muted))]/40 hover:text-[hsl(var(--foreground))]"
@@ -874,10 +895,10 @@ export default function CustomEmailPage() {
                   <div className="pt-4">
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="text-sm font-semibold text-[hsl(var(--foreground))]">
-                        Pending Configuration
+                        Not Complete
                       </h4>
                       <span className="rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-                        {pending.length} pending
+                        {pending.length} not complete
                       </span>
                     </div>
                     <p className="mb-2 text-xs text-[hsl(var(--muted-foreground))]">
@@ -1138,6 +1159,7 @@ export default function CustomEmailPage() {
       )}
 
       {oauthModal && (
+        <TooltipProvider delayDuration={200}>
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="fixed inset-0 bg-black/40" onClick={() => setOauthModal(null)} />
           <div className="relative z-10 w-full max-w-lg rounded-2xl bg-white shadow-2xl">
@@ -1217,6 +1239,39 @@ export default function CustomEmailPage() {
                             <button type="button" onClick={() => toggleOauthProp(prop)} className="ml-0.5 text-gray-400 hover:text-gray-600"><svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
                           </span>
                         ))}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm font-semibold text-gray-900">Outbound Default</label>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <HelpCircle className="h-3.5 w-3.5 text-gray-400 cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-sm rounded-lg bg-gray-900 px-4 py-3 text-sm leading-relaxed text-white shadow-lg">
+                          <p>Use this email address as the default sender for Message Center, bulk emails, Contact Points, and other lead/resident emails.</p>
+                          <p className="mt-2">This overrides existing <a href="/settings/from-email-address" className="font-medium text-blue-400 underline hover:text-blue-300">&ldquo;From Email Address&rdquo;</a> and email relay settings for all properties connected to this address.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    <div className="mt-2 flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setOauthModal((prev) => prev && { ...prev, outboundDefault: !prev.outboundDefault })}
+                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors ${oauthModal.outboundDefault ? "bg-blue-600" : "bg-gray-200"}`}
+                      >
+                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${oauthModal.outboundDefault ? "translate-x-[18px]" : "translate-x-[3px]"}`} />
+                      </button>
+                      <span className="text-sm text-gray-600">{oauthModal.outboundDefault ? "Yes" : "No"}</span>
+                    </div>
+                    {oauthModal.outboundDefault && (
+                      <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+                        <p className="text-xs text-amber-800">
+                          Use this email address as the default sender for Message Center, bulk emails, Contact Points, and other lead/resident emails. This overrides existing{" "}
+                          <a href="/settings/from-email-address" className="font-medium text-blue-600 underline hover:text-blue-800">&ldquo;From Email Address&rdquo;</a>
+                          {" "}and email relay settings for all properties connected to this address.
+                        </p>
                       </div>
                     )}
                   </div>
@@ -1378,6 +1433,7 @@ export default function CustomEmailPage() {
             )}
           </div>
         </div>
+        </TooltipProvider>
       )}
       {assignmentEdit && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -1395,6 +1451,22 @@ export default function CustomEmailPage() {
               </button>
             </div>
             <div className="px-6 py-5 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-[hsl(var(--foreground))] mb-1.5">Service Types</label>
+                <ServiceTypeSelector
+                  serviceOptions={ELI_CONNECT_SERVICE_TYPES}
+                  selected={assignmentEdit.serviceTypes}
+                  onToggle={(svc) => {
+                    setAssignmentEdit((prev) => {
+                      if (!prev) return prev;
+                      return { ...prev, serviceTypes: applyServiceRules(prev.serviceTypes, svc) };
+                    });
+                  }}
+                  open={assignSvcDropdown}
+                  onOpenChange={(v) => { setAssignSvcDropdown(v); if (v) setAssignPropDropdown(false); }}
+                  accentColor="violet"
+                />
+              </div>
               <div>
                 <label className="block text-sm font-medium text-[hsl(var(--foreground))] mb-1.5">Properties</label>
                 <div className="relative">
@@ -1451,20 +1523,39 @@ export default function CustomEmailPage() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-[hsl(var(--foreground))] mb-1.5">Service Types</label>
-                <ServiceTypeSelector
-                  serviceOptions={ELI_CONNECT_SERVICE_TYPES}
-                  selected={assignmentEdit.serviceTypes}
-                  onToggle={(svc) => {
-                    setAssignmentEdit((prev) => {
-                      if (!prev) return prev;
-                      return { ...prev, serviceTypes: applyServiceRules(prev.serviceTypes, svc) };
-                    });
-                  }}
-                  open={assignSvcDropdown}
-                  onOpenChange={(v) => { setAssignSvcDropdown(v); if (v) setAssignPropDropdown(false); }}
-                  accentColor="violet"
-                />
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium text-[hsl(var(--foreground))]">Outbound Default</label>
+                  <TooltipProvider delayDuration={200}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <HelpCircle className="h-3.5 w-3.5 text-[hsl(var(--muted-foreground))] cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-sm rounded-lg bg-gray-900 px-4 py-3 text-sm leading-relaxed text-white shadow-lg">
+                        <p>Use this email address as the default sender for Message Center, bulk emails, Contact Points, and other lead/resident emails.</p>
+                        <p className="mt-2">This overrides existing <a href="/settings/from-email-address" className="font-medium text-blue-400 underline hover:text-blue-300">&ldquo;From Email Address&rdquo;</a> and email relay settings for all properties connected to this address.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+                <div className="mt-2 flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setAssignmentEdit((prev) => prev && { ...prev, outboundDefault: !prev.outboundDefault })}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors ${assignmentEdit.outboundDefault ? "bg-blue-600" : "bg-gray-200"}`}
+                  >
+                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${assignmentEdit.outboundDefault ? "translate-x-[18px]" : "translate-x-[3px]"}`} />
+                  </button>
+                  <span className="text-sm text-[hsl(var(--muted-foreground))]">{assignmentEdit.outboundDefault ? "Yes" : "No"}</span>
+                </div>
+                {assignmentEdit.outboundDefault && (
+                  <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+                    <p className="text-xs text-amber-800">
+                      Use this email address as the default sender for Message Center, bulk emails, Contact Points, and other lead/resident emails. This overrides existing{" "}
+                      <a href="/settings/from-email-address" className="font-medium text-blue-600 underline hover:text-blue-800">&ldquo;From Email Address&rdquo;</a>
+                      {" "}and email relay settings for all properties connected to this address.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex items-center justify-end gap-3 border-t border-[hsl(var(--border))] px-6 py-4">
@@ -1481,7 +1572,7 @@ export default function CustomEmailPage() {
                   setEmails((prev) => stripClaimedProperties(
                     prev.map((e) =>
                       e.id === assignmentEdit.emailId
-                        ? { ...e, properties: assignmentEdit.properties, serviceTypes: assignmentEdit.serviceTypes.filter((s) => s !== "All Resident ELI+ AI Services") }
+                        ? { ...e, properties: assignmentEdit.properties, serviceTypes: assignmentEdit.serviceTypes.filter((s) => s !== "All Resident ELI+ AI Services"), outboundDefault: assignmentEdit.outboundDefault }
                         : e
                     ),
                     assignmentEdit.emailId,

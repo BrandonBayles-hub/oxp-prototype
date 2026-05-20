@@ -18,8 +18,10 @@ import {
   GitBranch,
   BookOpen,
   Mic,
+  Palette,
   Wrench,
   Shield,
+  Wand2,
 } from "lucide-react";
 
 const activationItem = { href: "/getting-started", label: "AI & Agent Activation", icon: Rocket };
@@ -46,7 +48,8 @@ const navGroups = [
       activationItem,
       { href: "/workflows", label: "Agent Builder", icon: GitBranch },
       { href: "/trainings-sop", label: "Trainings & SOP", icon: BookOpen },
-      { href: "/voice", label: "Voice & Brand", icon: Mic },
+      { href: "/voice", label: "Agent Voice & Tone", icon: Mic },
+      { href: "/brand-center", label: "Brand Center", icon: Palette },
       // { href: "/tools", label: "Tools", icon: Wrench },
       { href: "/governance", label: "Governance", icon: Shield },
     ],
@@ -72,12 +75,18 @@ function ActivationProgress({ completed, total }: { completed: number; total: nu
   const done = completed === total;
   return (
     <span
-      className={cn(
-        "ml-auto flex h-5 min-w-5 items-center justify-center rounded-full px-2 text-[10px] font-bold leading-none",
-        done
-          ? "bg-green-500 text-white"
-          : "bg-foreground text-background"
-      )}
+      className="ml-auto shrink-0 text-[10px] font-bold leading-none"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        height: 20,
+        minWidth: 28,
+        padding: "0 8px",
+        borderRadius: 9999,
+        background: done ? "#22c55e" : "#171717",
+        color: "#fafafa",
+      }}
     >
       {completed}/{total}
     </span>
@@ -91,7 +100,7 @@ export function MobileNav() {
   const { isR1Release } = useR1Release();
   const { badges, activation } = useNavBadges();
 
-  const r1HiddenRoutes = ["/performance", "/voice", "/governance"];
+  const r1HiddenRoutes = ["/performance", "/voice", "/brand-center", "/governance"];
 
   const navGroupsWithVisibility = navGroups
     .map((group) => ({

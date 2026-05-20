@@ -40,10 +40,9 @@ const NAV_ITEMS = [
   { label: "Residents", icon: Home },
   { label: "Accounting", icon: DollarSign },
   { label: "Tools", icon: Wrench },
-  { label: "Tools", icon: Settings },
   { label: "Apps", icon: AppWindow },
   { label: "Settings", icon: Settings },
-  { label: "Settings", icon: Settings },
+  { label: "Setup", icon: Settings, href: "/getting-started" },
 ] as const;
 
 export function EntrataTopNav() {
@@ -453,29 +452,35 @@ export function EntrataTopNav() {
       >
         {NAV_ITEMS.map((item, i) => {
           const Icon = "icon" in item ? item.icon : null;
+          const href = "href" in item ? item.href : undefined;
+          const isActive = href
+            ? pathname.startsWith(href)
+            : ("active" in item && item.active);
           return (
             <button
               key={`${item.label}-${i}`}
               type="button"
+              onClick={() => href && router.push(href)}
               className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-sm"
               style={{
                 height: 26,
                 padding: "0 10px",
                 fontSize: 11.5,
                 fontWeight: 500,
-                color: ("active" in item && item.active) ? "#1a1a1a" : "rgba(255,255,255,0.75)",
-                background: ("active" in item && item.active) ? "#fff" : "transparent",
-                borderRadius: ("active" in item && item.active) ? 4 : undefined,
+                color: isActive ? "#1a1a1a" : "rgba(255,255,255,0.75)",
+                background: isActive ? "#fff" : "transparent",
+                borderRadius: isActive ? 4 : undefined,
                 transition: "background 150ms",
+                cursor: href ? "pointer" : "default",
               }}
               onMouseEnter={(e) => {
-                if (!("active" in item && item.active)) e.currentTarget.style.background = "rgba(255,255,255,0.08)";
+                if (!isActive) e.currentTarget.style.background = "rgba(255,255,255,0.08)";
               }}
               onMouseLeave={(e) => {
-                if (!("active" in item && item.active)) e.currentTarget.style.background = "transparent";
+                if (!isActive) e.currentTarget.style.background = "transparent";
               }}
             >
-              {("active" in item && item.active) && (
+              {isActive && !href && (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                   <path d="m3.3 7 8.7 5 8.7-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -491,6 +496,7 @@ export function EntrataTopNav() {
           );
         })}
       </div>
+
     </div>
   );
 }

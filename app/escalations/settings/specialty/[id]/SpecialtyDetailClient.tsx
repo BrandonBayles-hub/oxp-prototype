@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { useRouter, useParams } from "next/navigation";
 import {
   ArrowLeft,
@@ -45,7 +46,15 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { useWorkforce } from "@/lib/workforce-context";
-import { CreateCustomTaskDialog } from "@/components/create-custom-task-dialog";
+
+/** TipTap lives in a separate client chunk (avoids flaky dev bundling on this page). */
+const CreateCustomTaskDialog = dynamic(
+  () =>
+    import("@/components/create-custom-task-dialog").then(
+      (mod) => mod.CreateCustomTaskDialog
+    ),
+  { ssr: false, loading: () => null }
+);
 import {
   getSpecialtyDetail,
   SYSTEM_TASK_CATALOG,
@@ -92,10 +101,19 @@ const PRIORITY_RANK: Record<string, number> = { P1: 0, P2: 1, P3: 2 };
 
 // ── Page ────────────────────────────────────────────────────────────────────
 
-export function SpecialtyDetailClient() {
+export function SpecialtyDetailClient({
+  initialSpecialtyId,
+}: {
+  /** Server-provided id (static export / first paint); `useParams` wins after hydration. */
+  initialSpecialtyId?: string;
+} = {}) {
   const router = useRouter();
-  const params = useParams<{ id: string }>();
-  const detail = getSpecialtyDetail(params.id);
+  const params = useParams();
+  const rawId = params?.id;
+  const fromParams =
+    typeof rawId === "string" ? rawId : Array.isArray(rawId) ? rawId[0] : undefined;
+  const specialtyId = fromParams ?? initialSpecialtyId;
+  const detail = specialtyId ? getSpecialtyDetail(specialtyId) : undefined;
 
   const [activeTab, setActiveTab] = useState<"tasks" | "teammates" | "assignment">("tasks");
   const [specialtyName, setSpecialtyName] = useState(detail?.specialty.name ?? "");
@@ -130,7 +148,7 @@ export function SpecialtyDetailClient() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-background">
+    <div className="flex min-h-0 flex-1 flex-col bg-background">
       {/* Top bar */}
       <header className="flex shrink-0 items-center justify-between px-6 py-3">
         <div className="flex items-center gap-3">
@@ -740,9 +758,8 @@ function EditTaskDialog({
   const isOpen = task !== null;
   const isCustom = task?.source === "custom";
 
-  const [loadedId, setLoadedId] = useState<string | null>(null);
-  if (task && task.id !== loadedId) {
-    setLoadedId(task.id);
+  useEffect(() => {
+    if (!task) return;
     setName(task.name);
     setWorkflow(task.workflow);
     setSchedule({
@@ -756,7 +773,7 @@ function EditTaskDialog({
     setDueIn(task.dueIn);
     setAssignee(task.assignee ?? "");
     setProperty(task.property ?? "");
-  }
+  }, [task]);
 
   const handleSave = () => {
     if (!task) return;
@@ -788,7 +805,6 @@ function EditTaskDialog({
   };
 
   const handleClose = () => {
-    setLoadedId(null);
     onOpenChange(false);
   };
 

@@ -137,7 +137,10 @@ export default function CommunicationsSetupPage() {
 
       {/* Page Header */}
       <div className="mb-10">
-        <h1 className="text-3xl font-semibold tracking-tight text-[hsl(var(--foreground))]" style={{ fontFamily: "Nohemi, Plus Jakarta Sans, Inter, sans-serif" }}>
+        <h1
+          className="text-3xl font-semibold tracking-tight text-[hsl(var(--foreground))]"
+          style={{ fontFamily: "'Plus Jakarta Sans', Inter, ui-sans-serif, system-ui, sans-serif" }}
+        >
           OXP Communication Inbox Setup
         </h1>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">

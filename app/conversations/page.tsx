@@ -622,6 +622,7 @@ type EntrataProfileThreadRow = {
   channel: "SMS" | "Email";
   status: "active" | "closed";
   assignee: string | null;
+  labels?: string[];
   messages: EntrataProfileThreadMessage[];
   bulkOutboundEmail?: BulkOutboundEmailRef;
   emailSubject?: string;
@@ -796,6 +797,7 @@ function ConversationsContent() {
   );
   /** `null` = all properties (default). */
   const [threadListPropertyKeys, setThreadListPropertyKeys] = useState<Set<string> | null>(null);
+  const [threadListCompletedFilter, setThreadListCompletedFilter] = useState<"active" | "completed">("active");
 
   const isEscalationLabel = (label: string) => label.endsWith("Escalation");
 
@@ -808,7 +810,8 @@ function ConversationsContent() {
   const threadFiltersAreNonDefault =
     threadListPropertyKeys !== null ||
     threadListConvoTypes.size !== 1 ||
-    !threadListConvoTypes.has("escalated");
+    !threadListConvoTypes.has("escalated") ||
+    threadListCompletedFilter !== "active";
 
   const threadListConvoSummary = useMemo(() => {
     const parts: string[] = [];
@@ -947,16 +950,21 @@ function ConversationsContent() {
     return threadListConvoFiltered.filter((c) => threadListPropertyKeys.has(c.property));
   }, [threadListConvoFiltered, threadListPropertyKeys]);
 
+  const threadListCompletedFiltered = useMemo(() => {
+    if (threadListCompletedFilter === "active") return threadListFiltered.filter((c) => c.status === "open");
+    return threadListFiltered.filter((c) => c.status === "resolved");
+  }, [threadListFiltered, threadListCompletedFilter]);
+
   const filtered = useMemo(() => {
-    if (!searchQuery.trim()) return threadListFiltered;
+    if (!searchQuery.trim()) return threadListCompletedFiltered;
     const q = searchQuery.toLowerCase();
-    return threadListFiltered.filter(
+    return threadListCompletedFiltered.filter(
       (c) =>
         c.resident.toLowerCase().includes(q) ||
         c.preview.toLowerCase().includes(q) ||
         c.labels.some((l) => l.toLowerCase().includes(q))
     );
-  }, [threadListFiltered, searchQuery]);
+  }, [threadListCompletedFiltered, searchQuery]);
 
   const myInboxUnreadCount = useMemo(
     () =>
@@ -1159,6 +1167,7 @@ function ConversationsContent() {
     return [
     {
       property: "Sun Valley", type: "Facilities", channel: "SMS", status: "active", assignee: "Court White",
+      labels: ["Resident", "Maintenance AI", "Work Order"],
       messages: [
         { role: "user" as const, text: "Hi, my kitchen sink has been leaking for two days now. Can someone come take a look?", timestamp: "Sep 15 2025 · 3:12pm" },
         { role: "agent" as const, text: "I'm sorry to hear that! I've submitted a work order for your kitchen sink leak. A maintenance technician will reach out to schedule a time.", timestamp: "Sep 15 2025 · 3:14pm" },
@@ -1168,6 +1177,7 @@ function ConversationsContent() {
     },
     {
       property: "Sun Valley", type: "Office", channel: "SMS", status: "active", assignee: null,
+      labels: ["Resident", "Payments AI"],
       messages: [
         { role: "user" as const, text: "I noticed a late fee on my account but I paid rent on time. Can you look into this?", timestamp: "Sep 14 2025 · 10:05am" },
         { role: "staff" as const, text: "Let me pull up your payment history. One moment please.", timestamp: "Sep 14 2025 · 10:08am" },
@@ -1177,6 +1187,7 @@ function ConversationsContent() {
     },
     {
       property: "Sun Valley", type: "Facilities", channel: "SMS", status: "active", assignee: "Jane Doe",
+      labels: ["Resident", "Maintenance AI", "Work Order"],
       messages: [
         { role: "user" as const, text: "The A/C in my unit isn't blowing cold air. It's been warm all day.", timestamp: "Sep 13 2025 · 1:30pm" },
         { role: "agent" as const, text: "I'm sorry about the discomfort. I've created a work order for your A/C unit. Our maintenance team will be in touch to schedule a visit.", timestamp: "Sep 13 2025 · 1:32pm" },
@@ -1187,6 +1198,7 @@ function ConversationsContent() {
     },
     {
       property: "Sun Valley", type: "Leasing", channel: "Email", status: "closed", assignee: "Court White",
+      labels: ["Resident", "Renewals AI", "Renewal Offer"],
       messages: [
         { role: "user" as const, text: "Hi, I'm interested in renewing my lease. What are the renewal options?", timestamp: "Aug 20 2025 · 9:00am" },
         { role: "agent" as const, text: "Great to hear you'd like to stay! We have 6-month and 12-month renewal options available. I'll have our leasing team send over the details.", timestamp: "Aug 20 2025 · 9:03am" },
@@ -1197,6 +1209,7 @@ function ConversationsContent() {
     },
     {
       property: "Sun Valley", type: "Office", channel: "SMS", status: "closed", assignee: "Court White",
+      labels: ["Resident", "Payments AI"],
       messages: [
         { role: "user" as const, text: "I need a copy of my payment history for the last 6 months for my tax filing.", timestamp: "Aug 10 2025 · 2:00pm" },
         { role: "staff" as const, text: "Of course! I've generated a ledger statement for the past 6 months and uploaded it to your resident portal under Documents.", timestamp: "Aug 10 2025 · 2:15pm" },
@@ -1205,6 +1218,7 @@ function ConversationsContent() {
     },
     {
       property: "Sun Valley", type: "Facilities", channel: "SMS", status: "closed", assignee: "Jane Doe",
+      labels: ["Resident", "Work Order"],
       messages: [
         { role: "user" as const, text: "The garage gate clicker stopped working again.", timestamp: "Jul 18 2025 · 4:42pm" },
         { role: "staff" as const, text: "Sorry about that. I've reprogrammed your remote and tested it just now — please let me know if it gives you any more trouble.", timestamp: "Jul 18 2025 · 5:01pm" },
@@ -1213,6 +1227,7 @@ function ConversationsContent() {
     },
     {
       property: "Sun Valley", type: "Leasing", channel: "Email", status: "closed", assignee: "Mark Lee",
+      labels: ["Resident", "Leasing AI"],
       messages: [
         { role: "user" as const, text: "Following up on the parking permit transfer to my new vehicle.", timestamp: "Jun 30 2025 · 10:15am" },
         { role: "staff" as const, text: "Got it — transferred the permit to your new plate and emailed the updated decal info.", timestamp: "Jun 30 2025 · 11:02am" },
@@ -1220,6 +1235,7 @@ function ConversationsContent() {
     },
     {
       property: "Sun Valley", type: "Office", channel: "SMS", status: "closed", assignee: "Court White",
+      labels: ["Resident"],
       messages: [
         { role: "user" as const, text: "Can you confirm the office is closed on the Fourth of July?", timestamp: "Jun 15 2025 · 9:30am" },
         { role: "staff" as const, text: "Yes, the leasing office will be closed July 4th and reopen on the 5th at 9am.", timestamp: "Jun 15 2025 · 9:45am" },
@@ -1236,6 +1252,7 @@ function ConversationsContent() {
         channel: "Email",
         status: "active",
         assignee: selected.assignee,
+        labels: selected.labels,
         bulkOutboundEmail: selected.bulkOutboundEmail,
         emailSubject: selected.emailSubject,
         messages: selected.messages
@@ -1617,10 +1634,16 @@ function ConversationsContent() {
             Settings
           </h3>
           <ul className="space-y-0.5">
-            {(["Email Integration", "Manage Inboxes", "Manage Labels", "Reporting"]).map((label) => (
+            {(["Email Integration", "Manage Vanity Numbers", "Manage Inboxes", "Manage Labels", "Reporting"]).map((label) => (
               <li key={label}>
                 {label === "Email Integration" ? (
                   <Link href="/communications-setup/custom-email">
+                    <Button variant="ghost" className="w-full justify-start font-normal">
+                      {label}
+                    </Button>
+                  </Link>
+                ) : label === "Manage Vanity Numbers" ? (
+                  <Link href="/communications-setup/phone-numbers">
                     <Button variant="ghost" className="w-full justify-start font-normal">
                       {label}
                     </Button>
@@ -1855,6 +1878,24 @@ function ConversationsContent() {
                     </div>
                   </PopoverContent>
                 </Popover>
+              </div>
+
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Completed filter
+                </p>
+                <Select
+                  value={threadListCompletedFilter}
+                  onValueChange={(v) => setThreadListCompletedFilter(v as "active" | "completed")}
+                >
+                  <SelectTrigger className="h-8 w-full text-xs font-normal">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           )}
@@ -4194,7 +4235,23 @@ function ConversationsContent() {
                                     {isClosed ? `Closed on ${dateLabel}` : `Last message ${dateLabel}`}
                                   </p>
                                 )}
-                                <span className="mt-1 inline-block rounded bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">{thread.channel}</span>
+                                <div className="mt-1 flex flex-wrap items-center gap-1">
+                                  {(thread.labels ?? []).map((label) => (
+                                    <Badge
+                                      key={label}
+                                      variant={isEscalationLabel(label) ? "destructive" : "secondary"}
+                                      className="h-auto px-1.5 py-0 text-[10px]"
+                                    >
+                                      {label}
+                                    </Badge>
+                                  ))}
+                                  <Badge
+                                    variant="secondary"
+                                    className="h-auto px-1.5 py-0 text-[10px]"
+                                  >
+                                    {thread.channel}
+                                  </Badge>
+                                </div>
                               </div>
                               <Popover>
                                 <PopoverTrigger asChild>
