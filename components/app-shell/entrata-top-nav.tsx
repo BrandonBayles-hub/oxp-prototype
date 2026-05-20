@@ -19,7 +19,9 @@ import {
   Beaker,
   MessageCircle,
   Map,
+  Smartphone,
 } from "lucide-react";
+import { MobileAppPreview } from "@/components/mobile-app-preview";
 import { useRole, ROLES, type Role } from "@/lib/role-context";
 
 import { useR1Release } from "@/lib/r1-release-context";
@@ -74,6 +76,7 @@ export function EntrataTopNav() {
   }, [currentUser, escalations, conversations]);
 
   const [demoOpen, setDemoOpen] = useState(false);
+  const [mobilePreviewOpen, setMobilePreviewOpen] = useState(false);
   const demoRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -361,6 +364,28 @@ export function EntrataTopNav() {
                         </p>
                       </div>
                     </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobilePreviewOpen(true);
+                        setDemoOpen(false);
+                      }}
+                      className="flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-gray-50"
+                    >
+                      <Smartphone
+                        className="mt-0.5 shrink-0 text-violet-500"
+                        style={{ width: 16, height: 16, strokeWidth: 2 }}
+                      />
+                      <div>
+                        <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>
+                          Mobile App Preview
+                        </p>
+                        <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>
+                          View the mobile app vision and screen concepts
+                        </p>
+                      </div>
+                    </button>
                   </div>
                 </div>
 
@@ -497,6 +522,7 @@ export function EntrataTopNav() {
         })}
       </div>
 
+      <MobileAppPreview open={mobilePreviewOpen} onClose={() => setMobilePreviewOpen(false)} />
     </div>
   );
 }
