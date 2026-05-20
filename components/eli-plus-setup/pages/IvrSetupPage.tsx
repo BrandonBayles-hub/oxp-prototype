@@ -309,6 +309,9 @@ interface Props {
   onActionCountChange?: (n: number) => void
 }
 
+const IVR_SETTINGS_WARNING =
+  "Once you add AI Agents to your routing settings and save, those numbers will be live. Please ensure all your other setup is complete to ensure that calls are quality."
+
 export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) {
   const [modes, setModes] = useState<Record<string, PropertyIvrMode>>(
     Object.fromEntries(IVR_PROPERTIES.map(p => [p.name, p.defaultMode]))
@@ -319,6 +322,8 @@ export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) 
   const [showLive, setShowLive]                             = useState(false)
   // Warning dialog — holds the pending mode change until the user confirms
   const [pendingChange, setPendingChange] = useState<{ propName: string; mode: PropertyIvrMode } | null>(null)
+  const [ivrSettingsWarningOpen, setIvrSettingsWarningOpen] = useState(false)
+  const [ivrSettingsTarget, setIvrSettingsTarget] = useState<string | null>(null)
 
   // Mark complete on mount — defaults already applied
   useEffect(() => { onSave("preferred") }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -366,6 +371,39 @@ export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) 
     showToast?.(`IVR Settings confirmed for ${name}`)
   }
 
+  const proceedToIvrSettings = (propName?: string | null) => {
+    window.open("#", "_blank", "noopener,noreferrer")
+    showToast?.(
+      propName ? `Opening IVR Settings for ${propName}…` : "Opening IVR Settings…",
+    )
+  }
+
+  const hasCustomIvrSelected = (propName?: string) =>
+    propName
+      ? modes[propName] === "custom"
+      : active.some(p => modes[p.name] === "custom")
+
+  const handleOpenIvrSettings = (propName?: string) => {
+    if (hasCustomIvrSelected(propName)) {
+      setIvrSettingsTarget(propName ?? null)
+      setIvrSettingsWarningOpen(true)
+      return
+    }
+    proceedToIvrSettings(propName)
+    if (propName) markMyIvrDone(propName)
+  }
+
+  const confirmAndAdvanceIvrSettings = () => {
+    const target = ivrSettingsTarget
+    setIvrSettingsWarningOpen(false)
+    setIvrSettingsTarget(null)
+    proceedToIvrSettings(target)
+    if (target) {
+      setMyIvrDone(prev => ({ ...prev, [target]: true }))
+      showToast?.(`IVR Settings confirmed for ${target}`)
+    }
+  }
+
   const acknowledgeThirdParty = (name: string) => {
     setThirdPartyAcknowledged(prev => ({ ...prev, [name]: true }))
     showToast?.(`3rd Party IVR confirmed for ${name}`)
@@ -397,7 +435,7 @@ export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) 
             </div>
             <button
               type="button"
-              onClick={() => showToast?.("Opening IVR Settings…")}
+              onClick={() => handleOpenIvrSettings()}
               className="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 transition-colors"
             >
               Open IVR Settings
@@ -620,7 +658,7 @@ export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) 
                           View Settings <ExternalLink className="h-3 w-3" />
                         </button>
                       ) : isCustom && !myIvrMarked ? (
-                        <button type="button" onClick={() => markMyIvrDone(prop.name)} className={primaryBtn}>
+                        <button type="button" onClick={() => handleOpenIvrSettings(prop.name)} className={primaryBtn}>
                           Open IVR Settings <ExternalLink className="h-3 w-3" />
                         </button>
                       ) : isThirdParty && !tpMarked ? (
@@ -686,6 +724,55 @@ export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) 
 
       </div>
 
+      {ivrSettingsWarningOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ivr-settings-warning-title"
+        >
+          <div className="w-full max-w-md rounded-2xl border border-amber-200 bg-white shadow-2xl">
+            <div className="px-6 pt-6 pb-4">
+              <div className="flex items-start gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100">
+                  <AlertTriangle className="h-5 w-5 text-amber-600" aria-hidden />
+                </div>
+                <div>
+                  <p
+                    id="ivr-settings-warning-title"
+                    className="text-sm font-semibold text-foreground"
+                  >
+                    Before you update IVR routing
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
+                    {IVR_SETTINGS_WARNING}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-border px-6 py-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setIvrSettingsWarningOpen(false)
+                  setIvrSettingsTarget(null)
+                }}
+                className="rounded-lg border border-border bg-white px-4 py-2 text-sm font-medium text-foreground hover:bg-zinc-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmAndAdvanceIvrSettings}
+                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 transition-colors"
+              >
+                Confirm and Advance
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Warning dialog — confirms routing mode changes ── */}
       {pendingChange && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4">
@@ -699,12 +786,12 @@ export function IvrSetupPage({ onSave, showToast, onActionCountChange }: Props) 
                   <p className="text-sm font-semibold text-foreground">Update routing mode?</p>
                   <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                     Switching <strong className="font-medium text-foreground">{pendingChange.propName}</strong> to{" "}
-                    <strong className="font-medium text-foreground">{MODE_LABELS[pendingChange.mode]}</strong> will update your existing call routing configuration and apply at go-live. Only change this if you're sure.
+                    <strong className="font-medium text-foreground">{MODE_LABELS[pendingChange.mode]}</strong> will update your existing call routing configuration and apply at go-live. Only change this if you&apos;re sure.
                   </p>
                 </div>
+              </div>
             </div>
-          </div>
-          <div className="flex items-center justify-end gap-2 border-t border-border px-6 py-4">
+            <div className="flex items-center justify-end gap-2 border-t border-border px-6 py-4">
               <button
                 type="button"
                 onClick={() => setPendingChange(null)}
