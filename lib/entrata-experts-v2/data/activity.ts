@@ -1,3 +1,10 @@
+// Generates ~80 multi-turn sessions across 14 days. Each session is a
+// `Conversation` with N user→assistant turns. The mix is realistic: most asks
+// are single-turn, but some are deep investigations that span 4-7 turns and
+// may pivot lenses or scopes. Session-level rollups (turnCount, durationMs,
+// resolution, lensesUsed, etc.) are computed at generation time so the
+// Activity Log can render without re-walking messages.
+
 import type {
   Conversation,
   Message,
@@ -5,6 +12,7 @@ import type {
   IntentCluster,
   KnowledgeGap,
   AutomationCandidate,
+  Resolution,
   RoleId,
   LensId,
 } from "../types";
@@ -109,7 +117,135 @@ const DOWNRATE_PROBABILITY: Partial<Record<string, number>> = {
   outliers: 0.04,
 };
 
-function buildConversation(
+// ---------------------------------------------------------------------------
+// Session-shape distribution
+// ---------------------------------------------------------------------------
+// Realistic spread of turns per session. Drawn from chat-product analytics
+// patterns (Sierra/Fin/Decagon all show heavy 1-turn skew with long tail).
+//
+//   1 turn   →  60%  (quick lookup, weekend-summary, "what's our occupancy")
+//   2-3      →  25%  (one follow-up, "and at Tampa?")
+//   4-6      →  12%  (real investigation: pivot scope, pivot lens, drill in)
+//   7+       →   3%  (deep dive: 8-10 turn forensic thread)
+function pickTurnCount(rand: () => number): number {
+  const r = rand();
+  if (r < 0.60) return 1;
+  if (r < 0.85) return 2 + Math.floor(rand() * 2);
+  if (r < 0.97) return 4 + Math.floor(rand() * 3);
+  return 7 + Math.floor(rand() * 3);
+}
+
+// Hand-curated follow-up patterns. When a session has more than 1 turn, the
+// follow-ups are picked from this pool. Keeps demo data feeling like real
+// chat threads rather than 5 disconnected questions in a row.
+const FOLLOWUPS_BY_INTENT: Record<string, string[]> = {
+  delinquency: [
+    "Show me just the >30 day bucket",
+    "Which property is dragging?",
+    "Compare to last month",
+    "What's our auto-pay penetration there?",
+    "Send a reminder to the top 5",
+  ],
+  occupancy: [
+    "Break that down by property",
+    "What about student properties only?",
+    "How does that compare to last year?",
+    "Which property is leaking residents?",
+  ],
+  "noi-variance": [
+    "Drill into Tampa Bay",
+    "Is it on the revenue or expense side?",
+    "Which line item is biggest?",
+    "Show me last 90 days trend",
+  ],
+  "leasing-pace": [
+    "Property-level breakdown",
+    "What's the conversion rate?",
+    "Are tours up or down?",
+    "Compare to last week",
+    "Why is Tampa Bay low?",
+  ],
+  renewals: [
+    "Why is acceptance low at Tampa Bay?",
+    "Compare student vs. conventional",
+    "Show me the ones expiring next week",
+    "What's our offer ratio?",
+    "Send the at-risk list",
+  ],
+  "maintenance-status": [
+    "Which property has slowest MTTR?",
+    "Break out emergency vs. routine",
+    "How many did the AI close?",
+    "After-hours volume?",
+  ],
+  "ap-anomaly": [
+    "Show me the top 3",
+    "Which vendor?",
+    "Compare to last month",
+    "Flag for review",
+  ],
+  "online-pay": [
+    "Where is autopay weakest?",
+    "Compare student vs. conventional",
+    "What's our current rate?",
+    "Which property to focus on?",
+  ],
+  outliers: [
+    "Tell me more about the top one",
+    "Which threshold tripped?",
+    "What changed?",
+    "Send to the regional",
+  ],
+  "weekend-summary": [
+    "What about this morning specifically?",
+    "Anything overnight?",
+    "What did the agents handle?",
+    "Anything I should escalate?",
+  ],
+};
+
+function pickFollowUp(rand: () => number, intentId: string, used: Set<string>): string {
+  const pool = FOLLOWUPS_BY_INTENT[intentId] ?? [];
+  const fresh = pool.filter((p) => !used.has(p));
+  if (fresh.length === 0) return pool[Math.floor(rand() * Math.max(pool.length, 1))] ?? "Tell me more";
+  return fresh[Math.floor(rand() * fresh.length)];
+}
+
+function defaultScopeForAuthor(authorId: string): { id: string; label: string; kind: "portfolio" | "region" | "property" } {
+  const author = EMPLOYEES.find((e) => e.id === authorId)!;
+  if (author.role === "onsite-pm" && author.property) {
+    return { id: author.property, label: author.property.replace("wb-", "").replace(/-/g, " "), kind: "property" };
+  }
+  if (author.role === "regional" && author.region) {
+    return {
+      id: author.region,
+      label:
+        author.region === "southeast"
+          ? "Southeast region"
+          : author.region === "mountain-west"
+          ? "Mountain West region"
+          : author.region,
+      kind: "region",
+    };
+  }
+  return { id: "portfolio", label: "Whole portfolio", kind: "portfolio" };
+}
+
+function pickModel(rand: () => number) {
+  const r = rand();
+  if (r < 0.55) return "auto" as const;
+  if (r < 0.75) return "entrata-tuned" as const;
+  if (r < 0.85) return "opus-4-7" as const;
+  if (r < 0.93) return "gpt-5-5" as const;
+  return "kimi-k2-5" as const;
+}
+
+/**
+ * Build a multi-turn session. Each turn is a (user prompt → assistant reply)
+ * pair. Turns share the same author and scope by default, but the user may
+ * pivot lens/scope on later turns to simulate real investigation behavior.
+ */
+function buildSession(
   rand: () => number,
   i: number,
   date: Date,
@@ -117,75 +253,115 @@ function buildConversation(
   intentId: string,
   promptOverride?: string,
   forcedOutcome?: AssistantMessage["outcome"],
+  forcedTurnCount?: number,
 ): Conversation {
   const intent = INTENTS.find((x) => x.id === intentId)!;
-  const author = EMPLOYEES.find((e) => e.id === authorId)!;
   const prompts = PROMPTS_BY_INTENT[intentId] ?? [intent.label];
-  const prompt = promptOverride ?? prompts[Math.floor(rand() * prompts.length)];
+  const firstPrompt = promptOverride ?? prompts[Math.floor(rand() * prompts.length)];
 
-  const scopeId =
-    author.role === "onsite-pm" && author.property
-      ? author.property
-      : author.role === "regional" && author.region
-      ? author.region
-      : "portfolio";
-  const scopeLabel =
-    scopeId === "portfolio"
-      ? "Whole portfolio"
-      : scopeId === "southeast"
-      ? "Southeast region"
-      : scopeId === "mountain-west"
-      ? "Mountain West region"
-      : `${scopeId.replace("wb-", "").replace(/-/g, " ")}`;
+  const turnCount = forcedTurnCount ?? pickTurnCount(rand);
+  const scope = defaultScopeForAuthor(authorId);
+  const model = pickModel(rand);
 
-  const lens: LensId = rand() > 0.6 ? intent.lens : "auto";
-  const depth = rand() > 0.85 ? "reasoning" : rand() > 0.6 ? "auto" : "fast";
+  const messages: Message[] = [];
+  const lensesUsed: LensId[] = [];
+  const scopesUsed: string[] = [scope.label];
+  const usedFollowUps = new Set<string>();
+  let everDownvoted = false;
+  let everRefused = false;
+  let everEscalated = false;
+  let firstRating: "up" | "down" | undefined;
+  let finalRating: "up" | "down" | undefined;
 
-  const r = rand();
-  const model: "auto" | "opus-4-7" | "gpt-5-5" | "kimi-k2-5" | "entrata-tuned" =
-    r < 0.55 ? "auto"
-    : r < 0.75 ? "entrata-tuned"
-    : r < 0.85 ? "opus-4-7"
-    : r < 0.93 ? "gpt-5-5"
-    : "kimi-k2-5";
+  const sessionStart = new Date(date.getTime() + Math.floor(rand() * 60 * 60 * 1000));
+  let cursor = sessionStart;
 
-  const composed = compose({
-    prompt,
-    lens,
-    depth,
-    scope: { kind: scopeId === "portfolio" ? "portfolio" : scopeId.includes("-") && scopeId.length < 16 ? "region" : "property", id: scopeId, label: scopeLabel },
-  });
+  for (let t = 0; t < turnCount; t++) {
+    const isFirstTurn = t === 0;
+    const prompt = isFirstTurn ? firstPrompt : pickFollowUp(rand, intentId, usedFollowUps);
+    if (!isFirstTurn) usedFollowUps.add(prompt);
 
-  const userMsgDate = new Date(date.getTime() + Math.floor(rand() * 60 * 60 * 1000));
-  const assistantMsgDate = new Date(userMsgDate.getTime() + 1500 + Math.floor(rand() * 5000));
+    const lens: LensId = rand() > 0.6 ? intent.lens : "auto";
+    const depth = rand() > 0.85 ? "reasoning" : rand() > 0.6 ? "auto" : "fast";
 
-  let assistantMsg: AssistantMessage = {
-    ...composed.message,
-    id: `m-a-${i}`,
-    model,
-    createdAt: assistantMsgDate.toISOString(),
-  };
+    const composed = compose({
+      prompt,
+      lens,
+      depth,
+      scope: { kind: scope.kind, id: scope.id, label: scope.label },
+    });
 
-  if (forcedOutcome) assistantMsg = { ...assistantMsg, outcome: forcedOutcome, confidence: forcedOutcome === "answered" ? "high" : "low" };
+    // Each turn separated by 30s-3min "user think time"
+    const userPause = isFirstTurn ? 0 : 30_000 + Math.floor(rand() * 150_000);
+    const userMsgDate = new Date(cursor.getTime() + userPause);
+    const aiResponseTime = 1500 + Math.floor(rand() * 5000);
+    const assistantMsgDate = new Date(userMsgDate.getTime() + aiResponseTime);
 
-  const downRate = DOWNRATE_PROBABILITY[intentId] ?? 0.03;
-  if (rand() < 0.18) assistantMsg.rating = "up";
-  else if (rand() < downRate) assistantMsg.rating = "down";
+    let assistantMsg: AssistantMessage = {
+      ...composed.message,
+      id: `m-a-${i}-${t}`,
+      model,
+      createdAt: assistantMsgDate.toISOString(),
+    };
 
-  const messages: Message[] = [
-    { id: `m-u-${i}`, role: "user", body: prompt, createdAt: userMsgDate.toISOString() },
-    assistantMsg,
-  ];
+    // Forced outcome only applies to the *last* turn — earlier turns of a
+    // "refused" session still answered normally before the user hit the wall.
+    if (forcedOutcome && t === turnCount - 1) {
+      assistantMsg = {
+        ...assistantMsg,
+        outcome: forcedOutcome,
+        confidence: forcedOutcome === "answered" ? "high" : "low",
+      };
+    }
+
+    const downRate = DOWNRATE_PROBABILITY[intentId] ?? 0.03;
+    if (rand() < 0.18) assistantMsg.rating = "up";
+    else if (rand() < downRate) assistantMsg.rating = "down";
+
+    if (assistantMsg.rating === "down") everDownvoted = true;
+    if (assistantMsg.outcome === "refused") everRefused = true;
+    if (assistantMsg.outcome === "escalated") everEscalated = true;
+    if (isFirstTurn && assistantMsg.rating) firstRating = assistantMsg.rating;
+    if (t === turnCount - 1 && assistantMsg.rating) finalRating = assistantMsg.rating;
+
+    if (!lensesUsed.includes(assistantMsg.lens)) lensesUsed.push(assistantMsg.lens);
+
+    messages.push({ id: `m-u-${i}-${t}`, role: "user", body: prompt, createdAt: userMsgDate.toISOString() });
+    messages.push(assistantMsg);
+
+    cursor = assistantMsgDate;
+  }
+
+  const finalAssistant = messages[messages.length - 1] as AssistantMessage;
+  const resolution: Resolution =
+    everEscalated
+      ? "escalated"
+      : finalAssistant.outcome === "refused" ||
+        finalAssistant.outcome === "low-confidence" ||
+        finalAssistant.rating === "down"
+      ? "abandoned"
+      : "resolved";
+  const regressed = firstRating === "up" && finalRating === "down";
 
   return {
     id: `conv-${i}`,
-    title: prompt.length > 60 ? prompt.slice(0, 57) + "..." : prompt,
+    title: firstPrompt.length > 60 ? firstPrompt.slice(0, 57) + "..." : firstPrompt,
     userId: authorId,
     messages,
-    createdAt: userMsgDate.toISOString(),
-    updatedAt: assistantMsgDate.toISOString(),
-    intent: composed.intentId,
-    lens: assistantMsg.lens,
+    createdAt: sessionStart.toISOString(),
+    updatedAt: cursor.toISOString(),
+    intent: intentId,
+    lens: finalAssistant.lens,
+    turnCount,
+    durationMs: cursor.getTime() - sessionStart.getTime(),
+    resolution,
+    lensesUsed,
+    scopesUsed,
+    finalRating,
+    everDownvoted,
+    everRefused,
+    everEscalated,
+    regressed,
   };
 }
 
@@ -225,22 +401,37 @@ export function generateActivity(): Conversation[] {
       }
       const intentId = intentPool[Math.floor(rand() * intentPool.length)];
 
-      out.push(buildConversation(rand, ++i, day, employee.id, intentId));
+      out.push(buildSession(rand, ++i, day, employee.id, intentId));
     }
 
+    // Inject knowledge-gap conversations sparingly. Gaps are usually short
+    // sessions (1-2 turns) — the user hits the wall and stops. Force 1-turn
+    // for refused outcomes (user got blocked immediately), 1-3 for the rest.
     if (rand() < 0.35) {
       const gap = GAP_PROMPTS[Math.floor(rand() * GAP_PROMPTS.length)];
       const employee = EMPLOYEES[Math.floor(rand() * EMPLOYEES.length)];
       const baseIntent = "weekend-summary";
-      const conv = buildConversation(rand, ++i, day, employee.id, baseIntent, gap.q,
+      const gapTurnCount = gap.reason === "refused" ? 1 : 1 + Math.floor(rand() * 3);
+      const conv = buildSession(rand, ++i, day, employee.id, baseIntent, gap.q,
         gap.reason === "refused" ? "refused"
         : gap.reason === "low-confidence" ? "low-confidence"
         : gap.reason === "escalated" ? "escalated"
         : "answered",
+        gapTurnCount,
       );
+      // Force a thumbs-down on the *last* assistant turn so it shows up as
+      // the session's finalRating and the "thumbs-down" gap surfaces.
       if (gap.reason === "thumbs-down") {
-        const a = conv.messages[1] as AssistantMessage;
-        a.rating = "down";
+        const lastAssistantIdx = conv.messages.length - 1;
+        const last = conv.messages[lastAssistantIdx] as AssistantMessage;
+        last.rating = "down";
+        conv.finalRating = "down";
+        conv.everDownvoted = true;
+        const earlier = conv.messages.slice(0, -1).find(
+          (m) => m.role === "assistant" && (m as AssistantMessage).rating === "up",
+        );
+        if (earlier) conv.regressed = true;
+        conv.resolution = "abandoned";
       }
       if (gap.reason === "refused") {
         conv.intent = "refused";
@@ -265,14 +456,16 @@ export function buildClusters(convs: Conversation[]): IntentCluster[] {
     .map(([id, list]) => {
       const intent = INTENTS.find((x) => x.id === id);
       const askers = new Set(list.map((c) => c.userId)).size;
-      const answered = list.filter((c) => {
-        const a = c.messages[1] as AssistantMessage | undefined;
-        return a?.outcome === "answered";
-      }).length;
-      const downvotes = list.filter((c) => (c.messages[1] as AssistantMessage)?.rating === "down").length;
+      // Session-level deflection: a session counts as "deflected" if its
+      // resolution is "resolved" (final turn answered cleanly, no escalation
+      // or abandonment). More meaningful than per-turn "answered".
+      const resolved = list.filter((c) => c.resolution === "resolved").length;
+      // Session-level downvotes: any 👎 anywhere in the session counts.
+      const downvotes = list.filter((c) => c.everDownvoted).length;
       const lensCounts = new Map<LensId, number>();
       list.forEach((c) => lensCounts.set(c.lens, (lensCounts.get(c.lens) ?? 0) + 1));
       const topLens = Array.from(lensCounts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "auto";
+      // Pull example questions from the *first* user turn of each session.
       const examples = Array.from(new Set(list.map((c) => c.messages[0].body))).slice(0, 4);
 
       return {
@@ -283,7 +476,7 @@ export function buildClusters(convs: Conversation[]): IntentCluster[] {
         distinctAskers: askers,
         exampleQuestions: examples,
         topLens,
-        deflectionPct: list.length === 0 ? 0 : (answered / list.length) * 100,
+        deflectionPct: list.length === 0 ? 0 : (resolved / list.length) * 100,
         rating: (downvotes > 1 ? "warn" : "good") as "good" | "warn" | "alert",
         automationScore: Math.min(
           100,
@@ -296,14 +489,37 @@ export function buildClusters(convs: Conversation[]): IntentCluster[] {
     .sort((a, b) => b.count - a.count);
 }
 
+/**
+ * Find the "worst" assistant turn in a session — the one that defines the
+ * gap reason. For multi-turn sessions, we want the turn that actually
+ * blocked or frustrated the user, not the first one (which may have answered
+ * fine before the user pushed into a refused area).
+ *
+ * Priority: refused > escalated > low-confidence > thumbs-down.
+ */
+function worstAssistantTurn(conv: Conversation): AssistantMessage | undefined {
+  const assistants = conv.messages.filter((m) => m.role === "assistant") as AssistantMessage[];
+  return (
+    assistants.find((a) => a.outcome === "refused") ??
+    assistants.find((a) => a.outcome === "escalated") ??
+    assistants.find((a) => a.outcome === "low-confidence") ??
+    assistants.find((a) => a.rating === "down") ??
+    assistants[assistants.length - 1]
+  );
+}
+
 export function buildGaps(convs: Conversation[]): KnowledgeGap[] {
-  const lowConfOrRefusedOrDown = convs.filter((c) => {
-    const a = c.messages[1] as AssistantMessage | undefined;
-    return a && (a.outcome !== "answered" || a.rating === "down");
-  });
+  // A session is a gap candidate if any turn refused/escalated/low-conf, or
+  // any turn got 👎. Session-level flags make this O(1).
+  const sessionsWithGaps = convs.filter(
+    (c) => c.everRefused || c.everEscalated || c.everDownvoted || c.resolution === "abandoned",
+  );
 
   const byQuestion = new Map<string, Conversation[]>();
-  lowConfOrRefusedOrDown.forEach((c) => {
+  sessionsWithGaps.forEach((c) => {
+    // Group by the *first user prompt* — the topic that triggered the
+    // session. Two users hitting the same wall on the same opening question
+    // is the strongest signal of a real gap.
     const key = c.messages[0].body.toLowerCase().slice(0, 80);
     const list = byQuestion.get(key) ?? [];
     list.push(c);
@@ -314,11 +530,11 @@ export function buildGaps(convs: Conversation[]): KnowledgeGap[] {
     .filter((list) => list.length > 0)
     .map((list, idx) => {
       const rep = list[0];
-      const a = rep.messages[1] as AssistantMessage;
+      const worst = worstAssistantTurn(rep);
       const reason: KnowledgeGap["reason"] =
-        a.outcome === "refused" ? "refused"
-        : a.outcome === "low-confidence" ? "low-confidence"
-        : a.outcome === "escalated" ? "escalated"
+        worst?.outcome === "refused" ? "refused"
+        : worst?.outcome === "low-confidence" ? "low-confidence"
+        : worst?.outcome === "escalated" ? "escalated"
         : "thumbs-down";
       const askers = Array.from(new Set(list.map((c) => c.userId)));
       const askerNames = askers.slice(0, 3)
@@ -375,7 +591,17 @@ export function summaryStats(convs: Conversation[]) {
   const sevenDaysAgo = new Date(NOW.getTime() - 7 * 24 * 3600 * 1000);
   const recent = convs.filter((c) => new Date(c.createdAt) > sevenDaysAgo);
   const askers = new Set(recent.map((c) => c.userId));
-  const answered = recent.filter((c) => (c.messages[1] as AssistantMessage)?.outcome === "answered").length;
+
+  // Session-level rollups
+  const sessions7d = recent.length;
+  const turnsTotal7d = recent.reduce((sum, c) => sum + c.turnCount, 0);
+  const avgTurnsPerSession = sessions7d === 0 ? 0 : turnsTotal7d / sessions7d;
+  const resolved = recent.filter((c) => c.resolution === "resolved").length;
+  const abandoned = recent.filter((c) => c.resolution === "abandoned").length;
+  const escalated = recent.filter((c) => c.resolution === "escalated").length;
+  const longSessions = recent.filter((c) => c.turnCount >= 5 || c.durationMs >= 5 * 60 * 1000).length;
+  const regressed = recent.filter((c) => c.regressed).length;
+
   const lensCounts = new Map<LensId, number>();
   recent.forEach((c) => lensCounts.set(c.lens, (lensCounts.get(c.lens) ?? 0) + 1));
   const topLenses = Array.from(lensCounts.entries())
@@ -384,9 +610,20 @@ export function summaryStats(convs: Conversation[]) {
     .map(([lens, count]) => ({ lens, count, label: LENS_BY_ID[lens]?.label ?? lens }));
 
   return {
-    questions7d: recent.length,
+    // Legacy: total user *turns* in the window. Kept for backwards
+    // compatibility; HealthStrip should prefer sessions7d.
+    questions7d: turnsTotal7d,
     activeEmployees7d: askers.size,
-    deflectionPct: recent.length === 0 ? 0 : (answered / recent.length) * 100,
+    // Session-level deflection: % of sessions that ended in `resolved`.
+    deflectionPct: sessions7d === 0 ? 0 : (resolved / sessions7d) * 100,
     topLenses,
+    // New session-level metrics
+    sessions7d,
+    avgTurnsPerSession,
+    resolutionRate: sessions7d === 0 ? 0 : (resolved / sessions7d) * 100,
+    abandonmentRate: sessions7d === 0 ? 0 : (abandoned / sessions7d) * 100,
+    escalationRate: sessions7d === 0 ? 0 : (escalated / sessions7d) * 100,
+    longSessionRate: sessions7d === 0 ? 0 : (longSessions / sessions7d) * 100,
+    regressedCount: regressed,
   };
 }

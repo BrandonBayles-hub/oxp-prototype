@@ -4,14 +4,20 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ASSISTANTS } from "@/lib/entrata-experts-v2/assistants";
 import { ChatHistoryRail } from "./chat-history-rail";
+import { ReportAnalyzerModule } from "./report-analyzer-module";
 import { ArrowRight, BarChart3, Sparkles } from "lucide-react";
 
 interface HubCardsProps {
   onLaunchAnalyst: () => void;
   onLaunchAssistant: (assistantId: string) => void;
+  onLaunchReport: (reportId: string) => void;
 }
 
-export function HubCards({ onLaunchAnalyst, onLaunchAssistant }: HubCardsProps) {
+export function HubCards({
+  onLaunchAnalyst,
+  onLaunchAssistant,
+  onLaunchReport,
+}: HubCardsProps) {
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="space-y-6">
@@ -34,11 +40,17 @@ export function HubCards({ onLaunchAnalyst, onLaunchAssistant }: HubCardsProps) 
               Entrata Assistants
             </h2>
             <span className="text-xs text-muted-foreground">
-              7 general-purpose GPTs · Not connected to Entrata data
+              Pick a report to analyze, or a pre-built GPT to chat with
             </span>
           </div>
 
+          {/* The grid mixes Report Analyzer (a 2-cell-wide tile) with the 7
+              GPT assistants. 2 + 7 = 9 cells = exactly 3 rows in a 3-col grid. */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <ReportAnalyzerModule
+              onLaunchReport={onLaunchReport}
+              className="sm:col-span-2 xl:col-span-2"
+            />
             {ASSISTANTS.map((a) => {
               const Icon = a.icon;
               return (
