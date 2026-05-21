@@ -21,6 +21,7 @@ import { PermissionsProvider } from "@/lib/permissions-context";
 import { PlaybooksProvider } from "@/lib/playbooks-context";
 
 import { ClickToCallDemoProvider } from "@/lib/click-to-call-demo-context";
+import { CallSystemDemoProvider } from "@/lib/call-system-demo-context";
 import { ConversationsDemoProvider } from "@/lib/conversations-demo-context";
 import { R1ReleaseProvider } from "@/lib/r1-release-context";
 import { R1_2ReleaseProvider } from "@/lib/r1-2-release-context";
@@ -98,6 +99,7 @@ export default function RootLayout({
         <RoadmapProvider>
         <EliPlusSetupProvider>
         <ClickToCallDemoProvider>
+        <CallSystemDemoProvider>
         <R1ReleaseProvider>
         <R1_2ReleaseProvider>
         <RoleProvider>
@@ -141,6 +143,7 @@ export default function RootLayout({
         </RoleProvider>
         </R1_2ReleaseProvider>
         </R1ReleaseProvider>
+        </CallSystemDemoProvider>
         </ClickToCallDemoProvider>
         </EliPlusSetupProvider>
         </RoadmapProvider>
