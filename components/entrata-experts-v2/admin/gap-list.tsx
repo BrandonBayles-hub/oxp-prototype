@@ -275,7 +275,7 @@ export function GapList({ activity }: { activity: Conversation[] }) {
   return (
     <div className="space-y-4">
       <div className="text-sm text-muted-foreground">
-        Questions your team asked that your installed experts couldn't fully
+        Questions your team asked that your installed experts couldn&apos;t fully
         answer because something was missing in your workspace. Each row is one
         thing you can connect, add, or create to close the gap.
       </div>
