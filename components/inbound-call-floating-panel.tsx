@@ -444,7 +444,7 @@ export function InboundCallFloatingPanel({ session, onDismiss }: Props) {
                   Live Transcription
                 </p>
                 <div className="space-y-1 text-xs text-muted-foreground">
-                  <p><span className="font-medium text-foreground">{session.callerName}:</span> Hi, I'm calling about…</p>
+                  <p><span className="font-medium text-foreground">{session.callerName}:</span> Hi, I&apos;m calling about…</p>
                   <p className="animate-pulse text-muted-foreground/60">Listening…</p>
                 </div>
               </div>
