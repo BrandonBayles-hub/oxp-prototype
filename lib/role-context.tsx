@@ -13,7 +13,7 @@ export type Role = (typeof ROLES)[number]["value"];
 
 const ALLOWED_ROUTES: Record<Role, string[] | "all"> = {
   admin: "all",
-  regional: ["/command-center", "/escalations", "/conversations", "/performance", "/agent-roster", "/workforce"],
+  regional: ["/command-center", "/escalations", "/conversations", "/performance", "/agent-roster", "/workforce", "/admin-insights"],
   property: ["/command-center", "/escalations", "/conversations", "/performance", "/agent-roster", "/workforce"],
   ic: ["/command-center", "/escalations", "/conversations", "/workforce"],
 };

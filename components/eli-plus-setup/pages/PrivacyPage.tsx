@@ -1550,7 +1550,7 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
     <TooltipProvider delayDuration={200}>
     <div className="flex flex-col min-h-full bg-stone-50">
       <div className="flex-1 p-6 md:p-8">
-        <div className="space-y-5 max-w-[640px]">
+        <div className="space-y-5 max-w-5xl">
 
         {/* ── Page header ── */}
         <div>
@@ -1562,7 +1562,7 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
         </div>
 
         {/* ── Progress bar (Submit all lives in sticky footer) ── */}
-        <div className="space-y-1.5 max-w-3xl">
+        <div className="space-y-1.5">
           <div className="flex items-center justify-between text-xs gap-2">
             <span className="text-muted-foreground">{completedCount} of {totalCount} properties — policy approved</span>
             <span className={cn("font-semibold shrink-0", allDone ? "text-emerald-700" : "text-foreground")}>{progressPct}%</span>

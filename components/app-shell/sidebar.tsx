@@ -1,5 +1,6 @@
 "use client";
 
+// Updated: Setup Wizard tab removed
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
@@ -23,6 +24,7 @@ import {
   Shield,
   Sparkles,
   Wand2,
+  Eye,
 } from "lucide-react";
 
 const activationItem = { href: "/getting-started", label: "AI & Agent Activation", icon: Rocket };
@@ -43,6 +45,7 @@ const navGroups = [
       { href: "/performance", label: "Performance", icon: BarChart3 },
       { href: "/agent-roster", label: "Agent Roster", icon: Codepen },
       { href: "/workforce", label: "Workforce", icon: UserCog },
+      { href: "/admin-insights", label: "Admin Insights", icon: Eye },
     ],
   },
   {
@@ -55,7 +58,6 @@ const navGroups = [
       { href: "/brand-center", label: "Brand Center", icon: Palette },
       // { href: "/tools", label: "Tools", icon: Wrench },
       { href: "/governance", label: "Governance", icon: Shield },
-      { href: "/setup-wizard", label: "Setup Wizard", icon: Wand2 },
     ],
   },
 ];

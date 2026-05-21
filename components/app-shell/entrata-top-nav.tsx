@@ -20,7 +20,9 @@ import {
   MessageCircle,
   Map,
   PhoneIncoming,
+  Smartphone,
 } from "lucide-react";
+import { MobileAppPreview } from "@/components/mobile-app-preview";
 import { useRole, ROLES, type Role } from "@/lib/role-context";
 
 import { useR1Release } from "@/lib/r1-release-context";
@@ -44,7 +46,7 @@ const NAV_ITEMS = [
   { label: "Tools", icon: Wrench },
   { label: "Apps", icon: AppWindow },
   { label: "Settings", icon: Settings },
-  { label: "Setup", icon: Settings, href: "/setup-wizard" },
+  { label: "Setup", icon: Settings, href: "/getting-started" },
 ] as const;
 
 export function EntrataTopNav() {
@@ -77,6 +79,7 @@ export function EntrataTopNav() {
   }, [currentUser, escalations, conversations]);
 
   const [demoOpen, setDemoOpen] = useState(false);
+  const [mobilePreviewOpen, setMobilePreviewOpen] = useState(false);
   const demoRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -428,6 +431,28 @@ export function EntrataTopNav() {
                         </p>
                       </div>
                     </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobilePreviewOpen(true);
+                        setDemoOpen(false);
+                      }}
+                      className="flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-gray-50"
+                    >
+                      <Smartphone
+                        className="mt-0.5 shrink-0 text-violet-500"
+                        style={{ width: 16, height: 16, strokeWidth: 2 }}
+                      />
+                      <div>
+                        <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>
+                          Mobile App Preview
+                        </p>
+                        <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>
+                          View the mobile app vision and screen concepts
+                        </p>
+                      </div>
+                    </button>
                   </div>
                 </div>
 
@@ -522,7 +547,7 @@ export function EntrataTopNav() {
           const href = "href" in item ? item.href : undefined;
           const isActive = href
             ? pathname.startsWith(href)
-            : ("active" in item && item.active && !pathname.startsWith("/setup-wizard"));
+            : ("active" in item && item.active);
           return (
             <button
               key={`${item.label}-${i}`}
@@ -564,60 +589,7 @@ export function EntrataTopNav() {
         })}
       </div>
 
-      {/* Setup sub-navigation — shown when Setup tab is active. Wizard is on the far right. */}
-      {pathname.startsWith("/setup-wizard") && (
-        <div
-          className="flex items-center overflow-x-auto"
-          style={{
-            background: "#fff",
-            borderBottom: "1px solid #E0E0E0",
-            padding: "0 16px",
-            height: 34,
-            gap: 0,
-          }}
-        >
-          {[
-            { label: "Company" },
-            { label: "Properties" },
-            { label: "Users & Groups" },
-            { label: "Websites" },
-            { label: "Websites (Beta)" },
-            { label: "Lobby Display (Legacy)" },
-            { label: "Property Setting Keys Report" },
-            { label: "AI Settings" },
-            { label: "Wizard", href: "/setup-wizard" },
-          ].map((sub) => {
-            const isActive = "href" in sub && sub.href ? pathname.startsWith(sub.href) : false;
-            return (
-              <button
-                key={sub.label}
-                type="button"
-                onClick={() => "href" in sub && sub.href && router.push(sub.href)}
-                style={{
-                  height: "100%",
-                  padding: "0 14px",
-                  fontSize: 12,
-                  fontWeight: isActive ? 600 : 400,
-                  color: isActive ? "#1a6bb5" : "rgba(0,0,0,0.65)",
-                  borderBottom: isActive ? "2px solid #1a6bb5" : "2px solid transparent",
-                  background: "transparent",
-                  whiteSpace: "nowrap",
-                  cursor: "href" in sub && sub.href ? "pointer" : "default",
-                  transition: "color 150ms",
-                }}
-                onMouseEnter={(e) => {
-                  if (!isActive) e.currentTarget.style.color = "rgba(0,0,0,0.9)";
-                }}
-                onMouseLeave={(e) => {
-                  if (!isActive) e.currentTarget.style.color = "rgba(0,0,0,0.65)";
-                }}
-              >
-                {sub.label}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      <MobileAppPreview open={mobilePreviewOpen} onClose={() => setMobilePreviewOpen(false)} />
     </div>
   );
 }

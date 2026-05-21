@@ -6,7 +6,12 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 // Amazon Nova 2 Sonic voice IDs (tiffany|matthew|...). Stale keys would otherwise leave
 // the voice picker unhighlighted.
 // Bumped to v6 when the legal disclosure default copy was shortened.
-const STORAGE_KEY = "janet-poc-voice-v6";
+// Bumped to v7 when the per-agent voice & tone editor moved onto its own
+// agentToneDefaults / agentVerticalToneOverrides / agentPropertyToneOverrides
+// state slices.
+// Bumped to v8 when voice settings adopted the same per-agent cascade model.
+const STORAGE_KEY = "janet-poc-voice-v8";
+const LEGACY_STORAGE_KEY = "janet-poc-voice-v7";
 
 export type PhrasingRule = {
   id: string;
@@ -139,6 +144,122 @@ export type AgentVoiceTuning = {
   voiceOverrides?: AgentVoiceOverrides;
 };
 
+export type ToneSettings = {
+  persona: string;
+  guidelines: string;
+  doExamples: string[];
+  dontExamples: string[];
+};
+
+export type AgentToneId = "leasing" | "renewal" | "payments" | "maintenance";
+
+export const AGENT_TONE_IDS: readonly AgentToneId[] = [
+  "leasing",
+  "renewal",
+  "payments",
+  "maintenance",
+];
+
+export const AGENT_TONE_NAMES: Record<AgentToneId, string> = {
+  leasing: "Leasing AI",
+  renewal: "Renewal AI",
+  payments: "Payments AI",
+  maintenance: "Maintenance AI",
+};
+
+export const AGENT_TONE_SEED_DEFAULTS: Record<AgentToneId, ToneSettings> = {
+  leasing: {
+    persona: "Enthusiastic leasing assistant",
+    guidelines:
+      "Excited about helping people find their new home. Always mention current specials. Proactively offer tour scheduling. Stay warm and conversational without pressuring prospects.",
+    doExamples: [
+      "Highlight current specials and promotions",
+      "Proactively suggest tour scheduling",
+      "Emphasize unique property features",
+    ],
+    dontExamples: [
+      "Pressure prospects into decisions",
+      "Disparage competing properties",
+      "Guarantee availability without checking",
+    ],
+  },
+  renewal: {
+    persona: "Warm renewal advocate",
+    guidelines:
+      "Grateful for the resident's continued tenancy. Lead with appreciation. Highlight community improvements since move-in. Offer flexible renewal terms.",
+    doExamples: [
+      "Lead with gratitude for their residency",
+      "Mention community improvements",
+      "Offer flexible renewal terms",
+    ],
+    dontExamples: [
+      "Threaten lease non-renewal",
+      "Rush renewal decisions",
+      "Ignore resident concerns or complaints",
+    ],
+  },
+  payments: {
+    persona: "Empathetic, solution-focused payments specialist",
+    guidelines:
+      "Direct and clear, but never judgmental. Always explain fees and deadlines plainly. Offer payment plan options proactively when applicable. No humor or levity — this is collections.",
+    doExamples: [
+      "Offer payment plan options proactively",
+      "Show empathy for financial situations",
+      "Clearly explain fees and deadlines",
+    ],
+    dontExamples: [
+      "Be judgmental about late payments",
+      "Use threatening language about collections",
+      "Discuss other residents' payment history",
+    ],
+  },
+  maintenance: {
+    persona: "Efficient, reassuring maintenance coordinator",
+    guidelines:
+      "Focused on getting things fixed fast. Always provide an estimated timeline. Confirm the issue has been understood. Follow up after resolution.",
+    doExamples: [
+      "Provide clear estimated timelines",
+      "Confirm the issue has been understood",
+      "Follow up after resolution",
+    ],
+    dontExamples: [
+      "Blame the resident for the issue",
+      "Promise exact completion times",
+      "Dismiss concerns as minor",
+    ],
+  },
+};
+
+export type AgentVerticalToneOverride = {
+  id: string;
+  agentId: AgentToneId;
+  vertical: string;
+  settings: ToneSettings;
+};
+
+export type AgentPropertyToneOverride = {
+  id: string;
+  agentId: AgentToneId;
+  propertyName: string;
+  vertical: string;
+  settings: ToneSettings;
+};
+
+export type AgentVerticalVoiceOverride = {
+  id: string;
+  agentId: AgentToneId;
+  vertical: string;
+  settings: VoiceSettings;
+};
+
+export type AgentPropertyVoiceOverride = {
+  id: string;
+  agentId: AgentToneId;
+  propertyName: string;
+  vertical: string;
+  settings: VoiceSettings;
+};
+
 export type VoiceState = {
   unified: boolean;
   brandingTone: string;
@@ -158,8 +279,218 @@ export type VoiceState = {
   verticalOverrides: VerticalOverride[];
   propertyOverrides: PropertyOverride[];
   agentTuning: AgentVoiceTuning[];
+  agentToneDefaults: Record<AgentToneId, ToneSettings>;
+  agentVerticalToneOverrides: AgentVerticalToneOverride[];
+  agentPropertyToneOverrides: AgentPropertyToneOverride[];
+  agentVoiceDefaults: Record<AgentToneId, VoiceSettings>;
+  agentVerticalVoiceOverrides: AgentVerticalVoiceOverride[];
+  agentPropertyVoiceOverrides: AgentPropertyVoiceOverride[];
   voiceSettings: VoiceSettings;
   brandSettings: BrandSettings;
+};
+
+export const AGENT_TONE_VERTICAL_SEEDS: AgentVerticalToneOverride[] = [
+  {
+    id: "leasing-student",
+    agentId: "leasing",
+    vertical: "Student",
+    settings: {
+      persona: "Friendly campus guide",
+      guidelines:
+        "Casual, upbeat, and approachable. Use conversational language that resonates with college-age residents. Reference campus life and student-friendly amenities.",
+      doExamples: [
+        "Use casual, relatable language",
+        "Reference campus events and deadlines",
+        "Mention roommate-matching options",
+      ],
+      dontExamples: [
+        "Use overly formal or corporate tone",
+        "Assume financial independence",
+        "Ignore academic calendar timing",
+      ],
+    },
+  },
+];
+
+export const AGENT_TONE_PROPERTY_SEEDS: AgentPropertyToneOverride[] = [
+  {
+    id: "leasing-sunset-ridge",
+    agentId: "leasing",
+    propertyName: "Sunset Ridge Apartments",
+    vertical: "Conventional",
+    settings: {
+      persona: "Luxury concierge",
+      guidelines:
+        "Upscale and sophisticated. Use luxury language. Address residents formally. Highlight exclusive amenities and concierge-level service.",
+      doExamples: [
+        "Use luxury and premium language",
+        "Address residents by title and last name",
+        "Highlight exclusive amenities",
+      ],
+      dontExamples: [
+        "Use generic or budget-oriented phrasing",
+        "Be overly casual or use slang",
+        "Compare to other properties",
+      ],
+    },
+  },
+];
+
+function cloneToneSettings(settings: ToneSettings): ToneSettings {
+  return {
+    persona: settings.persona,
+    guidelines: settings.guidelines,
+    doExamples: [...settings.doExamples],
+    dontExamples: [...settings.dontExamples],
+  };
+}
+
+function cloneAgentToneDefaults(): Record<AgentToneId, ToneSettings> {
+  return AGENT_TONE_IDS.reduce((acc, agentId) => {
+    acc[agentId] = cloneToneSettings(AGENT_TONE_SEED_DEFAULTS[agentId]);
+    return acc;
+  }, {} as Record<AgentToneId, ToneSettings>);
+}
+
+function cloneVoiceSettings(settings: VoiceSettings): VoiceSettings {
+  return {
+    ...settings,
+    voiceLanguages: [...settings.voiceLanguages],
+  };
+}
+
+function cloneAgentVoiceDefaults(
+  base: VoiceSettings,
+): Record<AgentToneId, VoiceSettings> {
+  return AGENT_TONE_IDS.reduce((acc, agentId) => {
+    acc[agentId] = cloneVoiceSettings(base);
+    return acc;
+  }, {} as Record<AgentToneId, VoiceSettings>);
+}
+
+function hasVoiceSettingOverrides(value?: Partial<VoiceSettings>): boolean {
+  return Boolean(value && Object.keys(value).length > 0);
+}
+
+function mapTuningAgentIdToToneId(agentId: string): AgentToneId | null {
+  switch (agentId) {
+    case "4":
+      return "leasing";
+    case "7":
+      return "renewal";
+    case "10":
+      return "maintenance";
+    case "1":
+      return "payments";
+    default:
+      return null;
+  }
+}
+
+function buildAgentVoiceSlicesFromLegacy(
+  source: Pick<
+    VoiceState,
+    "voiceSettings" | "verticalOverrides" | "propertyOverrides" | "agentTuning"
+  >,
+): Pick<
+  VoiceState,
+  "agentVoiceDefaults" | "agentVerticalVoiceOverrides" | "agentPropertyVoiceOverrides"
+> {
+  const agentVoiceDefaults = cloneAgentVoiceDefaults(source.voiceSettings);
+  const verticalByName = new Map(source.verticalOverrides.map((override) => [override.vertical, override]));
+  const propertyByName = new Map(source.propertyOverrides.map((override) => [override.property, override]));
+
+  const agentVerticalVoiceOverrides: AgentVerticalVoiceOverride[] = [];
+  source.verticalOverrides.forEach((override) => {
+    if (!hasVoiceSettingOverrides(override.voiceSettings)) return;
+    AGENT_TONE_IDS.forEach((agentId) => {
+      agentVerticalVoiceOverrides.push({
+        id: `voice-${agentId}-${override.vertical.toLowerCase()}-${agentVerticalVoiceOverrides.length}`,
+        agentId,
+        vertical: override.vertical,
+        settings: {
+          ...cloneVoiceSettings(agentVoiceDefaults[agentId]),
+          ...(override.voiceSettings as Partial<VoiceSettings>),
+        },
+      });
+    });
+  });
+
+  const keyedPropertyOverrides = new Map<string, AgentPropertyVoiceOverride>();
+
+  source.propertyOverrides.forEach((override) => {
+    if (!hasVoiceSettingOverrides(override.voiceSettings)) return;
+    AGENT_TONE_IDS.forEach((agentId) => {
+      const verticalSettings = override.vertical
+        ? verticalByName.get(override.vertical)?.voiceSettings
+        : undefined;
+      const settings: VoiceSettings = {
+        ...cloneVoiceSettings(agentVoiceDefaults[agentId]),
+        ...(verticalSettings as Partial<VoiceSettings> | undefined),
+        ...(override.voiceSettings as Partial<VoiceSettings>),
+      };
+      const key = `${agentId}::${override.property}`;
+      keyedPropertyOverrides.set(key, {
+        id: `voice-${agentId}-${override.property.toLowerCase().replace(/\s+/g, "-")}-${keyedPropertyOverrides.size}`,
+        agentId,
+        propertyName: override.property,
+        vertical: override.vertical ?? "",
+        settings,
+      });
+    });
+  });
+
+  source.agentTuning.forEach((tuning) => {
+    if (!tuning.propertyName || !hasVoiceSettingOverrides(tuning.voiceOverrides)) return;
+    const agentId = mapTuningAgentIdToToneId(tuning.agentId);
+    if (!agentId) return;
+    const key = `${agentId}::${tuning.propertyName}`;
+    const existing = keyedPropertyOverrides.get(key);
+    const legacyProperty = propertyByName.get(tuning.propertyName);
+    const fallbackVerticalSettings = legacyProperty?.vertical
+      ? verticalByName.get(legacyProperty.vertical)?.voiceSettings
+      : undefined;
+    const baseSettings = existing?.settings ?? {
+      ...cloneVoiceSettings(agentVoiceDefaults[agentId]),
+      ...(fallbackVerticalSettings as Partial<VoiceSettings> | undefined),
+      ...(legacyProperty?.voiceSettings as Partial<VoiceSettings> | undefined),
+    };
+
+    keyedPropertyOverrides.set(key, {
+      id:
+        existing?.id ??
+        `voice-${agentId}-${tuning.propertyName.toLowerCase().replace(/\s+/g, "-")}-${keyedPropertyOverrides.size}`,
+      agentId,
+      propertyName: tuning.propertyName,
+      vertical: existing?.vertical ?? legacyProperty?.vertical ?? "",
+      settings: {
+        ...baseSettings,
+        ...(tuning.voiceOverrides as Partial<VoiceSettings>),
+      },
+    });
+  });
+
+  return {
+    agentVoiceDefaults,
+    agentVerticalVoiceOverrides,
+    agentPropertyVoiceOverrides: Array.from(keyedPropertyOverrides.values()),
+  };
+}
+
+const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
+  aiVoiceEnabled: true,
+  voiceGender: "female",
+  voiceAccent: "tiffany",
+  voiceLanguages: ["English", "Spanish", "French", "German", "Italian", "Portuguese", "Hindi"],
+  autoDetectLanguage: true,
+  recordAudio: true,
+  generateTranscripts: true,
+  legalDisclosureEnabled: true,
+  legalDisclosureText: "This call is being recorded and transcribed for quality assurance and training purposes.",
+  greeting: "Thank you for calling {property}. How can I help you today?",
+  holdPhrase: "One moment while I pull that up for you.",
+  maxCallLength: 10,
+  aiDisclosureEnabled: true,
 };
 
 const DEFAULT_STATE: VoiceState = {
@@ -226,21 +557,19 @@ const DEFAULT_STATE: VoiceState = {
     { agentId: "4", agentName: "Leasing AI", propertyName: "Sunset Ridge Apartments", toneOverride: "Refined and consultative", responseLength: "detailed", personality: "Luxury lifestyle advisor", customInstructions: "Emphasize exclusivity and premium amenities. Use aspirational language. Reference concierge services.", allowEmoji: false, doExamples: ["Use aspirational, luxury language", "Reference concierge-level services", "Highlight exclusive resident perks"], dontExamples: ["Mention pricing before value", "Use generic apartment terminology", "Compare to non-luxury competitors"] },
     { agentId: "4", agentName: "Leasing AI", propertyName: "University Commons", toneOverride: "Fun and relatable", responseLength: "concise", personality: "Campus life enthusiast", customInstructions: "Reference campus proximity, student discounts, and roommate matching. Keep it casual.", allowEmoji: true, doExamples: ["Mention roommate matching options", "Reference campus shuttle and proximity", "Highlight student-specific amenities"], dontExamples: ["Use formal corporate language", "Assume parental involvement", "Ignore move-in/move-out academic schedules"] },
   ],
-  voiceSettings: {
-    aiVoiceEnabled: true,
-    voiceGender: "female",
-    voiceAccent: "tiffany",
-    voiceLanguages: ["English", "Spanish", "French", "German", "Italian", "Portuguese", "Hindi"],
-    autoDetectLanguage: true,
-    recordAudio: true,
-    generateTranscripts: true,
-    legalDisclosureEnabled: true,
-    legalDisclosureText: "This call is being recorded and transcribed for quality assurance and training purposes.",
-    greeting: "Thank you for calling {property}. How can I help you today?",
-    holdPhrase: "One moment while I pull that up for you.",
-    maxCallLength: 10,
-    aiDisclosureEnabled: true,
-  },
+  agentToneDefaults: cloneAgentToneDefaults(),
+  agentVerticalToneOverrides: AGENT_TONE_VERTICAL_SEEDS.map((override) => ({
+    ...override,
+    settings: cloneToneSettings(override.settings),
+  })),
+  agentPropertyToneOverrides: AGENT_TONE_PROPERTY_SEEDS.map((override) => ({
+    ...override,
+    settings: cloneToneSettings(override.settings),
+  })),
+  agentVoiceDefaults: cloneAgentVoiceDefaults(DEFAULT_VOICE_SETTINGS),
+  agentVerticalVoiceOverrides: [],
+  agentPropertyVoiceOverrides: [],
+  voiceSettings: cloneVoiceSettings(DEFAULT_VOICE_SETTINGS),
   brandSettings: {
     colors: {
       primary: "#6366f1",
@@ -264,6 +593,22 @@ type VoiceContextValue = VoiceState & {
   removeAgentTuning: (agentId: string, propertyName: string) => void;
   updateVerticalOverride: (vertical: string, updates: Partial<VerticalOverride>) => void;
   resetVerticalOverride: (vertical: string) => void;
+  updateAgentToneDefault: (agentId: AgentToneId, partial: Partial<ToneSettings>) => void;
+  resetAgentToneDefault: (agentId: AgentToneId) => void;
+  addAgentVerticalToneOverride: (record: AgentVerticalToneOverride) => void;
+  updateAgentVerticalToneOverride: (id: string, partial: Partial<AgentVerticalToneOverride>) => void;
+  removeAgentVerticalToneOverride: (id: string) => void;
+  addAgentPropertyToneOverrides: (records: AgentPropertyToneOverride[]) => void;
+  updateAgentPropertyToneOverride: (id: string, partial: Partial<AgentPropertyToneOverride>) => void;
+  removeAgentPropertyToneOverride: (id: string) => void;
+  updateAgentVoiceDefault: (agentId: AgentToneId, partial: Partial<VoiceSettings>) => void;
+  resetAgentVoiceDefault: (agentId: AgentToneId) => void;
+  addAgentVerticalVoiceOverride: (record: AgentVerticalVoiceOverride) => void;
+  updateAgentVerticalVoiceOverride: (id: string, partial: Partial<AgentVerticalVoiceOverride>) => void;
+  removeAgentVerticalVoiceOverride: (id: string) => void;
+  addAgentPropertyVoiceOverrides: (records: AgentPropertyVoiceOverride[]) => void;
+  updateAgentPropertyVoiceOverride: (id: string, partial: Partial<AgentPropertyVoiceOverride>) => void;
+  removeAgentPropertyVoiceOverride: (id: string) => void;
   configured: boolean;
 };
 
@@ -275,10 +620,26 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY);
       if (raw) {
         const data = JSON.parse(raw);
-        setState((prev) => ({ ...prev, ...data }));
+        setState((prev) => {
+          const merged = { ...prev, ...data } as VoiceState;
+          const hasAgentVoiceSlices =
+            Boolean(data.agentVoiceDefaults) &&
+            Array.isArray(data.agentVerticalVoiceOverrides) &&
+            Array.isArray(data.agentPropertyVoiceOverrides);
+
+          if (hasAgentVoiceSlices) {
+            return merged;
+          }
+
+          const migratedVoiceSlices = buildAgentVoiceSlicesFromLegacy(merged);
+          return {
+            ...merged,
+            ...migratedVoiceSlices,
+          };
+        });
       }
     } catch {
       // ignore
@@ -375,6 +736,233 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
+  const updateAgentToneDefault = useCallback((agentId: AgentToneId, partial: Partial<ToneSettings>) => {
+    setState((prev) => ({
+      ...prev,
+      agentToneDefaults: {
+        ...prev.agentToneDefaults,
+        [agentId]: {
+          ...prev.agentToneDefaults[agentId],
+          ...partial,
+        },
+      },
+    }));
+  }, []);
+
+  const resetAgentToneDefault = useCallback((agentId: AgentToneId) => {
+    setState((prev) => ({
+      ...prev,
+      agentToneDefaults: {
+        ...prev.agentToneDefaults,
+        [agentId]: cloneToneSettings(AGENT_TONE_SEED_DEFAULTS[agentId]),
+      },
+    }));
+  }, []);
+
+  const addAgentVerticalToneOverride = useCallback((record: AgentVerticalToneOverride) => {
+    setState((prev) => ({
+      ...prev,
+      agentVerticalToneOverrides: [
+        ...prev.agentVerticalToneOverrides.filter(
+          (override) => !(override.agentId === record.agentId && override.vertical === record.vertical),
+        ),
+        record,
+      ],
+    }));
+  }, []);
+
+  const updateAgentVerticalToneOverride = useCallback((id: string, partial: Partial<AgentVerticalToneOverride>) => {
+    setState((prev) => ({
+      ...prev,
+      agentVerticalToneOverrides: prev.agentVerticalToneOverrides.map((override) =>
+        override.id === id
+          ? {
+              ...override,
+              ...partial,
+              settings: partial.settings
+                ? { ...override.settings, ...partial.settings }
+                : override.settings,
+            }
+          : override,
+      ),
+    }));
+  }, []);
+
+  const removeAgentVerticalToneOverride = useCallback((id: string) => {
+    setState((prev) => ({
+      ...prev,
+      agentVerticalToneOverrides: prev.agentVerticalToneOverrides.filter((override) => override.id !== id),
+    }));
+  }, []);
+
+  const addAgentPropertyToneOverrides = useCallback((records: AgentPropertyToneOverride[]) => {
+    setState((prev) => {
+      const next = prev.agentPropertyToneOverrides.filter(
+        (existing) =>
+          !records.some(
+            (incoming) =>
+              incoming.agentId === existing.agentId &&
+              incoming.propertyName === existing.propertyName,
+          ),
+      );
+      return {
+        ...prev,
+        agentPropertyToneOverrides: [...next, ...records],
+      };
+    });
+  }, []);
+
+  const updateAgentPropertyToneOverride = useCallback((id: string, partial: Partial<AgentPropertyToneOverride>) => {
+    setState((prev) => ({
+      ...prev,
+      agentPropertyToneOverrides: prev.agentPropertyToneOverrides.map((override) =>
+        override.id === id
+          ? {
+              ...override,
+              ...partial,
+              settings: partial.settings
+                ? { ...override.settings, ...partial.settings }
+                : override.settings,
+            }
+          : override,
+      ),
+    }));
+  }, []);
+
+  const removeAgentPropertyToneOverride = useCallback((id: string) => {
+    setState((prev) => ({
+      ...prev,
+      agentPropertyToneOverrides: prev.agentPropertyToneOverrides.filter((override) => override.id !== id),
+    }));
+  }, []);
+
+  const updateAgentVoiceDefault = useCallback((agentId: AgentToneId, partial: Partial<VoiceSettings>) => {
+    setState((prev) => ({
+      ...prev,
+      agentVoiceDefaults: {
+        ...prev.agentVoiceDefaults,
+        [agentId]: {
+          ...prev.agentVoiceDefaults[agentId],
+          ...partial,
+          voiceLanguages:
+            partial.voiceLanguages !== undefined
+              ? [...partial.voiceLanguages]
+              : prev.agentVoiceDefaults[agentId].voiceLanguages,
+        },
+      },
+    }));
+  }, []);
+
+  const resetAgentVoiceDefault = useCallback((agentId: AgentToneId) => {
+    setState((prev) => ({
+      ...prev,
+      agentVoiceDefaults: {
+        ...prev.agentVoiceDefaults,
+        [agentId]: cloneVoiceSettings(prev.voiceSettings),
+      },
+    }));
+  }, []);
+
+  const addAgentVerticalVoiceOverride = useCallback((record: AgentVerticalVoiceOverride) => {
+    setState((prev) => ({
+      ...prev,
+      agentVerticalVoiceOverrides: [
+        ...prev.agentVerticalVoiceOverrides.filter(
+          (override) => !(override.agentId === record.agentId && override.vertical === record.vertical),
+        ),
+        {
+          ...record,
+          settings: cloneVoiceSettings(record.settings),
+        },
+      ],
+    }));
+  }, []);
+
+  const updateAgentVerticalVoiceOverride = useCallback((id: string, partial: Partial<AgentVerticalVoiceOverride>) => {
+    setState((prev) => ({
+      ...prev,
+      agentVerticalVoiceOverrides: prev.agentVerticalVoiceOverrides.map((override) =>
+        override.id === id
+          ? {
+              ...override,
+              ...partial,
+              settings: partial.settings
+                ? {
+                    ...override.settings,
+                    ...partial.settings,
+                    voiceLanguages:
+                      partial.settings.voiceLanguages !== undefined
+                        ? [...partial.settings.voiceLanguages]
+                        : override.settings.voiceLanguages,
+                  }
+                : override.settings,
+            }
+          : override,
+      ),
+    }));
+  }, []);
+
+  const removeAgentVerticalVoiceOverride = useCallback((id: string) => {
+    setState((prev) => ({
+      ...prev,
+      agentVerticalVoiceOverrides: prev.agentVerticalVoiceOverrides.filter((override) => override.id !== id),
+    }));
+  }, []);
+
+  const addAgentPropertyVoiceOverrides = useCallback((records: AgentPropertyVoiceOverride[]) => {
+    setState((prev) => {
+      const next = prev.agentPropertyVoiceOverrides.filter(
+        (existing) =>
+          !records.some(
+            (incoming) =>
+              incoming.agentId === existing.agentId &&
+              incoming.propertyName === existing.propertyName,
+          ),
+      );
+      return {
+        ...prev,
+        agentPropertyVoiceOverrides: [
+          ...next,
+          ...records.map((record) => ({
+            ...record,
+            settings: cloneVoiceSettings(record.settings),
+          })),
+        ],
+      };
+    });
+  }, []);
+
+  const updateAgentPropertyVoiceOverride = useCallback((id: string, partial: Partial<AgentPropertyVoiceOverride>) => {
+    setState((prev) => ({
+      ...prev,
+      agentPropertyVoiceOverrides: prev.agentPropertyVoiceOverrides.map((override) =>
+        override.id === id
+          ? {
+              ...override,
+              ...partial,
+              settings: partial.settings
+                ? {
+                    ...override.settings,
+                    ...partial.settings,
+                    voiceLanguages:
+                      partial.settings.voiceLanguages !== undefined
+                        ? [...partial.settings.voiceLanguages]
+                        : override.settings.voiceLanguages,
+                  }
+                : override.settings,
+            }
+          : override,
+      ),
+    }));
+  }, []);
+
+  const removeAgentPropertyVoiceOverride = useCallback((id: string) => {
+    setState((prev) => ({
+      ...prev,
+      agentPropertyVoiceOverrides: prev.agentPropertyVoiceOverrides.filter((override) => override.id !== id),
+    }));
+  }, []);
+
   const configured = state.brandingTone.trim().length > 0 || Object.values(state.channels).some(Boolean);
 
   return (
@@ -392,6 +980,22 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
         removeAgentTuning,
         updateVerticalOverride,
         resetVerticalOverride,
+        updateAgentToneDefault,
+        resetAgentToneDefault,
+        addAgentVerticalToneOverride,
+        updateAgentVerticalToneOverride,
+        removeAgentVerticalToneOverride,
+        addAgentPropertyToneOverrides,
+        updateAgentPropertyToneOverride,
+        removeAgentPropertyToneOverride,
+        updateAgentVoiceDefault,
+        resetAgentVoiceDefault,
+        addAgentVerticalVoiceOverride,
+        updateAgentVerticalVoiceOverride,
+        removeAgentVerticalVoiceOverride,
+        addAgentPropertyVoiceOverrides,
+        updateAgentPropertyVoiceOverride,
+        removeAgentPropertyVoiceOverride,
         configured,
       }}
     >

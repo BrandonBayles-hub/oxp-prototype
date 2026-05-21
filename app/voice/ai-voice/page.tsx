@@ -1,1507 +1,1299 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 import {
   useVoice,
-  NOVA2_VOICES,
   DEFAULT_NOVA2_VOICE_ID,
   getNova2Voice,
   getNova2VoicesByGender,
+  type AgentToneId,
   type VoiceSettings,
-  type AgentVoiceTuning,
+  type AgentVerticalVoiceOverride,
+  type AgentPropertyVoiceOverride,
 } from "@/lib/voice-context";
-import { useAgents } from "@/lib/agents-context";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { cn } from "@/lib/utils";
-import {
-  Building2, Layers, Home, ChevronRight, ChevronDown, ChevronUp,
-  Info, Phone, Volume2, Globe, ShieldCheck, Pencil, RotateCcw,
-  GraduationCap, Briefcase, Filter, Plus, X,
+  ArrowLeft,
+  Building2,
+  ChevronDown,
+  ChevronRight,
+  CreditCard,
+  Globe,
+  GraduationCap,
+  Home,
+  Info,
+  Layers,
+  Pencil,
+  Plus,
+  RotateCcw,
+  ShieldCheck,
+  Briefcase,
+  Trash2,
+  AlertTriangle,
+  Wrench,
+  Sparkles,
 } from "lucide-react";
-
-// Voice catalog comes from `NOVA2_VOICES` in lib/voice-context. The catalog is
-// filtered by the currently-selected gender so users only see voices that
-// match their persona choice.
+import { PropertySelector } from "@/components/property-filter";
+import {
+  VERTICALS,
+  MOCK_PROPERTIES,
+  PROPERTY_FILTER_DATA,
+  type Vertical,
+} from "@/lib/voice-properties";
 
 const ALL_LANGUAGES = ["English", "Spanish", "French", "German", "Italian", "Portuguese", "Hindi"];
 
 const LANGUAGE_FLAGS: Record<string, string> = {
-  English: "🇺🇸", Spanish: "🇪🇸", French: "🇫🇷", German: "🇩🇪",
-  Italian: "🇮🇹", Portuguese: "🇧🇷", Hindi: "🇮🇳",
+  English: "🇺🇸",
+  Spanish: "🇪🇸",
+  French: "🇫🇷",
+  German: "🇩🇪",
+  Italian: "🇮🇹",
+  Portuguese: "🇧🇷",
+  Hindi: "🇮🇳",
 };
 
-const VERTICALS = ["Conventional", "Student", "Affordable", "Commercial"] as const;
-
-const VERTICAL_CONFIG: Record<string, { icon: typeof Building2; color: string; bgColor: string; description: string }> = {
-  Conventional: { icon: Building2, color: "text-blue-600", bgColor: "bg-blue-50 dark:bg-blue-950/30", description: "Market-rate multifamily apartments" },
-  Student: { icon: GraduationCap, color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950/30", description: "University and college housing" },
-  Affordable: { icon: ShieldCheck, color: "text-rose-600", bgColor: "bg-rose-50 dark:bg-rose-950/30", description: "Income-restricted housing communities" },
-  Commercial: { icon: Briefcase, color: "text-amber-600", bgColor: "bg-amber-50 dark:bg-amber-950/30", description: "Office and retail properties" },
+type AgentMeta = {
+  id: AgentToneId;
+  name: string;
+  description: string;
+  icon: typeof Sparkles;
+  accent: string;
 };
 
-const MOCK_PROPERTIES = [
-  { name: "Sunset Ridge Apartments", vertical: "Conventional", units: 240 },
-  { name: "The Reserve at Millcreek", vertical: "Conventional", units: 180 },
-  { name: "Parkside Lofts", vertical: "Conventional", units: 96 },
-  { name: "University Commons", vertical: "Student", units: 320 },
-  { name: "Campus Edge", vertical: "Student", units: 200 },
-  { name: "Oakwood Terrace", vertical: "Affordable", units: 150 },
-  { name: "Heritage Place", vertical: "Affordable", units: 88 },
-  { name: "Metro Business Center", vertical: "Commercial", units: 45 },
+const AGENTS: AgentMeta[] = [
+  {
+    id: "leasing",
+    name: "Leasing AI",
+    description: "Engages prospects, schedules tours, and answers application questions.",
+    icon: Sparkles,
+    accent: "indigo",
+  },
+  {
+    id: "renewal",
+    name: "Renewal AI",
+    description: "Drives renewal conversations, retention offers, and outreach.",
+    icon: RotateCcw,
+    accent: "emerald",
+  },
+  {
+    id: "payments",
+    name: "Payments AI",
+    description: "Handles rent, fees, and payment-related questions for residents.",
+    icon: CreditCard,
+    accent: "amber",
+  },
+  {
+    id: "maintenance",
+    name: "Maintenance AI",
+    description: "Manages work orders, follow-up scheduling, and resident updates.",
+    icon: Wrench,
+    accent: "sky",
+  },
 ];
 
-const PROPERTY_AGENTS: Record<string, string[]> = {
-  "Sunset Ridge Apartments": ["4", "7", "10", "1"],
-  "The Reserve at Millcreek": ["4", "7", "1"],
-  "Parkside Lofts": ["4", "10"],
-  "University Commons": ["4", "7", "10", "1"],
-  "Campus Edge": ["4", "10"],
-  "Oakwood Terrace": ["4", "1", "10"],
-  "Heritage Place": ["4", "1"],
-  "Metro Business Center": ["4", "7"],
+const VERTICAL_META: Record<Vertical, { icon: typeof Building2; color: string; bg: string; description: string }> = {
+  Conventional: { icon: Building2, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-950/30", description: "Market-rate multifamily apartments" },
+  Student: { icon: GraduationCap, color: "text-purple-600", bg: "bg-purple-50 dark:bg-purple-950/30", description: "University and college housing" },
+  Affordable: { icon: ShieldCheck, color: "text-rose-600", bg: "bg-rose-50 dark:bg-rose-950/30", description: "Income-restricted housing communities" },
 };
 
-export default function AIVoicePage() {
-  const voice = useVoice();
-  const { agents } = useAgents();
-  const [activeTab, setActiveTab] = useState("company");
-  const [agentPropertyFilter, setAgentPropertyFilter] = useState<string>("__all__");
-  const vs = voice.voiceSettings;
+type VerticalOverrideRecord = Omit<AgentVerticalVoiceOverride, "agentId"> & { vertical: Vertical };
+type PropertyOverrideRecord = Omit<AgentPropertyVoiceOverride, "agentId"> & { vertical: Vertical };
 
-  const autonomousAgents = useMemo(
-    () => agents.filter((a) => a.type === "autonomous"),
-    [agents],
-  );
+const BLANK_VOICE: VoiceSettings = {
+  aiVoiceEnabled: true,
+  voiceGender: "female",
+  voiceAccent: DEFAULT_NOVA2_VOICE_ID.female,
+  voiceLanguages: [],
+  autoDetectLanguage: false,
+  recordAudio: false,
+  generateTranscripts: false,
+  legalDisclosureEnabled: false,
+  legalDisclosureText: "",
+  greeting: "",
+  holdPhrase: "",
+  maxCallLength: 10,
+  aiDisclosureEnabled: false,
+};
 
-  const updateVS = (updates: Partial<VoiceSettings>) => {
-    voice.update({ voiceSettings: { ...vs, ...updates } });
-  };
+function isAgentToneId(value: string | null): value is AgentToneId {
+  return value === "leasing" || value === "renewal" || value === "payments" || value === "maintenance";
+}
 
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [dialogTarget, setDialogTarget] = useState<{ type: "vertical" | "property"; name: string; vertical?: string } | null>(null);
-  const [dialogGender, setDialogGender] = useState<"female" | "male">("female");
-  const [dialogAccent, setDialogAccent] = useState<string>(DEFAULT_NOVA2_VOICE_ID.female);
-  const [dialogLanguages, setDialogLanguages] = useState<string[]>(["English"]);
-  const [dialogAutoDetect, setDialogAutoDetect] = useState(false);
-  const [dialogRecordAudio, setDialogRecordAudio] = useState(false);
-  const [dialogGenerateTranscripts, setDialogGenerateTranscripts] = useState(false);
-  const [dialogLegalEnabled, setDialogLegalEnabled] = useState(false);
-  const [dialogLegalText, setDialogLegalText] = useState("");
-  const [dialogGreeting, setDialogGreeting] = useState("");
-  const [dialogHoldPhrase, setDialogHoldPhrase] = useState("");
-  const [dialogMaxCallLength, setDialogMaxCallLength] = useState(15);
-  const [dialogAiDisclosure, setDialogAiDisclosure] = useState(false);
+function cloneVoiceSettings(settings: VoiceSettings): VoiceSettings {
+  return { ...settings, voiceLanguages: [...settings.voiceLanguages] };
+}
 
-  const openOverrideDialog = (type: "vertical" | "property", name: string, currentOverride?: Partial<VoiceSettings>, vertical?: string) => {
-    setDialogTarget({ type, name, vertical });
-    setDialogGender(currentOverride?.voiceGender ?? vs.voiceGender);
-    setDialogAccent(currentOverride?.voiceAccent ?? vs.voiceAccent);
-    setDialogLanguages(currentOverride?.voiceLanguages ?? [...vs.voiceLanguages]);
-    setDialogAutoDetect(currentOverride?.autoDetectLanguage ?? vs.autoDetectLanguage);
-    setDialogRecordAudio(currentOverride?.recordAudio ?? vs.recordAudio);
-    setDialogGenerateTranscripts(currentOverride?.generateTranscripts ?? vs.generateTranscripts);
-    setDialogLegalEnabled(currentOverride?.legalDisclosureEnabled ?? vs.legalDisclosureEnabled);
-    setDialogLegalText(currentOverride?.legalDisclosureText ?? vs.legalDisclosureText);
-    setDialogGreeting(currentOverride?.greeting ?? vs.greeting);
-    setDialogHoldPhrase(currentOverride?.holdPhrase ?? vs.holdPhrase);
-    setDialogMaxCallLength(currentOverride?.maxCallLength ?? vs.maxCallLength);
-    setDialogAiDisclosure(currentOverride?.aiDisclosureEnabled ?? vs.aiDisclosureEnabled);
-    setDialogOpen(true);
-  };
-
-  const handleDialogSave = () => {
-    if (!dialogTarget) return;
-    const newVoice: Partial<VoiceSettings> = {
-      voiceGender: dialogGender,
-      voiceAccent: dialogAccent,
-      voiceLanguages: dialogLanguages,
-      autoDetectLanguage: dialogAutoDetect,
-      recordAudio: dialogRecordAudio,
-      generateTranscripts: dialogGenerateTranscripts,
-      legalDisclosureEnabled: dialogLegalEnabled,
-      legalDisclosureText: dialogLegalText,
-      greeting: dialogGreeting,
-      holdPhrase: dialogHoldPhrase,
-      maxCallLength: dialogMaxCallLength,
-      aiDisclosureEnabled: dialogAiDisclosure,
-    };
-    if (dialogTarget.type === "vertical") {
-      voice.updateVerticalOverride(dialogTarget.name, { voiceSettings: newVoice, enabled: true });
-    } else {
-      const existing = voice.propertyOverrides.find((o) => o.property === dialogTarget.name);
-      if (existing) {
-        voice.updatePropertyOverride(dialogTarget.name, { voiceSettings: newVoice });
-      } else {
-        voice.addPropertyOverride({ property: dialogTarget.name, vertical: dialogTarget.vertical, voiceSettings: newVoice });
-      }
-    }
-    setDialogOpen(false);
-  };
-
+function voiceSettingsEqual(a: VoiceSettings, b: VoiceSettings): boolean {
+  const aLangs = [...a.voiceLanguages].sort();
+  const bLangs = [...b.voiceLanguages].sort();
   return (
-    <>
-      <p className="mb-6 text-sm text-muted-foreground">
-        Configure how your AI sounds on the phone — choose a voice, accent, languages, and call settings at every cascade level.
-      </p>
-
-      <VoiceCascadeVisual activeLevel={activeTab} onLevelClick={setActiveTab} />
-
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsContent value="company" className="space-y-8 pb-12">
-          <CompanyVoiceSettings settings={vs} onUpdate={updateVS} />
-        </TabsContent>
-
-        <TabsContent value="verticals" className="space-y-6 pb-12">
-          <p className="text-sm text-muted-foreground">
-            Override voice settings for different property types. Vertical-level settings override company defaults for all properties within that vertical.
-          </p>
-          <div className="grid gap-4 sm:grid-cols-2">
-            {VERTICALS.map((v) => {
-              const config = VERTICAL_CONFIG[v];
-              const override = voice.verticalOverrides.find((o) => o.vertical === v);
-              const hasVoice = override?.voiceSettings && Object.keys(override.voiceSettings).length > 0;
-              const Icon = config.icon;
-
-              return (
-                <Card key={v} className={cn("transition-colors", hasVoice && "border-primary/30")}>
-                  <CardContent className="py-5">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-start gap-3">
-                        <div className={cn("flex h-10 w-10 items-center justify-center rounded-lg", config.bgColor)}>
-                          <Icon className={cn("h-5 w-5", config.color)} />
-                        </div>
-                        <div>
-                          <h3 className="text-sm font-semibold text-foreground">{v}</h3>
-                          <p className="text-xs text-muted-foreground">{config.description}</p>
-                        </div>
-                      </div>
-                      <Badge variant={hasVoice ? "default" : "secondary"} className="text-[10px]">
-                        {hasVoice ? "Custom" : "Inherited"}
-                      </Badge>
-                    </div>
-                    {hasVoice && override?.voiceSettings ? (
-                      <div className="mt-4 space-y-1 rounded-lg bg-muted/50 p-3">
-                        {override.voiceSettings.voiceGender && (
-                          <p className="text-xs"><span className="font-medium text-foreground">Gender:</span> <span className="text-muted-foreground capitalize">{override.voiceSettings.voiceGender}</span></p>
-                        )}
-                        {override.voiceSettings.voiceAccent && (
-                          <p className="text-xs"><span className="font-medium text-foreground">Voice:</span> <span className="text-muted-foreground">{getNova2Voice(override.voiceSettings.voiceAccent)?.label ?? override.voiceSettings.voiceAccent}</span></p>
-                        )}
-                        {override.voiceSettings.voiceLanguages && override.voiceSettings.voiceLanguages.length > 0 && (
-                          <p className="text-xs"><span className="font-medium text-foreground">Languages:</span> <span className="text-muted-foreground">{override.voiceSettings.voiceLanguages.join(", ")}</span></p>
-                        )}
-                      </div>
-                    ) : (
-                      <p className="mt-4 text-xs italic text-muted-foreground">Inherits voice settings from company defaults.</p>
-                    )}
-                    <div className="mt-4 flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => openOverrideDialog("vertical", v, override?.voiceSettings)}>
-                        <Pencil className="h-3 w-3" /> {hasVoice ? "Edit" : "Customize"}
-                      </Button>
-                      {hasVoice && (
-                        <Button variant="ghost" size="sm" onClick={() => {
-                          voice.updateVerticalOverride(v, { voiceSettings: undefined });
-                        }}>
-                          <RotateCcw className="h-3 w-3" /> Reset
-                        </Button>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="properties" className="space-y-6 pb-12">
-          <p className="text-sm text-muted-foreground">
-            Override voice settings for individual properties. Properties without overrides inherit from their vertical or company defaults.
-          </p>
-          <div className="overflow-x-auto">
-            <table className="table-borderless w-full min-w-[600px]">
-              <thead>
-                <tr>
-                  <th>Property</th>
-                  <th>Vertical</th>
-                  <th>Voice Source</th>
-                  <th className="w-24">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {MOCK_PROPERTIES.map((prop) => {
-                  const override = voice.propertyOverrides.find((o) => o.property === prop.name);
-                  const hasVoice = override?.voiceSettings && Object.keys(override.voiceSettings).length > 0;
-                  const verticalOverride = voice.verticalOverrides.find((v) => v.vertical === prop.vertical && v.enabled && v.voiceSettings);
-                  const source = hasVoice ? "Custom" : verticalOverride ? `Vertical: ${prop.vertical}` : "Company Default";
-                  const config = VERTICAL_CONFIG[prop.vertical];
-
-                  return (
-                    <tr key={prop.name} className="table-row-hover">
-                      <td>
-                        <div>
-                          <p className="text-sm font-medium text-foreground">{prop.name}</p>
-                          <p className="text-[10px] text-muted-foreground">{prop.units} units</p>
-                        </div>
-                      </td>
-                      <td>
-                        <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium", config?.bgColor, config?.color)}>
-                          {prop.vertical}
-                        </span>
-                      </td>
-                      <td>
-                        <span className={cn(
-                          "inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium",
-                          hasVoice ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
-                        )}>
-                          {source}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="flex gap-1">
-                          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => openOverrideDialog("property", prop.name, override?.voiceSettings, prop.vertical)}>
-                            <Pencil className="h-3 w-3" /> {hasVoice ? "Edit" : "Customize"}
-                          </Button>
-                          {hasVoice && (
-                            <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={() => {
-                              voice.updatePropertyOverride(prop.name, { voiceSettings: undefined });
-                            }}>
-                              <RotateCcw className="h-3 w-3" /> Reset
-                            </Button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="agents" className="space-y-6 pb-12">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <p className="text-sm text-muted-foreground">
-              Fine-tune voice settings for individual ELI+ agents. Agent-level settings take the highest priority in the cascade.
-            </p>
-            <div className="flex items-center gap-2 shrink-0">
-              <Filter className="h-3.5 w-3.5 text-muted-foreground" />
-              <select
-                value={agentPropertyFilter}
-                onChange={(e) => setAgentPropertyFilter(e.target.value)}
-                className="select-base h-9 min-w-[220px] text-sm"
-              >
-                <option value="__all__">All Properties</option>
-                {MOCK_PROPERTIES.map((p) => (
-                  <option key={p.name} value={p.name}>{p.name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {(agentPropertyFilter === "__all__" ? MOCK_PROPERTIES : MOCK_PROPERTIES.filter((p) => p.name === agentPropertyFilter)).map((prop) => {
-            const enabledAgentIds = PROPERTY_AGENTS[prop.name] ?? [];
-            const verticalConfig = VERTICAL_CONFIG[prop.vertical];
-
-            return (
-              <div key={prop.name} className="space-y-3">
-                <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3">
-                  {verticalConfig && (() => {
-                    const VIcon = verticalConfig.icon;
-                    return (
-                      <div className={cn("flex h-8 w-8 items-center justify-center rounded-md", verticalConfig.bgColor)}>
-                        <VIcon className={cn("h-4 w-4", verticalConfig.color)} />
-                      </div>
-                    );
-                  })()}
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{prop.name}</p>
-                    <p className="text-[10px] text-muted-foreground">
-                      {prop.vertical} · {prop.units} units · {enabledAgentIds.length} agent{enabledAgentIds.length !== 1 ? "s" : ""} enabled
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {enabledAgentIds.map((agentId) => {
-                    const propertyTuning = voice.agentTuning.find(
-                      (t) => t.agentId === agentId && t.propertyName === prop.name
-                    );
-                    const defaultTuning = voice.agentTuning.find(
-                      (t) => t.agentId === agentId && !t.propertyName
-                    );
-                    const effectiveTuning = propertyTuning ?? defaultTuning;
-                    const hasVoiceOverride = !!propertyTuning?.voiceOverrides;
-                    const agent = autonomousAgents.find((a) => a.id === agentId);
-
-                    if (!effectiveTuning) return null;
-
-                    const propOverride = voice.propertyOverrides.find((o) => o.property === prop.name);
-                    const vertOverride = voice.verticalOverrides.find((vo) => vo.vertical === prop.vertical && vo.enabled);
-                    const inheritedGender = propOverride?.voiceSettings?.voiceGender || vertOverride?.voiceSettings?.voiceGender || vs.voiceGender;
-                    const inheritedAccent = propOverride?.voiceSettings?.voiceAccent || vertOverride?.voiceSettings?.voiceAccent || vs.voiceAccent;
-                    const inheritedLanguages = propOverride?.voiceSettings?.voiceLanguages || vertOverride?.voiceSettings?.voiceLanguages || vs.voiceLanguages;
-                    const mergedInherited: VoiceSettings = {
-                      ...vs,
-                      ...(vertOverride?.voiceSettings ?? {}),
-                      ...(propOverride?.voiceSettings ?? {}),
-                    } as VoiceSettings;
-
-                    return (
-                      <AgentVoiceTuningCard
-                        key={`${prop.name}-${agentId}`}
-                        tuning={effectiveTuning}
-                        agentStatus={agent?.status}
-                        hasVoiceOverride={hasVoiceOverride}
-                        propertyName={prop.name}
-                        inheritedGender={inheritedGender}
-                        inheritedAccent={inheritedAccent}
-                        inheritedLanguages={inheritedLanguages}
-                        inheritedSettings={mergedInherited}
-                        onSaveVoiceOverride={(overrides) => {
-                          if (propertyTuning) {
-                            voice.updateAgentTuning(agentId, { voiceOverrides: overrides }, prop.name);
-                          } else {
-                            voice.addAgentTuning({
-                              ...effectiveTuning,
-                              propertyName: prop.name,
-                              voiceOverrides: overrides,
-                            });
-                          }
-                        }}
-                        onResetVoiceOverride={hasVoiceOverride ? () => {
-                          voice.updateAgentTuning(agentId, { voiceOverrides: undefined }, prop.name);
-                        } : undefined}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </TabsContent>
-      </Tabs>
-
-      <VoiceOverrideDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        title={dialogTarget ? `Voice Settings — ${dialogTarget.name}` : ""}
-        description={
-          dialogTarget?.type === "vertical"
-            ? `Override voice settings for all ${dialogTarget.name} properties.`
-            : `Override voice settings for ${dialogTarget?.name || ""}.`
-        }
-        gender={dialogGender}
-        onGenderChange={setDialogGender}
-        accent={dialogAccent}
-        onAccentChange={setDialogAccent}
-        languages={dialogLanguages}
-        onLanguagesChange={setDialogLanguages}
-        autoDetect={dialogAutoDetect}
-        onAutoDetectChange={setDialogAutoDetect}
-        recordAudio={dialogRecordAudio}
-        onRecordAudioChange={setDialogRecordAudio}
-        generateTranscripts={dialogGenerateTranscripts}
-        onGenerateTranscriptsChange={setDialogGenerateTranscripts}
-        legalEnabled={dialogLegalEnabled}
-        onLegalEnabledChange={setDialogLegalEnabled}
-        legalText={dialogLegalText}
-        onLegalTextChange={setDialogLegalText}
-        greeting={dialogGreeting}
-        onGreetingChange={setDialogGreeting}
-        holdPhrase={dialogHoldPhrase}
-        onHoldPhraseChange={setDialogHoldPhrase}
-        maxCallLength={dialogMaxCallLength}
-        onMaxCallLengthChange={setDialogMaxCallLength}
-        aiDisclosure={dialogAiDisclosure}
-        onAiDisclosureChange={setDialogAiDisclosure}
-        onSave={handleDialogSave}
-      />
-    </>
+    a.aiVoiceEnabled === b.aiVoiceEnabled &&
+    a.voiceGender === b.voiceGender &&
+    a.voiceAccent === b.voiceAccent &&
+    a.autoDetectLanguage === b.autoDetectLanguage &&
+    a.recordAudio === b.recordAudio &&
+    a.generateTranscripts === b.generateTranscripts &&
+    a.legalDisclosureEnabled === b.legalDisclosureEnabled &&
+    a.legalDisclosureText === b.legalDisclosureText &&
+    a.greeting === b.greeting &&
+    a.holdPhrase === b.holdPhrase &&
+    a.maxCallLength === b.maxCallLength &&
+    a.aiDisclosureEnabled === b.aiDisclosureEnabled &&
+    aLangs.length === bLangs.length &&
+    aLangs.every((lang, idx) => lang === bLangs[idx])
   );
 }
 
-/* ─── Voice Override Dialog ─── */
+function computeVoiceSelectionMode(
+  selectedNames: string[],
+  overridesByProperty: Map<string, PropertyOverrideRecord>,
+): { mode: "empty" | "shared" | "mixed"; sharedSettings?: VoiceSettings; overriddenCount: number } {
+  if (selectedNames.length === 0) {
+    return { mode: "empty", overriddenCount: 0 };
+  }
+  const matching = selectedNames
+    .map((name) => overridesByProperty.get(name))
+    .filter((override): override is PropertyOverrideRecord => Boolean(override));
 
-function VoiceOverrideDialog({
-  open,
-  onOpenChange,
+  if (matching.length === 0) {
+    return { mode: "empty", overriddenCount: 0 };
+  }
+  if (matching.length !== selectedNames.length) {
+    return { mode: "mixed", overriddenCount: matching.length };
+  }
+  const [first, ...rest] = matching;
+  if (rest.every((override) => voiceSettingsEqual(override.settings, first.settings))) {
+    return { mode: "shared", sharedSettings: first.settings, overriddenCount: matching.length };
+  }
+  return { mode: "mixed", overriddenCount: matching.length };
+}
+
+export default function AIVoicePage() {
+  const voice = useVoice();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [selectedAgentId, setSelectedAgentId] = useState<AgentToneId | null>(null);
+
+  const queryAgent = searchParams.get("agent");
+  const queryProperty = searchParams.get("property");
+  const queryScrollTo = searchParams.get("scrollTo");
+
+  useEffect(() => {
+    if (isAgentToneId(queryAgent)) {
+      setSelectedAgentId(queryAgent);
+      return;
+    }
+    if (!queryAgent) {
+      setSelectedAgentId(null);
+    }
+  }, [queryAgent]);
+
+  const selectAgent = (agentId: AgentToneId) => {
+    setSelectedAgentId(agentId);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("agent", agentId);
+    params.delete("property");
+    router.replace(`${pathname}?${params.toString()}`);
+  };
+
+  const clearSelectedAgent = () => {
+    setSelectedAgentId(null);
+    router.replace(pathname);
+  };
+
+  if (!selectedAgentId) {
+    return (
+      <AgentPickerView
+        defaults={voice.agentVoiceDefaults}
+        verticalOverrides={voice.agentVerticalVoiceOverrides}
+        propertyOverrides={voice.agentPropertyVoiceOverrides}
+        onPick={selectAgent}
+      />
+    );
+  }
+
+  const defaultSettings = voice.agentVoiceDefaults[selectedAgentId] ?? voice.voiceSettings;
+  const verticalOverrides = voice.agentVerticalVoiceOverrides.filter(
+    (override) => override.agentId === selectedAgentId,
+  ) as VerticalOverrideRecord[];
+  const propertyOverrides = voice.agentPropertyVoiceOverrides.filter(
+    (override) => override.agentId === selectedAgentId,
+  ) as PropertyOverrideRecord[];
+
+  return (
+    <AgentDetailView
+      agent={AGENTS.find((agent) => agent.id === selectedAgentId)!}
+      defaultSettings={defaultSettings}
+      verticalOverrides={verticalOverrides}
+      propertyOverrides={propertyOverrides}
+      pendingProperty={queryProperty}
+      pendingScrollTo={queryScrollTo}
+      onBack={clearSelectedAgent}
+      onUpdateDefault={(next) => voice.updateAgentVoiceDefault(selectedAgentId, next)}
+      onResetDefault={() => voice.resetAgentVoiceDefault(selectedAgentId)}
+      onAddVertical={(record) => voice.addAgentVerticalVoiceOverride({ ...record, agentId: selectedAgentId })}
+      onUpdateVertical={(id, next) => voice.updateAgentVerticalVoiceOverride(id, { settings: next })}
+      onRemoveVertical={(id) => voice.removeAgentVerticalVoiceOverride(id)}
+      onAddProperties={(records) =>
+        voice.addAgentPropertyVoiceOverrides(records.map((record) => ({ ...record, agentId: selectedAgentId })))
+      }
+      onUpdateProperty={(id, next) => voice.updateAgentPropertyVoiceOverride(id, { settings: next })}
+      onRemoveProperty={(id) => voice.removeAgentPropertyVoiceOverride(id)}
+    />
+  );
+}
+
+function AgentPickerView({
+  defaults,
+  verticalOverrides,
+  propertyOverrides,
+  onPick,
+}: {
+  defaults: Record<AgentToneId, VoiceSettings>;
+  verticalOverrides: AgentVerticalVoiceOverride[];
+  propertyOverrides: AgentPropertyVoiceOverride[];
+  onPick: (agentId: AgentToneId) => void;
+}) {
+  return (
+    <div>
+      <p className="mb-6 text-sm text-muted-foreground">
+        Choose an agent to configure voice settings. Each agent has its own portfolio default plus vertical and property overrides.
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {AGENTS.map((agent) => {
+          const Icon = agent.icon;
+          const defaultVoice = defaults[agent.id];
+          const verticalCount = verticalOverrides.filter((override) => override.agentId === agent.id).length;
+          const propertyCount = propertyOverrides.filter((override) => override.agentId === agent.id).length;
+          return (
+            <button
+              key={agent.id}
+              type="button"
+              onClick={() => onPick(agent.id)}
+              className="group rounded-xl border border-border bg-white p-5 text-left transition-all hover:border-zinc-400 hover:shadow-md"
+            >
+              <div className="flex items-start gap-4">
+                <img src="/eli-cube.svg" alt="" width={40} height={40} className="shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-base font-semibold text-foreground">ELI+ {agent.name}</h3>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                  </div>
+                  <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">{agent.description}</p>
+                  <div className="mt-3 rounded-md bg-muted/40 px-3 py-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Default voice</p>
+                    <p className="mt-0.5 text-xs text-foreground line-clamp-2">
+                      {(getNova2Voice(defaultVoice.voiceAccent)?.label ?? defaultVoice.voiceAccent)} • {defaultVoice.voiceGender} • {defaultVoice.voiceLanguages[0] ?? "No language"}
+                      {defaultVoice.voiceLanguages.length > 1 ? ` +${defaultVoice.voiceLanguages.length - 1}` : ""}
+                    </p>
+                  </div>
+                  <div className="mt-3 flex items-center gap-2 text-[10px]">
+                    <Badge variant="secondary" className="font-normal">{verticalCount} vertical override{verticalCount === 1 ? "" : "s"}</Badge>
+                    <Badge variant="secondary" className="font-normal">{propertyCount} property override{propertyCount === 1 ? "" : "s"}</Badge>
+                  </div>
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AgentDetailView({
+  agent,
+  defaultSettings,
+  verticalOverrides,
+  propertyOverrides,
+  pendingProperty,
+  pendingScrollTo,
+  onBack,
+  onUpdateDefault,
+  onResetDefault,
+  onAddVertical,
+  onUpdateVertical,
+  onRemoveVertical,
+  onAddProperties,
+  onUpdateProperty,
+  onRemoveProperty,
+}: {
+  agent: AgentMeta;
+  defaultSettings: VoiceSettings;
+  verticalOverrides: VerticalOverrideRecord[];
+  propertyOverrides: PropertyOverrideRecord[];
+  pendingProperty?: string | null;
+  pendingScrollTo?: string | null;
+  onBack: () => void;
+  onUpdateDefault: (next: VoiceSettings) => void;
+  onResetDefault: () => void;
+  onAddVertical: (record: VerticalOverrideRecord) => void;
+  onUpdateVertical: (id: string, next: VoiceSettings) => void;
+  onRemoveVertical: (id: string) => void;
+  onAddProperties: (records: PropertyOverrideRecord[]) => void;
+  onUpdateProperty: (id: string, next: VoiceSettings) => void;
+  onRemoveProperty: (id: string) => void;
+}) {
+  const [addVerticalOpen, setAddVerticalOpen] = useState(false);
+  const [addPropertyOpen, setAddPropertyOpen] = useState(false);
+  const [preselectedPropertyName, setPreselectedPropertyName] = useState<string | null>(null);
+  const [autoExpandProperty, setAutoExpandProperty] = useState<string | null>(null);
+  const defaultSectionRef = useRef<HTMLElement | null>(null);
+  const verticalSectionRef = useRef<HTMLElement | null>(null);
+  const propertySectionRef = useRef<HTMLElement | null>(null);
+  const propertyCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const handledDeepLinkProperty = useRef<string | null>(null);
+  const Icon = agent.icon;
+
+  useEffect(() => {
+    if (!pendingProperty) {
+      handledDeepLinkProperty.current = null;
+      return;
+    }
+    if (handledDeepLinkProperty.current === pendingProperty) return;
+    handledDeepLinkProperty.current = pendingProperty;
+    const existing = propertyOverrides.find((override) => override.propertyName === pendingProperty);
+    if (existing) {
+      setAutoExpandProperty(pendingProperty);
+      window.setTimeout(() => {
+        propertyCardRefs.current[pendingProperty]?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 160);
+      return;
+    }
+    if (MOCK_PROPERTIES.some((property) => property.name === pendingProperty)) {
+      setPreselectedPropertyName(pendingProperty);
+      setAddPropertyOpen(true);
+    }
+  }, [pendingProperty, propertyOverrides]);
+
+  useEffect(() => {
+    if (!pendingScrollTo) return;
+    const target =
+      pendingScrollTo === "default"
+        ? defaultSectionRef.current
+        : pendingScrollTo === "verticals"
+          ? verticalSectionRef.current
+          : pendingScrollTo === "properties"
+            ? propertySectionRef.current
+            : null;
+    if (target) {
+      window.setTimeout(() => target.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
+    }
+  }, [pendingScrollTo]);
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <button type="button" onClick={onBack} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="h-3 w-3" /> All agents
+        </button>
+        <div className="mt-3 flex items-start gap-4">
+          <img src="/eli-cube.svg" alt="" width={40} height={40} className="shrink-0" />
+          <div>
+            <h2 className="text-xl font-semibold text-foreground">ELI+ {agent.name}</h2>
+            <p className="text-sm text-muted-foreground">{agent.description}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Settings cascade <span className="font-medium text-foreground">Portfolio default → Vertical → Property</span>. More specific scopes win.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <StickyAnchorStrip
+        counts={{ vertical: verticalOverrides.length, property: propertyOverrides.length }}
+        onJump={(section) => {
+          const target =
+            section === "default"
+              ? defaultSectionRef.current
+              : section === "verticals"
+                ? verticalSectionRef.current
+                : propertySectionRef.current;
+          target?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }}
+      />
+
+      <section ref={defaultSectionRef} className="scroll-mt-32">
+        <SectionHeader
+          icon={<Layers className="h-4 w-4 text-muted-foreground" />}
+          title="Portfolio default"
+          subtitle="Applies to every property unless overridden below."
+        />
+        <DefaultVoiceCard settings={defaultSettings} onChange={onUpdateDefault} onReset={onResetDefault} />
+      </section>
+
+      <section ref={verticalSectionRef} className="scroll-mt-32">
+        <SectionHeader
+          icon={<Layers className="h-4 w-4 text-muted-foreground" />}
+          title="Vertical overrides"
+          subtitle="Customize this agent's voice for a specific property type."
+          countLabel={`${verticalOverrides.length}`}
+        />
+        {verticalOverrides.length === 0 ? (
+          <EmptyOverrideState label="No vertical overrides yet." actionLabel="Add vertical override" onAction={() => setAddVerticalOpen(true)} />
+        ) : (
+          <div className="space-y-3">
+            {verticalOverrides.map((override) => (
+              <VerticalOverrideCard
+                key={override.id}
+                record={override}
+                shadowingPropertyOverrides={propertyOverrides.filter((property) => property.vertical === override.vertical)}
+                onChange={(next) => onUpdateVertical(override.id, next)}
+                onRemove={() => onRemoveVertical(override.id)}
+              />
+            ))}
+            <Button variant="outline" size="sm" onClick={() => setAddVerticalOpen(true)} className="gap-1">
+              <Plus className="h-3.5 w-3.5" /> Add another vertical override
+            </Button>
+          </div>
+        )}
+      </section>
+
+      <section ref={propertySectionRef} className="scroll-mt-32">
+        <SectionHeader
+          icon={<Home className="h-4 w-4 text-muted-foreground" />}
+          title="Property overrides"
+          subtitle="Customize this agent's voice for one or more individual properties."
+          countLabel={`${propertyOverrides.length}`}
+        />
+        {propertyOverrides.length === 0 ? (
+          <EmptyOverrideState label="No property overrides yet." actionLabel="Add property override" onAction={() => setAddPropertyOpen(true)} />
+        ) : (
+          <div className="space-y-3">
+            {propertyOverrides.map((override) => (
+              <PropertyOverrideCard
+                key={override.id}
+                record={override}
+                autoExpand={autoExpandProperty === override.propertyName}
+                cardRef={(node) => {
+                  propertyCardRefs.current[override.propertyName] = node;
+                }}
+                onChange={(next) => onUpdateProperty(override.id, next)}
+                onRemove={() => onRemoveProperty(override.id)}
+              />
+            ))}
+            <Button variant="outline" size="sm" onClick={() => setAddPropertyOpen(true)} className="gap-1">
+              <Plus className="h-3.5 w-3.5" /> Add another property override
+            </Button>
+          </div>
+        )}
+      </section>
+
+      <AddVerticalOverrideDialog
+        open={addVerticalOpen}
+        onClose={() => setAddVerticalOpen(false)}
+        existingVerticals={verticalOverrides.map((override) => override.vertical)}
+        propertyOverrides={propertyOverrides}
+        defaultSettings={defaultSettings}
+        onSave={(record) => {
+          onAddVertical(record);
+          setAddVerticalOpen(false);
+        }}
+      />
+
+      <AddPropertyOverrideDialog
+        open={addPropertyOpen}
+        onClose={() => {
+          setAddPropertyOpen(false);
+          setPreselectedPropertyName(null);
+        }}
+        existingPropertyOverrides={propertyOverrides}
+        defaultSettings={defaultSettings}
+        preselectedPropertyName={preselectedPropertyName}
+        onSave={(records) => {
+          onAddProperties(records);
+          setAddPropertyOpen(false);
+          setPreselectedPropertyName(null);
+        }}
+      />
+    </div>
+  );
+}
+
+function StickyAnchorStrip({
+  counts,
+  onJump,
+}: {
+  counts: { vertical: number; property: number };
+  onJump: (section: "default" | "verticals" | "properties") => void;
+}) {
+  return (
+    <div className="sticky top-0 z-20 -mx-1 border-y border-border bg-background/95 px-1 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="outline" size="sm" onClick={() => onJump("default")}>Default</Button>
+        <Button variant="outline" size="sm" onClick={() => onJump("verticals")}>Verticals ({counts.vertical})</Button>
+        <Button variant="outline" size="sm" onClick={() => onJump("properties")}>Properties ({counts.property})</Button>
+      </div>
+    </div>
+  );
+}
+
+function SectionHeader({
+  icon,
   title,
-  description,
-  gender,
-  onGenderChange,
-  accent,
-  onAccentChange,
-  languages,
-  onLanguagesChange,
-  autoDetect,
-  onAutoDetectChange,
-  recordAudio,
-  onRecordAudioChange,
-  generateTranscripts,
-  onGenerateTranscriptsChange,
-  legalEnabled,
-  onLegalEnabledChange,
-  legalText,
-  onLegalTextChange,
-  greeting,
-  onGreetingChange,
-  holdPhrase,
-  onHoldPhraseChange,
-  maxCallLength,
-  onMaxCallLengthChange,
-  aiDisclosure,
-  onAiDisclosureChange,
+  subtitle,
+  countLabel,
+}: {
+  icon?: React.ReactNode;
+  title: string;
+  subtitle?: string;
+  countLabel?: string;
+}) {
+  return (
+    <div className="mb-3 flex items-baseline justify-between gap-3">
+      <div className="flex items-baseline gap-2">
+        <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          {icon}
+          {title}
+        </h3>
+        {countLabel !== undefined && <span className="text-xs text-muted-foreground">({countLabel})</span>}
+      </div>
+      {subtitle && <p className="hidden text-xs text-muted-foreground sm:block">{subtitle}</p>}
+    </div>
+  );
+}
+
+function EmptyOverrideState({
+  label,
+  actionLabel,
+  onAction,
+}: {
+  label: string;
+  actionLabel: string;
+  onAction: () => void;
+}) {
+  return (
+    <div className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-center">
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <Button variant="outline" size="sm" onClick={onAction} className="mt-3 gap-1">
+        <Plus className="h-3.5 w-3.5" /> {actionLabel}
+      </Button>
+    </div>
+  );
+}
+
+function DefaultVoiceCard({
+  settings,
+  onChange,
+  onReset,
+}: {
+  settings: VoiceSettings;
+  onChange: (next: VoiceSettings) => void;
+  onReset: () => void;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [confirmResetOpen, setConfirmResetOpen] = useState(false);
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              if (expanded && editing) setEditing(false);
+              setExpanded((value) => !value);
+            }}
+            className="flex-1 text-left"
+          >
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-base">Default voice</CardTitle>
+              <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", expanded && "rotate-180")} />
+            </div>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Starts from your company voice settings. Edit for agent-level defaults, or reset to the company baseline.
+            </p>
+          </button>
+          <div className="flex items-center gap-1.5">
+            {expanded && !editing ? (
+              <Button variant="ghost" size="sm" onClick={() => setEditing(true)} className="gap-1"><Pencil className="h-3.5 w-3.5" /> Edit</Button>
+            ) : expanded ? (
+              <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>Done</Button>
+            ) : null}
+            {expanded && (
+              <Button variant="ghost" size="sm" onClick={() => setConfirmResetOpen(true)} className="gap-1 text-muted-foreground hover:text-foreground">
+                <RotateCcw className="h-3.5 w-3.5" /> Reset
+              </Button>
+            )}
+          </div>
+        </div>
+      </CardHeader>
+      {expanded && (
+        <CardContent>
+          <VoiceSettingsEditor settings={settings} editing={editing} onChange={onChange} />
+        </CardContent>
+      )}
+      <Dialog open={confirmResetOpen} onOpenChange={setConfirmResetOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reset to company voice baseline?</DialogTitle>
+            <DialogDescription>
+              This replaces your agent-level default with the current company-level voice settings.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmResetOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                onReset();
+                setEditing(false);
+                setConfirmResetOpen(false);
+              }}
+            >
+              <RotateCcw className="h-3.5 w-3.5" /> Reset
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
+function VerticalOverrideCard({
+  record,
+  shadowingPropertyOverrides,
+  onChange,
+  onRemove,
+}: {
+  record: VerticalOverrideRecord;
+  shadowingPropertyOverrides: PropertyOverrideRecord[];
+  onChange: (next: VoiceSettings) => void;
+  onRemove: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
+  const meta = VERTICAL_META[record.vertical];
+  const Icon = meta.icon;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <button type="button" onClick={() => setExpanded((value) => !value)} className="flex flex-1 items-start gap-3 text-left min-w-0">
+            <div className={cn("flex h-9 w-9 items-center justify-center rounded-lg", meta.bg)}>
+              <Icon className={cn("h-4 w-4", meta.color)} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-base">{record.vertical}</CardTitle>
+                <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", expanded && "rotate-180")} />
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">
+                {getNova2Voice(record.settings.voiceAccent)?.label ?? record.settings.voiceAccent} • {record.settings.voiceGender}
+              </p>
+            </div>
+          </button>
+          <div className="flex items-center gap-1.5">
+            {expanded && !editing && <Button variant="ghost" size="sm" onClick={() => setEditing(true)} className="gap-1"><Pencil className="h-3.5 w-3.5" /> Edit</Button>}
+            {expanded && editing && <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>Done</Button>}
+            <Button variant="ghost" size="sm" onClick={() => setConfirmRemoveOpen(true)} className="text-red-600 hover:text-red-700">
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+        {expanded && shadowingPropertyOverrides.length > 0 && (
+          <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-900/40 dark:bg-amber-950/30">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+            <div className="text-xs text-amber-900 dark:text-amber-200">
+              <p className="font-medium">
+                {shadowingPropertyOverrides.length} {shadowingPropertyOverrides.length === 1 ? "property" : "properties"} in {record.vertical} already have a property-level voice override and will continue to take precedence.
+              </p>
+            </div>
+          </div>
+        )}
+      </CardHeader>
+      {expanded && (
+        <CardContent>
+          <VoiceSettingsEditor settings={record.settings} editing={editing} onChange={onChange} />
+        </CardContent>
+      )}
+      <Dialog open={confirmRemoveOpen} onOpenChange={setConfirmRemoveOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Remove vertical override?</DialogTitle>
+            <DialogDescription>
+              This removes the {record.vertical} voice override for this agent.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmRemoveOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => { setEditing(false); setConfirmRemoveOpen(false); onRemove(); }}>
+              <Trash2 className="h-3.5 w-3.5" /> Remove
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
+function PropertyOverrideCard({
+  record,
+  autoExpand,
+  cardRef,
+  onChange,
+  onRemove,
+}: {
+  record: PropertyOverrideRecord;
+  autoExpand?: boolean;
+  cardRef?: (node: HTMLDivElement | null) => void;
+  onChange: (next: VoiceSettings) => void;
+  onRemove: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
+  const meta = VERTICAL_META[record.vertical];
+
+  useEffect(() => {
+    if (autoExpand) setExpanded(true);
+  }, [autoExpand]);
+
+  return (
+    <div ref={cardRef}>
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-start justify-between gap-3">
+            <button type="button" onClick={() => setExpanded((value) => !value)} className="flex flex-1 items-start gap-3 text-left min-w-0">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
+                <Home className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-base">{record.propertyName}</CardTitle>
+                  <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-medium", meta.bg, meta.color)}>{record.vertical}</span>
+                  <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", expanded && "rotate-180")} />
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">
+                  {getNova2Voice(record.settings.voiceAccent)?.label ?? record.settings.voiceAccent} • {record.settings.voiceGender}
+                </p>
+              </div>
+            </button>
+            <div className="flex items-center gap-1.5">
+              {expanded && !editing && <Button variant="ghost" size="sm" onClick={() => setEditing(true)} className="gap-1"><Pencil className="h-3.5 w-3.5" /> Edit</Button>}
+              {expanded && editing && <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>Done</Button>}
+              <Button variant="ghost" size="sm" onClick={() => setConfirmRemoveOpen(true)} className="text-red-600 hover:text-red-700"><Trash2 className="h-3.5 w-3.5" /></Button>
+            </div>
+          </div>
+        </CardHeader>
+        {expanded && (
+          <CardContent>
+            <VoiceSettingsEditor settings={record.settings} editing={editing} onChange={onChange} />
+          </CardContent>
+        )}
+        <Dialog open={confirmRemoveOpen} onOpenChange={setConfirmRemoveOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Remove property override?</DialogTitle>
+              <DialogDescription>
+                This removes the voice override for {record.propertyName}. It will inherit from its vertical override, then portfolio default.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConfirmRemoveOpen(false)}>Cancel</Button>
+              <Button variant="destructive" onClick={() => { setEditing(false); setConfirmRemoveOpen(false); onRemove(); }}>
+                <Trash2 className="h-3.5 w-3.5" /> Remove
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </Card>
+    </div>
+  );
+}
+
+function AddVerticalOverrideDialog({
+  open,
+  onClose,
+  existingVerticals,
+  propertyOverrides,
+  defaultSettings,
   onSave,
 }: {
   open: boolean;
-  onOpenChange: (open: boolean) => void;
-  title: string;
-  description: string;
-  gender: "female" | "male";
-  onGenderChange: (g: "female" | "male") => void;
-  accent: string;
-  onAccentChange: (a: string) => void;
-  languages: string[];
-  onLanguagesChange: (l: string[]) => void;
-  autoDetect: boolean;
-  onAutoDetectChange: (v: boolean) => void;
-  recordAudio: boolean;
-  onRecordAudioChange: (v: boolean) => void;
-  generateTranscripts: boolean;
-  onGenerateTranscriptsChange: (v: boolean) => void;
-  legalEnabled: boolean;
-  onLegalEnabledChange: (v: boolean) => void;
-  legalText: string;
-  onLegalTextChange: (v: string) => void;
-  greeting: string;
-  onGreetingChange: (v: string) => void;
-  holdPhrase: string;
-  onHoldPhraseChange: (v: string) => void;
-  maxCallLength: number;
-  onMaxCallLengthChange: (v: number) => void;
-  aiDisclosure: boolean;
-  onAiDisclosureChange: (v: boolean) => void;
-  onSave: () => void;
+  onClose: () => void;
+  existingVerticals: Vertical[];
+  propertyOverrides: PropertyOverrideRecord[];
+  defaultSettings: VoiceSettings;
+  onSave: (record: VerticalOverrideRecord) => void;
 }) {
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [vertical, setVertical] = useState<Vertical | null>(null);
+  const [settings, setSettings] = useState<VoiceSettings>(cloneVoiceSettings(BLANK_VOICE));
+  const available = VERTICALS.filter((item) => !existingVerticals.includes(item));
+  const shadowing = vertical ? propertyOverrides.filter((property) => property.vertical === vertical) : [];
+
+  const reset = () => {
+    setVertical(null);
+    setSettings(cloneVoiceSettings(BLANK_VOICE));
+  };
+
+  const handleClose = () => {
+    reset();
+    onClose();
+  };
+
+  const handlePickVertical = (value: Vertical) => {
+    setVertical(value);
+    setSettings(cloneVoiceSettings(defaultSettings));
+  };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && handleClose()}>
+      <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
+          <DialogTitle>Add vertical override</DialogTitle>
+          <DialogDescription>Override this agent&apos;s default voice for one property type.</DialogDescription>
         </DialogHeader>
-
-        <div className="space-y-6 py-2">
-          {/* Step 1: How it sounds */}
-          <div className="space-y-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-primary">Step 1</p>
-              <p className="text-sm font-semibold text-foreground">How it sounds</p>
-            </div>
-
-            <div>
-              <p className="mb-2 text-sm font-medium text-foreground">Voice Gender</p>
-              <div className="grid grid-cols-2 gap-3">
-                {(["female", "male"] as const).map((g) => (
-                  <button
-                    key={g}
-                    type="button"
-                    onClick={() => {
-                      onGenderChange(g);
-                      const current = getNova2Voice(accent);
-                      if (!current || current.gender !== g) {
-                        onAccentChange(DEFAULT_NOVA2_VOICE_ID[g]);
-                      }
-                    }}
-                    className={cn(
-                      "flex items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition-all",
-                      gender === g ? "border-primary bg-primary/5 shadow-sm" : "border-border hover:border-primary/30",
-                    )}
-                  >
-                    <div className={cn(
-                      "flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold",
-                      gender === g ? "bg-primary text-white" : "bg-muted text-muted-foreground",
-                    )}>
-                      A
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold capitalize text-foreground">{g}</p>
-                      <p className="text-[11px] text-muted-foreground">{g === "female" ? "Warm, approachable" : "Confident, professional"}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <p className="mb-2 text-sm font-medium text-foreground">Voice <span className="text-xs font-normal text-muted-foreground">· Amazon Nova 2 Sonic</span></p>
-              <div className="grid grid-cols-2 gap-2">
-                {getNova2VoicesByGender(gender).map((v) => (
-                  <button
-                    key={v.id}
-                    type="button"
-                    onClick={() => onAccentChange(v.id)}
-                    className={cn(
-                      "rounded-lg border-2 px-3 py-2.5 text-left transition-all",
-                      accent === v.id ? "border-primary bg-primary/5" : "border-border hover:border-primary/30",
-                    )}
-                  >
-                    <p className="text-sm font-semibold text-foreground">{v.label}</p>
-                    <p className="text-[11px] text-muted-foreground">{v.accent}</p>
-                    <p className="text-[11px] text-muted-foreground">{v.desc}</p>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 rounded-lg bg-muted/50 px-4 py-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
-                <Volume2 className="h-4 w-4 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-foreground">
-                  {getNova2Voice(accent)?.label ?? "Tiffany"} — {gender === "male" ? "Male" : "Female"}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {getNova2Voice(accent)?.accent ?? "American (en-US)"} · {getNova2Voice(accent)?.desc ?? "Warm polyglot"}
-                </p>
-              </div>
-              <Button variant="outline" size="sm" className="ml-auto shrink-0">
-                <Volume2 className="h-3 w-3" /> Listen
-              </Button>
-            </div>
-          </div>
-
-          {/* Step 2: Languages */}
-          <div className="space-y-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-primary">Step 2</p>
-              <p className="text-sm font-semibold text-foreground">Languages</p>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <label className="relative inline-flex cursor-pointer items-center">
-                <input
-                  type="checkbox"
-                  checked={autoDetect}
-                  onChange={(e) => onAutoDetectChange(e.target.checked)}
-                  className="peer sr-only"
-                />
-                <div className="h-5 w-9 rounded-full bg-muted peer-checked:bg-primary transition-colors" />
-                <div className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
-              </label>
-              <div>
-                <p className="text-sm font-medium text-foreground">Auto-detect caller language</p>
-                <p className="text-xs text-muted-foreground">Replies in the caller&apos;s language automatically.</p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {ALL_LANGUAGES.map((lang) => {
-                const enabled = languages.includes(lang);
+        <div>
+          <label className="mb-2 block text-xs font-medium text-muted-foreground">Vertical</label>
+          {available.length === 0 ? (
+            <p className="rounded-md border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+              All verticals already have overrides. Edit existing cards below.
+            </p>
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {available.map((item) => {
+                const meta = VERTICAL_META[item];
+                const Icon = meta.icon;
+                const active = vertical === item;
                 return (
                   <button
-                    key={lang}
+                    key={item}
                     type="button"
-                    onClick={() => {
-                      const next = enabled ? languages.filter((l) => l !== lang) : [...languages, lang];
-                      onLanguagesChange(next);
-                    }}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
-                      enabled
-                        ? "border-primary/30 bg-primary/5 text-foreground"
-                        : "border-border bg-background text-muted-foreground hover:border-primary/20",
-                    )}
+                    onClick={() => handlePickVertical(item)}
+                    className={cn("flex items-start gap-3 rounded-lg border p-3 text-left transition-all", active ? "border-primary bg-primary/5" : "border-border hover:border-zinc-400")}
                   >
-                    <span>{LANGUAGE_FLAGS[lang]}</span>
-                    {lang}
+                    <div className={cn("flex h-9 w-9 items-center justify-center rounded-lg", meta.bg)}>
+                      <Icon className={cn("h-4 w-4", meta.color)} />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">{item}</p>
+                      <p className="text-[11px] text-muted-foreground">{meta.description}</p>
+                    </div>
                   </button>
                 );
               })}
             </div>
-          </div>
-
-          {/* Step 3: Recording, transcripts & legal */}
-          <div className="space-y-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-primary">Step 3</p>
-              <p className="text-sm font-semibold text-foreground">Recording, transcripts & legal</p>
-            </div>
-
-            <ToggleRow
-              icon={<div className="h-2 w-2 rounded-full bg-red-500" />}
-              title="Record audio"
-              description="Save call audio for quality assurance, training, and dispute resolution."
-              checked={recordAudio}
-              onChange={onRecordAudioChange}
-            />
-
-            <ToggleRow
-              icon={<div className="h-2 w-2 rounded-full bg-blue-500" />}
-              title="Generate transcripts"
-              description="Searchable text transcripts of every call."
-              checked={generateTranscripts}
-              onChange={onGenerateTranscriptsChange}
-            />
-
-            <div className={cn("rounded-xl border px-5 py-4 space-y-3", legalEnabled && "border-emerald-200 dark:border-emerald-800")}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30">
-                    <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">Legal disclosure</p>
-                    <p className="text-xs text-muted-foreground">Two-party consent compliance.</p>
-                  </div>
-                </div>
-                <label className="relative inline-flex cursor-pointer items-center">
-                  <input
-                    type="checkbox"
-                    checked={legalEnabled}
-                    onChange={(e) => onLegalEnabledChange(e.target.checked)}
-                    className="peer sr-only"
-                  />
-                  <div className="h-6 w-11 rounded-full bg-muted peer-checked:bg-primary transition-colors" />
-                  <div className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5" />
-                </label>
-              </div>
-              {legalEnabled && (
-                <textarea
-                  value={legalText}
-                  onChange={(e) => onLegalTextChange(e.target.value)}
-                  rows={3}
-                  className="input-base resize-y text-sm"
-                  placeholder="This call may be recorded for quality assurance..."
-                />
-              )}
-            </div>
-          </div>
-
-          {/* Advanced */}
-          <div className="space-y-3">
-            <button
-              type="button"
-              onClick={() => setAdvancedOpen(!advancedOpen)}
-              className="flex w-full items-center justify-between rounded-lg border border-border px-4 py-2.5 text-left transition-colors hover:bg-muted/50"
-            >
-              <p className="text-sm font-semibold text-foreground">Advanced</p>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">Greeting, hold phrase, call limits</span>
-                {advancedOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-              </div>
-            </button>
-
-            {advancedOpen && (
-              <div className="space-y-4 rounded-lg border border-border p-4">
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-foreground">Greeting</label>
-                  <input
-                    type="text"
-                    value={greeting}
-                    onChange={(e) => onGreetingChange(e.target.value)}
-                    className="input-base text-sm"
-                    placeholder="Hi, thank you for calling {property}..."
-                  />
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    Use <code className="rounded bg-muted px-1 py-0.5 text-[10px]">{"{property}"}</code> to insert the property name.
+          )}
+        </div>
+        {vertical && (
+          <>
+            {shadowing.length > 0 && (
+              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-900/40 dark:bg-amber-950/30">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                <div className="text-xs text-amber-900 dark:text-amber-200">
+                  <p className="font-medium">
+                    Heads up — {shadowing.length} {shadowing.length === 1 ? "property" : "properties"} in {vertical} already have property-level voice overrides and will continue to take precedence.
                   </p>
                 </div>
-
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-foreground">Hold phrase</label>
-                  <input
-                    type="text"
-                    value={holdPhrase}
-                    onChange={(e) => onHoldPhraseChange(e.target.value)}
-                    className="input-base text-sm"
-                    placeholder="One moment while I look that up..."
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-foreground">
-                    Max call length: {maxCallLength} min
-                  </label>
-                  <input
-                    type="range"
-                    min={1}
-                    max={60}
-                    value={maxCallLength}
-                    onChange={(e) => onMaxCallLengthChange(Number(e.target.value))}
-                    className="w-full accent-primary"
-                  />
-                  <div className="flex justify-between text-[10px] text-muted-foreground">
-                    <span>1 min</span>
-                    <span>60 min</span>
-                  </div>
-                </div>
-
-                <ToggleRow
-                  icon={<div className="h-2 w-2 rounded-full bg-emerald-500" />}
-                  title="AI disclosure"
-                  description="Tell callers they're speaking with an AI."
-                  checked={aiDisclosure}
-                  onChange={onAiDisclosureChange}
-                />
               </div>
             )}
-          </div>
-        </div>
-
+            <div className="rounded-lg border border-border p-4">
+              <p className="mb-3 text-xs text-muted-foreground">
+                Pre-filled with this agent&apos;s portfolio default. Edit any field to customize {vertical}.
+              </p>
+              <VoiceSettingsEditor settings={settings} editing={true} onChange={setSettings} />
+            </div>
+          </>
+        )}
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={onSave}>Save Changes</Button>
+          <Button variant="outline" onClick={handleClose}>Cancel</Button>
+          <Button
+            onClick={() => {
+              if (!vertical) return;
+              onSave({
+                id: `voice-vertical-${vertical.toLowerCase()}-${Date.now()}`,
+                vertical,
+                settings: cloneVoiceSettings(settings),
+              });
+              reset();
+            }}
+            disabled={!vertical}
+          >
+            Save vertical override
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
 
-/* ─── Company Voice Settings ─── */
+function AddPropertyOverrideDialog({
+  open,
+  onClose,
+  existingPropertyOverrides,
+  defaultSettings,
+  preselectedPropertyName,
+  onSave,
+}: {
+  open: boolean;
+  onClose: () => void;
+  existingPropertyOverrides: PropertyOverrideRecord[];
+  defaultSettings: VoiceSettings;
+  preselectedPropertyName?: string | null;
+  onSave: (records: PropertyOverrideRecord[]) => void;
+}) {
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [settings, setSettings] = useState<VoiceSettings>(cloneVoiceSettings(BLANK_VOICE));
+  const selectedNames = selectedIds;
 
-function CompanyVoiceSettings({
+  const overridesByProperty = useMemo(
+    () => new Map(existingPropertyOverrides.map((override) => [override.propertyName, override])),
+    [existingPropertyOverrides],
+  );
+  const selectionAnalysis = useMemo(
+    () => computeVoiceSelectionMode(selectedNames, overridesByProperty),
+    [selectedNames, overridesByProperty],
+  );
+  const selectedExistingNames = useMemo(
+    () => selectedNames.filter((name) => overridesByProperty.has(name)),
+    [selectedNames, overridesByProperty],
+  );
+
+  useEffect(() => {
+    if (!open || !preselectedPropertyName) return;
+    if (!MOCK_PROPERTIES.some((property) => property.name === preselectedPropertyName)) return;
+    setSelectedIds([preselectedPropertyName]);
+  }, [open, preselectedPropertyName]);
+
+  useEffect(() => {
+    if (!open || selectedNames.length === 0) return;
+    if (selectionAnalysis.mode === "shared" && selectionAnalysis.sharedSettings) {
+      setSettings(cloneVoiceSettings(selectionAnalysis.sharedSettings));
+      return;
+    }
+    if (selectionAnalysis.mode === "mixed") {
+      setSettings(cloneVoiceSettings(BLANK_VOICE));
+      return;
+    }
+    setSettings(cloneVoiceSettings(defaultSettings));
+  }, [open, selectedNames, selectionAnalysis, defaultSettings]);
+
+  const reset = () => {
+    setSelectedIds([]);
+    setSettings(cloneVoiceSettings(BLANK_VOICE));
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && (reset(), onClose())}>
+      <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Add property override{selectedNames.length > 1 ? "s" : ""}</DialogTitle>
+          <DialogDescription>
+            Select one or more properties. Saving applies these settings as individual property overrides.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          {selectedExistingNames.length > 0 && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-900/40 dark:bg-amber-950/30">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+              <div className="text-xs text-amber-900 dark:text-amber-200">
+                <p className="font-medium">
+                  {selectedExistingNames.length} of {selectedNames.length} selected {selectedNames.length === 1 ? "property already has" : "properties already have"} a voice override and will be replaced when you save:
+                </p>
+                <ul className="mt-1 list-inside list-disc">
+                  {selectedExistingNames.map((name) => (
+                    <li key={name}>{name}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+          <PropertySelector
+            data={PROPERTY_FILTER_DATA}
+            triggerWidthClassName="w-full"
+            panelHeight={420}
+            showChips
+            chipsPosition="below"
+            chipsClearAll
+            selectedPropertyIds={selectedIds}
+            onSelectedIdsChange={setSelectedIds}
+          />
+        </div>
+
+        {selectedNames.length > 0 && (
+          <div className="rounded-lg border border-border p-4">
+            {selectionAnalysis.mode === "shared" && (
+              <div className="mb-3 flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 dark:border-blue-900/40 dark:bg-blue-950/30">
+                <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-600" />
+                <p className="text-xs text-blue-900 dark:text-blue-200">
+                  Editing the existing override shared by these {selectedNames.length} {selectedNames.length === 1 ? "property" : "properties"}. Saving updates all of them.
+                </p>
+              </div>
+            )}
+            {selectionAnalysis.mode === "mixed" && (
+              <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-900/40 dark:bg-amber-950/30">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                <p className="text-xs text-amber-900 dark:text-amber-200">
+                  These properties currently have different (or no) voice settings. Saving will completely replace whatever is currently set on each selected property.
+                </p>
+              </div>
+            )}
+            <p className="mb-3 text-xs text-muted-foreground">
+              {selectionAnalysis.mode === "shared"
+                ? "Pre-filled from the shared existing override."
+                : selectionAnalysis.mode === "mixed"
+                  ? "Starts blank because selected properties do not share one exact override."
+                  : "Pre-filled from this agent's portfolio default."}
+            </p>
+            <VoiceSettingsEditor settings={settings} editing={true} onChange={setSettings} />
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => { reset(); onClose(); }}>Cancel</Button>
+          <Button
+            onClick={() => {
+              if (selectedNames.length === 0) return;
+              const now = Date.now();
+              const records: PropertyOverrideRecord[] = selectedNames.map((name, index) => {
+                const property = MOCK_PROPERTIES.find((item) => item.name === name)!;
+                return {
+                  id: `voice-property-${name.toLowerCase().replace(/\s+/g, "-")}-${now}-${index}`,
+                  propertyName: name,
+                  vertical: property.vertical,
+                  settings: cloneVoiceSettings(settings),
+                };
+              });
+              onSave(records);
+              reset();
+            }}
+            disabled={selectedNames.length === 0}
+          >
+            Save {selectedNames.length > 0 ? `${selectedNames.length} ` : ""}property override{selectedNames.length === 1 ? "" : "s"}
+            {selectionAnalysis.overriddenCount > 0 ? " (replaces existing)" : ""}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function VoiceSettingsEditor({
   settings,
-  onUpdate,
+  editing,
+  onChange,
 }: {
   settings: VoiceSettings;
-  onUpdate: (updates: Partial<VoiceSettings>) => void;
+  editing: boolean;
+  onChange: (next: VoiceSettings) => void;
 }) {
+  const update = (patch: Partial<VoiceSettings>) => {
+    onChange({
+      ...settings,
+      ...patch,
+      voiceLanguages: patch.voiceLanguages !== undefined ? [...patch.voiceLanguages] : settings.voiceLanguages,
+    });
+  };
+
+  if (!editing) {
+    return (
+      <div className="space-y-4 text-sm">
+        <div className="rounded-lg border border-border bg-muted/20 p-3">
+          <p className="text-xs font-medium text-muted-foreground">How it sounds</p>
+          <p className="mt-1 text-foreground">{getNova2Voice(settings.voiceAccent)?.label ?? settings.voiceAccent} • {settings.voiceGender}</p>
+        </div>
+        <div className="rounded-lg border border-border bg-muted/20 p-3">
+          <p className="text-xs font-medium text-muted-foreground">Languages</p>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {settings.voiceLanguages.length === 0 ? (
+              <span className="text-xs italic text-muted-foreground">None selected</span>
+            ) : (
+              settings.voiceLanguages.map((language) => (
+                <span key={language} className="inline-flex rounded-full border border-border bg-background px-2 py-0.5 text-[10px]">
+                  {LANGUAGE_FLAGS[language]} {language}
+                </span>
+              ))
+            )}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">Auto-detect: {settings.autoDetectLanguage ? "On" : "Off"}</p>
+        </div>
+        <div className="rounded-lg border border-border bg-muted/20 p-3">
+          <p className="text-xs font-medium text-muted-foreground">Call handling</p>
+          <p className="mt-1 text-xs text-foreground">Record audio: {settings.recordAudio ? "On" : "Off"} • Transcripts: {settings.generateTranscripts ? "On" : "Off"} • AI disclosure: {settings.aiDisclosureEnabled ? "On" : "Off"}</p>
+          <p className="mt-1 text-xs text-foreground">Max call length: {settings.maxCallLength} minutes</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-8">
-          {/* Step 1: How it sounds */}
-          <div className="space-y-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-primary">Step 1</p>
-              <h3 className="text-base font-semibold text-foreground">How it sounds</h3>
-              <p className="text-sm text-muted-foreground">Pick a voice and accent — that&apos;s it.</p>
-            </div>
+    <div className="space-y-5">
+      <div>
+        <p className="mb-2 text-xs font-medium text-muted-foreground">Voice gender</p>
+        <div className="grid grid-cols-2 gap-2">
+          {(["female", "male"] as const).map((gender) => (
+            <button
+              key={gender}
+              type="button"
+              onClick={() => {
+                update({ voiceGender: gender });
+                const current = getNova2Voice(settings.voiceAccent);
+                if (!current || current.gender !== gender) {
+                  update({ voiceAccent: DEFAULT_NOVA2_VOICE_ID[gender] });
+                }
+              }}
+              className={cn("rounded-lg border-2 px-3 py-2 text-xs font-medium capitalize transition-all", settings.voiceGender === gender ? "border-primary bg-primary/5 text-foreground" : "border-border text-muted-foreground hover:border-primary/30")}
+            >
+              {gender}
+            </button>
+          ))}
+        </div>
+      </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+      <div>
+        <p className="mb-2 text-xs font-medium text-muted-foreground">Voice • Amazon Nova 2 Sonic</p>
+        <div className="grid grid-cols-2 gap-2">
+          {getNova2VoicesByGender(settings.voiceGender).map((voice) => (
+            <button
+              key={voice.id}
+              type="button"
+              onClick={() => update({ voiceAccent: voice.id })}
+              className={cn("rounded-lg border-2 px-3 py-2 text-left text-xs transition-all", settings.voiceAccent === voice.id ? "border-primary bg-primary/5" : "border-border hover:border-primary/30")}
+            >
+              <p className="font-semibold text-foreground">{voice.label}</p>
+              <p className="text-[10px] text-muted-foreground">{voice.accent}</p>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-xs font-medium text-muted-foreground">Languages</p>
+          <button
+            type="button"
+            onClick={() => update({ autoDetectLanguage: !settings.autoDetectLanguage })}
+            className="inline-flex items-center gap-1 text-[10px] text-muted-foreground"
+          >
+            <Globe className="h-3 w-3" /> Auto-detect: {settings.autoDetectLanguage ? "On" : "Off"}
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {ALL_LANGUAGES.map((language) => {
+            const enabled = settings.voiceLanguages.includes(language);
+            return (
               <button
+                key={language}
                 type="button"
                 onClick={() => {
-                  const next: Partial<VoiceSettings> = { voiceGender: "female" };
-                  const current = getNova2Voice(settings.voiceAccent);
-                  if (!current || current.gender !== "female") {
-                    next.voiceAccent = DEFAULT_NOVA2_VOICE_ID.female;
-                  }
-                  onUpdate(next);
+                  update({
+                    voiceLanguages: enabled
+                      ? settings.voiceLanguages.filter((item) => item !== language)
+                      : [...settings.voiceLanguages, language],
+                  });
                 }}
-                className={cn(
-                  "flex items-center gap-3 rounded-xl border-2 px-5 py-4 text-left transition-all",
-                  settings.voiceGender === "female"
-                    ? "border-primary bg-primary/5 shadow-sm"
-                    : "border-border hover:border-primary/30",
-                )}
+                className={cn("inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] transition-colors", enabled ? "border-primary/30 bg-primary/5 text-foreground" : "border-border text-muted-foreground hover:border-primary/20")}
               >
-                <div className={cn(
-                  "flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold",
-                  settings.voiceGender === "female" ? "bg-primary text-white" : "bg-muted text-muted-foreground",
-                )}>
-                  A
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-foreground">Female</p>
-                  <p className="text-xs text-muted-foreground">Warm, approachable</p>
-                </div>
+                {LANGUAGE_FLAGS[language]} {language}
               </button>
+            );
+          })}
+        </div>
+      </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  const next: Partial<VoiceSettings> = { voiceGender: "male" };
-                  const current = getNova2Voice(settings.voiceAccent);
-                  if (!current || current.gender !== "male") {
-                    next.voiceAccent = DEFAULT_NOVA2_VOICE_ID.male;
-                  }
-                  onUpdate(next);
-                }}
-                className={cn(
-                  "flex items-center gap-3 rounded-xl border-2 px-5 py-4 text-left transition-all",
-                  settings.voiceGender === "male"
-                    ? "border-primary bg-primary/5 shadow-sm"
-                    : "border-border hover:border-primary/30",
-                )}
-              >
-                <div className={cn(
-                  "flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold",
-                  settings.voiceGender === "male" ? "bg-primary text-white" : "bg-muted text-muted-foreground",
-                )}>
-                  A
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-foreground">Male</p>
-                  <p className="text-xs text-muted-foreground">Confident, professional</p>
-                </div>
-              </button>
-            </div>
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-muted-foreground">Recording and legal</p>
+        <ToggleRow title="Record audio" checked={settings.recordAudio} onChange={(value) => update({ recordAudio: value })} />
+        <ToggleRow title="Generate transcripts" checked={settings.generateTranscripts} onChange={(value) => update({ generateTranscripts: value })} />
+        <ToggleRow title="Legal disclosure" checked={settings.legalDisclosureEnabled} onChange={(value) => update({ legalDisclosureEnabled: value })} />
+        {settings.legalDisclosureEnabled && (
+          <textarea
+            value={settings.legalDisclosureText}
+            onChange={(event) => update({ legalDisclosureText: event.target.value })}
+            rows={2}
+            className="input-base resize-y text-xs"
+            placeholder="This call may be recorded for quality assurance..."
+          />
+        )}
+      </div>
 
-            <div>
-              <div className="mb-2 flex items-baseline justify-between gap-2">
-                <p className="text-sm font-medium text-foreground">Voice</p>
-                <p className="text-[11px] text-muted-foreground">
-                  Amazon Nova 2 Sonic · {settings.voiceGender === "male" ? "male" : "female"} voices
-                </p>
-              </div>
-              {(() => {
-                const selectedVoice = getNova2Voice(settings.voiceAccent);
-                return (
-                  <div className="flex items-stretch gap-2">
-                    <Select
-                      value={settings.voiceAccent}
-                      onValueChange={(value) => onUpdate({ voiceAccent: value })}
-                    >
-                      <SelectTrigger
-                        aria-label="Select voice"
-                        className="h-auto min-h-[3.25rem] flex-1 items-center gap-3 py-2.5 pr-3 text-left [&>span]:flex-1 [&>span]:text-left [&>svg]:h-5 [&>svg]:w-5 [&>svg]:shrink-0 [&>svg]:rounded-md [&>svg]:border [&>svg]:border-border [&>svg]:bg-muted/50 [&>svg]:p-0.5 [&>svg]:text-muted-foreground [&>svg]:opacity-100"
-                      >
-                        <SelectValue placeholder="Select a voice">
-                          <div className="flex flex-col">
-                            <span className="text-sm font-semibold text-foreground">
-                              {selectedVoice?.label ?? "Select a voice"}
-                              {selectedVoice && (
-                                <span className="ml-2 text-[11px] font-normal text-muted-foreground">
-                                  {selectedVoice.accent}
-                                </span>
-                              )}
-                            </span>
-                            {selectedVoice && (
-                              <span className="text-[11px] text-muted-foreground">
-                                {selectedVoice.desc}
-                              </span>
-                            )}
-                          </div>
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent className="max-h-[320px] w-[var(--radix-select-trigger-width)]">
-                        {getNova2VoicesByGender(settings.voiceGender).map((voice) => (
-                          <SelectItem
-                            key={voice.id}
-                            value={voice.id}
-                            className="py-2 [&>span:last-child]:flex-1"
-                          >
-                            <div className="flex flex-col">
-                              <span className="text-sm font-medium text-foreground">
-                                {voice.label}
-                                <span className="ml-2 text-[11px] font-normal text-muted-foreground">
-                                  {voice.accent}
-                                </span>
-                              </span>
-                              <span className="text-[11px] text-muted-foreground">{voice.desc}</span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-auto self-stretch px-3"
-                    >
-                      <Volume2 className="h-3.5 w-3.5" />
-                      <span className="ml-1.5">Listen</span>
-                    </Button>
-                  </div>
-                );
-              })()}
-            </div>
-          </div>
-
-          {/* Step 2: Languages */}
-          <div className="space-y-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-primary">Step 2</p>
-              <h3 className="text-base font-semibold text-foreground">Languages</h3>
-              <p className="text-sm text-muted-foreground">Which languages your AI understands and can reply in.</p>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <label className="relative inline-flex cursor-pointer items-center">
-                <input
-                  type="checkbox"
-                  checked={settings.autoDetectLanguage}
-                  onChange={(e) => onUpdate({ autoDetectLanguage: e.target.checked })}
-                  className="peer sr-only"
-                />
-                <div className="h-5 w-9 rounded-full bg-muted peer-checked:bg-primary transition-colors" />
-                <div className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
-              </label>
-              <div>
-                <p className="text-sm font-medium text-foreground">Speaks the caller&apos;s language automatically</p>
-                <p className="text-xs text-muted-foreground">Available with the American accent only — switch to Ellery or Matthew to enable multilingual replies.</p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {ALL_LANGUAGES.map((lang) => {
-                const enabled = settings.voiceLanguages.includes(lang);
-                return (
-                  <button
-                    key={lang}
-                    type="button"
-                    onClick={() => {
-                      const next = enabled
-                        ? settings.voiceLanguages.filter((l) => l !== lang)
-                        : [...settings.voiceLanguages, lang];
-                      onUpdate({ voiceLanguages: next });
-                    }}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
-                      enabled
-                        ? "border-primary/30 bg-primary/5 text-foreground"
-                        : "border-border bg-background text-muted-foreground hover:border-primary/20",
-                    )}
-                  >
-                    <span>{LANGUAGE_FLAGS[lang]}</span>
-                    {lang}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Step 3: Recording, transcripts & legal */}
-          <div className="space-y-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-primary">Step 3</p>
-              <h3 className="text-base font-semibold text-foreground">Recording, transcripts & legal</h3>
-              <p className="text-sm text-muted-foreground">Capture calls for QA — and stay compliant automatically.</p>
-            </div>
-
-            <ToggleRow
-              icon={<div className="h-2 w-2 rounded-full bg-red-500" />}
-              title="Record audio"
-              description="Save call audio for quality assurance, training, and dispute resolution."
-              checked={settings.recordAudio}
-              onChange={(v) => onUpdate({ recordAudio: v })}
-            />
-
-            <ToggleRow
-              icon={<div className="h-2 w-2 rounded-full bg-blue-500" />}
-              title="Generate transcripts"
-              description="Searchable text transcripts of every call, attached to the lead/resident profile."
-              checked={settings.generateTranscripts}
-              onChange={(v) => onUpdate({ generateTranscripts: v })}
-            />
-
-            <Card className={cn(settings.legalDisclosureEnabled && "border-emerald-200 dark:border-emerald-800")}>
-              <CardContent className="py-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3">
-                    <div className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30">
-                      <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-foreground">Played automatically before every call connects</p>
-                      <p className="text-xs text-muted-foreground">Two-party consent compliance for CA, CT, IL, MA, MD, MT, NH, PA, WA, and others.</p>
-                    </div>
-                  </div>
-                </div>
-                <textarea
-                  value={settings.legalDisclosureText}
-                  readOnly
-                  rows={2}
-                  aria-readonly="true"
-                  className="input-base mt-3 resize-none bg-muted/30 text-sm leading-relaxed text-foreground/90 cursor-text"
-                />
-                <p className="mt-1.5 text-[11px] text-emerald-600 dark:text-emerald-400">
-                  Auto-played in the AI voice you selected above.
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-muted-foreground">Advanced</p>
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">Greeting</label>
+          <input value={settings.greeting} onChange={(event) => update({ greeting: event.target.value })} className="input-base text-xs" />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">Hold phrase</label>
+          <input value={settings.holdPhrase} onChange={(event) => update({ holdPhrase: event.target.value })} className="input-base text-xs" />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">Max call length: {settings.maxCallLength} min</label>
+          <input type="range" min={1} max={60} value={settings.maxCallLength} onChange={(event) => update({ maxCallLength: Number(event.target.value) })} className="w-full accent-primary" />
+        </div>
+        <ToggleRow title="AI disclosure" checked={settings.aiDisclosureEnabled} onChange={(value) => update({ aiDisclosureEnabled: value })} />
+      </div>
     </div>
   );
 }
 
-/* ─── Agent Voice Tuning Card ─── */
-
-function AgentVoiceTuningCard({
-  tuning,
-  agentStatus,
-  hasVoiceOverride,
-  propertyName,
-  inheritedGender,
-  inheritedAccent,
-  inheritedLanguages,
-  inheritedSettings,
-  onSaveVoiceOverride,
-  onResetVoiceOverride,
-}: {
-  tuning: AgentVoiceTuning;
-  agentStatus?: string;
-  hasVoiceOverride: boolean;
-  propertyName: string;
-  inheritedGender: VoiceSettings["voiceGender"];
-  inheritedAccent: VoiceSettings["voiceAccent"];
-  inheritedLanguages: string[];
-  inheritedSettings: VoiceSettings;
-  onSaveVoiceOverride: (overrides: Partial<VoiceSettings>) => void;
-  onResetVoiceOverride?: () => void;
-}) {
-  const ovr = tuning.voiceOverrides;
-
-  const [editing, setEditing] = useState(false);
-  const [draftGender, setDraftGender] = useState<VoiceSettings["voiceGender"]>(ovr?.voiceGender ?? inheritedGender);
-  const [draftAccent, setDraftAccent] = useState<VoiceSettings["voiceAccent"]>(ovr?.voiceAccent ?? inheritedAccent);
-  const [draftLanguages, setDraftLanguages] = useState<string[]>(ovr?.voiceLanguages ?? [...inheritedLanguages]);
-  const [draftAutoDetect, setDraftAutoDetect] = useState(ovr?.autoDetectLanguage ?? inheritedSettings.autoDetectLanguage);
-  const [draftRecordAudio, setDraftRecordAudio] = useState(ovr?.recordAudio ?? inheritedSettings.recordAudio);
-  const [draftGenerateTranscripts, setDraftGenerateTranscripts] = useState(ovr?.generateTranscripts ?? inheritedSettings.generateTranscripts);
-  const [draftLegalEnabled, setDraftLegalEnabled] = useState(ovr?.legalDisclosureEnabled ?? inheritedSettings.legalDisclosureEnabled);
-  const [draftLegalText, setDraftLegalText] = useState(ovr?.legalDisclosureText ?? inheritedSettings.legalDisclosureText);
-  const [draftGreeting, setDraftGreeting] = useState(ovr?.greeting ?? inheritedSettings.greeting);
-  const [draftHoldPhrase, setDraftHoldPhrase] = useState(ovr?.holdPhrase ?? inheritedSettings.holdPhrase);
-  const [draftMaxCallLength, setDraftMaxCallLength] = useState(ovr?.maxCallLength ?? inheritedSettings.maxCallLength);
-  const [draftAiDisclosure, setDraftAiDisclosure] = useState(ovr?.aiDisclosureEnabled ?? inheritedSettings.aiDisclosureEnabled);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-
-  const status = agentStatus || "Active";
-  const isOff = status === "Off";
-  const displayName = `ELI+ ${tuning.agentName}`;
-
-  const effectiveGender = ovr?.voiceGender ?? inheritedGender;
-  const effectiveAccent = ovr?.voiceAccent ?? inheritedAccent;
-  const effectiveLanguages = ovr?.voiceLanguages ?? inheritedLanguages;
-
-  const handleSave = () => {
-    onSaveVoiceOverride({
-      voiceGender: draftGender,
-      voiceAccent: draftAccent,
-      voiceLanguages: draftLanguages,
-      autoDetectLanguage: draftAutoDetect,
-      recordAudio: draftRecordAudio,
-      generateTranscripts: draftGenerateTranscripts,
-      legalDisclosureEnabled: draftLegalEnabled,
-      legalDisclosureText: draftLegalText,
-      greeting: draftGreeting,
-      holdPhrase: draftHoldPhrase,
-      maxCallLength: draftMaxCallLength,
-      aiDisclosureEnabled: draftAiDisclosure,
-    });
-    setEditing(false);
-  };
-
-  const startEditing = () => {
-    setDraftGender(ovr?.voiceGender ?? inheritedGender);
-    setDraftAccent(ovr?.voiceAccent ?? inheritedAccent);
-    setDraftLanguages(ovr?.voiceLanguages ?? [...inheritedLanguages]);
-    setDraftAutoDetect(ovr?.autoDetectLanguage ?? inheritedSettings.autoDetectLanguage);
-    setDraftRecordAudio(ovr?.recordAudio ?? inheritedSettings.recordAudio);
-    setDraftGenerateTranscripts(ovr?.generateTranscripts ?? inheritedSettings.generateTranscripts);
-    setDraftLegalEnabled(ovr?.legalDisclosureEnabled ?? inheritedSettings.legalDisclosureEnabled);
-    setDraftLegalText(ovr?.legalDisclosureText ?? inheritedSettings.legalDisclosureText);
-    setDraftGreeting(ovr?.greeting ?? inheritedSettings.greeting);
-    setDraftHoldPhrase(ovr?.holdPhrase ?? inheritedSettings.holdPhrase);
-    setDraftMaxCallLength(ovr?.maxCallLength ?? inheritedSettings.maxCallLength);
-    setDraftAiDisclosure(ovr?.aiDisclosureEnabled ?? inheritedSettings.aiDisclosureEnabled);
-    setAdvancedOpen(false);
-    setEditing(true);
-  };
-
-  const overriddenFields = ovr
-    ? Object.keys(ovr).filter((k) => ovr[k as keyof typeof ovr] !== undefined)
-    : [];
-
-  return (
-    <Card className={cn(isOff && "opacity-70", hasVoiceOverride && "border-primary/30")}>
-      <CardContent className="py-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/eli-cube.svg" alt="" width={22} height={22} className="shrink-0" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold text-foreground">{displayName}</h3>
-                <span className={cn(
-                  "rounded-full px-1.5 py-0.5 text-[9px] font-medium",
-                  isOff ? "bg-muted text-muted-foreground" : "bg-[#B3FFCC] text-green-800",
-                )}>
-                  {status}
-                </span>
-                <span className={cn(
-                  "rounded-full px-1.5 py-0.5 text-[9px] font-medium",
-                  hasVoiceOverride ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
-                )}>
-                  {hasVoiceOverride ? "Custom" : "Inherited"}
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground capitalize">
-                {getNova2Voice(effectiveAccent)?.label ?? effectiveAccent} — {effectiveGender}
-              </p>
-              {!hasVoiceOverride && (
-                <p className="mt-0.5 text-[10px] text-muted-foreground italic">Using inherited voice — customize to override for this property</p>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            {!editing ? (
-              <>
-                {hasVoiceOverride ? (
-                  <Button variant="ghost" size="sm" onClick={startEditing}>
-                    <Pencil className="h-3.5 w-3.5" /> Edit
-                  </Button>
-                ) : (
-                  <Button variant="outline" size="sm" onClick={startEditing}>
-                    <Plus className="h-3 w-3" /> Customize
-                  </Button>
-                )}
-                {onResetVoiceOverride && (
-                  <Button variant="ghost" size="sm" onClick={onResetVoiceOverride}>
-                    <RotateCcw className="h-3 w-3" /> Reset
-                  </Button>
-                )}
-              </>
-            ) : (
-              <div className="flex gap-1.5">
-                <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>Cancel</Button>
-                <Button size="sm" onClick={handleSave}>{hasVoiceOverride ? "Save" : "Create Override"}</Button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {!editing ? (
-          <div className="mt-3 space-y-2 text-sm">
-            {hasVoiceOverride && (
-              <>
-                <div className="flex flex-wrap gap-1.5">
-                  {effectiveLanguages.map((lang) => (
-                    <span key={lang} className="inline-flex rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                      {LANGUAGE_FLAGS[lang]} {lang}
-                    </span>
-                  ))}
-                </div>
-                {overriddenFields.length > 3 && (
-                  <p className="text-[10px] text-muted-foreground">
-                    {overriddenFields.length} fields overridden
-                    {ovr?.recordAudio !== undefined && ` · Recording ${ovr.recordAudio ? "on" : "off"}`}
-                    {ovr?.maxCallLength !== undefined && ` · ${ovr.maxCallLength}min max`}
-                  </p>
-                )}
-              </>
-            )}
-          </div>
-        ) : (
-          <div className="mt-4 space-y-4">
-            <div>
-              <label className="mb-2 block text-xs font-medium text-muted-foreground">Voice Gender</label>
-              <div className="flex gap-2">
-                {(["female", "male"] as const).map((g) => (
-                  <button
-                    key={g}
-                    type="button"
-                    onClick={() => {
-                      setDraftGender(g);
-                      const current = getNova2Voice(draftAccent);
-                      if (!current || current.gender !== g) {
-                        setDraftAccent(DEFAULT_NOVA2_VOICE_ID[g]);
-                      }
-                    }}
-                    className={cn(
-                      "flex-1 rounded-lg border-2 px-3 py-2 text-xs font-medium capitalize transition-all",
-                      draftGender === g ? "border-primary bg-primary/5 text-foreground" : "border-border text-muted-foreground hover:border-primary/30",
-                    )}
-                  >
-                    {g}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-2 block text-xs font-medium text-muted-foreground">Voice <span className="text-[10px] font-normal">· Nova 2 Sonic</span></label>
-              <div className="grid grid-cols-2 gap-2">
-                {getNova2VoicesByGender(draftGender).map((v) => (
-                  <button
-                    key={v.id}
-                    type="button"
-                    onClick={() => setDraftAccent(v.id)}
-                    className={cn(
-                      "rounded-lg border-2 px-3 py-2 text-left text-xs font-medium transition-all",
-                      draftAccent === v.id ? "border-primary bg-primary/5 text-foreground" : "border-border text-muted-foreground hover:border-primary/30",
-                    )}
-                  >
-                    <span className="block font-semibold text-foreground">{v.label}</span>
-                    <span className="block text-[10px] font-normal text-muted-foreground">{v.accent}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <div className="mb-2 flex items-center justify-between">
-                <label className="text-xs font-medium text-muted-foreground">Languages</label>
-                <label className="relative inline-flex cursor-pointer items-center gap-2">
-                  <span className="text-[10px] text-muted-foreground">Auto-detect</span>
-                  <div className="relative">
-                    <input type="checkbox" checked={draftAutoDetect} onChange={(e) => setDraftAutoDetect(e.target.checked)} className="peer sr-only" />
-                    <div className="h-4 w-7 rounded-full bg-muted peer-checked:bg-primary transition-colors" />
-                    <div className="absolute left-0.5 top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform peer-checked:translate-x-3" />
-                  </div>
-                </label>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {ALL_LANGUAGES.map((lang) => {
-                  const enabled = draftLanguages.includes(lang);
-                  return (
-                    <button
-                      key={lang}
-                      type="button"
-                      onClick={() => {
-                        setDraftLanguages(prev => enabled ? prev.filter(l => l !== lang) : [...prev, lang]);
-                      }}
-                      className={cn(
-                        "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
-                        enabled ? "border-primary/30 bg-primary/5 text-foreground" : "border-border text-muted-foreground hover:border-primary/20",
-                      )}
-                    >
-                      {LANGUAGE_FLAGS[lang]} {lang}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="block text-xs font-medium text-muted-foreground">Recording & Transcripts</label>
-              <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
-                <span className="text-xs text-foreground">Record audio</span>
-                <label className="relative inline-flex cursor-pointer items-center">
-                  <input type="checkbox" checked={draftRecordAudio} onChange={(e) => setDraftRecordAudio(e.target.checked)} className="peer sr-only" />
-                  <div className="h-5 w-9 rounded-full bg-muted peer-checked:bg-primary transition-colors" />
-                  <div className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
-                </label>
-              </div>
-              <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
-                <span className="text-xs text-foreground">Generate transcripts</span>
-                <label className="relative inline-flex cursor-pointer items-center">
-                  <input type="checkbox" checked={draftGenerateTranscripts} onChange={(e) => setDraftGenerateTranscripts(e.target.checked)} className="peer sr-only" />
-                  <div className="h-5 w-9 rounded-full bg-muted peer-checked:bg-primary transition-colors" />
-                  <div className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
-                </label>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-medium text-muted-foreground">Legal disclosure</label>
-                <label className="relative inline-flex cursor-pointer items-center">
-                  <input type="checkbox" checked={draftLegalEnabled} onChange={(e) => setDraftLegalEnabled(e.target.checked)} className="peer sr-only" />
-                  <div className="h-5 w-9 rounded-full bg-muted peer-checked:bg-primary transition-colors" />
-                  <div className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
-                </label>
-              </div>
-              {draftLegalEnabled && (
-                <textarea
-                  value={draftLegalText}
-                  onChange={(e) => setDraftLegalText(e.target.value)}
-                  rows={2}
-                  className="input-base resize-y text-xs"
-                  placeholder="This call may be recorded..."
-                />
-              )}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setAdvancedOpen(!advancedOpen)}
-              className="flex w-full items-center justify-between rounded-lg border border-border px-3 py-2 text-left transition-colors hover:bg-muted/50"
-            >
-              <span className="text-xs font-medium text-muted-foreground">Advanced</span>
-              {advancedOpen ? <ChevronUp className="h-3 w-3 text-muted-foreground" /> : <ChevronDown className="h-3 w-3 text-muted-foreground" />}
-            </button>
-
-            {advancedOpen && (
-              <div className="space-y-3 rounded-lg border border-border p-3">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Greeting</label>
-                  <input type="text" value={draftGreeting} onChange={(e) => setDraftGreeting(e.target.value)} className="input-base text-xs" />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Hold phrase</label>
-                  <input type="text" value={draftHoldPhrase} onChange={(e) => setDraftHoldPhrase(e.target.value)} className="input-base text-xs" />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Max call length: {draftMaxCallLength} min</label>
-                  <input type="range" min={1} max={60} value={draftMaxCallLength} onChange={(e) => setDraftMaxCallLength(Number(e.target.value))} className="w-full accent-primary" />
-                  <div className="flex justify-between text-[10px] text-muted-foreground"><span>1 min</span><span>60 min</span></div>
-                </div>
-                <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
-                  <span className="text-xs text-foreground">AI disclosure</span>
-                  <label className="relative inline-flex cursor-pointer items-center">
-                    <input type="checkbox" checked={draftAiDisclosure} onChange={(e) => setDraftAiDisclosure(e.target.checked)} className="peer sr-only" />
-                    <div className="h-5 w-9 rounded-full bg-muted peer-checked:bg-primary transition-colors" />
-                    <div className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
-                  </label>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-/* ─── Toggle Row ─── */
-
 function ToggleRow({
-  icon,
   title,
-  description,
   checked,
   onChange,
 }: {
-  icon: React.ReactNode;
   title: string;
-  description: string;
   checked: boolean;
-  onChange: (v: boolean) => void;
+  onChange: (next: boolean) => void;
 }) {
   return (
-    <div className="flex items-center justify-between rounded-xl border border-border px-5 py-4">
-      <div className="flex items-center gap-3">
-        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted">
-          {icon}
-        </div>
-        <div>
-          <p className="text-sm font-medium text-foreground">{title}</p>
-          <p className="text-xs text-muted-foreground">{description}</p>
-        </div>
-      </div>
-      <label className="relative inline-flex cursor-pointer items-center">
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={(e) => onChange(e.target.checked)}
-          className="peer sr-only"
-        />
-        <div className="h-6 w-11 rounded-full bg-muted peer-checked:bg-primary transition-colors" />
-        <div className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5" />
-      </label>
+    <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
+      <p className="text-xs text-foreground">{title}</p>
+      <button
+        type="button"
+        onClick={() => onChange(!checked)}
+        className={cn("relative inline-flex h-5 w-9 items-center rounded-full transition-colors", checked ? "bg-primary" : "bg-muted")}
+      >
+        <span className={cn("inline-block h-4 w-4 transform rounded-full bg-white transition-transform", checked ? "translate-x-4" : "translate-x-1")} />
+      </button>
     </div>
   );
 }
 
-/* ─── Cascade Visualization ─── */
+function agentBgClass(accent: string): string {
+  switch (accent) {
+    case "indigo":
+      return "bg-indigo-50 dark:bg-indigo-950/30";
+    case "emerald":
+      return "bg-emerald-50 dark:bg-emerald-950/30";
+    case "amber":
+      return "bg-amber-50 dark:bg-amber-950/30";
+    case "sky":
+      return "bg-sky-50 dark:bg-sky-950/30";
+    default:
+      return "bg-muted";
+  }
+}
 
-function VoiceCascadeVisual({ activeLevel, onLevelClick }: { activeLevel: string; onLevelClick: (level: string) => void }) {
-  const levels = [
-    { id: "company", label: "Company", desc: "Portfolio defaults", icon: Building2 },
-    { id: "verticals", label: "Vertical", desc: "By property type", icon: Layers },
-    { id: "properties", label: "Property", desc: "Individual overrides", icon: Home },
-    { id: "agents", label: "Agent", desc: "Per-agent tuning", icon: null },
-  ];
-
-  return (
-    <div className="mb-6 flex items-center gap-1 overflow-x-auto pb-1">
-      {levels.map((level, i) => {
-        const Icon = level.icon;
-        const isActive = activeLevel === level.id;
-        return (
-          <div key={level.id} className="flex items-center">
-            <button
-              type="button"
-              onClick={() => onLevelClick(level.id)}
-              className={cn(
-                "flex items-center gap-2.5 rounded-lg border px-4 py-2.5 transition-all",
-                isActive
-                  ? "border-primary bg-primary/5 shadow-sm"
-                  : "border-border hover:border-primary/30 hover:bg-muted/50",
-              )}
-            >
-              <div className={cn(
-                "flex h-8 w-8 items-center justify-center rounded-md",
-                isActive ? "bg-primary/10" : "bg-muted",
-              )}>
-                {level.id === "agents" ? (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img src="/eli-cube.svg" alt="" width={18} height={18} className="shrink-0" />
-                ) : Icon ? (
-                  <Icon className={cn("h-4 w-4", isActive ? "text-primary" : "text-muted-foreground")} />
-                ) : null}
-              </div>
-              <div className="text-left">
-                <p className={cn("text-sm font-medium", isActive ? "text-primary" : "text-foreground")}>{level.label}</p>
-                <p className="text-[10px] text-muted-foreground">{level.desc}</p>
-              </div>
-            </button>
-            {i < levels.length - 1 && (
-              <ChevronRight className="mx-1 h-4 w-4 shrink-0 text-muted-foreground/50" />
-            )}
-          </div>
-        );
-      })}
-
-      <Popover>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            className="ml-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <Info className="h-4 w-4" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent className="w-[380px] p-0" align="end">
-          <div className="border-b border-border px-4 py-3">
-            <p className="text-sm font-semibold text-foreground">How Voice Settings Cascade</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">Lower levels inherit from above and can override as needed.</p>
-          </div>
-          <div className="space-y-3 px-4 py-3">
-            <div className="flex items-start gap-3">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted"><Building2 className="h-3.5 w-3.5 text-muted-foreground" /></div>
-              <div>
-                <p className="text-xs font-medium text-foreground">Company Defaults</p>
-                <p className="text-[11px] text-muted-foreground">The baseline voice, accent, languages, and call settings that apply everywhere unless overridden.</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted"><Layers className="h-3.5 w-3.5 text-muted-foreground" /></div>
-              <div>
-                <p className="text-xs font-medium text-foreground">Vertical Overrides</p>
-                <p className="text-[11px] text-muted-foreground">Different property types can use different voices or accents.</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted"><Home className="h-3.5 w-3.5 text-muted-foreground" /></div>
-              <div>
-                <p className="text-xs font-medium text-foreground">Property Overrides</p>
-                <p className="text-[11px] text-muted-foreground">Fine-tune voice settings for a specific property.</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/eli-cube.svg" alt="" width={14} height={14} className="shrink-0" />
-              </div>
-              <div>
-                <p className="text-xs font-medium text-foreground">Agent Overrides</p>
-                <p className="text-[11px] text-muted-foreground">Individual agents can use a unique voice. Takes highest priority.</p>
-              </div>
-            </div>
-          </div>
-        </PopoverContent>
-      </Popover>
-    </div>
-  );
+function agentTextClass(accent: string): string {
+  switch (accent) {
+    case "indigo":
+      return "text-indigo-600";
+    case "emerald":
+      return "text-emerald-600";
+    case "amber":
+      return "text-amber-600";
+    case "sky":
+      return "text-sky-600";
+    default:
+      return "text-muted-foreground";
+  }
 }
