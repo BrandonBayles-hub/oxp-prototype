@@ -3192,7 +3192,7 @@ function ConversationsContent() {
                     { label: "Schedule Manual Contact", Icon: Phone },
                   ].map((btn) => (
                     <div key={btn.label} className="relative">
-                      {btn.label === "Message" && !threadsPanelOpen && !messageIntroDismissed && (
+                      {btn.label === "Message" && !threadsPanelOpen && (
                         <>
                           <span className="absolute -top-2 -right-2 z-10 flex items-center rounded-full bg-blue-600 px-1.5 py-0.5 text-[8px] font-bold text-white shadow-sm animate-bounce" style={{ animationDuration: "2s" }}>
                             NEW
@@ -3200,7 +3200,7 @@ function ConversationsContent() {
                           <span className="absolute inset-0 rounded-md animate-pulse ring-2 ring-blue-400/50" style={{ animationDuration: "2s" }} />
                         </>
                       )}
-                      {btn.label === "Message" && threadsPanelOpen && !messageIntroDismissed && (
+                      {btn.label === "Message" && threadsPanelOpen && (
                         <span className="absolute -top-2 -right-2 z-10 flex items-center rounded-full bg-blue-600 px-1 py-0.5 text-[7px] font-bold uppercase tracking-wide text-white shadow-sm">
                           New
                         </span>
