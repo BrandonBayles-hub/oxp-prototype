@@ -25,7 +25,7 @@ export function AdminView() {
               "'Plus Jakarta Sans', Inter, ui-sans-serif, system-ui, sans-serif",
           }}
         >
-          What your team is doing with Entrata Analyst
+          What your team is doing with Entrata Experts
         </h2>
         <p className="max-w-3xl text-sm text-muted-foreground">
           Every conversation, who asked, what they got, and where the gaps

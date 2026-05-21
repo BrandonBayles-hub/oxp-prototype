@@ -24,6 +24,7 @@ import {
   Shield,
   Sparkles,
   Wand2,
+  Eye,
 } from "lucide-react";
 
 const activationItem = { href: "/getting-started", label: "AI & Agent Activation", icon: Rocket };
@@ -44,6 +45,7 @@ const navGroups = [
       { href: "/performance", label: "Performance", icon: BarChart3 },
       { href: "/agent-roster", label: "Agent Roster", icon: Codepen },
       { href: "/workforce", label: "Workforce", icon: UserCog },
+      { href: "/admin-insights", label: "Admin Insights", icon: Eye },
     ],
   },
   {
