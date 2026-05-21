@@ -120,6 +120,15 @@ export function useChatStore(): ChatState {
         updatedAt: userMsg.createdAt,
         intent: "pending",
         lens,
+        turnCount: 1,
+        durationMs: 0,
+        resolution: "ongoing",
+        lensesUsed: [lens],
+        scopesUsed: [],
+        everDownvoted: false,
+        everRefused: false,
+        everEscalated: false,
+        regressed: false,
       };
       setConversations((prev) => {
         if (prev.some((c) => c.id === convId)) return prev;
