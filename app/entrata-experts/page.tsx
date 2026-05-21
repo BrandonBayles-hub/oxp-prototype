@@ -6,10 +6,9 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { HubCards } from "@/components/entrata-experts-v2/hub-cards";
 import { AnalystChat } from "@/components/entrata-experts-v2/analyst-chat";
 import { AssistantChat } from "@/components/entrata-experts-v2/assistant-chat";
-import { AdminView } from "@/components/entrata-experts-v2/admin/admin-view";
 import { CreditsUsage } from "@/components/entrata-experts-v2/credits-usage";
 
-type TabId = "experts" | "admin" | "credits";
+type TabId = "experts" | "credits";
 
 type ExpertView =
   | { kind: "hub" }
@@ -35,7 +34,7 @@ function loadView(): PersistedView {
     if (!raw) return DEFAULT_VIEW;
     const parsed = JSON.parse(raw) as PersistedView;
     if (!parsed || typeof parsed !== "object") return DEFAULT_VIEW;
-    if (parsed.tab !== "experts" && parsed.tab !== "admin" && parsed.tab !== "credits") {
+    if (parsed.tab !== "experts" && parsed.tab !== "credits") {
       return DEFAULT_VIEW;
     }
     if (!parsed.expert || (parsed.expert.kind !== "hub" && parsed.expert.kind !== "analyst" && parsed.expert.kind !== "assistant")) {
@@ -66,7 +65,7 @@ export default function EntrataExpertsPage() {
   }, [view, hydrated]);
 
   const setTab = (tab: TabId) =>
-    setView((v) => ({ ...v, tab, expert: tab === "experts" ? v.expert : v.expert }));
+    setView((v) => ({ ...v, tab }));
   const launchAnalyst = () =>
     setView({ tab: "experts", expert: { kind: "analyst" } });
   const launchAssistant = (id: string) =>
@@ -88,7 +87,6 @@ export default function EntrataExpertsPage() {
       >
         <TabsList>
           <TabsTrigger value="experts">Experts</TabsTrigger>
-          <TabsTrigger value="admin">Admin</TabsTrigger>
           <TabsTrigger value="credits">Credits &amp; Usage</TabsTrigger>
         </TabsList>
 
@@ -103,10 +101,6 @@ export default function EntrataExpertsPage() {
           {view.expert.kind === "assistant" && (
             <AssistantChat assistantId={view.expert.id} onBack={backToHub} />
           )}
-        </TabsContent>
-
-        <TabsContent value="admin" className="mt-4">
-          <AdminView />
         </TabsContent>
 
         <TabsContent value="credits" className="mt-4">
