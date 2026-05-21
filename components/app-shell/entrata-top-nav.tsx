@@ -19,6 +19,7 @@ import {
   Beaker,
   MessageCircle,
   Map,
+  PhoneIncoming,
   Smartphone,
 } from "lucide-react";
 import { MobileAppPreview } from "@/components/mobile-app-preview";
@@ -32,6 +33,7 @@ import { useWorkforce } from "@/lib/workforce-context";
 import { useEscalations } from "@/lib/escalations-context";
 import { useConversations } from "@/lib/conversations-context";
 import { useClickToCallDemo } from "@/lib/click-to-call-demo-context";
+import { useCallSystemDemo } from "@/lib/call-system-demo-context";
 import { useConversationsDemo } from "@/lib/conversations-demo-context";
 
 const NAV_ITEMS = [
@@ -60,6 +62,7 @@ export function EntrataTopNav() {
   const { items: escalations } = useEscalations();
   const { items: conversations } = useConversations();
   const { clickToCallEnabled, toggleClickToCallEnabled } = useClickToCallDemo();
+  const { callSystemEnabled, toggleCallSystemEnabled, simulateInboundCall } = useCallSystemDemo();
   const { showRoadmap, setShowRoadmap } = useRoadmap();
 
   const currentUser = useMemo(() => getCurrentUser(role), [getCurrentUser, role]);
@@ -341,6 +344,70 @@ export function EntrataTopNav() {
                         </p>
                       </div>
                     </button>
+
+                    <button
+                      type="button"
+                      onClick={toggleCallSystemEnabled}
+                      className="flex items-center gap-2.5 rounded-md px-2.5 py-2 transition-colors"
+                      style={{ background: callSystemEnabled ? "rgba(59,130,246,0.08)" : "transparent" }}
+                    >
+                      <div
+                        style={{
+                          width: 30,
+                          height: 17,
+                          borderRadius: 9,
+                          background: callSystemEnabled ? "#3b82f6" : "#D4D4D4",
+                          position: "relative",
+                          transition: "background 150ms",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: 13,
+                            height: 13,
+                            borderRadius: "50%",
+                            background: "#fff",
+                            position: "absolute",
+                            top: 2,
+                            left: callSystemEnabled ? 15 : 2,
+                            transition: "left 150ms",
+                            boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
+                          }}
+                        />
+                      </div>
+                      <div className="text-left">
+                        <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>Call System</p>
+                        <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>
+                          Show Call System settings in Communications sidebar
+                        </p>
+                      </div>
+                    </button>
+
+                    {callSystemEnabled && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          simulateInboundCall();
+                          router.push("/conversations");
+                          setDemoOpen(false);
+                        }}
+                        className="flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-emerald-50"
+                      >
+                        <PhoneIncoming
+                          className="mt-0.5 shrink-0 text-emerald-500"
+                          style={{ width: 16, height: 16, strokeWidth: 2 }}
+                        />
+                        <div>
+                          <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>
+                            Simulate Inbound Call
+                          </p>
+                          <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>
+                            Trigger an incoming call screen pop on Communications
+                          </p>
+                        </div>
+                      </button>
+                    )}
 
                     <button
                       type="button"
