@@ -6,6 +6,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { HubCards } from "@/components/entrata-experts-v2/hub-cards";
 import { AnalystChat } from "@/components/entrata-experts-v2/analyst-chat";
 import { AssistantChat } from "@/components/entrata-experts-v2/assistant-chat";
+import { ReportAnalyzerChat } from "@/components/entrata-experts-v2/report-analyzer-chat";
 import { CreditsUsage } from "@/components/entrata-experts-v2/credits-usage";
 
 type TabId = "experts" | "credits";
@@ -13,7 +14,8 @@ type TabId = "experts" | "credits";
 type ExpertView =
   | { kind: "hub" }
   | { kind: "analyst" }
-  | { kind: "assistant"; id: string };
+  | { kind: "assistant"; id: string }
+  | { kind: "report"; id: string };
 
 const STORAGE_KEY = "oxp:experts-v2:view";
 
@@ -37,7 +39,13 @@ function loadView(): PersistedView {
     if (parsed.tab !== "experts" && parsed.tab !== "credits") {
       return DEFAULT_VIEW;
     }
-    if (!parsed.expert || (parsed.expert.kind !== "hub" && parsed.expert.kind !== "analyst" && parsed.expert.kind !== "assistant")) {
+    if (
+      !parsed.expert ||
+      (parsed.expert.kind !== "hub" &&
+        parsed.expert.kind !== "analyst" &&
+        parsed.expert.kind !== "assistant" &&
+        parsed.expert.kind !== "report")
+    ) {
       return DEFAULT_VIEW;
     }
     return parsed;
@@ -70,6 +78,8 @@ export default function EntrataExpertsPage() {
     setView({ tab: "experts", expert: { kind: "analyst" } });
   const launchAssistant = (id: string) =>
     setView({ tab: "experts", expert: { kind: "assistant", id } });
+  const launchReport = (id: string) =>
+    setView({ tab: "experts", expert: { kind: "report", id } });
   const backToHub = () =>
     setView((v) => ({ ...v, expert: { kind: "hub" } }));
 
@@ -87,7 +97,7 @@ export default function EntrataExpertsPage() {
       >
         <TabsList>
           <TabsTrigger value="experts">Experts</TabsTrigger>
-          <TabsTrigger value="credits">Credits &amp; Usage</TabsTrigger>
+          <TabsTrigger value="credits">Tokens &amp; Usage</TabsTrigger>
         </TabsList>
 
         <TabsContent value="experts" className="mt-4">
@@ -95,11 +105,15 @@ export default function EntrataExpertsPage() {
             <HubCards
               onLaunchAnalyst={launchAnalyst}
               onLaunchAssistant={launchAssistant}
+              onLaunchReport={launchReport}
             />
           )}
           {view.expert.kind === "analyst" && <AnalystChat onBack={backToHub} />}
           {view.expert.kind === "assistant" && (
             <AssistantChat assistantId={view.expert.id} onBack={backToHub} />
+          )}
+          {view.expert.kind === "report" && (
+            <ReportAnalyzerChat reportId={view.expert.id} onBack={backToHub} />
           )}
         </TabsContent>
 

@@ -90,6 +90,17 @@ export interface UserMessage {
 
 export type Message = UserMessage | AssistantMessage;
 
+/**
+ * Resolution of a multi-turn session, computed at generation time.
+ *
+ * - resolved:  user got an answer they didn't reject and didn't escalate
+ * - abandoned: thread ended with refusal, low-confidence, or thumbs-down
+ *              and the user didn't follow up (gave up)
+ * - escalated: at least one assistant turn marked outcome === "escalated"
+ * - ongoing:   the most recent message is from the user (waiting on AI)
+ */
+export type Resolution = "resolved" | "abandoned" | "escalated" | "ongoing";
+
 export interface Conversation {
   id: string;
   title: string;
@@ -97,8 +108,37 @@ export interface Conversation {
   messages: Message[];
   createdAt: string;
   updatedAt: string;
+  /** primary intent classification (intent of the first user turn) */
   intent: string;
+  /** lens used (most-recent assistant message) */
   lens: LensId;
+
+  // ---------------------------------------------------------------------------
+  // Session-level rollups (added when sessions can span multiple turns).
+  // Computed at generation time from messages[]. Always derivable, but cached
+  // here so the Activity Log doesn't have to recompute on every render.
+  // ---------------------------------------------------------------------------
+
+  /** Number of *user* turns in the session (≥ 1). */
+  turnCount: number;
+  /** Wall-clock duration in ms from first user turn to last assistant reply. */
+  durationMs: number;
+  /** Final session disposition. See Resolution doc. */
+  resolution: Resolution;
+  /** All distinct lenses observed across assistant turns (in order of first use). */
+  lensesUsed: LensId[];
+  /** All distinct scope labels observed across assistant turns. */
+  scopesUsed: string[];
+  /** Rating on the *final* assistant turn (the one that matters most for sentiment). */
+  finalRating?: "up" | "down";
+  /** True if any assistant turn got 👎. */
+  everDownvoted: boolean;
+  /** True if any assistant turn ended in outcome === "refused". */
+  everRefused: boolean;
+  /** True if any assistant turn ended in outcome === "escalated". */
+  everEscalated: boolean;
+  /** True if first turn was 👍 but final turn was 👎 (signal of degradation). */
+  regressed: boolean;
 }
 
 export interface Employee {
