@@ -24,7 +24,12 @@ type SettingField =
   | { type: "toggle"; id: string; label: string; description?: string; defaultValue: boolean }
   | { type: "select"; id: string; label: string; description?: string; options: SettingOption[]; defaultValue: string }
   | { type: "number"; id: string; label: string; description?: string; defaultValue: number; min?: number; max?: number; suffix?: string }
-  | { type: "radio"; id: string; label: string; description?: string; options: SettingOption[]; defaultValue: string };
+  | { type: "radio"; id: string; label: string; description?: string; options: SettingOption[]; defaultValue: string }
+  | { type: "text"; id: string; label: string; description?: string; defaultValue: string; placeholder?: string }
+  | { type: "textarea"; id: string; label: string; description?: string; defaultValue: string; placeholder?: string; rows?: number }
+  | { type: "date"; id: string; label: string; description?: string; defaultValue: string }
+  | { type: "checkbox"; id: string; label: string; description?: string; defaultValue: boolean }
+  | { type: "multi-select"; id: string; label: string; description?: string; options: SettingOption[]; defaultValue: string[] };
 
 type L3SettingsGroup = {
   id: string;
@@ -264,6 +269,235 @@ const L3_AGENT_CONFIGS: Record<string, L3AgentConfig> = {
       },
     ],
   },
+  "L2 Bundled Settings Agent Template Example": {
+    module: "Template · Reusable Components",
+    headline: "L2 Bundled Settings Agent — Component Reference",
+    description:
+      "This is a reference template for teams building new L2 bundled-settings agents. Each settings group below demonstrates a different field component type. Use these patterns when defining your agent's per-property configuration.",
+    settingsGroups: [
+      {
+        id: "toggle-example",
+        title: "Toggle (On / Off Switch)",
+        description: "A boolean switch for enabling or disabling a feature. Use when the setting is a simple on/off decision.",
+        fields: [
+          {
+            type: "toggle",
+            id: "example-toggle",
+            label: "Enable This Feature",
+            description: "Toggles a feature on or off for this property. Renders as a switch component.",
+            defaultValue: true,
+          },
+          {
+            type: "toggle",
+            id: "example-toggle-off",
+            label: "Secondary Toggle (Default Off)",
+            description: "Another toggle example — this one defaults to off.",
+            defaultValue: false,
+          },
+        ],
+      },
+      {
+        id: "select-example",
+        title: "Select (Dropdown)",
+        description: "A dropdown menu for choosing one value from a predefined list. Use when there are many options and only one can be selected.",
+        fields: [
+          {
+            type: "select",
+            id: "example-select",
+            label: "Choose a Day of the Month",
+            description: "Dropdown with numeric options. Common for scheduling settings (e.g. 'post on day X').",
+            options: Array.from({ length: 31 }, (_, i) => ({ label: `${i + 1}`, value: `${i + 1}` })),
+            defaultValue: "1",
+          },
+          {
+            type: "select",
+            id: "example-select-text",
+            label: "Choose a Category",
+            description: "Dropdown with text options. Common for classification or grouping settings.",
+            options: [
+              { label: "Conventional", value: "conventional" },
+              { label: "Affordable", value: "affordable" },
+              { label: "Student", value: "student" },
+              { label: "Senior Living", value: "senior" },
+              { label: "Mixed Use", value: "mixed_use" },
+            ],
+            defaultValue: "conventional",
+          },
+        ],
+      },
+      {
+        id: "number-example",
+        title: "Number Input",
+        description: "A numeric input field with optional min/max constraints and a unit suffix. Use for quantities, thresholds, or day counts.",
+        fields: [
+          {
+            type: "number",
+            id: "example-number-days",
+            label: "Number of Days",
+            description: "Numeric input with a 'days' suffix and min/max constraints.",
+            defaultValue: 30,
+            min: 1,
+            max: 365,
+            suffix: "days",
+          },
+          {
+            type: "number",
+            id: "example-number-percentage",
+            label: "Percentage Threshold",
+            description: "Numeric input with a '%' suffix — useful for rate or threshold settings.",
+            defaultValue: 85,
+            min: 0,
+            max: 100,
+            suffix: "%",
+          },
+          {
+            type: "number",
+            id: "example-number-plain",
+            label: "Maximum Retry Count",
+            description: "Plain numeric input with no suffix.",
+            defaultValue: 3,
+            min: 1,
+            max: 10,
+          },
+        ],
+      },
+      {
+        id: "radio-example",
+        title: "Radio Buttons (Single Select)",
+        description: "A set of radio buttons for choosing one option from a short list. Use when there are 2–5 mutually exclusive choices that benefit from being visible at once.",
+        fields: [
+          {
+            type: "radio",
+            id: "example-radio",
+            label: "Assignment Method",
+            description: "Radio group with descriptive option labels. Each option is always visible.",
+            options: [
+              { label: "Manual — Staff manually handles this task", value: "manual" },
+              { label: "Semi-Automated — Agent prepares, staff approves", value: "semi" },
+              { label: "Fully Automated — Agent handles end-to-end", value: "auto" },
+            ],
+            defaultValue: "semi",
+          },
+          {
+            type: "radio",
+            id: "example-radio-simple",
+            label: "Notification Frequency",
+            description: "Radio group with short, simple labels.",
+            options: [
+              { label: "Immediately", value: "immediate" },
+              { label: "Daily digest", value: "daily" },
+              { label: "Weekly summary", value: "weekly" },
+              { label: "Never", value: "never" },
+            ],
+            defaultValue: "daily",
+          },
+        ],
+      },
+      {
+        id: "text-example",
+        title: "Text Input",
+        description: "A single-line text field for freeform short text. Use for names, labels, email addresses, or other short string values.",
+        fields: [
+          {
+            type: "text",
+            id: "example-text",
+            label: "Custom Label",
+            description: "A freeform text input — useful for names, labels, or short identifiers.",
+            defaultValue: "",
+            placeholder: "Enter a custom label…",
+          },
+          {
+            type: "text",
+            id: "example-text-prefilled",
+            label: "Notification Email Address",
+            description: "Text input with a prefilled default value.",
+            defaultValue: "admin@property.com",
+            placeholder: "email@example.com",
+          },
+        ],
+      },
+      {
+        id: "textarea-example",
+        title: "Text Area (Multi-line)",
+        description: "A multi-line text area for longer freeform content. Use for notes, instructions, custom messages, or override text.",
+        fields: [
+          {
+            type: "textarea",
+            id: "example-textarea",
+            label: "Custom Instructions",
+            description: "Multi-line text area for longer content like agent instructions or override messages.",
+            defaultValue: "",
+            placeholder: "Enter custom instructions for this agent…",
+            rows: 4,
+          },
+        ],
+      },
+      {
+        id: "date-example",
+        title: "Date Picker",
+        description: "A native date input for selecting a specific date. Use for deadlines, start dates, or cutoff dates.",
+        fields: [
+          {
+            type: "date",
+            id: "example-date",
+            label: "Effective Start Date",
+            description: "Date picker for selecting when a setting or feature takes effect.",
+            defaultValue: "2026-06-01",
+          },
+          {
+            type: "date",
+            id: "example-date-end",
+            label: "Expiration Date",
+            description: "Date picker for selecting an end or cutoff date.",
+            defaultValue: "",
+          },
+        ],
+      },
+      {
+        id: "checkbox-example",
+        title: "Checkbox (Confirmation / Acknowledgment)",
+        description: "A single checkbox for opt-in confirmations or acknowledgments. Different from a toggle — use when the user is confirming or agreeing to something.",
+        fields: [
+          {
+            type: "checkbox",
+            id: "example-checkbox",
+            label: "I confirm this agent should run unattended",
+            description: "Checkbox for explicit user confirmation or acknowledgment.",
+            defaultValue: false,
+          },
+          {
+            type: "checkbox",
+            id: "example-checkbox-checked",
+            label: "Send email notifications when agent completes a run",
+            description: "Checkbox that defaults to checked.",
+            defaultValue: true,
+          },
+        ],
+      },
+      {
+        id: "multi-select-example",
+        title: "Multi-Select (Checkboxes)",
+        description: "A group of checkboxes allowing multiple selections. Use when users need to pick one or more items from a list.",
+        fields: [
+          {
+            type: "multi-select",
+            id: "example-multi-select",
+            label: "Applicable Charge Types",
+            description: "Multi-select checkbox group — users can select any combination of options.",
+            options: [
+              { label: "Base Rent", value: "base_rent" },
+              { label: "Pet Rent", value: "pet_rent" },
+              { label: "Parking", value: "parking" },
+              { label: "Storage", value: "storage" },
+              { label: "Utilities", value: "utilities" },
+              { label: "Late Fees", value: "late_fees" },
+            ],
+            defaultValue: ["base_rent", "pet_rent"],
+          },
+        ],
+      },
+    ],
+  },
   "Auto Generate Renewal Offers": {
     module: "Renewals · Offer Management",
     headline: "Automate Renewal Offer Generation & Management",
@@ -410,6 +644,8 @@ const L3_PROPERTIES = [
 // Main L3 Agent Sheet component
 // ---------------------------------------------------------------------------
 
+const TEMPLATE_AGENT_NAME = "L2 Bundled Settings Agent Template Example";
+
 export function L3AgentSheet({
   agent,
   open,
@@ -424,10 +660,13 @@ export function L3AgentSheet({
   onVideoClick?: (agentName: string) => void;
 }) {
   const config = L3_AGENT_CONFIGS[agent.name];
+  const isTemplate = agent.name === TEMPLATE_AGENT_NAME;
+  const [introOpen, setIntroOpen] = useState(isTemplate);
+
   if (!config) return null;
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={(v) => { if (!introOpen) onOpenChange(v); }}>
       <SheetContent className="w-full flex flex-col overflow-hidden p-0 sm:max-w-[75vw]">
         <SheetHeader className="sr-only">
           <SheetTitle>{agent.name}</SheetTitle>
@@ -442,6 +681,71 @@ export function L3AgentSheet({
           />
         </div>
       </SheetContent>
+
+      {isTemplate && (
+        <Dialog open={introOpen} onOpenChange={setIntroOpen}>
+          <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col" onPointerDownOutside={(e) => e.preventDefault()}>
+            <DialogHeader>
+              <DialogTitle className="text-lg">L2 Bundled Settings Agent — Template Reference</DialogTitle>
+              <DialogDescription className="sr-only">How to use this template</DialogDescription>
+            </DialogHeader>
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-4 text-sm text-foreground leading-relaxed pr-1">
+              <p>
+                This is <strong>not a real agent</strong> — it is a reusable reference template that demonstrates the standard pattern for building <strong>L2 Bundled Settings Agents</strong> in the Agent Roster.
+              </p>
+
+              <div>
+                <h3 className="font-semibold mb-1">What is an L2 Bundled Settings Agent?</h3>
+                <p className="text-muted-foreground">
+                  Within Entrata, there are fully autonomous workflows and automations that already exist across different modules. An L2 Bundled Settings Agent groups or bundles the related settings for these autonomous flows into a single, consistent experience in the Agent Roster. The purpose of this bundling is to make it easy for users to discover, enable, and configure these autonomous workflows per property — without needing to navigate to multiple places across Entrata. When a user turns on an L2 agent for a property, they are enabling an autonomous flow that runs without manual intervention.
+                </p>
+              </div>
+
+              <div>
+                <h3 className="font-semibold mb-1">Architecture of the flyout</h3>
+                <ul className="list-disc pl-5 space-y-1.5 text-muted-foreground">
+                  <li>
+                    <strong className="text-foreground">Portfolio view</strong> — a property table showing every property with its current status: <em>Agent</em> (automated) or <em>Manual</em> (human-managed). Includes a bulk "Turn on/off all" action.
+                  </li>
+                  <li>
+                    <strong className="text-foreground">Per-property Configure screen</strong> — clicking "Configure" on any property row opens that property's settings. An Agent / Manual toggle at the top controls whether automation is active. Below it, collapsible settings groups contain the individual fields.
+                  </li>
+                </ul>
+              </div>
+
+              <div>
+                <h3 className="font-semibold mb-1">Available setting components</h3>
+                <p className="text-muted-foreground mb-2">
+                  This template showcases every field type available for per-property configuration. Each settings group in the Configure screen demonstrates a different component:
+                </p>
+                <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
+                  <li><strong className="text-foreground">Toggle</strong> — on/off switch for boolean settings</li>
+                  <li><strong className="text-foreground">Select (Dropdown)</strong> — pick one value from a list</li>
+                  <li><strong className="text-foreground">Number Input</strong> — numeric value with optional min/max and suffix</li>
+                  <li><strong className="text-foreground">Radio Buttons</strong> — choose one from a few visible options</li>
+                  <li><strong className="text-foreground">Text Input</strong> — freeform short text</li>
+                  <li><strong className="text-foreground">Text Area</strong> — multi-line freeform content</li>
+                  <li><strong className="text-foreground">Date Picker</strong> — select a specific date</li>
+                  <li><strong className="text-foreground">Checkbox</strong> — confirmation or opt-in acknowledgment</li>
+                  <li><strong className="text-foreground">Multi-Select (Checkboxes)</strong> — pick multiple items from a list</li>
+                </ul>
+              </div>
+
+              <div>
+                <h3 className="font-semibold mb-1">How teams should use this</h3>
+                <p className="text-muted-foreground">
+                  Each product team that builds a new L2 agent owns the settings displayed on the Configure screen. Those settings should be <strong>pulled from and synced with</strong> wherever they already exist in Entrata — the Agent Roster is a surface for configuration, not the source of truth. Teams define their settings groups and fields in the agent config registry, and the shared flyout framework handles rendering, per-property state, and the Agent/Manual toggle automatically.
+                </p>
+              </div>
+            </div>
+            <DialogFooter className="shrink-0 pt-4 border-t border-border mt-2">
+              <Button onClick={() => setIntroOpen(false)}>
+                Explore the template
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </Sheet>
   );
 }
@@ -514,7 +818,7 @@ function L3AgentFlyoutContent({
               <div className="flex items-center gap-2.5 flex-wrap">
                 <h1 className="text-lg font-bold text-foreground">{agent.name}</h1>
                 <span className="rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                  L3 · Processing at Scale
+                  L2 · Operational Efficiency
                 </span>
                 <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${isActive ? "bg-[#B3FFCC] text-black" : "bg-zinc-200 text-zinc-500"}`}>
                   {isActive ? "Active" : "Off"}
@@ -663,28 +967,30 @@ function L3AgentFlyoutContent({
           </div>
         </div>
 
-        {/* Bulk Action */}
-        <div className="rounded-xl border border-border bg-muted/30 p-5">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">All Properties</h3>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {allActive
-                  ? "This agent is currently active on all properties. Turn off to disable across your entire portfolio."
-                  : "Enable this agent across all properties at once."}
-              </p>
+        {/* Bulk Action — hidden for template agent */}
+        {agent.name !== TEMPLATE_AGENT_NAME && (
+          <div className="rounded-xl border border-border bg-muted/30 p-5">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">All Properties</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {allActive
+                    ? "This agent is currently active on all properties. Turn off to disable across your entire portfolio."
+                    : "Enable this agent across all properties at once."}
+                </p>
+              </div>
+              <Button
+                variant={allActive ? "destructive" : "default"}
+                size="sm"
+                className="shrink-0 gap-1.5"
+                onClick={() => setShowTurnOnAllConfirm(true)}
+              >
+                <Power className="h-3.5 w-3.5" />
+                {allActive ? "Turn off all" : "Turn on all"}
+              </Button>
             </div>
-            <Button
-              variant={allActive ? "destructive" : "default"}
-              size="sm"
-              className="shrink-0 gap-1.5"
-              onClick={() => setShowTurnOnAllConfirm(true)}
-            >
-              <Power className="h-3.5 w-3.5" />
-              {allActive ? "Turn off all" : "Turn on all"}
-            </Button>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Bulk confirm dialog */}
@@ -739,8 +1045,8 @@ function PropertySettingsView({
   initialActive?: boolean;
 }) {
   const [agentEnabled, setAgentEnabled] = useState(initialActive);
-  const [values, setValues] = useState<Record<string, string | number | boolean>>(() => {
-    const init: Record<string, string | number | boolean> = {};
+  const [values, setValues] = useState<Record<string, string | number | boolean | string[]>>(() => {
+    const init: Record<string, string | number | boolean | string[]> = {};
     config.settingsGroups.forEach((group) => {
       group.fields.forEach((field) => {
         init[field.id] = field.defaultValue;
@@ -762,7 +1068,7 @@ function PropertySettingsView({
     });
   };
 
-  const updateValue = (id: string, value: string | number | boolean) => {
+  const updateValue = (id: string, value: string | number | boolean | string[]) => {
     setValues((prev) => ({ ...prev, [id]: value }));
   };
 
@@ -905,8 +1211,8 @@ function SettingFieldRenderer({
   onChange,
 }: {
   field: SettingField;
-  value: string | number | boolean;
-  onChange: (value: string | number | boolean) => void;
+  value: string | number | boolean | string[];
+  onChange: (value: string | number | boolean | string[]) => void;
 }) {
   switch (field.type) {
     case "toggle":
@@ -984,6 +1290,97 @@ function SettingFieldRenderer({
           </div>
         </div>
       );
+
+    case "text":
+      return (
+        <div>
+          <p className="text-sm font-medium text-foreground">{field.label}</p>
+          {field.description && <p className="text-xs text-muted-foreground mt-0.5 mb-2">{field.description}</p>}
+          <input
+            type="text"
+            value={value as string}
+            placeholder={field.placeholder}
+            onChange={(e) => onChange(e.target.value)}
+            className="h-9 w-full max-w-md rounded-lg border border-border bg-white px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-zinc-300"
+          />
+        </div>
+      );
+
+    case "textarea":
+      return (
+        <div>
+          <p className="text-sm font-medium text-foreground">{field.label}</p>
+          {field.description && <p className="text-xs text-muted-foreground mt-0.5 mb-2">{field.description}</p>}
+          <textarea
+            value={value as string}
+            placeholder={field.placeholder}
+            rows={field.rows ?? 3}
+            onChange={(e) => onChange(e.target.value)}
+            className="w-full max-w-md rounded-lg border border-border bg-white px-3 py-2 text-sm text-foreground resize-y focus:outline-none focus:ring-2 focus:ring-zinc-300"
+          />
+        </div>
+      );
+
+    case "date":
+      return (
+        <div>
+          <p className="text-sm font-medium text-foreground">{field.label}</p>
+          {field.description && <p className="text-xs text-muted-foreground mt-0.5 mb-2">{field.description}</p>}
+          <input
+            type="date"
+            value={value as string}
+            onChange={(e) => onChange(e.target.value)}
+            className="h-9 w-full max-w-[12rem] rounded-lg border border-border bg-white px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-zinc-300"
+          />
+        </div>
+      );
+
+    case "checkbox":
+      return (
+        <label className="flex items-start gap-3 cursor-pointer group">
+          <input
+            type="checkbox"
+            checked={value as boolean}
+            onChange={(e) => onChange(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-zinc-900"
+          />
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-foreground group-hover:text-foreground/80">{field.label}</p>
+            {field.description && <p className="text-xs text-muted-foreground mt-0.5">{field.description}</p>}
+          </div>
+        </label>
+      );
+
+    case "multi-select": {
+      const selected = Array.isArray(value) ? value as string[] : [];
+      return (
+        <div>
+          <p className="text-sm font-medium text-foreground">{field.label}</p>
+          {field.description && <p className="text-xs text-muted-foreground mt-0.5 mb-2.5">{field.description}</p>}
+          <div className="space-y-2">
+            {field.options.map((opt) => {
+              const isChecked = selected.includes(opt.value);
+              return (
+                <label key={opt.value} className="flex items-center gap-2.5 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => {
+                      const next = isChecked
+                        ? selected.filter((v) => v !== opt.value)
+                        : [...selected, opt.value];
+                      onChange(next);
+                    }}
+                    className="h-4 w-4 shrink-0 rounded border-border accent-zinc-900"
+                  />
+                  <span className="text-sm text-foreground group-hover:text-foreground/80">{opt.label}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
 
     default:
       return null;
