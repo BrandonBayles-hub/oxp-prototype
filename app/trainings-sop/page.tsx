@@ -8,7 +8,6 @@ import {
   FileText, FilePlus, FolderOpen, FolderPlus, Pencil, Send, CheckCircle, Upload, Building2,
   Search, Clock, AlertTriangle, ChevronRight, X, CornerDownRight, BookOpen, Plus, MoreHorizontal, MoreVertical, Trash2, Link2, Blocks, Download, Loader2
 } from "lucide-react";
-import { PageHeader } from "@/components/page-header";
 import {
   useVault,
   COMPLIANCE_ITEMS,
@@ -44,12 +43,24 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { AcademyTab } from "./academy/AcademyTab";
+import { AcademyDemoControls } from "./academy/AcademyDemoControls";
 
 /** Library filter values; `pending_review` matches both `review` and `needs_review`. */
 const APPROVAL_FILTERS = ["All", "pending_review", "approved"] as const;
 const PROPERTIES = ["All", "Portfolio", "Hillside Living", "Jamison Apartments", "Property C"];
 
 const TRAIN_SOP_METRICS_STORAGE_KEY = "janet-poc-trainings-sop-metrics-prev";
+
+// localStorage key for the selected sub-tab pill (Trainings vs SOPs).
+// We persist this because the Academy demo user-switcher inside the
+// Trainings tab triggers a window.location.reload() to apply the new
+// persona, and we want the user to land back on the same pill they
+// started from — not on the default "sops" tab. Mirrors the source-
+// persistence pattern in app/admin-insights/page.tsx.
+const PAGE_TAB_PREF_KEY = "trainings-sop-page-tab";
+type PageTab = "sops" | "trainings";
+const isValidPageTab = (v: unknown): v is PageTab => v === "sops" || v === "trainings";
 
 type TrainSopMetricsSnapshot = {
   docCount: number;
@@ -160,7 +171,36 @@ function TrainingsSopContent() {
   const { agents } = useAgents();
   const { members: workforceMembers, humanMembers } = useWorkforce();
 
-  const [pageTab, setPageTab] = useState<"sops" | "trainings">("sops");
+  // We initialize from the default "sops" on the SSR/static-export pass
+  // (no localStorage available), then sync to the saved selection in a
+  // mount-only useEffect once the client hydrates. This avoids hydration
+  // mismatch warnings while still restoring the correct pill after a
+  // reload caused by the Academy demo user-switcher.
+  const [pageTab, setPageTabRaw] = useState<PageTab>("sops");
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const saved = window.localStorage.getItem(PAGE_TAB_PREF_KEY);
+      if (isValidPageTab(saved) && saved !== pageTab) setPageTabRaw(saved);
+    } catch {
+      /* localStorage unavailable; keep default. Non-fatal for the demo. */
+    }
+    // Mount-only: do not depend on `pageTab` (would re-sync repeatedly).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // setPageTab is the public setter — persists the new value as a side
+  // effect so a reload (e.g. from the Academy demo user-switcher) lands
+  // the user back on the same pill.
+  const setPageTab = useCallback((next: PageTab) => {
+    setPageTabRaw(next);
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem(PAGE_TAB_PREF_KEY, next);
+      } catch {
+        /* non-fatal */
+      }
+    }
+  }, []);
   const [activeTab, setActiveTab] = useState<"compliance" | "library" | "activity">("library");
   const [search, setSearch] = useState("");
   const [activitySearch, setActivitySearch] = useState("");
@@ -692,55 +732,58 @@ function TrainingsSopContent() {
           </div>
         </header>
       ) : (
-        <>
-          <div className="-mt-2 mb-3 flex justify-center py-2">
-            <div className="inline-flex items-center rounded-lg border border-border bg-muted/40 p-1">
-              <button
-                type="button"
-                onClick={() => setPageTab("trainings")}
-                className={cn(
-                  "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                  pageTab === "trainings"
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                Trainings
-              </button>
-              <button
-                type="button"
-                onClick={() => setPageTab("sops")}
-                className={cn(
-                  "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                  pageTab === "sops"
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                SOPs
-              </button>
-            </div>
+        // Pill toggle row is `relative` so AcademyDemoControls (rendered only
+        // on the Trainings tab) can absolute-position itself to the right
+        // edge while the pill stays visually centered. The "Trainings & SOP"
+        // PageHeader + description that used to sit below this row was
+        // removed per the PM's "superfluous" call — the pill toggle already
+        // provides the section context, and the host sidebar's "Trainings &
+        // SOP" entry shows where in OXP you are.
+        <div className="relative -mt-2 mb-3 flex items-center justify-center py-2">
+          <div className="inline-flex items-center rounded-lg border border-border bg-muted/40 p-1">
+            <button
+              type="button"
+              onClick={() => setPageTab("trainings")}
+              className={cn(
+                "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                pageTab === "trainings"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Trainings
+            </button>
+            <button
+              type="button"
+              onClick={() => setPageTab("sops")}
+              className={cn(
+                "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                pageTab === "sops"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              SOPs
+            </button>
           </div>
-          <PageHeader
-            title="Trainings & SOP"
-            description="Your single source for SOPs and operational documents. Upload or add from Entrata to train and ground agents; tag for compliance. SOPs drive how your team and AI operate."
-          />
-        </>
+          {pageTab === "trainings" && !currentFolder && (
+            <div className="absolute right-0 top-1/2 -translate-y-1/2">
+              <AcademyDemoControls />
+            </div>
+          )}
+        </div>
       )}
 
+      {/* Trainings tab content = the full Entrata Academy app, embedded under
+          the OXP Studio shell. AcademyTab handles its own auto-login (no
+          Sign-In screen), CSS scoping, and chrome suppression — see
+          ./academy/AcademyTab.tsx for the full rationale. The host's tabs
+          (Trainings / SOPs) take over the routing that Academy's own
+          mode-switcher used to do, so we always show the "Training" surface
+          here and never show Academy's "SOPs" view (that would shadow the
+          real SOP Vault on the other tab). */}
       {pageTab === "trainings" && !currentFolder && (
-        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 py-20 text-center">
-          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-muted">
-            <BookOpen className="h-7 w-7 text-muted-foreground" />
-          </div>
-          <h3 className="text-lg font-semibold text-foreground">Trainings</h3>
-          <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-            Create and manage training programs for your team and AI agents. Assign documents, track completion, and ensure everyone is up to date.
-          </p>
-          <span className="mt-4 rounded-full border border-border bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
-            Coming Soon
-          </span>
-        </div>
+        <AcademyTab />
       )}
 
       {pageTab === "sops" && (

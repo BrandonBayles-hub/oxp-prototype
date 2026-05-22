@@ -1,0 +1,495 @@
+
+
+.academy-deploy-root .tai-root {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.academy-deploy-root .tai-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.academy-deploy-root .tai-toolbar-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.academy-deploy-root .tai-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 960px) {
+  .academy-deploy-root .tai-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.academy-deploy-root .tai-chat-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  min-height: 420px;
+  display: flex;
+  flex-direction: column;
+}
+
+.academy-deploy-root .tai-chat-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-light);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.academy-deploy-root .tai-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: min(55vh, 520px);
+}
+
+.academy-deploy-root .tai-bubble {
+  max-width: 88%;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.academy-deploy-root .tai-bubble-prospect {
+  align-self: flex-start;
+  background: var(--bg-muted, #f8f9fa);
+  border: 1px solid var(--border);
+}
+
+.academy-deploy-root .tai-bubble-trainee {
+  align-self: flex-end;
+  background: var(--blue-50, #eff6ff);
+  border: 1px solid var(--blue-100, #dbeafe);
+}
+
+.academy-deploy-root .tai-bubble-role {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.academy-deploy-root .tai-input-row {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-light);
+  align-items: flex-end;
+}
+
+.academy-deploy-root .tai-input-wrap {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+}
+
+.academy-deploy-root .tai-input-wrap textarea {
+  flex: 1;
+  min-height: 44px;
+  resize: vertical;
+  padding: 8px 38px 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.academy-deploy-root .tai-mic-btn {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: var(--bg-secondary, #f3f4f6);
+  color: var(--text-secondary, #6b7280);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.academy-deploy-root .tai-mic-btn:hover {
+  background: var(--bg-hover, #e5e7eb);
+  color: var(--text-primary, #111827);
+}
+
+.academy-deploy-root .tai-mic-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.academy-deploy-root .tai-mic-active {
+  background: #fef2f2;
+  color: #ef4444;
+  animation: tai-mic-pulse 1.5s ease-in-out infinite;
+}
+
+.academy-deploy-root .tai-mic-active:hover {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+@keyframes tai-mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.3); }
+  50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+}
+
+.academy-deploy-root .tai-typing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 8px 0;
+}
+
+.academy-deploy-root .tai-typing-dots {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.academy-deploy-root .tai-typing-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: tai-dot 1.2s ease-in-out infinite;
+}
+.academy-deploy-root .tai-typing-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.academy-deploy-root .tai-typing-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes tai-dot {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.academy-deploy-root .tai-sidebar {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: 12px;
+  position: sticky;
+  top: 12px;
+}
+
+.academy-deploy-root .tai-sidebar.pulse {
+  animation: tai-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes tai-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+  }
+}
+
+.academy-deploy-root .tai-persona {
+  padding: 10px;
+  background: var(--bg-muted, #f8f9fa);
+  border-radius: var(--radius-md);
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.academy-deploy-root .tai-persona h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.academy-deploy-root .tai-skill-bar {
+  margin-bottom: 8px;
+}
+
+.academy-deploy-root .tai-skill-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  margin-bottom: 2px;
+  text-transform: capitalize;
+}
+
+.academy-deploy-root .tai-skill-track {
+  height: 8px;
+  background: var(--border-light);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.academy-deploy-root .tai-skill-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.35s ease, background 0.35s ease;
+}
+
+.academy-deploy-root .tai-skill-bar.weak .tai-skill-fill {
+  background: var(--red-600, #dc2626);
+}
+.academy-deploy-root .tai-skill-bar.mid .tai-skill-fill {
+  background: var(--amber-600, #d97706);
+}
+.academy-deploy-root .tai-skill-bar.strong .tai-skill-fill {
+  background: var(--green-600, #16a34a);
+}
+
+.academy-deploy-root .tai-coach-note {
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--purple-100, #ede9fe);
+  background: var(--purple-50, #f5f3ff);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.academy-deploy-root .tai-coach-note strong {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--purple-600, #7c3aed);
+  margin-bottom: 4px;
+}
+
+.academy-deploy-root .tai-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+
+.academy-deploy-root .tai-complete-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.academy-deploy-root .tai-complete-card {
+  width: 100%;
+  max-width: 640px;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+}
+
+.academy-deploy-root .tai-readiness {
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.academy-deploy-root .tai-readiness.not_ready {
+  background: var(--red-100);
+  color: var(--red-600);
+}
+.academy-deploy-root .tai-readiness.needs_work {
+  background: var(--amber-100);
+  color: var(--amber-600);
+}
+.academy-deploy-root .tai-readiness.ready {
+  background: var(--green-100);
+  color: var(--green-700);
+}
+.academy-deploy-root .tai-readiness.exceptional {
+  background: var(--blue-100);
+  color: var(--blue-600);
+}
+
+.academy-deploy-root .tai-table-wrap {
+  overflow-x: auto;
+}
+.academy-deploy-root .tai-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.academy-deploy-root .tai-table th, .academy-deploy-root .tai-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-light);
+  text-align: left;
+}
+.academy-deploy-root .tai-table thead {
+  background: var(--bg-muted, #f8f9fa);
+}
+
+.academy-deploy-root .tai-setup-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+.academy-deploy-root .tai-setup-row select {
+  min-width: 220px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+
+.academy-deploy-root .tai-sim-type-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 10px 16px;
+  border: 2px solid var(--border-light, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-card, #fff);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  min-width: 180px;
+}
+.academy-deploy-root .tai-sim-type-btn:hover {
+  border-color: var(--accent, #3b82f6);
+  background: var(--bg-muted, #f8f9fa);
+}
+.academy-deploy-root .tai-sim-type-active {
+  border-color: var(--accent, #3b82f6);
+  background: var(--accent-bg, #eff6ff);
+}
+
+
+.academy-deploy-root .tai-guidelines { margin-top: 4px; }
+.academy-deploy-root .tai-guidelines-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.academy-deploy-root .tai-guidelines-list { display: flex; flex-direction: column; gap: 8px; }
+.academy-deploy-root .tai-guideline-card {
+  padding: 12px 14px;
+  border: 1px solid var(--border-light, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-card, #fff);
+}
+.academy-deploy-root .tai-guideline-inactive { opacity: 0.5; }
+.academy-deploy-root .tai-guideline-top { display: flex; gap: 12px; align-items: flex-start; }
+.academy-deploy-root .tai-guideline-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+.academy-deploy-root .tai-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.academy-deploy-root .tai-badge-required { background: #fef2f2; color: #dc2626; }
+.academy-deploy-root .tai-badge-preferred { background: #fffbeb; color: #d97706; }
+.academy-deploy-root .tai-badge-cat { background: #f0f9ff; color: #0369a1; }
+.academy-deploy-root .tai-badge-sim { background: #f5f3ff; color: #7c3aed; }
+
+.academy-deploy-root .tai-empty-guidelines {
+  text-align: center;
+  padding: 40px 16px;
+  border: 2px dashed var(--border-light, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+}
+
+.academy-deploy-root .tai-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.academy-deploy-root .tai-form-field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.academy-deploy-root .tai-form-field input, .academy-deploy-root .tai-form-field select, .academy-deploy-root .tai-form-field textarea {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border, #d1d5db);
+  border-radius: var(--radius-sm, 6px);
+  font-size: 14px;
+  font-family: inherit;
+}
+.academy-deploy-root .tai-form-field textarea { resize: vertical; }
+
+.academy-deploy-root .tai-example-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.academy-deploy-root .tai-example-row input { flex: 1; padding: 5px 8px; border: 1px solid var(--border-light, #e2e8f0); border-radius: 4px; font-size: 13px; }
+.academy-deploy-root .btn-ghost { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 16px; padding: 2px 6px; }
+.academy-deploy-root .btn-danger { color: #dc2626; }
+
+
+.academy-deploy-root .tai-brand-compliance {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg-muted, #f8f9fa);
+  border: 1px solid var(--border-light, #e2e8f0);
+}
+.academy-deploy-root .tai-brand-violations {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+.academy-deploy-root .tai-compliance-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 12px;
+}
+.academy-deploy-root .tai-compliance-icon {
+  font-weight: 700;
+  font-size: 13px;
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+}
+.academy-deploy-root .tai-compliance-pass .tai-compliance-icon { color: #16a34a; }
+.academy-deploy-root .tai-compliance-fail .tai-compliance-icon { color: #dc2626; }
+.academy-deploy-root .tai-compliance-na .tai-compliance-icon { color: #9ca3af; }
