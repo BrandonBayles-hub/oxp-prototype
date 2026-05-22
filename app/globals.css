@@ -185,3 +185,62 @@
     display: none !important;
   }
 }
+
+/* Entrata Marketplace styles — scoped to .marketplace-root so they
+   never leak into OXP Studio surfaces. */
+.marketplace-root {
+  --entrata: 358 73% 51%;
+  --entrata-foreground: 0 0% 100%;
+
+  --warm-light: 0 0% 96.1%;
+  --warm-mid: 0 0% 64%;
+  --warm-dark: 0 0% 32.2%;
+
+  --success: 152 81% 96%;
+  --success-foreground: 161 94% 24%;
+  --info: 214 100% 97%;
+  --info-foreground: 224 76% 48%;
+  --premium: 250 100% 98%;
+  --premium-foreground: 263 70% 50%;
+  --warning: 48 100% 96%;
+  --warning-foreground: 32 95% 36%;
+  --featured: 45 96% 89%;
+  --featured-foreground: 32 81% 29%;
+  --featured-ring: 32 81% 29%;
+  --tier-strategic: 45 96% 89%;
+  --tier-strategic-foreground: 32 81% 29%;
+  --tier-preferred: 214 95% 93%;
+  --tier-preferred-foreground: 226 71% 40%;
+
+  font-family: var(--font-geist-sans, Inter), system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.marketplace-root ::selection {
+  background: hsl(var(--entrata));
+  color: hsl(var(--entrata-foreground));
+}
+.marketplace-root .glass {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.marketplace-root .noise::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  pointer-events: none;
+}
+.marketplace-root .grid-pattern {
+  background-image:
+    linear-gradient(rgba(255,255,255,.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.03) 1px, transparent 1px);
+  background-size: 64px 64px;
+}
+.marketplace-root .card-glow {
+  transition: all 0.3s ease;
+}
+.marketplace-root .card-glow:hover {
+  box-shadow: 0 0 0 1px rgba(228, 33, 39, 0.1), 0 8px 40px -12px rgba(0, 0, 0, 0.15);
+}

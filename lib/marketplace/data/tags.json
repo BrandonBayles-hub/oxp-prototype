@@ -1,0 +1,212 @@
+[
+  {
+    "id": "cmph3ar5h001sj94zbojkwrf7",
+    "name": "AXP",
+    "slug": "axp",
+    "type": "PLATFORM"
+  },
+  {
+    "id": "cmph3ar5j001yj94zbzo9o1kp",
+    "name": "Accelerate Leasing",
+    "slug": "accelerate-leasing",
+    "type": "USE_CASE"
+  },
+  {
+    "id": "cmph3ar590019j94zvvvq4t9c",
+    "name": "Accounting",
+    "slug": "accounting",
+    "type": "DOMAIN"
+  },
+  {
+    "id": "cmph3ar5c001hj94z2disofrn",
+    "name": "Affordable",
+    "slug": "affordable",
+    "type": "DOMAIN"
+  },
+  {
+    "id": "cmph3ar5l0021j94znsuze3fx",
+    "name": "Automate Compliance",
+    "slug": "automate-compliance",
+    "type": "USE_CASE"
+  },
+  {
+    "id": "cmph3ar5d001ij94z6mjknw5g",
+    "name": "Commercial",
+    "slug": "commercial",
+    "type": "DOMAIN"
+  },
+  {
+    "id": "cmph3ar5a001cj94zcskdj0u5",
+    "name": "Compliance",
+    "slug": "compliance",
+    "type": "DOMAIN"
+  },
+  {
+    "id": "cmph3ar5f001pj94zllwmj7rm",
+    "name": "Core PMS",
+    "slug": "core-pms",
+    "type": "PLATFORM"
+  },
+  {
+    "id": "cmph3ar5m0023j94zlz4reahi",
+    "name": "Enhance Resident Experience",
+    "slug": "enhance-resident-experience",
+    "type": "USE_CASE"
+  },
+  {
+    "id": "cmph3ar5i001vj94zbsh5zad1",
+    "name": "Fair Housing",
+    "slug": "fair-housing",
+    "type": "CERTIFICATION"
+  },
+  {
+    "id": "cmph3ar5i001wj94zk6j997ee",
+    "name": "HIPAA",
+    "slug": "hipaa",
+    "type": "CERTIFICATION"
+  },
+  {
+    "id": "cmph3ar5n0024j94zdlkwb27u",
+    "name": "Improve Data Visibility",
+    "slug": "improve-data-visibility",
+    "type": "USE_CASE"
+  },
+  {
+    "id": "cmph3ar5k001zj94zn0tc3s66",
+    "name": "Improve Resident Retention",
+    "slug": "improve-resident-retention",
+    "type": "USE_CASE"
+  },
+  {
+    "id": "cmph3ar580018j94zql780etn",
+    "name": "Leasing",
+    "slug": "leasing",
+    "type": "DOMAIN"
+  },
+  {
+    "id": "cmph3ar59001aj94z426u1ivw",
+    "name": "Maintenance",
+    "slug": "maintenance",
+    "type": "DOMAIN"
+  },
+  {
+    "id": "cmph3ar5b001fj94ztr2iyn3h",
+    "name": "Marketing",
+    "slug": "marketing",
+    "type": "DOMAIN"
+  },
+  {
+    "id": "cmph3ar5g001qj94zpiprjd64",
+    "name": "OXP",
+    "slug": "oxp",
+    "type": "PLATFORM"
+  },
+  {
+    "id": "cmph3ar5n0025j94zp39oq6b0",
+    "name": "Optimize Revenue",
+    "slug": "optimize-revenue",
+    "type": "USE_CASE"
+  },
+  {
+    "id": "cmph3ar5h001uj94zi58jw206",
+    "name": "PCI-DSS",
+    "slug": "pci-dss",
+    "type": "CERTIFICATION"
+  },
+  {
+    "id": "cmph3ar5c001gj94zunkhuvf3",
+    "name": "Payments",
+    "slug": "payments",
+    "type": "DOMAIN"
+  },
+  {
+    "id": "cmph3ar5b001ej94zgwhcqsvm",
+    "name": "Portfolio",
+    "slug": "portfolio",
+    "type": "DOMAIN"
+  },
+  {
+    "id": "cmph3ar5g001rj94z2t9g2fjt",
+    "name": "RXP",
+    "slug": "rxp",
+    "type": "PLATFORM"
+  },
+  {
+    "id": "cmph3ar5j001xj94zynaezz4h",
+    "name": "Reduce Delinquency",
+    "slug": "reduce-delinquency",
+    "type": "USE_CASE"
+  },
+  {
+    "id": "cmph3ar5m0022j94zursu7hso",
+    "name": "Reduce Operational Costs",
+    "slug": "reduce-operational-costs",
+    "type": "USE_CASE"
+  },
+  {
+    "id": "cmph3ar59001bj94z0u11jddg",
+    "name": "Renewals",
+    "slug": "renewals",
+    "type": "DOMAIN"
+  },
+  {
+    "id": "cmph3ar5e001lj94zfw2dc4dt",
+    "name": "Reporting",
+    "slug": "reporting",
+    "type": "DOMAIN"
+  },
+  {
+    "id": "cmph3ar5a001dj94z4aa31fro",
+    "name": "Resident",
+    "slug": "resident",
+    "type": "DOMAIN"
+  },
+  {
+    "id": "cmph3ar5d001jj94z7r89f55w",
+    "name": "Resident Experience",
+    "slug": "resident-experience",
+    "type": "DOMAIN"
+  },
+  {
+    "id": "cmph3ar5e001mj94z9go9jgoq",
+    "name": "Revenue Intelligence",
+    "slug": "revenue-intelligence",
+    "type": "DOMAIN"
+  },
+  {
+    "id": "cmph3ar5h001tj94zp67772qz",
+    "name": "SOC 2",
+    "slug": "soc2",
+    "type": "CERTIFICATION"
+  },
+  {
+    "id": "cmph3ar5d001kj94zx5lta30z",
+    "name": "Setup & Config",
+    "slug": "setup-config",
+    "type": "DOMAIN"
+  },
+  {
+    "id": "cmph3ar5n0026j94zezlb36xo",
+    "name": "Simplify Onboarding",
+    "slug": "simplify-onboarding",
+    "type": "USE_CASE"
+  },
+  {
+    "id": "cmph3ar5l0020j94zjbz12be3",
+    "name": "Streamline Maintenance",
+    "slug": "streamline-maintenance",
+    "type": "USE_CASE"
+  },
+  {
+    "id": "cmph3ar5f001nj94z2wt6j3kt",
+    "name": "Student",
+    "slug": "student",
+    "type": "DOMAIN"
+  },
+  {
+    "id": "cmph3ar5f001oj94ztd0ri4xq",
+    "name": "Utilities",
+    "slug": "utilities",
+    "type": "DOMAIN"
+  }
+]
