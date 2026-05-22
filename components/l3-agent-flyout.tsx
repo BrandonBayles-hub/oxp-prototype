@@ -705,10 +705,10 @@ export function L3AgentSheet({
                 <h3 className="font-semibold mb-1">Architecture of the flyout</h3>
                 <ul className="list-disc pl-5 space-y-1.5 text-muted-foreground">
                   <li>
-                    <strong className="text-foreground">Portfolio view</strong> — a property table showing every property with its current status: <em>Agent</em> (automated) or <em>Manual</em> (human-managed). Includes a bulk "Turn on/off all" action.
+                    <strong className="text-foreground">Portfolio view</strong> — a property table showing every property with its current status: <em>Agent</em> (automated) or <em>Manual</em> (human-managed). Includes a bulk {"\u201C"}Turn on/off all{"\u201D"} action.
                   </li>
                   <li>
-                    <strong className="text-foreground">Per-property Configure screen</strong> — clicking "Configure" on any property row opens that property's settings. An Agent / Manual toggle at the top controls whether automation is active. Below it, collapsible settings groups contain the individual fields.
+                    <strong className="text-foreground">Per-property Configure screen</strong> — clicking {"\u201C"}Configure{"\u201D"} on any property row opens that property{"\u2019"}s settings. An Agent / Manual toggle at the top controls whether automation is active. Below it, collapsible settings groups contain the individual fields.
                   </li>
                 </ul>
               </div>
