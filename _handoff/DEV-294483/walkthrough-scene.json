@@ -1,0 +1,62 @@
+{
+  "title": "Post Recurring Charges — L3 Agent",
+  "url": "http://localhost:3000/agent-roster",
+  "baseUrl": "http://localhost:3000",
+  "viewport": { "width": 1920, "height": 1080 },
+  "output": "/Users/rjones/Desktop/vhosts/Developer/entrata-product/oxp-prototype-product/_handoff/DEV-294483/docs/walkthrough.webm",
+  "showWorkspaceChrome": true,
+  "recordingStartDelay": 2000,
+  "domReady": {
+    "skipDefaults": true,
+    "selector": "button[type='button']"
+  },
+  "scenes": [
+    {
+      "name": "Agent Roster Overview",
+      "narration": "The Agent Roster in OXP displays all registered agents organized by level and category. The Post Recurring Charges agent appears under Revenue and Financial Management with the badge L3 Processing at Scale and an Active status.",
+      "highlight": { "text": "Automatically posts recurring charges on your configured schedule each month" },
+      "actions": [
+        { "scrollTo": { "text": "Automatically posts recurring charges on your configured schedule each month" } },
+        { "wait": 4000 }
+      ]
+    },
+    {
+      "name": "Opening the L3 Flyout",
+      "narration": "Clicking the agent opens the L3 Agent Sheet from the right side of the screen. The flyout header shows the agent name, the L3 Processing at Scale badge, and the module tag Accounting Charges. A description card titled Automate Recurring Charge Posting explains what this automation does. Below, action links offer a video walkthrough and a direct link to the Accounting module in Entrata.",
+      "actions": [
+        { "click": { "text": "Automatically posts recurring charges on your configured schedule each month" }, "afterMs": 3000 },
+        { "wait": 5000 }
+      ]
+    },
+    {
+      "name": "Property Configuration Table",
+      "narration": "The Property Configuration section displays a table of all permissioned properties. Each row shows the property name, vertical type, unit count, and whether the agent is set to Agent mode with the purple ELI cube or Manual mode with a person icon. A search bar filters properties by name, and a Configure button on each row opens that property's individual settings.",
+      "actions": [
+        { "wait": 5000 }
+      ]
+    },
+    {
+      "name": "Drilling into Property Settings",
+      "narration": "Clicking Configure on Harvest Peak Capital opens the Property Settings View. The header shows the property name, a Conventional vertical tag, and 312 units. An Agent Manual toggle controls whether this property uses automated or manual posting. Below it, the Recurring Charge Posting settings group exposes one user-facing setting: What day do you want charges to auto post each month, with a dropdown offering Day 1 through Day 31.",
+      "actions": [
+        { "click": { "role": "button", "name": "Configure" }, "afterMs": 2500 },
+        { "wait": 5000 }
+      ]
+    },
+    {
+      "name": "Derived Settings Display",
+      "narration": "Below the user-facing settings, a dashed-border panel shows the Derived Settings auto-configured heading. Two rows display: Post charges through day 31 and Of the Current Month. This demonstrates how the system automatically determines the posting window based on the selected day. Each property can be independently configured to match local scheduling preferences.",
+      "actions": [
+        { "scrollTo": { "text": "Derived Settings" } },
+        { "wait": 5000 }
+      ]
+    },
+    {
+      "name": "Save and Close",
+      "narration": "After configuring settings, the operator saves changes and returns to the property table. This completes the walkthrough of the Post Recurring Charges L3 agent, showing how operators can manage recurring charge automation across their entire portfolio from a single centralized interface.",
+      "actions": [
+        { "wait": 5000 }
+      ]
+    }
+  ]
+}

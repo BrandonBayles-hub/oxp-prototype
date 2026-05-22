@@ -38,6 +38,8 @@ export type L3AgentConfig = {
   headline: string;
   description: string;
   settingsGroups: L3SettingsGroup[];
+  hideVideo?: boolean;
+  hideEntrataLink?: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -45,30 +47,25 @@ export type L3AgentConfig = {
 // ---------------------------------------------------------------------------
 
 const L3_AGENT_CONFIGS: Record<string, L3AgentConfig> = {
-  "Auto Post Recurring Charges": {
+  "Post Recurring Charges": {
     module: "Accounting · Charges",
     headline: "Automate Recurring Charge Posting",
     description:
       "This agent automatically posts recurring charges on your configured schedule each month — eliminating the need for manual charge posting across your entire portfolio.",
+    hideVideo: true,
+    hideEntrataLink: true,
     settingsGroups: [
       {
         id: "recurring-charges",
         title: "Recurring Charge Posting",
-        description: "Configure how and when recurring charges are automatically posted each month.",
+        description: "Configure how and when recurring charges are automatically posted each month. The posting window is auto-configured based on your selected day.",
         fields: [
-          {
-            type: "toggle",
-            id: "auto-post-enabled",
-            label: "Automatically Post Recurring Charges",
-            description: "When enabled, the agent will post all recurring charges on the configured day each month.",
-            defaultValue: true,
-          },
           {
             type: "select",
             id: "auto-post-day",
-            label: "Auto Post Day",
-            description: "The day of the month recurring charges will be automatically posted.",
-            options: Array.from({ length: 31 }, (_, i) => ({ label: `${i + 1}`, value: `${i + 1}` })),
+            label: "What day do you want charges to auto post each month?",
+            description: "Select the day of the month when recurring charges will be automatically posted.",
+            options: Array.from({ length: 31 }, (_, i) => ({ label: `Day ${i + 1}`, value: `${i + 1}` })),
             defaultValue: "1",
           },
         ],
@@ -550,8 +547,8 @@ function L3AgentFlyoutContent({
           <p className="text-sm text-muted-foreground leading-relaxed">{config.description}</p>
         </div>
 
-        {/* Video walkthrough */}
-        {onVideoClick && (
+        {/* Video walkthrough — hidden when config.hideVideo is set */}
+        {onVideoClick && !config.hideVideo && (
           <button
             type="button"
             className="flex w-full items-center gap-3 rounded-lg border border-border bg-white px-4 py-3 text-left transition-colors hover:bg-muted/30"
@@ -567,14 +564,16 @@ function L3AgentFlyoutContent({
           </button>
         )}
 
-        {/* Navigate to Entrata */}
-        <button
-          type="button"
-          className="flex w-full items-center justify-between rounded-lg border border-border bg-white px-4 py-3 text-left transition-colors hover:bg-muted/30"
-        >
-          <span className="text-sm font-medium text-foreground">Navigate to {config.module.split("·")[0].trim()} in Entrata</span>
-          <ExternalLink className="h-4 w-4 text-muted-foreground" />
-        </button>
+        {/* Navigate to Entrata — hidden when config.hideEntrataLink is set */}
+        {!config.hideEntrataLink && (
+          <button
+            type="button"
+            className="flex w-full items-center justify-between rounded-lg border border-border bg-white px-4 py-3 text-left transition-colors hover:bg-muted/30"
+          >
+            <span className="text-sm font-medium text-foreground">Navigate to {config.module.split("·")[0].trim()} in Entrata</span>
+            <ExternalLink className="h-4 w-4 text-muted-foreground" />
+          </button>
+        )}
 
 
         {/* Property Configuration */}
@@ -890,6 +889,31 @@ function PropertySettingsView({
             </div>
           );
         })}
+
+        {agentName === "Post Recurring Charges" && (() => {
+          const selectedDay = Number(values["auto-post-day"]) || 1;
+          const isNextMonth = selectedDay !== 1;
+          return (
+            <div className="rounded-xl border-2 border-dashed border-zinc-300 bg-zinc-50/50 px-5 py-4">
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Derived Settings (auto-configured)</h4>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-foreground">Post charges through day</span>
+                  <span className="text-sm font-semibold text-foreground">31</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-foreground">Of the</span>
+                  <span className="text-sm font-semibold text-foreground">{isNextMonth ? "Next Month" : "Current Month"}</span>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-3">
+                {selectedDay === 1
+                  ? "Posting on the 1st: charges are posted through the end of the current month."
+                  : `Posting on the ${selectedDay}${selectedDay === 2 ? "nd" : selectedDay === 3 ? "rd" : "th"}: charges are posted through the end of the following month to cover the full billing period.`}
+              </p>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
