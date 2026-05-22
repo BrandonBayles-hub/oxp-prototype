@@ -91,6 +91,29 @@ export function EntrataTopNav() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [demoOpen]);
 
+  const [appsOpen, setAppsOpen] = useState(false);
+  const appsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!appsOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (appsRef.current && !appsRef.current.contains(e.target as Node)) setAppsOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [appsOpen]);
+
+  const appsActive = pathname.startsWith("/apps");
+  const appsMenuItems: Array<{ label: string; href?: string }> = [
+    { label: "API Access" },
+    { label: "Contracts" },
+    { label: "Billing Accounts" },
+    { label: "Billing Requests" },
+    { label: "Order Forms" },
+    { label: "API Access Report" },
+    { label: "Entrata Marketplace", href: "/apps/entrata-marketplace" },
+  ];
+
   const anyDemoActive = isFullVersion || isR1Release || isR1_2Release;
 
   return (
@@ -545,14 +568,99 @@ export function EntrataTopNav() {
         {NAV_ITEMS.map((item, i) => {
           const Icon = "icon" in item ? item.icon : null;
           const href = "href" in item ? item.href : undefined;
-          const isActive = href
-            ? pathname.startsWith(href)
-            : ("active" in item && item.active);
+          const isAppsItem = item.label === "Apps";
+          const isOxpActive = "active" in item && item.active && !appsActive;
+          const isActive = isOxpActive || (isAppsItem && appsActive) || (href ? pathname.startsWith(href) : false);
+
+          if (isAppsItem) {
+            return (
+              <div key={`${item.label}-${i}`} ref={appsRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setAppsOpen((prev) => !prev)}
+                  className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-sm"
+                  style={{
+                    height: 26,
+                    padding: "0 10px",
+                    fontSize: 11.5,
+                    fontWeight: 500,
+                    color: isActive ? "#1a1a1a" : "rgba(255,255,255,0.75)",
+                    background: isActive ? "#fff" : "transparent",
+                    borderRadius: isActive ? 4 : undefined,
+                    transition: "background 150ms",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isActive) e.currentTarget.style.background = "rgba(255,255,255,0.08)";
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive) e.currentTarget.style.background = "transparent";
+                  }}
+                >
+                  {Icon && <Icon style={{ width: 14, height: 14, strokeWidth: 1.5 }} />}
+                  <span style={{ lineHeight: 1, marginTop: 1 }}>{item.label}</span>
+                  <ChevronDown style={{ width: 10, height: 10, strokeWidth: 2, marginLeft: 1, transform: appsOpen ? "rotate(180deg)" : "none", transition: "transform 150ms" }} />
+                </button>
+
+                {appsOpen && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "calc(100% + 4px)",
+                      right: 0,
+                      minWidth: 200,
+                      background: "#fff",
+                      borderRadius: 6,
+                      border: "1px solid #E0E0E0",
+                      boxShadow: "0 8px 24px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08)",
+                      zIndex: 100,
+                      padding: "4px 0",
+                    }}
+                  >
+                    {appsMenuItems.map((mi) => {
+                      const interactive = Boolean(mi.href);
+                      return (
+                        <button
+                          key={mi.label}
+                          type="button"
+                          onClick={() => {
+                            if (mi.href) {
+                              router.push(mi.href);
+                              setAppsOpen(false);
+                            }
+                          }}
+                          className="flex w-full items-center text-left"
+                          style={{
+                            padding: "8px 16px",
+                            fontSize: 12,
+                            fontWeight: 400,
+                            color: interactive ? "#1a1a1a" : "rgba(0,0,0,0.45)",
+                            background: "transparent",
+                            cursor: interactive ? "pointer" : "default",
+                            transition: "background 120ms",
+                          }}
+                          onMouseEnter={(e) => {
+                            if (interactive) e.currentTarget.style.background = "rgba(0,0,0,0.04)";
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = "transparent";
+                          }}
+                        >
+                          {mi.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          const isOxpItem = item.label === "OXP";
           return (
             <button
               key={`${item.label}-${i}`}
               type="button"
-              onClick={() => href && router.push(href)}
+              onClick={isOxpItem ? () => router.push("/") : (href ? () => router.push(href) : undefined)}
               className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-sm"
               style={{
                 height: 26,
@@ -563,7 +671,7 @@ export function EntrataTopNav() {
                 background: isActive ? "#fff" : "transparent",
                 borderRadius: isActive ? 4 : undefined,
                 transition: "background 150ms",
-                cursor: href ? "pointer" : "default",
+                cursor: (isOxpItem || href) ? "pointer" : "default",
               }}
               onMouseEnter={(e) => {
                 if (!isActive) e.currentTarget.style.background = "rgba(255,255,255,0.08)";
@@ -572,7 +680,7 @@ export function EntrataTopNav() {
                 if (!isActive) e.currentTarget.style.background = "transparent";
               }}
             >
-              {isActive && !href && (
+              {isOxpActive && (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                   <path d="m3.3 7 8.7 5 8.7-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />

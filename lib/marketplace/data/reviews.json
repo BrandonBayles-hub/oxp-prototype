@@ -1,0 +1,167 @@
+[
+  {
+    "id": "cmph3arkk01i0j94zdeksup02",
+    "listingId": "cmph3ar6b003ej94zkjc8cgqh",
+    "authorName": "Sarah Chen",
+    "authorRole": "VP of Accounting",
+    "authorCompany": "Greystar",
+    "rating": 5,
+    "title": "Transformed our AP department",
+    "comment": "We process 3,000+ invoices monthly across 180 properties. Invoice Processing handles 97% without human intervention. Our AP team went from data entry to exception management — it's a completely different role now.",
+    "createdAt": "2026-05-22T15:43:54.645Z"
+  },
+  {
+    "id": "cmph3arkp01isj94zli8ag5ag",
+    "listingId": "cmph3ar8j008kj94zc4owfy1b",
+    "authorName": "Nicole Martinez",
+    "authorRole": "VP of Marketing",
+    "authorCompany": "Mill Creek Residential",
+    "rating": 5,
+    "title": "Prospects love the interactive maps",
+    "comment": "Our website conversion rate increased 18% after adding Engrain maps. Prospects spend significantly more time exploring availability, and the real-time pricing overlay from Entrata means they always see accurate information.",
+    "createdAt": "2026-05-22T15:43:54.650Z"
+  },
+  {
+    "id": "cmph3arkl01iej94zjcnhpi44",
+    "listingId": "cmph3ar6x004uj94zt8o99ksd",
+    "authorName": "Robert Kim",
+    "authorRole": "CFO",
+    "authorCompany": "Bozzuto",
+    "rating": 4,
+    "title": "Strong results, still fine-tuning",
+    "comment": "Collections improved 12% in the first 90 days. We're still dialing in the escalation thresholds for different property types, but the platform is very configurable. The compliance logging gives our legal team peace of mind.",
+    "createdAt": "2026-05-22T15:43:54.645Z"
+  },
+  {
+    "id": "cmph3arkl01imj94zbu2bzggs",
+    "listingId": "cmph3ar8m008qj94zfncr0fez",
+    "authorName": "Tony Morales",
+    "authorRole": "VP of Resident Services",
+    "authorCompany": "BH Management",
+    "rating": 5,
+    "title": "Zero cost, real results",
+    "comment": "Flex is a no-brainer. It costs us nothing, residents love the flexibility, and our late payments dropped 28%. The fact that Flex guarantees our full payment on the 1st regardless — that's the game changer.",
+    "createdAt": "2026-05-22T15:43:54.645Z"
+  },
+  {
+    "id": "cmph3arkl01ioj94zk3wn2o0e",
+    "listingId": "cmph3ar8n008uj94zj2ztc7b8",
+    "authorName": "Stephanie Wright",
+    "authorRole": "CIO",
+    "authorCompany": "Related Companies",
+    "rating": 5,
+    "title": "Complex migration, flawless execution",
+    "comment": "We migrated 18,000 units from a legacy MRI setup with 12 years of historical data. The Pro Services team handled every complication professionally. Data accuracy was 99.8% — better than we expected for a migration this complex.",
+    "createdAt": "2026-05-22T15:43:54.645Z"
+  },
+  {
+    "id": "cmph3arkl01i7j94zav45lzmn",
+    "listingId": "cmph3ar6x004uj94zt8o99ksd",
+    "authorName": "Lisa Thompson",
+    "authorRole": "Director of Revenue",
+    "authorCompany": "Cortland",
+    "rating": 5,
+    "title": "Delinquency down, relationships intact",
+    "comment": "The tone is remarkable — residents actually thank the AI for being helpful. Our 30-day delinquency dropped from 5.8% to 2.9% in the first quarter. The payment plan feature is brilliant.",
+    "createdAt": "2026-05-22T15:43:54.645Z"
+  },
+  {
+    "id": "cmph3arkl01ikj94znwymje37",
+    "listingId": "cmph3ar6b003ej94zkjc8cgqh",
+    "authorName": "Marcus Williams",
+    "authorRole": "Controller",
+    "authorCompany": "Avenue5 Residential",
+    "rating": 5,
+    "title": "ROI in the first month",
+    "comment": "The GL coding accuracy was better than our team by month two. We eliminated 1.5 FTEs of manual invoice work and the payback was under 30 days. The duplicate detection alone has saved us from three significant overpayments.",
+    "createdAt": "2026-05-22T15:43:54.645Z"
+  },
+  {
+    "id": "cmph3arkl01ihj94zso9l69b1",
+    "listingId": "cmph3ar8h008gj94zkgvxwnpd",
+    "authorName": "Michelle Lee",
+    "authorRole": "Leasing Director",
+    "authorCompany": "UDR",
+    "rating": 5,
+    "title": "Catches fraud we would have missed",
+    "comment": "In our first month, Snappt flagged 8 applications with altered bank statements — two of which had already passed our manual review. At $12,000+ per fraudulent lease, the math is obvious.",
+    "createdAt": "2026-05-22T15:43:54.645Z"
+  },
+  {
+    "id": "cmph3arkl01ibj94zn4hlmele",
+    "listingId": "cmph3ar89007yj94zeed1dn0t",
+    "authorName": "Kevin O'Brien",
+    "authorRole": "Property Manager",
+    "authorCompany": "Equity Residential",
+    "rating": 4,
+    "title": "Residents love it, easy to manage",
+    "comment": "Enrollment was seamless through the Homebody app. Residents are genuinely excited about the credit building benefit. The 29-point average improvement we're seeing matches the marketing claims.",
+    "createdAt": "2026-05-22T15:43:54.645Z"
+  },
+  {
+    "id": "cmph3arkl01iij94z3pt28uic",
+    "listingId": "cmph3ar70004yj94z83baonu8",
+    "authorName": "Chris Anderson",
+    "authorRole": "Maintenance Director",
+    "authorCompany": "Pinnacle Property Management",
+    "rating": 4,
+    "title": "Self-resolution is the hidden gem",
+    "comment": "The diagnostic conversation resolves 20% of requests without a tech visit — garbage disposal resets, thermostat issues, breaker trips. That's 200 fewer work orders per month for us. Residents appreciate the instant help.",
+    "createdAt": "2026-05-22T15:43:54.645Z"
+  },
+  {
+    "id": "cmph3arkl01i8j94zujms9jbo",
+    "listingId": "cmph3ar89007yj94zeed1dn0t",
+    "authorName": "Amanda Foster",
+    "authorRole": "VP of Operations",
+    "authorCompany": "Camden Property Trust",
+    "rating": 5,
+    "title": "Best retention tool in our stack",
+    "comment": "Rent Reporting is our secret weapon for renewals. Residents see their credit score climbing and they don't want to leave. Our renewal rate at Rent Reporting properties is 6 points higher than non-enrolled communities.",
+    "createdAt": "2026-05-22T15:43:54.645Z"
+  },
+  {
+    "id": "cmph3arkl01i9j94zic3w4898",
+    "listingId": "cmph3ar6z004wj94zlqxsdrk8",
+    "authorName": "Rachel Green",
+    "authorRole": "Director of Leasing",
+    "authorCompany": "NexPoint Residential",
+    "rating": 5,
+    "title": "Every renewal offer sent on time, every time",
+    "comment": "Before ELI+ Renewals, we'd lose 10-15 renewals per quarter just from late outreach. Now every resident gets a personalized offer at exactly the right time. Our renewal rate jumped 5 points in the first 6 months.",
+    "createdAt": "2026-05-22T15:43:54.645Z"
+  },
+  {
+    "id": "cmph3arkl01i2j94z4wwkywjk",
+    "listingId": "cmph3ar6w004sj94zcc23o387",
+    "authorName": "David Rodriguez",
+    "authorRole": "Regional Manager",
+    "authorCompany": "Lincoln Property Company",
+    "rating": 5,
+    "title": "Game changer for lease-ups",
+    "comment": "We deployed ELI+ Leasing on a 400-unit new development. It handled the flood of initial inquiries that would have required 3 temporary leasing agents. We hit 90% occupied 6 weeks ahead of schedule.",
+    "createdAt": "2026-05-22T15:43:54.645Z"
+  },
+  {
+    "id": "cmph3arkl01iqj94z1rqf55yw",
+    "listingId": "cmph3ar8q0090j94zzptbmzdo",
+    "authorName": "James Patterson",
+    "authorRole": "VP of Analytics",
+    "authorCompany": "Invitation Homes",
+    "rating": 5,
+    "title": "Finally, clean property data in our warehouse",
+    "comment": "The pre-built data models saved us months of modeling work. We had Entrata data flowing into our Snowflake instance within a week, and the 15-minute refresh means our dashboards are always current.",
+    "createdAt": "2026-05-22T15:43:54.645Z"
+  },
+  {
+    "id": "cmph3arkl01idj94z8n4ymyp7",
+    "listingId": "cmph3ar6w004sj94zcc23o387",
+    "authorName": "Jennifer Park",
+    "authorRole": "VP of Marketing",
+    "authorCompany": "MAA",
+    "rating": 5,
+    "title": "Our best leasing agent never sleeps",
+    "comment": "ELI+ handles 65% of our prospect conversations end-to-end. The response time went from hours to seconds, and our tour scheduling rate increased 22%. The after-hours lead capture alone justified the investment.",
+    "createdAt": "2026-05-22T15:43:54.645Z"
+  }
+]

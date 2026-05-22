@@ -1,0 +1,23 @@
+[
+  {
+    "id": "cmph3aro701iuj94z55vu1127",
+    "listingId": "cmph3ar6x004uj94zt8o99ksd",
+    "prerequisiteListingId": "cmph3ar6b003ej94zkjc8cgqh",
+    "type": "REQUIRED",
+    "note": "Invoice Processing must be active to enable the full AP-to-collections pipeline."
+  },
+  {
+    "id": "cmph3aro801iwj94zpbwgnl8m",
+    "listingId": "cmph3ar6w004sj94zcc23o387",
+    "prerequisiteListingId": "cmph3ar8h008gj94zkgvxwnpd",
+    "type": "RECOMMENDED",
+    "note": "Snappt document verification is recommended to catch application fraud before lease execution."
+  },
+  {
+    "id": "cmph3aro901iyj94zhrcfjsv7",
+    "listingId": "cmph3ar8q0090j94zzptbmzdo",
+    "prerequisiteListingId": "cmph3ar6b003ej94zkjc8cgqh",
+    "type": "RECOMMENDED",
+    "note": "At least one L3 agent (e.g., Invoice Processing) is recommended so the data warehouse includes AI-processed operational data."
+  }
+]
