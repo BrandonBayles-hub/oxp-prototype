@@ -1,0 +1,32 @@
+[
+  {
+    "id": "cmph3arog01jnj94zr833btgz",
+    "orgId": "greystar",
+    "orgName": "Greystar Real Estate Partners",
+    "requireApprovalForExchange": true,
+    "allowEmployeePublishing": true,
+    "approverRole": "org_admin",
+    "createdAt": "2026-05-22T15:43:54.784Z",
+    "updatedAt": "2026-05-22T15:43:54.784Z"
+  },
+  {
+    "id": "cmph3arog01joj94zmq5knbkd",
+    "orgId": "trinity",
+    "orgName": "Trinity Property Consultants",
+    "requireApprovalForExchange": true,
+    "allowEmployeePublishing": true,
+    "approverRole": "org_admin",
+    "createdAt": "2026-05-22T15:43:54.784Z",
+    "updatedAt": "2026-05-22T15:43:54.784Z"
+  },
+  {
+    "id": "cmph3arog01jpj94zzx5xp8hd",
+    "orgId": "boutique",
+    "orgName": "Boutique Property Management",
+    "requireApprovalForExchange": false,
+    "allowEmployeePublishing": false,
+    "approverRole": "org_admin",
+    "createdAt": "2026-05-22T15:43:54.784Z",
+    "updatedAt": "2026-05-22T15:43:54.784Z"
+  }
+]

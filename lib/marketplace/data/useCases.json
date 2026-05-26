@@ -1,0 +1,102 @@
+[
+  {
+    "id": "cmph3ar5o0027j94zkiwzaebi",
+    "name": "Reduce Delinquency",
+    "slug": "reduce-delinquency",
+    "description": null,
+    "sortOrder": 0,
+    "isActive": true,
+    "createdAt": "2026-05-22T15:43:54.108Z",
+    "updatedAt": "2026-05-22T15:43:54.108Z"
+  },
+  {
+    "id": "cmph3ar5p0028j94zxqsvi5aj",
+    "name": "Accelerate Leasing",
+    "slug": "accelerate-leasing",
+    "description": null,
+    "sortOrder": 1,
+    "isActive": true,
+    "createdAt": "2026-05-22T15:43:54.110Z",
+    "updatedAt": "2026-05-22T15:43:54.110Z"
+  },
+  {
+    "id": "cmph3ar5q0029j94z0fn6za0t",
+    "name": "Improve Resident Retention",
+    "slug": "improve-resident-retention",
+    "description": null,
+    "sortOrder": 2,
+    "isActive": true,
+    "createdAt": "2026-05-22T15:43:54.110Z",
+    "updatedAt": "2026-05-22T15:43:54.110Z"
+  },
+  {
+    "id": "cmph3ar5q002aj94zqo8sgld9",
+    "name": "Streamline Maintenance",
+    "slug": "streamline-maintenance",
+    "description": null,
+    "sortOrder": 3,
+    "isActive": true,
+    "createdAt": "2026-05-22T15:43:54.111Z",
+    "updatedAt": "2026-05-22T15:43:54.111Z"
+  },
+  {
+    "id": "cmph3ar5r002bj94zywmgcnvn",
+    "name": "Automate Compliance",
+    "slug": "automate-compliance",
+    "description": null,
+    "sortOrder": 4,
+    "isActive": true,
+    "createdAt": "2026-05-22T15:43:54.111Z",
+    "updatedAt": "2026-05-22T15:43:54.111Z"
+  },
+  {
+    "id": "cmph3ar5s002cj94ztnfz21s2",
+    "name": "Reduce Operational Costs",
+    "slug": "reduce-operational-costs",
+    "description": null,
+    "sortOrder": 5,
+    "isActive": true,
+    "createdAt": "2026-05-22T15:43:54.112Z",
+    "updatedAt": "2026-05-22T15:43:54.112Z"
+  },
+  {
+    "id": "cmph3ar5s002dj94ztunlocsj",
+    "name": "Enhance Resident Experience",
+    "slug": "enhance-resident-experience",
+    "description": null,
+    "sortOrder": 6,
+    "isActive": true,
+    "createdAt": "2026-05-22T15:43:54.113Z",
+    "updatedAt": "2026-05-22T15:43:54.113Z"
+  },
+  {
+    "id": "cmph3ar5t002ej94zfdy9g338",
+    "name": "Improve Data Visibility",
+    "slug": "improve-data-visibility",
+    "description": null,
+    "sortOrder": 7,
+    "isActive": true,
+    "createdAt": "2026-05-22T15:43:54.113Z",
+    "updatedAt": "2026-05-22T15:43:54.113Z"
+  },
+  {
+    "id": "cmph3ar5t002fj94zywe2pivg",
+    "name": "Optimize Revenue",
+    "slug": "optimize-revenue",
+    "description": null,
+    "sortOrder": 8,
+    "isActive": true,
+    "createdAt": "2026-05-22T15:43:54.114Z",
+    "updatedAt": "2026-05-22T15:43:54.114Z"
+  },
+  {
+    "id": "cmph3ar5u002gj94z5a84vxt1",
+    "name": "Simplify Onboarding",
+    "slug": "simplify-onboarding",
+    "description": null,
+    "sortOrder": 9,
+    "isActive": true,
+    "createdAt": "2026-05-22T15:43:54.114Z",
+    "updatedAt": "2026-05-22T15:43:54.114Z"
+  }
+]

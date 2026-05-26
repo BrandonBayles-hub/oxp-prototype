@@ -1,0 +1,424 @@
+/*
+ * host-overrides.css — collapse Academy's own chrome inside the OXP Studio shell.
+ *
+ * Academy normally renders as a standalone app with its own faked Entrata top
+ * bar (".entrata-topbar") and its own OXP-style left sidebar (".oxp-sidebar"),
+ * because the dev.green prototype is a single-page demo with no host shell
+ * around it. When we embed Academy under /trainings-sop/academy, the OXP
+ * Studio prototype already provides the real chrome (AppShell + sidebar from
+ * app/layout.tsx), so Academy's chrome becomes a duplicate.
+ *
+ * This sheet is loaded AFTER source/styles.scoped.css so its rules win the
+ * cascade and Academy's chrome is hidden, leaving only its content tabs and
+ * pages inside the OXP Studio shell.
+ *
+ * Why a separate sheet (not inline edits to App.jsx):
+ *   - Keeps source/ a literal copy of the dev.green prototype so the
+ *     sync-back script stays mechanical. No code changes to re-resolve on
+ *     every sync from entrata-academy-deploy.
+ *   - Easy to revert (delete the import in page.tsx) if we ever want to see
+ *     the chrome again — e.g. for visual regression comparisons against the
+ *     standalone dev.green build.
+ */
+
+/* 1) Visually hide Academy's faked Entrata top bar (.entrata-topbar) WITHOUT
+      removing it from the DOM. AcademyDemoControls.tsx (rendered up in the
+      host page next to the Trainings/SOPs pill toggle) drives Academy's
+      Release / State / Tier selects via programmatic 'change' events, so the
+      selects must still exist in the DOM and still receive events — they
+      just can't be visible. This is the standard "visually-hidden but
+      accessible" pattern: the bar takes 1×1px in a corner, content is
+      clipped, pointer-events are off so it can't be tabbed into or
+      accidentally interacted with by mouse, but the React tree under it
+      mounts and reacts to programmatic events normally.
+
+      Duplicate chrome inside the bar (entrata-logo, the 9 disabled
+      OXP/Dashboard/Leads/... nav buttons, Help/Audit, notification bell,
+      "Alex Chen" name span, Sign Out button) goes along for the ride —
+      none of it is visible so we don't need separate hide rules. */
+.academy-deploy-root .entrata-topbar {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+  pointer-events: none;
+}
+
+/* 2) Hide Academy's left "OXP-style" sidebar (Command Center / Escalations /
+      Entrata Experts / Agent Roster / Workforce / AI & Agent Activation /
+      Agent Builder / Trainings & SOP). The real OXP Studio sidebar from
+      app/layout.tsx replaces it. */
+.academy-deploy-root .oxp-sidebar {
+  display: none;
+}
+
+/* 3) Hide the property-sync banner that Academy renders above the topbar
+      when groups need refreshing — also chrome, also redundant in OXP. */
+.academy-deploy-root .entrata-sync-bar {
+  display: none;
+}
+
+/* 4) Collapse the .app-shell grid so the main content area (.oxp-content)
+      fills the full width and height instead of leaving an empty 220px
+      sidebar column and an empty topbar row. */
+.academy-deploy-root .app-shell {
+  grid-template-rows: 1fr;
+  grid-template-columns: 1fr;
+  min-height: auto;
+}
+
+/* 5) The login page (.login-page) is also rendered inside .app-shell and
+      uses a 1fr 1fr split (hero on the left, sign-in form on the right).
+      Force min-height: auto so it doesn't try to grab 100vh inside the
+      host's already-scrolling main element.
+
+      In the /trainings-sop embed the auto-login bootstrap pre-seeds
+      localStorage.academy_token so the login screen never renders, but we
+      keep this rule as a defensive guard for cases where the bootstrap
+      doesn't run (private-browsing localStorage failures, etc). */
+.academy-deploy-root .login-page {
+  min-height: auto;
+}
+
+/* 6) Hide Academy's own page header (the duplicate "Trainings & SOP" h1 +
+      description at App.jsx ~line 2296). The host page already provides a
+      PageHeader with the same title, so this avoids stacking two headers
+      one on top of the other. */
+.academy-deploy-root .page-header {
+  display: none;
+}
+
+/* 7) Hide Academy's Training / SOPs mode-switcher (App.jsx ~line 2302). The
+      host page already provides a Trainings / SOPs tab toggle and routes
+      between Academy and the SOP Vault based on that selection — Academy's
+      own switcher would just be a confusing duplicate that, on the SOPs
+      side, would render Academy's placeholder "SOPs coming in a future
+      release" card. Since the host owns the routing, we always run Academy
+      in its default `mode = "training"` and hide the switcher. */
+.academy-deploy-root .mode-switcher {
+  display: none;
+}
+
+/* 8) Trim padding on Academy's main content area when embedded so it sits
+      flush against the host page's tab content instead of double-padding. */
+.academy-deploy-root .oxp-content {
+  padding-top: 0;
+}
+
+/* 9) `.academy-mode-admin` overrides. Used when AcademyTab renders under
+      OXP > Admin Insights > Entrata Academy (mode="admin"). The PM's
+      final intent is that this view shows the FULL admin hub that used
+      to live inside Academy's own "Admin" top-tab — every workflow
+      sub-tab (Assign, Progress, Nudges, Certifications, Learning Plans,
+      Enrollment Rules, Spotlights, Workflow Recorder, Digital Adoption,
+      Policies, KB Instances, Brand Kit, Content Visibility, Calendar,
+      Audit Log, Scheduled Reports, Migration) plus their content
+      panels — but rendered inside Admin Insights instead of inside
+      Academy. The Admin tab is no longer reachable from Trainings & SOP
+      (rule applies in trainings mode via AcademyTab.tsx), so this
+      surface is the only path to those workflows.
+
+      What we hide:
+      - .content-tabs: the top-level Academy tab nav (My Learning,
+        Catalog, Spotlights, ..., Entrata Workflows). Hiding it forces
+        the user to stay on the Admin surface that the AcademyTab
+        admin-mode effect force-clicks on mount.
+      - .mobile-menu-btn: the hamburger that opens an alternate top-
+        level tab menu on narrow viewports — same reason.
+
+      What we KEEP visible (intentional, restored after the temporary
+      "overview-only" experiment):
+      - .stats-row (the 4 metric cards: Users / Courses / Completions /
+        Overdue).
+      - .admin-subtabs (the workflow sub-tab nav row).
+      - The active sub-tab's content panel (Custom Courses table for
+        My Content, Assign wizard, Progress reports, etc.).
+
+      Earlier revisions of this rule additionally hid .admin-subtabs
+      and .stats-row ~ *, which produced the empty "I only see some
+      carts at the top" state the PM reported. That restriction is gone
+      now. If we ever need a stats-only variant in the future, do it
+      with a separate mode (e.g. mode="admin-overview") rather than
+      reusing mode="admin". */
+.academy-mode-admin .content-tabs,
+.academy-mode-admin .mobile-menu-btn {
+  display: none !important;
+}
+
+/* ============================================================
+ * UI consistency overrides (Option A — match OXP's monochrome aesthetic)
+ * ============================================================
+ *
+ * Background
+ * ----------
+ * The vendored Academy bundle was authored standalone and uses an
+ * Entrata-red + blue accent palette (`--e-red` #e4002b, `--blue-600`
+ * #2563eb, `--blue-100`, etc.). When embedded inside OXP Studio the
+ * neighboring host pages (Entrata Experts, HealthStrip on Admin
+ * Insights, etc.) are pure shadcn / monochrome — primary token is
+ * `hsl(0 0% 9%)` (near-black), no brand accent. The Academy embed
+ * reads visually as "a different product" against that backdrop. The
+ * worst offenders sit immediately under the OXP-styled PageHeader on
+ * Admin Insights > Entrata Academy: 4 colored stat tiles, a bright
+ * green "Published" badge, and a blue→violet gradient FAB.
+ *
+ * What the OXP host already does (so we know what to match)
+ * ---------------------------------------------------------
+ * From oxp-prototype-product/app/globals.css + tailwind.config.ts:
+ *   --background: hsl(0 0% 100%)        white
+ *   --foreground: hsl(0 0% 3.9%)        ≈ #0a0a0a near-black text
+ *   --primary:    hsl(0 0% 9%)          ≈ #171717 near-black action
+ *   --muted:      hsl(0 0% 96.1%)       ≈ #f5f5f5 muted surface
+ *   --muted-foreground: hsl(0 0% 45.1%) ≈ #737373 secondary text
+ *   --border:     hsl(0 0% 89.8%)       ≈ #e5e5e5 hairline
+ *   --radius:     0.5rem                8 px lg corner
+ *
+ * Academy already matches those for body color, border color, surface
+ * white, radii, and `.btn-primary` (which already uses `--e-dark`
+ * #171717 — identical to OXP `--primary`). Only the colored-accent
+ * surfaces need overrides. We scope EVERY rule below under
+ * `.academy-deploy-root` so the cascade lands on the embedded subtree
+ * only and the overrides survive a future bundle resync.
+ *
+ * Why CSS overrides (not source patches)
+ * --------------------------------------
+ * Same rationale as rules 1–9: keep source/ a literal sync of the
+ * dev.green prototype. Overrides here mean the next mechanical resync
+ * doesn't reintroduce visual drift — we just patch host-overrides.css.
+ *
+ * What we deliberately did NOT touch
+ * -----------------------------------
+ * - `.eng-notes-open` / `.eng-notes-toggle` — the yellow "Notes 11"
+ *   bar at the top of admin views. It's an internal annotation
+ *   inspector (engineering notes per surface). The amber tone is
+ *   intentional internal-only signage; flattening it would defeat the
+ *   point. Reopen the conversation if the PM wants it neutralized.
+ * - Typography — Academy uses Inter at 14 px which matches OXP body
+ *   exactly. The host uses Plus Jakarta Sans for h2/h3, but the embed
+ *   is rendered inside Academy's own content surface so the heading
+ *   contrast is minor. Defer to a later pass.
+ * ============================================================ */
+
+/* 10) Stat-icon tiles (.stat-icon.{blue,green,amber,red,purple})
+ *
+ *     The 4-up metric row at the top of admin uses colored 36×36 tiles
+ *     (`background: var(--blue-100); color: var(--blue-600)`, repeated
+ *     per color). OXP elsewhere — see HealthStrip on /admin-insights
+ *     with Entrata Experts as the source — uses muted neutral tiles
+ *     with dark icons. We collapse all five color variants to the
+ *     same neutral treatment so the row reads as "OXP-native".
+ *
+ *     The semantic difference between blue/green/amber/red/purple
+ *     stat-icon variants in Academy is purely decorative (Users vs
+ *     Courses vs Completions vs Overdue) — there's no danger/success
+ *     channel encoded in the tile color itself, just visual variety.
+ *     Status badges (rule 11) DO carry semantic meaning so we
+ *     preserve hue there. */
+.academy-deploy-root .stat-icon.blue,
+.academy-deploy-root .stat-icon.green,
+.academy-deploy-root .stat-icon.amber,
+.academy-deploy-root .stat-icon.red,
+.academy-deploy-root .stat-icon.purple {
+  background: hsl(0 0% 96.1%);
+  color: hsl(0 0% 9%);
+}
+
+/* 11) Status pills (.status.{completed,active,assigned,in_progress,
+ *     overdue,expired,missing,pending})
+ *
+ *     Academy ships filled pills (e.g. `.status.completed` uses
+ *     `background: var(--green-100); color: var(--green-700)`). OXP
+ *     elsewhere uses outline pills — see the "Beta" + "Data-connected"
+ *     pills on the Entrata Experts hero card. We switch to outline,
+ *     keep semantic hue where it carries real meaning, and neutralize
+ *     where the color is decorative.
+ *
+ *       completed / active  → keep green (success channel)
+ *       overdue / expired   → keep red   (danger channel)
+ *       missing             → keep red   (danger channel)
+ *       in_progress         → keep amber (warning channel)
+ *       assigned            → neutralize (decorative blue → neutral)
+ *       pending             → neutralize (decorative purple → neutral)
+ *
+ *     We override `background` (was `var(--*-100)` filled) to
+ *     transparent and add a 1 px border in the same hue, matching
+ *     OXP's outline pattern. Text color stays the strong tone for
+ *     legibility on the white card surface. */
+.academy-deploy-root .status.completed,
+.academy-deploy-root .status.active {
+  background: transparent;
+  border: 1px solid var(--green-100);
+  color: var(--green-700);
+}
+.academy-deploy-root .status.overdue,
+.academy-deploy-root .status.expired,
+.academy-deploy-root .status.missing {
+  background: transparent;
+  border: 1px solid var(--red-100);
+  color: var(--red-600);
+}
+.academy-deploy-root .status.in_progress {
+  background: transparent;
+  border: 1px solid var(--amber-100);
+  color: var(--amber-600);
+}
+.academy-deploy-root .status.assigned,
+.academy-deploy-root .status.pending {
+  background: transparent;
+  border: 1px solid hsl(0 0% 89.8%);
+  color: hsl(0 0% 9%);
+}
+
+/* 12) Support Assistant floating launcher (.kba-bubble-launcher)
+ *
+ *     Academy ships this FAB as a blue→violet gradient
+ *     (`linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)`) with a
+ *     matching blue-tinted box-shadow. It persists on every Academy
+ *     surface and is the most visible accent across the entire embed.
+ *
+ *     OXP uses solid near-black for primary actions; that's the
+ *     pattern we target here. We also swap the blue-tinted shadow for
+ *     a neutral one so the launcher reads as "part of OXP" instead
+ *     of "AI widget bolted on by a vendor". The Sparkles icon inside
+ *     the button already signals AI helper — color isn't carrying
+ *     that semantic on its own. */
+.academy-deploy-root .kba-bubble-launcher {
+  background: hsl(0 0% 9%);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+.academy-deploy-root .kba-bubble-launcher:hover {
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+}
+
+/* ============================================================
+ * R2-MVP visibility deltas (rules 13–16)
+ * ============================================================
+ *
+ * The PM is staging the GA cut for the basic tier + MVP release. A few
+ * features that ship today in dev.green Academy aren't in that cut:
+ *
+ *   - Engineering / internal notes (.eng-notes-open) — internal-only
+ *     annotation overlay. Hide for video walkthroughs so PMM and
+ *     training can record GA-fidelity demos.
+ *   - .xp-widget — the "Trainings Completed N/M + Lv X + streak + badges
+ *     + certificates" gamification bar at the top of My Learning.
+ *     Gamification mechanics ship in 1.1+ / Elite tier per the leaderboard
+ *     and gamification decisions in App.jsx (ENG_NOTES["leaderboard"]).
+ *   - .catalog-view-toggle + the adjacent count summary on Learning
+ *     Catalog. Multi-view (grid / grouped / list) is not in the MVP cut.
+ *   - .course-reviews-section (the Learner Reviews list on the course
+ *     preview modal — see the matching className addition in App.jsx
+ *     around the existing `<div style={{ marginTop: 12, paddingTop: 16,
+ *     borderTop: ... }}>` wrapper). Reviews moves to a later release.
+ *
+ * Driving CSS rather than source-editing the bundle
+ * -------------------------------------------------
+ * Academy already release-gates dozens of features via the
+ * isInRelease(featureKey, releaseFilter) helper + RELEASE_MAP at the
+ * top of App.jsx. Wrapping each of the four items above in another
+ * isInRelease call would be the "in-bundle" way, but the PM wants this
+ * cut without churning the synced source any more than strictly
+ * necessary (so dev.green resyncs stay mechanical). So we drive
+ * visibility from <body> classes that AcademyDemoControls writes:
+ *
+ *   body.academy-tier-basic           — when Tier select = Basic
+ *   body.academy-tier-elite           — when Tier select = Elite
+ *   body.academy-release-mvp          — when Release select = MVP
+ *   body.academy-release-all          — when Release select = All
+ *   body.academy-release-future       — any other release (1.1+)
+ *   body.academy-demo-mode            — when Mode select = Live
+ *
+ * The combo `body.academy-tier-basic.academy-release-mvp` is the
+ * shipping basic/MVP cut. Setting Release back to 1.1+ or All restores
+ * the broader feature set, which is exactly what the demo controls are
+ * for — flipping between "what GA looks like" and "what we're building
+ * toward".
+ *
+ * One small source-patch was needed
+ * ---------------------------------
+ * The Learner Reviews wrapper in source/App.jsx (~line 6222) shipped
+ * as an unclassed `<div style={{ marginTop: 12, paddingTop: 16, ... }}>`
+ * with no stable selector. To target it from CSS, we added a single
+ * `className="course-reviews-section"` to that div. That's the only
+ * source-patch in this commit; everything else here drives off classes
+ * Academy already exposes.
+ * ============================================================ */
+
+/* 13) `.eng-notes` (+ open/int variants) — hide the internal engineering-
+ *     notes annotation when Mode = Live. The notes are intentionally
+ *     amber/distinct in the bundle (see rule-block above, rules 1-12,
+ *     where we explicitly left them alone). Demo mode is the right place
+ *     to hide them because the visibility decision is "is this a live
+ *     walkthrough?", not "what tier/release?". Hiding via
+ *     body.academy-demo-mode means PMM/training can flip Mode → Live,
+ *     hit record, and get a screen that reads as GA without any internal
+ *     scaffolding.
+ *
+ *     Class structure note: App.jsx renders the wrapper as
+ *       <div className={`eng-notes ${open ? "...-open" : ""}`}>
+ *         <button className="eng-notes-toggle">  ← always rendered,
+ *                                                    visible as a pill
+ *                                                    even when collapsed
+ *     so we have to target the always-rendered `.eng-notes` wrapper
+ *     itself (NOT just the `-open` variants, which only apply while the
+ *     panel is expanded). The toggle pill must vanish too in Live mode
+ *     or the demo will still show an "Internal Notes" affordance the GA
+ *     surface doesn't have. */
+body.academy-demo-mode .academy-deploy-root .eng-notes {
+  display: none !important;
+}
+
+/* 14) `.xp-widget` — Trainings-Completed + XP + streak + badges +
+ *     certificates bar (the green-gradient row directly under the
+ *     content tabs on My Learning). Hide for the basic/MVP cut.
+ *     The bar gracefully no-renders when there are no enrollments, so
+ *     we don't need a separate "empty" case. */
+body.academy-tier-basic.academy-release-mvp
+  .academy-deploy-root .xp-widget {
+  display: none !important;
+}
+
+/* 15) Learning Catalog toolbar (.catalog-view-toggle + the count
+ *     summary span that sits to its left, e.g. "9 courses + 4 plans").
+ *
+ *     The count and the 3-button view-mode toggle (grid / grouped /
+ *     list) ship together at MVP today but the PM wants only the
+ *     default grid view exposed at MVP — multi-view comes later.
+ *
+ *     Targeting the count span without source-editing: the catalog's
+ *     toolbar is a `.flex-between` with two `.flex-row` children. The
+ *     RIGHT `.flex-row` contains, in order:
+ *       <span class="text-muted text-sm">{count}</span>
+ *       <div class="catalog-view-toggle">...</div>
+ *       <button class="btn-sm">Clear</button>  ← optional, only when filters applied
+ *     We use :has() to identify the right `.flex-row` (the one that
+ *     contains the view-toggle) and then hide its direct-child
+ *     count span. The Clear button stays visible because it's not
+ *     matched. :has() is supported in all evergreen browsers OXP
+ *     targets (Chromium 105+, Safari 15.4+, Firefox 121+). */
+body.academy-tier-basic.academy-release-mvp
+  .academy-deploy-root .catalog-main .catalog-view-toggle {
+  display: none !important;
+}
+body.academy-tier-basic.academy-release-mvp
+  .academy-deploy-root .catalog-main
+  .flex-row:has(> .catalog-view-toggle)
+  > span.text-muted.text-sm {
+  display: none !important;
+}
+
+/* 16) `.course-reviews-section` — Learner Reviews block in the course
+ *     preview modal (the only place reviews surface in Academy today).
+ *     The className was added to App.jsx as a single-attribute patch
+ *     to give us a stable anchor — see the block comment above for
+ *     why this is the lone source-patch in the commit. Reviews ship in
+ *     a later release per the PM's MVP scope. */
+body.academy-tier-basic.academy-release-mvp
+  .academy-deploy-root .course-reviews-section {
+  display: none !important;
+}
