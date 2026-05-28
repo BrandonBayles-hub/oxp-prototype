@@ -288,6 +288,12 @@ const INITIAL_AGENTS: Agent[] = [
   { id: "19", ...defaultAgentFields("Leasing & Marketing", "operations", "Move-in Coordinator", "Schedules move-ins, generates welcome packets, assigns parking, and triggers utility setup reminders.", { labels: ["Leasing"], runsCompleted: 34, lastRunAt: "2026-02-20T09:00:00Z", lastRunStatus: "success", errorCount: 0, avgRunDuration: "2m 00s", schedule: "On lease execution" }) },
   { id: "21", ...defaultAgentFields("Resident Relations & Retention", "operations", "Move-out Coordinator", "Processes move-out notices, schedules inspections, calculates deposit returns, and initiates unit turnover.", { labels: ["Resident relations"], runsCompleted: 28, lastRunAt: "2026-02-19T16:00:00Z", lastRunStatus: "success", errorCount: 2, avgRunDuration: "3m 30s", schedule: "On move-out notice" }) },
   { id: "23", ...defaultAgentFields("Operations & Maintenance", "operations", "After-hours Dispatch", "Routes after-hours emergency work orders to on-call vendors and sends resident status updates.", { labels: ["Maintenance"], runsCompleted: 19, lastRunAt: "2026-02-19T23:45:00Z", lastRunStatus: "success", errorCount: 0, avgRunDuration: "45s", schedule: "On emergency work order (after 6 PM)" }) },
+
+  // Entrata Experts — special-cased agent. The roster row opens an admin
+  // configuration sheet (surfaces / spend caps / model access) instead of the
+  // generic intelligence flyout. See app/agent-roster/page.tsx for the click
+  // branch and components/entrata-experts-v2/admin/experts-config-sheet.tsx.
+  { id: "ee-experts", ...defaultAgentFields("Operations & Maintenance", "intelligence", "Entrata Experts", "Conversational AI hub — Analyst, pre-built Assistants, and Report Analyzer for property teams.", { status: "Active", labels: ["AI Hub"] }) },
 ];
 
 type AgentsContextValue = {

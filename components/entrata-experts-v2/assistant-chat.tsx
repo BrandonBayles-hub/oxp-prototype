@@ -11,9 +11,13 @@ import { formatRelative } from "@/lib/entrata-experts-v2/format";
 export function AssistantChat({
   assistantId,
   onBack,
+  hideBack = false,
+  hideNew = false,
 }: {
   assistantId: string;
   onBack: () => void;
+  hideBack?: boolean;
+  hideNew?: boolean;
 }) {
   const def = ASSISTANT_BY_ID[assistantId];
   const store = useAssistantChatStore(assistantId);
@@ -43,6 +47,8 @@ export function AssistantChat({
           title={def.name}
           subtitle={def.description}
           onBack={onBack}
+          hideBack={hideBack}
+          hideNew={hideNew}
           onNew={store.newThread}
           newLabel="Start a new chat"
         />

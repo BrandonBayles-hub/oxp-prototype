@@ -1,3 +1,20 @@
+export type SegmentId =
+  | "conventional"
+  | "student"
+  | "commercial"
+  | "military"
+  | "affordable"
+  | "senior";
+
+export const SEGMENTS: { id: SegmentId; label: string }[] = [
+  { id: "conventional", label: "Conventional" },
+  { id: "student", label: "Student" },
+  { id: "commercial", label: "Commercial" },
+  { id: "military", label: "Military" },
+  { id: "affordable", label: "Affordable" },
+  { id: "senior", label: "Senior" },
+];
+
 export interface Property {
   id: string;
   name: string;
@@ -5,7 +22,7 @@ export interface Property {
   region: "southeast" | "mountain-west";
   city: string;
   state: string;
-  segment: "conventional" | "student";
+  segment: SegmentId;
   units: number;
   occupancyPct: number;
   delinquencyPct: number;
@@ -159,6 +176,72 @@ export const PROPERTIES: Property[] = [
     renewalsAcceptancePct: 43.8,
     onlinePaymentPct: 93.2,
   },
+  {
+    id: "wb-mia-commercial",
+    name: "Wynbrook Brickell Tower",
+    shortName: "Brickell Tower",
+    region: "southeast",
+    city: "Miami",
+    state: "FL",
+    segment: "commercial",
+    units: 84,
+    occupancyPct: 91.7,
+    delinquencyPct: 4.1,
+    ytdNoiPerUnit: 22480,
+    ytdNoiBudgetPerUnit: 23120,
+    rentGrowthPct: 3.6,
+    workOrdersOpen: 6,
+    workOrderMTTRDays: 2.2,
+    appsThisWeek: 4,
+    toursThisWeek: 9,
+    leasesThisWeek: 2,
+    renewalsAcceptancePct: 71.4,
+    onlinePaymentPct: 96.1,
+  },
+  {
+    id: "wb-bragg-military",
+    name: "Wynbrook Bragg Reserve",
+    shortName: "Bragg Reserve",
+    region: "southeast",
+    city: "Fayetteville",
+    state: "NC",
+    segment: "military",
+    units: 416,
+    occupancyPct: 99.2,
+    delinquencyPct: 1.1,
+    ytdNoiPerUnit: 7840,
+    ytdNoiBudgetPerUnit: 7910,
+    rentGrowthPct: 1.8,
+    workOrdersOpen: 24,
+    workOrderMTTRDays: 1.6,
+    appsThisWeek: 12,
+    toursThisWeek: 15,
+    leasesThisWeek: 9,
+    renewalsAcceptancePct: 68.3,
+    onlinePaymentPct: 88.7,
+  },
+  {
+    id: "wb-slc-affordable",
+    name: "Wynbrook Pioneer Place",
+    shortName: "Pioneer Place",
+    region: "mountain-west",
+    city: "Salt Lake City",
+    state: "UT",
+    segment: "affordable",
+    units: 142,
+    occupancyPct: 99.6,
+    delinquencyPct: 3.4,
+    ytdNoiPerUnit: 5620,
+    ytdNoiBudgetPerUnit: 5740,
+    rentGrowthPct: 0.9,
+    workOrdersOpen: 11,
+    workOrderMTTRDays: 2.8,
+    appsThisWeek: 7,
+    toursThisWeek: 11,
+    leasesThisWeek: 3,
+    renewalsAcceptancePct: 81.2,
+    onlinePaymentPct: 72.9,
+  },
 ];
 
 export interface Region {
@@ -189,12 +272,105 @@ export function getProperty(id: string) {
   return PROPERTIES.find((p) => p.id === id);
 }
 
+// ---------------------------------------------------------------------------
+// Property Groups
+//
+// In production these live in the Entrata platform (Properties → Groups) and
+// are read-only from the Experts UI. Seeded here for the prototype.
+// ---------------------------------------------------------------------------
+
+export interface PropertyGroup {
+  id: string;
+  label: string;
+  description: string;
+  propertyIds: string[];
+}
+
+export const PROPERTY_GROUPS: PropertyGroup[] = [
+  {
+    id: "grp-top-noi",
+    label: "Top NOI",
+    description: "Highest YTD NOI per unit",
+    propertyIds: ["wb-mia-commercial", "wb-denver", "wb-charlotte", "wb-tampa-2", "wb-tampa-1"],
+  },
+  {
+    id: "grp-south-fl",
+    label: "South Florida",
+    description: "Tampa + Miami portfolio",
+    propertyIds: ["wb-tampa-1", "wb-tampa-2", "wb-mia-commercial"],
+  },
+  {
+    id: "grp-mara-watch",
+    label: "Mara's Weekly Watch",
+    description: "VP Ops focus list",
+    propertyIds: ["wb-tampa-1", "wb-charlotte", "wb-asu", "wb-bragg-military"],
+  },
+  {
+    id: "grp-student-q2",
+    label: "Student Q2 Focus",
+    description: "Student lease-up cohort",
+    propertyIds: ["wb-tucson", "wb-asu"],
+  },
+];
+
+export function getGroup(id: string) {
+  return PROPERTY_GROUPS.find((g) => g.id === id);
+}
+
+// ---------------------------------------------------------------------------
+// Segments
+// ---------------------------------------------------------------------------
+
+export function propertiesForSegment(segment: SegmentId): Property[] {
+  return PROPERTIES.filter((p) => p.segment === segment);
+}
+
+export function segmentCounts(): { id: SegmentId; label: string; count: number }[] {
+  return SEGMENTS.map((s) => ({
+    id: s.id,
+    label: s.label,
+    count: PROPERTIES.filter((p) => p.segment === s.id).length,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Scope resolution
+//
+// Two entry points:
+//   propertiesForScope(scopeId)   — legacy single-pick (string id)
+//   propertiesForScopeIds(ids[])  — multi-select (mixed selection ids)
+//
+// Both return a *de-duplicated* set of Property objects.
+// ---------------------------------------------------------------------------
+
 export function propertiesForScope(scopeId: string): Property[] {
   if (scopeId === "portfolio" || scopeId === "all") return PROPERTIES;
   const region = REGION_DEFS.find((r) => r.id === scopeId);
   if (region) return PROPERTIES.filter((p) => region.propertyIds.includes(p.id));
+  const group = PROPERTY_GROUPS.find((g) => g.id === scopeId);
+  if (group) return PROPERTIES.filter((p) => group.propertyIds.includes(p.id));
+  const segment = SEGMENTS.find((s) => s.id === scopeId);
+  if (segment) return propertiesForSegment(segment.id);
   const property = PROPERTIES.find((p) => p.id === scopeId);
   return property ? [property] : PROPERTIES;
+}
+
+/**
+ * Resolve a list of selection ids (any mix of portfolio / region / group /
+ * segment / property) to a deduplicated Property[]. Used by the multi-select
+ * scope picker.
+ */
+export function propertiesForScopeIds(ids: string[]): Property[] {
+  if (ids.length === 0 || ids.includes("portfolio") || ids.includes("all")) {
+    return PROPERTIES;
+  }
+  const seen = new Set<string>();
+  for (const id of ids) {
+    for (const p of propertiesForScope(id)) {
+      seen.add(p.id);
+    }
+  }
+  return PROPERTIES.filter((p) => seen.has(p.id));
 }
 
 export function portfolioTotals() {

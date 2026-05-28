@@ -11,7 +11,6 @@ import type {
   UserMessage,
 } from "./types";
 import { compose } from "./data/answers";
-import { ROLE_BY_ID } from "./lenses";
 import { generateActivity } from "./data/activity";
 
 const REMEMBERED_BY_ROLE: Record<RoleId, string[]> = {
@@ -80,9 +79,9 @@ export function useChatStore(): ChatState {
 
   const remembered = REMEMBERED_BY_ROLE[role];
 
-  React.useEffect(() => {
-    setLens(ROLE_BY_ID[role].defaultLens);
-  }, [role]);
+  // Lens stays on "Auto" until the user explicitly picks one. Auto already
+  // routes to the right lens dynamically, so role-driven defaults would just
+  // override the user's selection silently when they switch role.
 
   function setLensDepth(l: LensId, d: Depth, m?: ModelId) {
     setLens(l);

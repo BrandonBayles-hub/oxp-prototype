@@ -9,11 +9,13 @@ import { ActivityLog } from "@/components/entrata-experts-v2/admin/activity-log"
 import { ClusterList } from "@/components/entrata-experts-v2/admin/cluster-list";
 import { GapList } from "@/components/entrata-experts-v2/admin/gap-list";
 import { AutomationCandidates } from "@/components/entrata-experts-v2/admin/automation-candidates";
+import { CreditsUsage } from "@/components/entrata-experts-v2/credits-usage";
 import { TrainingsSopInsights } from "@/components/admin-insights/trainings-sop-insights";
 import { EscalationsInsights } from "@/components/admin-insights/escalations-insights";
 import { CommunicationsInsights } from "@/components/admin-insights/communications-insights";
 import { Badge } from "@/components/ui/badge";
 import { Sparkles, BookOpen, AlertCircle, MessageSquare } from "lucide-react";
+import { useEntrataExpertsRelease } from "@/lib/entrata-experts-release-context";
 
 type SourceId = "experts" | "trainings" | "escalations" | "communications";
 
@@ -60,12 +62,47 @@ const SOURCES: SourceMeta[] = [
   },
 ];
 
-type ExpertsSubTab = "activity" | "clusters" | "gaps" | "automation";
+type ExpertsSubTab =
+  | "activity"
+  | "clusters"
+  | "gaps"
+  | "automation"
+  | "tokens";
 
 export default function AdminInsightsPage() {
   const activity = React.useMemo(() => generateActivity(), []);
   const [source, setSource] = React.useState<SourceId>("experts");
   const [expertsSubTab, setExpertsSubTab] = React.useState<ExpertsSubTab>("activity");
+
+  // Entrata Experts admin observability lands in v1.1; clusters + automation
+  // candidates + tokens sub-tabs land in v1.2. On earlier versions we hide
+  // the source entirely (admins won't see it in the source selector).
+  const { atLeast } = useEntrataExpertsRelease();
+  const showExpertsSource = atLeast("v1.1");
+  const showExpertsAdvancedTabs = atLeast("v1.2");
+  const showTokensTab = atLeast("v1.2");
+
+  // Filter source list and snap selection away from a hidden source.
+  const visibleSources = React.useMemo(
+    () => SOURCES.filter((s) => s.id !== "experts" || showExpertsSource),
+    [showExpertsSource],
+  );
+  React.useEffect(() => {
+    if (!visibleSources.find((s) => s.id === source)) {
+      setSource(visibleSources[0]?.id ?? "trainings");
+    }
+  }, [visibleSources, source]);
+  // If the active sub-tab is gated off, snap back to "activity".
+  React.useEffect(() => {
+    if (
+      !showExpertsAdvancedTabs &&
+      (expertsSubTab === "clusters" ||
+        expertsSubTab === "automation" ||
+        expertsSubTab === "tokens")
+    ) {
+      setExpertsSubTab("activity");
+    }
+  }, [showExpertsAdvancedTabs, expertsSubTab]);
 
   const currentSource = SOURCES.find((s) => s.id === source)!;
   const SourceIcon = currentSource.icon;
@@ -79,7 +116,7 @@ export default function AdminInsightsPage() {
 
       {/* Source selector */}
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        {SOURCES.map((s) => {
+        {visibleSources.map((s) => {
           const Icon = s.icon;
           const isActive = source === s.id;
           return (
@@ -137,29 +174,47 @@ export default function AdminInsightsPage() {
                 <TabsTrigger value="activity" className="text-xs">
                   Activity log
                 </TabsTrigger>
-                <TabsTrigger value="clusters" className="text-xs">
-                  What people are asking
-                </TabsTrigger>
+                {showExpertsAdvancedTabs && (
+                  <TabsTrigger value="clusters" className="text-xs">
+                    What people are asking
+                  </TabsTrigger>
+                )}
                 <TabsTrigger value="gaps" className="text-xs">
                   Knowledge gaps
                 </TabsTrigger>
-                <TabsTrigger value="automation" className="text-xs">
-                  Automation candidates
-                </TabsTrigger>
+                {showExpertsAdvancedTabs && (
+                  <TabsTrigger value="automation" className="text-xs">
+                    Automation candidates
+                  </TabsTrigger>
+                )}
+                {showTokensTab && (
+                  <TabsTrigger value="tokens" className="text-xs">
+                    Tokens &amp; Usage
+                  </TabsTrigger>
+                )}
               </TabsList>
 
               <TabsContent value="activity" className="mt-2">
                 <ActivityLog activity={activity} />
               </TabsContent>
-              <TabsContent value="clusters" className="mt-2">
-                <ClusterList activity={activity} />
-              </TabsContent>
+              {showExpertsAdvancedTabs && (
+                <TabsContent value="clusters" className="mt-2">
+                  <ClusterList activity={activity} />
+                </TabsContent>
+              )}
               <TabsContent value="gaps" className="mt-2">
                 <GapList activity={activity} />
               </TabsContent>
-              <TabsContent value="automation" className="mt-2">
-                <AutomationCandidates activity={activity} />
-              </TabsContent>
+              {showExpertsAdvancedTabs && (
+                <TabsContent value="automation" className="mt-2">
+                  <AutomationCandidates activity={activity} />
+                </TabsContent>
+              )}
+              {showTokensTab && (
+                <TabsContent value="tokens" className="mt-2">
+                  <CreditsUsage />
+                </TabsContent>
+              )}
             </Tabs>
           </>
         )}

@@ -9,7 +9,7 @@ export type LensId =
 
 export type Depth = "auto" | "fast" | "reasoning";
 
-export type ModelId = "auto" | "opus-4-7" | "gpt-5-5" | "kimi-k2-5" | "entrata-tuned";
+export type ModelId = "auto" | "opus-4-7" | "gpt-5-5" | "kimi-k2-5";
 
 export type RoleId =
   | "vp-ops"
@@ -18,13 +18,49 @@ export type RoleId =
   | "asset-mgr"
   | "accounting";
 
-export type ScopeKind = "portfolio" | "region" | "property";
+export type ScopeKind =
+  | "portfolio"
+  | "region"
+  | "property"
+  | "group"
+  | "segment"
+  | "custom";
 
-export interface Scope {
-  kind: ScopeKind;
+/**
+ * One discrete selection inside a (possibly multi-pick) scope.
+ *
+ * In the multi-select picker, the user can combine selections of *different*
+ * kinds (e.g. "Southeast region + Sun Devil property"). Each click adds one
+ * ScopeSelection; the composed Scope carries the full list.
+ */
+export interface ScopeSelection {
+  kind: "portfolio" | "region" | "property" | "group" | "segment";
   id: string;
   label: string;
+}
+
+export interface Scope {
+  /**
+   * Coarse kind for display + analytics.
+   * - "portfolio" — default / nothing else selected
+   * - "region" | "property" | "group" | "segment" — exactly one selection of that kind
+   * - "custom"   — multiple selections (possibly mixed kinds)
+   */
+  kind: ScopeKind;
+  /**
+   * Stable id. For single-selection scopes this is the selection's own id.
+   * For "custom" multi-selection scopes this is a synthetic key
+   * ("custom:<comma-joined-ids>") used for caching and equality checks.
+   */
+  id: string;
+  /** Human-readable label rendered on the picker trigger and message bubbles. */
+  label: string;
+  /** Legacy hint, preserved for older message records. */
   segment?: string;
+  /** Full selection list. Empty / undefined ⇒ whole portfolio. */
+  selections?: ScopeSelection[];
+  /** Pre-resolved, deduplicated property ids covered by this scope. */
+  propertyIds?: string[];
 }
 
 export interface Citation {

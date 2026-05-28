@@ -9,6 +9,7 @@ import type {
 } from "../types";
 import {
   propertiesForScope,
+  propertiesForScopeIds,
   type Property,
 } from "./portfolio";
 import { formatCurrency, formatPercent } from "../format";
@@ -667,7 +668,12 @@ export function compose(args: ComposeArgs): {
   intentId: string;
 } {
   const intent = classifyIntent(args.prompt);
-  const props = propertiesForScope(args.scope.id);
+  // Multi-select scopes carry a pre-resolved propertyIds list; legacy
+  // single-pick scopes fall back to id-based resolution.
+  const props =
+    args.scope.propertyIds && args.scope.propertyIds.length > 0
+      ? propertiesForScopeIds(args.scope.propertyIds)
+      : propertiesForScope(args.scope.id);
   const resolvedLens: LensId = args.lens === "auto" ? intent.lens : args.lens;
 
   const isRefused = /(?:resident|tenant)\s+(?:name|email|phone|address|ssn|social)/i.test(args.prompt);

@@ -6,6 +6,18 @@ import { ASSISTANTS } from "@/lib/entrata-experts-v2/assistants";
 import { ChatHistoryRail } from "./chat-history-rail";
 import { ReportAnalyzerModule } from "./report-analyzer-module";
 import { ArrowRight, BarChart3, Sparkles } from "lucide-react";
+import { useEntrataExpertsRelease } from "@/lib/entrata-experts-release-context";
+
+// All pre-built assistants ship in v1.0 — the assistant library is part of
+// the MVP. Kept as a per-version map for future flexibility (e.g. if we ever
+// want to gate specific assistants on later releases).
+const ASSISTANT_LIMIT: Record<string, number> = {
+  "v1.0": ASSISTANTS.length,
+  "v1.1": ASSISTANTS.length,
+  "v1.2": ASSISTANTS.length,
+  "v1.3": ASSISTANTS.length,
+  full: ASSISTANTS.length,
+};
 
 interface HubCardsProps {
   onLaunchAnalyst: () => void;
@@ -18,8 +30,21 @@ export function HubCards({
   onLaunchAssistant,
   onLaunchReport,
 }: HubCardsProps) {
+  const { version, atLeast } = useEntrataExpertsRelease();
+  // Everything below ships in the MVP; the gate calls are kept (rather than
+  // hard-coded `true`) so future down-scoping is a one-line change.
+  const showHistoryRail = atLeast("v1.0");
+  const showReportAnalyzer = atLeast("v1.0");
+  const assistantsToShow = ASSISTANTS.slice(0, ASSISTANT_LIMIT[version] ?? ASSISTANTS.length);
+
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+    <div
+      className={
+        showHistoryRail
+          ? "grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]"
+          : "grid grid-cols-1 gap-6"
+      }
+    >
       <div className="space-y-6">
         <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
           <Sparkles className="h-3 w-3" />
@@ -45,13 +70,17 @@ export function HubCards({
           </div>
 
           {/* The grid mixes Report Analyzer (a 2-cell-wide tile) with the 7
-              GPT assistants. 2 + 7 = 9 cells = exactly 3 rows in a 3-col grid. */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            <ReportAnalyzerModule
-              onLaunchReport={onLaunchReport}
-              className="sm:col-span-2 xl:col-span-2"
-            />
-            {ASSISTANTS.map((a) => {
+              GPT assistants. 2 + 7 = 9 cells = exactly 3 rows in a 3-col grid.
+              `items-start` keeps the Report Analyzer at its natural height so
+              the adjacent assistant tile isn't stretched to match it. */}
+          <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {showReportAnalyzer && (
+              <ReportAnalyzerModule
+                onLaunchReport={onLaunchReport}
+                className="sm:col-span-2 xl:col-span-2"
+              />
+            )}
+            {assistantsToShow.map((a) => {
               const Icon = a.icon;
               return (
                 <button
@@ -83,7 +112,7 @@ export function HubCards({
         </div>
       </div>
 
-      <ChatHistoryRail />
+      {showHistoryRail && <ChatHistoryRail />}
     </div>
   );
 }
