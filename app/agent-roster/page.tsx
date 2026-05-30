@@ -294,6 +294,13 @@ function AgentRosterContent() {
     const arr = [...cardFiltered];
     if (cardSortBy === "name") arr.sort((a, b) => a.name.localeCompare(b.name));
     else if (cardSortBy === "level") arr.sort((a, b) => (TYPE_LEVEL[b.type] ?? 0) - (TYPE_LEVEL[a.type] ?? 0));
+    else {
+      arr.sort((a, b) => {
+        const aHasConfig = getL3AgentConfig(a.name) ? 1 : 0;
+        const bHasConfig = getL3AgentConfig(b.name) ? 1 : 0;
+        return bHasConfig - aHasConfig;
+      });
+    }
     return arr;
   }, [cardFiltered, cardSortBy]);
 
@@ -330,7 +337,7 @@ function AgentRosterContent() {
       return;
     }
     if (agent.name === "Entrata Experts") { setExpertsConfigOpen(true); return; }
-    if (agent.type === "efficiency" && getL3AgentConfig(agent.name)) { setL3AgentId(agentId); return; }
+    if (getL3AgentConfig(agent.name)) { setL3AgentId(agentId); return; }
     if (agent.type === "operations" || agent.type === "intelligence" || agent.type === "efficiency") setOpsAgentId(agentId);
     else setAutoAgentId(agentId);
   }, [searchParams, agents]);
@@ -561,7 +568,7 @@ function AgentRosterContent() {
                     onClick={() => {
                       if (isOffEliPlus) { setEliPlusActivateAgent(agent.name); return; }
                       if (agent.name === "Entrata Experts") { setExpertsConfigOpen(true); return; }
-                      if (agent.type === "efficiency" && getL3AgentConfig(agent.name)) { setL3AgentId(agent.id); return; }
+                      if (getL3AgentConfig(agent.name)) { setL3AgentId(agent.id); return; }
                       if (agent.type === "operations" || agent.type === "efficiency" || agent.type === "intelligence") setOpsAgentId(agent.id);
                       else setAutoAgentId(agent.id);
                     }}
@@ -745,7 +752,7 @@ function AgentRosterContent() {
                                   return;
                                 }
                                 if (agent.name === "Entrata Experts") { setExpertsConfigOpen(true); return; }
-                                if (agent.type === "efficiency" && getL3AgentConfig(agent.name)) { setL3AgentId(agent.id); return; }
+                                if (getL3AgentConfig(agent.name)) { setL3AgentId(agent.id); return; }
                                 if (agent.type === "operations" || agent.type === "efficiency" || agent.type === "intelligence") setOpsAgentId(agent.id);
                                 else setAutoAgentId(agent.id);
                               }}
