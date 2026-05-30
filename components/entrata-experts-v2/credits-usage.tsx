@@ -33,6 +33,8 @@ import {
   Cell,
   AreaChart,
   Area,
+  LineChart,
+  Line,
 } from "recharts";
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -107,6 +109,66 @@ function totalTokens(rows: ReturnType<typeof buildDailyUsage>) {
     (acc, r) => acc + EXPERTS.reduce((s, e) => s + (r[e] as number), 0),
     0,
   );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// LLM model usage. Names + hues mirror lib/entrata-experts-v2/lenses.ts so the
+// dashboard stays consistent with the chat model picker. `avgPerConvo` shows how
+// model choice drives token consumption (heavier-reasoning models burn more).
+// ──────────────────────────────────────────────────────────────────────────────
+
+const MODEL_SERIES: {
+  name: string;
+  provider: string;
+  color: string;
+  share: number;
+  avgPerConvo: number;
+}[] = [
+  {
+    name: "Claude Opus 4.7",
+    provider: "Anthropic",
+    color: "#c2410c",
+    share: 0.5,
+    avgPerConvo: 18_200,
+  },
+  {
+    name: "GPT-5.5",
+    provider: "OpenAI",
+    color: "#3b7a9e",
+    share: 0.34,
+    avgPerConvo: 11_400,
+  },
+  {
+    name: "Kimi K2.5",
+    provider: "Moonshot",
+    color: "#7c3aed",
+    share: 0.16,
+    avgPerConvo: 7_600,
+  },
+];
+
+const MODELS = MODEL_SERIES.map((m) => m.name);
+
+// Allocate each day's total tokens across models by share (with a small
+// deterministic daily jitter), so the by-model series ties back to the same
+// daily totals as the by-expert chart.
+function buildModelRows(
+  rows: ReturnType<typeof buildDailyUsage>,
+): Array<{ label: string; [model: string]: number | string }> {
+  return rows.map((r, i) => {
+    const total = EXPERTS.reduce((s, e) => s + (r[e] as number), 0);
+    const weights = MODEL_SERIES.map(
+      (m, k) => m.share * (1 + (((i * 7 + k * 13) % 11) - 5) / 100),
+    );
+    const wSum = weights.reduce((a, b) => a + b, 0);
+    const out: { label: string; [model: string]: number | string } = {
+      label: r.label,
+    };
+    MODEL_SERIES.forEach((m, k) => {
+      out[m.name] = Math.round((total * weights[k]) / wSum);
+    });
+    return out;
+  });
 }
 
 const INTENT_DATA = [
@@ -383,6 +445,8 @@ function AnalyticsPanel({ range }: { range: RangeId }) {
         </CardContent>
       </Card>
 
+      <ModelUsageCard rows={rows} />
+
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Usage leaderboard</CardTitle>
@@ -447,6 +511,94 @@ function AnalyticsPanel({ range }: { range: RangeId }) {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Token usage by LLM model — shows how model choice drives consumption
+// ──────────────────────────────────────────────────────────────────────────────
+
+function ModelUsageCard({
+  rows,
+}: {
+  rows: ReturnType<typeof buildDailyUsage>;
+}) {
+  const modelRows = buildModelRows(rows);
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <CardTitle className="text-base">Token usage by model</CardTitle>
+            <CardDescription>
+              Tokens consumed per day by underlying LLM. Heavier-reasoning
+              models burn more tokens per conversation.
+            </CardDescription>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            {MODEL_SERIES.map((m) => (
+              <span
+                key={m.name}
+                className="flex items-center gap-1.5 text-[11px] text-muted-foreground"
+              >
+                <span
+                  className="inline-block h-2 w-2 rounded-full"
+                  style={{ background: m.color }}
+                />
+                <span className="font-medium text-foreground">{m.name}</span>
+                <span className="tabular-nums">
+                  {compact(m.avgPerConvo)}/convo
+                </span>
+              </span>
+            ))}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="h-[260px] w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart
+              data={modelRows}
+              margin={{ top: 8, right: 8, left: -10, bottom: 0 }}
+            >
+              <CartesianGrid stroke="#e5e7eb" vertical={false} />
+              <XAxis
+                dataKey="label"
+                tick={{ fontSize: 11, fill: "#64748b" }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                tick={{ fontSize: 11, fill: "#64748b" }}
+                axisLine={false}
+                tickLine={false}
+                tickFormatter={(v) => compact(v)}
+              />
+              <Tooltip
+                contentStyle={{
+                  border: "1px solid #e5e7eb",
+                  borderRadius: 6,
+                  fontSize: 12,
+                }}
+                formatter={(v: number, name) => [compact(v), name]}
+              />
+              {MODEL_SERIES.map((m) => (
+                <Line
+                  key={m.name}
+                  type="monotone"
+                  dataKey={m.name}
+                  stroke={m.color}
+                  strokeWidth={2}
+                  dot={{ r: 2.5, fill: m.color, strokeWidth: 0 }}
+                  activeDot={{ r: 4 }}
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

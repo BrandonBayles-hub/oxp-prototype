@@ -14,9 +14,30 @@ import { R1ScheduleCta } from "@/components/r1-schedule-cta";
 import { RoadmapOverlay } from "@/components/roadmap-overlay";
 
 const CHROMELESS_ROUTES: string[] = [];
-const FULL_BLEED_ROUTES = ["/conversations"];
+// Full-bleed routes drop the standard page-content padding/scroll wrapper so
+// the page can manage its own layout (e.g. fill the viewport, run a sticky
+// toolbar). Matching is exact-or-segment-prefixed so siblings like
+// /entrata-experts-setup don't accidentally inherit /entrata-experts chrome.
+const FULL_BLEED_ROUTES = [
+  "/conversations",
+  "/entrata-experts",
+  "/entrata-experts-setup",
+];
 const NAV_ONLY_ROUTES = ["/escalations/settings", "/communications-setup/custom-email", "/communications-setup/phone-numbers"];
-const NO_SIDEBAR_ROUTES = ["/setup-wizard"];
+// Routes whose own internal nav replaces the OXP main sidebar entirely (e.g.
+// Entrata Experts uses its ExpertsRail as the sole left-column nav, with a
+// "← OXP Studio" back affordance in the rail's header to pop back here).
+const NO_SIDEBAR_ROUTES = ["/setup-wizard", "/entrata-experts"];
+
+/**
+ * Match a route prefix safely. Returns true when `pathname` is exactly `r` or
+ * is a sub-path of `r` (i.e. starts with `r + "/"`). Avoids the bug where
+ * `startsWith("/entrata-experts")` accidentally swallowed
+ * `/entrata-experts-setup`.
+ */
+function matchesRoute(pathname: string, routes: string[]): boolean {
+  return routes.some((r) => pathname === r || pathname.startsWith(r + "/"));
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
@@ -30,10 +51,15 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const isEmbed = searchParams.get("embed") === "1";
-  const chromeless = isEmbed || CHROMELESS_ROUTES.some((r) => pathname.startsWith(r));
-  const fullBleed = FULL_BLEED_ROUTES.some((r) => pathname.startsWith(r));
-  const navOnly = NAV_ONLY_ROUTES.some((r) => pathname.startsWith(r));
-  const noSidebar = NO_SIDEBAR_ROUTES.some((r) => pathname.startsWith(r));
+  // `?focus=1` is a page-driven escape hatch: any route can opt into a
+  // distraction-free shell (no main sidebar, no page-content padding) by
+  // setting the param. Used by Entrata Experts' chat-first layout to let
+  // the page's own rail replace the OXP sidebar.
+  const focusMode = searchParams.get("focus") === "1";
+  const chromeless = isEmbed || matchesRoute(pathname, CHROMELESS_ROUTES);
+  const fullBleed = focusMode || matchesRoute(pathname, FULL_BLEED_ROUTES);
+  const navOnly = matchesRoute(pathname, NAV_ONLY_ROUTES);
+  const noSidebar = focusMode || matchesRoute(pathname, NO_SIDEBAR_ROUTES);
 
   if (chromeless) {
     return (

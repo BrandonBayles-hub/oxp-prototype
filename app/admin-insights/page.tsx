@@ -9,7 +9,6 @@ import { ActivityLog } from "@/components/entrata-experts-v2/admin/activity-log"
 import { ClusterList } from "@/components/entrata-experts-v2/admin/cluster-list";
 import { GapList } from "@/components/entrata-experts-v2/admin/gap-list";
 import { AutomationCandidates } from "@/components/entrata-experts-v2/admin/automation-candidates";
-import { CreditsUsage } from "@/components/entrata-experts-v2/credits-usage";
 import { TrainingsSopInsights } from "@/components/admin-insights/trainings-sop-insights";
 import { EscalationsInsights } from "@/components/admin-insights/escalations-insights";
 import { CommunicationsInsights } from "@/components/admin-insights/communications-insights";
@@ -66,8 +65,7 @@ type ExpertsSubTab =
   | "activity"
   | "clusters"
   | "gaps"
-  | "automation"
-  | "tokens";
+  | "automation";
 
 export default function AdminInsightsPage() {
   const activity = React.useMemo(() => generateActivity(), []);
@@ -75,12 +73,14 @@ export default function AdminInsightsPage() {
   const [expertsSubTab, setExpertsSubTab] = React.useState<ExpertsSubTab>("activity");
 
   // Entrata Experts admin observability lands in v1.1; clusters + automation
-  // candidates + tokens sub-tabs land in v1.2. On earlier versions we hide
-  // the source entirely (admins won't see it in the source selector).
+  // candidates sub-tabs land in v1.2. On earlier versions we hide the source
+  // entirely (admins won't see it in the source selector).
+  //
+  // Tokens & Usage used to live here as a sub-tab but now lives on the
+  // Entrata Experts page itself (chat-first hub → Account → Tokens & Usage).
   const { atLeast } = useEntrataExpertsRelease();
   const showExpertsSource = atLeast("v1.1");
   const showExpertsAdvancedTabs = atLeast("v1.2");
-  const showTokensTab = atLeast("v1.2");
 
   // Filter source list and snap selection away from a hidden source.
   const visibleSources = React.useMemo(
@@ -96,9 +96,7 @@ export default function AdminInsightsPage() {
   React.useEffect(() => {
     if (
       !showExpertsAdvancedTabs &&
-      (expertsSubTab === "clusters" ||
-        expertsSubTab === "automation" ||
-        expertsSubTab === "tokens")
+      (expertsSubTab === "clusters" || expertsSubTab === "automation")
     ) {
       setExpertsSubTab("activity");
     }
@@ -187,11 +185,6 @@ export default function AdminInsightsPage() {
                     Automation candidates
                   </TabsTrigger>
                 )}
-                {showTokensTab && (
-                  <TabsTrigger value="tokens" className="text-xs">
-                    Tokens &amp; Usage
-                  </TabsTrigger>
-                )}
               </TabsList>
 
               <TabsContent value="activity" className="mt-2">
@@ -208,11 +201,6 @@ export default function AdminInsightsPage() {
               {showExpertsAdvancedTabs && (
                 <TabsContent value="automation" className="mt-2">
                   <AutomationCandidates activity={activity} />
-                </TabsContent>
-              )}
-              {showTokensTab && (
-                <TabsContent value="tokens" className="mt-2">
-                  <CreditsUsage />
                 </TabsContent>
               )}
             </Tabs>

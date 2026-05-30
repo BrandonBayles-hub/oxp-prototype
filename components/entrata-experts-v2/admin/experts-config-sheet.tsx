@@ -64,31 +64,17 @@ export interface ExpertsConfigSheetProps {
   onOpenChange: (open: boolean) => void;
 }
 
+/**
+ * Sheet wrapper used from the Agent Roster. Renders the shared
+ * ExpertsConfigPanel inside a right-side sheet and wires up close-on-save.
+ *
+ * The panel itself is also exported and rendered standalone by the
+ * /entrata-experts-setup page route.
+ */
 export function ExpertsConfigSheet({
   open,
   onOpenChange,
 }: ExpertsConfigSheetProps) {
-  const { policy, savePolicy, resetPolicy } = useExpertsPolicy();
-  const [draft, setDraft] = React.useState<ExpertsPolicy>(policy);
-
-  // Reset the draft whenever the sheet (re)opens or the persisted policy
-  // changes externally — keeps Save/Discard meaningful.
-  React.useEffect(() => {
-    if (open) setDraft(policy);
-  }, [open, policy]);
-
-  const dirty = React.useMemo(
-    () => JSON.stringify(draft) !== JSON.stringify(policy),
-    [draft, policy],
-  );
-
-  const onSave = () => {
-    savePolicy(draft);
-    onOpenChange(false);
-  };
-
-  const onDiscard = () => setDraft(policy);
-
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full flex flex-col overflow-hidden p-0 sm:max-w-[75vw]">
@@ -98,109 +84,155 @@ export function ExpertsConfigSheet({
             Manage surfaces, spend limits, and model access for Entrata Experts.
           </SheetDescription>
         </SheetHeader>
+        <ExpertsConfigPanel onClose={() => onOpenChange(false)} />
+      </SheetContent>
+    </Sheet>
+  );
+}
 
-        {/* Header bar */}
-        <div className="flex items-center gap-3 border-b border-border bg-card px-5 py-3">
-          <span
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md"
-            style={{ background: "#3b7a9e1a", color: "#3b7a9e" }}
-          >
-            <Sparkles className="h-4 w-4" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <h2
-                className="text-base font-semibold leading-tight text-foreground"
-                style={{ fontFamily: HEADING_FONT }}
-              >
-                Entrata Experts
-              </h2>
-              <Badge variant="green" className="text-[10px]">
-                Active
-              </Badge>
-            </div>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              AI hub — Analyst, Assistants, Report Analyzer · governance and
-              cost controls
-            </p>
-          </div>
+export interface ExpertsConfigPanelProps {
+  /**
+   * Optional close handler. When provided, an X button is rendered in the
+   * action toolbar and is also called automatically after a successful save.
+   * Pass nothing for the standalone page route — the panel just stays put.
+   */
+  onClose?: () => void;
+}
 
+/**
+ * Self-contained Entrata Experts admin panel. Owns its own draft state,
+ * dirty tracking, and Save / Discard / Reset behaviour. Used by both:
+ *   - <ExpertsConfigSheet /> (right-side sheet from Agent Roster)
+ *   - app/entrata-experts-setup/page.tsx (dedicated page route)
+ */
+export function ExpertsConfigPanel({ onClose }: ExpertsConfigPanelProps) {
+  const { policy, savePolicy, resetPolicy } = useExpertsPolicy();
+  const [draft, setDraft] = React.useState<ExpertsPolicy>(policy);
+
+  // Reset the draft whenever the persisted policy changes externally
+  // (e.g. another tab saves, or the sheet re-opens) so Save/Discard always
+  // reflects the user's current edits vs the last persisted snapshot.
+  React.useEffect(() => {
+    setDraft(policy);
+  }, [policy]);
+
+  const dirty = React.useMemo(
+    () => JSON.stringify(draft) !== JSON.stringify(policy),
+    [draft, policy],
+  );
+
+  const onSave = () => {
+    savePolicy(draft);
+    onClose?.();
+  };
+
+  const onDiscard = () => setDraft(policy);
+
+  return (
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      {/* Header bar */}
+      <div className="flex items-center gap-3 border-b border-border bg-card px-5 py-3">
+        <span
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md"
+          style={{ background: "#3b7a9e1a", color: "#3b7a9e" }}
+        >
+          <Sparkles className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
+            <h2
+              className="text-base font-semibold leading-tight text-foreground"
+              style={{ fontFamily: HEADING_FONT }}
+            >
+              Entrata Experts
+            </h2>
+            <Badge variant="green" className="text-[10px]">
+              Active
+            </Badge>
+          </div>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            AI hub — Analyst, Assistants, Report Analyzer · governance and
+            cost controls
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              if (
+                window.confirm(
+                  "Reset all Experts policy to defaults? This removes every override.",
+                )
+              ) {
+                resetPolicy();
+                setDraft(DEFAULT_EXPERTS_POLICY);
+              }
+            }}
+            className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+            title="Reset to seeded defaults"
+          >
+            <RotateCcw className="h-3 w-3" />
+            Reset
+          </Button>
+          {dirty && (
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => {
-                if (
-                  window.confirm(
-                    "Reset all Experts policy to defaults? This removes every override.",
-                  )
-                ) {
-                  resetPolicy();
-                  setDraft(DEFAULT_EXPERTS_POLICY);
-                }
-              }}
-              className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-              title="Reset to seeded defaults"
+              onClick={onDiscard}
+              className="h-8 text-xs"
             >
-              <RotateCcw className="h-3 w-3" />
-              Reset
+              Discard
             </Button>
-            {dirty && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={onDiscard}
-                className="h-8 text-xs"
-              >
-                Discard
-              </Button>
-            )}
-            <Button
-              type="button"
-              size="sm"
-              onClick={onSave}
-              disabled={!dirty}
-              className="h-8 gap-1.5 text-xs"
-            >
-              <Check className="h-3 w-3" />
-              Save changes
-            </Button>
+          )}
+          <Button
+            type="button"
+            size="sm"
+            onClick={onSave}
+            disabled={!dirty}
+            className="h-8 gap-1.5 text-xs"
+          >
+            <Check className="h-3 w-3" />
+            Save changes
+          </Button>
+          {onClose && (
             <Button
               type="button"
               variant="ghost"
               size="icon"
               className="h-8 w-8"
-              onClick={() => onOpenChange(false)}
+              onClick={onClose}
               aria-label="Close"
             >
               <X className="h-4 w-4" />
             </Button>
-          </div>
+          )}
         </div>
+      </div>
 
-        {/* Body */}
-        <div className="flex-1 min-h-0 overflow-y-auto bg-muted/30 p-5">
-          <div className="mx-auto flex max-w-[920px] flex-col gap-5">
-            <SurfacesSection
-              value={draft.surfaces}
-              onChange={(next) =>
-                setDraft((d) => ({ ...d, surfaces: next }))
-              }
-            />
-            <SpendSection
-              value={draft.spend}
-              onChange={(next) => setDraft((d) => ({ ...d, spend: next }))}
-            />
-            <ModelAccessSection
-              value={draft.models}
-              onChange={(next) => setDraft((d) => ({ ...d, models: next }))}
-            />
-          </div>
+      {/* Body */}
+      <div className="flex-1 min-h-0 overflow-y-auto bg-muted/30 p-5">
+        <div className="mx-auto flex max-w-[920px] flex-col gap-5">
+          <SurfacesSection
+            value={draft.surfaces}
+            onChange={(next) =>
+              setDraft((d) => ({ ...d, surfaces: next }))
+            }
+          />
+          <SpendSection
+            value={draft.spend}
+            onChange={(next) => setDraft((d) => ({ ...d, spend: next }))}
+          />
+          <ModelAccessSection
+            value={draft.models}
+            onChange={(next) => setDraft((d) => ({ ...d, models: next }))}
+          />
         </div>
-      </SheetContent>
-    </Sheet>
+      </div>
+    </div>
   );
 }
 

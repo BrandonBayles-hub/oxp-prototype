@@ -20,8 +20,9 @@ import {
 //           sidebar + recent-conversations hub rail. No admin, no billing.
 //   v1.1  — Admin observability lands: Admin Insights → Entrata Experts with
 //           Activity log + Knowledge gaps. Memory chips unlock for users.
-//   v1.2  — Scale story: Tokens & Usage tab (all sub-tabs) + full Admin
-//           Insights tab set (Clusters + Automation candidates).
+//   v1.2  — Scale story: Tokens & Usage (lives on the Entrata Experts page,
+//           chat-first hub → Account → Tokens & Usage) + full Admin Insights
+//           tab set (Clusters + Automation candidates).
 //   full  — Everything in v1.2 + future surface area.
 //
 // Components read `useEntrataExpertsRelease()` and call `atLeast("v1.1")` to

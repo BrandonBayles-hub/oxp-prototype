@@ -7,13 +7,17 @@ import type { LensId, Depth, ModelId, Scope } from "@/lib/entrata-experts-v2/typ
 import { ArrowUp, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// Lens + scope are independently optional. Render the pickers only when both
+// the value and its onChange handler are provided. Analyst uses both; the
+// Assistant chats reuse the same composer with just the scope picker (lens
+// routing doesn't apply to fixed-purpose assistants).
 interface Props {
-  lens: LensId;
-  depth: Depth;
-  model: ModelId;
-  scope: Scope;
-  onChangeLens: (l: LensId, d: Depth, m: ModelId) => void;
-  onChangeScope: (s: Scope) => void;
+  lens?: LensId;
+  depth?: Depth;
+  model?: ModelId;
+  scope?: Scope;
+  onChangeLens?: (l: LensId, d: Depth, m: ModelId) => void;
+  onChangeScope?: (s: Scope) => void;
   onSend: (text: string) => void;
   isThinking?: boolean;
   onStop?: () => void;
@@ -34,6 +38,8 @@ export function MessageInput({
   placeholder = "Ask Entrata about your portfolio…",
   autoFocus,
 }: Props) {
+  const showLens = lens !== undefined && depth !== undefined && model !== undefined && !!onChangeLens;
+  const showScope = scope !== undefined && !!onChangeScope;
   const [value, setValue] = React.useState("");
   const ref = React.useRef<HTMLTextAreaElement>(null);
 
@@ -74,8 +80,15 @@ export function MessageInput({
         )}
       />
       <div className="flex items-center gap-1.5 px-3 py-2">
-        <LensPicker lens={lens} depth={depth} model={model} onChange={onChangeLens} />
-        <ScopePicker scope={scope} onChange={onChangeScope} />
+        {showLens && (
+          <LensPicker
+            lens={lens!}
+            depth={depth!}
+            model={model!}
+            onChange={onChangeLens!}
+          />
+        )}
+        {showScope && <ScopePicker scope={scope!} onChange={onChangeScope!} />}
         <div className="flex-1" />
         {isThinking ? (
           <Button size="icon" className="h-7 w-7" onClick={onStop} title="Stop">

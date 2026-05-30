@@ -9,11 +9,7 @@ import {
 import { useEscalations } from "@/lib/escalations-context";
 import { useVault } from "@/lib/vault-context";
 import { useAgents } from "@/lib/agents-context";
-import { useSetup } from "@/lib/setup-context";
-import { useWorkflows } from "@/lib/workflows-context";
-import { useVoice } from "@/lib/voice-context";
-import { useTools } from "@/lib/tools-context";
-import { useGovernance } from "@/lib/governance-context";
+import { useActivationProgress } from "@/lib/activation-steps";
 
 export type NavBadge = {
   count: number;
@@ -23,11 +19,6 @@ export type NavBadge = {
 
 export type NavBadges = Record<string, NavBadge | undefined>;
 
-const STEP_IDS = [
-  "account", "entrata", "tools", "vault", "agents",
-  "workflows", "voice", "governance", "golive",
-] as const;
-
 export type NavBadgeResult = {
   badges: NavBadges;
   activation: { completed: number; total: number; done: boolean };
@@ -36,13 +27,12 @@ export type NavBadgeResult = {
 export function useNavBadges(): NavBadgeResult {
   const { filteredItems: conversationsForNav } = useConversations();
   const { items: escalations } = useEscalations();
-  const { documents, docCount } = useVault();
-  const { agents, agentsEnabledCount } = useAgents();
-  const { completedSteps, goLiveComplete } = useSetup();
-  const { atLeastOneEnabled } = useWorkflows();
-  const { configured: voiceConfigured } = useVoice();
-  const { availableToolNames } = useTools();
-  const { enabledGuardrailCount } = useGovernance();
+  const { documents } = useVault();
+  const { agents } = useAgents();
+  // Single source of truth for activation step counts. Defined in
+  // lib/activation-steps.ts and shared with the Getting Started page so the
+  // sidebar chip can't drift from what the page actually renders.
+  const activation = useActivationProgress();
 
   return useMemo(() => {
     const badges: NavBadges = {};
@@ -100,29 +90,12 @@ export function useNavBadges(): NavBadgeResult {
        Real source will be the contract+property event stream. */
     badges["/setup-wizard"] = { count: 4, variant: "action" };
 
-    const autoDetected: Record<string, boolean> = {
-      account: true,
-      entrata: true,
-      tools: availableToolNames.length > 0,
-      vault: docCount > 0,
-      agents: agentsEnabledCount > 0,
-      workflows: atLeastOneEnabled,
-      voice: voiceConfigured,
-      governance: enabledGuardrailCount > 0,
-      golive: false,
-    };
-
-    const activationCompleted = STEP_IDS.reduce(
-      (n, id, i) => n + (completedSteps.includes(i) || autoDetected[id] ? 1 : 0),
-      0
-    );
-
     return {
       badges,
       activation: {
-        completed: activationCompleted,
-        total: STEP_IDS.length,
-        done: goLiveComplete,
+        completed: activation.completedCount,
+        total: activation.total,
+        done: activation.done,
       },
     };
   }, [
@@ -130,13 +103,6 @@ export function useNavBadges(): NavBadgeResult {
     escalations,
     documents,
     agents,
-    completedSteps,
-    goLiveComplete,
-    docCount,
-    agentsEnabledCount,
-    atLeastOneEnabled,
-    voiceConfigured,
-    availableToolNames,
-    enabledGuardrailCount,
+    activation,
   ]);
 }

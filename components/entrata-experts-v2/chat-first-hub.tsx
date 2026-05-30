@@ -1,13 +1,22 @@
 "use client";
 import * as React from "react";
 import {
+  ArrowLeft,
   ArrowRight,
-  BarChart3,
   ChevronRight,
   FileBarChart,
   Sparkles,
 } from "lucide-react";
-import { ASSISTANTS } from "@/lib/entrata-experts-v2/assistants";
+import {
+  ASSISTANTS,
+  ANALYST_LOGO,
+  REPORT_ANALYZER_LOGO,
+} from "@/lib/entrata-experts-v2/assistants";
+
+// Page-chrome badges authored in the production gradient-badge style so the
+// top toggle reads as the same icon family as the expert rail badges.
+const EXPERTS_BADGE = "/experts/experts-badge.svg";
+const TOKENS_BADGE = "/experts/tokens-badge.svg";
 import {
   REPORT_BY_ID,
   recentReports,
@@ -16,20 +25,26 @@ import { AnalystChat } from "./analyst-chat";
 import { AssistantChat } from "./assistant-chat";
 import { ReportAnalyzerChat } from "./report-analyzer-chat";
 import { ReportAnalyzerModule } from "./report-analyzer-module";
+import { CreditsUsage } from "./credits-usage";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { useEntrataExpertsRelease } from "@/lib/entrata-experts-release-context";
 
 // =============================================================================
-// Chat-first hub (prototype layout — toggle-gated by the page)
+// Chat-first hub
 // -----------------------------------------------------------------------------
-// Inspired by Gemini Gems. The user lands directly inside Entrata Analyst.
-// A left rail lets them switch between Analyst, the pre-built Assistants, and
-// the Report Analyzer without ever returning to a "hub" landing page.
+// The Entrata Experts surface, inspired by Gemini Gems. The user lands
+// directly inside Entrata Analyst. A left rail (ExpertsRail) lets them switch
+// between Analyst, the pre-built Assistants, and the Report Analyzer without
+// ever returning to a separate landing page.
 //
-// This is intentionally additive: existing chat components are reused as-is
-// (their own BackBar still renders; we wire onBack to "return to Analyst").
-// If this pattern wins, we'd then refactor BackBar out of the chat components
-// when they're embedded inside this layout.
+// This rail replaces the OXP main sidebar for this route — AppShell drops the
+// sidebar via NO_SIDEBAR_ROUTES, and a "← OXP Studio" affordance at the top
+// of the rail navigates back to the rest of OXP.
+//
+// Existing chat components are reused as-is: their own BackBar would normally
+// render, but we set hideBack/hideNew here since the rail itself handles
+// switching between experts.
 // =============================================================================
 
 type Selection =
@@ -38,8 +53,25 @@ type Selection =
   | { kind: "report-picker" }
   | { kind: "report"; id: string };
 
+// Top-level page mode. Entrata Experts (the chat-first workspace) and Tokens &
+// Usage are peer "pages" switched via the segmented toggle in the hub top bar
+// — not entries inside the experts rail.
+type HubMode = "experts" | "tokens";
+
 const STORAGE_KEY = "oxp:experts-v2:chat-first-selection";
+const MODE_STORAGE_KEY = "oxp:experts-v2:chat-first-mode";
 const DEFAULT_SELECTION: Selection = { kind: "analyst" };
+const DEFAULT_MODE: HubMode = "experts";
+
+function loadMode(): HubMode {
+  if (typeof window === "undefined") return DEFAULT_MODE;
+  try {
+    const raw = window.sessionStorage.getItem(MODE_STORAGE_KEY);
+    return raw === "tokens" ? "tokens" : "experts";
+  } catch {
+    return DEFAULT_MODE;
+  }
+}
 
 function loadSelection(): Selection {
   if (typeof window === "undefined") return DEFAULT_SELECTION;
@@ -65,12 +97,27 @@ function loadSelection(): Selection {
 const HEADING_FONT =
   "'Plus Jakarta Sans', Inter, ui-sans-serif, system-ui, sans-serif";
 
-export function ChatFirstHub() {
+export interface ChatFirstHubProps {
+  /**
+   * Called when the user clicks the "← OXP Studio" back affordance in the
+   * rail. Caller is expected to switch the page out of chat-first mode so
+   * the standard OXP sidebar comes back.
+   */
+  onExitFocus?: () => void;
+}
+
+export function ChatFirstHub({ onExitFocus }: ChatFirstHubProps = {}) {
   const [selection, setSelection] = React.useState<Selection>(DEFAULT_SELECTION);
+  const [mode, setMode] = React.useState<HubMode>(DEFAULT_MODE);
   const [hydrated, setHydrated] = React.useState(false);
+
+  // Tokens & Usage is a v1.2 surface (see entrata-experts-release-context).
+  const { atLeast } = useEntrataExpertsRelease();
+  const showTokens = atLeast("v1.2");
 
   React.useEffect(() => {
     setSelection(loadSelection());
+    setMode(loadMode());
     setHydrated(true);
   }, []);
 
@@ -78,60 +125,199 @@ export function ChatFirstHub() {
     if (!hydrated) return;
     try {
       window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(selection));
+      window.sessionStorage.setItem(MODE_STORAGE_KEY, mode);
     } catch {
       /* ignore */
     }
-  }, [selection, hydrated]);
+  }, [selection, mode, hydrated]);
+
+  // If the release is downgraded below v1.2 while Tokens & Usage is open,
+  // snap back to the Experts workspace so we never show a gated surface.
+  React.useEffect(() => {
+    if (!showTokens && mode === "tokens") setMode("experts");
+  }, [showTokens, mode]);
 
   const selectAnalyst = () => setSelection({ kind: "analyst" });
   const selectAssistant = (id: string) => setSelection({ kind: "assistant", id });
   const selectReportPicker = () => setSelection({ kind: "report-picker" });
   const selectReport = (id: string) => setSelection({ kind: "report", id });
 
+  const showTokensView = mode === "tokens" && showTokens;
+
   return (
-    <div className="flex h-[calc(100vh-12rem)] min-h-[600px] overflow-hidden rounded-lg bg-background">
-      <ExpertsRail
-        selection={selection}
-        onSelectAnalyst={selectAnalyst}
-        onSelectAssistant={selectAssistant}
-        onSelectReportPicker={selectReportPicker}
-        onSelectReport={selectReport}
+    // h-full lets the parent decide the viewport — when rendered in focus
+    // mode (page sets ?focus=1, AppShell drops the page-content wrapper) we
+    // fill the entire main area below the top nav. min-h-[600px] keeps the
+    // layout sane on very short windows.
+    <div className="flex h-full min-h-[600px] flex-col overflow-hidden bg-background">
+      <HubTopBar
+        mode={mode}
+        onChangeMode={setMode}
+        showTokens={showTokens}
+        onExitFocus={onExitFocus}
       />
-      <main className="flex min-w-0 flex-1 flex-col bg-background">
-        {selection.kind === "analyst" && (
-          <EmbeddedShell>
-            <AnalystChat
-              onBack={selectAnalyst}
-              hideBack
-              hideNew
-              alignWithSidebar
+
+      {showTokensView ? (
+        <TokensView />
+      ) : (
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <ExpertsRail
+            selection={selection}
+            onSelectAnalyst={selectAnalyst}
+            onSelectAssistant={selectAssistant}
+            onSelectReportPicker={selectReportPicker}
+            onSelectReport={selectReport}
+          />
+          <main className="flex min-w-0 flex-1 flex-col bg-background">
+            {selection.kind === "analyst" && (
+              <EmbeddedShell>
+                <AnalystChat
+                  onBack={selectAnalyst}
+                  hideBack
+                  hideNew
+                  alignWithSidebar
+                />
+              </EmbeddedShell>
+            )}
+            {selection.kind === "assistant" && (
+              <EmbeddedShell>
+                <AssistantChat
+                  assistantId={selection.id}
+                  onBack={selectAnalyst}
+                  hideBack
+                  hideNew
+                />
+              </EmbeddedShell>
+            )}
+            {selection.kind === "report-picker" && (
+              <ReportPickerView onLaunchReport={selectReport} />
+            )}
+            {selection.kind === "report" && (
+              <EmbeddedShell>
+                <ReportAnalyzerChat
+                  reportId={selection.id}
+                  onBack={selectReportPicker}
+                  hideBack
+                  hideNew
+                />
+              </EmbeddedShell>
+            )}
+          </main>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// HubTopBar — page-level chrome that owns the "← OXP Studio" affordance, the
+// Entrata Experts identity, and the segmented page toggle. The toggle treats
+// Entrata Experts and Tokens & Usage as peer pages. When Tokens & Usage is
+// gated off (< v1.2) the toggle collapses to a plain wordmark so the bar still
+// reads as the Entrata Experts header.
+// -----------------------------------------------------------------------------
+
+function HubTopBar({
+  mode,
+  onChangeMode,
+  showTokens,
+  onExitFocus,
+}: {
+  mode: HubMode;
+  onChangeMode: (m: HubMode) => void;
+  showTokens: boolean;
+  onExitFocus?: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-3 border-b border-border bg-background px-3 py-2">
+      {onExitFocus && (
+        <>
+          <button
+            type="button"
+            onClick={onExitFocus}
+            className="group flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+            title="Return to OXP Studio"
+          >
+            <ArrowLeft className="h-3.5 w-3.5 shrink-0 transition-transform group-hover:-translate-x-0.5" />
+            <span>OXP Studio</span>
+          </button>
+          <span aria-hidden className="h-5 w-px bg-border" />
+        </>
+      )}
+
+      {showTokens ? (
+        <ModeToggle mode={mode} onChange={onChangeMode} />
+      ) : (
+        <div className="flex items-center gap-2">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={EXPERTS_BADGE} alt="" aria-hidden className="h-5 w-5" />
+          <span
+            className="text-[13px] font-semibold tracking-tight text-foreground"
+            style={{ fontFamily: HEADING_FONT }}
+          >
+            Entrata Experts
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Segmented page toggle. Refined pill control — active segment lifts onto a
+// solid background with a hairline ring; the active icon picks up its page's
+// accent hue (indigo for Experts, amber for Tokens & Usage).
+function ModeToggle({
+  mode,
+  onChange,
+}: {
+  mode: HubMode;
+  onChange: (m: HubMode) => void;
+}) {
+  const items: {
+    id: HubMode;
+    label: string;
+    badge: string;
+  }[] = [
+    { id: "experts", label: "Entrata Experts", badge: EXPERTS_BADGE },
+    { id: "tokens", label: "Tokens & Usage", badge: TOKENS_BADGE },
+  ];
+
+  return (
+    <div
+      role="tablist"
+      aria-label="Entrata Experts pages"
+      className="inline-flex items-center gap-0.5 rounded-full border border-border bg-muted/40 p-0.5"
+    >
+      {items.map((it) => {
+        const active = mode === it.id;
+        return (
+          <button
+            key={it.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(it.id)}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full py-1 pl-1 pr-3.5 text-[12.5px] font-medium transition-all",
+              active
+                ? "bg-background text-foreground shadow-sm ring-1 ring-border"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={it.badge}
+              alt=""
+              aria-hidden
+              className={cn(
+                "h-5 w-5 shrink-0 transition-opacity",
+                active ? "opacity-100" : "opacity-60",
+              )}
             />
-          </EmbeddedShell>
-        )}
-        {selection.kind === "assistant" && (
-          <EmbeddedShell>
-            <AssistantChat
-              assistantId={selection.id}
-              onBack={selectAnalyst}
-              hideBack
-              hideNew
-            />
-          </EmbeddedShell>
-        )}
-        {selection.kind === "report-picker" && (
-          <ReportPickerView onLaunchReport={selectReport} />
-        )}
-        {selection.kind === "report" && (
-          <EmbeddedShell>
-            <ReportAnalyzerChat
-              reportId={selection.id}
-              onBack={selectReportPicker}
-              hideBack
-              hideNew
-            />
-          </EmbeddedShell>
-        )}
-      </main>
+            {it.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -184,20 +370,17 @@ function ExpertsRail({
   const recents = React.useMemo(() => recentReports().slice(0, 3), []);
 
   return (
-    <aside className="flex w-[240px] shrink-0 flex-col border-r border-border bg-muted/30">
+    // Width matches the OXP main sidebar (w-64) so swapping in/out feels
+    // visually stable rather than the layout jumping by 16px. The page
+    // identity + "← OXP Studio" affordance now live in the HubTopBar, so the
+    // rail starts directly with its nav.
+    <aside className="flex w-64 shrink-0 flex-col border-r border-border bg-muted/30">
       <div className="flex-1 overflow-y-auto scrollbar-hover px-2 py-3">
         {/* Entrata Analyst — pinned, primary */}
         <RailRow
           active={selection.kind === "analyst"}
           onClick={onSelectAnalyst}
-          icon={
-            <span
-              className="flex h-7 w-7 items-center justify-center rounded-md"
-              style={{ background: "#3b7a9e1a", color: "#3b7a9e" }}
-            >
-              <BarChart3 className="h-3.5 w-3.5" />
-            </span>
-          }
+          icon={<ExpertLogo src={ANALYST_LOGO} alt="Entrata Analyst" />}
           title="Entrata Analyst"
           subtitle="Data-connected"
           trailing={
@@ -209,7 +392,6 @@ function ExpertsRail({
 
         <RailGroup label="Assistants">
           {ASSISTANTS.map((a) => {
-            const Icon = a.icon;
             const active =
               selection.kind === "assistant" && selection.id === a.id;
             return (
@@ -217,14 +399,7 @@ function ExpertsRail({
                 key={a.id}
                 active={active}
                 onClick={() => onSelectAssistant(a.id)}
-                icon={
-                  <span
-                    className="flex h-7 w-7 items-center justify-center rounded-md"
-                    style={{ background: `${a.hue}1a`, color: a.hue }}
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                  </span>
-                }
+                icon={<ExpertLogo src={a.image} alt={a.name} />}
                 title={a.name}
               />
             );
@@ -237,14 +412,7 @@ function ExpertsRail({
               selection.kind === "report-picker" || selection.kind === "report"
             }
             onClick={onSelectReportPicker}
-            icon={
-              <span
-                className="flex h-7 w-7 items-center justify-center rounded-md"
-                style={{ background: "#4338ca1a", color: "#4338ca" }}
-              >
-                <FileBarChart className="h-3.5 w-3.5" />
-              </span>
-            }
+            icon={<ExpertLogo src={REPORT_ANALYZER_LOGO} alt="Report Analyzer" />}
             title="Report Analyzer"
             subtitle={
               activeReport ? `Open · ${activeReport.name}` : undefined
@@ -289,6 +457,16 @@ function ExpertsRail({
         </div>
       </div>
     </aside>
+  );
+}
+
+// Production expert badge. These SVGs (extracted from the live EntrataGPT app
+// into /public/experts/) carry their own circular gradient background, so we
+// render them bare at the rail icon size rather than inside a tinted square.
+function ExpertLogo({ src, alt }: { src: string; alt: string }) {
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={src} alt={alt} className="h-7 w-7 shrink-0" />
   );
 }
 
@@ -348,6 +526,39 @@ function RailRow({
       </div>
       {trailing && <span className="shrink-0">{trailing}</span>}
     </button>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// TokensView — main-area view for Tokens & Usage. Reuses the existing
+// CreditsUsage dashboard (same component the Admin Insights page used to host)
+// inside a scrollable container with a header that matches ReportPickerView.
+// -----------------------------------------------------------------------------
+
+function TokensView() {
+  return (
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <header className="flex items-center gap-3 border-b border-border px-5 py-3">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={TOKENS_BADGE} alt="" aria-hidden className="h-9 w-9 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <h2
+            className="text-base font-semibold leading-tight text-foreground"
+            style={{ fontFamily: HEADING_FONT }}
+          >
+            Tokens &amp; Usage
+          </h2>
+          <p className="truncate text-[12px] text-muted-foreground">
+            Token spend, per-expert breakdown, and conversation insights across
+            your Entrata Experts usage.
+          </p>
+        </div>
+      </header>
+
+      <div className="flex-1 overflow-y-auto scrollbar-hover px-6 py-5">
+        <CreditsUsage />
+      </div>
+    </div>
   );
 }
 
