@@ -3255,7 +3255,6 @@ type TabDef = { id: string; label: string; settings: SettingItem[] };
 const AGENT_SETTINGS_TABS: Record<string, TabDef[]> = {
   "Leasing AI": [
     { id: "general", label: "General Info", settings: [
-      { name: "Agent Goal", description: "Define the primary objective for the leasing AI agent at this property." },
       { name: "Office Hours", description: "Set the business hours when the agent should be actively responding to prospects." },
     ]},
     { id: "property", label: "Property Info", settings: [
@@ -5208,7 +5207,6 @@ function getAgentSubPages(agentName: string): { id: SettingsNav; label: string }
     { id: "agent-settings", label: `${agentName} Settings` },
     { id: "voice-tone", label: "Voice & Tone" },
     { id: "simulation", label: "Simulation" },
-    { id: "history", label: "History & Logging" },
   ];
 }
 
