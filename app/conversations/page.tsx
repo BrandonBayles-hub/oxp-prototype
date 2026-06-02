@@ -115,10 +115,6 @@ import { useClickToCallDemo } from "@/lib/click-to-call-demo-context";
 import { useCallSystemDemo } from "@/lib/call-system-demo-context";
 import { useConversationsDemo } from "@/lib/conversations-demo-context";
 import {
-  InboundCallFloatingPanel,
-  type InboundCallSessionInput,
-} from "@/components/inbound-call-floating-panel";
-import {
   ClickToCallFloatingPanel,
   CLICK_TO_CALL_FOLLOWUP_UNASSIGNED,
   type ClickToCallSessionInput,
@@ -751,58 +747,9 @@ function ConversationsContent() {
   }, [autonomousAgents, humanMembers]);
 
   const { clickToCallEnabled } = useClickToCallDemo();
-  const { callSystemEnabled, inboundCallRequest } = useCallSystemDemo();
+  const { callSystemEnabled } = useCallSystemDemo();
   const { profileCommsPopupRequest } = useConversationsDemo();
   const [callSystemPanelOpen, setCallSystemPanelOpen] = useState(false);
-  const [inboundCallSession, setInboundCallSession] = useState<InboundCallSessionInput | null>(null);
-  const inboundCallRequestRef = useRef(0);
-
-  useEffect(() => {
-    if (inboundCallRequest === 0) return;
-    if (inboundCallRequest === inboundCallRequestRef.current) return;
-    inboundCallRequestRef.current = inboundCallRequest;
-    const scenarios: InboundCallSessionInput[] = [
-      {
-        id: `inbound-${Date.now()}-1`,
-        callerName: "Sarah Mitchell",
-        callerPhone: "+1 (801) 555-0147",
-        propertyName: "Hillside Living",
-        propertyLine: "(801) 423-1100",
-        callerType: "resident",
-        unit: "Unit 204B",
-        leaseEnd: "Aug 31, 2026",
-        balance: "$1,247.00",
-        autoPay: false,
-        openWorkOrders: 2,
-        lastPayment: "Apr 1, 2026",
-        ivrSelection: "Press 2 — Current Residents",
-        aiContextNote: "Recurring maintenance: HVAC reported 3 times in 60 days. Lease renewal in 3 months.",
-      },
-      {
-        id: `inbound-${Date.now()}-2`,
-        callerName: "James Rodriguez",
-        callerPhone: "+1 (720) 555-0293",
-        propertyName: "Jamison Apartments",
-        propertyLine: "(720) 315-1100",
-        callerType: "prospect",
-        tourScheduled: "Tomorrow 2:00 PM",
-        applicationStatus: "Not started",
-        ivrSelection: "Press 1 — Leasing",
-        aiContextNote: "Prospect visited website 4 times this week. Interested in 2BR units.",
-      },
-      {
-        id: `inbound-${Date.now()}-3`,
-        callerName: "Unknown Caller",
-        callerPhone: "+1 (385) 555-0822",
-        propertyName: "Hillside Living",
-        propertyLine: "(801) 423-1100",
-        callerType: "unknown",
-        ivrSelection: "Press 3 — Maintenance",
-      },
-    ];
-    const scenario = scenarios[inboundCallRequest % scenarios.length];
-    setInboundCallSession(scenario);
-  }, [inboundCallRequest]);
 
   const clickToCallAssigneeOptions = useMemo(() => {
     const rest = humanMembers
@@ -1125,6 +1072,8 @@ function ConversationsContent() {
     from: string;
     propertyName: string;
   } | null>(null);
+  const [newThreadSubject, setNewThreadSubject] = useState("");
+  const [newThreadSubjectError, setNewThreadSubjectError] = useState(false);
   /** Staff / private-note messages sent from the Entrata profile thread composer (prototype; not persisted). */
   const [entSideSentByThreadKey, setEntSideSentByThreadKey] = useState<
     Record<
@@ -1155,6 +1104,8 @@ function ConversationsContent() {
     setProfilePanelInboxOpen(false);
     setOpenThreadIdx(null);
     setNewThreadOutbound(null);
+    setNewThreadSubject("");
+    setNewThreadSubjectError(false);
   }, [profileCommsPopupRequest, selected]);
 
   useEffect(() => {
@@ -1434,6 +1385,10 @@ function ConversationsContent() {
   const handleProfileEntThreadSend = () => {
     const text = threadDraft.trim();
     if (!text || openThreadIdx === null || !selected) return;
+    if (openThreadIdx === -1 && newThreadOutbound?.channel === "Email" && !newThreadSubject.trim()) {
+      setNewThreadSubjectError(true);
+      return;
+    }
     const now = new Date();
     const timestamp = now.toLocaleString("en-US", {
       month: "short",
@@ -1952,7 +1907,7 @@ function ConversationsContent() {
 
               <div className="space-y-1.5">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Completed filter
+                  Conversation filter
                 </p>
                 <Select
                   value={threadListCompletedFilter}
@@ -1962,8 +1917,8 @@ function ConversationsContent() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="active">Open (Active Conversation)</SelectItem>
+                    <SelectItem value="completed">Closed (Completed Conversation)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -3421,6 +3376,8 @@ function ConversationsContent() {
                     onClick={() => {
                       setOpenThreadIdx(null);
                       setNewThreadOutbound(null);
+                      setNewThreadSubject("");
+                      setNewThreadSubjectError(false);
                     }}
                     className="text-gray-500 hover:text-gray-800 transition-colors"
                   >
@@ -3496,6 +3453,8 @@ function ConversationsContent() {
                     onClick={() => {
                       setOpenThreadIdx(null);
                       setNewThreadOutbound(null);
+                      setNewThreadSubject("");
+                      setNewThreadSubjectError(false);
                       setThreadsPanelOpen(false);
                       setProfilePanelInboxOpen(false);
                     }}
@@ -3515,6 +3474,29 @@ function ConversationsContent() {
                         : "Property email"}{" "}
                       · {newThreadOutbound.propertyName}
                     </p>
+                  </div>
+                )}
+
+                {openThreadIdx === -1 && newThreadOutbound?.channel === "Email" && (
+                  <div className="shrink-0 border-b border-gray-200 bg-white px-4 py-2">
+                    <label className={cn("text-[10px] font-semibold uppercase tracking-wide", newThreadSubjectError ? "text-red-600" : "text-gray-500")}>
+                      Subject {newThreadSubjectError && <span className="normal-case tracking-normal font-medium">— required before sending</span>}
+                    </label>
+                    <input
+                      type="text"
+                      value={newThreadSubject}
+                      onChange={(e) => {
+                        setNewThreadSubject(e.target.value);
+                        if (newThreadSubjectError && e.target.value.trim()) setNewThreadSubjectError(false);
+                      }}
+                      placeholder="Enter email subject…"
+                      className={cn(
+                        "mt-1 w-full rounded-md border bg-background px-2.5 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1",
+                        newThreadSubjectError
+                          ? "border-red-400 ring-1 ring-red-300 focus:ring-red-400"
+                          : "border-input focus:ring-ring"
+                      )}
+                    />
                   </div>
                 )}
 
@@ -4292,6 +4274,8 @@ function ConversationsContent() {
                               onClick={() => {
                                 setProfilePanelInboxOpen(false);
                                 setNewThreadOutbound(null);
+                                setNewThreadSubject("");
+                                setNewThreadSubjectError(false);
                                 setOpenThreadIdx(globalIdx);
                               }}
                             >
@@ -4718,12 +4702,6 @@ function ConversationsContent() {
         defaultAssigneeValue={CLICK_TO_CALL_FOLLOWUP_UNASSIGNED}
       />
 
-      {callSystemEnabled && (
-        <InboundCallFloatingPanel
-          session={inboundCallSession}
-          onDismiss={() => setInboundCallSession(null)}
-        />
-      )}
     </div>
   );
 }
@@ -5065,59 +5043,19 @@ function MiniCalendar({
    CALL SYSTEM SETTINGS PANEL
    ───────────────────────────────────────────────────────────────────────────── */
 
-type CallSystemTab = "softphone" | "routing" | "screen-pop" | "queue" | "ivr" | "hours" | "ai-voice" | "recording" | "voicemail" | "numbers" | "analytics";
+type CallSystemTab = "softphone" | "routing" | "queue";
 
 const CALL_SYSTEM_TABS: { id: CallSystemTab; label: string }[] = [
   { id: "softphone", label: "Softphone & WebRTC" },
   { id: "routing", label: "Call Routing" },
-  { id: "screen-pop", label: "Screen Pop" },
   { id: "queue", label: "Call Queue" },
-  { id: "ivr", label: "IVR Setup" },
-  { id: "hours", label: "Business Hours" },
-  { id: "ai-voice", label: "AI Voice Agent" },
-  { id: "recording", label: "Recording & Compliance" },
-  { id: "voicemail", label: "Voicemail" },
-  { id: "numbers", label: "Phone Numbers" },
-  { id: "analytics", label: "Analytics & Reporting" },
-];
-
-const MOCK_PHONE_NUMBERS = [
-  { number: "(801) 555-0100", label: "Main Leasing Line", property: "Hillside Living", type: "Tracking" },
-  { number: "(801) 555-0101", label: "Maintenance Line", property: "Hillside Living", type: "Vanity" },
-  { number: "(801) 555-0200", label: "Main Leasing Line", property: "Jamison Apartments", type: "Tracking" },
-  { number: "(801) 555-0201", label: "After-Hours Line", property: "Jamison Apartments", type: "Tracking" },
-  { number: "(801) 555-0300", label: "Main Office", property: "Park Place Residences", type: "Vanity" },
-];
-
-const MOCK_IVR_MENU = [
-  { key: "1", action: "Leasing inquiries", destination: "Leasing Queue" },
-  { key: "2", action: "Current residents", destination: "Resident Services" },
-  { key: "3", action: "Maintenance requests", destination: "Maintenance Queue" },
-  { key: "4", action: "Payments & billing", destination: "AI Voice Agent" },
-  { key: "5", action: "Tour scheduling", destination: "AI Voice Agent" },
-  { key: "0", action: "Speak to an operator", destination: "Front Desk" },
-];
-
-const MOCK_HOURS = [
-  { day: "Monday", open: "8:00 AM", close: "6:00 PM", enabled: true },
-  { day: "Tuesday", open: "8:00 AM", close: "6:00 PM", enabled: true },
-  { day: "Wednesday", open: "8:00 AM", close: "6:00 PM", enabled: true },
-  { day: "Thursday", open: "8:00 AM", close: "6:00 PM", enabled: true },
-  { day: "Friday", open: "8:00 AM", close: "6:00 PM", enabled: true },
-  { day: "Saturday", open: "9:00 AM", close: "4:00 PM", enabled: true },
-  { day: "Sunday", open: "Closed", close: "Closed", enabled: false },
 ];
 
 function CallSystemSettingsPanel({ onClose }: { onClose: () => void }) {
   const [activeTab, setActiveTab] = useState<CallSystemTab>("softphone");
   const [routingMode, setRoutingMode] = useState<"round-robin" | "skills-based" | "property-first">("skills-based");
   const [aiVoiceEnabled, setAiVoiceEnabled] = useState(true);
-  const [recordingEnabled, setRecordingEnabled] = useState(true);
-  const [transcriptionEnabled, setTranscriptionEnabled] = useState(true);
-  const [voicemailTranscription, setVoicemailTranscription] = useState(true);
   const [maxRingTime, setMaxRingTime] = useState("30");
-  const [afterHoursAction, setAfterHoursAction] = useState<"voicemail" | "ai-agent" | "forward">("ai-agent");
-  const [selectedProperty, setSelectedProperty] = useState<string>("all");
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -5283,124 +5221,6 @@ function CallSystemSettingsPanel({ onClose }: { onClose: () => void }) {
                       <p className="text-[10px] text-muted-foreground">{b.status}</p>
                     </div>
                   ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "screen-pop" && (
-            <div className="max-w-3xl space-y-6">
-              <div>
-                <h3 className="text-base font-semibold">Caller Screen Pop</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Configure the Entrata record lookup that automatically displays when a call comes in. This is Entrata&apos;s key advantage — live, native data without API sync delays.
-                </p>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <label className="text-sm font-medium">Screen Pop</label>
-                    <p className="text-xs text-muted-foreground mt-0.5">Show caller&apos;s Entrata record on incoming calls</p>
-                  </div>
-                  <Switch defaultChecked />
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Resident Data Fields</label>
-                  <p className="text-xs text-muted-foreground mt-0.5">Which fields to display when a known resident calls</p>
-                </div>
-                <div className="space-y-2">
-                  {[
-                    { field: "Name & Unit", enabled: true, required: true },
-                    { field: "Lease dates", enabled: true, required: false },
-                    { field: "Current balance", enabled: true, required: false },
-                    { field: "Auto-pay status", enabled: true, required: false },
-                    { field: "Open work orders", enabled: true, required: false },
-                    { field: "Recent payments", enabled: true, required: false },
-                    { field: "Household members", enabled: false, required: false },
-                    { field: "Lease violations", enabled: false, required: false },
-                    { field: "Communication history", enabled: true, required: false },
-                  ].map((f) => (
-                    <div key={f.field} className="flex items-center justify-between rounded border border-border px-3 py-2">
-                      <span className="text-sm">{f.field}</span>
-                      {f.required ? (
-                        <Badge variant="secondary" className="text-[10px]">Required</Badge>
-                      ) : (
-                        <Switch defaultChecked={f.enabled} />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Prospect Data Fields</label>
-                  <p className="text-xs text-muted-foreground mt-0.5">Which fields to display when a known prospect calls</p>
-                </div>
-                <div className="space-y-2">
-                  {[
-                    { field: "Name & source", enabled: true },
-                    { field: "Guest card details", enabled: true },
-                    { field: "Tour history & upcoming tours", enabled: true },
-                    { field: "Application status", enabled: true },
-                    { field: "Preferred unit type / floorplan", enabled: true },
-                    { field: "Move-in date preference", enabled: false },
-                  ].map((f) => (
-                    <div key={f.field} className="flex items-center justify-between rounded border border-border px-3 py-2">
-                      <span className="text-sm">{f.field}</span>
-                      <Switch defaultChecked={f.enabled} />
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div>
-                  <label className="text-sm font-medium">AI Context Notes</label>
-                  <p className="text-xs text-muted-foreground mt-0.5">AI-generated contextual suggestions shown to the agent</p>
-                </div>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <div>
-                      <p className="text-sm">Show AI context note</p>
-                      <p className="text-xs text-muted-foreground">AI highlights relevant info (recurring issues, upcoming renewal, etc.)</p>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <div>
-                      <p className="text-sm">Suggest quick actions</p>
-                      <p className="text-xs text-muted-foreground">Show contextual action buttons (Create WO, Schedule Tour, View Record)</p>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Unknown Caller Handling</label>
-                  <p className="text-xs text-muted-foreground mt-0.5">What to show when no Entrata record matches the phone number</p>
-                </div>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <div>
-                      <p className="text-sm">Show search prompt</p>
-                      <p className="text-xs text-muted-foreground">Allow agent to search records manually</p>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <div>
-                      <p className="text-sm">Allow create new contact</p>
-                      <p className="text-xs text-muted-foreground">Enable creating a new guest card from the screen pop</p>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
                 </div>
               </div>
             </div>
@@ -5663,701 +5483,8 @@ function CallSystemSettingsPanel({ onClose }: { onClose: () => void }) {
             </div>
           )}
 
-          {activeTab === "ivr" && (
-            <div className="max-w-3xl space-y-6">
-              <div>
-                <h3 className="text-base font-semibold">IVR Configuration</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Set up your Interactive Voice Response menu that callers hear when they dial in.
-                  Connects to your existing Entrata IVR system.
-                </p>
-              </div>
 
-              <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 dark:border-blue-900/40 dark:bg-blue-950/30">
-                <div className="flex items-start gap-3">
-                  <Phone className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
-                  <div>
-                    <p className="text-sm font-medium text-blue-900 dark:text-blue-100">Connected to existing IVR system</p>
-                    <p className="mt-0.5 text-xs text-blue-700 dark:text-blue-300">
-                      Call Hub extends your current IVR with intelligent routing to human agents and AI Voice handoff. Existing IVR menus remain active — these settings control what happens after a caller makes their selection.
-                    </p>
-                  </div>
-                </div>
-              </div>
 
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Welcome Greeting</label>
-                  <p className="text-xs text-muted-foreground mt-0.5">The first message callers hear</p>
-                </div>
-                <div className="rounded-md border border-border bg-muted/30 p-3">
-                  <p className="text-sm italic text-muted-foreground">
-                    &quot;Thank you for calling [Property Name]. For leasing inquiries, press 1. For current residents, press 2. For maintenance, press 3. For payments, press 4. To schedule a tour, press 5. To speak with an operator, press 0.&quot;
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm">Edit Script</Button>
-                  <Button variant="outline" size="sm">Upload Audio</Button>
-                  <Button variant="outline" size="sm">Generate with AI</Button>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <label className="text-sm font-medium">Menu Options</label>
-                    <p className="text-xs text-muted-foreground mt-0.5">Configure key press actions</p>
-                  </div>
-                  <Button variant="outline" size="sm" className="gap-1.5">
-                    <Plus className="h-3.5 w-3.5" />
-                    Add Option
-                  </Button>
-                </div>
-                <div className="rounded-md border border-border overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead className="bg-muted/50">
-                      <tr>
-                        <th className="px-3 py-2 text-left font-medium text-muted-foreground">Key</th>
-                        <th className="px-3 py-2 text-left font-medium text-muted-foreground">Action</th>
-                        <th className="px-3 py-2 text-left font-medium text-muted-foreground">Destination</th>
-                        <th className="px-3 py-2 text-right font-medium text-muted-foreground"></th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {MOCK_IVR_MENU.map((item) => (
-                        <tr key={item.key} className="hover:bg-muted/30">
-                          <td className="px-3 py-2">
-                            <Badge variant="outline" className="font-mono">{item.key}</Badge>
-                          </td>
-                          <td className="px-3 py-2">{item.action}</td>
-                          <td className="px-3 py-2 text-muted-foreground">{item.destination}</td>
-                          <td className="px-3 py-2 text-right">
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
-                              <Settings className="h-3.5 w-3.5" />
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <label className="text-sm font-medium">No-Input Timeout</label>
-                    <p className="text-xs text-muted-foreground mt-0.5">What happens if the caller doesn&apos;t press anything</p>
-                  </div>
-                  <Select defaultValue="repeat">
-                    <SelectTrigger className="w-[180px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="repeat">Repeat menu (2x)</SelectItem>
-                      <SelectItem value="operator">Transfer to operator</SelectItem>
-                      <SelectItem value="ai">Transfer to AI agent</SelectItem>
-                      <SelectItem value="voicemail">Send to voicemail</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "hours" && (
-            <div className="max-w-3xl space-y-6">
-              <div>
-                <h3 className="text-base font-semibold">Business Hours</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Set operating hours and configure after-hours call handling.
-                </p>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium">Property Schedule</label>
-                  <Select value={selectedProperty} onValueChange={setSelectedProperty}>
-                    <SelectTrigger className="w-[200px]">
-                      <SelectValue placeholder="Select property" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Properties (Default)</SelectItem>
-                      <SelectItem value="hillside">Hillside Living</SelectItem>
-                      <SelectItem value="jamison">Jamison Apartments</SelectItem>
-                      <SelectItem value="parkplace">Park Place Residences</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="rounded-md border border-border overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead className="bg-muted/50">
-                      <tr>
-                        <th className="px-3 py-2 text-left font-medium text-muted-foreground">Day</th>
-                        <th className="px-3 py-2 text-left font-medium text-muted-foreground">Open</th>
-                        <th className="px-3 py-2 text-left font-medium text-muted-foreground">Close</th>
-                        <th className="px-3 py-2 text-right font-medium text-muted-foreground">Enabled</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {MOCK_HOURS.map((row) => (
-                        <tr key={row.day} className="hover:bg-muted/30">
-                          <td className="px-3 py-2 font-medium">{row.day}</td>
-                          <td className="px-3 py-2 text-muted-foreground">{row.open}</td>
-                          <td className="px-3 py-2 text-muted-foreground">{row.close}</td>
-                          <td className="px-3 py-2 text-right">
-                            <Switch defaultChecked={row.enabled} />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div>
-                  <label className="text-sm font-medium">After-Hours Handling</label>
-                  <p className="text-xs text-muted-foreground mt-0.5">How calls are handled outside business hours</p>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  {([
-                    { id: "voicemail" as const, label: "Voicemail", desc: "Send to voicemail box" },
-                    { id: "ai-agent" as const, label: "AI Voice Agent", desc: "AI handles after-hours calls" },
-                    { id: "forward" as const, label: "Call Forward", desc: "Forward to emergency line" },
-                  ]).map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => setAfterHoursAction(opt.id)}
-                      className={cn(
-                        "rounded-lg border p-3 text-left transition-colors",
-                        afterHoursAction === opt.id
-                          ? "border-primary bg-primary/5 ring-1 ring-primary"
-                          : "border-border hover:border-primary/40"
-                      )}
-                    >
-                      <p className="text-sm font-medium">{opt.label}</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">{opt.desc}</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-3">
-                <div>
-                  <label className="text-sm font-medium">Holiday Schedule</label>
-                  <p className="text-xs text-muted-foreground mt-0.5">Override hours for specific dates</p>
-                </div>
-                <div className="space-y-2">
-                  {[
-                    { date: "Dec 25, 2026", label: "Christmas Day", status: "Closed" },
-                    { date: "Jan 1, 2027", label: "New Year's Day", status: "Closed" },
-                    { date: "Jul 4, 2026", label: "Independence Day", status: "9 AM – 1 PM" },
-                  ].map((holiday) => (
-                    <div key={holiday.date} className="flex items-center justify-between rounded border border-border bg-muted/30 px-3 py-2">
-                      <div>
-                        <p className="text-sm font-medium">{holiday.label}</p>
-                        <p className="text-xs text-muted-foreground">{holiday.date}</p>
-                      </div>
-                      <Badge variant="outline">{holiday.status}</Badge>
-                    </div>
-                  ))}
-                </div>
-                <Button variant="outline" size="sm" className="gap-1.5">
-                  <Plus className="h-3.5 w-3.5" />
-                  Add Holiday
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "ai-voice" && (
-            <div className="max-w-3xl space-y-6">
-              <div>
-                <h3 className="text-base font-semibold">AI Voice Agent</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Configure Redd™ Voice — the AI assistant that handles leasing inquiries, scheduling, and resident questions.
-                </p>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <label className="text-sm font-medium">AI Voice Agent</label>
-                    <p className="text-xs text-muted-foreground mt-0.5">Enable AI to handle inbound calls</p>
-                  </div>
-                  <Switch checked={aiVoiceEnabled} onCheckedChange={setAiVoiceEnabled} />
-                </div>
-              </div>
-
-              {aiVoiceEnabled && (
-                <>
-                  <div className="rounded-lg border border-border p-4 space-y-4">
-                    <div>
-                      <label className="text-sm font-medium">Capabilities</label>
-                      <p className="text-xs text-muted-foreground mt-0.5">What the AI agent can do on calls</p>
-                    </div>
-                    <div className="space-y-3">
-                      {[
-                        { label: "Answer leasing questions", desc: "Pricing, availability, amenities, pet policy", enabled: true },
-                        { label: "Schedule tours", desc: "Book and confirm apartment tours", enabled: true },
-                        { label: "Handle maintenance requests", desc: "Create work orders from call descriptions", enabled: true },
-                        { label: "Process payments", desc: "Take rent payments over the phone", enabled: false },
-                        { label: "Lease renewals", desc: "Discuss renewal terms and schedule follow-up", enabled: true },
-                        { label: "Transfer to human", desc: "Seamlessly transfer when needed", enabled: true },
-                      ].map((cap) => (
-                        <div key={cap.label} className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                          <div>
-                            <p className="text-sm">{cap.label}</p>
-                            <p className="text-xs text-muted-foreground">{cap.desc}</p>
-                          </div>
-                          <Switch defaultChecked={cap.enabled} />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg border border-border p-4 space-y-4">
-                    <div>
-                      <label className="text-sm font-medium">Voice & Persona</label>
-                      <p className="text-xs text-muted-foreground mt-0.5">Customize the AI agent&apos;s voice and personality</p>
-                    </div>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div>
-                        <label className="text-xs font-medium text-muted-foreground">Voice Style</label>
-                        <Select defaultValue="professional-warm">
-                          <SelectTrigger className="mt-1">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="professional-warm">Professional & Warm</SelectItem>
-                            <SelectItem value="friendly-casual">Friendly & Casual</SelectItem>
-                            <SelectItem value="formal">Formal</SelectItem>
-                            <SelectItem value="energetic">Energetic</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <label className="text-xs font-medium text-muted-foreground">Language</label>
-                        <Select defaultValue="en">
-                          <SelectTrigger className="mt-1">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="en">English</SelectItem>
-                            <SelectItem value="es">Spanish</SelectItem>
-                            <SelectItem value="en-es">English + Spanish (auto-detect)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg border border-border p-4 space-y-4">
-                    <div>
-                      <label className="text-sm font-medium">Escalation Triggers</label>
-                      <p className="text-xs text-muted-foreground mt-0.5">When should the AI transfer to a human agent</p>
-                    </div>
-                    <div className="space-y-2">
-                      {[
-                        "Caller requests a human agent",
-                        "Caller expresses frustration (sentiment detection)",
-                        "Question outside AI's knowledge base",
-                        "Legal or fair housing question detected",
-                        "Caller has called 3+ times in 24 hours",
-                      ].map((trigger) => (
-                        <div key={trigger} className="flex items-center gap-3 rounded border border-border bg-muted/30 px-3 py-2">
-                          <Checkbox defaultChecked />
-                          <span className="text-sm">{trigger}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {activeTab === "recording" && (
-            <div className="max-w-3xl space-y-6">
-              <div>
-                <h3 className="text-base font-semibold">Call Recording & Compliance</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Manage call recording settings and ensure compliance with local regulations.
-                </p>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <label className="text-sm font-medium">Call Recording</label>
-                    <p className="text-xs text-muted-foreground mt-0.5">Record all inbound and outbound calls</p>
-                  </div>
-                  <Switch checked={recordingEnabled} onCheckedChange={setRecordingEnabled} />
-                </div>
-              </div>
-
-              {recordingEnabled && (
-                <>
-                  <div className="rounded-lg border border-border p-4 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <label className="text-sm font-medium">AI Transcription</label>
-                        <p className="text-xs text-muted-foreground mt-0.5">Automatically transcribe all recorded calls</p>
-                      </div>
-                      <Switch checked={transcriptionEnabled} onCheckedChange={setTranscriptionEnabled} />
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg border border-border p-4 space-y-4">
-                    <div>
-                      <label className="text-sm font-medium">Consent & Compliance</label>
-                      <p className="text-xs text-muted-foreground mt-0.5">Configure recording consent notifications</p>
-                    </div>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                        <div>
-                          <p className="text-sm">Play consent notification</p>
-                          <p className="text-xs text-muted-foreground">&quot;This call may be recorded for quality assurance&quot;</p>
-                        </div>
-                        <Switch defaultChecked />
-                      </div>
-                      <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                        <div>
-                          <p className="text-sm">Two-party consent mode</p>
-                          <p className="text-xs text-muted-foreground">Required for CA, FL, IL, and other two-party states</p>
-                        </div>
-                        <Switch defaultChecked />
-                      </div>
-                      <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                        <div>
-                          <p className="text-sm">Pause recording option</p>
-                          <p className="text-xs text-muted-foreground">Allow agents to pause recording for sensitive info (SSN, payment)</p>
-                        </div>
-                        <Switch defaultChecked />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg border border-border p-4 space-y-4">
-                    <div>
-                      <label className="text-sm font-medium">Retention Policy</label>
-                      <p className="text-xs text-muted-foreground mt-0.5">How long recordings are stored</p>
-                    </div>
-                    <Select defaultValue="90">
-                      <SelectTrigger className="w-[200px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="30">30 days</SelectItem>
-                        <SelectItem value="60">60 days</SelectItem>
-                        <SelectItem value="90">90 days</SelectItem>
-                        <SelectItem value="180">6 months</SelectItem>
-                        <SelectItem value="365">1 year</SelectItem>
-                        <SelectItem value="unlimited">Unlimited</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {activeTab === "voicemail" && (
-            <div className="max-w-3xl space-y-6">
-              <div>
-                <h3 className="text-base font-semibold">Voicemail Configuration</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Set up voicemail greetings, transcription, and notification settings.
-                </p>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <label className="text-sm font-medium">Voicemail Transcription</label>
-                    <p className="text-xs text-muted-foreground mt-0.5">Automatically transcribe voicemails and include in notifications</p>
-                  </div>
-                  <Switch checked={voicemailTranscription} onCheckedChange={setVoicemailTranscription} />
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Greeting Messages</label>
-                  <p className="text-xs text-muted-foreground mt-0.5">Configure voicemail greetings per property</p>
-                </div>
-                <div className="space-y-2">
-                  {[
-                    { property: "Hillside Living", greeting: "Custom greeting uploaded", status: "Active" },
-                    { property: "Jamison Apartments", greeting: "AI-generated greeting", status: "Active" },
-                    { property: "Park Place Residences", greeting: "Default system greeting", status: "Default" },
-                  ].map((vm) => (
-                    <div key={vm.property} className="flex items-center justify-between rounded border border-border px-3 py-2.5">
-                      <div>
-                        <p className="text-sm font-medium">{vm.property}</p>
-                        <p className="text-xs text-muted-foreground">{vm.greeting}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant={vm.status === "Active" ? "default" : "secondary"}>{vm.status}</Badge>
-                        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs">Edit</Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Notification Settings</label>
-                  <p className="text-xs text-muted-foreground mt-0.5">How staff are notified of new voicemails</p>
-                </div>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <span className="text-sm">Email notification</span>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <span className="text-sm">SMS notification</span>
-                    <Switch defaultChecked={false} />
-                  </div>
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <span className="text-sm">In-app notification</span>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <span className="text-sm">Include transcription in notification</span>
-                    <Switch defaultChecked />
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <label className="text-sm font-medium">Max Voicemail Duration</label>
-                    <p className="text-xs text-muted-foreground mt-0.5">Maximum recording length for voicemails</p>
-                  </div>
-                  <Select defaultValue="120">
-                    <SelectTrigger className="w-[140px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="60">1 minute</SelectItem>
-                      <SelectItem value="120">2 minutes</SelectItem>
-                      <SelectItem value="180">3 minutes</SelectItem>
-                      <SelectItem value="300">5 minutes</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "numbers" && (
-            <div className="max-w-3xl space-y-6">
-              <div>
-                <h3 className="text-base font-semibold">Phone Number Management</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Manage tracking numbers, vanity numbers, and number assignments across properties.
-                </p>
-              </div>
-
-              <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 dark:border-blue-900/40 dark:bg-blue-950/30">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-start gap-3">
-                    <Phone className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
-                    <div>
-                      <p className="text-sm font-medium text-blue-900 dark:text-blue-100">Vanity Numbers already configured</p>
-                      <p className="mt-0.5 text-xs text-blue-700 dark:text-blue-300">
-                        Your existing vanity numbers are connected to Call Hub. Manage them in the dedicated phone numbers page.
-                      </p>
-                    </div>
-                  </div>
-                  <Link href="/communications-setup/phone-numbers">
-                    <Button variant="outline" size="sm" className="shrink-0 gap-1.5 text-xs">
-                      Manage Numbers
-                    </Button>
-                  </Link>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium">Active Phone Numbers</label>
-                  <Button variant="outline" size="sm" className="gap-1.5">
-                    <Plus className="h-3.5 w-3.5" />
-                    Add Number
-                  </Button>
-                </div>
-                <div className="rounded-md border border-border overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead className="bg-muted/50">
-                      <tr>
-                        <th className="px-3 py-2 text-left font-medium text-muted-foreground">Number</th>
-                        <th className="px-3 py-2 text-left font-medium text-muted-foreground">Label</th>
-                        <th className="px-3 py-2 text-left font-medium text-muted-foreground">Property</th>
-                        <th className="px-3 py-2 text-left font-medium text-muted-foreground">Type</th>
-                        <th className="px-3 py-2 text-right font-medium text-muted-foreground"></th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {MOCK_PHONE_NUMBERS.map((num) => (
-                        <tr key={num.number} className="hover:bg-muted/30">
-                          <td className="px-3 py-2 font-mono text-xs">{num.number}</td>
-                          <td className="px-3 py-2">{num.label}</td>
-                          <td className="px-3 py-2 text-muted-foreground">{num.property}</td>
-                          <td className="px-3 py-2">
-                            <Badge variant={num.type === "Vanity" ? "default" : "secondary"}>{num.type}</Badge>
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
-                              <Settings className="h-3.5 w-3.5" />
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Number Porting</label>
-                  <p className="text-xs text-muted-foreground mt-0.5">Transfer existing numbers to Entrata&apos;s system</p>
-                </div>
-                <div className="flex items-center gap-3 rounded-md border border-dashed border-border bg-muted/20 p-4">
-                  <Phone className="h-5 w-5 text-muted-foreground" />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">Port an existing number</p>
-                    <p className="text-xs text-muted-foreground">Transfer your current phone numbers to keep them active with our system</p>
-                  </div>
-                  <Button variant="outline" size="sm">Start Port</Button>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Caller ID Settings</label>
-                  <p className="text-xs text-muted-foreground mt-0.5">Configure outbound caller ID display</p>
-                </div>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <div>
-                      <p className="text-sm">Show property name as caller ID</p>
-                      <p className="text-xs text-muted-foreground">Display property name instead of number for outbound calls</p>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <div>
-                      <p className="text-sm">CNAM registration</p>
-                      <p className="text-xs text-muted-foreground">Register caller name with carrier databases</p>
-                    </div>
-                    <Badge variant="default" className="text-[10px]">Registered</Badge>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "analytics" && (
-            <div className="max-w-3xl space-y-6">
-              <div>
-                <h3 className="text-base font-semibold">Analytics & Reporting</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Configure call analytics dashboards and automated reporting.
-                </p>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Key Metrics Dashboard</label>
-                  <p className="text-xs text-muted-foreground mt-0.5">Real-time call center performance metrics</p>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  {[
-                    { label: "Avg. Wait Time", value: "28s", trend: "↓ 12%" },
-                    { label: "Answer Rate", value: "94.2%", trend: "↑ 3%" },
-                    { label: "Avg. Handle Time", value: "4m 12s", trend: "↓ 8%" },
-                    { label: "AI Resolution", value: "67%", trend: "↑ 15%" },
-                  ].map((metric) => (
-                    <div key={metric.label} className="rounded-lg border border-border p-3 text-center">
-                      <p className="text-xs text-muted-foreground">{metric.label}</p>
-                      <p className="mt-1 text-lg font-semibold">{metric.value}</p>
-                      <p className="text-xs text-green-600">{metric.trend}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Scheduled Reports</label>
-                  <p className="text-xs text-muted-foreground mt-0.5">Automated reports sent to stakeholders</p>
-                </div>
-                <div className="space-y-2">
-                  {[
-                    { name: "Daily Call Volume Summary", frequency: "Daily", recipients: "3 recipients", enabled: true },
-                    { name: "Weekly Performance Report", frequency: "Weekly (Mon)", recipients: "5 recipients", enabled: true },
-                    { name: "Monthly AI Agent Report", frequency: "Monthly (1st)", recipients: "2 recipients", enabled: true },
-                    { name: "Missed Call Alert", frequency: "Real-time", recipients: "Property managers", enabled: false },
-                  ].map((report) => (
-                    <div key={report.name} className="flex items-center justify-between rounded border border-border px-3 py-2.5">
-                      <div className="flex-1">
-                        <p className="text-sm font-medium">{report.name}</p>
-                        <p className="text-xs text-muted-foreground">{report.frequency} · {report.recipients}</p>
-                      </div>
-                      <Switch defaultChecked={report.enabled} />
-                    </div>
-                  ))}
-                </div>
-                <Button variant="outline" size="sm" className="gap-1.5">
-                  <Plus className="h-3.5 w-3.5" />
-                  Add Report
-                </Button>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Call Quality Scoring</label>
-                  <p className="text-xs text-muted-foreground mt-0.5">AI-powered quality assessment for recorded calls</p>
-                </div>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <div>
-                      <p className="text-sm">Auto-score all calls</p>
-                      <p className="text-xs text-muted-foreground">AI evaluates greeting, empathy, resolution, and compliance</p>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <div>
-                      <p className="text-sm">Flag low-scoring calls</p>
-                      <p className="text-xs text-muted-foreground">Alert managers when a call scores below threshold</p>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm">Alert threshold</label>
-                    <Select defaultValue="60">
-                      <SelectTrigger className="w-[140px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="50">Below 50%</SelectItem>
-                        <SelectItem value="60">Below 60%</SelectItem>
-                        <SelectItem value="70">Below 70%</SelectItem>
-                        <SelectItem value="80">Below 80%</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>

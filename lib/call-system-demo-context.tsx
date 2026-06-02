@@ -9,13 +9,16 @@ import {
   type ReactNode,
 } from "react";
 
+export type IncomingCallerType = "prospect" | "lead" | "resident";
+
 type CallSystemDemoContextValue = {
   callSystemEnabled: boolean;
   setCallSystemEnabled: (value: boolean) => void;
   toggleCallSystemEnabled: () => void;
   /** Increments each time a simulated inbound call should fire */
   inboundCallRequest: number;
-  simulateInboundCall: () => void;
+  inboundCallerType: IncomingCallerType | null;
+  simulateInboundCall: (callerType?: IncomingCallerType) => void;
 };
 
 const CallSystemDemoContext = createContext<CallSystemDemoContextValue | null>(null);
@@ -23,12 +26,14 @@ const CallSystemDemoContext = createContext<CallSystemDemoContextValue | null>(n
 export function CallSystemDemoProvider({ children }: { children: ReactNode }) {
   const [callSystemEnabled, setCallSystemEnabled] = useState(false);
   const [inboundCallRequest, setInboundCallRequest] = useState(0);
+  const [inboundCallerType, setInboundCallerType] = useState<IncomingCallerType | null>(null);
 
   const toggleCallSystemEnabled = useCallback(() => {
     setCallSystemEnabled((v) => !v);
   }, []);
 
-  const simulateInboundCall = useCallback(() => {
+  const simulateInboundCall = useCallback((callerType: IncomingCallerType = "resident") => {
+    setInboundCallerType(callerType);
     setInboundCallRequest((n) => n + 1);
   }, []);
 
@@ -38,9 +43,10 @@ export function CallSystemDemoProvider({ children }: { children: ReactNode }) {
       setCallSystemEnabled,
       toggleCallSystemEnabled,
       inboundCallRequest,
+      inboundCallerType,
       simulateInboundCall,
     }),
-    [callSystemEnabled, toggleCallSystemEnabled, inboundCallRequest, simulateInboundCall]
+    [callSystemEnabled, toggleCallSystemEnabled, inboundCallRequest, inboundCallerType, simulateInboundCall]
   );
 
   return (

@@ -2,31 +2,14 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
-  AlertCircle,
-  Building,
-  Calendar,
   Check,
-  CheckCircle2,
-  ChevronsUpDown,
-  CreditCard,
   GripVertical,
   Headphones,
-  Home,
-  Mic,
-  MicOff,
-  Pause,
   Phone,
-  PhoneForwarded,
   PhoneIncoming,
   PhoneOff,
-  Play,
-  Search,
-  UserMinus,
-  Users,
-  Wrench,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 export type InboundCallSessionInput = {
@@ -35,7 +18,7 @@ export type InboundCallSessionInput = {
   callerPhone: string;
   propertyName: string;
   propertyLine: string;
-  callerType: "resident" | "prospect" | "unknown";
+  callerType: "resident" | "prospect" | "lead" | "unknown";
   unit?: string;
   leaseEnd?: string;
   balance?: string;
@@ -44,32 +27,34 @@ export type InboundCallSessionInput = {
   lastPayment?: string;
   tourScheduled?: string;
   applicationStatus?: string;
+  leadSource?: string;
+  preferredFloorPlan?: string;
+  moveInDate?: string;
   ivrSelection?: string;
   aiContextNote?: string;
 };
 
 type CallPhase = "ringing" | "connected" | "ended" | "missed";
 
-const PANEL_MAX_W = 400;
+const PANEL_MAX_W = 320;
 const PANEL_MARGIN = 16;
 const PANEL_TOP_OFFSET = 80;
-
 function getPanelTopRightPosition(): { x: number; y: number } {
   if (typeof window === "undefined") return { x: 24, y: PANEL_TOP_OFFSET };
-  const panelW = Math.min(window.innerWidth - PANEL_MARGIN * 2, PANEL_MAX_W);
+  const panelW = Math.min(window.innerWidth, PANEL_MAX_W);
   return {
-    x: Math.max(PANEL_MARGIN, window.innerWidth - panelW - PANEL_MARGIN),
+    x: window.innerWidth - panelW,
     y: PANEL_TOP_OFFSET,
   };
 }
 
 function clampPosition(x: number, y: number): { x: number; y: number } {
   if (typeof window === "undefined") return { x, y };
-  const panelW = Math.min(window.innerWidth - PANEL_MARGIN * 2, PANEL_MAX_W);
-  const maxX = Math.max(PANEL_MARGIN, window.innerWidth - panelW - PANEL_MARGIN);
+  const panelW = Math.min(window.innerWidth, PANEL_MAX_W);
+  const maxX = Math.max(0, window.innerWidth - panelW);
   const maxY = Math.max(PANEL_MARGIN, window.innerHeight - 120);
   return {
-    x: Math.min(Math.max(PANEL_MARGIN, x), maxX),
+    x: Math.min(Math.max(0, x), maxX),
     y: Math.min(Math.max(PANEL_MARGIN, y), maxY),
   };
 }
@@ -83,16 +68,15 @@ function formatDuration(totalSeconds: number): string {
 type Props = {
   session: InboundCallSessionInput | null;
   onDismiss: () => void;
+  onAnswered?: (session: InboundCallSessionInput) => void;
 };
 
-export function InboundCallFloatingPanel({ session, onDismiss }: Props) {
+export function InboundCallFloatingPanel({ session, onDismiss, onAnswered }: Props) {
   const [position, setPosition] = useState(() => ({ x: 0, y: PANEL_TOP_OFFSET }));
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
 
   const [phase, setPhase] = useState<CallPhase>("ringing");
   const [durationSec, setDurationSec] = useState(0);
-  const [muted, setMuted] = useState(false);
-  const [onHold, setOnHold] = useState(false);
   const [callNotes, setCallNotes] = useState("");
   const [isAnimatingOut, setIsAnimatingOut] = useState(false);
   const [ringCount, setRingCount] = useState(0);
@@ -114,8 +98,6 @@ export function InboundCallFloatingPanel({ session, onDismiss }: Props) {
     if (!session) return;
     setPhase("ringing");
     setDurationSec(0);
-    setMuted(false);
-    setOnHold(false);
     setCallNotes("");
     setIsAnimatingOut(false);
     setRingCount(0);
@@ -128,7 +110,6 @@ export function InboundCallFloatingPanel({ session, onDismiss }: Props) {
     return clearTimers;
   }, [session, clearTimers]);
 
-  // Auto-miss after ~30s of ringing
   useEffect(() => {
     if (phase === "ringing" && ringCount >= 10) {
       clearTimers();
@@ -142,6 +123,7 @@ export function InboundCallFloatingPanel({ session, onDismiss }: Props) {
     timerRef.current = setInterval(() => {
       setDurationSec((n) => n + 1);
     }, 1000);
+    if (session && onAnswered) onAnswered(session);
   };
 
   const declineCall = () => {
@@ -179,18 +161,26 @@ export function InboundCallFloatingPanel({ session, onDismiss }: Props) {
 
   if (!session) return null;
 
+  const callEnded = phase === "ended" || phase === "missed";
+
   const statusLabel =
     phase === "ringing" ? "Incoming call…"
-    : phase === "connected" ? (onHold ? `On hold · ${formatDuration(durationSec)}` : `On call · ${formatDuration(durationSec)}`)
+    : phase === "connected" ? `On call · ${formatDuration(durationSec)}`
     : phase === "missed" ? "Missed call"
     : "Call ended";
+
+  const callerTypeLabel =
+    session.callerType === "resident" ? "Resident"
+    : session.callerType === "lead" ? "Lead"
+    : session.callerType === "prospect" ? "Prospect"
+    : "Unknown";
 
   return (
     <div className="pointer-events-none fixed inset-0 z-[100]" aria-hidden={false}>
       <div
         key={session.id}
         className={cn(
-          "pointer-events-auto absolute w-[min(100vw-1rem,400px)] overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-xl duration-300",
+          "pointer-events-auto absolute w-[min(100vw,320px)] overflow-hidden rounded-l-lg border border-r-0 border-border bg-card text-card-foreground shadow-lg duration-300",
           isAnimatingOut
             ? "animate-out slide-out-to-right fade-out zoom-out-95"
             : "animate-in slide-in-from-right fade-in zoom-in-95"
@@ -201,331 +191,253 @@ export function InboundCallFloatingPanel({ session, onDismiss }: Props) {
         <div
           className={cn(
             "flex cursor-grab items-center gap-2 border-b px-3 py-2.5 active:cursor-grabbing",
-            phase === "ringing" ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900/40 dark:bg-emerald-950/40" : "border-border bg-muted/40"
+            phase === "ringing"
+              ? "border-emerald-300 bg-emerald-600 text-white"
+              : "border-border bg-muted/40"
           )}
           onPointerDown={handlePointerDownHeader}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
         >
-          <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-          {phase === "ringing" && (
-            <PhoneIncoming className="h-4 w-4 shrink-0 text-emerald-600 animate-pulse" aria-hidden />
-          )}
-          {phase !== "ringing" && (
-            <Phone className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-          )}
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
-            {session.propertyName}
+          <GripVertical className={cn("h-4 w-4 shrink-0", phase === "ringing" ? "text-white/60" : "text-muted-foreground")} aria-hidden />
+          <div className="relative flex items-center justify-center">
+            <PhoneIncoming className={cn("h-4 w-4 shrink-0", phase === "ringing" ? "text-white animate-pulse" : "text-muted-foreground")} aria-hidden />
+            {phase === "ringing" && (
+              <span className="absolute -inset-1.5 animate-ping rounded-full bg-white/20" />
+            )}
+          </div>
+          <span className={cn("min-w-0 flex-1 truncate text-sm font-semibold", phase === "ringing" ? "text-white" : "text-foreground")}>
+            {phase === "ringing" ? "Incoming Call" : session.propertyName}
           </span>
-          <span className={cn(
-            "shrink-0 text-[11px] italic",
-            phase === "ringing" ? "text-emerald-700 dark:text-emerald-300 font-medium" : "text-muted-foreground",
-            phase === "missed" && "text-amber-600"
-          )}>
-            {statusLabel}
-          </span>
+          {phase === "connected" && (
+            <div className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+              <Headphones className="h-3 w-3" />
+              <span className="italic">{statusLabel}</span>
+            </div>
+          )}
+          {phase !== "connected" && (
+            <span className={cn(
+              "shrink-0 text-[11px] italic",
+              phase === "ringing" ? "text-white/80 font-medium" : "text-muted-foreground",
+              phase === "missed" && "text-destructive"
+            )}>
+              {statusLabel}
+            </span>
+          )}
         </div>
 
-        <div className="max-h-[min(85vh,700px)] overflow-y-auto">
-          {/* Ringing state - prominent answer/decline */}
+        <div className="max-h-[min(90vh,900px)] overflow-y-auto">
+          {/* Ringing state — urgent incoming call UI */}
           {phase === "ringing" && (
-            <div className="px-3 pt-3 pb-2">
-              <div className="rounded-lg border border-emerald-200 bg-gradient-to-br from-emerald-50 to-green-50 p-4 dark:border-emerald-900/40 dark:from-emerald-950/30 dark:to-green-950/30">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/50">
-                    <PhoneIncoming className="h-6 w-6 text-emerald-600 animate-pulse" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-lg font-semibold text-foreground">{session.callerName}</p>
-                    <p className="font-mono text-sm text-muted-foreground">{session.callerPhone}</p>
-                    {session.ivrSelection && (
-                      <p className="mt-0.5 text-xs text-emerald-700 dark:text-emerald-300">
-                        IVR: {session.ivrSelection}
-                      </p>
-                    )}
-                  </div>
+            <div className="px-3 pt-3 pb-1">
+              <div className="flex items-center gap-3">
+                <div className="relative flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 shrink-0">
+                  <Phone className="h-5 w-5 text-emerald-600" />
+                  <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400/30" style={{ animationDuration: "1.5s" }} />
                 </div>
-                <div className="mt-4 flex items-center gap-3">
-                  <Button
-                    type="button"
-                    className="flex-1 gap-2 bg-emerald-600 text-white hover:bg-emerald-700"
-                    onClick={answerCall}
-                  >
-                    <Phone className="h-4 w-4" />
-                    Answer
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="flex-1 gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
-                    onClick={declineCall}
-                  >
-                    <PhoneOff className="h-4 w-4" />
-                    Decline
-                  </Button>
+                <div className="min-w-0 flex-1">
+                  <p className="text-base font-bold text-foreground leading-tight">{session.callerName}</p>
+                  <p className="font-mono text-xs text-muted-foreground">{session.callerPhone}</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">{session.propertyName}{session.ivrSelection && <> · {session.ivrSelection}</>}</p>
+                </div>
+                <div className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 shrink-0">
+                  {callerTypeLabel}
                 </div>
               </div>
-            </div>
-          )}
-
-          {/* Screen Pop - Entrata Record (visible on ringing and connected) */}
-          {(phase === "ringing" || phase === "connected") && session.callerType !== "unknown" && (
-            <div className="px-3 py-2">
-              <div className="rounded-lg border border-border bg-muted/20 p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Entrata Record
-                  </p>
-                  <Badge variant={session.callerType === "resident" ? "default" : "secondary"} className="text-[10px]">
-                    {session.callerType === "resident" ? "Resident" : "Prospect"}
-                  </Badge>
-                </div>
-
-                {session.callerType === "resident" && (
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-2 gap-2">
-                      {session.unit && (
-                        <div className="rounded border border-border bg-background px-2.5 py-1.5">
-                          <p className="text-[10px] text-muted-foreground">Unit</p>
-                          <p className="text-sm font-medium">{session.unit}</p>
-                        </div>
-                      )}
-                      {session.leaseEnd && (
-                        <div className="rounded border border-border bg-background px-2.5 py-1.5">
-                          <p className="text-[10px] text-muted-foreground">Lease End</p>
-                          <p className="text-sm font-medium">{session.leaseEnd}</p>
-                        </div>
-                      )}
-                      {session.balance && (
-                        <div className="rounded border border-border bg-background px-2.5 py-1.5">
-                          <p className="text-[10px] text-muted-foreground">Balance</p>
-                          <p className={cn("text-sm font-medium", session.balance !== "$0.00" && "text-amber-600")}>
-                            {session.balance}
-                          </p>
-                        </div>
-                      )}
-                      {session.autoPay !== undefined && (
-                        <div className="rounded border border-border bg-background px-2.5 py-1.5">
-                          <p className="text-[10px] text-muted-foreground">Auto-Pay</p>
-                          <p className={cn("text-sm font-medium", session.autoPay ? "text-emerald-600" : "text-muted-foreground")}>
-                            {session.autoPay ? "Active" : "Off"}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                    {(session.openWorkOrders !== undefined || session.lastPayment) && (
-                      <div className="grid grid-cols-2 gap-2">
-                        {session.openWorkOrders !== undefined && (
-                          <div className="rounded border border-border bg-background px-2.5 py-1.5">
-                            <p className="text-[10px] text-muted-foreground">Open Work Orders</p>
-                            <p className={cn("text-sm font-medium", session.openWorkOrders > 0 && "text-amber-600")}>
-                              {session.openWorkOrders}
-                            </p>
-                          </div>
-                        )}
-                        {session.lastPayment && (
-                          <div className="rounded border border-border bg-background px-2.5 py-1.5">
-                            <p className="text-[10px] text-muted-foreground">Last Payment</p>
-                            <p className="text-sm font-medium">{session.lastPayment}</p>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {session.aiContextNote && (
-                      <div className="rounded border border-blue-200 bg-blue-50 px-2.5 py-2 dark:border-blue-900/40 dark:bg-blue-950/30">
-                        <p className="text-[10px] font-medium text-blue-700 dark:text-blue-300">AI Context</p>
-                        <p className="mt-0.5 text-xs text-blue-800 dark:text-blue-200">{session.aiContextNote}</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {session.callerType === "prospect" && (
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-2 gap-2">
-                      {session.tourScheduled && (
-                        <div className="rounded border border-border bg-background px-2.5 py-1.5">
-                          <p className="text-[10px] text-muted-foreground">Tour Scheduled</p>
-                          <p className="text-sm font-medium">{session.tourScheduled}</p>
-                        </div>
-                      )}
-                      {session.applicationStatus && (
-                        <div className="rounded border border-border bg-background px-2.5 py-1.5">
-                          <p className="text-[10px] text-muted-foreground">Application</p>
-                          <p className="text-sm font-medium">{session.applicationStatus}</p>
-                        </div>
-                      )}
-                    </div>
-                    {session.aiContextNote && (
-                      <div className="rounded border border-blue-200 bg-blue-50 px-2.5 py-2 dark:border-blue-900/40 dark:bg-blue-950/30">
-                        <p className="text-[10px] font-medium text-blue-700 dark:text-blue-300">AI Context</p>
-                        <p className="mt-0.5 text-xs text-blue-800 dark:text-blue-200">{session.aiContextNote}</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Unknown caller */}
-          {(phase === "ringing" || phase === "connected") && session.callerType === "unknown" && (
-            <div className="px-3 py-2">
-              <div className="rounded-lg border border-border bg-muted/20 p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Caller Info
-                  </p>
-                  <Badge variant="outline" className="text-[10px]">Unknown</Badge>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  No matching record found for {session.callerPhone}
-                </p>
-                <Button variant="outline" size="sm" className="mt-2 h-7 gap-1.5 text-xs">
-                  <Search className="h-3 w-3" />
-                  Search Records
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* Active call controls */}
-          {phase === "connected" && (
-            <div className="px-3 py-2">
-              <div className="flex items-center gap-2">
+              <div className="mt-3 flex items-center gap-2">
                 <Button
                   type="button"
-                  variant={muted ? "destructive" : "outline"}
-                  size="sm"
-                  className="h-9 flex-1 gap-1.5 text-xs"
-                  onClick={() => setMuted(!muted)}
+                  className="flex-1 gap-2 bg-emerald-600 text-white hover:bg-emerald-700"
+                  onClick={answerCall}
                 >
-                  {muted ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
-                  {muted ? "Unmute" : "Mute"}
-                </Button>
-                <Button
-                  type="button"
-                  variant={onHold ? "secondary" : "outline"}
-                  size="sm"
-                  className="h-9 flex-1 gap-1.5 text-xs"
-                  onClick={() => setOnHold(!onHold)}
-                >
-                  {onHold ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
-                  {onHold ? "Resume" : "Hold"}
+                  <Phone className="h-4 w-4" />
+                  Answer
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
-                  size="sm"
-                  className="h-9 flex-1 gap-1.5 text-xs"
+                  className="flex-1 gap-2 text-muted-foreground"
+                  onClick={declineCall}
                 >
-                  <PhoneForwarded className="h-3.5 w-3.5" />
-                  Transfer
-                </Button>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="sm"
-                  className="h-9 gap-1.5 text-xs"
-                  onClick={hangUp}
-                >
-                  <PhoneOff className="h-3.5 w-3.5" />
+                  Dismiss
                 </Button>
               </div>
             </div>
           )}
 
-          {/* Live transcription preview (during connected call) */}
-          {phase === "connected" && (
-            <div className="px-3 py-2">
-              <div className="rounded border border-border bg-muted/30 px-3 py-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-                  Live Transcription
-                </p>
-                <div className="space-y-1 text-xs text-muted-foreground">
-                  <p><span className="font-medium text-foreground">{session.callerName}:</span> Hi, I&apos;m calling about…</p>
-                  <p className="animate-pulse text-muted-foreground/60">Listening…</p>
+          {/* Connected / ended — dark contact card matching click-to-call */}
+          {phase !== "ringing" && (
+            <div className="mx-3 mt-3 rounded-md bg-primary px-3 py-3 text-primary-foreground">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold leading-tight">{session.callerName}</p>
+                  <p className="mt-0.5 font-mono text-xs tabular-nums text-primary-foreground/85">
+                    {session.callerPhone}
+                  </p>
+                  <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-primary-foreground/15 px-2 py-0.5 text-[10px] font-medium text-primary-foreground">
+                    <PhoneIncoming className="h-3 w-3 shrink-0" aria-hidden />
+                    Inbound · {callerTypeLabel}
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-2">
+                  {phase === "connected" && (
+                    <Button type="button" size="sm" variant="destructive" className="h-8 gap-1.5" onClick={hangUp}>
+                      <PhoneOff className="h-3.5 w-3.5 shrink-0" />
+                      Hang up
+                    </Button>
+                  )}
+                  {phase === "ended" && (
+                    <div className="flex max-w-[9rem] flex-col items-end gap-0.5 text-right">
+                      <span className="text-xs font-semibold leading-tight text-primary-foreground">
+                        Call ended
+                      </span>
+                      <span className="text-[10px] leading-snug text-primary-foreground/80 tabular-nums">
+                        Duration {formatDuration(durationSec)}
+                      </span>
+                    </div>
+                  )}
+                  {phase === "missed" && (
+                    <div className="flex flex-col items-end gap-1.5">
+                      <div className="text-right">
+                        <span className="text-xs font-semibold leading-tight text-primary-foreground">Missed</span>
+                        <p className="text-[10px] leading-snug text-primary-foreground/80">Routed to voicemail</p>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-7 gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
+                        onClick={() => {
+                          if (onAnswered && session) onAnswered(session);
+                        }}
+                      >
+                        <Phone className="h-3 w-3" />
+                        Call Back
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
           )}
 
-          {/* Call notes (connected and ended) */}
-          {(phase === "connected" || phase === "ended") && (
-            <div className="px-3 py-2">
-              <label className="text-xs font-medium text-muted-foreground">Call Notes</label>
+          <div className="space-y-3 px-3 py-3">
+            {/* Screen pop info */}
+            {session.callerType === "resident" && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Screen Pop</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {session.unit && (
+                    <div className="rounded border border-border bg-background px-2.5 py-1.5">
+                      <p className="text-[10px] text-muted-foreground">Unit</p>
+                      <p className="text-sm font-medium">{session.unit}</p>
+                    </div>
+                  )}
+                  {session.leaseEnd && (
+                    <div className="rounded border border-border bg-background px-2.5 py-1.5">
+                      <p className="text-[10px] text-muted-foreground">Lease End</p>
+                      <p className="text-sm font-medium">{session.leaseEnd}</p>
+                    </div>
+                  )}
+                  {session.balance && (
+                    <div className="rounded border border-border bg-background px-2.5 py-1.5">
+                      <p className="text-[10px] text-muted-foreground">Balance</p>
+                      <p className={cn("text-sm font-medium", session.balance !== "$0.00" && "text-amber-600")}>
+                        {session.balance}
+                      </p>
+                    </div>
+                  )}
+                  {session.openWorkOrders !== undefined && (
+                    <div className="rounded border border-border bg-background px-2.5 py-1.5">
+                      <p className="text-[10px] text-muted-foreground">Work Orders</p>
+                      <p className={cn("text-sm font-medium", session.openWorkOrders > 0 && "text-amber-600")}>
+                        {session.openWorkOrders}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {session.callerType === "lead" && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Screen Pop</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {session.leadSource && (
+                    <div className="rounded border border-border bg-background px-2.5 py-1.5">
+                      <p className="text-[10px] text-muted-foreground">Lead Source</p>
+                      <p className="text-sm font-medium">{session.leadSource}</p>
+                    </div>
+                  )}
+                  {session.preferredFloorPlan && (
+                    <div className="rounded border border-border bg-background px-2.5 py-1.5">
+                      <p className="text-[10px] text-muted-foreground">Floor Plan</p>
+                      <p className="text-sm font-medium">{session.preferredFloorPlan}</p>
+                    </div>
+                  )}
+                  {session.moveInDate && (
+                    <div className="rounded border border-border bg-background px-2.5 py-1.5">
+                      <p className="text-[10px] text-muted-foreground">Move-in</p>
+                      <p className="text-sm font-medium">{session.moveInDate}</p>
+                    </div>
+                  )}
+                  {session.tourScheduled && (
+                    <div className="rounded border border-border bg-background px-2.5 py-1.5">
+                      <p className="text-[10px] text-muted-foreground">Tour</p>
+                      <p className="text-sm font-medium">{session.tourScheduled}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {session.callerType === "prospect" && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Caller Info</p>
+                <p className="text-xs text-muted-foreground">
+                  No matching record found for {session.callerPhone}
+                </p>
+              </div>
+            )}
+
+            {session.aiContextNote && (
+              <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 dark:border-blue-900/40 dark:bg-blue-950/30">
+                <p className="text-[10px] font-medium text-blue-700 dark:text-blue-300">AI Context</p>
+                <p className="mt-0.5 text-xs leading-snug text-blue-800 dark:text-blue-200">{session.aiContextNote}</p>
+              </div>
+            )}
+
+            {/* Call notes */}
+            <div>
+              <p className="text-sm font-semibold text-foreground">Call Notes</p>
+              <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                Optional. Add notes during or after the call.
+              </p>
               <textarea
                 value={callNotes}
                 onChange={(e) => setCallNotes(e.target.value)}
-                placeholder="Add notes during or after the call…"
+                placeholder="Add a note (optional)…"
                 rows={3}
-                className="mt-1 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="mt-2 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               />
             </div>
-          )}
-
-          {/* Missed / ended state */}
-          {phase === "missed" && (
-            <div className="px-3 py-3">
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/40 dark:bg-amber-950/30">
-                <div className="flex gap-3">
-                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-                  <div>
-                    <p className="text-sm font-medium text-amber-900 dark:text-amber-100">Missed Call</p>
-                    <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-300">
-                      {session.callerName} ({session.callerPhone}) — routed to voicemail
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {phase === "ended" && (
-            <div className="px-3 py-2">
-              <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-900/40 dark:bg-emerald-950/30">
-                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                <div>
-                  <p className="text-sm font-medium text-emerald-900 dark:text-emerald-100">Call completed</p>
-                  <p className="text-xs text-emerald-700 dark:text-emerald-300">Duration: {formatDuration(durationSec)}</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Footer actions */}
-          <div className="border-t border-border bg-muted/40 px-3 py-2.5">
-            {phase === "ended" || phase === "missed" ? (
-              <div className="flex items-center gap-2">
-                <Button type="button" size="sm" className="gap-1.5" onClick={dismissPanel}>
-                  <Check className="h-3.5 w-3.5" />
-                  Save & Close
-                </Button>
-                {phase === "missed" && (
-                  <Button type="button" variant="outline" size="sm" className="gap-1.5 text-xs">
-                    <Phone className="h-3.5 w-3.5" />
-                    Call Back
-                  </Button>
-                )}
-              </div>
-            ) : phase === "ringing" ? (
-              <p className="text-xs text-muted-foreground">
-                Routing via <span className="font-medium">{session.propertyLine}</span>
-                {session.ivrSelection && <> · IVR selection: {session.ivrSelection}</>}
-              </p>
-            ) : (
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Headphones className="h-3.5 w-3.5" />
-                  <span>Recording active</span>
-                </div>
-                <Badge variant="outline" className="text-[10px]">
-                  {formatDuration(durationSec)}
-                </Badge>
-              </div>
-            )}
           </div>
+
+          {/* Footer */}
+          {(callEnded || phase === "ringing") && (
+            <div className="border-t border-border bg-muted/40 px-3 py-3">
+              {callEnded ? (
+                <Button type="button" size="sm" className="w-full gap-2 sm:w-auto" onClick={dismissPanel}>
+                  <Check className="h-3.5 w-3.5" />
+                  Save &amp; close
+                </Button>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Routing via <span className="font-medium">{session.propertyLine}</span>
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

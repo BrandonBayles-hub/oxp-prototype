@@ -30,8 +30,11 @@ export type VoiceSettings = {
   autoDetectLanguage: boolean;
   recordAudio: boolean;
   generateTranscripts: boolean;
+  recordAudioOutbound: boolean;
+  generateTranscriptsOutbound: boolean;
   legalDisclosureEnabled: boolean;
   legalDisclosureText: string;
+  legalDisclosureTextOutbound: string;
   greeting: string;
   holdPhrase: string;
   maxCallLength: number;
@@ -485,8 +488,11 @@ const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   autoDetectLanguage: true,
   recordAudio: true,
   generateTranscripts: true,
+  recordAudioOutbound: true,
+  generateTranscriptsOutbound: true,
   legalDisclosureEnabled: true,
   legalDisclosureText: "This call is being recorded and transcribed for quality assurance and training purposes.",
+  legalDisclosureTextOutbound: "This call may be recorded for quality and training purposes.",
   greeting: "Thank you for calling {property}. How can I help you today?",
   holdPhrase: "One moment while I pull that up for you.",
   maxCallLength: 10,
