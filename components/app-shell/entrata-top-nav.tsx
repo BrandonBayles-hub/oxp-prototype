@@ -412,7 +412,7 @@ export function EntrataTopNav() {
                         type="button"
                         onClick={() => {
                           simulateInboundCall();
-                          router.push("/conversations");
+                          router.push("/conversations/");
                           setDemoOpen(false);
                         }}
                         className="flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-emerald-50"
@@ -436,7 +436,7 @@ export function EntrataTopNav() {
                       type="button"
                       onClick={() => {
                         requestProfileCommsPopup();
-                        router.push("/conversations");
+                        router.push("/conversations/");
                         setDemoOpen(false);
                       }}
                       className="flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-gray-50"
@@ -494,7 +494,7 @@ export function EntrataTopNav() {
                           onClick={() => {
                             setRole(r.value as Role);
                             if (r.value !== "admin") {
-                              router.push("/command-center");
+                              router.push("/command-center/");
                             }
                           }}
                           className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors"
