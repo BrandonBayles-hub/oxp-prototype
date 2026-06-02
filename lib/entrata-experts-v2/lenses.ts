@@ -136,14 +136,6 @@ export const MODELS: ModelDef[] = [
     hue: "#525252",
   },
   {
-    id: "entrata-tuned",
-    label: "Entrata-tuned",
-    short: "Entrata-tuned",
-    provider: "Entrata",
-    blurb: "Our internal model fine-tuned on property operations. Cheap, fast, deeply on-domain.",
-    hue: "#0f766e",
-  },
-  {
     id: "opus-4-7",
     label: "Claude Opus 4.7",
     short: "Opus 4.7",

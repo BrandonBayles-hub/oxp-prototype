@@ -1,8 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { ArrowRight, FileBarChart, Search } from "lucide-react";
+import { ExternalLink, FileBarChart, Sparkles, Star } from "lucide-react";
 import {
+  favoriteReports,
+  getReportUrl,
+  recentReportsExcludingFavorites,
   REPORTS,
   type ReportDef,
   type ReportFrequency,
@@ -15,57 +18,71 @@ import { cn } from "@/lib/utils";
 // Lives inside the Entrata Assistants grid as a 2-cell-wide tile (the caller
 // is responsible for `sm:col-span-2 xl:col-span-2`). The internal design is
 // disciplined minimalism: one-line header, one-line rows, a single moment of
-// indigo on hover. Footprint is roughly two tile-rows tall.
+// indigo on hover.
+//
+// Two stacked groups:
+//   1. My Reports    (user's starred favorites)
+//   2. Recently Run  (auto, deduped against favorites)
+//
+// Self-sized so the row doesn't stretch adjacent assistant tiles in the grid.
 // =============================================================================
 
 const ACCENT = "#4338ca";
 const HEADING_FONT =
   "'Plus Jakarta Sans', Inter, ui-sans-serif, system-ui, sans-serif";
 
+type ReportVariant = "list" | "tiles";
+
 interface ReportAnalyzerModuleProps {
   onLaunchReport: (reportId: string) => void;
   /** Optional class to control grid placement from the parent layout. */
   className?: string;
+  /**
+   * Visual variant for rendering the reports underneath each group:
+   *   "list"  — compact one-line rows (used by the hub tile in the assistants grid)
+   *   "tiles" — card grid (used by the chat-first picker view where we have room)
+   */
+  variant?: ReportVariant;
 }
 
 export function ReportAnalyzerModule({
   onLaunchReport,
   className,
+  variant = "list",
 }: ReportAnalyzerModuleProps) {
-  const [query, setQuery] = React.useState("");
-  const searchRef = React.useRef<HTMLInputElement>(null);
+  const favorites = React.useMemo(() => favoriteReports(), []);
+  const recents = React.useMemo(() => recentReportsExcludingFavorites(), []);
 
-  // ⌘K / Ctrl+K → focus the search input
-  React.useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        searchRef.current?.focus();
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
-  const q = query.trim().toLowerCase();
-  const filtered = React.useMemo(() => {
-    if (!q) return REPORTS;
-    return REPORTS.filter(
-      (r) =>
-        r.name.toLowerCase().includes(q) ||
-        r.description.toLowerCase().includes(q) ||
-        r.code.toLowerCase().includes(q),
+  // In the tiles variant we're rendered inside the chat-first picker view,
+  // which already provides its own header chrome and outer surface. Drop the
+  // bordered <section> wrapper + internal header in that case so the tiles
+  // can breathe.
+  if (variant === "tiles") {
+    return (
+      <div
+        aria-labelledby="report-analyzer-title"
+        className={cn("flex flex-col self-start", className)}
+      >
+        <h3 id="report-analyzer-title" className="sr-only">
+          Report Analyzer
+        </h3>
+        <DefaultBody
+          favorites={favorites}
+          recents={recents}
+          onLaunch={onLaunchReport}
+          variant={variant}
+        />
+      </div>
     );
-  }, [q]);
+  }
 
   return (
     <section
       aria-labelledby="report-analyzer-title"
       className={cn(
-        // h-full lets the section claim its grid row; max-h caps it at roughly
-        // two assistant-tile rows so the inner list scrolls instead of pushing
-        // the whole grid down to ~1000px.
-        "flex h-full max-h-[420px] flex-col overflow-hidden rounded-lg border border-border bg-background",
+        // Self-sized: no h-full / max-h, so we don't stretch the assistant
+        // tile in the same grid row. Overall height lands ~210px.
+        "flex flex-col self-start overflow-hidden rounded-lg border border-border bg-background",
         className,
       )}
     >
@@ -88,41 +105,149 @@ export function ReportAnalyzerModule({
         <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:inline">
           · {REPORTS.length} reports
         </span>
-        <div className="flex-1" />
-        <label className="relative flex w-full max-w-[260px] items-center">
-          <Search className="pointer-events-none absolute left-2.5 h-3 w-3 text-muted-foreground" />
-          <input
-            ref={searchRef}
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search reports…"
-            className="h-8 w-full rounded-md border border-input bg-background pl-7 pr-9 text-[12px] shadow-sm placeholder:text-muted-foreground focus-visible:border-indigo-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-300"
-          />
-          <kbd className="pointer-events-none absolute right-1.5 hidden items-center rounded border border-border bg-muted px-1 py-px font-mono text-[9px] text-muted-foreground sm:flex">
-            ⌘K
-          </kbd>
-        </label>
       </div>
 
-      {/* ── List body ────────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto scrollbar-hover">
-        {filtered.length === 0 ? (
-          <EmptyState query={query} onClear={() => setQuery("")} />
-        ) : (
-          <ul className="divide-y divide-border/30">
-            {filtered.map((r) => (
+      {/* ── Body ─────────────────────────────────────────────────────── */}
+      <DefaultBody
+        favorites={favorites}
+        recents={recents}
+        onLaunch={onLaunchReport}
+        variant={variant}
+      />
+    </section>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Default body — two stacked groups: My Reports + Recently Run.
+// Each group is hidden if empty; if both are empty we fall back to a hint.
+// -----------------------------------------------------------------------------
+
+function DefaultBody({
+  favorites,
+  recents,
+  onLaunch,
+  variant,
+}: {
+  favorites: ReportDef[];
+  recents: ReportDef[];
+  onLaunch: (id: string) => void;
+  variant: ReportVariant;
+}) {
+  if (favorites.length === 0 && recents.length === 0) {
+    return (
+      <div className="px-3 py-6 text-center text-[11px] text-muted-foreground">
+        Star a report to pin it here, or search to find any report.
+      </div>
+    );
+  }
+
+  return (
+    <div className="divide-y divide-border/40">
+      {favorites.length > 0 && (
+        <Group
+          label="My Reports"
+          count={favorites.length}
+          variant={variant}
+          icon={
+            <Star
+              className="h-2.5 w-2.5 text-amber-500"
+              fill="currentColor"
+              strokeWidth={0}
+            />
+          }
+        >
+          {favorites.map((r) =>
+            variant === "tiles" ? (
+              <ReportTile
+                key={r.id}
+                report={r}
+                onAnalyze={() => onLaunch(r.id)}
+                highlight=""
+                starred
+              />
+            ) : (
               <ReportRow
                 key={r.id}
                 report={r}
-                onLaunch={() => onLaunchReport(r.id)}
-                highlight={q}
+                onAnalyze={() => onLaunch(r.id)}
+                highlight=""
+                starred
               />
-            ))}
-          </ul>
+            ),
+          )}
+        </Group>
+      )}
+      {recents.length > 0 && (
+        <Group
+          label="Recently run"
+          count={recents.length}
+          variant={variant}
+        >
+          {recents.map((r) =>
+            variant === "tiles" ? (
+              <ReportTile
+                key={r.id}
+                report={r}
+                onAnalyze={() => onLaunch(r.id)}
+                highlight=""
+              />
+            ) : (
+              <ReportRow
+                key={r.id}
+                report={r}
+                onAnalyze={() => onLaunch(r.id)}
+                highlight=""
+              />
+            ),
+          )}
+        </Group>
+      )}
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Group — section header + list. Used by both groups in DefaultBody.
+// -----------------------------------------------------------------------------
+
+function Group({
+  label,
+  count,
+  icon,
+  children,
+  variant,
+}: {
+  label: string;
+  count: number;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+  variant: ReportVariant;
+}) {
+  return (
+    <div className={variant === "tiles" ? "pb-5 last:pb-0" : undefined}>
+      <div
+        className={cn(
+          "flex items-center gap-1.5",
+          variant === "tiles" ? "px-1 pb-2 pt-1" : "px-3 pt-1.5 pb-0.5",
         )}
+      >
+        {icon}
+        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/70">
+          {label}
+        </span>
+        <span className="font-mono text-[10px] text-muted-foreground/50">
+          · {count}
+        </span>
       </div>
-    </section>
+      {variant === "tiles" ? (
+        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          {children}
+        </ul>
+      ) : (
+        <ul className="divide-y divide-border/30">{children}</ul>
+      )}
+    </div>
   );
 }
 
@@ -132,40 +257,62 @@ export function ReportAnalyzerModule({
 
 function ReportRow({
   report,
-  onLaunch,
+  onAnalyze,
   highlight,
+  starred,
 }: {
   report: ReportDef;
-  onLaunch: () => void;
+  /** Triggered by the explicit "Analyze" button — opens the AI analyzer chat. */
+  onAnalyze: () => void;
   highlight: string;
+  /** Render a subtle star marker next to the name. Used for "My Reports". */
+  starred?: boolean;
 }) {
   const Icon = report.icon;
+  const href = getReportUrl(report);
 
   return (
-    <li>
-      <button
-        type="button"
-        onClick={onLaunch}
+    <li className="group/row flex items-stretch transition-colors hover:bg-muted/40">
+      {/* Primary action — opens the standard Entrata report page in a new
+          window. New-tab default matches how operators expect report links
+          to behave inside Entrata today. */}
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
         className={cn(
-          "group flex w-full items-center gap-2.5 px-3 py-1.5 text-left transition-colors",
-          "hover:bg-indigo-50/40",
+          "flex min-w-0 flex-1 items-center gap-2.5 px-3 py-1.5 text-left",
           "focus-visible:bg-indigo-50/40 focus-visible:outline-none",
         )}
-        title={report.description}
+        title={`Open ${report.name} in Entrata (new window)`}
       >
         <span
           aria-hidden
-          className="flex h-5 w-5 shrink-0 items-center justify-center text-muted-foreground transition-colors group-hover:text-indigo-700"
+          className="flex h-5 w-5 shrink-0 items-center justify-center text-muted-foreground"
         >
           <Icon className="h-3.5 w-3.5" />
         </span>
 
-        <span className="flex-1 truncate text-[13px] leading-tight text-foreground">
-          {highlight ? (
-            <Highlighted text={report.name} match={highlight} />
-          ) : (
-            report.name
+        <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-[13px] leading-tight text-foreground group-hover/row:underline group-hover/row:decoration-foreground/30 group-hover/row:underline-offset-2">
+          <span className="truncate">
+            {highlight ? (
+              <Highlighted text={report.name} match={highlight} />
+            ) : (
+              report.name
+            )}
+          </span>
+          {starred && (
+            <Star
+              aria-label="Starred"
+              className="h-2.5 w-2.5 shrink-0 text-amber-500"
+              fill="currentColor"
+              strokeWidth={0}
+            />
           )}
+          <ExternalLink
+            aria-hidden
+            className="h-2.5 w-2.5 shrink-0 text-muted-foreground/0 transition-colors group-hover/row:text-muted-foreground/60"
+          />
         </span>
 
         <span className="hidden shrink-0 items-center gap-1 font-mono text-[10px] tabular-nums text-muted-foreground/80 md:flex">
@@ -175,12 +322,123 @@ function ReportRow({
           </span>
           <span>{report.lastRun}</span>
         </span>
+      </a>
 
-        <ArrowRight
-          aria-hidden
-          className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-indigo-700"
-        />
+      {/* Secondary action — opens the AI analyzer chat for this report. Kept
+          visible at all times (not hover-only) so the differentiating value
+          of this module is discoverable. */}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onAnalyze();
+        }}
+        className={cn(
+          "flex shrink-0 items-center gap-1 border-l border-border/40 px-2.5 text-[11px] font-medium",
+          "text-muted-foreground transition-colors",
+          "hover:bg-indigo-50/60 hover:text-indigo-700",
+          "focus-visible:bg-indigo-50/60 focus-visible:text-indigo-700 focus-visible:outline-none",
+        )}
+        title={`Analyze ${report.name} with AI`}
+        aria-label={`Analyze ${report.name} with AI`}
+      >
+        <Sparkles className="h-3 w-3" />
+        <span className="hidden sm:inline">Analyze</span>
       </button>
+    </li>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Report tile — card-shaped variant used in the chat-first picker view where
+// we have more horizontal room. The whole tile is a "stretched link" to the
+// standard Entrata report; a small Analyze button sits in the bottom-right
+// corner (z-indexed above the link overlay) to launch the AI chat.
+// -----------------------------------------------------------------------------
+
+function ReportTile({
+  report,
+  onAnalyze,
+  highlight,
+  starred,
+}: {
+  report: ReportDef;
+  onAnalyze: () => void;
+  highlight: string;
+  starred?: boolean;
+}) {
+  const Icon = report.icon;
+  const href = getReportUrl(report);
+
+  return (
+    <li className="group/tile relative flex h-full min-h-[112px] flex-col gap-1.5 rounded-lg border border-border bg-background p-3 transition-all hover:border-foreground/30 hover:shadow-sm">
+      {/* Stretched link — covers the entire tile so any click on the body
+          opens the standard Entrata report. The Analyze button below opts
+          out via a higher z-index. */}
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={`Open ${report.name} in Entrata (new window)`}
+        title={`Open ${report.name} in Entrata (new window)`}
+        className="absolute inset-0 z-10 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+      />
+
+      <div className="flex items-start justify-between gap-2">
+        <span
+          aria-hidden
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
+        >
+          <Icon className="h-3.5 w-3.5" />
+        </span>
+        <div className="flex items-center gap-1">
+          {starred && (
+            <Star
+              aria-label="Starred"
+              className="h-3 w-3 shrink-0 text-amber-500"
+              fill="currentColor"
+              strokeWidth={0}
+            />
+          )}
+          <ExternalLink
+            aria-hidden
+            className="h-3 w-3 shrink-0 text-muted-foreground/0 transition-colors group-hover/tile:text-muted-foreground/60"
+          />
+        </div>
+      </div>
+
+      <h4 className="line-clamp-2 text-[12.5px] font-semibold leading-tight text-foreground group-hover/tile:underline group-hover/tile:decoration-foreground/30 group-hover/tile:underline-offset-2">
+        {highlight ? (
+          <Highlighted text={report.name} match={highlight} />
+        ) : (
+          report.name
+        )}
+      </h4>
+
+      <div className="mt-auto flex items-center justify-between gap-1.5 pt-1">
+        <span className="truncate font-mono text-[10px] tabular-nums text-muted-foreground/80">
+          {FREQ_LABEL[report.frequency]} · {report.lastRun}
+        </span>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            onAnalyze();
+          }}
+          className={cn(
+            "relative z-20 inline-flex shrink-0 items-center gap-1 rounded-md border border-border/60 bg-background px-1.5 py-0.5",
+            "text-[10px] font-medium text-muted-foreground transition-colors",
+            "hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700",
+            "focus-visible:border-indigo-300 focus-visible:bg-indigo-50 focus-visible:text-indigo-700 focus-visible:outline-none",
+          )}
+          title={`Analyze ${report.name} with AI`}
+          aria-label={`Analyze ${report.name} with AI`}
+        >
+          <Sparkles className="h-2.5 w-2.5" />
+          Analyze
+        </button>
+      </div>
     </li>
   );
 }
@@ -194,35 +452,9 @@ const FREQ_LABEL: Record<ReportFrequency, string> = {
 };
 
 // -----------------------------------------------------------------------------
-// Empty state (no search results)
-// -----------------------------------------------------------------------------
-
-function EmptyState({
-  query,
-  onClear,
-}: {
-  query: string;
-  onClear: () => void;
-}) {
-  return (
-    <div className="flex items-center justify-center gap-2 px-3 py-6 text-center text-xs text-muted-foreground">
-      <span>
-        No match for{" "}
-        <span className="font-mono text-foreground">&ldquo;{query}&rdquo;</span>
-      </span>
-      <button
-        type="button"
-        onClick={onClear}
-        className="rounded border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-muted/40"
-      >
-        Clear
-      </button>
-    </div>
-  );
-}
-
-// -----------------------------------------------------------------------------
 // Highlighted text — bolds matched substring inside a string.
+// Retained from the (removed) search affordance; degrades to plain text when
+// the highlight prop is "".
 // -----------------------------------------------------------------------------
 
 function Highlighted({ text, match }: { text: string; match: string }) {

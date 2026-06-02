@@ -457,6 +457,56 @@ export const REPORT_BY_ID: Record<string, ReportDef> = REPORTS.reduce(
 );
 
 // ---------------------------------------------------------------------------
+// Favorites ("My Reports") and recently accessed
+// ---------------------------------------------------------------------------
+// "My Reports" is an existing Entrata concept — reports the user has
+// explicitly starred for quick access. Recently Run is the automatic
+// last-N-opened list. The two groups answer different questions, so the
+// module surfaces both side-by-side (with recents deduped against favorites
+// so a starred report doesn't appear twice).
+
+export const FAVORITE_REPORT_IDS: string[] = [
+  "noi-variance",
+  "delinquency",
+  "leasing-funnel",
+  "occupancy",
+  "vendor-spend",
+];
+
+export const RECENT_REPORT_IDS: string[] = [
+  "noi-variance",
+  "rent-roll",
+  "ar-aging",
+  "box-score",
+  "open-work-orders",
+];
+
+export function favoriteReports(): ReportDef[] {
+  return FAVORITE_REPORT_IDS.map((id) => REPORT_BY_ID[id]).filter(
+    (r): r is ReportDef => Boolean(r),
+  );
+}
+
+/** URL to the standard Entrata report page. Centralized here so we can swap
+ *  to a real Entrata-issued path once these screens move out of prototype. */
+export function getReportUrl(report: ReportDef): string {
+  return `https://entrata.com/reports/${report.id}`;
+}
+
+export function recentReports(): ReportDef[] {
+  return RECENT_REPORT_IDS.map((id) => REPORT_BY_ID[id]).filter(
+    (r): r is ReportDef => Boolean(r),
+  );
+}
+
+/** Recently-used reports minus anything already in My Reports, so a starred
+ *  report doesn't show up twice in the Report Analyzer module. */
+export function recentReportsExcludingFavorites(): ReportDef[] {
+  const favs = new Set(FAVORITE_REPORT_IDS);
+  return recentReports().filter((r) => !favs.has(r.id));
+}
+
+// ---------------------------------------------------------------------------
 // Pre-baked starter prompts shown when a user opens a report in the analyzer.
 // Generic prompts work for every report; the most-popular reports get
 // hand-tailored ones that reference their actual columns and dimensions.

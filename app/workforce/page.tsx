@@ -34,6 +34,7 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SPECIALTIES as SPECIALTY_LIST } from "@/lib/specialties-data";
+import { ENTRATA_GROUPS, type EntrataGroup } from "@/lib/entrata-groups";
 import {
   Network, Tag, ChevronRight, ChevronDown, Award,
   X, Plus, Building2, MapPin, Search, Check, List, Trash2, Users, Pencil,
@@ -462,17 +463,6 @@ type RoleTab = { key: string; label: string; builtin: boolean };
 const BUILT_IN_ROLES: RoleTab[] = [
   { key: "admin", label: "Corporate Admins", builtin: true },
   { key: "regional", label: "Team Lead", builtin: true },
-];
-
-type EntrataGroup = { id: string; name: string; memberCount: number };
-
-const ENTRATA_GROUPS: EntrataGroup[] = [
-  { id: "eg-leasing", name: "Leasing Team", memberCount: 6 },
-  { id: "eg-maintenance", name: "Maintenance Staff", memberCount: 12 },
-  { id: "eg-accounting", name: "Accounting", memberCount: 4 },
-  { id: "eg-regional-ops", name: "Regional Operations", memberCount: 8 },
-  { id: "eg-compliance", name: "Compliance Officers", memberCount: 3 },
-  { id: "eg-resident-svc", name: "Resident Services", memberCount: 9 },
 ];
 
 function RolesAccessPanel({ humanMembers }: { humanMembers: WorkforceMember[] }) {

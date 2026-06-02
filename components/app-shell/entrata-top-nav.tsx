@@ -30,6 +30,10 @@ import { useRole, ROLES, type Role } from "@/lib/role-context";
 
 import { useR1Release } from "@/lib/r1-release-context";
 import { useR1_2Release } from "@/lib/r1-2-release-context";
+import {
+  useEntrataExpertsRelease,
+  ENTRATA_EXPERTS_VERSIONS,
+} from "@/lib/entrata-experts-release-context";
 import { useRoadmap } from "@/lib/roadmap-context";
 
 import { useWorkforce } from "@/lib/workforce-context";
@@ -60,6 +64,14 @@ export function EntrataTopNav() {
   const { isR1Release, setR1Release } = useR1Release();
   const { isR1_2Release, setR1_2Release } = useR1_2Release();
   const isFullVersion = !isR1Release && !isR1_2Release;
+
+  const {
+    version: expertsVersion,
+    setVersion: setExpertsVersion,
+  } = useEntrataExpertsRelease();
+  const [expertsProduct, setExpertsProduct] = useState<"entrata-experts">(
+    "entrata-experts",
+  );
 
   const { getCurrentUser } = useWorkforce();
   const { items: escalations } = useEscalations();
@@ -497,8 +509,134 @@ export function EntrataTopNav() {
                   </div>
                 </div>
 
-                {/* Role Switcher */}
+                {/* Product Release */}
                 <div style={{ borderTop: "1px solid #F0F0F0", margin: "0 14px", paddingTop: 10 }}>
+                  <p style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.35)", letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: 6 }}>
+                    Product Release
+                  </p>
+
+                  {/* Product picker */}
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: 10,
+                      fontWeight: 500,
+                      color: "rgba(0,0,0,0.45)",
+                      marginBottom: 4,
+                    }}
+                  >
+                    Product
+                  </label>
+                  <select
+                    value={expertsProduct}
+                    onChange={(e) =>
+                      setExpertsProduct(
+                        e.target.value as "entrata-experts",
+                      )
+                    }
+                    style={{
+                      width: "100%",
+                      height: 28,
+                      padding: "0 8px",
+                      fontSize: 12,
+                      fontWeight: 500,
+                      color: "#1a1a1a",
+                      background: "#fff",
+                      border: "1px solid rgba(0,0,0,0.12)",
+                      borderRadius: 6,
+                      marginBottom: 10,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <option value="entrata-experts">Entrata Experts</option>
+                  </select>
+
+                  {/* Version picker (radio list) */}
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: 10,
+                      fontWeight: 500,
+                      color: "rgba(0,0,0,0.45)",
+                      marginBottom: 4,
+                    }}
+                  >
+                    Version
+                  </label>
+                  <div className="flex flex-col gap-0.5">
+                    {ENTRATA_EXPERTS_VERSIONS.map((v) => {
+                      const isActive = expertsVersion === v.id;
+                      return (
+                        <button
+                          key={v.id}
+                          type="button"
+                          onClick={() => setExpertsVersion(v.id)}
+                          className="flex items-start gap-2.5 rounded-md px-2.5 py-1.5 text-left transition-colors"
+                          style={{
+                            background: isActive
+                              ? "rgba(99,102,241,0.08)"
+                              : "transparent",
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: 14,
+                              height: 14,
+                              borderRadius: "50%",
+                              border: isActive
+                                ? "none"
+                                : "2px solid #D4D4D4",
+                              background: isActive ? "#6366f1" : "transparent",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              flexShrink: 0,
+                              marginTop: 2,
+                              transition: "all 150ms",
+                            }}
+                          >
+                            {isActive && (
+                              <div
+                                style={{
+                                  width: 5,
+                                  height: 5,
+                                  borderRadius: "50%",
+                                  background: "#fff",
+                                }}
+                              />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p
+                              style={{
+                                fontSize: 12,
+                                fontWeight: isActive ? 600 : 500,
+                                color: isActive
+                                  ? "#1a1a1a"
+                                  : "rgba(0,0,0,0.7)",
+                              }}
+                            >
+                              {v.label}
+                            </p>
+                            <p
+                              style={{
+                                fontSize: 10,
+                                color: "rgba(0,0,0,0.45)",
+                                marginTop: 1,
+                                lineHeight: 1.35,
+                              }}
+                            >
+                              {v.tagline}
+                            </p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Role Switcher */}
+                <div style={{ borderTop: "1px solid #F0F0F0", margin: "0 14px", paddingTop: 10, marginTop: 10 }}>
                   <p style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.35)", letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: 6 }}>
                     Role
                   </p>

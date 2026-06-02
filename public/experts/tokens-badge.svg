@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0.5" y="0.5" width="47" height="47" rx="23.5" fill="#D97706" />
+  <rect x="0.5" y="0.5" width="47" height="47" rx="23.5" fill="url(#tk_hl)" fill-opacity="0.5" />
+  <rect x="0.5" y="0.5" width="47" height="47" rx="23.5" stroke="url(#tk_border)" />
+  <g filter="url(#tk_shadow)">
+    <circle cx="20.3" cy="21.6" r="5.4" fill="url(#tk_glyph)" />
+    <circle
+      cx="27.7"
+      cy="26.4"
+      r="6.1"
+      fill="url(#tk_glyph)"
+      stroke="#92400E"
+      stroke-opacity="0.5"
+      stroke-width="1"
+    />
+  </g>
+  <defs>
+    <filter id="tk_shadow" x="8" y="11" width="32" height="28" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="bg" />
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+      <feOffset dy="2" />
+      <feGaussianBlur stdDeviation="1.5" />
+      <feComposite in2="hardAlpha" operator="out" />
+      <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0" />
+      <feBlend mode="normal" in2="bg" result="effect1" />
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1" result="shape" />
+    </filter>
+    <linearGradient id="tk_hl" x1="24" y1="0" x2="24" y2="48" gradientUnits="userSpaceOnUse">
+      <stop stop-color="white" />
+      <stop offset="1" stop-color="white" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="tk_border" x1="13" y1="0" x2="34.5" y2="48" gradientUnits="userSpaceOnUse">
+      <stop stop-color="white" stop-opacity="0.4" />
+      <stop offset="0.18" stop-color="white" stop-opacity="0" />
+      <stop offset="0.82" stop-color="white" stop-opacity="0" />
+      <stop offset="1" stop-color="white" stop-opacity="0.4" />
+    </linearGradient>
+    <linearGradient id="tk_glyph" x1="24" y1="17.3" x2="24" y2="30.7" gradientUnits="userSpaceOnUse">
+      <stop stop-color="white" />
+      <stop offset="1" stop-color="white" stop-opacity="0.88" />
+    </linearGradient>
+  </defs>
+</svg>

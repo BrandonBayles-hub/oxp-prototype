@@ -30,9 +30,16 @@ const HEADING_FONT =
 interface ReportAnalyzerChatProps {
   reportId: string;
   onBack: () => void;
+  hideBack?: boolean;
+  hideNew?: boolean;
 }
 
-export function ReportAnalyzerChat({ reportId, onBack }: ReportAnalyzerChatProps) {
+export function ReportAnalyzerChat({
+  reportId,
+  onBack,
+  hideBack = false,
+  hideNew = false,
+}: ReportAnalyzerChatProps) {
   const report = REPORT_BY_ID[reportId];
   // Threads keyed per-report so each report has its own conversation history.
   const store = useAssistantChatStore(`rpt-${reportId}`);
@@ -90,6 +97,8 @@ export function ReportAnalyzerChat({ reportId, onBack }: ReportAnalyzerChatProps
             </span>
           }
           onBack={onBack}
+          hideBack={hideBack}
+          hideNew={hideNew}
           onNew={store.newThread}
           newLabel="Start a new analysis"
         />

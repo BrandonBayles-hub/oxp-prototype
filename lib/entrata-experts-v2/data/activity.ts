@@ -233,8 +233,7 @@ function defaultScopeForAuthor(authorId: string): { id: string; label: string; k
 
 function pickModel(rand: () => number) {
   const r = rand();
-  if (r < 0.55) return "auto" as const;
-  if (r < 0.75) return "entrata-tuned" as const;
+  if (r < 0.75) return "auto" as const;
   if (r < 0.85) return "opus-4-7" as const;
   if (r < 0.93) return "gpt-5-5" as const;
   return "kimi-k2-5" as const;

@@ -25,6 +25,8 @@ import { CallSystemDemoProvider } from "@/lib/call-system-demo-context";
 import { ConversationsDemoProvider } from "@/lib/conversations-demo-context";
 import { R1ReleaseProvider } from "@/lib/r1-release-context";
 import { R1_2ReleaseProvider } from "@/lib/r1-2-release-context";
+import { EntrataExpertsReleaseProvider } from "@/lib/entrata-experts-release-context";
+import { ExpertsPolicyProvider } from "@/lib/entrata-experts-v2/admin-policy-context";
 
 import { EliEmailsProvider } from "@/lib/eli-emails-context";
 import { EliPlusSetupProvider } from "@/lib/eli-plus-setup-context";
@@ -103,12 +105,14 @@ export default function RootLayout({
         <CallSystemDemoProvider>
         <R1ReleaseProvider>
         <R1_2ReleaseProvider>
+        <EntrataExpertsReleaseProvider>
         <RoleProvider>
         <PermissionsProvider>
         <FeatureEntitlementsProvider>
         <SetupProvider>
           <VaultProvider>
             <AgentsProvider>
+              <ExpertsPolicyProvider>
               <WorkforceProvider>
                 <WorkflowsProvider>
                 <AgentBuilderProvider>
@@ -137,12 +141,14 @@ export default function RootLayout({
                 </AgentBuilderProvider>
                 </WorkflowsProvider>
               </WorkforceProvider>
+              </ExpertsPolicyProvider>
             </AgentsProvider>
           </VaultProvider>
         </SetupProvider>
         </FeatureEntitlementsProvider>
         </PermissionsProvider>
         </RoleProvider>
+        </EntrataExpertsReleaseProvider>
         </R1_2ReleaseProvider>
         </R1ReleaseProvider>
         </CallSystemDemoProvider>

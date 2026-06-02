@@ -160,7 +160,12 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: "p-gov-retention", capability: "Configure Data Retention", description: "Set data retention and archival policies", section: "Governance" },
 
   // ── Entrata Experts ──
-  { id: "p-experts-view", capability: "View Credits & Usage", description: "Access the Entrata Experts page and view credit balance and usage history", section: "Entrata Experts" },
+  { id: "p-experts-view", capability: "Access Entrata Experts", description: "Open the Entrata Experts page and use any surface enabled for this role", section: "Entrata Experts" },
+  { id: "p-experts-use-analyst", capability: "Use Entrata Analyst", description: "Run the data-connected portfolio chat — translates natural-language questions into governed SQL", section: "Entrata Experts" },
+  { id: "p-experts-use-assistants", capability: "Use Assistants", description: "Use the pre-built GPT assistants library (Everyday, Ad Writing, Document Analyzer, etc.)", section: "Entrata Experts" },
+  { id: "p-experts-use-reports", capability: "Use Report Analyzer", description: "Run AI summary, trend, and anomaly analysis on standard Entrata reports", section: "Entrata Experts" },
+  { id: "p-experts-admin-config", capability: "Configure Experts", description: "Open the Entrata Experts admin sheet — surface toggles, spend caps, and model access", section: "Entrata Experts" },
+  { id: "p-experts-admin-insights", capability: "View Admin Insights", description: "View Experts activity log, knowledge gaps, intent clusters, automation candidates, and tokens & usage", section: "Entrata Experts" },
 ];
 
 export const PERMISSION_SECTIONS = [
@@ -208,7 +213,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Set<string>> = {
     "p-training-view", "p-training-create", "p-training-assign",
     "p-voice-view", "p-voice-logs",
     "p-gov-view", "p-gov-audit",
-    "p-experts-view",
+    "p-experts-view", "p-experts-use-analyst", "p-experts-use-assistants", "p-experts-use-reports",
   ]),
   property: new Set([
     "p-cc-view",
@@ -232,7 +237,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Set<string>> = {
     "p-training-view",
     "p-voice-view", "p-voice-logs",
     "p-gov-view",
-    "p-experts-view",
+    "p-experts-view", "p-experts-use-analyst", "p-experts-use-assistants", "p-experts-use-reports",
   ]),
   ic: new Set([
     "p-cc-view",
@@ -254,6 +259,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Set<string>> = {
     "p-training-view",
     "p-voice-view",
     "p-gov-view",
+    "p-experts-view", "p-experts-use-analyst",
   ]),
 };
 

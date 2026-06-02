@@ -63,6 +63,7 @@ import { LeasingAISettingsPanel } from "@/components/leasing-ai-settings-panel";
 import { MaintenanceAISettingsPanel } from "@/components/maintenance-ai-settings-panel";
 import { LeadToLeaseSettings } from "@/components/lead-to-lease-settings";
 import { L3AgentSheet, getL3AgentConfig } from "@/components/l3-agent-flyout";
+import { ExpertsConfigSheet } from "@/components/entrata-experts-v2/admin/experts-config-sheet";
 
 const DATA_SOURCE_OPTIONS = [
   "Entrata Ledger",
@@ -255,6 +256,7 @@ function AgentRosterContent() {
   const [leadToLeaseOpen, setLeadToLeaseOpen] = useState(false);
   const [leadToLeaseActivateOpen, setLeadToLeaseActivateOpen] = useState(false);
   const [l3AgentId, setL3AgentId] = useState<string | null>(null);
+  const [expertsConfigOpen, setExpertsConfigOpen] = useState(false);
   const [expandedBucket, setExpandedBucket] = useState<string | null>(null);
   const [videoAgentName, setVideoAgentName] = useState<string | null>(null);
   const [cardSortBy, setCardSortBy] = useState<"recently_added" | "name" | "level">("recently_added");
@@ -334,6 +336,7 @@ function AgentRosterContent() {
       else setLeadToLeaseActivateOpen(true);
       return;
     }
+    if (agent.name === "Entrata Experts") { setExpertsConfigOpen(true); return; }
     if (getL3AgentConfig(agent.name)) { setL3AgentId(agentId); return; }
     if (agent.type === "operations" || agent.type === "intelligence" || agent.type === "efficiency") setOpsAgentId(agentId);
     else setAutoAgentId(agentId);
@@ -564,6 +567,7 @@ function AgentRosterContent() {
                     type="button"
                     onClick={() => {
                       if (isOffEliPlus) { setEliPlusActivateAgent(agent.name); return; }
+                      if (agent.name === "Entrata Experts") { setExpertsConfigOpen(true); return; }
                       if (getL3AgentConfig(agent.name)) { setL3AgentId(agent.id); return; }
                       if (agent.type === "operations" || agent.type === "efficiency" || agent.type === "intelligence") setOpsAgentId(agent.id);
                       else setAutoAgentId(agent.id);
@@ -747,6 +751,7 @@ function AgentRosterContent() {
                                   else setLeadToLeaseActivateOpen(true);
                                   return;
                                 }
+                                if (agent.name === "Entrata Experts") { setExpertsConfigOpen(true); return; }
                                 if (getL3AgentConfig(agent.name)) { setL3AgentId(agent.id); return; }
                                 if (agent.type === "operations" || agent.type === "efficiency" || agent.type === "intelligence") setOpsAgentId(agent.id);
                                 else setAutoAgentId(agent.id);
@@ -851,6 +856,11 @@ function AgentRosterContent() {
           />
         );
       })()}
+
+      <ExpertsConfigSheet
+        open={expertsConfigOpen}
+        onOpenChange={setExpertsConfigOpen}
+      />
 
       {intelAgentId && (() => {
         const intelAgent = agents.find((a) => a.id === intelAgentId);

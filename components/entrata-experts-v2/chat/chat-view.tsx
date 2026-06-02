@@ -8,10 +8,13 @@ import { AssistantBubble, UserBubble } from "./message-bubble";
 import { ThinkingBubble } from "./thinking-bubble";
 import type { ChatState } from "@/lib/entrata-experts-v2/store";
 import type { AssistantMessage } from "@/lib/entrata-experts-v2/types";
+import { useEntrataExpertsRelease } from "@/lib/entrata-experts-release-context";
 
 export function ChatView({ store }: { store: ChatState }) {
   const activeConv = store.conversations.find((c) => c.id === store.activeId) ?? null;
   const scrollRef = React.useRef<HTMLDivElement>(null);
+  const { atLeast } = useEntrataExpertsRelease();
+  const showThreadsSidebar = atLeast("v1.0");
 
   React.useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -20,12 +23,14 @@ export function ChatView({ store }: { store: ChatState }) {
   return (
     <TooltipProvider delayDuration={120}>
       <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
-        <ThreadsSidebar
-          conversations={store.conversations}
-          activeId={store.activeId}
-          onSelect={store.selectConversation}
-          onNew={store.newConversation}
-        />
+        {showThreadsSidebar && (
+          <ThreadsSidebar
+            conversations={store.conversations}
+            activeId={store.activeId}
+            onSelect={store.selectConversation}
+            onNew={store.newConversation}
+          />
+        )}
 
         <main className="flex min-w-0 flex-1 flex-col">
           {!activeConv ? (
