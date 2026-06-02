@@ -167,7 +167,7 @@ function GettingStartedContent() {
 
   const handleGoLive = () => {
     setGoLiveComplete(true);
-    router.push("/command-center");
+    router.push("/command-center/");
   };
 
   if (isFullVersion && activeTab === "eli-plus") {

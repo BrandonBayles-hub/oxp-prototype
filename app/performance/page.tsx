@@ -533,45 +533,53 @@ export default function PerformancePage() {
         <section className="mb-8">
           <h2 className="section-title mb-4">How AI is driving asset value</h2>
           <div className="grid gap-4 lg:grid-cols-3">
-            {perf.assetValueChain.map((chain) => (
-              <Card key={chain.id} className={`border-border/60 ${!chain.active ? "opacity-70" : ""}`}>
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="flex items-center gap-1.5 text-base">
-                      {chain.active && <img src="/eli-cube.svg" alt="" width={16} height={16} className="shrink-0" />}
-                      {chain.area}
-                    </CardTitle>
-                    <div className="text-right">
-                      <p className="text-lg font-bold text-foreground">{chain.value}</p>
-                      <p className="text-[10px] text-muted-foreground">{chain.valueSub}</p>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {chain.steps.map((step, idx) => (
-                      <div key={step.label} className="flex items-start gap-2">
-                        {idx > 0 && (
-                          <ArrowRight className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground/60" />
-                        )}
-                        {idx === 0 && (
-                          <div className="mt-0.5 h-3 w-3 shrink-0" />
-                        )}
-                        <div className="min-w-0">
-                          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{step.label}</p>
-                          <p className="text-sm text-foreground">{step.detail}</p>
-                        </div>
+            {perf.assetValueChain.map((chain) => {
+              if (chain.id === "renewals") {
+                return <RenewalsImpactCard key={chain.id} />;
+              }
+              if (chain.id === "leasing") {
+                return <LeasingImpactCard key={chain.id} />;
+              }
+              return (
+                <Card key={chain.id} className={`border-border/60 ${!chain.active ? "opacity-70" : ""}`}>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="flex items-center gap-1.5 text-base">
+                        {chain.active && <img src="/eli-cube.svg" alt="" width={16} height={16} className="shrink-0" />}
+                        {chain.area}
+                      </CardTitle>
+                      <div className="text-right">
+                        <p className="text-lg font-bold text-foreground">{chain.value}</p>
+                        <p className="text-[10px] text-muted-foreground">{chain.valueSub}</p>
                       </div>
-                    ))}
-                  </div>
-                  {!chain.active && (
-                    <Link href="/agent-roster" className="mt-3 inline-block text-xs font-medium text-foreground underline hover:no-underline">
-                      Enable in Agent Roster →
-                    </Link>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {chain.steps.map((step, idx) => (
+                        <div key={step.label} className="flex items-start gap-2">
+                          {idx > 0 && (
+                            <ArrowRight className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground/60" />
+                          )}
+                          {idx === 0 && (
+                            <div className="mt-0.5 h-3 w-3 shrink-0" />
+                          )}
+                          <div className="min-w-0">
+                            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{step.label}</p>
+                            <p className="text-sm text-foreground">{step.detail}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {!chain.active && (
+                      <Link href="/agent-roster" className="mt-3 inline-block text-xs font-medium text-foreground underline hover:no-underline">
+                        Enable in Agent Roster →
+                      </Link>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         </section>
       )}
@@ -807,6 +815,184 @@ export default function PerformancePage() {
 
       {!isPropertyRole && <FeedbackReviewSection />}
     </>
+  );
+}
+
+type DeltaTone = "emerald" | "blue";
+
+interface BeforeAfterMetric {
+  id: string;
+  kind: "beforeAfter";
+  label: string;
+  sub: string;
+  before: string;
+  after: string;
+  delta: string;
+  deltaTone: DeltaTone;
+}
+
+interface SingleValueMetric {
+  id: string;
+  kind: "single";
+  label: string;
+  sub: string;
+  value: string;
+  valueSub?: string;
+}
+
+type ImpactMetric = BeforeAfterMetric | SingleValueMetric;
+
+interface ImpactCardProps {
+  title: string;
+  href: string;
+  metrics: ImpactMetric[];
+}
+
+const DELTA_TONE_CLASS: Record<DeltaTone, string> = {
+  emerald: "bg-emerald-50 text-emerald-700",
+  blue: "bg-blue-50 text-blue-700",
+};
+
+function ImpactCard({ title, href, metrics }: ImpactCardProps) {
+  return (
+    <Card className="relative overflow-hidden border-border/60">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-300"
+      />
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-1.5 text-base">
+            <img src="/eli-cube.svg" alt="" width={16} height={16} className="shrink-0" />
+            {title}
+          </CardTitle>
+          <Link
+            href={href}
+            className="inline-flex items-center gap-0.5 text-xs font-medium text-foreground underline underline-offset-2 hover:no-underline"
+          >
+            View dashboard →
+          </Link>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-2">
+          {metrics.map((m) => (
+            <div
+              key={m.id}
+              className="flex items-center justify-between gap-3 rounded-lg bg-muted/50 px-3 py-2.5"
+            >
+              <div className="min-w-0">
+                <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {m.label}
+                </p>
+                <p className="text-xs text-muted-foreground">{m.sub}</p>
+              </div>
+              {m.kind === "beforeAfter" ? (
+                <div className="flex items-center gap-2 whitespace-nowrap">
+                  <span className="text-sm text-muted-foreground">{m.before}</span>
+                  <ArrowRight className="h-3 w-3 text-emerald-500" />
+                  <span className="text-sm font-semibold text-foreground">{m.after}</span>
+                  <span
+                    className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${DELTA_TONE_CLASS[m.deltaTone]}`}
+                  >
+                    {m.delta}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 whitespace-nowrap">
+                  <span className="text-sm font-semibold text-foreground">{m.value}</span>
+                  {m.valueSub && (
+                    <span className="text-[10px] text-muted-foreground">{m.valueSub}</span>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+const RENEWALS_IMPACT_METRICS: ImpactMetric[] = [
+  {
+    id: "renewal_rate",
+    kind: "beforeAfter",
+    label: "Renewal rate",
+    sub: "before \u2192 after AI",
+    before: "64%",
+    after: "74%",
+    delta: "+10 pts",
+    deltaTone: "emerald",
+  },
+  {
+    id: "days_before_lease_end",
+    kind: "beforeAfter",
+    label: "Days before lease end",
+    sub: "renewal signed earlier",
+    before: "42d",
+    after: "68d",
+    delta: "+26d",
+    deltaTone: "blue",
+  },
+  {
+    id: "fully_automated",
+    kind: "single",
+    label: "Fully automated",
+    sub: "no human intervention",
+    value: "62%",
+    valueSub: "(1,499 of 2,418)",
+  },
+];
+
+const LEASING_IMPACT_METRICS: ImpactMetric[] = [
+  {
+    id: "lead_to_lease",
+    kind: "beforeAfter",
+    label: "Lead-to-lease conversion",
+    sub: "before \u2192 after AI",
+    before: "9%",
+    after: "14%",
+    delta: "+5 pts",
+    deltaTone: "emerald",
+  },
+  {
+    id: "time_to_lease",
+    kind: "beforeAfter",
+    label: "Time to lease",
+    sub: "lead created \u2192 lease signed",
+    before: "32d",
+    after: "18d",
+    delta: "-14d",
+    deltaTone: "blue",
+  },
+  {
+    id: "fully_automated_leasing",
+    kind: "single",
+    label: "Fully automated",
+    sub: "no human intervention",
+    value: "48%",
+    valueSub: "(920 of 1,920)",
+  },
+];
+
+function RenewalsImpactCard() {
+  return (
+    <ImpactCard
+      title="Renewals"
+      href="/performance/renewals-ai"
+      metrics={RENEWALS_IMPACT_METRICS}
+    />
+  );
+}
+
+function LeasingImpactCard() {
+  return (
+    <ImpactCard
+      title="Leasing"
+      href="/performance/leasing-ai"
+      metrics={LEASING_IMPACT_METRICS}
+    />
   );
 }
 

@@ -32,6 +32,7 @@ import { EliEmailsProvider } from "@/lib/eli-emails-context";
 import { EliPlusSetupProvider } from "@/lib/eli-plus-setup-context";
 import { RoadmapProvider } from "@/lib/roadmap-context";
 import { AnalyticsHandoffProvider } from "@/lib/analytics-handoff-context";
+import { GlobalInboundCallHandler } from "@/components/global-inbound-call-handler";
 
 export const metadata: Metadata = {
   title: "OXP Studio",
@@ -129,6 +130,7 @@ export default function RootLayout({
                     <AnalyticsHandoffProvider>
                     <AppShell>{children}</AppShell>
                     </AnalyticsHandoffProvider>
+                    <GlobalInboundCallHandler />
                     </EliEmailsProvider>
                     </NotificationsProvider>
                     </PlaybooksProvider>

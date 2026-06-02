@@ -144,24 +144,24 @@ DEFAULT_OUTBOUND["p1"] = "(877) 428-0948";
 const CLICK_TO_CALL_NOT_CONTRACTED = new Set(["p2", "p6", "p9", "p11", "p14"]);
 
 const VANITY_NUMBERS = [
-  { id: "v1",  propertyId: "p1", phoneNumber: "(877) 428-0948", type: "Lead", leadSource: "Signage-Banners/Directional", forwardPreference: "Specific Number", routeCalls: "3604924546", smsRegistrationStatus: "", smsEnabled: false, outboundDefault: false, expirationDate: "" },
-  { id: "v2",  propertyId: "p1", phoneNumber: "(855) 716-5354", type: "Lead", leadSource: "", forwardPreference: "Specific Number", routeCalls: "8885140927", smsRegistrationStatus: "", smsEnabled: false, outboundDefault: false, expirationDate: "" },
-  { id: "v3",  propertyId: "p1", phoneNumber: "(206) 785-3512", type: "SMS Only", leadSource: "", forwardPreference: "—", routeCalls: "—", smsRegistrationStatus: "VERIFIED on 08/04/2023", smsEnabled: true, outboundDefault: true, expirationDate: "" },
-  { id: "v4",  propertyId: "p1", phoneNumber: "(888) 817-7299", type: "Maintenance", leadSource: "", forwardPreference: "Specific Number", routeCalls: "8885140927", smsRegistrationStatus: "", smsEnabled: false, outboundDefault: false, expirationDate: "" },
-  { id: "v5",  propertyId: "p2", phoneNumber: "(877) 253-5829", type: "Lead", leadSource: "Social Media-YouTube", forwardPreference: "Specific Number", routeCalls: "3606144651", smsRegistrationStatus: "", smsEnabled: false, outboundDefault: false, expirationDate: "" },
-  { id: "v6",  propertyId: "p2", phoneNumber: "(871) 253-1280", type: "Lead", leadSource: "Internet-Mobile/Banner Ad", forwardPreference: "Specific Number", routeCalls: "3008735387", smsRegistrationStatus: "Verified", smsEnabled: true, outboundDefault: false, expirationDate: "" },
-  { id: "v7",  propertyId: "p3", phoneNumber: "(888) 207-0298", type: "Lead", leadSource: "Social Media-Instagram", forwardPreference: "Specific Number", routeCalls: "3603238381", smsRegistrationStatus: "Verified", smsEnabled: true, outboundDefault: false, expirationDate: "" },
-  { id: "v8",  propertyId: "p3", phoneNumber: "(855) 405-9214", type: "Lead", leadSource: "Internet-AML.com", forwardPreference: "Specific Number", routeCalls: "8445031085", smsRegistrationStatus: "Verified", smsEnabled: true, outboundDefault: false, expirationDate: "" },
-  { id: "v9",  propertyId: "p4", phoneNumber: "(844) 643-7240", type: "Lead", leadSource: "Internet Search-Paid Ads", forwardPreference: "Specific Number", routeCalls: "3605022463", smsRegistrationStatus: "Verified", smsEnabled: true, outboundDefault: false, expirationDate: "" },
-  { id: "v10", propertyId: "p4", phoneNumber: "(855) 386-8531", type: "Lead", leadSource: "Internet Search-Google/Bing/Yahoo", forwardPreference: "Specific Number", routeCalls: "3005488824", smsRegistrationStatus: "Verified", smsEnabled: false, outboundDefault: false, expirationDate: "" },
-  { id: "v11", propertyId: "p5", phoneNumber: "(844) 815-0570", type: "Lead", leadSource: "", forwardPreference: "Specific Number", routeCalls: "8885140927", smsRegistrationStatus: "", smsEnabled: false, outboundDefault: false, expirationDate: "" },
-  { id: "v12", propertyId: "p5", phoneNumber: "(844) 623-5218", type: "Lead", leadSource: "Internet-ApartmentList", forwardPreference: "Specific Number", routeCalls: "3005893214", smsRegistrationStatus: "Verified", smsEnabled: true, outboundDefault: false, expirationDate: "" },
-  { id: "v13", propertyId: "p6", phoneNumber: "(844) 449-7350", type: "Lead", leadSource: "Internet-Apartments.com", forwardPreference: "Specific Number", routeCalls: "3607965991", smsRegistrationStatus: "Verified", smsEnabled: true, outboundDefault: false, expirationDate: "" },
-  { id: "v14", propertyId: "p7", phoneNumber: "(844) 449-7308", type: "Lead", leadSource: "Internet-Velo.com", forwardPreference: "Specific Number", routeCalls: "3006417313", smsRegistrationStatus: "Verified", smsEnabled: true, outboundDefault: false, expirationDate: "" },
-  { id: "v15", propertyId: "p8", phoneNumber: "(844) 449-7345", type: "Lead", leadSource: "Internet-Zillow.com", forwardPreference: "Specific Number", routeCalls: "3608001134", smsRegistrationStatus: "", smsEnabled: false, outboundDefault: false, expirationDate: "" },
-  { id: "v16", propertyId: "p9", phoneNumber: "(844) 449-7343", type: "Lead", leadSource: "Social Media-Facebook", forwardPreference: "Specific Number", routeCalls: "3607623383", smsRegistrationStatus: "Verified", smsEnabled: false, outboundDefault: false, expirationDate: "" },
-  { id: "v17", propertyId: "p10", phoneNumber: "(844) 449-7340", type: "Lead", leadSource: "Internet-Zumper", forwardPreference: "Specific Number", routeCalls: "3607437837", smsRegistrationStatus: "Verified", smsEnabled: true, outboundDefault: false, expirationDate: "" },
-  { id: "v18", propertyId: "p11", phoneNumber: "(844) 878-3230", type: "Lead", leadSource: "Email Campaign", forwardPreference: "Specific Number", routeCalls: "3003643810", smsRegistrationStatus: "Verified", smsEnabled: true, outboundDefault: false, expirationDate: "05/31/2026" },
+  { id: "v1",  propertyId: "p1", phoneNumber: "(877) 428-0948", type: "Lead", leadSource: "Signage-Banners/Directional", forwardPreference: "Specific Number", routeCalls: "3604924546", smsRegistrationStatus: "", smsEnabled: false, outboundDefault: false, expirationDate: "", callerIdRegistered: true },
+  { id: "v2",  propertyId: "p1", phoneNumber: "(855) 716-5354", type: "Lead", leadSource: "", forwardPreference: "Specific Number", routeCalls: "8885140927", smsRegistrationStatus: "", smsEnabled: false, outboundDefault: false, expirationDate: "", callerIdRegistered: true },
+  { id: "v3",  propertyId: "p1", phoneNumber: "(206) 785-3512", type: "SMS Only", leadSource: "", forwardPreference: "—", routeCalls: "—", smsRegistrationStatus: "VERIFIED on 08/04/2023", smsEnabled: true, outboundDefault: true, expirationDate: "", callerIdRegistered: false },
+  { id: "v4",  propertyId: "p1", phoneNumber: "(888) 817-7299", type: "Maintenance", leadSource: "", forwardPreference: "Specific Number", routeCalls: "8885140927", smsRegistrationStatus: "", smsEnabled: false, outboundDefault: false, expirationDate: "", callerIdRegistered: true },
+  { id: "v5",  propertyId: "p2", phoneNumber: "(877) 253-5829", type: "Lead", leadSource: "Social Media-YouTube", forwardPreference: "Specific Number", routeCalls: "3606144651", smsRegistrationStatus: "", smsEnabled: false, outboundDefault: false, expirationDate: "", callerIdRegistered: false },
+  { id: "v6",  propertyId: "p2", phoneNumber: "(871) 253-1280", type: "Lead", leadSource: "Internet-Mobile/Banner Ad", forwardPreference: "Specific Number", routeCalls: "3008735387", smsRegistrationStatus: "Verified", smsEnabled: true, outboundDefault: false, expirationDate: "", callerIdRegistered: true },
+  { id: "v7",  propertyId: "p3", phoneNumber: "(888) 207-0298", type: "Lead", leadSource: "Social Media-Instagram", forwardPreference: "Specific Number", routeCalls: "3603238381", smsRegistrationStatus: "Verified", smsEnabled: true, outboundDefault: false, expirationDate: "", callerIdRegistered: true },
+  { id: "v8",  propertyId: "p3", phoneNumber: "(855) 405-9214", type: "Lead", leadSource: "Internet-AML.com", forwardPreference: "Specific Number", routeCalls: "8445031085", smsRegistrationStatus: "Verified", smsEnabled: true, outboundDefault: false, expirationDate: "", callerIdRegistered: false },
+  { id: "v9",  propertyId: "p4", phoneNumber: "(844) 643-7240", type: "Lead", leadSource: "Internet Search-Paid Ads", forwardPreference: "Specific Number", routeCalls: "3605022463", smsRegistrationStatus: "Verified", smsEnabled: true, outboundDefault: false, expirationDate: "", callerIdRegistered: true },
+  { id: "v10", propertyId: "p4", phoneNumber: "(855) 386-8531", type: "Lead", leadSource: "Internet Search-Google/Bing/Yahoo", forwardPreference: "Specific Number", routeCalls: "3005488824", smsRegistrationStatus: "Verified", smsEnabled: false, outboundDefault: false, expirationDate: "", callerIdRegistered: false },
+  { id: "v11", propertyId: "p5", phoneNumber: "(844) 815-0570", type: "Lead", leadSource: "", forwardPreference: "Specific Number", routeCalls: "8885140927", smsRegistrationStatus: "", smsEnabled: false, outboundDefault: false, expirationDate: "", callerIdRegistered: false },
+  { id: "v12", propertyId: "p5", phoneNumber: "(844) 623-5218", type: "Lead", leadSource: "Internet-ApartmentList", forwardPreference: "Specific Number", routeCalls: "3005893214", smsRegistrationStatus: "Verified", smsEnabled: true, outboundDefault: false, expirationDate: "", callerIdRegistered: true },
+  { id: "v13", propertyId: "p6", phoneNumber: "(844) 449-7350", type: "Lead", leadSource: "Internet-Apartments.com", forwardPreference: "Specific Number", routeCalls: "3607965991", smsRegistrationStatus: "Verified", smsEnabled: true, outboundDefault: false, expirationDate: "", callerIdRegistered: true },
+  { id: "v14", propertyId: "p7", phoneNumber: "(844) 449-7308", type: "Lead", leadSource: "Internet-Velo.com", forwardPreference: "Specific Number", routeCalls: "3006417313", smsRegistrationStatus: "Verified", smsEnabled: true, outboundDefault: false, expirationDate: "", callerIdRegistered: false },
+  { id: "v15", propertyId: "p8", phoneNumber: "(844) 449-7345", type: "Lead", leadSource: "Internet-Zillow.com", forwardPreference: "Specific Number", routeCalls: "3608001134", smsRegistrationStatus: "", smsEnabled: false, outboundDefault: false, expirationDate: "", callerIdRegistered: true },
+  { id: "v16", propertyId: "p9", phoneNumber: "(844) 449-7343", type: "Lead", leadSource: "Social Media-Facebook", forwardPreference: "Specific Number", routeCalls: "3607623383", smsRegistrationStatus: "Verified", smsEnabled: false, outboundDefault: false, expirationDate: "", callerIdRegistered: false },
+  { id: "v17", propertyId: "p10", phoneNumber: "(844) 449-7340", type: "Lead", leadSource: "Internet-Zumper", forwardPreference: "Specific Number", routeCalls: "3607437837", smsRegistrationStatus: "Verified", smsEnabled: true, outboundDefault: false, expirationDate: "", callerIdRegistered: true },
+  { id: "v18", propertyId: "p11", phoneNumber: "(844) 878-3230", type: "Lead", leadSource: "Email Campaign", forwardPreference: "Specific Number", routeCalls: "3003643810", smsRegistrationStatus: "Verified", smsEnabled: true, outboundDefault: false, expirationDate: "05/31/2026", callerIdRegistered: true },
 ];
 
 const INITIALLY_ACTIVE = new Set(["p1", "p2", "p3", "p4"]);
@@ -196,6 +196,7 @@ export default function PhoneNumbersPage() {
   const [addUseSms] = useState(true);
   const [addOutboundDefault, setAddOutboundDefault] = useState(false);
   const [addExpiration, setAddExpiration] = useState("");
+  const [callerIdRegistering, setCallerIdRegistering] = useState<string | null>(null);
 
   const PROPERTY_MAP = Object.fromEntries(PROPERTIES.map((p) => [p.id, p.name]));
   const filteredVanityNumbers = vanityPropertyFilter === "all"
@@ -252,7 +253,7 @@ export default function PhoneNumbersPage() {
       {!isEmbed && (
         <button
           type="button"
-          onClick={() => router.push("/conversations")}
+          onClick={() => router.push("/conversations/")}
           className="mb-6 inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -631,6 +632,21 @@ export default function PhoneNumbersPage() {
                   <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">SMS Registration Status</th>
                   <th className="px-4 py-2.5 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">SMS</th>
                   <th className="px-4 py-2.5 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">Outbound Default</th>
+                  <th className="px-4 py-2.5 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex items-center gap-1 cursor-help">
+                            Property Caller ID Registered
+                            <HelpCircle className="h-3 w-3 text-muted-foreground/70" />
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[240px] text-xs font-normal normal-case tracking-normal">
+                          Display property name instead of number for outbound calls by registering caller name with carrier databases
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </th>
                   <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">Expiration Date</th>
                   <th className="px-4 py-2.5 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">Action</th>
                 </tr>
@@ -658,6 +674,30 @@ export default function PhoneNumbersPage() {
                     </td>
                     <td className="px-4 py-2.5 border-b border-border text-center">
                       {row.outboundDefault && <CheckCircle2 className="h-4 w-4 text-emerald-500 mx-auto" />}
+                    </td>
+                    <td className="px-4 py-2.5 border-b border-border text-center">
+                      {row.callerIdRegistered ? (
+                        <CheckCircle2 className="h-4 w-4 text-emerald-500 mx-auto" />
+                      ) : callerIdRegistering === row.id ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          Registering…
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCallerIdRegistering(row.id);
+                            setTimeout(() => {
+                              setVanityNumbers((prev) => prev.map((v) => v.id === row.id ? { ...v, callerIdRegistered: true } : v));
+                              setCallerIdRegistering(null);
+                            }, 2000);
+                          }}
+                          className="rounded border border-primary/30 bg-primary/5 px-2 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/10 transition-colors"
+                        >
+                          Register
+                        </button>
+                      )}
                     </td>
                     <td className="px-4 py-2.5 border-b border-border text-xs text-foreground">{row.expirationDate || ""}</td>
                     <td className="px-4 py-2.5 border-b border-border text-center">

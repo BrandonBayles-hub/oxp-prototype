@@ -12,7 +12,7 @@ export function RouteGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (pathname === "/") return;
     if (!isRouteAllowed(pathname)) {
-      router.replace("/command-center");
+      router.replace("/command-center/");
     }
   }, [pathname, isRouteAllowed, router]);
 
