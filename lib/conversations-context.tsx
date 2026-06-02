@@ -528,29 +528,29 @@ Hillside Living
   {
     id: "lc-20",
     resident: "Alma Sanchez",
-    unit: null,
-    preview: "Got it — I’ll upload ID tonight. Thanks!",
+    unit: "Unit 312",
+    preview: "Can we talk about the rent increase? That’s more than I expected.",
     agent: "Staff",
     time: "4m ago",
-    contactType: "Lead",
+    contactType: "Resident",
     property: "Hillside Living",
     channel: "Email",
-    emailSubject: "Re: Your application — ID upload (same case as web chat)",
+    emailSubject: "Re: Your Lease Renewal Offer — Unit 312",
     assignee: "Abe Kashiwagi",
     staffRespondentIsExternalAgent: true,
-    labels: ["Leasing AI", "Leasing AI Escalation"],
+    labels: ["Renewals AI", "Renewals AI Escalation"],
     escalationId: "esc-hillside-alma-12",
     status: "open",
     hasUnread: false,
     messages: [
       {
         role: "staff",
-        text: "Hi Alma — following up on your web chat thread. When you have a moment, please reply with a clear photo of your government ID (or use the secure upload link from my last message in chat). This email is tied to the same escalated case on our side.",
+        text: "Hi Alma — I wanted to follow up on your renewal offer for Unit 312. Your current lease ends November 30, and we’ve sent a renewal proposal with updated terms. Please let me know if you have any questions or would like to discuss the options.",
         timestamp: "Sep 15 2025 · 7:20pm MST",
         type: "message",
         emailSignature: `Best regards,
 Abe Kashiwagi
-Leasing Specialist
+Renewals Specialist
 
 Hillside Living
 (720) 555-0140
@@ -558,10 +558,10 @@ Hillside Living
       },
       {
         role: "resident",
-        text: "Got it — I’ll upload ID tonight. Thanks!",
+        text: "Can we talk about the rent increase? That’s more than I expected.",
         timestamp: "Sep 15 2025 · 7:22pm MST",
         type: "message",
-        emailSignature: "—\nAlma Sanchez\nProspective resident",
+        emailSignature: "—\nAlma Sanchez\nUnit 312, Hillside Living",
       },
     ],
   },
