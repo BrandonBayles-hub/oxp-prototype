@@ -151,26 +151,6 @@ runs:
         fi
         aws s3 sync --region ${{ inputs.REGION }} --delete ./dist/ s3://$S3_BUCKET/
 
-        # ── Trailing-slash compatibility ─────────────────────────────────
-        # Next.js static export with `trailingSlash: true` emits each route
-        # as <route>/index.html. CloudFront/S3 resolve /<route>/ →
-        # /<route>/index.html but do NOT resolve the bare /<route> form,
-        # which makes S3 return AccessDenied for slash-less URLs (typed in
-        # the URL bar, bookmarks, and external links). Mirror each
-        # index.html to a bare-key copy so /<route> serves the same content
-        # as /<route>/.
-        echo "Mirroring index.html files to bare-key S3 copies for slash-less URL support…"
-        find ./dist -mindepth 2 -name 'index.html' -type f | while read -r f; do
-          rel="${f#./dist/}"
-          key="${rel%/index.html}"
-          if [ -n "$key" ]; then
-            aws s3 cp \
-              --region ${{ inputs.REGION }} \
-              --content-type 'text/html' \
-              "$f" "s3://$S3_BUCKET/$key"
-          fi
-        done
-
         # CloudFront invalidation: derive origin domain from S3 bucket name
         CF_DOMAIN="${S3_BUCKET}.s3.${{ inputs.REGION }}.amazonaws.com"
 
