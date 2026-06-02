@@ -71,7 +71,7 @@ function formatDuration(totalSeconds: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-const CALL_PANEL_MAX_W = 380;
+const CALL_PANEL_MAX_W = 320;
 const CALL_PANEL_MARGIN = 16;
 /** Below Entrata-style top chrome (~76px) with small gap. */
 const CALL_PANEL_TOP_OFFSET = 80;
@@ -82,18 +82,18 @@ function getCallPanelTopRightPosition(): { x: number; y: number } {
   }
   const panelW = Math.min(window.innerWidth - CALL_PANEL_MARGIN * 2, CALL_PANEL_MAX_W);
   return {
-    x: Math.max(CALL_PANEL_MARGIN, window.innerWidth - panelW - CALL_PANEL_MARGIN),
+    x: window.innerWidth - panelW,
     y: CALL_PANEL_TOP_OFFSET,
   };
 }
 
 function clampPanelPosition(x: number, y: number): { x: number; y: number } {
   if (typeof window === "undefined") return { x, y };
-  const panelW = Math.min(window.innerWidth - CALL_PANEL_MARGIN * 2, CALL_PANEL_MAX_W);
-  const maxX = Math.max(CALL_PANEL_MARGIN, window.innerWidth - panelW - CALL_PANEL_MARGIN);
+  const panelW = Math.min(window.innerWidth, CALL_PANEL_MAX_W);
+  const maxX = Math.max(0, window.innerWidth - panelW);
   const maxY = Math.max(CALL_PANEL_MARGIN, window.innerHeight - 120);
   return {
-    x: Math.min(Math.max(CALL_PANEL_MARGIN, x), maxX),
+    x: Math.min(Math.max(0, x), maxX),
     y: Math.min(Math.max(CALL_PANEL_MARGIN, y), maxY),
   };
 }
@@ -322,7 +322,7 @@ export function ClickToCallFloatingPanel({
       <div
         key={session.conversationId}
         className={cn(
-          "pointer-events-auto absolute w-[min(100vw-1rem,380px)] overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-lg duration-300",
+          "pointer-events-auto absolute w-[min(100vw,320px)] overflow-hidden rounded-l-lg border border-r-0 border-border bg-card text-card-foreground shadow-lg duration-300",
           isAnimatingOut
             ? "animate-out slide-out-to-right fade-out zoom-out-95"
             : "animate-in slide-in-from-right fade-in zoom-in-95"
@@ -352,7 +352,7 @@ export function ClickToCallFloatingPanel({
           </span>
         </div>
 
-        <div className="max-h-[min(85vh,640px)] overflow-y-auto">
+        <div className="max-h-[min(90vh,900px)] overflow-y-auto">
           {phase === "failed" && (
             <div className="mx-3 mt-3 rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2.5">
               <div className="flex gap-3">

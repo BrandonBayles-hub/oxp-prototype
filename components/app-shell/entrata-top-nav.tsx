@@ -21,6 +21,9 @@ import {
   Map,
   PhoneIncoming,
   Smartphone,
+  User,
+  UserCheck,
+  UserX,
 } from "lucide-react";
 import { MobileAppPreview } from "@/components/mobile-app-preview";
 import { useRole, ROLES, type Role } from "@/lib/role-context";
@@ -33,7 +36,7 @@ import { useWorkforce } from "@/lib/workforce-context";
 import { useEscalations } from "@/lib/escalations-context";
 import { useConversations } from "@/lib/conversations-context";
 import { useClickToCallDemo } from "@/lib/click-to-call-demo-context";
-import { useCallSystemDemo } from "@/lib/call-system-demo-context";
+import { useCallSystemDemo, type IncomingCallerType } from "@/lib/call-system-demo-context";
 import { useConversationsDemo } from "@/lib/conversations-demo-context";
 
 const NAV_ITEMS = [
@@ -408,28 +411,43 @@ export function EntrataTopNav() {
                     </button>
 
                     {callSystemEnabled && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          simulateInboundCall();
-                          router.push("/conversations/");
-                          setDemoOpen(false);
-                        }}
-                        className="flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-emerald-50"
-                      >
-                        <PhoneIncoming
-                          className="mt-0.5 shrink-0 text-emerald-500"
-                          style={{ width: 16, height: 16, strokeWidth: 2 }}
-                        />
-                        <div>
-                          <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>
-                            Simulate Inbound Call
-                          </p>
-                          <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>
-                            Trigger an incoming call screen pop on Communications
-                          </p>
+                      <div className="space-y-0.5">
+                        <div className="flex items-start gap-2.5 px-2.5 py-2">
+                          <PhoneIncoming
+                            className="mt-0.5 shrink-0 text-emerald-500"
+                            style={{ width: 16, height: 16, strokeWidth: 2 }}
+                          />
+                          <div>
+                            <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>
+                              Replicate Incoming Call
+                            </p>
+                            <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>
+                              Select a caller type to simulate an incoming call
+                            </p>
+                          </div>
                         </div>
-                      </button>
+                        <div className="flex gap-1 px-2.5 pb-1">
+                          {([
+                            { type: "prospect" as IncomingCallerType, label: "Prospect", desc: "No record in system", Icon: UserX },
+                            { type: "lead" as IncomingCallerType, label: "Lead", desc: "Lead contact record", Icon: User },
+                            { type: "resident" as IncomingCallerType, label: "Resident", desc: "Resident in system", Icon: UserCheck },
+                          ]).map((opt) => (
+                            <button
+                              key={opt.type}
+                              type="button"
+                              onClick={() => {
+                                simulateInboundCall(opt.type);
+                                setDemoOpen(false);
+                              }}
+                              className="flex flex-1 flex-col items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-2 text-center transition-colors hover:border-emerald-300 hover:bg-emerald-50"
+                            >
+                              <opt.Icon className="h-4 w-4 text-emerald-600" strokeWidth={1.5} />
+                              <span className="text-[11px] font-semibold text-gray-800">{opt.label}</span>
+                              <span className="text-[9px] leading-tight text-gray-400">{opt.desc}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     )}
 
                     <button
