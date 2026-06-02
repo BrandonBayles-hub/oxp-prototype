@@ -13,9 +13,12 @@ import {
   Cell,
 } from "recharts";
 import type { Artifact as ArtifactType } from "@/lib/entrata-experts-v2/types";
-import { Mail, Download, Copy, BookmarkPlus } from "lucide-react";
+import { Mail, Download, Copy, BookmarkPlus, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useAnalyticsHandoff } from "@/lib/analytics-handoff-context";
+import { isHandoffEligible } from "@/lib/entrata-experts-v2/analytics-handoff";
+import type { HandoffContext } from "./send-to-analytics-dialog";
 
 const TONE_BG: Record<string, string> = {
   good: "bg-emerald-50 text-emerald-900 border-emerald-200",
@@ -24,7 +27,16 @@ const TONE_BG: Record<string, string> = {
   info: "bg-sky-50 text-sky-900 border-sky-200",
 };
 
-export function Artifact({ artifact, compact = false }: { artifact: ArtifactType; compact?: boolean }) {
+export function Artifact({
+  artifact,
+  compact = false,
+  handoffContext,
+}: {
+  artifact: ArtifactType;
+  compact?: boolean;
+  handoffContext?: HandoffContext;
+}) {
+  const { handoffEnabled, openHandoff } = useAnalyticsHandoff();
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-card">
       <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
@@ -36,6 +48,17 @@ export function Artifact({ artifact, compact = false }: { artifact: ArtifactType
         </div>
         {!compact && (
           <div className="flex shrink-0 items-center gap-1">
+            {handoffEnabled && isHandoffEligible(artifact) && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-indigo-600 hover:text-indigo-700"
+                title="Send to Analytics Platform"
+                onClick={() => openHandoff(artifact, handoffContext)}
+              >
+                <Share2 className="h-3.5 w-3.5" />
+              </Button>
+            )}
             <Button variant="ghost" size="icon" className="h-7 w-7" title="Save to Insights">
               <BookmarkPlus className="h-3.5 w-3.5" />
             </Button>

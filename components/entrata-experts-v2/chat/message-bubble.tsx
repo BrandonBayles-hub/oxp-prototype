@@ -32,9 +32,12 @@ export function UserBubble({ message }: { message: UserMessage }) {
 export function AssistantBubble({
   message,
   onFollowUp,
+  priorPrompt,
 }: {
   message: AssistantMessage;
   onFollowUp?: (text: string) => void;
+  /** The user prompt that produced this answer — seeds the handoff / Mode B. */
+  priorPrompt?: string;
 }) {
   const lensDef = LENS_BY_ID[message.lens];
   const Icon = lensDef.icon;
@@ -91,7 +94,11 @@ export function AssistantBubble({
       <MessageBody body={message.body} citations={message.citations} />
 
       {message.artifacts.map((art) => (
-        <Artifact key={art.id} artifact={art} />
+        <Artifact
+          key={art.id}
+          artifact={art}
+          handoffContext={{ scopeLabel: message.scope.label, prompt: priorPrompt }}
+        />
       ))}
 
       {message.trace.length > 0 && (

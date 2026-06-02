@@ -1,16 +1,15 @@
 "use client";
 import * as React from "react";
-import { LensPicker } from "./lens-picker";
-import { ScopePicker } from "./scope-picker";
+import { LensPicker, ModePicker, ModelPicker } from "./composer-controls";
+// import { ScopePicker } from "./scope-picker"; // temporarily disabled — see toolbar below
 import { Button } from "@/components/ui/button";
 import type { LensId, Depth, ModelId, Scope } from "@/lib/entrata-experts-v2/types";
 import { ArrowUp, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// Lens + scope are independently optional. Render the pickers only when both
-// the value and its onChange handler are provided. Analyst uses both; the
-// Assistant chats reuse the same composer with just the scope picker (lens
-// routing doesn't apply to fixed-purpose assistants).
+// The Lens/Mode/Model pickers render only when their values + onChange handler
+// are provided. `scope` / `onChangeScope` remain on the props so callers don't
+// break, but the ScopePicker is currently not rendered (see toolbar below).
 interface Props {
   lens?: LensId;
   depth?: Depth;
@@ -29,9 +28,7 @@ export function MessageInput({
   lens,
   depth,
   model,
-  scope,
   onChangeLens,
-  onChangeScope,
   onSend,
   isThinking,
   onStop,
@@ -39,7 +36,6 @@ export function MessageInput({
   autoFocus,
 }: Props) {
   const showLens = lens !== undefined && depth !== undefined && model !== undefined && !!onChangeLens;
-  const showScope = scope !== undefined && !!onChangeScope;
   const [value, setValue] = React.useState("");
   const ref = React.useRef<HTMLTextAreaElement>(null);
 
@@ -81,14 +77,14 @@ export function MessageInput({
       />
       <div className="flex items-center gap-1.5 px-3 py-2">
         {showLens && (
-          <LensPicker
-            lens={lens!}
-            depth={depth!}
-            model={model!}
-            onChange={onChangeLens!}
-          />
+          <>
+            <LensPicker lens={lens!} onSelect={(l) => onChangeLens!(l, depth!, model!)} />
+            <ModePicker depth={depth!} onSelect={(d) => onChangeLens!(lens!, d, model!)} />
+            <ModelPicker model={model!} onSelect={(m) => onChangeLens!(lens!, depth!, m)} />
+          </>
         )}
-        {showScope && <ScopePicker scope={scope!} onChange={onChangeScope!} />}
+        {/* Scope picker temporarily removed — to restore, re-add the import and
+            render <ScopePicker scope={scope!} onChange={onChangeScope!} /> here. */}
         <div className="flex-1" />
         {isThinking ? (
           <Button size="icon" className="h-7 w-7" onClick={onStop} title="Stop">

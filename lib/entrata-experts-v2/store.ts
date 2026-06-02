@@ -65,7 +65,7 @@ export interface ChatState {
 export function useChatStore(): ChatState {
   const [role, setRole] = React.useState<RoleId>("vp-ops");
   const [scope, setScope] = React.useState<Scope>({ kind: "portfolio", id: "portfolio", label: "Whole portfolio" });
-  const [lens, setLens] = React.useState<LensId>("auto");
+  const [lens, setLens] = React.useState<LensId>("leasing");
   const [depth, setDepth] = React.useState<Depth>("auto");
   const [model, setModel] = React.useState<ModelId>("auto");
   const [conversations, setConversations] = React.useState<Conversation[]>([]);
@@ -79,9 +79,9 @@ export function useChatStore(): ChatState {
 
   const remembered = REMEMBERED_BY_ROLE[role];
 
-  // Lens stays on "Auto" until the user explicitly picks one. Auto already
-  // routes to the right lens dynamically, so role-driven defaults would just
-  // override the user's selection silently when they switch role.
+  // Lens defaults to "Leasing" and stays there until the user explicitly picks
+  // another. We deliberately don't re-derive it from role, so switching role
+  // doesn't silently override the user's selection.
 
   function setLensDepth(l: LensId, d: Depth, m?: ModelId) {
     setLens(l);
