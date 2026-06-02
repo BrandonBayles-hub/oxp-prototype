@@ -1012,6 +1012,8 @@ function ConversationsContent() {
     return getLinkedConversationsByEscalation(conversations, selected.id, selected.escalationId);
   }, [conversations, selected?.id, selected?.escalationId]);
 
+  const [linkedExpanded, setLinkedExpanded] = useState(false);
+
   const selectedEmailRouting =
     selected?.channel === "Email"
       ? getEmailThreadRoutingAddresses(selected.resident, selected.property)
@@ -2401,43 +2403,46 @@ function ConversationsContent() {
                       role="region"
                       aria-label="Related escalated conversations"
                     >
-                      <div className="flex gap-2 border-b border-violet-200/60 px-2.5 py-2 dark:border-violet-800/40">
-                        <div
-                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-violet-100 text-violet-700 dark:bg-violet-900/60 dark:text-violet-200"
-                          aria-hidden
-                        >
-                          <Link2 className="h-3.5 w-3.5" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[10px] font-semibold uppercase tracking-wide text-violet-800 dark:text-violet-200">
-                            Linked conversations
-                          </p>
-                          <p className="mt-0.5 text-[10px] leading-snug text-violet-950/70 dark:text-violet-100/70">
-                            Any related escalated conversations will also be resolved automatically together when you
-                            resolve one.
-                          </p>
-                        </div>
-                      </div>
-                      <ul className="space-y-0.5 bg-background/60 px-1.5 py-1.5 dark:bg-background/40">
-                        {linkedByEscalation.map((c) => (
-                          <li key={c.id}>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedId(c.id);
-                                markRead(c.id, MY_INBOX_ASSIGNEE);
-                              }}
-                              className="flex w-full items-center gap-1.5 rounded-md border border-transparent px-1.5 py-1.5 text-left text-[11px] transition-colors hover:border-violet-200 hover:bg-violet-50/80 dark:hover:border-violet-800 dark:hover:bg-violet-950/40"
-                            >
-                              <span className="shrink-0 font-medium text-violet-700/90 dark:text-violet-300/90">
-                                {c.channel}
-                              </span>
-                              <span className="min-w-0 flex-1 truncate text-foreground">{c.preview}</span>
-                              <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
+                      <button
+                        type="button"
+                        onClick={() => setLinkedExpanded(!linkedExpanded)}
+                        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-violet-100/50 dark:hover:bg-violet-900/30"
+                      >
+                        <Link2 className="h-3.5 w-3.5 shrink-0 text-violet-600 dark:text-violet-300" />
+                        <span className="text-[11px] font-semibold text-violet-800 dark:text-violet-200">
+                          {linkedByEscalation.length} Linked Conversation{linkedByEscalation.length > 1 ? "s" : ""}
+                        </span>
+                        <ChevronRight
+                          className={cn(
+                            "ml-auto h-3.5 w-3.5 shrink-0 text-violet-500 transition-transform duration-200",
+                            linkedExpanded && "rotate-90"
+                          )}
+                        />
+                      </button>
+                      {linkedExpanded && (
+                        <ul className="space-y-0.5 border-t border-violet-200/60 bg-background/60 px-1.5 py-1.5 dark:border-violet-800/40 dark:bg-background/40">
+                          {linkedByEscalation.map((c) => (
+                            <li key={c.id}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedId(c.id);
+                                  markRead(c.id, MY_INBOX_ASSIGNEE);
+                                }}
+                                className="flex w-full items-center gap-2 rounded-md border border-transparent px-2 py-1.5 text-left text-[11px] transition-colors hover:border-violet-200 hover:bg-violet-50/80 dark:hover:border-violet-800 dark:hover:bg-violet-950/40"
+                              >
+                                <span className="shrink-0 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 dark:bg-violet-900/60 dark:text-violet-300">
+                                  {c.channel}
+                                </span>
+                                <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                                  {c.resident}
+                                </span>
+                                <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
                   )}
                 </>
