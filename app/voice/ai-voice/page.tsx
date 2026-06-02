@@ -223,7 +223,11 @@ export default function AIVoicePage() {
     router.replace(pathname);
   };
 
-  if (!selectedAgentId && !vanityOpen) {
+  if (vanityOpen) {
+    return <VanityNumbersDetailView onBack={() => setVanityOpen(false)} />;
+  }
+
+  if (!selectedAgentId) {
     return (
       <AgentPickerView
         defaults={voice.agentVoiceDefaults}
@@ -233,10 +237,6 @@ export default function AIVoicePage() {
         onPickVanity={() => setVanityOpen(true)}
       />
     );
-  }
-
-  if (vanityOpen) {
-    return <VanityNumbersDetailView onBack={() => setVanityOpen(false)} />;
   }
 
   const defaultSettings = voice.agentVoiceDefaults[selectedAgentId] ?? voice.voiceSettings;

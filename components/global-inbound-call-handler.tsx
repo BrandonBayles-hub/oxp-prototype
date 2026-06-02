@@ -620,7 +620,7 @@ function ProfileThreadsPanel({ session }: { session: InboundCallSessionInput }) 
         </div>
         <div className="space-y-5">
           {filtered.map((thread, i) => {
-            const globalIdx = threads.indexOf(thread);
+            const globalIdx = threads.findIndex((t) => t === thread);
             return (
               <div
                 key={i}
