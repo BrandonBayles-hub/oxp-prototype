@@ -121,8 +121,11 @@ const BLANK_VOICE: VoiceSettings = {
   autoDetectLanguage: false,
   recordAudio: false,
   generateTranscripts: false,
+  recordAudioOutbound: false,
+  generateTranscriptsOutbound: false,
   legalDisclosureEnabled: false,
   legalDisclosureText: "",
+  legalDisclosureTextOutbound: "",
   greeting: "",
   holdPhrase: "",
   maxCallLength: 10,
@@ -147,8 +150,11 @@ function voiceSettingsEqual(a: VoiceSettings, b: VoiceSettings): boolean {
     a.autoDetectLanguage === b.autoDetectLanguage &&
     a.recordAudio === b.recordAudio &&
     a.generateTranscripts === b.generateTranscripts &&
+    a.recordAudioOutbound === b.recordAudioOutbound &&
+    a.generateTranscriptsOutbound === b.generateTranscriptsOutbound &&
     a.legalDisclosureEnabled === b.legalDisclosureEnabled &&
     a.legalDisclosureText === b.legalDisclosureText &&
+    a.legalDisclosureTextOutbound === b.legalDisclosureTextOutbound &&
     a.greeting === b.greeting &&
     a.holdPhrase === b.holdPhrase &&
     a.maxCallLength === b.maxCallLength &&
@@ -188,6 +194,7 @@ export default function AIVoicePage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [selectedAgentId, setSelectedAgentId] = useState<AgentToneId | null>(null);
+  const [vanityOpen, setVanityOpen] = useState(false);
 
   const queryAgent = searchParams.get("agent");
   const queryProperty = searchParams.get("property");
@@ -216,15 +223,20 @@ export default function AIVoicePage() {
     router.replace(pathname);
   };
 
-  if (!selectedAgentId) {
+  if (!selectedAgentId && !vanityOpen) {
     return (
       <AgentPickerView
         defaults={voice.agentVoiceDefaults}
         verticalOverrides={voice.agentVerticalVoiceOverrides}
         propertyOverrides={voice.agentPropertyVoiceOverrides}
         onPick={selectAgent}
+        onPickVanity={() => setVanityOpen(true)}
       />
     );
+  }
+
+  if (vanityOpen) {
+    return <VanityNumbersDetailView onBack={() => setVanityOpen(false)} />;
   }
 
   const defaultSettings = voice.agentVoiceDefaults[selectedAgentId] ?? voice.voiceSettings;
@@ -263,11 +275,13 @@ function AgentPickerView({
   verticalOverrides,
   propertyOverrides,
   onPick,
+  onPickVanity,
 }: {
   defaults: Record<AgentToneId, VoiceSettings>;
   verticalOverrides: AgentVerticalVoiceOverride[];
   propertyOverrides: AgentPropertyVoiceOverride[];
   onPick: (agentId: AgentToneId) => void;
+  onPickVanity: () => void;
 }) {
   return (
     <div>
@@ -276,7 +290,6 @@ function AgentPickerView({
       </p>
       <div className="grid gap-4 sm:grid-cols-2">
         {AGENTS.map((agent) => {
-          const Icon = agent.icon;
           const defaultVoice = defaults[agent.id];
           const verticalCount = verticalOverrides.filter((override) => override.agentId === agent.id).length;
           const propertyCount = propertyOverrides.filter((override) => override.agentId === agent.id).length;
@@ -311,6 +324,32 @@ function AgentPickerView({
             </button>
           );
         })}
+
+        {/* Vanity Numbers card */}
+        <button
+          type="button"
+          onClick={onPickVanity}
+          className="group rounded-xl border border-border bg-white p-5 text-left transition-all hover:border-zinc-400 hover:shadow-md"
+        >
+          <div className="flex items-start gap-4">
+            <img src="/entrata-cube.svg" alt="" width={40} height={40} className="shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-base font-semibold text-foreground">Staff Calling</h3>
+                <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">Manage phone lines for inbound and outbound calls routed to staff — no AI response.</p>
+              <div className="mt-3 rounded-md bg-muted/40 px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Active lines</p>
+                <p className="mt-0.5 text-xs text-foreground">3 vanity numbers across 2 properties</p>
+              </div>
+              <div className="mt-3 flex items-center gap-2 text-[10px]">
+                <Badge variant="secondary" className="font-normal">Staff routing</Badge>
+                <Badge variant="secondary" className="font-normal">No AI</Badge>
+              </div>
+            </div>
+          </div>
+        </button>
       </div>
     </div>
   );
@@ -590,10 +629,14 @@ function DefaultVoiceCard({
   settings,
   onChange,
   onReset,
+  hideAdvanced,
+  hideVoiceSettings,
 }: {
   settings: VoiceSettings;
   onChange: (next: VoiceSettings) => void;
   onReset: () => void;
+  hideAdvanced?: boolean;
+  hideVoiceSettings?: boolean;
 }) {
   const [expanded, setExpanded] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -634,7 +677,7 @@ function DefaultVoiceCard({
       </CardHeader>
       {expanded && (
         <CardContent>
-          <VoiceSettingsEditor settings={settings} editing={editing} onChange={onChange} />
+          <VoiceSettingsEditor settings={settings} editing={editing} onChange={onChange} hideAdvanced={hideAdvanced} hideVoiceSettings={hideVoiceSettings} />
         </CardContent>
       )}
       <Dialog open={confirmResetOpen} onOpenChange={setConfirmResetOpen}>
@@ -669,11 +712,15 @@ function VerticalOverrideCard({
   shadowingPropertyOverrides,
   onChange,
   onRemove,
+  hideAdvanced,
+  hideVoiceSettings,
 }: {
   record: VerticalOverrideRecord;
   shadowingPropertyOverrides: PropertyOverrideRecord[];
   onChange: (next: VoiceSettings) => void;
   onRemove: () => void;
+  hideAdvanced?: boolean;
+  hideVoiceSettings?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -720,7 +767,7 @@ function VerticalOverrideCard({
       </CardHeader>
       {expanded && (
         <CardContent>
-          <VoiceSettingsEditor settings={record.settings} editing={editing} onChange={onChange} />
+          <VoiceSettingsEditor settings={record.settings} editing={editing} onChange={onChange} hideAdvanced={hideAdvanced} hideVoiceSettings={hideVoiceSettings} />
         </CardContent>
       )}
       <Dialog open={confirmRemoveOpen} onOpenChange={setConfirmRemoveOpen}>
@@ -749,12 +796,16 @@ function PropertyOverrideCard({
   cardRef,
   onChange,
   onRemove,
+  hideAdvanced,
+  hideVoiceSettings,
 }: {
   record: PropertyOverrideRecord;
   autoExpand?: boolean;
   cardRef?: (node: HTMLDivElement | null) => void;
   onChange: (next: VoiceSettings) => void;
   onRemove: () => void;
+  hideAdvanced?: boolean;
+  hideVoiceSettings?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -794,7 +845,7 @@ function PropertyOverrideCard({
         </CardHeader>
         {expanded && (
           <CardContent>
-            <VoiceSettingsEditor settings={record.settings} editing={editing} onChange={onChange} />
+            <VoiceSettingsEditor settings={record.settings} editing={editing} onChange={onChange} hideAdvanced={hideAdvanced} hideVoiceSettings={hideVoiceSettings} />
           </CardContent>
         )}
         <Dialog open={confirmRemoveOpen} onOpenChange={setConfirmRemoveOpen}>
@@ -825,6 +876,8 @@ function AddVerticalOverrideDialog({
   propertyOverrides,
   defaultSettings,
   onSave,
+  hideAdvanced,
+  hideVoiceSettings,
 }: {
   open: boolean;
   onClose: () => void;
@@ -832,6 +885,8 @@ function AddVerticalOverrideDialog({
   propertyOverrides: PropertyOverrideRecord[];
   defaultSettings: VoiceSettings;
   onSave: (record: VerticalOverrideRecord) => void;
+  hideAdvanced?: boolean;
+  hideVoiceSettings?: boolean;
 }) {
   const [vertical, setVertical] = useState<Vertical | null>(null);
   const [settings, setSettings] = useState<VoiceSettings>(cloneVoiceSettings(BLANK_VOICE));
@@ -908,7 +963,7 @@ function AddVerticalOverrideDialog({
               <p className="mb-3 text-xs text-muted-foreground">
                 Pre-filled with this agent&apos;s portfolio default. Edit any field to customize {vertical}.
               </p>
-              <VoiceSettingsEditor settings={settings} editing={true} onChange={setSettings} />
+              <VoiceSettingsEditor settings={settings} editing={true} onChange={setSettings} hideAdvanced={hideAdvanced} hideVoiceSettings={hideVoiceSettings} />
             </div>
           </>
         )}
@@ -941,6 +996,8 @@ function AddPropertyOverrideDialog({
   defaultSettings,
   preselectedPropertyName,
   onSave,
+  hideAdvanced,
+  hideVoiceSettings,
 }: {
   open: boolean;
   onClose: () => void;
@@ -948,6 +1005,8 @@ function AddPropertyOverrideDialog({
   defaultSettings: VoiceSettings;
   preselectedPropertyName?: string | null;
   onSave: (records: PropertyOverrideRecord[]) => void;
+  hideAdvanced?: boolean;
+  hideVoiceSettings?: boolean;
 }) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [settings, setSettings] = useState<VoiceSettings>(cloneVoiceSettings(BLANK_VOICE));
@@ -1053,7 +1112,7 @@ function AddPropertyOverrideDialog({
                   ? "Starts blank because selected properties do not share one exact override."
                   : "Pre-filled from this agent's portfolio default."}
             </p>
-            <VoiceSettingsEditor settings={settings} editing={true} onChange={setSettings} />
+            <VoiceSettingsEditor settings={settings} editing={true} onChange={setSettings} hideAdvanced={hideAdvanced} hideVoiceSettings={hideVoiceSettings} />
           </div>
         )}
 
@@ -1090,10 +1149,14 @@ function VoiceSettingsEditor({
   settings,
   editing,
   onChange,
+  hideAdvanced,
+  hideVoiceSettings,
 }: {
   settings: VoiceSettings;
   editing: boolean;
   onChange: (next: VoiceSettings) => void;
+  hideAdvanced?: boolean;
+  hideVoiceSettings?: boolean;
 }) {
   const update = (patch: Partial<VoiceSettings>) => {
     onChange({
@@ -1106,6 +1169,8 @@ function VoiceSettingsEditor({
   if (!editing) {
     return (
       <div className="space-y-4 text-sm">
+        {!hideVoiceSettings && (
+        <>
         <div className="rounded-lg border border-border bg-muted/20 p-3">
           <p className="text-xs font-medium text-muted-foreground">How it sounds</p>
           <p className="mt-1 text-foreground">{getNova2Voice(settings.voiceAccent)?.label ?? settings.voiceAccent} • {settings.voiceGender}</p>
@@ -1125,10 +1190,11 @@ function VoiceSettingsEditor({
           </div>
           <p className="mt-1 text-xs text-muted-foreground">Auto-detect: {settings.autoDetectLanguage ? "On" : "Off"}</p>
         </div>
+        </>
+        )}
         <div className="rounded-lg border border-border bg-muted/20 p-3">
           <p className="text-xs font-medium text-muted-foreground">Call handling</p>
-          <p className="mt-1 text-xs text-foreground">Record audio: {settings.recordAudio ? "On" : "Off"} • Transcripts: {settings.generateTranscripts ? "On" : "Off"} • AI disclosure: {settings.aiDisclosureEnabled ? "On" : "Off"}</p>
-          <p className="mt-1 text-xs text-foreground">Max call length: {settings.maxCallLength} minutes</p>
+          <p className="mt-1 text-xs text-foreground">Record audio (in): {settings.recordAudio ? "On" : "Off"} • (out): {settings.recordAudioOutbound ? "On" : "Off"} • Legal disclosure: {settings.legalDisclosureEnabled ? "On" : "Off"}</p>
         </div>
       </div>
     );
@@ -1136,6 +1202,8 @@ function VoiceSettingsEditor({
 
   return (
     <div className="space-y-5">
+      {!hideVoiceSettings && (
+      <>
       <div>
         <p className="mb-2 text-xs font-medium text-muted-foreground">Voice gender</p>
         <div className="grid grid-cols-2 gap-2">
@@ -1208,39 +1276,70 @@ function VoiceSettingsEditor({
           })}
         </div>
       </div>
+      </>
+      )}
 
       <div className="space-y-2">
         <p className="text-xs font-medium text-muted-foreground">Recording and legal</p>
-        <ToggleRow title="Record audio" checked={settings.recordAudio} onChange={(value) => update({ recordAudio: value })} />
-        <ToggleRow title="Generate transcripts" checked={settings.generateTranscripts} onChange={(value) => update({ generateTranscripts: value })} />
+
+        <div className="rounded-lg border border-border p-3 space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Inbound Calls</p>
+          <ToggleRow title="Record audio" checked={settings.recordAudio} onChange={(value) => {
+            const updates: Partial<typeof settings> = { recordAudio: value };
+            if (value) updates.legalDisclosureEnabled = true;
+            else if (!settings.recordAudioOutbound) updates.legalDisclosureEnabled = false;
+            update(updates);
+          }} />
+          <ToggleRow title="Generate transcripts" checked={settings.generateTranscripts} onChange={(value) => update({ generateTranscripts: value })} />
+        </div>
+
+        <div className="rounded-lg border border-border p-3 space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Outbound Calls</p>
+          <ToggleRow title="Record audio" checked={settings.recordAudioOutbound} onChange={(value) => {
+            const updates: Partial<typeof settings> = { recordAudioOutbound: value };
+            if (value) updates.legalDisclosureEnabled = true;
+            else if (!settings.recordAudio) updates.legalDisclosureEnabled = false;
+            update(updates);
+          }} />
+          <ToggleRow title="Generate transcripts" checked={settings.generateTranscriptsOutbound} onChange={(value) => update({ generateTranscriptsOutbound: value })} />
+        </div>
+
         <ToggleRow title="Legal disclosure" checked={settings.legalDisclosureEnabled} onChange={(value) => update({ legalDisclosureEnabled: value })} />
         {settings.legalDisclosureEnabled && (
-          <textarea
-            value={settings.legalDisclosureText}
-            onChange={(event) => update({ legalDisclosureText: event.target.value })}
-            rows={2}
-            className="input-base resize-y text-xs"
-            placeholder="This call may be recorded for quality assurance..."
-          />
+          <div className="space-y-2 pl-2 border-l-2 border-primary/20">
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Inbound disclosure</label>
+              <textarea
+                value={settings.legalDisclosureText}
+                onChange={(event) => update({ legalDisclosureText: event.target.value })}
+                rows={2}
+                className="input-base resize-y text-xs"
+                placeholder="This call is being recorded and transcribed for quality assurance and training purposes."
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Outbound disclosure</label>
+              <textarea
+                value={settings.legalDisclosureTextOutbound}
+                onChange={(event) => update({ legalDisclosureTextOutbound: event.target.value })}
+                rows={2}
+                className="input-base resize-y text-xs"
+                placeholder="This call may be recorded for quality and training purposes."
+              />
+            </div>
+          </div>
         )}
       </div>
 
+      {!hideAdvanced && (
       <div className="space-y-2">
         <p className="text-xs font-medium text-muted-foreground">Advanced</p>
         <div>
           <label className="mb-1 block text-xs text-muted-foreground">Greeting</label>
           <input value={settings.greeting} onChange={(event) => update({ greeting: event.target.value })} className="input-base text-xs" />
         </div>
-        <div>
-          <label className="mb-1 block text-xs text-muted-foreground">Hold phrase</label>
-          <input value={settings.holdPhrase} onChange={(event) => update({ holdPhrase: event.target.value })} className="input-base text-xs" />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs text-muted-foreground">Max call length: {settings.maxCallLength} min</label>
-          <input type="range" min={1} max={60} value={settings.maxCallLength} onChange={(event) => update({ maxCallLength: Number(event.target.value) })} className="w-full accent-primary" />
-        </div>
-        <ToggleRow title="AI disclosure" checked={settings.aiDisclosureEnabled} onChange={(value) => update({ aiDisclosureEnabled: value })} />
       </div>
+      )}
     </div>
   );
 }
@@ -1281,6 +1380,180 @@ function agentBgClass(accent: string): string {
     default:
       return "bg-muted";
   }
+}
+
+function VanityNumbersDetailView({ onBack }: { onBack: () => void }) {
+  const [defaultSettings, setDefaultSettings] = useState<VoiceSettings>({
+    aiVoiceEnabled: false,
+    voiceGender: "female",
+    voiceAccent: DEFAULT_NOVA2_VOICE_ID.female,
+    voiceLanguages: ["English", "Spanish"],
+    autoDetectLanguage: false,
+    recordAudio: true,
+    generateTranscripts: true,
+    recordAudioOutbound: true,
+    generateTranscriptsOutbound: true,
+    legalDisclosureEnabled: true,
+    legalDisclosureText: "This call may be recorded for quality assurance and training purposes.",
+    legalDisclosureTextOutbound: "This call may be recorded for quality and training purposes.",
+    greeting: "",
+    holdPhrase: "",
+    maxCallLength: 30,
+    aiDisclosureEnabled: false,
+  });
+  const [verticalOverrides, setVerticalOverrides] = useState<VerticalOverrideRecord[]>([]);
+  const [propertyOverrides, setPropertyOverrides] = useState<PropertyOverrideRecord[]>([]);
+  const [addVerticalOpen, setAddVerticalOpen] = useState(false);
+  const [addPropertyOpen, setAddPropertyOpen] = useState(false);
+
+  const defaultSectionRef = useRef<HTMLElement | null>(null);
+  const verticalSectionRef = useRef<HTMLElement | null>(null);
+  const propertySectionRef = useRef<HTMLElement | null>(null);
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <button type="button" onClick={onBack} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="h-3 w-3" /> All agents
+        </button>
+        <div className="mt-3 flex items-start gap-4">
+          <img src="/entrata-cube.svg" alt="" width={40} height={40} className="shrink-0" />
+          <div>
+            <h2 className="text-xl font-semibold text-foreground">Staff Calling</h2>
+            <p className="text-sm text-muted-foreground">
+              Phone lines routed to staff for inbound and outbound calls. No AI response — calls go directly to your team.
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Settings cascade <span className="font-medium text-foreground">Portfolio default → Vertical → Property</span>. More specific scopes win.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <StickyAnchorStrip
+        counts={{ vertical: verticalOverrides.length, property: propertyOverrides.length }}
+        onJump={(section) => {
+          const target =
+            section === "default"
+              ? defaultSectionRef.current
+              : section === "verticals"
+                ? verticalSectionRef.current
+                : propertySectionRef.current;
+          target?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }}
+      />
+
+      <section ref={defaultSectionRef} className="scroll-mt-32">
+        <SectionHeader
+          icon={<Layers className="h-4 w-4 text-muted-foreground" />}
+          title="Portfolio default"
+          subtitle="Applies to every vanity number unless overridden below."
+        />
+        <DefaultVoiceCard settings={defaultSettings} onChange={setDefaultSettings} onReset={() => setDefaultSettings({
+          aiVoiceEnabled: false,
+          voiceGender: "female",
+          voiceAccent: DEFAULT_NOVA2_VOICE_ID.female,
+          voiceLanguages: ["English", "Spanish"],
+          autoDetectLanguage: false,
+          recordAudio: true,
+          generateTranscripts: true,
+          recordAudioOutbound: true,
+          generateTranscriptsOutbound: true,
+          legalDisclosureEnabled: true,
+          legalDisclosureText: "This call may be recorded for quality assurance and training purposes.",
+          legalDisclosureTextOutbound: "This call may be recorded for quality and training purposes.",
+          greeting: "",
+          holdPhrase: "",
+          maxCallLength: 30,
+          aiDisclosureEnabled: false,
+        })} hideAdvanced hideVoiceSettings />
+      </section>
+
+      <section ref={verticalSectionRef} className="scroll-mt-32">
+        <SectionHeader
+          icon={<Layers className="h-4 w-4 text-muted-foreground" />}
+          title="Vertical overrides"
+          subtitle="Customize vanity number settings for a specific property type."
+          countLabel={`${verticalOverrides.length}`}
+        />
+        {verticalOverrides.length === 0 ? (
+          <EmptyOverrideState label="No vertical overrides yet." actionLabel="Add vertical override" onAction={() => setAddVerticalOpen(true)} />
+        ) : (
+          <div className="space-y-3">
+            {verticalOverrides.map((override) => (
+              <VerticalOverrideCard
+                key={override.id}
+                record={override}
+                shadowingPropertyOverrides={propertyOverrides.filter((p) => p.vertical === override.vertical)}
+                onChange={(next) => setVerticalOverrides((prev) => prev.map((v) => v.id === override.id ? { ...v, settings: next } : v))}
+                onRemove={() => setVerticalOverrides((prev) => prev.filter((v) => v.id !== override.id))}
+                hideAdvanced
+                hideVoiceSettings
+              />
+            ))}
+            <Button variant="outline" size="sm" onClick={() => setAddVerticalOpen(true)} className="gap-1">
+              <Plus className="h-3.5 w-3.5" /> Add another vertical override
+            </Button>
+          </div>
+        )}
+      </section>
+
+      <section ref={propertySectionRef} className="scroll-mt-32">
+        <SectionHeader
+          icon={<Home className="h-4 w-4 text-muted-foreground" />}
+          title="Property overrides"
+          subtitle="Customize vanity number settings for individual properties."
+          countLabel={`${propertyOverrides.length}`}
+        />
+        {propertyOverrides.length === 0 ? (
+          <EmptyOverrideState label="No property overrides yet." actionLabel="Add property override" onAction={() => setAddPropertyOpen(true)} />
+        ) : (
+          <div className="space-y-3">
+            {propertyOverrides.map((override) => (
+              <PropertyOverrideCard
+                key={override.id}
+                record={override}
+                onChange={(next) => setPropertyOverrides((prev) => prev.map((p) => p.id === override.id ? { ...p, settings: next } : p))}
+                onRemove={() => setPropertyOverrides((prev) => prev.filter((p) => p.id !== override.id))}
+                hideAdvanced
+                hideVoiceSettings
+              />
+            ))}
+            <Button variant="outline" size="sm" onClick={() => setAddPropertyOpen(true)} className="gap-1">
+              <Plus className="h-3.5 w-3.5" /> Add another property override
+            </Button>
+          </div>
+        )}
+      </section>
+
+      <AddVerticalOverrideDialog
+        open={addVerticalOpen}
+        onClose={() => setAddVerticalOpen(false)}
+        existingVerticals={verticalOverrides.map((v) => v.vertical)}
+        propertyOverrides={propertyOverrides}
+        defaultSettings={defaultSettings}
+        onSave={(record) => {
+          setVerticalOverrides((prev) => [...prev, record]);
+          setAddVerticalOpen(false);
+        }}
+        hideAdvanced
+        hideVoiceSettings
+      />
+      <AddPropertyOverrideDialog
+        open={addPropertyOpen}
+        onClose={() => setAddPropertyOpen(false)}
+        existingPropertyOverrides={propertyOverrides}
+        defaultSettings={defaultSettings}
+        preselectedPropertyName={null}
+        onSave={(records) => {
+          setPropertyOverrides((prev) => [...prev, ...records]);
+          setAddPropertyOpen(false);
+        }}
+        hideAdvanced
+        hideVoiceSettings
+      />
+    </div>
+  );
 }
 
 function agentTextClass(accent: string): string {
