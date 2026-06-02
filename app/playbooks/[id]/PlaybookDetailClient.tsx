@@ -706,7 +706,7 @@ export function PlaybookDetailClient() {
               onClick={() => {
                 removePlaybook(playbook.id);
                 setDeletePlaybookOpen(false);
-                router.push("/escalations");
+                router.push("/escalations/");
               }}
             >
               Delete playbook

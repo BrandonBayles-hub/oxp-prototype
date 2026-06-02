@@ -153,7 +153,7 @@ export function SpecialtyDetailClient({
       <header className="flex shrink-0 items-center justify-between px-6 py-3">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => router.push("/escalations/settings")}
+            onClick={() => router.push("/escalations/settings/")}
             className="text-muted-foreground hover:text-foreground transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -253,7 +253,7 @@ export function SpecialtyDetailClient({
               size="sm"
               onClick={() => {
                 setShowDeleteConfirm(false);
-                router.push("/escalations/settings");
+                router.push("/escalations/settings/");
               }}
             >
               Delete Specialty

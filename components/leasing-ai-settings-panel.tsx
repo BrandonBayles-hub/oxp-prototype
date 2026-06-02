@@ -51,6 +51,7 @@ import {
   AlertTriangle,
   ExternalLink,
   Lock,
+  Target,
 } from "lucide-react"
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -197,6 +198,7 @@ interface PanelState {
   modeOverrides: Partial<Pick<CustomMode, "discovery" | "screening" | "customization" | "conversionGoal">>
   spanishEnabled: boolean
   sellingPoints: string[]
+  agentGoal: ConversionGoal
   coldLeadFirstTouchMinutes: number
   followUpCadence: { firstHours: number; secondHours: number; thirdDays: number }
   jurisdictionOverride: string | null
@@ -205,6 +207,7 @@ interface PanelState {
 
 function makeDefaultState(derived: DerivedPropertyData): PanelState {
   return {
+    agentGoal: "schedule_tours",
     agentDisplayName: "",
     agentPersonaTone: derived.vertical === "Student" ? "student-casual" : "friendly",
     customModeId: derived.vertical === "Student" ? "leaseup" : "sales",
@@ -286,6 +289,8 @@ export function LeasingAISettingsPanel({
       {/* Body */}
       <div className="flex-1 overflow-y-auto px-8 pb-32 pt-6">
         <div className="mx-auto max-w-3xl space-y-8">
+          <SectionAgentGoal state={state} update={update} />
+
           <SectionAgentIdentity state={state} update={update} agentDisplayLabel={agentDisplayLabel} />
 
           <SectionConversationMode
@@ -442,6 +447,50 @@ function SectionShell({
       </div>
       <div className="px-5 py-5">{children}</div>
     </section>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Section: Agent goal
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function SectionAgentGoal({
+  state,
+  update,
+}: {
+  state: PanelState
+  update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
+}) {
+  return (
+    <SectionShell
+      icon={Target}
+      title="Agent goal"
+      description="The primary action the agent drives prospects toward at this property."
+    >
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        {GOAL_OPTIONS.map((opt) => {
+          const active = state.agentGoal === opt.value
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => update("agentGoal", opt.value)}
+              className={cn(
+                "rounded-lg border px-4 py-3 text-left text-xs transition-all",
+                active
+                  ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+                  : "border-border bg-white text-foreground hover:border-zinc-400",
+              )}
+            >
+              <div className="font-semibold">{opt.label}</div>
+              <div className={cn("mt-0.5 text-[11px] leading-snug", active ? "text-white/70" : "text-muted-foreground")}>
+                {opt.helper}
+              </div>
+            </button>
+          )
+        })}
+      </div>
+    </SectionShell>
   )
 }
 

@@ -1231,11 +1231,11 @@ function TrainingsSopContent() {
                     onClick={row.type === "file" ? (e) => {
                       const target = e.target as HTMLElement;
                       if (target.closest("button") || target.closest("a") || target.closest('input[type="checkbox"]')) return;
-                      router.push(`/trainings-sop/detail?id=${row.id}`);
+                      router.push(`/trainings-sop/detail/?id=${row.id}`);
                     } : row.type === "folder" ? () => setCurrentFolderId(row.id) : undefined}
                     role={row.type === "file" || row.type === "folder" ? "button" : undefined}
                     tabIndex={row.type === "file" || row.type === "folder" ? 0 : undefined}
-                    onKeyDown={(row.type === "file" || row.type === "folder") ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (row.type === "folder") setCurrentFolderId(row.id); else router.push(`/trainings-sop/detail?id=${row.id}`); } } : undefined}
+                    onKeyDown={(row.type === "file" || row.type === "folder") ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (row.type === "folder") setCurrentFolderId(row.id); else router.push(`/trainings-sop/detail/?id=${row.id}`); } } : undefined}
                   >
                     {row.type === "folder" ? (
                       <td colSpan={2} className="font-medium text-foreground">
@@ -1299,10 +1299,10 @@ function TrainingsSopContent() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-52">
-                            <DropdownMenuItem onClick={() => router.push(`/trainings-sop/detail?id=${row.id}&action=edit`)}>
+                            <DropdownMenuItem onClick={() => router.push(`/trainings-sop/detail/?id=${row.id}&action=edit`)}>
                               <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => router.push(`/trainings-sop/detail?id=${row.id}&action=upload`)} className="whitespace-nowrap">
+                            <DropdownMenuItem onClick={() => router.push(`/trainings-sop/detail/?id=${row.id}&action=upload`)} className="whitespace-nowrap">
                               <Upload className="mr-2 h-3.5 w-3.5 shrink-0" /> Upload New Version
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => setMoveDocId(row.id)}>

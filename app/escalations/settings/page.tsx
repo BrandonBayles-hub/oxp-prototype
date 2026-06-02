@@ -165,7 +165,7 @@ export default function EscalationSettingsPage() {
   const [activeSection, setActiveSection] = useState("escalation-tasks");
 
   useEffect(() => {
-    if (!canAccess) router.replace("/escalations");
+    if (!canAccess) router.replace("/escalations/");
   }, [canAccess, router]);
 
   if (!canAccess) {
@@ -182,7 +182,7 @@ export default function EscalationSettingsPage() {
       {/* Sidebar */}
       <aside className="w-56 shrink-0 border-r border-border bg-background px-4 py-6">
         <button
-          onClick={() => router.push("/escalations")}
+          onClick={() => router.push("/escalations/")}
           className="mb-6 flex items-center gap-2 text-sm font-semibold text-foreground hover:text-primary transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -1153,7 +1153,7 @@ function PlaybookLibraryView() {
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                      onClick={() => router.push("/workflows")}
+                      onClick={() => router.push("/workflows/")}
                       title="Edit in Workato"
                     >
                       <MoveRight className="h-3.5 w-3.5" />
@@ -1164,7 +1164,7 @@ function PlaybookLibraryView() {
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                        onClick={() => router.push(`/escalations/settings/playbook/${tpl.id}`)}
+                        onClick={() => router.push(`/escalations/settings/playbook/${tpl.id}/`)}
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>

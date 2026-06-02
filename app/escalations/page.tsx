@@ -382,7 +382,7 @@ function EscalationsContent() {
               size="icon"
               className="h-8 w-8 bg-background hover:bg-background/90"
               aria-label="Settings"
-              onClick={() => router.push("/escalations/settings")}
+              onClick={() => router.push("/escalations/settings/")}
             >
               <Settings className="h-4 w-4" />
             </Button>
@@ -1232,7 +1232,7 @@ function PlaybooksTab() {
               return (
                 <tr
                   key={pb.id}
-                  onClick={() => router.push(`/playbooks/${pb.id}`)}
+                  onClick={() => router.push(`/playbooks/${pb.id}/`)}
                   className="group cursor-pointer table-row-hover"
                 >
                   <td className="sticky left-0 z-10 min-w-[180px] border-r border-border bg-background whitespace-nowrap px-4 py-3.5">
