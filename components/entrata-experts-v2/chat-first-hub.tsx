@@ -3,10 +3,17 @@ import * as React from "react";
 import {
   ArrowLeft,
   ArrowRight,
+  Beaker,
+  ChevronDown,
   ChevronRight,
   FileBarChart,
   Sparkles,
 } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   ASSISTANTS,
   ANALYST_LOGO,
@@ -28,7 +35,10 @@ import { ReportAnalyzerModule } from "./report-analyzer-module";
 import { CreditsUsage } from "./credits-usage";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { useEntrataExpertsRelease } from "@/lib/entrata-experts-release-context";
+import {
+  useEntrataExpertsRelease,
+  ENTRATA_EXPERTS_VERSIONS,
+} from "@/lib/entrata-experts-release-context";
 
 // =============================================================================
 // Chat-first hub
@@ -259,7 +269,120 @@ function HubTopBar({
           </span>
         </div>
       )}
+
+      <div className="ml-auto">
+        <EntrataExpertsDemoControl />
+      </div>
     </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// EntrataExpertsDemoControl — inconspicuous demo affordance pinned to the
+// right edge of the HubTopBar. Collapsed by default, it shows a small Beaker
+// chip; on click it opens a popover with the release version picker. Lets
+// internal stakeholders downgrade the prototype to v1.0/v1.1/v1.2 without
+// hunting through a global menu, since the surface is scoped to Entrata
+// Experts only.
+// -----------------------------------------------------------------------------
+
+function EntrataExpertsDemoControl() {
+  const { version, setVersion } = useEntrataExpertsRelease();
+  const [open, setOpen] = React.useState(false);
+  const activeVersion = ENTRATA_EXPERTS_VERSIONS.find((v) => v.id === version);
+  const isFull = version === "full";
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "group inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-medium uppercase tracking-wider transition-colors",
+            "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+            open && "bg-muted/60 text-foreground",
+          )}
+          aria-label="Open Entrata Experts demo controls"
+        >
+          <Beaker className="h-3 w-3" strokeWidth={2} />
+          <span>Demo</span>
+          {!isFull && (
+            <span
+              className="rounded-full bg-indigo-100 px-1.5 py-px text-[9.5px] font-semibold tracking-normal text-indigo-700"
+              aria-label={`Current release: ${activeVersion?.label ?? version}`}
+            >
+              {activeVersion?.label ?? version}
+            </span>
+          )}
+          <ChevronDown
+            className={cn(
+              "h-3 w-3 transition-transform",
+              open && "rotate-180",
+            )}
+            strokeWidth={2}
+          />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        sideOffset={6}
+        className="w-72 p-3"
+      >
+        <div className="mb-2 flex items-center gap-1.5">
+          <Beaker className="h-3 w-3 text-muted-foreground" strokeWidth={2} />
+          <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Entrata Experts Demo Control
+          </h3>
+        </div>
+        <p className="mb-2 px-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/80">
+          Release Version
+        </p>
+        <div className="flex flex-col gap-0.5">
+          {ENTRATA_EXPERTS_VERSIONS.map((v) => {
+            const isActive = version === v.id;
+            return (
+              <button
+                key={v.id}
+                type="button"
+                onClick={() => setVersion(v.id)}
+                className={cn(
+                  "flex items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors",
+                  isActive ? "bg-indigo-50" : "hover:bg-muted/60",
+                )}
+              >
+                <span
+                  className={cn(
+                    "mt-1 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full transition-all",
+                    isActive
+                      ? "bg-indigo-600"
+                      : "border-2 border-muted-foreground/40 bg-transparent",
+                  )}
+                >
+                  {isActive && (
+                    <span className="h-1 w-1 rounded-full bg-white" />
+                  )}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span
+                    className={cn(
+                      "block text-[12px]",
+                      isActive
+                        ? "font-semibold text-foreground"
+                        : "font-medium text-foreground/80",
+                    )}
+                  >
+                    {v.label}
+                  </span>
+                  <span className="mt-0.5 block text-[10px] leading-tight text-muted-foreground">
+                    {v.tagline}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

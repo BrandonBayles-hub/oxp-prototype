@@ -7,6 +7,7 @@ import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { useRole } from "@/lib/role-context";
 import { useR1Release } from "@/lib/r1-release-context";
+import { useR2Release } from "@/lib/r2-release-context";
 import { useNavBadges, type NavBadge } from "@/lib/use-nav-badges";
 import {
   Rocket,
@@ -103,16 +104,32 @@ export function Sidebar() {
   const pathname = usePathname();
   const { isRouteAllowed } = useRole();
   const { isR1Release } = useR1Release();
+  const { isR2Release } = useR2Release();
   const { badges, activation } = useNavBadges();
 
-  const r1HiddenRoutes = ["/conversations", "/performance", "/voice", "/brand-center", "/governance"];
+  const r1HiddenRoutes = [
+    "/conversations",
+    "/performance",
+    "/admin-insights",
+    "/voice",
+    "/brand-center",
+    "/governance",
+  ];
+  const r2HiddenRoutes = [
+    "/performance",
+    "/admin-insights",
+    "/voice",
+    "/brand-center",
+    "/governance",
+  ];
 
   const navGroupsWithVisibility = navGroups
     .map((group) => ({
       ...group,
       items: group.items
         .filter((item) => isRouteAllowed(item.href))
-        .filter((item) => !(isR1Release && r1HiddenRoutes.includes(item.href))),
+        .filter((item) => !(isR1Release && r1HiddenRoutes.includes(item.href)))
+        .filter((item) => !(isR2Release && r2HiddenRoutes.includes(item.href))),
     }))
     .filter((group) => group.items.length > 0);
 
