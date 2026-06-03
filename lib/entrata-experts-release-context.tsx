@@ -20,6 +20,7 @@ import {
 //           sidebar + recent-conversations hub rail. No admin, no billing.
 //   v1.1  — Admin observability lands: Admin Insights → Entrata Experts with
 //           Activity log + Knowledge gaps. Memory chips unlock for users.
+//           Lens picker unlocks (v1.0 stays on the "Auto" lens only).
 //   v1.2  — Scale story: Tokens & Usage (lives on the Entrata Experts page,
 //           chat-first hub → Account → Tokens & Usage) + full Admin Insights
 //           tab set (Clusters + Automation candidates).
@@ -38,7 +39,7 @@ export const ENTRATA_EXPERTS_VERSIONS: {
   tagline: string;
 }[] = [
   { id: "v1.0", label: "v1.0", tagline: "MVP — Hub, Analyst, Assistants, Report Analyzer, history" },
-  { id: "v1.1", label: "v1.1", tagline: "+ Admin Insights, memory" },
+  { id: "v1.1", label: "v1.1", tagline: "+ Admin Insights, memory, lenses" },
   { id: "v1.2", label: "v1.2", tagline: "+ Tokens & Usage" },
   { id: "full", label: "Full", tagline: "All current + roadmap features" },
 ];

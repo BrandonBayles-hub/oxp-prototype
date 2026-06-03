@@ -30,6 +30,7 @@ import { useRoadmap } from "@/lib/roadmap-context";
 import { useWorkforce } from "@/lib/workforce-context";
 import { useEscalations } from "@/lib/escalations-context";
 import { useConversations } from "@/lib/conversations-context";
+import { useAnalyticsHandoff } from "@/lib/analytics-handoff-context";
 
 const NAV_ITEMS = [
   { label: "OXP", active: true },
@@ -55,6 +56,7 @@ export function EntrataTopNav() {
   const { getCurrentUser } = useWorkforce();
   const { items: escalations } = useEscalations();
   const { items: conversations } = useConversations();
+  const { handoffEnabled, toggleHandoffEnabled } = useAnalyticsHandoff();
   const { showRoadmap, setShowRoadmap } = useRoadmap();
 
   const currentUser = useMemo(() => getCurrentUser(role), [getCurrentUser, role]);
@@ -526,6 +528,48 @@ export function EntrataTopNav() {
                       </button>
                     ))}
                   </div>
+
+                  {/* Analytics Platform handoff (Entrata Analyst → AP library) */}
+                  <button
+                    type="button"
+                    onClick={toggleHandoffEnabled}
+                    className="mt-2 flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 transition-colors"
+                    style={{ background: handoffEnabled ? "rgba(99,102,241,0.08)" : "transparent" }}
+                  >
+                    <div
+                      style={{
+                        width: 30,
+                        height: 17,
+                        borderRadius: 9,
+                        background: handoffEnabled ? "#6366f1" : "#D4D4D4",
+                        position: "relative",
+                        transition: "background 150ms",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 13,
+                          height: 13,
+                          borderRadius: "50%",
+                          background: "#fff",
+                          position: "absolute",
+                          top: 2,
+                          left: handoffEnabled ? 15 : 2,
+                          transition: "left 150ms",
+                          boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
+                        }}
+                      />
+                    </div>
+                    <div className="text-left">
+                      <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>
+                        Send to Analytics Platform
+                      </p>
+                      <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>
+                        Publish Analyst tables &amp; charts to the AP library
+                      </p>
+                    </div>
+                  </button>
                 </div>
 
               </div>

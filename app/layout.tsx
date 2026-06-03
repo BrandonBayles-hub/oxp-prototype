@@ -31,6 +31,7 @@ import { ExpertsPolicyProvider } from "@/lib/entrata-experts-v2/admin-policy-con
 import { EliEmailsProvider } from "@/lib/eli-emails-context";
 import { EliPlusSetupProvider } from "@/lib/eli-plus-setup-context";
 import { RoadmapProvider } from "@/lib/roadmap-context";
+import { AnalyticsHandoffProvider } from "@/lib/analytics-handoff-context";
 import { GlobalInboundCallHandler } from "@/components/global-inbound-call-handler";
 
 export const metadata: Metadata = {
@@ -126,7 +127,9 @@ export default function RootLayout({
                     <PlaybooksProvider>
                     <NotificationsProvider>
                     <EliEmailsProvider>
+                    <AnalyticsHandoffProvider>
                     <AppShell>{children}</AppShell>
+                    </AnalyticsHandoffProvider>
                     <GlobalInboundCallHandler />
                     </EliEmailsProvider>
                     </NotificationsProvider>

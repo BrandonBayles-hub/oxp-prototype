@@ -9,16 +9,53 @@ import { ThinkingBubble } from "./thinking-bubble";
 import type { ChatState } from "@/lib/entrata-experts-v2/store";
 import type { AssistantMessage } from "@/lib/entrata-experts-v2/types";
 import { useEntrataExpertsRelease } from "@/lib/entrata-experts-release-context";
+import { useAnalyticsHandoff } from "@/lib/analytics-handoff-context";
+import { isHandoffEligible } from "@/lib/entrata-experts-v2/analytics-handoff";
+
+// `/send-to-analytics` (and a couple of forgiving spellings), plus natural
+// language like "save this to my workspace" / "add this to the company menu".
+const HANDOFF_SLASH = /^\/send[-\s]?to[-\s]?analytics\b/i;
+const HANDOFF_NL =
+  /\b(send|add|publish|save|push)\b.*\b(analytics platform|company menu|my workspace|workspace|library)\b/i;
 
 export function ChatView({ store }: { store: ChatState }) {
   const activeConv = store.conversations.find((c) => c.id === store.activeId) ?? null;
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const { atLeast } = useEntrataExpertsRelease();
+  const { handoffEnabled, openHandoff } = useAnalyticsHandoff();
   const showThreadsSidebar = atLeast("v1.0");
 
   React.useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [activeConv?.messages.length, store.isThinking]);
+
+  // Intercept the handoff command before it's sent as a normal prompt. Targets
+  // the most recent eligible artifact in the active thread and opens the dialog.
+  function handleSend(text: string) {
+    const t = text.trim();
+    if (handoffEnabled && (HANDOFF_SLASH.test(t) || HANDOFF_NL.test(t)) && activeConv) {
+      for (let i = activeConv.messages.length - 1; i >= 0; i--) {
+        const m = activeConv.messages[i];
+        if (m.role !== "assistant") continue;
+        const eligible = m.artifacts.filter(isHandoffEligible);
+        if (eligible.length === 0) continue;
+        let prompt: string | undefined;
+        for (let j = i - 1; j >= 0; j--) {
+          if (activeConv.messages[j].role === "user") {
+            prompt = activeConv.messages[j].body;
+            break;
+          }
+        }
+        openHandoff(eligible[eligible.length - 1], {
+          scopeLabel: m.scope.label,
+          prompt,
+        });
+        return;
+      }
+      // No eligible artifact yet — fall through so the user still gets an answer.
+    }
+    store.send(text);
+  }
 
   return (
     <TooltipProvider delayDuration={120}>
@@ -50,7 +87,7 @@ export function ChatView({ store }: { store: ChatState }) {
             <>
               <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-hover">
                 <div className="mx-auto max-w-[820px] space-y-6 px-6 py-8">
-                  {activeConv.messages.map((m) =>
+                  {activeConv.messages.map((m, idx) =>
                     m.role === "user" ? (
                       <UserBubble key={m.id} message={m} />
                     ) : (
@@ -58,6 +95,7 @@ export function ChatView({ store }: { store: ChatState }) {
                         key={m.id}
                         message={m as AssistantMessage}
                         onFollowUp={(t) => store.send(t)}
+                        priorPrompt={findPriorPrompt(activeConv.messages, idx)}
                       />
                     ),
                   )}
@@ -75,7 +113,7 @@ export function ChatView({ store }: { store: ChatState }) {
                     scope={store.scope}
                     onChangeLens={store.setLensDepth}
                     onChangeScope={store.setScope}
-                    onSend={store.send}
+                    onSend={handleSend}
                     isThinking={store.isThinking}
                   />
                   <div className="mt-2 text-center text-[11px] text-muted-foreground">
@@ -89,6 +127,16 @@ export function ChatView({ store }: { store: ChatState }) {
       </div>
     </TooltipProvider>
   );
+}
+
+function findPriorPrompt(
+  messages: { role: string; body: string }[],
+  idx: number,
+): string | undefined {
+  for (let j = idx - 1; j >= 0; j--) {
+    if (messages[j].role === "user") return messages[j].body;
+  }
+  return undefined;
 }
 
 function EmptyState(props: {
