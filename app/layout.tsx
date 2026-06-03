@@ -24,7 +24,7 @@ import { ClickToCallDemoProvider } from "@/lib/click-to-call-demo-context";
 import { CallSystemDemoProvider } from "@/lib/call-system-demo-context";
 import { ConversationsDemoProvider } from "@/lib/conversations-demo-context";
 import { R1ReleaseProvider } from "@/lib/r1-release-context";
-import { R1_2ReleaseProvider } from "@/lib/r1-2-release-context";
+import { R2ReleaseProvider } from "@/lib/r2-release-context";
 import { EntrataExpertsReleaseProvider } from "@/lib/entrata-experts-release-context";
 import { ExpertsPolicyProvider } from "@/lib/entrata-experts-v2/admin-policy-context";
 
@@ -104,7 +104,7 @@ export default function RootLayout({
         <ClickToCallDemoProvider>
         <CallSystemDemoProvider>
         <R1ReleaseProvider>
-        <R1_2ReleaseProvider>
+        <R2ReleaseProvider>
         <EntrataExpertsReleaseProvider>
         <RoleProvider>
         <PermissionsProvider>
@@ -149,7 +149,7 @@ export default function RootLayout({
         </PermissionsProvider>
         </RoleProvider>
         </EntrataExpertsReleaseProvider>
-        </R1_2ReleaseProvider>
+        </R2ReleaseProvider>
         </R1ReleaseProvider>
         </CallSystemDemoProvider>
         </ClickToCallDemoProvider>

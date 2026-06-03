@@ -59,6 +59,11 @@ import {
   Link2,
   SlidersHorizontal,
   CircleHelp,
+  Beaker,
+  PhoneIncoming,
+  User,
+  UserCheck,
+  UserX,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -113,7 +118,7 @@ import {
   getVoiceOrSmsThreadRoutingNumbers,
 } from "@/lib/email-signature";
 import { useClickToCallDemo } from "@/lib/click-to-call-demo-context";
-import { useCallSystemDemo } from "@/lib/call-system-demo-context";
+import { useCallSystemDemo, type IncomingCallerType } from "@/lib/call-system-demo-context";
 import { useConversationsDemo } from "@/lib/conversations-demo-context";
 import {
   ClickToCallFloatingPanel,
@@ -750,9 +755,14 @@ function ConversationsContent() {
     return { ai, humans };
   }, [autonomousAgents, humanMembers]);
 
-  const { clickToCallEnabled } = useClickToCallDemo();
-  const { callSystemEnabled } = useCallSystemDemo();
-  const { profileCommsPopupRequest } = useConversationsDemo();
+  const { clickToCallEnabled, toggleClickToCallEnabled } = useClickToCallDemo();
+  const { callSystemEnabled, toggleCallSystemEnabled, simulateInboundCall } = useCallSystemDemo();
+  const {
+    profileCommsPopupRequest,
+    requestProfileCommsPopup,
+    superAgentEnabled,
+    toggleSuperAgentEnabled,
+  } = useConversationsDemo();
   const [callSystemPanelOpen, setCallSystemPanelOpen] = useState(false);
 
   const clickToCallAssigneeOptions = useMemo(() => {
@@ -1739,6 +1749,18 @@ function ConversationsContent() {
             })}
           </ul>
         </nav>
+
+        {/* ===== COMMUNICATIONS DEMO CONTROL ===== */}
+        <CommunicationsDemoControl
+          clickToCallEnabled={clickToCallEnabled}
+          onToggleClickToCall={toggleClickToCallEnabled}
+          callSystemEnabled={callSystemEnabled}
+          onToggleCallSystem={toggleCallSystemEnabled}
+          onSimulateInboundCall={simulateInboundCall}
+          superAgentEnabled={superAgentEnabled}
+          onToggleSuperAgent={toggleSuperAgentEnabled}
+          onTriggerProfileCommsPopup={requestProfileCommsPopup}
+        />
       </aside>
 
       {/* ===== CALL SYSTEM SETTINGS PANEL ===== */}
@@ -5449,6 +5471,155 @@ function MiniCalendar({
           Apply
         </Button>
       </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   COMMUNICATIONS DEMO CONTROL (sidebar footer)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+function CommunicationsDemoControl({
+  clickToCallEnabled,
+  onToggleClickToCall,
+  callSystemEnabled,
+  onToggleCallSystem,
+  onSimulateInboundCall,
+  superAgentEnabled,
+  onToggleSuperAgent,
+  onTriggerProfileCommsPopup,
+}: {
+  clickToCallEnabled: boolean;
+  onToggleClickToCall: () => void;
+  callSystemEnabled: boolean;
+  onToggleCallSystem: () => void;
+  onSimulateInboundCall: (callerType?: IncomingCallerType) => void;
+  superAgentEnabled: boolean;
+  onToggleSuperAgent: () => void;
+  onTriggerProfileCommsPopup: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const anyActive = clickToCallEnabled || callSystemEnabled || superAgentEnabled;
+
+  return (
+    <div className="shrink-0 border-t border-border bg-muted/30">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/60"
+        aria-expanded={open}
+        aria-controls="communications-demo-control-panel"
+      >
+        <span className="flex min-w-0 items-center gap-1.5">
+          <Beaker className="h-3 w-3 text-muted-foreground" strokeWidth={2} />
+          <span className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Communications Demo Control
+          </span>
+          {anyActive && (
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500"
+              aria-label="One or more demo controls are active"
+            />
+          )}
+        </span>
+        <ChevronDown
+          className={cn(
+            "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-180"
+          )}
+          strokeWidth={2}
+        />
+      </button>
+
+      {open && (
+        <div id="communications-demo-control-panel" className="px-3 pb-3">
+          <label className="flex cursor-pointer items-start justify-between gap-2 rounded-md px-1.5 py-1.5 transition-colors hover:bg-muted/60">
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-semibold leading-tight text-foreground">Click To Call</p>
+              <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+                Show call controls on Communications
+              </p>
+            </div>
+            <Switch
+              checked={clickToCallEnabled}
+              onCheckedChange={onToggleClickToCall}
+              className="mt-0.5"
+            />
+          </label>
+
+          <label className="flex cursor-pointer items-start justify-between gap-2 rounded-md px-1.5 py-1.5 transition-colors hover:bg-muted/60">
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-semibold leading-tight text-foreground">Call System</p>
+              <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+                Show Call System settings in sidebar
+              </p>
+            </div>
+            <Switch
+              checked={callSystemEnabled}
+              onCheckedChange={onToggleCallSystem}
+              className="mt-0.5"
+            />
+          </label>
+
+          {callSystemEnabled && (
+            <div className="mt-1 rounded-md border border-border/60 bg-background px-2 py-2">
+              <div className="mb-1.5 flex items-center gap-1.5">
+                <PhoneIncoming className="h-3 w-3 text-emerald-500" strokeWidth={2} />
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Replicate Incoming Call
+                </p>
+              </div>
+              <div className="grid grid-cols-3 gap-1">
+                {([
+                  { type: "prospect" as IncomingCallerType, label: "Prospect", Icon: UserX },
+                  { type: "lead" as IncomingCallerType, label: "Lead", Icon: User },
+                  { type: "resident" as IncomingCallerType, label: "Resident", Icon: UserCheck },
+                ]).map((opt) => (
+                  <button
+                    key={opt.type}
+                    type="button"
+                    onClick={() => onSimulateInboundCall(opt.type)}
+                    className="flex flex-col items-center gap-1 rounded-md border border-border bg-background px-1.5 py-1.5 text-center transition-colors hover:border-emerald-300 hover:bg-emerald-50"
+                  >
+                    <opt.Icon className="h-3.5 w-3.5 text-emerald-600" strokeWidth={1.75} />
+                    <span className="text-[10px] font-semibold text-foreground">{opt.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <label className="flex cursor-pointer items-start justify-between gap-2 rounded-md px-1.5 py-1.5 transition-colors hover:bg-muted/60">
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-semibold leading-tight text-foreground">Super Agent</p>
+              <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+                Show AI Super Agent multi-topic conversations
+              </p>
+            </div>
+            <Switch
+              checked={superAgentEnabled}
+              onCheckedChange={onToggleSuperAgent}
+              className="mt-0.5"
+            />
+          </label>
+
+          <button
+            type="button"
+            onClick={onTriggerProfileCommsPopup}
+            className="mt-1 flex w-full items-start gap-2 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-muted/60"
+          >
+            <MessageCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-indigo-500" strokeWidth={2} />
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-semibold leading-tight text-foreground">
+                Profile Comms Pop Up
+              </p>
+              <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+                Open resident profile without conversation panel
+              </p>
+            </div>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
