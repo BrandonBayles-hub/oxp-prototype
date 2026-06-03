@@ -68,6 +68,7 @@ import {
 } from "@/lib/workforce-member-metrics";
 import { useRole, matchesRoleProperties } from "@/lib/role-context";
 import { useR1Release } from "@/lib/r1-release-context";
+import { useR2Release } from "@/lib/r2-release-context";
 import { EscalationDetailSheet } from "@/components/escalation-detail-sheet";
 import { ConversationThreadActivityRow } from "@/components/conversation-thread-activity-row";
 import {
@@ -351,7 +352,11 @@ function AdminCommandCenter() {
   const { role, roleProperties } = useRole();
   const isPropertyRole = role === "property";
   const isManagerRole = role === "regional" || role === "property";
-  const { isR1Release } = useR1Release();
+  const { isR1Release: isActualR1Release } = useR1Release();
+  const { isR2Release } = useR2Release();
+  // Command Center uses its R1-style layout for both the R1 and R2 release
+  // demo states. Shadowing the flag keeps the rest of this file untouched.
+  const isR1Release = isActualR1Release || isR2Release;
 
   const derivedKpis = useMemo(() => {
     const autonomousAgents = agents.filter((a) => a.type === "autonomous");

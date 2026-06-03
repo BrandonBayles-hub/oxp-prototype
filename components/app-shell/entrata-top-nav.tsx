@@ -17,31 +17,19 @@ import {
   UserCircle,
   ChevronDown,
   Beaker,
-  MessageCircle,
   Map,
-  PhoneIncoming,
   Smartphone,
-  User,
-  UserCheck,
-  UserX,
 } from "lucide-react";
 import { MobileAppPreview } from "@/components/mobile-app-preview";
 import { useRole, ROLES, type Role } from "@/lib/role-context";
 
 import { useR1Release } from "@/lib/r1-release-context";
-import { useR1_2Release } from "@/lib/r1-2-release-context";
-import {
-  useEntrataExpertsRelease,
-  ENTRATA_EXPERTS_VERSIONS,
-} from "@/lib/entrata-experts-release-context";
+import { useR2Release } from "@/lib/r2-release-context";
 import { useRoadmap } from "@/lib/roadmap-context";
 
 import { useWorkforce } from "@/lib/workforce-context";
 import { useEscalations } from "@/lib/escalations-context";
 import { useConversations } from "@/lib/conversations-context";
-import { useClickToCallDemo } from "@/lib/click-to-call-demo-context";
-import { useCallSystemDemo, type IncomingCallerType } from "@/lib/call-system-demo-context";
-import { useConversationsDemo } from "@/lib/conversations-demo-context";
 import { useAnalyticsHandoff } from "@/lib/analytics-handoff-context";
 
 const NAV_ITEMS = [
@@ -60,25 +48,14 @@ const NAV_ITEMS = [
 export function EntrataTopNav() {
   const router = useRouter();
   const pathname = usePathname();
-  const { requestProfileCommsPopup } = useConversationsDemo();
   const { role, setRole, isRouteAllowed } = useRole();
   const { isR1Release, setR1Release } = useR1Release();
-  const { isR1_2Release, setR1_2Release } = useR1_2Release();
-  const isFullVersion = !isR1Release && !isR1_2Release;
-
-  const {
-    version: expertsVersion,
-    setVersion: setExpertsVersion,
-  } = useEntrataExpertsRelease();
-  const [expertsProduct, setExpertsProduct] = useState<"entrata-experts">(
-    "entrata-experts",
-  );
+  const { isR2Release, setR2Release } = useR2Release();
+  const isFullVersion = !isR1Release && !isR2Release;
 
   const { getCurrentUser } = useWorkforce();
   const { items: escalations } = useEscalations();
   const { items: conversations } = useConversations();
-  const { clickToCallEnabled, toggleClickToCallEnabled } = useClickToCallDemo();
-  const { callSystemEnabled, toggleCallSystemEnabled, simulateInboundCall } = useCallSystemDemo();
   const { handoffEnabled, toggleHandoffEnabled } = useAnalyticsHandoff();
   const { showRoadmap, setShowRoadmap } = useRoadmap();
 
@@ -120,6 +97,35 @@ export function EntrataTopNav() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [appsOpen]);
 
+  const [helpOpen, setHelpOpen] = useState(false);
+  const helpRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!helpOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (helpRef.current && !helpRef.current.contains(e.target as Node)) setHelpOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [helpOpen]);
+
+  const [accountOpen, setAccountOpen] = useState(false);
+  const accountRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!accountOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (accountRef.current && !accountRef.current.contains(e.target as Node)) setAccountOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [accountOpen]);
+
+  const activeRoleLabel = useMemo(
+    () => ROLES.find((r) => r.value === role)?.label ?? "Corporate Admin",
+    [role]
+  );
+
   const appsActive = pathname.startsWith("/apps");
   const appsMenuItems: Array<{ label: string; href?: string }> = [
     { label: "API Access" },
@@ -131,7 +137,7 @@ export function EntrataTopNav() {
     { label: "Entrata Marketplace", href: "/apps/entrata-marketplace" },
   ];
 
-  const anyDemoActive = isFullVersion || isR1Release || isR1_2Release;
+  const anyDemoActive = isR1Release || isR2Release;
 
   return (
     <div className="shrink-0 select-none" style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
@@ -166,20 +172,217 @@ export function EntrataTopNav() {
           >
             <Bell className="h-4 w-4" />
           </button>
-          <button
-            type="button"
-            className="flex items-center justify-center rounded"
-            style={{ width: 32, height: 32, color: "rgba(0,0,0,0.45)" }}
-          >
-            <CircleHelp className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            className="flex items-center justify-center rounded"
-            style={{ width: 32, height: 32, color: "rgba(0,0,0,0.45)" }}
-          >
-            <UserCircle className="h-4 w-4" />
-          </button>
+          {/* Help / previews dropdown */}
+          <div ref={helpRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setHelpOpen((prev) => !prev)}
+              aria-label="Help"
+              aria-haspopup="menu"
+              aria-expanded={helpOpen}
+              className="flex items-center justify-center rounded transition-colors"
+              style={{
+                width: 32,
+                height: 32,
+                color: "rgba(0,0,0,0.45)",
+                background: helpOpen ? "rgba(0,0,0,0.06)" : "transparent",
+              }}
+              onMouseEnter={(e) => {
+                if (!helpOpen) e.currentTarget.style.background = "rgba(0,0,0,0.04)";
+              }}
+              onMouseLeave={(e) => {
+                if (!helpOpen) e.currentTarget.style.background = "transparent";
+              }}
+            >
+              <CircleHelp className="h-4 w-4" />
+            </button>
+
+            {helpOpen && (
+              <div
+                role="menu"
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 6px)",
+                  right: 0,
+                  width: 272,
+                  background: "#fff",
+                  borderRadius: 10,
+                  border: "1px solid #E0E0E0",
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08)",
+                  zIndex: 100,
+                  padding: "8px 0",
+                }}
+              >
+                <p
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 600,
+                    color: "rgba(0,0,0,0.35)",
+                    letterSpacing: "0.5px",
+                    textTransform: "uppercase",
+                    padding: "2px 14px 6px",
+                  }}
+                >
+                  Previews
+                </p>
+
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setShowRoadmap(true);
+                    setHelpOpen(false);
+                  }}
+                  className="flex w-full items-start gap-2.5 px-3.5 py-2 text-left transition-colors hover:bg-gray-50"
+                >
+                  <Map
+                    className="mt-0.5 shrink-0"
+                    style={{ width: 16, height: 16, strokeWidth: 2, color: "#8b5cf6" }}
+                  />
+                  <div>
+                    <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>
+                      OXP 2026 Roadmap
+                    </p>
+                    <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>
+                      View upcoming features and epics
+                    </p>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMobilePreviewOpen(true);
+                    setHelpOpen(false);
+                  }}
+                  className="flex w-full items-start gap-2.5 px-3.5 py-2 text-left transition-colors hover:bg-gray-50"
+                >
+                  <Smartphone
+                    className="mt-0.5 shrink-0 text-violet-500"
+                    style={{ width: 16, height: 16, strokeWidth: 2 }}
+                  />
+                  <div>
+                    <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>
+                      Mobile App Preview
+                    </p>
+                    <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>
+                      View the mobile app vision and screen concepts
+                    </p>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Account / role switcher */}
+          <div ref={accountRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setAccountOpen((prev) => !prev)}
+              aria-label="Account"
+              aria-haspopup="menu"
+              aria-expanded={accountOpen}
+              className="flex items-center justify-center rounded transition-colors"
+              style={{
+                width: 32,
+                height: 32,
+                color: "rgba(0,0,0,0.45)",
+                background: accountOpen ? "rgba(0,0,0,0.06)" : "transparent",
+              }}
+              onMouseEnter={(e) => {
+                if (!accountOpen) e.currentTarget.style.background = "rgba(0,0,0,0.04)";
+              }}
+              onMouseLeave={(e) => {
+                if (!accountOpen) e.currentTarget.style.background = "transparent";
+              }}
+            >
+              <UserCircle className="h-4 w-4" />
+            </button>
+
+            {accountOpen && (
+              <div
+                role="menu"
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 6px)",
+                  right: 0,
+                  width: 256,
+                  background: "#fff",
+                  borderRadius: 10,
+                  border: "1px solid #E0E0E0",
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08)",
+                  zIndex: 100,
+                  padding: "10px 0",
+                }}
+              >
+                {currentUser && (
+                  <div style={{ padding: "2px 14px 8px" }}>
+                    <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", textTransform: "uppercase", letterSpacing: "0.5px", fontWeight: 600, marginBottom: 2 }}>
+                      Acting as
+                    </p>
+                    <p style={{ fontSize: 13, fontWeight: 600, color: "#1a1a1a", lineHeight: 1.2 }}>
+                      {currentUser.name}
+                    </p>
+                    <p style={{ fontSize: 11, color: "rgba(0,0,0,0.55)", marginTop: 1 }}>
+                      {activeRoleLabel}
+                    </p>
+                  </div>
+                )}
+
+                <div style={{ borderTop: currentUser ? "1px solid #F0F0F0" : "none", margin: "0 14px", paddingTop: currentUser ? 8 : 0 }}>
+                  <p style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.35)", letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: 4 }}>
+                    Switch Role
+                  </p>
+                  <div className="flex flex-col gap-0.5" role="radiogroup" aria-label="Switch role">
+                    {ROLES.map((r) => {
+                      const isActive = role === r.value;
+                      return (
+                        <button
+                          key={r.value}
+                          type="button"
+                          role="radio"
+                          aria-checked={isActive}
+                          onClick={() => {
+                            setRole(r.value as Role);
+                            setAccountOpen(false);
+                            if (r.value !== "admin") {
+                              router.push("/command-center/");
+                            }
+                          }}
+                          className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors"
+                          style={{ background: isActive ? "rgba(99,102,241,0.08)" : "transparent" }}
+                        >
+                          <span
+                            style={{
+                              width: 14,
+                              height: 14,
+                              borderRadius: "50%",
+                              border: isActive ? "none" : "2px solid #D4D4D4",
+                              background: isActive ? "#6366f1" : "transparent",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              flexShrink: 0,
+                              transition: "all 150ms",
+                            }}
+                          >
+                            {isActive && (
+                              <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#fff" }} />
+                            )}
+                          </span>
+                          <p style={{ fontSize: 12, fontWeight: isActive ? 600 : 500, color: isActive ? "#1a1a1a" : "rgba(0,0,0,0.7)" }}>
+                            {r.label}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           <button
             type="button"
             className="flex items-center gap-1.5 rounded px-2.5"
@@ -235,405 +438,95 @@ export function EntrataTopNav() {
                   padding: "12px 0",
                 }}
               >
-                {/* Demo Controls */}
+                {/* Release */}
                 <div style={{ padding: "0 14px 10px" }}>
-                  <p style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.35)", letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: 8 }}>
-                    Demo Controls
-                  </p>
-                  <div className="flex flex-col gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => { setR1Release(false); setR1_2Release(false); }}
-                      className="flex items-center gap-2.5 rounded-md px-2.5 py-2 transition-colors"
-                      style={{ background: isFullVersion ? "rgba(99,102,241,0.08)" : "transparent" }}
-                    >
-                      <div
-                        style={{
-                          width: 30,
-                          height: 17,
-                          borderRadius: 9,
-                          background: isFullVersion ? "#6366f1" : "#D4D4D4",
-                          position: "relative",
-                          transition: "background 150ms",
-                          flexShrink: 0,
-                        }}
-                      >
-                        <div style={{
-                          width: 13,
-                          height: 13,
-                          borderRadius: "50%",
-                          background: "#fff",
-                          position: "absolute",
-                          top: 2,
-                          left: isFullVersion ? 15 : 2,
-                          transition: "left 150ms",
-                          boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
-                        }} />
-                      </div>
-                      <div className="text-left">
-                        <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>Full Version</p>
-                        <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>Full OXP Studio prototype</p>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => { setR1Release(true); setR1_2Release(false); }}
-                      className="flex items-center gap-2.5 rounded-md px-2.5 py-2 transition-colors"
-                      style={{ background: isR1Release ? "rgba(99,102,241,0.08)" : "transparent" }}
-                    >
-                      <div
-                        style={{
-                          width: 30,
-                          height: 17,
-                          borderRadius: 9,
-                          background: isR1Release ? "#6366f1" : "#D4D4D4",
-                          position: "relative",
-                          transition: "background 150ms",
-                          flexShrink: 0,
-                        }}
-                      >
-                        <div style={{
-                          width: 13,
-                          height: 13,
-                          borderRadius: "50%",
-                          background: "#fff",
-                          position: "absolute",
-                          top: 2,
-                          left: isR1Release ? 15 : 2,
-                          transition: "left 150ms",
-                          boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
-                        }} />
-                      </div>
-                      <div className="text-left">
-                        <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>R1 Release State</p>
-                        <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>R1 release view with updated command center</p>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => { setR1_2Release(true); setR1Release(false); }}
-                      className="flex items-center gap-2.5 rounded-md px-2.5 py-2 transition-colors"
-                      style={{ background: isR1_2Release ? "rgba(99,102,241,0.08)" : "transparent" }}
-                    >
-                      <div
-                        style={{
-                          width: 30,
-                          height: 17,
-                          borderRadius: 9,
-                          background: isR1_2Release ? "#6366f1" : "#D4D4D4",
-                          position: "relative",
-                          transition: "background 150ms",
-                          flexShrink: 0,
-                        }}
-                      >
-                        <div style={{
-                          width: 13,
-                          height: 13,
-                          borderRadius: "50%",
-                          background: "#fff",
-                          position: "absolute",
-                          top: 2,
-                          left: isR1_2Release ? 15 : 2,
-                          transition: "left 150ms",
-                          boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
-                        }} />
-                      </div>
-                      <div className="text-left">
-                        <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>R1.2</p>
-                        <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>R1.2 release updates</p>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={toggleClickToCallEnabled}
-                      className="flex items-center gap-2.5 rounded-md px-2.5 py-2 transition-colors"
-                      style={{ background: clickToCallEnabled ? "rgba(34,197,94,0.08)" : "transparent" }}
-                    >
-                      <div
-                        style={{
-                          width: 30,
-                          height: 17,
-                          borderRadius: 9,
-                          background: clickToCallEnabled ? "#22c55e" : "#D4D4D4",
-                          position: "relative",
-                          transition: "background 150ms",
-                          flexShrink: 0,
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: 13,
-                            height: 13,
-                            borderRadius: "50%",
-                            background: "#fff",
-                            position: "absolute",
-                            top: 2,
-                            left: clickToCallEnabled ? 15 : 2,
-                            transition: "left 150ms",
-                            boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
-                          }}
-                        />
-                      </div>
-                      <div className="text-left">
-                        <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>Click To Call</p>
-                        <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>
-                          Show call controls on Communications (prototype)
-                        </p>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={toggleCallSystemEnabled}
-                      className="flex items-center gap-2.5 rounded-md px-2.5 py-2 transition-colors"
-                      style={{ background: callSystemEnabled ? "rgba(59,130,246,0.08)" : "transparent" }}
-                    >
-                      <div
-                        style={{
-                          width: 30,
-                          height: 17,
-                          borderRadius: 9,
-                          background: callSystemEnabled ? "#3b82f6" : "#D4D4D4",
-                          position: "relative",
-                          transition: "background 150ms",
-                          flexShrink: 0,
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: 13,
-                            height: 13,
-                            borderRadius: "50%",
-                            background: "#fff",
-                            position: "absolute",
-                            top: 2,
-                            left: callSystemEnabled ? 15 : 2,
-                            transition: "left 150ms",
-                            boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
-                          }}
-                        />
-                      </div>
-                      <div className="text-left">
-                        <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>Call System</p>
-                        <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>
-                          Show Call System settings in Communications sidebar
-                        </p>
-                      </div>
-                    </button>
-
-                    {callSystemEnabled && (
-                      <div className="space-y-0.5">
-                        <div className="flex items-start gap-2.5 px-2.5 py-2">
-                          <PhoneIncoming
-                            className="mt-0.5 shrink-0 text-emerald-500"
-                            style={{ width: 16, height: 16, strokeWidth: 2 }}
-                          />
-                          <div>
-                            <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>
-                              Replicate Incoming Call
-                            </p>
-                            <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>
-                              Select a caller type to simulate an incoming call
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex gap-1 px-2.5 pb-1">
-                          {([
-                            { type: "prospect" as IncomingCallerType, label: "Prospect", desc: "No record in system", Icon: UserX },
-                            { type: "lead" as IncomingCallerType, label: "Lead", desc: "Lead contact record", Icon: User },
-                            { type: "resident" as IncomingCallerType, label: "Resident", desc: "Resident in system", Icon: UserCheck },
-                          ]).map((opt) => (
-                            <button
-                              key={opt.type}
-                              type="button"
-                              onClick={() => {
-                                simulateInboundCall(opt.type);
-                                setDemoOpen(false);
-                              }}
-                              className="flex flex-1 flex-col items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-2 text-center transition-colors hover:border-emerald-300 hover:bg-emerald-50"
-                            >
-                              <opt.Icon className="h-4 w-4 text-emerald-600" strokeWidth={1.5} />
-                              <span className="text-[11px] font-semibold text-gray-800">{opt.label}</span>
-                              <span className="text-[9px] leading-tight text-gray-400">{opt.desc}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        requestProfileCommsPopup();
-                        router.push("/conversations/");
-                        setDemoOpen(false);
-                      }}
-                      className="flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-gray-50"
-                    >
-                      <MessageCircle
-                        className="mt-0.5 shrink-0 text-indigo-500"
-                        style={{ width: 16, height: 16, strokeWidth: 2 }}
-                      />
-                      <div>
-                        <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>
-                          Profile Comms Pop Up
-                        </p>
-                        <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>
-                          Open Communications resident profile without the conversation panel
-                        </p>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMobilePreviewOpen(true);
-                        setDemoOpen(false);
-                      }}
-                      className="flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-gray-50"
-                    >
-                      <Smartphone
-                        className="mt-0.5 shrink-0 text-violet-500"
-                        style={{ width: 16, height: 16, strokeWidth: 2 }}
-                      />
-                      <div>
-                        <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>
-                          Mobile App Preview
-                        </p>
-                        <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>
-                          View the mobile app vision and screen concepts
-                        </p>
-                      </div>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Product Release */}
-                <div style={{ borderTop: "1px solid #F0F0F0", margin: "0 14px", paddingTop: 10 }}>
                   <p style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.35)", letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: 6 }}>
-                    Product Release
+                    Release
                   </p>
-
-                  {/* Product picker */}
-                  <label
-                    style={{
-                      display: "block",
-                      fontSize: 10,
-                      fontWeight: 500,
-                      color: "rgba(0,0,0,0.45)",
-                      marginBottom: 4,
-                    }}
-                  >
-                    Product
-                  </label>
-                  <select
-                    value={expertsProduct}
-                    onChange={(e) =>
-                      setExpertsProduct(
-                        e.target.value as "entrata-experts",
-                      )
-                    }
-                    style={{
-                      width: "100%",
-                      height: 28,
-                      padding: "0 8px",
-                      fontSize: 12,
-                      fontWeight: 500,
-                      color: "#1a1a1a",
-                      background: "#fff",
-                      border: "1px solid rgba(0,0,0,0.12)",
-                      borderRadius: 6,
-                      marginBottom: 10,
-                      cursor: "pointer",
-                    }}
-                  >
-                    <option value="entrata-experts">Entrata Experts</option>
-                  </select>
-
-                  {/* Version picker (radio list) */}
-                  <label
-                    style={{
-                      display: "block",
-                      fontSize: 10,
-                      fontWeight: 500,
-                      color: "rgba(0,0,0,0.45)",
-                      marginBottom: 4,
-                    }}
-                  >
-                    Version
-                  </label>
-                  <div className="flex flex-col gap-0.5">
-                    {ENTRATA_EXPERTS_VERSIONS.map((v) => {
-                      const isActive = expertsVersion === v.id;
-                      return (
-                        <button
-                          key={v.id}
-                          type="button"
-                          onClick={() => setExpertsVersion(v.id)}
-                          className="flex items-start gap-2.5 rounded-md px-2.5 py-1.5 text-left transition-colors"
+                  <div className="flex flex-col gap-0.5" role="radiogroup" aria-label="Release version">
+                    {([
+                      {
+                        id: "full",
+                        label: "Full Version",
+                        tagline: "Full OXP Studio prototype",
+                        isActive: isFullVersion,
+                        onSelect: () => { setR1Release(false); setR2Release(false); },
+                      },
+                      {
+                        id: "r2",
+                        label: "R2 Release State",
+                        tagline: "+ Comms, Agent Roster V2, Autonomous L2L, etc.",
+                        isActive: isR2Release,
+                        onSelect: () => { setR2Release(true); setR1Release(false); },
+                      },
+                      {
+                        id: "r1",
+                        label: "R1 Release State",
+                        tagline: "Initial release view of OXP",
+                        isActive: isR1Release,
+                        onSelect: () => { setR1Release(true); setR2Release(false); },
+                      },
+                    ]).map((r) => (
+                      <button
+                        key={r.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={r.isActive}
+                        onClick={r.onSelect}
+                        className="flex items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors"
+                        style={{ background: r.isActive ? "rgba(99,102,241,0.08)" : "transparent" }}
+                      >
+                        <span
                           style={{
-                            background: isActive
-                              ? "rgba(99,102,241,0.08)"
-                              : "transparent",
+                            width: 14,
+                            height: 14,
+                            borderRadius: "50%",
+                            border: r.isActive ? "none" : "2px solid #D4D4D4",
+                            background: r.isActive ? "#6366f1" : "transparent",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                            marginTop: 2,
+                            transition: "all 150ms",
                           }}
                         >
-                          <div
+                          {r.isActive && (
+                            <span
+                              style={{
+                                width: 5,
+                                height: 5,
+                                borderRadius: "50%",
+                                background: "#fff",
+                              }}
+                            />
+                          )}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span
                             style={{
-                              width: 14,
-                              height: 14,
-                              borderRadius: "50%",
-                              border: isActive
-                                ? "none"
-                                : "2px solid #D4D4D4",
-                              background: isActive ? "#6366f1" : "transparent",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              flexShrink: 0,
-                              marginTop: 2,
-                              transition: "all 150ms",
+                              display: "block",
+                              fontSize: 12,
+                              fontWeight: r.isActive ? 600 : 500,
+                              color: r.isActive ? "#1a1a1a" : "rgba(0,0,0,0.7)",
                             }}
                           >
-                            {isActive && (
-                              <div
-                                style={{
-                                  width: 5,
-                                  height: 5,
-                                  borderRadius: "50%",
-                                  background: "#fff",
-                                }}
-                              />
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p
-                              style={{
-                                fontSize: 12,
-                                fontWeight: isActive ? 600 : 500,
-                                color: isActive
-                                  ? "#1a1a1a"
-                                  : "rgba(0,0,0,0.7)",
-                              }}
-                            >
-                              {v.label}
-                            </p>
-                            <p
-                              style={{
-                                fontSize: 10,
-                                color: "rgba(0,0,0,0.45)",
-                                marginTop: 1,
-                                lineHeight: 1.35,
-                              }}
-                            >
-                              {v.tagline}
-                            </p>
-                          </div>
-                        </button>
-                      );
-                    })}
+                            {r.label}
+                          </span>
+                          <span
+                            style={{
+                              display: "block",
+                              fontSize: 10,
+                              color: "rgba(0,0,0,0.45)",
+                              marginTop: 1,
+                              lineHeight: 1.35,
+                            }}
+                          >
+                            {r.tagline}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
                   </div>
 
                   {/* Analytics Platform handoff (Entrata Analyst → AP library) */}
@@ -679,81 +572,6 @@ export function EntrataTopNav() {
                   </button>
                 </div>
 
-                {/* Role Switcher */}
-                <div style={{ borderTop: "1px solid #F0F0F0", margin: "0 14px", paddingTop: 10, marginTop: 10 }}>
-                  <p style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.35)", letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: 6 }}>
-                    Role
-                  </p>
-                  <div className="flex flex-col gap-0.5">
-                    {ROLES.map((r) => {
-                      const isActive = role === r.value;
-                      return (
-                        <button
-                          key={r.value}
-                          type="button"
-                          onClick={() => {
-                            setRole(r.value as Role);
-                            if (r.value !== "admin") {
-                              router.push("/command-center/");
-                            }
-                          }}
-                          className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors"
-                          style={{ background: isActive ? "rgba(0,0,0,0.05)" : "transparent" }}
-                        >
-                          <div
-                            style={{
-                              width: 16,
-                              height: 16,
-                              borderRadius: "50%",
-                              border: isActive ? "none" : "2px solid #D4D4D4",
-                              background: isActive ? "#6366f1" : "transparent",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              flexShrink: 0,
-                              transition: "all 150ms",
-                            }}
-                          >
-                            {isActive && (
-                              <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#fff" }} />
-                            )}
-                          </div>
-                          <p style={{ fontSize: 12, fontWeight: isActive ? 600 : 500, color: isActive ? "#1a1a1a" : "rgba(0,0,0,0.55)" }}>
-                            {r.label}
-                          </p>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Roadmap */}
-                <div style={{ borderTop: "1px solid #F0F0F0", margin: "0 14px", paddingTop: 10 }}>
-                  <p style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.35)", letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: 6 }}>
-                    Roadmap
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowRoadmap(true);
-                      setDemoOpen(false);
-                    }}
-                    className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-gray-50"
-                  >
-                    <Map
-                      className="shrink-0"
-                      style={{ width: 16, height: 16, strokeWidth: 2, color: "#8b5cf6" }}
-                    />
-                    <div>
-                      <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>
-                        OXP 2026 Roadmap
-                      </p>
-                      <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>
-                        View upcoming features and epics
-                      </p>
-                    </div>
-                  </button>
-                </div>
               </div>
             )}
           </div>

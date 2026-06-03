@@ -33,7 +33,6 @@ import { useTools } from "@/lib/tools-context";
 import { useGovernance } from "@/lib/governance-context";
 import { useAgentCompliance } from "@/lib/use-agent-compliance";
 import { useR1Release } from "@/lib/r1-release-context";
-import { useR1_2Release } from "@/lib/r1-2-release-context";
 import { Tag, X, Search, DollarSign, Megaphone, Users, Wrench, ShieldCheck, Power, Activity, AlertCircle, Play, Clock, CheckCircle, CheckCircle2, XCircle, Calendar, Lightbulb, Target, Database, BarChart3, Pencil, Save, ArrowLeft, ArrowRight, Sparkles, BookOpen, Cog, Bot, Box, MessageSquare, Shield, Zap, Eye, EyeOff, Globe, Mail, Phone, Volume2, History, RotateCcw, Lock, ExternalLink, CirclePlay, TrendingUp, TrendingDown, Minus, ArrowUpDown, ChevronDown, ChevronUp, Building2, Layers, Home, Plus, Info } from "lucide-react";
 import {
   useVoice,
@@ -239,8 +238,7 @@ function AgentRosterContent() {
   };
   const [bucketFilter, setBucketFilter] = useState("All");
   const { isR1Release } = useR1Release();
-  const { isR1_2Release } = useR1_2Release();
-  const isFullVersion = !isR1Release && !isR1_2Release;
+  const isFullVersion = !isR1Release;
   const [statusFilter, setStatusFilter] = useState("All");
   const [typeFilter, setTypeFilter] = useState<AgentType | "All">("All");
   const [sortBy, setSortBy] = useState<"level" | "most_used" | "trending">("level");

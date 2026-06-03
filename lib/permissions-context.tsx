@@ -145,7 +145,8 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: "p-training-view", capability: "View Trainings & SOPs", description: "Access training documents and SOPs", section: "Trainings & SOP" },
   { id: "p-training-create", capability: "Create & Edit SOPs", description: "Author and modify standard operating procedures", section: "Trainings & SOP" },
   { id: "p-training-publish", capability: "Publish SOPs", description: "Publish SOPs and make them available for playbook use", section: "Trainings & SOP" },
-  { id: "p-training-assign", capability: "Manage Training Assignments", description: "Assign trainings and SOPs to team members", section: "Trainings & SOP" },
+  { id: "p-training-assign", capability: "Manage SOP Review Assignments", description: "Assign SOP reviews to team members", section: "Trainings & SOP" },
+  { id: "p-training-entrata-academy", capability: "Trainings - Entrata Academy", description: "Access Entrata Academy trainings and learning content", section: "Trainings & SOP" },
 
   // ── Voice ──
   { id: "p-voice-view", capability: "View Voice Settings", description: "Access voice configuration and settings", section: "Voice" },
