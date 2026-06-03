@@ -59,7 +59,7 @@ const NAV_ITEMS = [
 export function EntrataTopNav() {
   const router = useRouter();
   const pathname = usePathname();
-  const { requestProfileCommsPopup } = useConversationsDemo();
+  const { requestProfileCommsPopup, superAgentEnabled, toggleSuperAgentEnabled } = useConversationsDemo();
   const { role, setRole, isRouteAllowed } = useRole();
   const { isR1Release, setR1Release } = useR1Release();
   const { isR1_2Release, setR1_2Release } = useR1_2Release();
@@ -461,6 +461,45 @@ export function EntrataTopNav() {
                         </div>
                       </div>
                     )}
+
+                    <button
+                      type="button"
+                      onClick={toggleSuperAgentEnabled}
+                      className="flex items-center gap-2.5 rounded-md px-2.5 py-2 transition-colors"
+                      style={{ background: superAgentEnabled ? "rgba(139,92,246,0.08)" : "transparent" }}
+                    >
+                      <div
+                        style={{
+                          width: 30,
+                          height: 17,
+                          borderRadius: 9,
+                          background: superAgentEnabled ? "#8b5cf6" : "#D4D4D4",
+                          position: "relative",
+                          transition: "background 150ms",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: 13,
+                            height: 13,
+                            borderRadius: "50%",
+                            background: "#fff",
+                            position: "absolute",
+                            top: 2,
+                            left: superAgentEnabled ? 15 : 2,
+                            transition: "left 150ms",
+                            boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
+                          }}
+                        />
+                      </div>
+                      <div className="text-left">
+                        <p style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>Super Agent</p>
+                        <p style={{ fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1 }}>
+                          Show AI Super Agent multi-topic conversations
+                        </p>
+                      </div>
+                    </button>
 
                     <button
                       type="button"
