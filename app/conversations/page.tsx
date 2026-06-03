@@ -1423,7 +1423,7 @@ function ConversationsContent() {
         text: "",
         timestamp,
         type: "thread_activity",
-        threadActivity: { kind: "resolve", actor: MY_INBOX_ASSIGNEE },
+        threadActivity: { kind: "status", action: "resolved", actor: MY_INBOX_ASSIGNEE },
       });
       const remainingEscalations = selected.labels.filter(
         (l) => l.includes("Escalation") && !selectedEscalationTypes.has(l)
