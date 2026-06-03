@@ -101,6 +101,7 @@ import {
   satisfiesEscalatedPropertyInboxLabels,
   conversationHasCurrentUserPrivateNoteMention,
   getLinkedConversationsByEscalation,
+  isSuperAgentDemoThread,
 } from "@/lib/conversations-context";
 import { useAgents } from "@/lib/agents-context";
 import { useWorkforce } from "@/lib/workforce-context";
@@ -348,6 +349,7 @@ const AI_ACTIVATION_OPT_IN_LABELS = new Set([
   "Payments AI",
   "Renewal AI",
   "Renewals AI",
+  "AI Conversation",
 ]);
 
 function isLiveAiPropertyInbox(c: ConversationItem, property: string): boolean {
@@ -377,6 +379,7 @@ function isPrimaryAiLaneConversation(c: ConversationItem): boolean {
  */
 function matchesThreadListEscalatedFilter(c: ConversationItem): boolean {
   if (c.status !== "open") return false;
+  if (isSuperAgentDemoThread(c.id) && c.labels.some((l) => l.includes("Escalation"))) return true;
   if (c.hasUnread) return true;
   return !isWaitingOnResidentPublicReply(c);
 }
@@ -418,6 +421,7 @@ type ThreadListConvoTypeFilter = "escalated" | "liveAi";
 /** Open Threads: open only; unread, @mention in a private note, or unattended. Resolved threads never appear here. */
 function conversationMatchesAllThreadsInbox(c: ConversationItem): boolean {
   if (c.status !== "open") return false;
+  if (isSuperAgentDemoThread(c.id) && c.labels.some((l) => l.includes("Escalation"))) return true;
   return (
     c.hasUnread ||
     conversationHasCurrentUserPrivateNoteMention(c) ||
@@ -1024,9 +1028,34 @@ function ConversationsContent() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [selected?.messages.length]);
 
+  // Clear escalation error when switching conversations (but preserve selections for super agent)
+  const superAgentSelectionsRef = useRef<Map<string, Set<string>>>(new Map());
+  const previousSelectedIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    setEscalationError(false);
+    if (selectedId && isSuperAgentDemoThread(selectedId)) {
+      const saved = superAgentSelectionsRef.current.get(selectedId);
+      if (saved && saved.size > 0) {
+        setSelectedEscalationTypes(saved);
+      } else {
+        setSelectedEscalationTypes(new Set());
+      }
+    } else {
+      setSelectedEscalationTypes(new Set());
+    }
+  }, [selectedId]);
+
   // --- Chat input ---
   const [inputMode, setInputMode] = useState<"message" | "private_note">("message");
   const [draft, setDraft] = useState("");
+  const [selectedEscalationTypes, setSelectedEscalationTypes] = useState<Set<string>>(new Set());
+  const [superAgentNoteOpen, setSuperAgentNoteOpen] = useState(false);
+  const [superAgentNoteDraft, setSuperAgentNoteDraft] = useState("");
+  const [escalationError, setEscalationError] = useState(false);
+  const [escalationSummaryOpen, setEscalationSummaryOpen] = useState(false);
+  const [escalationPickerOpen, setEscalationPickerOpen] = useState(false);
+  const [escalationPickerSelections, setEscalationPickerSelections] = useState<Set<string>>(new Set());
   const chatTextareaRef = useRef<HTMLTextAreaElement>(null);
   /** Entrata profile “current inbox” composer — same draft/inputMode as main, separate ref for @mentions. */
   const profilePanelInboxComposerRef = useRef<HTMLTextAreaElement>(null);
@@ -1357,6 +1386,11 @@ function ConversationsContent() {
 
   const handleSend = () => {
     if (!draft.trim() || !selected) return;
+    if (isSuperAgentDemoThread(selected.id) && aiActivated && inputMode === "message" && selectedEscalationTypes.size === 0) {
+      setEscalationError(true);
+      return;
+    }
+    setEscalationError(false);
     const now = new Date();
     const timestamp = now.toLocaleString("en-US", {
       month: "short",
@@ -1379,6 +1413,30 @@ function ConversationsContent() {
       ...(emailSignature ? { emailSignature } : {}),
       ...(inputMode === "private_note" ? { privateNoteAuthor: MY_INBOX_ASSIGNEE } : {}),
     });
+
+    if (isSuperAgentDemoThread(selected.id) && aiActivated && inputMode === "message" && selectedEscalationTypes.size > 0) {
+      for (const esc of selectedEscalationTypes) {
+        removeLabel(selected.id, esc);
+      }
+      addMessage(selected.id, {
+        role: "staff",
+        text: "",
+        timestamp,
+        type: "thread_activity",
+        threadActivity: { kind: "resolve", actor: MY_INBOX_ASSIGNEE },
+      });
+      const remainingEscalations = selected.labels.filter(
+        (l) => l.includes("Escalation") && !selectedEscalationTypes.has(l)
+      );
+      if (remainingEscalations.length === 0) {
+        resolveConversation(selected.id, MY_INBOX_ASSIGNEE);
+        superAgentSelectionsRef.current.delete(selected.id);
+      } else {
+        superAgentSelectionsRef.current.set(selected.id, new Set());
+      }
+      setSelectedEscalationTypes(new Set());
+    }
+
     setDraft("");
     setPrivateNoteMention(null);
   };
@@ -1959,7 +2017,21 @@ function ConversationsContent() {
                     <li key={convo.id}>
                       <button
                         type="button"
-                        onClick={() => { setSelectedId(convo.id); markRead(convo.id, MY_INBOX_ASSIGNEE); }}
+                        onClick={() => {
+                          if (isSuperAgentDemoThread(convo.id)) {
+                            previousSelectedIdRef.current = selectedId;
+                            setSelectedId(convo.id);
+                            markRead(convo.id, MY_INBOX_ASSIGNEE);
+                            const saved = superAgentSelectionsRef.current.get(convo.id);
+                            if (!saved || saved.size === 0) {
+                              setEscalationPickerSelections(new Set());
+                              setEscalationPickerOpen(true);
+                            }
+                          } else {
+                            setSelectedId(convo.id);
+                            markRead(convo.id, MY_INBOX_ASSIGNEE);
+                          }
+                        }}
                         className={cn(
                           "relative flex w-full flex-col gap-1 py-3 pl-4 pr-4 text-left transition-colors",
                           isActive
@@ -2140,7 +2212,7 @@ function ConversationsContent() {
                       />
                     </PopoverContent>
                   </Popover>
-                  {selected.status === "open" ? (
+                  {isSuperAgentDemoThread(selected.id) && aiActivated ? null : selected.status === "open" ? (
                     <Button
                       size="sm"
                       className="h-8 gap-1.5 px-3 text-xs"
@@ -2257,100 +2329,97 @@ function ConversationsContent() {
 
               {selected.labels.some((label) => AI_ACTIVATION_OPT_IN_LABELS.has(label)) && (
                 <>
-                  {/* Row 3: AI Activated toggle */}
-                  <div className="mt-3 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
-                    <div className="flex items-center gap-2.5">
+                  {/* AI Activated + Phone/Email opt-in — single row */}
+                  <div className="mt-3 flex items-center gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2">
+                    <div className="flex items-center gap-2">
                       <Switch
                         checked={aiActivated}
                         onCheckedChange={(checked) => {
-                          setAiActivated(checked);
-                          recordThreadActivity(selected.id, {
-                            kind: "ai_activation",
-                            active: checked,
-                            actor: MY_INBOX_ASSIGNEE,
-                          });
                           if (checked) {
+                            setAiActivated(true);
                             setReactivationDate(null);
                             setNoLimit(false);
                             setShowDatePicker(false);
+                            recordThreadActivity(selected.id, {
+                              kind: "ai_activation",
+                              active: true,
+                              actor: MY_INBOX_ASSIGNEE,
+                            });
                           } else {
                             setShowDatePicker(true);
                           }
                         }}
                       />
-                      <span className="text-sm font-medium text-foreground whitespace-nowrap">
+                      <span className="text-xs font-medium text-foreground whitespace-nowrap">
                         AI Activated
                       </span>
-                      {!aiActivated && (reactivationDate || noLimit) && (
-                        <span className="ml-auto text-xs text-muted-foreground truncate">
-                          {noLimit
-                            ? "Will not reactivate"
-                            : `Reactivates ${reactivationDate!.toLocaleDateString("en-US", {
-                                month: "short",
-                                day: "numeric",
-                                year: "numeric",
-                              })}`}
-                        </span>
+                      {(!aiActivated || showDatePicker) && (
+                        <div className="flex items-center gap-1.5 ml-1">
+                          <span className="text-[11px] text-muted-foreground whitespace-nowrap">until</span>
+                          {noLimit ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setNoLimit(false);
+                                setShowDatePicker(true);
+                              }}
+                              className="rounded-md border border-input bg-background px-2 py-0.5 text-[11px] transition-colors hover:bg-accent"
+                            >
+                              No Limit
+                            </button>
+                          ) : (
+                            <Popover open={showDatePicker} onOpenChange={(open) => {
+                              setShowDatePicker(open);
+                              if (!open && aiActivated && !reactivationDate && !noLimit) {
+                                setShowDatePicker(false);
+                              }
+                            }}>
+                              <PopoverTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="flex items-center gap-1 rounded-md border border-input bg-background px-2 py-0.5 text-[11px] transition-colors hover:bg-accent"
+                                >
+                                  <CalendarIcon className="h-3 w-3 text-muted-foreground" />
+                                  {reactivationDate
+                                    ? reactivationDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                                    : "Date"}
+                                </button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0" align="start">
+                                <MiniCalendar
+                                  selected={reactivationDate}
+                                  onSelect={(date) => {
+                                    setReactivationDate(date);
+                                    setNoLimit(false);
+                                    setShowDatePicker(false);
+                                    setAiActivated(false);
+                                    recordThreadActivity(selected.id, {
+                                      kind: "ai_activation",
+                                      active: false,
+                                      actor: MY_INBOX_ASSIGNEE,
+                                    });
+                                  }}
+                                  onNoLimit={() => {
+                                    setReactivationDate(null);
+                                    setNoLimit(true);
+                                    setShowDatePicker(false);
+                                    setAiActivated(false);
+                                    recordThreadActivity(selected.id, {
+                                      kind: "ai_activation",
+                                      active: false,
+                                      actor: MY_INBOX_ASSIGNEE,
+                                    });
+                                  }}
+                                />
+                              </PopoverContent>
+                            </Popover>
+                          )}
+                        </div>
                       )}
                     </div>
-                    {!aiActivated && (
-                      <div className="mt-2 flex items-center gap-2 pl-[46px]">
-                        <label className="text-xs text-muted-foreground whitespace-nowrap">
-                          Deactivation up to:
-                        </label>
-                        {noLimit ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setNoLimit(false);
-                              setShowDatePicker(true);
-                            }}
-                            className="flex items-center gap-1.5 rounded-md border border-input bg-background px-2.5 py-1 text-xs transition-colors hover:bg-accent"
-                          >
-                            No Limit
-                          </button>
-                        ) : (
-                          <Popover open={showDatePicker} onOpenChange={setShowDatePicker}>
-                            <PopoverTrigger asChild>
-                              <button
-                                type="button"
-                                className="flex items-center gap-1.5 rounded-md border border-input bg-background px-2.5 py-1 text-xs transition-colors hover:bg-accent"
-                              >
-                                <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                                {reactivationDate
-                                  ? reactivationDate.toLocaleDateString("en-US", {
-                                      month: "short",
-                                      day: "numeric",
-                                      year: "numeric",
-                                    })
-                                  : "Select date"}
-                              </button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="start">
-                              <MiniCalendar
-                                selected={reactivationDate}
-                                onSelect={(date) => {
-                                  setReactivationDate(date);
-                                  setNoLimit(false);
-                                  setShowDatePicker(false);
-                                }}
-                                onNoLimit={() => {
-                                  setReactivationDate(null);
-                                  setNoLimit(true);
-                                  setShowDatePicker(false);
-                                }}
-                              />
-                            </PopoverContent>
-                          </Popover>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Row 4: Phone / Email opt-in */}
-                  <div className="mt-3 flex gap-3">
-                    <div className="flex-1 min-w-0">
-                      <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Phone</label>
+                    <span className="h-4 w-px bg-border" />
+                    <div className="flex items-center gap-2">
+                      <label className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">Phone</label>
                       <Select
                         value={phoneOpt}
                         onValueChange={(v) => {
@@ -2364,7 +2433,7 @@ function ConversationsContent() {
                           });
                         }}
                       >
-                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="h-7 w-[110px] text-[11px]"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
                           <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
@@ -2372,8 +2441,8 @@ function ConversationsContent() {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Email</label>
+                    <div className="flex items-center gap-2">
+                      <label className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">Email</label>
                       <Select
                         value={emailOpt}
                         onValueChange={(v) => {
@@ -2387,7 +2456,7 @@ function ConversationsContent() {
                           });
                         }}
                       >
-                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="h-7 w-[110px] text-[11px]"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
                           <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
@@ -2498,15 +2567,30 @@ function ConversationsContent() {
                       )}
                       {selected.messages.map((msg, idx) => {
                         if (msg.type === "handoff") {
+                          if (isSuperAgentDemoThread(selected.id)) return null;
+                          const escalationLabel = selected.labels.find((l) => l.includes("Escalation"));
                           return (
-                            <div key={idx} className="flex items-center justify-center gap-2 py-1">
-                              <CornerDownRight className="h-3 w-3 text-muted-foreground" />
-                              <span className="text-[11px] text-muted-foreground">
+                            <div key={idx} className={cn(
+                              "flex items-center justify-center gap-2 py-1",
+                              escalationLabel && "rounded-md border border-orange-200 bg-orange-50/80 px-3 py-2 dark:border-orange-900/50 dark:bg-orange-950/20"
+                            )}>
+                              {escalationLabel ? (
+                                <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-orange-500" />
+                              ) : (
+                                <CornerDownRight className="h-3 w-3 text-muted-foreground" />
+                              )}
+                              <span className={cn("text-[11px]", escalationLabel ? "text-orange-800 dark:text-orange-200" : "text-muted-foreground")}>
                                 Handoff {handoffAssigneeLabelForConversation(
                                 selected.assignee,
                                 isHumanAssignee,
                                 selected.staffRespondentIsExternalAgent
-                              )} · {msg.timestamp}
+                              )}
+                                {escalationLabel && (
+                                  <span className="ml-1.5 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200">
+                                    {escalationLabel}
+                                  </span>
+                                )}
+                                {" · "}{msg.timestamp}
                               </span>
                             </div>
                           );
@@ -2516,20 +2600,44 @@ function ConversationsContent() {
                         }
                         if (msg.type === "label_activity" && msg.labelActivity) {
                           const { actor, labelsAdded } = msg.labelActivity;
+                          const isEscalation = labelsAdded.some((l) => l.includes("Escalation"));
                           return (
                             <div
                               key={idx}
-                              className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/70 bg-muted/25 py-2.5 px-3"
+                              className={cn(
+                                "flex items-center justify-center gap-2 rounded-md border py-2.5 px-3",
+                                isEscalation
+                                  ? "border-orange-200 bg-orange-50/80 dark:border-orange-900/50 dark:bg-orange-950/20"
+                                  : "border-dashed border-border/70 bg-muted/25"
+                              )}
                             >
-                              <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                              <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
-                                <span className="font-medium text-foreground">{actor}</span>
-                                {" added "}
-                                {labelsAdded.length === 1 ? "label " : "labels "}
-                                <span className="font-medium text-foreground">{labelsAdded.join(", ")}</span>
+                              {isEscalation ? (
+                                <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-orange-500" aria-hidden />
+                              ) : (
+                                <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                              )}
+                              <p className={cn(
+                                "text-center text-[11px] leading-relaxed",
+                                isEscalation ? "text-orange-800 dark:text-orange-200" : "text-muted-foreground"
+                              )}>
+                                <span className={cn("font-medium", isEscalation ? "text-orange-900 dark:text-orange-100" : "text-foreground")}>{actor}</span>
+                                {" escalated → "}
+                                {labelsAdded.map((label, i) => (
+                                  <span key={label}>
+                                    {i > 0 && ", "}
+                                    <span className={cn(
+                                      "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold",
+                                      isEscalation
+                                        ? "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200"
+                                        : "font-medium text-foreground"
+                                    )}>
+                                      {label}
+                                    </span>
+                                  </span>
+                                ))}
                                 {msg.timestamp && (
                                   <>
-                                    <span className="text-muted-foreground/70"> · </span>
+                                    <span className="opacity-60"> · </span>
                                     <span>{msg.timestamp}</span>
                                   </>
                                 )}
@@ -2753,20 +2861,44 @@ function ConversationsContent() {
 
                   if (msg.type === "label_activity" && msg.labelActivity) {
                     const { actor, labelsAdded } = msg.labelActivity;
+                    const isEscalation = labelsAdded.some((l) => l.includes("Escalation"));
                     return (
                       <div
                         key={idx}
-                        className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/70 bg-muted/25 py-2.5 px-3"
+                        className={cn(
+                          "flex items-center justify-center gap-2 rounded-md border py-2.5 px-3",
+                          isEscalation
+                            ? "border-orange-200 bg-orange-50/80 dark:border-orange-900/50 dark:bg-orange-950/20"
+                            : "border-dashed border-border/70 bg-muted/25"
+                        )}
                       >
-                        <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                        <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
-                          <span className="font-medium text-foreground">{actor}</span>
-                          {" added "}
-                          {labelsAdded.length === 1 ? "label " : "labels "}
-                          <span className="font-medium text-foreground">{labelsAdded.join(", ")}</span>
+                        {isEscalation ? (
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-orange-500" aria-hidden />
+                        ) : (
+                          <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                        )}
+                        <p className={cn(
+                          "text-center text-[11px] leading-relaxed",
+                          isEscalation ? "text-orange-800 dark:text-orange-200" : "text-muted-foreground"
+                        )}>
+                          <span className={cn("font-medium", isEscalation ? "text-orange-900 dark:text-orange-100" : "text-foreground")}>{actor}</span>
+                          {" escalated → "}
+                          {labelsAdded.map((label, i) => (
+                            <span key={label}>
+                              {i > 0 && ", "}
+                              <span className={cn(
+                                "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold",
+                                isEscalation
+                                  ? "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200"
+                                  : "font-medium text-foreground"
+                              )}>
+                                {label}
+                              </span>
+                            </span>
+                          ))}
                           {msg.timestamp && (
                             <>
-                              <span className="text-muted-foreground/70"> · </span>
+                              <span className="opacity-60"> · </span>
                               <span>{msg.timestamp}</span>
                             </>
                           )}
@@ -2865,33 +2997,282 @@ function ConversationsContent() {
 
             {/* Chat input */}
             <div className="shrink-0 bg-muted/50">
-              {/* Mode toggle */}
-              <div className="flex items-center gap-1 px-5 pt-3 pb-2">
-                <Button
-                  variant={inputMode === "message" ? "default" : "ghost"}
-                  size="sm"
-                  className="gap-1.5 rounded-full text-xs"
-                  onClick={() => {
-                    setInputMode("message");
-                    setPrivateNoteMention(null);
-                  }}
-                >
-                  <MessageSquare className="h-3.5 w-3.5" />
-                  Message
-                </Button>
-                <Button
-                  variant={inputMode === "private_note" ? "secondary" : "ghost"}
-                  size="sm"
-                  className={cn(
-                    "gap-1.5 rounded-full text-xs",
-                    inputMode === "private_note" && "bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300"
-                  )}
-                  onClick={() => setInputMode("private_note")}
-                >
-                  <StickyNote className="h-3.5 w-3.5" />
-                  Private Note
-                </Button>
-              </div>
+              {/* Mode toggle — hidden for Super Agent when AI is active */}
+              {!(selected && isSuperAgentDemoThread(selected.id) && aiActivated) && (
+                <div className="flex items-center gap-1 px-5 pt-3 pb-2">
+                  <Button
+                    variant={inputMode === "message" ? "default" : "ghost"}
+                    size="sm"
+                    className="gap-1.5 rounded-full text-xs"
+                    onClick={() => {
+                      setInputMode("message");
+                      setPrivateNoteMention(null);
+                    }}
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" />
+                    Message
+                  </Button>
+                  <Button
+                    variant={inputMode === "private_note" ? "secondary" : "ghost"}
+                    size="sm"
+                    className={cn(
+                      "gap-1.5 rounded-full text-xs",
+                      inputMode === "private_note" && "bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300"
+                    )}
+                    onClick={() => setInputMode("private_note")}
+                  >
+                    <StickyNote className="h-3.5 w-3.5" />
+                    Private Note
+                  </Button>
+                </div>
+              )}
+
+              {/* Escalation context summary — always visible for Super Agent */}
+              {selected && isSuperAgentDemoThread(selected.id) && inputMode === "message" && (
+                <div className="px-5 pb-2">
+                  <div className="mb-0">
+                    <button
+                      type="button"
+                      onClick={() => setEscalationSummaryOpen(!escalationSummaryOpen)}
+                      className="flex w-full items-center gap-2 rounded-lg border border-blue-200 bg-blue-50/70 px-3 py-2 text-left transition-colors hover:bg-blue-50 dark:border-blue-900/50 dark:bg-blue-950/20 dark:hover:bg-blue-950/30"
+                    >
+                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-blue-100 dark:bg-blue-900/50">
+                        <FileText className="h-3.5 w-3.5 text-blue-600 dark:text-blue-300" />
+                      </div>
+                      <span className="flex-1 text-xs font-semibold text-blue-800 dark:text-blue-200">
+                        Escalation Context Summary
+                      </span>
+                      <ChevronRight className={cn(
+                        "h-4 w-4 text-blue-500 transition-transform duration-200",
+                        escalationSummaryOpen && "rotate-90"
+                      )} />
+                    </button>
+                    {escalationSummaryOpen && (
+                      <div className="mt-1.5 space-y-2 rounded-lg border border-blue-100 bg-white p-3 shadow-sm dark:border-blue-900/40 dark:bg-card">
+                        {selected.labels
+                          .filter((l) => l.includes("Escalation"))
+                          .map((label) => {
+                            const summaryMap: Record<string, string> = {
+                              "Renewals AI Escalation": "Resident is requesting a rate exception on their 12-month renewal offer ($1,850/mo, 3% increase). They've been a tenant for 2 years with on-time payment history and feel the increase is higher than expected.",
+                              "Payments AI Escalation": "Resident's October rent payment ($1,795) was returned due to insufficient funds (employer payroll delay). A $50 late fee was applied. Resident is requesting a late fee waiver given their clean 2-year payment history.",
+                            };
+                            const summary = summaryMap[label] ?? "AI escalated this topic for staff review.";
+                            return (
+                              <div
+                                key={label}
+                                className="rounded-md border-l-[3px] border-l-orange-400 bg-orange-50/50 px-3 py-2 dark:bg-orange-950/10"
+                              >
+                                <div className="flex items-center gap-1.5 mb-1">
+                                  <span className="text-[11px] font-bold text-orange-800 dark:text-orange-200">
+                                    {label.replace(" Escalation", "")}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] leading-relaxed text-foreground/80">
+                                  {summary}
+                                </p>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Escalation type selector for Super Agent — only when AI active */}
+              {selected && isSuperAgentDemoThread(selected.id) && aiActivated && inputMode === "message" && (
+                <div className="px-5 pb-2">
+                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Select The Escalation You Want To Give Context For
+                  </p>
+
+                  <div className="flex gap-2">
+                    {selected.labels
+                      .filter((l) => l.includes("Escalation"))
+                      .map((label) => {
+                        const isSelected = selectedEscalationTypes.has(label);
+                        return (
+                          <button
+                            key={label}
+                            type="button"
+                            onClick={() => {
+                              setSelectedEscalationTypes((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(label)) next.delete(label);
+                                else next.add(label);
+                                if (selected) superAgentSelectionsRef.current.set(selected.id, next);
+                                return next;
+                              });
+                              setEscalationError(false);
+                              chatTextareaRef.current?.focus();
+                            }}
+                            className={cn(
+                              "flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-all",
+                              isSelected
+                                ? "border-orange-400 bg-orange-50 text-orange-800 ring-1 ring-orange-400 dark:border-orange-600 dark:bg-orange-950/30 dark:text-orange-200"
+                                : escalationError
+                                  ? "border-red-400 bg-red-50 text-red-700 ring-1 ring-red-300 animate-pulse dark:border-red-600 dark:bg-red-950/20 dark:text-red-300"
+                                  : "border-border bg-background text-muted-foreground hover:border-orange-300 hover:bg-orange-50/50 hover:text-orange-700"
+                            )}
+                          >
+                            <span className={cn(
+                              "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                              isSelected
+                                ? "border-orange-500 bg-orange-500 text-white"
+                                : "border-muted-foreground/30"
+                            )}>
+                              {isSelected && <Check className="h-2.5 w-2.5" />}
+                            </span>
+                            {label}
+                          </button>
+                        );
+                      })}
+                    <button
+                      type="button"
+                      onClick={() => setSuperAgentNoteOpen(true)}
+                      className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-muted-foreground transition-all hover:border-amber-300 hover:bg-amber-50/50 hover:text-amber-700"
+                    >
+                      <StickyNote className="h-3.5 w-3.5" />
+                      Private Note
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Private Note modal for Super Agent */}
+              {selected && isSuperAgentDemoThread(selected.id) && (
+                <Dialog open={superAgentNoteOpen} onOpenChange={setSuperAgentNoteOpen}>
+                  <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>Private Note</DialogTitle>
+                      <DialogDescription>
+                        Add an internal note visible only to your team.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-3 pt-2">
+                      <textarea
+                        value={superAgentNoteDraft}
+                        onChange={(e) => setSuperAgentNoteDraft(e.target.value)}
+                        placeholder="Write a private note…"
+                        rows={4}
+                        className="w-full resize-none rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-400 dark:border-amber-800 dark:bg-amber-900/20"
+                      />
+                      <div className="flex justify-end gap-2">
+                        <Button variant="ghost" size="sm" onClick={() => setSuperAgentNoteOpen(false)}>
+                          Cancel
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="bg-amber-600 hover:bg-amber-700 text-white"
+                          disabled={!superAgentNoteDraft.trim()}
+                          onClick={() => {
+                            if (superAgentNoteDraft.trim() && selected) {
+                              addMessage(selected.id, {
+                                role: "staff",
+                                text: superAgentNoteDraft.trim(),
+                                timestamp: new Date().toLocaleString("en-US", {
+                                  month: "short",
+                                  day: "numeric",
+                                  year: "numeric",
+                                  hour: "numeric",
+                                  minute: "2-digit",
+                                  hour12: true,
+                                  timeZoneName: "short",
+                                }),
+                                type: "private_note",
+                                privateNoteAuthor: MY_INBOX_ASSIGNEE,
+                              });
+                              setSuperAgentNoteDraft("");
+                              setSuperAgentNoteOpen(false);
+                            }
+                          }}
+                        >
+                          <StickyNote className="h-3.5 w-3.5 mr-1.5" />
+                          Add Note
+                        </Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              )}
+
+              {/* Escalation picker modal for Super Agent */}
+              {selected && isSuperAgentDemoThread(selected.id) && (
+                <Dialog open={escalationPickerOpen} onOpenChange={setEscalationPickerOpen}>
+                  <DialogContent className="sm:max-w-sm">
+                    <DialogHeader>
+                      <DialogTitle>Which escalation are you resolving?</DialogTitle>
+                      <DialogDescription>
+                        Select the AI escalation(s) you want to respond to in this conversation.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-2 pt-2">
+                      {selected.labels
+                        .filter((l) => l.includes("Escalation"))
+                        .map((label) => {
+                          const isSelected = escalationPickerSelections.has(label);
+                          return (
+                            <button
+                              key={label}
+                              type="button"
+                              onClick={() => {
+                                setEscalationPickerSelections((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(label)) next.delete(label);
+                                  else next.add(label);
+                                  return next;
+                                });
+                              }}
+                              className={cn(
+                                "flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm font-medium transition-all",
+                                isSelected
+                                  ? "border-orange-400 bg-orange-50 text-orange-800 ring-1 ring-orange-400"
+                                  : "border-border bg-background text-foreground hover:border-orange-300 hover:bg-orange-50/50"
+                              )}
+                            >
+                              <span className={cn(
+                                "flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors",
+                                isSelected
+                                  ? "border-orange-500 bg-orange-500 text-white"
+                                  : "border-muted-foreground/30"
+                              )}>
+                                {isSelected && <Check className="h-3 w-3" />}
+                              </span>
+                              <span className={cn("h-2 w-2 rounded-full shrink-0", isSelected ? "bg-orange-500" : "bg-muted-foreground/30")} />
+                              {label.replace(" Escalation", "")}
+                            </button>
+                          );
+                        })}
+                    </div>
+                    <div className="flex justify-end gap-2 pt-3">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setEscalationPickerOpen(false);
+                          if (previousSelectedIdRef.current !== null) {
+                            setSelectedId(previousSelectedIdRef.current);
+                          }
+                        }}
+                      >
+                        Nevermind
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={escalationPickerSelections.size === 0}
+                        onClick={() => {
+                          const selections = new Set(escalationPickerSelections);
+                          setSelectedEscalationTypes(selections);
+                          if (selected) superAgentSelectionsRef.current.set(selected.id, selections);
+                          setEscalationPickerOpen(false);
+                        }}
+                      >
+                        Continue
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              )}
 
               {/* Input box */}
               <div className="px-5 pb-4">
@@ -2900,9 +3281,29 @@ function ConversationsContent() {
                     "relative flex flex-col rounded-xl border transition-colors focus-within:ring-1 focus-within:ring-ring",
                     inputMode === "private_note"
                       ? "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20"
-                      : "border-input bg-background"
+                      : selected && isSuperAgentDemoThread(selected.id) && aiActivated && selectedEscalationTypes.size > 0
+                        ? "border-orange-300 bg-orange-50/30 dark:border-orange-700 dark:bg-orange-950/10"
+                        : "border-input bg-background"
                   )}
                 >
+                  {escalationError && inputMode !== "private_note" && (
+                    <div className="flex items-center gap-2 px-4 pt-2.5 pb-0">
+                      <span className="text-[11px] font-medium text-red-600 dark:text-red-400">
+                        Please select an escalation above to send context for.
+                      </span>
+                    </div>
+                  )}
+                  {selected && isSuperAgentDemoThread(selected.id) && aiActivated && selectedEscalationTypes.size > 0 && inputMode !== "private_note" && (
+                    <div className="flex items-center gap-2 px-4 pt-2.5 pb-0">
+                      <span className="text-[11px] text-muted-foreground">Responding to</span>
+                      {Array.from(selectedEscalationTypes).map((esc) => (
+                        <span key={esc} className="inline-flex items-center gap-1 rounded-md bg-orange-100 px-2 py-0.5 text-[11px] font-bold text-orange-800 dark:bg-orange-900/40 dark:text-orange-200">
+                          <span className="h-1.5 w-1.5 rounded-full bg-orange-500" />
+                          {esc}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   {inputMode === "private_note" &&
                     privateNoteMention &&
                     (privateNoteMentionFiltered.length > 0 ? (
@@ -2960,7 +3361,15 @@ function ConversationsContent() {
                       }
                     }}
                     onKeyDown={handleComposerKeyDown}
-                    placeholder={inputMode === "private_note" ? "Write a private note…" : "Write a message…"}
+                    placeholder={
+                      inputMode === "private_note"
+                        ? "Write a private note…"
+                        : selected && isSuperAgentDemoThread(selected.id) && aiActivated
+                          ? selectedEscalationTypes.size > 0
+                            ? "Provide context for this escalation response…"
+                            : "Select an escalation above to respond…"
+                          : "Write a message…"
+                    }
                     rows={2}
                     className="w-full resize-none bg-transparent px-4 pt-3 pb-1 text-sm placeholder:text-muted-foreground focus-visible:outline-none"
                     aria-label={inputMode === "private_note" ? "Private note" : "Message"}

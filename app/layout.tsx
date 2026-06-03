@@ -118,8 +118,8 @@ export default function RootLayout({
                 <AgentBuilderProvider>
                   <VoiceProvider>
                     <EscalationsProvider>
-                    <ConversationsProvider>
                     <ConversationsDemoProvider>
+                    <ConversationsProvider>
                     <ToolsProvider>
                     <GovernanceProvider>
                     <FeedbackProvider>
@@ -134,8 +134,8 @@ export default function RootLayout({
                     </FeedbackProvider>
                     </GovernanceProvider>
                     </ToolsProvider>
-                    </ConversationsDemoProvider>
                     </ConversationsProvider>
+                    </ConversationsDemoProvider>
                     </EscalationsProvider>
                   </VoiceProvider>
                 </AgentBuilderProvider>
