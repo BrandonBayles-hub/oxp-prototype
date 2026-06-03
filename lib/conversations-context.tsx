@@ -3,6 +3,7 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { useRole, matchesRoleProperties } from "@/lib/role-context";
 import { useClickToCallDemo } from "@/lib/click-to-call-demo-context";
+import { useConversationsDemo } from "@/lib/conversations-demo-context";
 import { CLICK_TO_CALL_DEMO_THREADS } from "@/lib/click-to-call-demo-threads";
 
 export type EmailAttachmentRef = {
@@ -904,6 +905,46 @@ Hillside Living
   },
 ];
 
+export const SUPER_AGENT_DEMO_THREADS: ConversationItem[] = [
+  {
+    id: "sa-1",
+    resident: "Marcus Rivera",
+    unit: "Unit 208",
+    preview: "Sounds good, thank you. Let me know what they say about both.",
+    agent: "AI Super Agent",
+    time: "3m ago",
+    contactType: "Resident",
+    property: "Hillside Living",
+    channel: "SMS",
+    assignee: "ELI+ Super Agent",
+    labels: ["AI Conversation", "Renewals AI Escalation", "Payments AI Escalation"],
+    escalationId: "esc-super-marcus-01",
+    status: "open",
+    hasUnread: true,
+    messages: [
+      { role: "agent", text: "Hi Marcus! This is Hillside Living's AI assistant. How can I help you today?", timestamp: "Sep 16 2025 \u00b7 10:00am MST", type: "message" },
+      { role: "resident", text: "Hey, I have a couple of things. First, I want to know about renewing my lease \u2014 my current one ends in December and I want to understand my options.", timestamp: "Sep 16 2025 \u00b7 10:01am MST", type: "message" },
+      { role: "agent", text: "Of course! I can help with your lease renewal. Your current lease for Unit 208 expires December 31, 2025. I see we have a few renewal options available:\n\n\u2022 12-month renewal at $1,850/mo (3% increase)\n\u2022 6-month renewal at $1,925/mo\n\u2022 Month-to-month at $2,050/mo\n\nWould you like more details on any of these, or would you like me to send a formal renewal offer?", timestamp: "Sep 16 2025 \u00b7 10:02am MST", type: "message" },
+      { role: "resident", text: "The 3% increase is more than I was expecting. Is there any flexibility on that? I've been here two years and always pay on time.", timestamp: "Sep 16 2025 \u00b7 10:04am MST", type: "message" },
+      { role: "agent", text: "I completely understand, Marcus. Since you're asking about a rate exception on your renewal offer, I'm going to bring in a team member who can review your account history and discuss options with you. They'll follow up shortly.\n\nIn the meantime, is there anything else I can help with?", timestamp: "Sep 16 2025 \u00b7 10:05am MST", type: "message" },
+      { role: "staff", text: "", timestamp: "Sep 16 2025 \u00b7 10:05am MST", type: "handoff" },
+      { role: "staff", text: "", timestamp: "Sep 16 2025 \u00b7 10:05am MST", type: "label_activity", labelActivity: { actor: "ELI+ Super Agent", labelsAdded: ["Renewals AI Escalation"], action: "added" } },
+      { role: "resident", text: "Also, my rent payment bounced and I got a late fee. Can you help with that too?", timestamp: "Sep 16 2025 \u00b7 10:06am MST", type: "message" },
+      { role: "agent", text: "I'm sorry to hear that, Marcus. Let me look into your payment situation.\n\nI can see your October payment of $1,795 was returned on Oct 3rd due to insufficient funds, and a $50 late fee was applied on Oct 6th. To get this resolved, I'll need a team member to review the late fee waiver request since this involves account adjustments.\n\nI've flagged this for the team alongside your renewal question. They'll be able to help with both!", timestamp: "Sep 16 2025 \u00b7 10:07am MST", type: "message" },
+      { role: "staff", text: "", timestamp: "Sep 16 2025 \u00b7 10:07am MST", type: "label_activity", labelActivity: { actor: "ELI+ Super Agent", labelsAdded: ["Payments AI Escalation"], action: "added" } },
+      { role: "resident", text: "Ok thanks. Yeah the payment bounced because my direct deposit was delayed from my employer. It's never happened before.", timestamp: "Sep 16 2025 \u00b7 10:08am MST", type: "message" },
+      { role: "agent", text: "That makes sense \u2014 those payroll delays are frustrating. Given your clean payment history over two years, the team will definitely take that into account when reviewing the late fee. Hang tight and someone will follow up on both the renewal rate and the late fee.", timestamp: "Sep 16 2025 \u00b7 10:09am MST", type: "message" },
+      { role: "resident", text: "Sounds good, thank you. Let me know what they say about both.", timestamp: "Sep 16 2025 · 10:10am MST", type: "message" },
+    ],
+  },
+];
+
+const SUPER_AGENT_DEMO_THREAD_IDS = new Set(SUPER_AGENT_DEMO_THREADS.map((c) => c.id));
+
+export function isSuperAgentDemoThread(id: string): boolean {
+  return SUPER_AGENT_DEMO_THREAD_IDS.has(id);
+}
+
 type ConversationsContextValue = {
   items: ConversationItem[];
   filteredItems: ConversationItem[];
@@ -932,8 +973,9 @@ export function isClickToCallDemoThread(id: string): boolean {
 export function ConversationsProvider({ children }: { children: React.ReactNode }) {
   const { roleProperties } = useRole();
   const { clickToCallEnabled } = useClickToCallDemo();
+  const { superAgentEnabled } = useConversationsDemo();
   const [items, setItems] = useState<ConversationItem[]>(() => {
-    const seeded = [...CLICK_TO_CALL_DEMO_THREADS, ...INITIAL];
+    const seeded = [...CLICK_TO_CALL_DEMO_THREADS, ...SUPER_AGENT_DEMO_THREADS, ...INITIAL];
     return seeded.map((c) => {
       const labels = ensureAiLabelCompanions(c.labels);
       return { ...c, labels, hasUnread: clampHasUnread(c.messages, c.hasUnread) };
@@ -944,9 +986,10 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
     () =>
       items.filter((c) => {
         if (!clickToCallEnabled && isClickToCallDemoThread(c.id)) return false;
+        if (!superAgentEnabled && isSuperAgentDemoThread(c.id)) return false;
         return matchesRoleProperties(c.property, roleProperties);
       }),
-    [items, clickToCallEnabled, roleProperties]
+    [items, clickToCallEnabled, superAgentEnabled, roleProperties]
   );
 
   const propertyCount = new Set(filteredItems.map((c) => c.property)).size;
