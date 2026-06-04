@@ -189,7 +189,7 @@ const ROADMAP_DATA: RoadmapItem[] = [
   },
   {
     release: "R2", domain: "Agent Roster",
-    features: "Autonomous Lead to Lease L3 Agent",
+    features: "Autonomous Lease Progression",
     theme: "Growth", jiraId: "DEV-281034",
     detail: {
       description: "A fully autonomous agent that manages the entire lead-to-lease funnel — from initial inquiry through qualification, tour scheduling, application processing, screening, and lease execution — without human intervention for standard scenarios.",
@@ -524,7 +524,7 @@ export function RoadmapOverlay() {
                   {[
                     { milestone: "Prove the Value & Drive Agent Adoption", theme: "Visibility + Intelligence", oneLiner: "Operators see what AI is doing, measure it against outcomes, manage agents at scale, and the knowledge layer gets smarter" },
                     { milestone: "Go Everywhere — OXP Studio Mobile", theme: "Mobility", oneLiner: "OXP Studio goes mobile — escalations, comms, performance, and agent oversight from anywhere" },
-                    { milestone: "Full Platform", theme: "Autonomous Workflow", oneLiner: "Complete agent configuration in Studio, the first L3 autonomous workflow (Lead-to-Lease), and a build-your-own agent framework" },
+                    { milestone: "Full Platform", theme: "Autonomous Workflow", oneLiner: "Complete agent configuration in Studio, the first L3 autonomous workflow (Lease Progression), and a build-your-own agent framework" },
                   ].map((row, idx) => (
                     <div key={idx} style={{ display: "grid", gridTemplateColumns: "260px 140px 1fr", padding: "10px 16px", borderBottom: idx < 2 ? "1px solid #f5f5f5" : "none", alignItems: "start" }}>
                       <span style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>{row.milestone}</span>
@@ -689,7 +689,7 @@ export function RoadmapOverlay() {
                   </p>
                 </div>
                 <p style={{ fontSize: 12, color: "rgba(0,0,0,0.6)", lineHeight: 1.7, marginBottom: 20 }}>
-                  This milestone has three stories running in parallel. <strong>ELI+ In OXP</strong> brings full agent configuration and voice control inside the platform. <strong>OXP Autonomous Lead-to-Lease</strong> delivers the first L3 agents — 11 autonomous agents that automate the leasing funnel end-to-end. And <strong>Agent Builder</strong> opens the platform for operators to create their own agents.
+                  This milestone has three stories running in parallel. <strong>ELI+ In OXP</strong> brings full agent configuration and voice control inside the platform. <strong>OXP Autonomous Lease Progression</strong> delivers the first L3 agents — 11 autonomous agents that automate the leasing funnel end-to-end. And <strong>Agent Builder</strong> opens the platform for operators to create their own agents.
                 </p>
 
                 {/* Initiative: ELI+ In OXP */}
@@ -717,11 +717,11 @@ export function RoadmapOverlay() {
                   </div>
                 </div>
 
-                {/* Initiative: OXP Autonomous Lead-to-Lease */}
+                {/* Initiative: OXP Autonomous Lease Progression */}
                 <div style={{ marginBottom: 20 }}>
-                  <h4 style={{ fontSize: 13, fontWeight: 700, color: "#1a1a1a", margin: "0 0 4px" }}>Initiative: OXP Autonomous Lead-to-Lease</h4>
+                  <h4 style={{ fontSize: 13, fontWeight: 700, color: "#1a1a1a", margin: "0 0 4px" }}>Initiative: OXP Autonomous Lease Progression</h4>
                   <p style={{ fontSize: 11, color: "rgba(0,0,0,0.55)", lineHeight: 1.6, marginBottom: 10 }}>
-                    L2L is the marquee initiative — eleven L3 autonomous agents targeting the highest-value workflow in property management: turning leads into signed leases. These aren&apos;t chatbots — they&apos;re event-triggered, proactive agents that drive prospects through the funnel.
+                    Lease Progression is the marquee initiative — eleven L3 autonomous agents targeting the highest-value workflow in property management: turning leads into signed leases. These aren&apos;t chatbots — they&apos;re event-triggered, proactive agents that drive prospects through the funnel.
                   </p>
                   <div style={{ borderRadius: 8, border: "1px solid #ebebeb", overflow: "hidden" }}>
                     <div style={{ display: "grid", gridTemplateColumns: "240px 1fr 1fr", padding: "8px 14px", background: "#fafafa", borderBottom: "1px solid #ebebeb" }}>
@@ -730,8 +730,8 @@ export function RoadmapOverlay() {
                       <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.4)", textTransform: "uppercase", letterSpacing: "0.5px" }}>Value</span>
                     </div>
                     {[
-                      { epic: "Autonomous Lead-to-Lease L3 Agents (11) in OXP Agent Roster", delivers: "Eleven L3 autonomous agents covering the lead-to-lease workflow — from initial lead engagement through application processing — managed inside the Agent Roster", value: "The first L3 agents in OXP Studio. Faster response time to inquiries, proactive follow-up, and automated application handling — all with human-in-the-loop for high-risk decisions" },
-                      { epic: "Lead-to-Lease Data/Metrics in OXP Data Performance", delivers: "Dedicated L2L performance dashboards showing leasing funnel metrics, agent contribution, conversion rates, and cost-per-lease impact", value: "Operators don't just deploy L2L — they prove its value. Connects directly to cost per lease, lead-to-lease conversion, response time, and vacancy loss" },
+                      { epic: "Autonomous Lease Progression L3 Agents (11) in OXP Agent Roster", delivers: "Eleven L3 autonomous agents covering the lead-to-lease workflow — from initial lead engagement through application processing — managed inside the Agent Roster", value: "The first L3 agents in OXP Studio. Faster response time to inquiries, proactive follow-up, and automated application handling — all with human-in-the-loop for high-risk decisions" },
+                      { epic: "Lease Progression Data/Metrics in OXP Data Performance", delivers: "Dedicated Lease Progression performance dashboards showing leasing funnel metrics, agent contribution, conversion rates, and cost-per-lease impact", value: "Operators don't just deploy Lease Progression — they prove its value. Connects directly to cost per lease, lead-to-lease conversion, response time, and vacancy loss" },
                     ].map((row, idx) => (
                       <div key={idx} style={{ display: "grid", gridTemplateColumns: "240px 1fr 1fr", padding: "10px 14px", borderBottom: idx < 1 ? "1px solid #f5f5f5" : "none", alignItems: "start" }}>
                         <span style={{ fontSize: 11, fontWeight: 600, color: "#1a1a1a", paddingRight: 8 }}>{row.epic}</span>
@@ -742,7 +742,7 @@ export function RoadmapOverlay() {
                   </div>
                   <div style={{ background: "rgba(245,158,11,0.06)", borderRadius: 8, padding: "10px 14px", marginTop: 10, border: "1px solid rgba(245,158,11,0.15)" }}>
                     <p style={{ fontSize: 11, fontWeight: 600, color: "#92400e", margin: 0, lineHeight: 1.6 }}>
-                      Why L2L is the headline: Every other initiative builds the platform. L2L demonstrates what the platform enables. &quot;Our AI doesn&apos;t just manage your operation — it closes your leases.&quot;
+                      Why Lease Progression is the headline: Every other initiative builds the platform. Lease Progression demonstrates what the platform enables. &quot;Our AI doesn&apos;t just manage your operation — it closes your leases.&quot;
                     </p>
                   </div>
                 </div>
@@ -1089,10 +1089,10 @@ export function RoadmapOverlay() {
                     ],
                   },
                   {
-                    name: "OXP Autonomous Lead-to-Lease",
+                    name: "OXP Autonomous Lease Progression",
                     epics: [
-                      { epic: "Autonomous Lead-to-Lease L3 Agents (11) in OXP Agent Roster", jiraId: "DEV-281034" },
-                      { epic: "Lead-to-Lease Data/Metrics in OXP Data Performance", jiraId: "DEV-281041" },
+                      { epic: "Autonomous Lease Progression L3 Agents (11) in OXP Agent Roster", jiraId: "DEV-281034" },
+                      { epic: "Lease Progression Data/Metrics in OXP Data Performance", jiraId: "DEV-281041" },
                     ],
                   },
                   {
