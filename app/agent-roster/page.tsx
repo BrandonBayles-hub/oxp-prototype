@@ -329,7 +329,7 @@ function AgentRosterContent() {
     if (!agentId) return;
     const agent = agents.find((a) => a.id === agentId);
     if (!agent) return;
-    if (agent.name === "Autonomous Lead To Lease") {
+    if (agent.name === "Autonomous Lease Progression") {
       if (agent.status === "Active") setLeadToLeaseOpen(true);
       else setLeadToLeaseActivateOpen(true);
       return;
@@ -526,7 +526,7 @@ function AgentRosterContent() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-3 mb-1">
-                        <p className="text-lg font-bold text-foreground">Autonomous Lead To Lease</p>
+                        <p className="text-lg font-bold text-foreground">Autonomous Lease Progression</p>
                         <span className="rounded-full bg-gradient-to-r from-[#7c3aed] to-[#6d28d9] px-2.5 py-0.5 text-[10px] font-bold text-white tracking-wide">L5</span>
                         <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${l5Agent.status === "Active" ? "bg-[#B3FFCC] text-black" : "bg-amber-400 text-amber-950"}`}>
                           {l5Agent.status}
@@ -744,7 +744,7 @@ function AgentRosterContent() {
                               }`}
                               onClick={() => {
                                 if (isOffEliPlus) return;
-                                if (agent.name === "Autonomous Lead To Lease") {
+                                if (agent.name === "Autonomous Lease Progression") {
                                   if (agent.status === "Active") setLeadToLeaseOpen(true);
                                   else setLeadToLeaseActivateOpen(true);
                                   return;
@@ -1076,7 +1076,7 @@ function AgentRosterContent() {
       })()}
 
       {(() => {
-        const l2lAgent = agents.find((a) => a.name === "Autonomous Lead To Lease");
+        const l2lAgent = agents.find((a) => a.name === "Autonomous Lease Progression");
         const l2lIsActive = l2lAgent?.status === "Active";
         const toggleL2L = () => {
           if (!l2lAgent) return;
@@ -1087,7 +1087,7 @@ function AgentRosterContent() {
             <Sheet open={leadToLeaseOpen} onOpenChange={setLeadToLeaseOpen}>
               <SheetContent className="w-full flex flex-col overflow-hidden p-0 sm:max-w-[90vw]">
                 <SheetHeader className="sr-only">
-                  <SheetTitle>Autonomous Lead To Lease</SheetTitle>
+                  <SheetTitle>Autonomous Lease Progression</SheetTitle>
                   <SheetDescription>Lead to lease settings and configuration</SheetDescription>
                 </SheetHeader>
                 <div className="flex-1 min-h-0 overflow-hidden">
@@ -1107,7 +1107,7 @@ function AgentRosterContent() {
                       <img src="/eli-cube.svg" alt="" width={24} height={24} />
                     </div>
                     <div>
-                      <DialogTitle className="text-base font-semibold">Autonomous Lead To Lease</DialogTitle>
+                      <DialogTitle className="text-base font-semibold">Autonomous Lease Progression</DialogTitle>
                       <DialogDescription className="text-sm text-muted-foreground">
                         End-to-end leasing intelligence for your portfolio
                       </DialogDescription>
@@ -1162,7 +1162,7 @@ function AgentRosterContent() {
                       setLeadToLeaseOpen(true);
                     }}
                   >
-                    Activate Autonomous Lead To Lease
+                    Activate Autonomous Lease Progression
                   </Button>
                 </div>
               </DialogContent>

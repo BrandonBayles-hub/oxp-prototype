@@ -455,7 +455,7 @@ export function EntrataTopNav() {
                       {
                         id: "r2",
                         label: "R2 Release State",
-                        tagline: "+ Comms, Agent Roster V2, Autonomous L2L, etc.",
+                        tagline: "+ Comms, Agent Roster V2, Autonomous Lease Progression, etc.",
                         isActive: isR2Release,
                         onSelect: () => { setR2Release(true); setR1Release(false); },
                       },
