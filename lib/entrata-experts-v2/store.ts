@@ -12,6 +12,7 @@ import type {
 } from "./types";
 import { compose } from "./data/answers";
 import { generateActivity } from "./data/activity";
+import { useExpertsHistory, type HistoryThread } from "./history-store";
 
 const REMEMBERED_BY_ROLE: Record<RoleId, string[]> = {
   "vp-ops": [
@@ -62,14 +63,48 @@ export interface ChatState {
   activity: Conversation[];
 }
 
+// Map a shared HistoryThread (analyst source) back into the richer
+// Conversation shape the Analyst UI renders. The live conversations are
+// display-only — the analytics rollup fields are filled with sane defaults
+// (the Activity Log uses generateActivity(), not these live records).
+function toConversation(t: HistoryThread): Conversation {
+  let lastLens: LensId | undefined;
+  for (let i = t.messages.length - 1; i >= 0; i--) {
+    const m = t.messages[i];
+    if (m.role === "assistant") {
+      lastLens = m.lens;
+      break;
+    }
+  }
+  const lens = t.lens ?? lastLens ?? "leasing";
+  return {
+    id: t.id,
+    title: t.title,
+    userId: "e-analyst",
+    messages: t.messages,
+    createdAt: t.createdAt,
+    updatedAt: t.updatedAt,
+    intent: "live",
+    lens,
+    turnCount: t.messages.filter((m) => m.role === "user").length,
+    durationMs: 0,
+    resolution: "ongoing",
+    lensesUsed: [lens],
+    scopesUsed: [],
+    everDownvoted: false,
+    everRefused: false,
+    everEscalated: false,
+    regressed: false,
+  };
+}
+
 export function useChatStore(): ChatState {
+  const history = useExpertsHistory();
   const [role, setRole] = React.useState<RoleId>("vp-ops");
   const [scope, setScope] = React.useState<Scope>({ kind: "portfolio", id: "portfolio", label: "Whole portfolio" });
   const [lens, setLens] = React.useState<LensId>("leasing");
   const [depth, setDepth] = React.useState<Depth>("auto");
   const [model, setModel] = React.useState<ModelId>("auto");
-  const [conversations, setConversations] = React.useState<Conversation[]>([]);
-  const [activeId, setActiveId] = React.useState<string | null>(null);
   const [isThinking, setIsThinking] = React.useState(false);
   const [activity, setActivity] = React.useState<Conversation[]>([]);
 
@@ -78,6 +113,21 @@ export function useChatStore(): ChatState {
   }, []);
 
   const remembered = REMEMBERED_BY_ROLE[role];
+
+  // Analyst conversations are the analyst-sourced slice of the shared history.
+  const conversations = React.useMemo<Conversation[]>(
+    () =>
+      history.threads
+        .filter((t) => t.source.kind === "analyst")
+        .map(toConversation),
+    [history.threads],
+  );
+
+  // The shared active thread only counts as "active" here if it belongs to
+  // the Analyst — otherwise this surface shows its empty state.
+  const activeThread = history.activeId ? history.getThread(history.activeId) : undefined;
+  const activeId =
+    activeThread && activeThread.source.kind === "analyst" ? activeThread.id : null;
 
   // Lens defaults to "Leasing" and stays there until the user explicitly picks
   // another. We deliberately don't re-derive it from role, so switching role
@@ -90,11 +140,11 @@ export function useChatStore(): ChatState {
   }
 
   function newConversation() {
-    setActiveId(null);
+    history.newThread();
   }
 
   function selectConversation(id: string) {
-    setActiveId(id);
+    history.setActiveId(id);
   }
 
   function send(prompt: string) {
@@ -106,79 +156,74 @@ export function useChatStore(): ChatState {
       createdAt: new Date(now).toISOString(),
     };
 
-    const isNew = !activeId;
-    const convId = isNew ? `c-${now}` : (activeId as string);
+    // Continue the active Analyst thread if one is open; otherwise start fresh.
+    const current = history.activeId ? history.getThread(history.activeId) : undefined;
+    const continuing = current && current.source.kind === "analyst";
 
-    if (isNew) {
-      const newConv: Conversation = {
-        id: convId,
-        title: prompt.length > 60 ? prompt.slice(0, 57) + "..." : prompt,
-        userId: `e-${role}`,
-        messages: [userMsg],
-        createdAt: userMsg.createdAt,
-        updatedAt: userMsg.createdAt,
-        intent: "pending",
-        lens,
-        turnCount: 1,
-        durationMs: 0,
-        resolution: "ongoing",
-        lensesUsed: [lens],
-        scopesUsed: [],
-        everDownvoted: false,
-        everRefused: false,
-        everEscalated: false,
-        regressed: false,
-      };
-      setConversations((prev) => {
-        if (prev.some((c) => c.id === convId)) return prev;
-        return [newConv, ...prev];
-      });
-      setActiveId(convId);
+    // Prior turns (for live model context) captured BEFORE the new user
+    // message is appended below.
+    const priorTurns = continuing
+      ? current!.messages.map((m) => ({ role: m.role, content: m.body }))
+      : [];
+
+    let convId: string;
+    if (continuing) {
+      convId = current!.id;
+      history.appendMessage(convId, userMsg);
     } else {
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === convId
-            ? {
-                ...c,
-                messages: c.messages.some((m) => m.id === userMsg.id)
-                  ? c.messages
-                  : [...c.messages, userMsg],
-                updatedAt: userMsg.createdAt,
-              }
-            : c,
-        ),
-      );
+      convId = history.createThread({
+        source: { kind: "analyst" },
+        title: prompt.length > 60 ? prompt.slice(0, 57) + "..." : prompt,
+        lens,
+        message: userMsg,
+      });
     }
 
     setIsThinking(true);
-    const thinkMs = depth === "fast" ? 900 : depth === "reasoning" ? 1900 : 1100;
 
-    setTimeout(() => {
-      const composed = compose({ prompt, lens, depth, scope });
-      const aMsgId = `a-${Date.now()}`;
+    const appendAssistant = (
+      message: Omit<AssistantMessage, "id" | "createdAt">,
+    ) => {
       const aMsg: AssistantMessage = {
-        ...composed.message,
-        id: aMsgId,
+        ...message,
+        id: `a-${Date.now()}`,
         model,
         createdAt: new Date().toISOString(),
       };
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === convId
-            ? {
-                ...c,
-                messages: c.messages.some((m) => m.id === aMsgId)
-                  ? c.messages
-                  : [...c.messages, aMsg],
-                updatedAt: aMsg.createdAt,
-                intent: composed.intentId,
-                lens: aMsg.lens,
-              }
-            : c,
-        ),
-      );
+      history.appendMessage(convId, aMsg, { lens: aMsg.lens });
       setIsThinking(false);
-    }, thinkMs);
+    };
+
+    // Built-in mock answer engine — used when LiteLLM isn't configured or the
+    // live call fails, so the prototype always responds.
+    const runMock = () => {
+      const thinkMs = depth === "fast" ? 900 : depth === "reasoning" ? 1900 : 1100;
+      setTimeout(() => {
+        const composed = compose({ prompt, lens, depth, scope });
+        appendAssistant(composed.message);
+      }, thinkMs);
+    };
+
+    // Try the live LiteLLM proxy first; fall back to the mock on any failure.
+    void (async () => {
+      try {
+        // Trailing slash matches next.config `trailingSlash: true` (avoids a
+        // 308 redirect on the POST).
+        const res = await fetch("/api/experts/chat/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt, lens, depth, model, role, scope, messages: priorTurns }),
+        });
+        const data = await res.json().catch(() => null);
+        if (res.ok && data?.ok && data.message) {
+          appendAssistant(data.message as Omit<AssistantMessage, "id" | "createdAt">);
+        } else {
+          runMock();
+        }
+      } catch {
+        runMock();
+      }
+    })();
   }
 
   return {

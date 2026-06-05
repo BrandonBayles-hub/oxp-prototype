@@ -9,7 +9,15 @@ export type LensId =
 
 export type Depth = "auto" | "fast" | "reasoning";
 
-export type ModelId = "auto" | "opus-4-7" | "gpt-5-5" | "kimi-k2-5";
+// "auto" + the legacy curated ids are kept for autocomplete and back-compat.
+// Live selections from the LiteLLM /models catalog use their raw proxy id, so
+// any string is also accepted — the `(string & {})` preserves literal hints.
+export type ModelId =
+  | "auto"
+  | "opus-4-7"
+  | "gpt-5-5"
+  | "kimi-k2-5"
+  | (string & {});
 
 export type RoleId =
   | "vp-ops"

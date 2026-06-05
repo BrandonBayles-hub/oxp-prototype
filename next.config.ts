@@ -46,8 +46,15 @@ const academyCssAliases = {
   ),
 };
 
+// Static export is now OPT-IN. The Entrata Analyst → LiteLLM integration needs
+// a server runtime (the /api/experts/chat route handler keeps the API key
+// server-side), which a static export cannot provide. Default builds run in
+// server mode; set STATIC_EXPORT=1 for the legacy static `out/` artifact (which
+// will NOT include the live-LLM route).
+const staticExport = process.env.STATIC_EXPORT === "1";
+
 const nextConfig: NextConfig = {
-  output: "export",
+  ...(staticExport ? { output: "export" as const } : {}),
   trailingSlash: true,
   devIndicators: false,
   outputFileTracingRoot: path.join(__dirname),

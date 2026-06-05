@@ -1,6 +1,26 @@
 "use client";
 import * as React from "react";
 import { ASSISTANT_BY_ID } from "./assistants";
+import {
+  useExpertsHistory,
+  sameSource,
+  type HistoryThread,
+  type ThreadSource,
+} from "./history-store";
+import type { AssistantMessage, Scope, UserMessage } from "./types";
+
+// =============================================================================
+// Assistant / Report chat store — thin adapter over the shared history.
+// -----------------------------------------------------------------------------
+// Both the pre-built Assistants and the Report Analyzer call this hook. They
+// no longer keep their own per-surface thread list; instead they read and
+// write the one shared ExpertsHistory store so every conversation shows up in
+// the single shared sidebar regardless of which expert produced it.
+//
+// The `assistantId` argument doubles as the source key:
+//   - "rpt-<reportId>"  → a Report Analyzer thread   ({ kind: "report", id })
+//   - anything else     → a pre-built Assistant       ({ kind: "assistant", id })
+// =============================================================================
 
 export interface AssistantThreadMessage {
   id: string;
@@ -26,33 +46,32 @@ export interface AssistantChatState {
   send: (text: string) => void;
 }
 
-const STORAGE_PREFIX = "oxp:experts-v2:assistants:";
+const DEFAULT_SCOPE: Scope = {
+  kind: "portfolio",
+  id: "portfolio",
+  label: "Whole portfolio",
+};
 
-function readPersisted(assistantId: string): { threads: AssistantThread[]; activeId: string | null } {
-  if (typeof window === "undefined") return { threads: [], activeId: null };
-  try {
-    const raw = window.sessionStorage.getItem(STORAGE_PREFIX + assistantId);
-    if (!raw) return { threads: [], activeId: null };
-    const parsed = JSON.parse(raw);
-    return {
-      threads: Array.isArray(parsed?.threads) ? parsed.threads : [],
-      activeId: typeof parsed?.activeId === "string" ? parsed.activeId : null,
-    };
-  } catch {
-    return { threads: [], activeId: null };
+function parseSource(assistantId: string): ThreadSource {
+  if (assistantId.startsWith("rpt-")) {
+    return { kind: "report", id: assistantId.slice("rpt-".length) };
   }
+  return { kind: "assistant", id: assistantId };
 }
 
-function writePersisted(assistantId: string, threads: AssistantThread[], activeId: string | null) {
-  if (typeof window === "undefined") return;
-  try {
-    window.sessionStorage.setItem(
-      STORAGE_PREFIX + assistantId,
-      JSON.stringify({ threads, activeId }),
-    );
-  } catch {
-    // ignore quota / privacy errors
-  }
+function toAssistantThread(t: HistoryThread): AssistantThread {
+  return {
+    id: t.id,
+    title: t.title,
+    createdAt: t.createdAt,
+    updatedAt: t.updatedAt,
+    messages: t.messages.map((m) => ({
+      id: m.id,
+      role: m.role,
+      body: m.body,
+      createdAt: m.createdAt,
+    })),
+  };
 }
 
 function makeReply(assistantId: string, prompt: string): string {
@@ -63,97 +82,84 @@ function makeReply(assistantId: string, prompt: string): string {
   return `**${name}** · prototype response\n\nThanks — here's a starting point for: "${head}". In the live product I'd draft a structured answer with examples and follow-up suggestions tailored to your portfolio. For now this is an in-browser echo so you can preview the flow.`;
 }
 
+// Wrap a plain text reply in the shared AssistantMessage shape. Generative
+// assistants have no citations / artifacts, so those stay empty.
+function makeAssistantMessage(body: string): AssistantMessage {
+  return {
+    id: `a-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    role: "assistant",
+    body,
+    lens: "auto",
+    depth: "auto",
+    model: "auto",
+    scope: DEFAULT_SCOPE,
+    citations: [],
+    artifacts: [],
+    trace: [],
+    confidence: "medium",
+    followUps: [],
+    outcome: "answered",
+    createdAt: new Date().toISOString(),
+  };
+}
+
 export function useAssistantChatStore(assistantId: string): AssistantChatState {
-  const [threads, setThreads] = React.useState<AssistantThread[]>([]);
-  const [activeId, setActiveId] = React.useState<string | null>(null);
+  const history = useExpertsHistory();
+  const source = React.useMemo(() => parseSource(assistantId), [assistantId]);
   const [isThinking, setIsThinking] = React.useState(false);
 
-  // Load persisted threads on mount / when assistant changes
-  React.useEffect(() => {
-    const { threads: t, activeId: a } = readPersisted(assistantId);
-    setThreads(t);
-    setActiveId(a);
-    setIsThinking(false);
-  }, [assistantId]);
+  const threads = React.useMemo(
+    () =>
+      history.threads
+        .filter((t) => sameSource(t.source, source))
+        .map(toAssistantThread),
+    [history.threads, source],
+  );
 
-  // Persist whenever threads or active id changes
-  React.useEffect(() => {
-    writePersisted(assistantId, threads, activeId);
-  }, [assistantId, threads, activeId]);
+  const active = history.activeId ? history.getThread(history.activeId) : undefined;
+  const activeId = active && sameSource(active.source, source) ? active.id : null;
 
-  function newThread() {
-    setActiveId(null);
-  }
+  const newThread = React.useCallback(() => history.newThread(), [history]);
+  const selectThread = React.useCallback(
+    (id: string) => history.setActiveId(id),
+    [history],
+  );
 
-  function selectThread(id: string) {
-    setActiveId(id);
-  }
-
-  function send(text: string) {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    const now = Date.now();
-    const userMsg: AssistantThreadMessage = {
-      id: `u-${now}`,
-      role: "user",
-      body: trimmed,
-      createdAt: new Date(now).toISOString(),
-    };
-
-    const isNew = !activeId;
-    const threadId = isNew ? `t-${now}` : (activeId as string);
-
-    if (isNew) {
-      const newT: AssistantThread = {
-        id: threadId,
-        title: trimmed.length > 60 ? trimmed.slice(0, 57) + "…" : trimmed,
-        messages: [userMsg],
-        createdAt: userMsg.createdAt,
-        updatedAt: userMsg.createdAt,
+  const send = React.useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      const now = Date.now();
+      const userMsg: UserMessage = {
+        id: `u-${now}`,
+        role: "user",
+        body: trimmed,
+        createdAt: new Date(now).toISOString(),
       };
-      setThreads((prev) => (prev.some((t) => t.id === threadId) ? prev : [newT, ...prev]));
-      setActiveId(threadId);
-    } else {
-      setThreads((prev) =>
-        prev.map((t) =>
-          t.id === threadId
-            ? {
-                ...t,
-                messages: t.messages.some((m) => m.id === userMsg.id)
-                  ? t.messages
-                  : [...t.messages, userMsg],
-                updatedAt: userMsg.createdAt,
-              }
-            : t,
-        ),
-      );
-    }
 
-    setIsThinking(true);
-    setTimeout(() => {
-      const replyId = `a-${Date.now()}`;
-      const aMsg: AssistantThreadMessage = {
-        id: replyId,
-        role: "assistant",
-        body: makeReply(assistantId, trimmed),
-        createdAt: new Date().toISOString(),
-      };
-      setThreads((prev) =>
-        prev.map((t) =>
-          t.id === threadId
-            ? {
-                ...t,
-                messages: t.messages.some((m) => m.id === replyId)
-                  ? t.messages
-                  : [...t.messages, aMsg],
-                updatedAt: aMsg.createdAt,
-              }
-            : t,
-        ),
-      );
-      setIsThinking(false);
-    }, 700);
-  }
+      const current = history.activeId ? history.getThread(history.activeId) : undefined;
+      const continuing = current && sameSource(current.source, source);
+
+      let threadId: string;
+      if (continuing) {
+        threadId = current!.id;
+        history.appendMessage(threadId, userMsg);
+      } else {
+        threadId = history.createThread({
+          source,
+          title: trimmed.length > 60 ? trimmed.slice(0, 57) + "…" : trimmed,
+          message: userMsg,
+        });
+      }
+
+      setIsThinking(true);
+      setTimeout(() => {
+        history.appendMessage(threadId, makeAssistantMessage(makeReply(assistantId, trimmed)));
+        setIsThinking(false);
+      }, 700);
+    },
+    [assistantId, history, source],
+  );
 
   return { threads, activeId, isThinking, newThread, selectThread, send };
 }

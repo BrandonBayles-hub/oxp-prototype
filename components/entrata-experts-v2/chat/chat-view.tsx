@@ -1,14 +1,12 @@
 "use client";
 import * as React from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { ThreadsSidebar } from "./threads-sidebar";
 import { MessageInput } from "./message-input";
 import { SuggestedPrompts } from "./suggested-prompts";
 import { AssistantBubble, UserBubble } from "./message-bubble";
 import { ThinkingBubble } from "./thinking-bubble";
 import type { ChatState } from "@/lib/entrata-experts-v2/store";
 import type { AssistantMessage } from "@/lib/entrata-experts-v2/types";
-import { useEntrataExpertsRelease } from "@/lib/entrata-experts-release-context";
 import { useAnalyticsHandoff } from "@/lib/analytics-handoff-context";
 import { isHandoffEligible } from "@/lib/entrata-experts-v2/analytics-handoff";
 
@@ -21,9 +19,7 @@ const HANDOFF_NL =
 export function ChatView({ store }: { store: ChatState }) {
   const activeConv = store.conversations.find((c) => c.id === store.activeId) ?? null;
   const scrollRef = React.useRef<HTMLDivElement>(null);
-  const { atLeast } = useEntrataExpertsRelease();
   const { handoffEnabled, openHandoff } = useAnalyticsHandoff();
-  const showThreadsSidebar = atLeast("v1.0");
 
   React.useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -60,15 +56,6 @@ export function ChatView({ store }: { store: ChatState }) {
   return (
     <TooltipProvider delayDuration={120}>
       <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
-        {showThreadsSidebar && (
-          <ThreadsSidebar
-            conversations={store.conversations}
-            activeId={store.activeId}
-            onSelect={store.selectConversation}
-            onNew={store.newConversation}
-          />
-        )}
-
         <main className="flex min-w-0 flex-1 flex-col">
           {!activeConv ? (
             <EmptyState

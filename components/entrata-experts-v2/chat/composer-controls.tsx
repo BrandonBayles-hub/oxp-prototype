@@ -6,12 +6,12 @@ import {
   LENS_BY_ID,
   DEPTHS,
   DEPTH_BY_ID,
-  MODELS,
-  MODEL_BY_ID,
 } from "@/lib/entrata-experts-v2/lenses";
 import type { LensId, Depth, ModelId } from "@/lib/entrata-experts-v2/types";
 import { ChevronDown, Zap, Brain, Sparkles, Cpu, Check, Aperture } from "lucide-react";
 import { useEntrataExpertsRelease } from "@/lib/entrata-experts-release-context";
+import { useModelCatalog } from "@/lib/entrata-experts-v2/use-model-catalog";
+import { describeModel } from "@/lib/entrata-experts-v2/llm/model-catalog";
 import { cn } from "@/lib/utils";
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -204,21 +204,6 @@ function lensOptions(): Option[] {
   });
 }
 
-function modelOptions(): Option[] {
-  // "auto" is not a user-pickable model — the composer offers concrete models
-  // only (the system still auto-routes when none is chosen).
-  return MODELS.filter((m) => m.id !== "auto").map((m) => ({
-    id: m.id,
-    label: m.label,
-    blurb: m.blurb,
-    icon: <Cpu className="h-3.5 w-3.5" style={{ color: m.hue }} />,
-    iconBg: `${m.hue}1a`,
-    rightChip: m.provider,
-    rightChipColor: m.hue,
-    paid: m.paid,
-  }));
-}
-
 // ── Public pickers ────────────────────────────────────────────────────────
 
 export function ModePicker({ depth, onSelect }: { depth: Depth; onSelect: (d: Depth) => void }) {
@@ -266,14 +251,30 @@ export function LensPicker({ lens, onSelect }: { lens: LensId; onSelect: (l: Len
 }
 
 export function ModelPicker({ model, onSelect }: { model: ModelId; onSelect: (m: ModelId) => void }) {
-  // With "auto" no longer pickable, the pill reads as a "Model" placeholder
-  // until the user picks a concrete model.
-  const isAuto = model === "auto";
-  const def = MODEL_BY_ID[model];
+  // Models come live from the LiteLLM proxy (with a static fallback). "auto" is
+  // not a user-pickable model — the pill reads as a "Model" placeholder until
+  // the user picks a concrete one (the system still auto-routes otherwise).
+  const { models, byId, source } = useModelCatalog();
+  const isAuto = model === "auto" || !model;
+  const def = byId[model] ?? describeModel(model);
+
+  const options: Option[] = models
+    .filter((m) => m.id !== "auto")
+    .map((m) => ({
+      id: m.id,
+      label: m.label,
+      blurb: m.blurb,
+      icon: <Cpu className="h-3.5 w-3.5" style={{ color: m.hue }} />,
+      iconBg: `${m.hue}1a`,
+      rightChip: m.provider,
+      rightChipColor: m.hue,
+      paid: m.paid,
+    }));
+
   return (
     <ComposerSelect
       title="Model"
-      subtitle="Which model answers"
+      subtitle={source === "live" ? "Live from LiteLLM" : "Which model answers"}
       triggerIcon={
         <Cpu className="h-3.5 w-3.5" style={{ color: isAuto ? "hsl(var(--muted-foreground))" : def.hue }} />
       }
@@ -282,7 +283,7 @@ export function ModelPicker({ model, onSelect }: { model: ModelId; onSelect: (m:
       triggerActive={!isAuto}
       value={model}
       onSelect={(id) => onSelect(id as ModelId)}
-      options={modelOptions()}
+      options={options}
       contentClassName="w-[340px]"
     />
   );

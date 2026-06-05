@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowUp, Plus, Sparkles, FileBarChart } from "lucide-react";
+import { ArrowUp, Sparkles, FileBarChart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BackBar } from "./back-bar";
 import {
@@ -10,7 +10,6 @@ import {
   startersFor,
 } from "@/lib/entrata-experts-v2/reports";
 import { useAssistantChatStore } from "@/lib/entrata-experts-v2/assistant-chat-store";
-import { formatRelative } from "@/lib/entrata-experts-v2/format";
 import { cn } from "@/lib/utils";
 
 // =============================================================================
@@ -145,18 +144,6 @@ export function ReportAnalyzerChat({
           placeholder={`Ask anything about ${report.name}…`}
         />
       </main>
-
-      <ThreadRail
-        title={`${report.name} history`}
-        threads={store.threads.map((t) => ({
-          id: t.id,
-          title: t.title,
-          updatedAt: t.updatedAt,
-        }))}
-        activeId={store.activeId}
-        onSelect={store.selectThread}
-        onNew={store.newThread}
-      />
     </div>
   );
 }
@@ -380,63 +367,3 @@ function Composer({
   );
 }
 
-function ThreadRail({
-  title,
-  threads,
-  activeId,
-  onSelect,
-  onNew,
-}: {
-  title: string;
-  threads: { id: string; title: string; updatedAt: string }[];
-  activeId: string | null;
-  onSelect: (id: string) => void;
-  onNew: () => void;
-}) {
-  return (
-    <aside className="hidden w-[260px] shrink-0 flex-col border-l border-border bg-muted/30 lg:flex">
-      <div className="flex items-center justify-between border-b border-border px-3 py-3">
-        <span className="truncate text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          {title}
-        </span>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 text-muted-foreground hover:text-foreground"
-          onClick={onNew}
-          aria-label="New chat"
-          title="New chat"
-        >
-          <Plus className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-      <div className="flex-1 overflow-y-auto scrollbar-hover px-2 py-2">
-        {threads.length === 0 ? (
-          <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-            No analyses yet.
-          </div>
-        ) : (
-          threads.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => onSelect(t.id)}
-              className={cn(
-                "flex w-full flex-col items-start rounded-md px-2 py-2 text-left transition-colors hover:bg-muted/60",
-                activeId === t.id && "bg-muted",
-              )}
-            >
-              <span className="line-clamp-2 text-[13px] leading-tight text-foreground">
-                {t.title}
-              </span>
-              <span className="mt-0.5 text-[10px] text-muted-foreground">
-                {formatRelative(t.updatedAt)}
-              </span>
-            </button>
-          ))
-        )}
-      </div>
-    </aside>
-  );
-}

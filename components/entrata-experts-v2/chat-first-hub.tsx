@@ -33,12 +33,19 @@ import { AssistantChat } from "./assistant-chat";
 import { ReportAnalyzerChat } from "./report-analyzer-chat";
 import { ReportAnalyzerModule } from "./report-analyzer-module";
 import { CreditsUsage } from "./credits-usage";
+import { SharedHistorySidebar } from "./shared-history-sidebar";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
   useEntrataExpertsRelease,
   ENTRATA_EXPERTS_VERSIONS,
 } from "@/lib/entrata-experts-release-context";
+import {
+  ExpertsHistoryProvider,
+  useExpertsHistory,
+  type HistoryThread,
+  type ThreadSource,
+} from "@/lib/entrata-experts-v2/history-store";
 
 // =============================================================================
 // Chat-first hub
@@ -116,8 +123,28 @@ export interface ChatFirstHubProps {
   onExitFocus?: () => void;
 }
 
-export function ChatFirstHub({ onExitFocus }: ChatFirstHubProps = {}) {
-  const [selection, setSelection] = React.useState<Selection>(DEFAULT_SELECTION);
+function sourceToSelection(s: ThreadSource): Selection {
+  if (s.kind === "analyst") return { kind: "analyst" };
+  if (s.kind === "assistant") return { kind: "assistant", id: s.id };
+  return { kind: "report", id: s.id };
+}
+
+// Public entry — provides the shared history context to the whole workspace so
+// every surface (Analyst, Assistants, Report Analyzer) reads/writes one list.
+export function ChatFirstHub(props: ChatFirstHubProps = {}) {
+  return (
+    <ExpertsHistoryProvider>
+      <ChatFirstHubInner {...props} />
+    </ExpertsHistoryProvider>
+  );
+}
+
+function ChatFirstHubInner({ onExitFocus }: ChatFirstHubProps) {
+  const history = useExpertsHistory();
+  // `pendingSelection` is which surface to show when *no* thread is open (a
+  // fresh "new conversation"). When a thread is open, the surface is derived
+  // from that thread's source instead — so selection always matches history.
+  const [pendingSelection, setPendingSelection] = React.useState<Selection>(DEFAULT_SELECTION);
   const [mode, setMode] = React.useState<HubMode>(DEFAULT_MODE);
   const [hydrated, setHydrated] = React.useState(false);
 
@@ -126,7 +153,7 @@ export function ChatFirstHub({ onExitFocus }: ChatFirstHubProps = {}) {
   const showTokens = atLeast("v1.2");
 
   React.useEffect(() => {
-    setSelection(loadSelection());
+    setPendingSelection(loadSelection());
     setMode(loadMode());
     setHydrated(true);
   }, []);
@@ -134,12 +161,12 @@ export function ChatFirstHub({ onExitFocus }: ChatFirstHubProps = {}) {
   React.useEffect(() => {
     if (!hydrated) return;
     try {
-      window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(selection));
+      window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(pendingSelection));
       window.sessionStorage.setItem(MODE_STORAGE_KEY, mode);
     } catch {
       /* ignore */
     }
-  }, [selection, mode, hydrated]);
+  }, [pendingSelection, mode, hydrated]);
 
   // If the release is downgraded below v1.2 while Tokens & Usage is open,
   // snap back to the Experts workspace so we never show a gated surface.
@@ -147,10 +174,34 @@ export function ChatFirstHub({ onExitFocus }: ChatFirstHubProps = {}) {
     if (!showTokens && mode === "tokens") setMode("experts");
   }, [showTokens, mode]);
 
-  const selectAnalyst = () => setSelection({ kind: "analyst" });
-  const selectAssistant = (id: string) => setSelection({ kind: "assistant", id });
-  const selectReportPicker = () => setSelection({ kind: "report-picker" });
-  const selectReport = (id: string) => setSelection({ kind: "report", id });
+  const activeThread = history.activeId ? history.getThread(history.activeId) : undefined;
+  const selection: Selection = activeThread
+    ? sourceToSelection(activeThread.source)
+    : pendingSelection;
+
+  // Rail clicks start a fresh conversation on the chosen surface. Specific
+  // threads are reopened from the shared history sidebar.
+  const selectAnalyst = () => {
+    setPendingSelection({ kind: "analyst" });
+    history.newThread();
+  };
+  const selectAssistant = (id: string) => {
+    setPendingSelection({ kind: "assistant", id });
+    history.newThread();
+  };
+  const selectReportPicker = () => {
+    setPendingSelection({ kind: "report-picker" });
+    history.newThread();
+  };
+  const selectReport = (id: string) => {
+    setPendingSelection({ kind: "report", id });
+    history.newThread();
+  };
+  const openThread = (thread: HistoryThread) => {
+    setPendingSelection(sourceToSelection(thread.source));
+    history.setActiveId(thread.id);
+  };
+  const newConversation = () => history.newThread();
 
   const showTokensView = mode === "tokens" && showTokens;
 
@@ -178,15 +229,16 @@ export function ChatFirstHub({ onExitFocus }: ChatFirstHubProps = {}) {
             onSelectReportPicker={selectReportPicker}
             onSelectReport={selectReport}
           />
+          <SharedHistorySidebar
+            threads={history.threads}
+            activeId={history.activeId}
+            onOpen={openThread}
+            onNew={newConversation}
+          />
           <main className="flex min-w-0 flex-1 flex-col bg-background">
             {selection.kind === "analyst" && (
               <EmbeddedShell>
-                <AnalystChat
-                  onBack={selectAnalyst}
-                  hideBack
-                  hideNew
-                  alignWithSidebar
-                />
+                <AnalystChat onBack={selectAnalyst} hideBack hideNew />
               </EmbeddedShell>
             )}
             {selection.kind === "assistant" && (
