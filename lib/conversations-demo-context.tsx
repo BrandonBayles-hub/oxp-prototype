@@ -13,9 +13,12 @@ type ConversationsDemoContextValue = {
   /** Increments each time the demo should open the Entrata profile without the threads panel. */
   profileCommsPopupRequest: number;
   requestProfileCommsPopup: () => void;
-  /** When true, Super Agent conversations are visible in the thread list. */
+  /** When true, Super Agent 2.0 conversations are visible in the thread list. */
   superAgentEnabled: boolean;
   toggleSuperAgentEnabled: () => void;
+  /** When true, Super Agent 1.0 conversations are visible in the thread list. */
+  superAgent1Enabled: boolean;
+  toggleSuperAgent1Enabled: () => void;
 };
 
 const ConversationsDemoContext = createContext<ConversationsDemoContextValue | null>(null);
@@ -23,6 +26,7 @@ const ConversationsDemoContext = createContext<ConversationsDemoContextValue | n
 export function ConversationsDemoProvider({ children }: { children: ReactNode }) {
   const [profileCommsPopupRequest, setProfileCommsPopupRequest] = useState(0);
   const [superAgentEnabled, setSuperAgentEnabled] = useState(false);
+  const [superAgent1Enabled, setSuperAgent1Enabled] = useState(false);
 
   const requestProfileCommsPopup = useCallback(() => {
     setProfileCommsPopupRequest((n) => n + 1);
@@ -32,9 +36,13 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
     setSuperAgentEnabled((v) => !v);
   }, []);
 
+  const toggleSuperAgent1Enabled = useCallback(() => {
+    setSuperAgent1Enabled((v) => !v);
+  }, []);
+
   const value = useMemo(
-    () => ({ profileCommsPopupRequest, requestProfileCommsPopup, superAgentEnabled, toggleSuperAgentEnabled }),
-    [profileCommsPopupRequest, requestProfileCommsPopup, superAgentEnabled, toggleSuperAgentEnabled]
+    () => ({ profileCommsPopupRequest, requestProfileCommsPopup, superAgentEnabled, toggleSuperAgentEnabled, superAgent1Enabled, toggleSuperAgent1Enabled }),
+    [profileCommsPopupRequest, requestProfileCommsPopup, superAgentEnabled, toggleSuperAgentEnabled, superAgent1Enabled, toggleSuperAgent1Enabled]
   );
 
   return (

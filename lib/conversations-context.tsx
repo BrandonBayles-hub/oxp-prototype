@@ -910,14 +910,14 @@ export const SUPER_AGENT_DEMO_THREADS: ConversationItem[] = [
     id: "sa-1",
     resident: "Marcus Rivera",
     unit: "Unit 208",
-    preview: "Sounds good, thank you. Let me know what they say about both.",
+    preview: "Sounds good, thank you. Let me know what they say about everything.",
     agent: "AI Super Agent",
     time: "3m ago",
     contactType: "Resident",
     property: "Hillside Living",
     channel: "SMS",
     assignee: "ELI+ Super Agent",
-    labels: ["AI Conversation", "Renewals AI Escalation", "Payments AI Escalation"],
+    labels: ["AI Conversation", "Renewals AI Escalation", "Payments AI Escalation", "Other Escalation"],
     escalationId: "esc-super-marcus-01",
     status: "open",
     hasUnread: true,
@@ -934,7 +934,10 @@ export const SUPER_AGENT_DEMO_THREADS: ConversationItem[] = [
       { role: "staff", text: "", timestamp: "Sep 16 2025 \u00b7 10:07am MST", type: "label_activity", labelActivity: { actor: "ELI+ Super Agent", labelsAdded: ["Payments AI Escalation"], action: "added" } },
       { role: "resident", text: "Ok thanks. Yeah the payment bounced because my direct deposit was delayed from my employer. It's never happened before.", timestamp: "Sep 16 2025 \u00b7 10:08am MST", type: "message" },
       { role: "agent", text: "That makes sense \u2014 those payroll delays are frustrating. Given your clean payment history over two years, the team will definitely take that into account when reviewing the late fee. Hang tight and someone will follow up on both the renewal rate and the late fee.", timestamp: "Sep 16 2025 \u00b7 10:09am MST", type: "message" },
-      { role: "resident", text: "Sounds good, thank you. Let me know what they say about both.", timestamp: "Sep 16 2025 · 10:10am MST", type: "message" },
+      { role: "resident", text: "One more thing \u2014 I'm thinking about hosting a birthday party at the pool area next month. Is that something I need to reserve or get permission for? It would be maybe 15\u201320 people on a Saturday afternoon.", timestamp: "Sep 16 2025 \u00b7 10:10am MST", type: "message" },
+      { role: "agent", text: "Great question! The pool area can be reserved for private events. However, for parties over 10 guests I'll need to connect you with our team to go over the community guidelines, reservation process, and any applicable fees. Let me flag this for them.", timestamp: "Sep 16 2025 \u00b7 10:11am MST", type: "message" },
+      { role: "staff", text: "", timestamp: "Sep 16 2025 \u00b7 10:11am MST", type: "label_activity", labelActivity: { actor: "ELI+ Super Agent", labelsAdded: ["Other Escalation"], action: "added" } },
+      { role: "resident", text: "Sounds good, thank you. Let me know what they say about everything.", timestamp: "Sep 16 2025 \u00b7 10:12am MST", type: "message" },
     ],
   },
 ];
@@ -943,6 +946,39 @@ const SUPER_AGENT_DEMO_THREAD_IDS = new Set(SUPER_AGENT_DEMO_THREADS.map((c) => 
 
 export function isSuperAgentDemoThread(id: string): boolean {
   return SUPER_AGENT_DEMO_THREAD_IDS.has(id);
+}
+
+/** Super Agent 1.0 demo threads — same escalation structure but uses normal composer + resolve button. */
+const SUPER_AGENT_1_DEMO_THREADS: ConversationItem[] = [
+  {
+    id: "sa1-1",
+    resident: "Jordan Lee",
+    preview: "Thanks, just let me know about all of that when you can.",
+    property: "Hillside Living",
+    channel: "SMS",
+    assignee: "ELI+ Super Agent",
+    labels: ["AI Conversation", "Renewals AI Escalation", "Payments AI Escalation"],
+    escalationId: "esc-super1-jordan-01",
+    status: "open",
+    hasUnread: true,
+    messages: [
+      { role: "agent", text: "Hi Jordan! This is Hillside Living's AI assistant. How can I help you today?", timestamp: "Sep 18 2025 \u00b7 9:00am MST", type: "message" },
+      { role: "resident", text: "Hey! I have a couple things going on. My lease is up next month and I got the renewal offer, but the new rate seems high \u2014 is there any flexibility on pricing? I\u2019ve been here two years and always pay on time.", timestamp: "Sep 18 2025 \u00b7 9:01am MST", type: "message" },
+      { role: "agent", text: "Thanks for reaching out, Jordan! I can see your renewal offer is for $1,850/mo (a 3% increase from your current $1,795/mo). I appreciate you being such a great tenant for 2 years!\n\nRate adjustments on renewal offers do require approval from our team. Let me flag this so they can review your request for a possible exception.", timestamp: "Sep 18 2025 \u00b7 9:02am MST", type: "message" },
+      { role: "staff", text: "", timestamp: "Sep 18 2025 \u00b7 9:02am MST", type: "handoff" },
+      { role: "staff", text: "", timestamp: "Sep 18 2025 \u00b7 9:02am MST", type: "label_activity", labelActivity: { actor: "ELI+ Super Agent", labelsAdded: ["Renewals AI Escalation"], action: "added" } },
+      { role: "resident", text: "Ok thanks. Also, my October rent payment bounced \u2014 my employer had a payroll delay. I see a $50 late fee on my account now. Is there any way to get that waived since it wasn\u2019t really my fault?", timestamp: "Sep 18 2025 \u00b7 9:04am MST", type: "message" },
+      { role: "agent", text: "I understand, Jordan. I can see the returned payment for October ($1,795) and the $50 late fee that was applied. Given your clean 2-year payment history, this is a good case for a waiver \u2014 but I\u2019ll need our team to approve that.\n\nLet me escalate this so they can review the late fee waiver request.", timestamp: "Sep 18 2025 \u00b7 9:05am MST", type: "message" },
+      { role: "staff", text: "", timestamp: "Sep 18 2025 \u00b7 9:05am MST", type: "label_activity", labelActivity: { actor: "ELI+ Super Agent", labelsAdded: ["Payments AI Escalation"], action: "added" } },
+      { role: "resident", text: "Thanks, just let me know about all of that when you can.", timestamp: "Sep 18 2025 \u00b7 9:06am MST", type: "message" },
+    ],
+  },
+];
+
+const SUPER_AGENT_1_DEMO_THREAD_IDS = new Set(SUPER_AGENT_1_DEMO_THREADS.map((c) => c.id));
+
+export function isSuperAgent1DemoThread(id: string): boolean {
+  return SUPER_AGENT_1_DEMO_THREAD_IDS.has(id);
 }
 
 type ConversationsContextValue = {
@@ -973,9 +1009,9 @@ export function isClickToCallDemoThread(id: string): boolean {
 export function ConversationsProvider({ children }: { children: React.ReactNode }) {
   const { roleProperties } = useRole();
   const { clickToCallEnabled } = useClickToCallDemo();
-  const { superAgentEnabled } = useConversationsDemo();
+  const { superAgentEnabled, superAgent1Enabled } = useConversationsDemo();
   const [items, setItems] = useState<ConversationItem[]>(() => {
-    const seeded = [...CLICK_TO_CALL_DEMO_THREADS, ...SUPER_AGENT_DEMO_THREADS, ...INITIAL];
+    const seeded = [...CLICK_TO_CALL_DEMO_THREADS, ...SUPER_AGENT_DEMO_THREADS, ...SUPER_AGENT_1_DEMO_THREADS, ...INITIAL];
     return seeded.map((c) => {
       const labels = ensureAiLabelCompanions(c.labels);
       return { ...c, labels, hasUnread: clampHasUnread(c.messages, c.hasUnread) };
@@ -987,9 +1023,10 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
       items.filter((c) => {
         if (!clickToCallEnabled && isClickToCallDemoThread(c.id)) return false;
         if (!superAgentEnabled && isSuperAgentDemoThread(c.id)) return false;
+        if (!superAgent1Enabled && isSuperAgent1DemoThread(c.id)) return false;
         return matchesRoleProperties(c.property, roleProperties);
       }),
-    [items, clickToCallEnabled, superAgentEnabled, roleProperties]
+    [items, clickToCallEnabled, superAgentEnabled, superAgent1Enabled, roleProperties]
   );
 
   const propertyCount = new Set(filteredItems.map((c) => c.property)).size;
