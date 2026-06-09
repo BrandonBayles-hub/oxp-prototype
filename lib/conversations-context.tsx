@@ -106,7 +106,7 @@ export type ConversationMessage = {
   labelActivity?: {
     actor: string;
     labelsAdded: string[];
-    action: "added";
+    action: "added" | "context_provided" | "resolved_escalation";
   };
   /** Structured staff activity (resolve, assignment, read, etc.). */
   threadActivity?: ThreadActivity;
