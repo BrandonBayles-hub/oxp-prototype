@@ -953,7 +953,11 @@ const SUPER_AGENT_1_DEMO_THREADS: ConversationItem[] = [
   {
     id: "sa1-1",
     resident: "Jordan Lee",
+    unit: "Unit 312",
     preview: "Thanks, just let me know about all of that when you can.",
+    agent: "AI Super Agent",
+    time: "5m ago",
+    contactType: "Resident",
     property: "Hillside Living",
     channel: "SMS",
     assignee: "ELI+ Super Agent",
