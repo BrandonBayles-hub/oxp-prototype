@@ -428,7 +428,12 @@ type ThreadListConvoTypeFilter = "escalated" | "liveAi";
 /** Open Threads: open only; unread, @mention in a private note, or unattended. Resolved threads never appear here. */
 function conversationMatchesAllThreadsInbox(c: ConversationItem): boolean {
   if (c.status !== "open") return false;
-  if (isSuperAgentDemoThread(c.id) && c.labels.some((l) => l.includes("Escalation"))) return true;
+  if (
+    (isSuperAgentDemoThread(c.id) || isSuperAgent1DemoThread(c.id)) &&
+    c.labels.some((l) => l.includes("Escalation"))
+  ) {
+    return true;
+  }
   return (
     c.hasUnread ||
     conversationHasCurrentUserPrivateNoteMention(c) ||
