@@ -64,6 +64,7 @@ import {
   User,
   UserCheck,
   UserX,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -107,6 +108,7 @@ import {
   conversationHasCurrentUserPrivateNoteMention,
   getLinkedConversationsByEscalation,
   isSuperAgentDemoThread,
+  isSuperAgent1DemoThread,
 } from "@/lib/conversations-context";
 import { useAgents } from "@/lib/agents-context";
 import { useWorkforce } from "@/lib/workforce-context";
@@ -426,7 +428,12 @@ type ThreadListConvoTypeFilter = "escalated" | "liveAi";
 /** Open Threads: open only; unread, @mention in a private note, or unattended. Resolved threads never appear here. */
 function conversationMatchesAllThreadsInbox(c: ConversationItem): boolean {
   if (c.status !== "open") return false;
-  if (isSuperAgentDemoThread(c.id) && c.labels.some((l) => l.includes("Escalation"))) return true;
+  if (
+    (isSuperAgentDemoThread(c.id) || isSuperAgent1DemoThread(c.id)) &&
+    c.labels.some((l) => l.includes("Escalation"))
+  ) {
+    return true;
+  }
   return (
     c.hasUnread ||
     conversationHasCurrentUserPrivateNoteMention(c) ||
@@ -758,10 +765,10 @@ function ConversationsContent() {
   const { clickToCallEnabled, toggleClickToCallEnabled } = useClickToCallDemo();
   const { callSystemEnabled, toggleCallSystemEnabled, simulateInboundCall } = useCallSystemDemo();
   const {
-    profileCommsPopupRequest,
-    requestProfileCommsPopup,
     superAgentEnabled,
     toggleSuperAgentEnabled,
+    superAgent1Enabled,
+    toggleSuperAgent1Enabled,
   } = useConversationsDemo();
   const [callSystemPanelOpen, setCallSystemPanelOpen] = useState(false);
 
@@ -1064,8 +1071,11 @@ function ConversationsContent() {
   const [superAgentNoteDraft, setSuperAgentNoteDraft] = useState("");
   const [escalationError, setEscalationError] = useState(false);
   const [escalationSummaryOpen, setEscalationSummaryOpen] = useState(false);
+  const [contextDetailOpenIdx, setContextDetailOpenIdx] = useState<number | null>(null);
   const [escalationPickerOpen, setEscalationPickerOpen] = useState(false);
   const [escalationPickerSelections, setEscalationPickerSelections] = useState<Set<string>>(new Set());
+  const [sa1ResolvePickerOpen, setSa1ResolvePickerOpen] = useState(false);
+  const [sa1ResolveSelections, setSa1ResolveSelections] = useState<Set<string>>(new Set());
   const chatTextareaRef = useRef<HTMLTextAreaElement>(null);
   /** Entrata profile “current inbox” composer — same draft/inputMode as main, separate ref for @mentions. */
   const profilePanelInboxComposerRef = useRef<HTMLTextAreaElement>(null);
@@ -1135,19 +1145,6 @@ function ConversationsContent() {
   /** True after the muted 0–3s cover preview has finished (paused at ~3s). Next play restarts from 0 with sound. */
   const messageIntroPreviewCompletedRef = useRef(false);
 
-  /** Demo control: Entrata profile overlay only (no right-hand conversation / threads panel). */
-  useEffect(() => {
-    if (profileCommsPopupRequest === 0) return;
-    if (!selected) return;
-    setShowMessageIntro(false);
-    setProfileModalOpen(true);
-    setThreadsPanelOpen(false);
-    setProfilePanelInboxOpen(false);
-    setOpenThreadIdx(null);
-    setNewThreadOutbound(null);
-    setNewThreadSubject("");
-    setNewThreadSubjectError(false);
-  }, [profileCommsPopupRequest, selected]);
 
   useEffect(() => {
     if (!showMessageIntro) {
@@ -1425,16 +1422,24 @@ function ConversationsContent() {
     });
 
     if (isSuperAgentDemoThread(selected.id) && aiActivated && inputMode === "message" && selectedEscalationTypes.size > 0) {
-      for (const esc of selectedEscalationTypes) {
-        removeLabel(selected.id, esc);
-      }
+      const contextText = draft.trim();
+      const escalationsResolved = Array.from(selectedEscalationTypes);
+
       addMessage(selected.id, {
         role: "staff",
         text: "",
         timestamp,
-        type: "thread_activity",
-        threadActivity: { kind: "status", action: "resolved", actor: MY_INBOX_ASSIGNEE },
+        type: "label_activity",
+        labelActivity: {
+          actor: MY_INBOX_ASSIGNEE,
+          labelsAdded: escalationsResolved,
+          action: "context_provided",
+        },
       });
+      for (const esc of selectedEscalationTypes) {
+        removeLabel(selected.id, esc);
+      }
+
       const remainingEscalations = selected.labels.filter(
         (l) => l.includes("Escalation") && !selectedEscalationTypes.has(l)
       );
@@ -1445,6 +1450,36 @@ function ConversationsContent() {
         superAgentSelectionsRef.current.set(selected.id, new Set());
       }
       setSelectedEscalationTypes(new Set());
+
+      const selectedId = selected.id;
+      setTimeout(() => {
+        const aiTimestamp = new Date().toLocaleString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+          timeZoneName: "short",
+        });
+        const aiResponseMap: Record<string, string> = {
+          "Renewals AI Escalation": `I've looked into your renewal and have some good news. Based on your excellent 2-year payment history and residency, we're able to offer you a reduced increase. Your renewal rate will be adjusted to $1,820/mo (a 1.4% increase instead of 3%). I'll send over the updated offer for your review shortly.`,
+          "Payments AI Escalation": `Regarding your payment — given your consistent 2-year payment history, we're happy to waive the $50 late fee as a one-time courtesy. The credit has been applied to your account and your current balance reflects the adjustment.`,
+          "Other Escalation": `About the pool party — great news! You're welcome to reserve the pool area for your birthday. Here's what you need to know:\n\n• Reservations can be made up to 30 days in advance at the leasing office\n• For groups over 10, there's a refundable $100 deposit\n• Pool hours for private events are 10am–8pm on weekends\n• Please review the community pool guidelines posted at the pool entrance\n\nWould you like me to help you pick a date and get the reservation started?`,
+        };
+        const parts = escalationsResolved.map((esc) =>
+          aiResponseMap[esc] ?? `I've addressed the ${esc.replace(" Escalation", "").toLowerCase()} topic based on the team's guidance.`
+        );
+        const combinedText = escalationsResolved.length > 1
+          ? `Hi Marcus! I have updates on your questions.\n\n${parts.join("\n\n")}\n\nLet me know if there's anything else I can help with!`
+          : `Hi Marcus! ${parts[0]} Let me know if you have any questions!`;
+        addMessage(selectedId, {
+          role: "agent",
+          text: combinedText,
+          timestamp: aiTimestamp,
+          type: "message",
+        });
+      }, 1500);
     }
 
     setDraft("");
@@ -1759,7 +1794,8 @@ function ConversationsContent() {
           onSimulateInboundCall={simulateInboundCall}
           superAgentEnabled={superAgentEnabled}
           onToggleSuperAgent={toggleSuperAgentEnabled}
-          onTriggerProfileCommsPopup={requestProfileCommsPopup}
+          superAgent1Enabled={superAgent1Enabled}
+          onToggleSuperAgent1={toggleSuperAgent1Enabled}
         />
       </aside>
 
@@ -2185,7 +2221,264 @@ function ConversationsContent() {
                   </button>
                   <span className="text-sm text-muted-foreground">{selected.property}</span>
                 </div>
-                <div className="flex items-center gap-3 [&>*]:shrink-0">
+                <div className="flex items-center gap-1.5 [&>*]:shrink-0">
+                  {/* Labels icon popover */}
+                  <Popover open={addLabelOpen} onOpenChange={(open) => { setAddLabelOpen(open); if (!open) setNewLabelText(""); }}>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-[11px] font-medium transition-colors hover:bg-muted"
+                        title="Labels"
+                      >
+                        <Tag className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span>{selected.labels.length}</span>
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-64 p-0" align="end">
+                      <div className="max-h-48 overflow-y-auto p-2 space-y-1">
+                        {selected.labels.map((label) => (
+                          <div key={label} className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-muted/60">
+                            <Badge
+                              variant={label.includes("Escalation") ? "destructive" : "outline"}
+                              className={cn(
+                                "gap-1 rounded-md text-xs font-normal",
+                                label.includes("Escalation")
+                                  ? "border-sky-200 bg-sky-50 text-sky-700"
+                                  : "border-border"
+                              )}
+                            >
+                              {label}
+                            </Badge>
+                            <button
+                              type="button"
+                              onClick={() => removeLabel(selected.id, label)}
+                              className="rounded-sm p-0.5 opacity-60 transition-opacity hover:opacity-100 hover:bg-muted"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="border-t border-border p-2">
+                        <Input
+                          autoFocus
+                          value={newLabelText}
+                          onChange={(e) => setNewLabelText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && newLabelText.trim()) {
+                              const exists = allLabels.some((l) => l.toLowerCase() === newLabelText.toLowerCase());
+                              if (exists) {
+                                const match = allLabels.find((l) => l.toLowerCase() === newLabelText.toLowerCase())!;
+                                if (!selected.labels.includes(match)) addLabel(selected.id, match, MY_INBOX_ASSIGNEE);
+                              } else {
+                                addLabel(selected.id, newLabelText.trim(), MY_INBOX_ASSIGNEE);
+                              }
+                              setNewLabelText("");
+                            }
+                          }}
+                          placeholder="Search or create label…"
+                          className="h-7 text-xs"
+                        />
+                      </div>
+                      <div className="max-h-40 overflow-y-auto border-t border-border">
+                        {[...allLabels]
+                          .sort((a, b) => a.localeCompare(b))
+                          .filter((l) => !newLabelText.trim() || l.toLowerCase().includes(newLabelText.toLowerCase()))
+                          .map((label) => {
+                            const applied = selected.labels.includes(label);
+                            return (
+                              <button
+                                key={label}
+                                type="button"
+                                className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent transition-colors"
+                                onClick={() => {
+                                  if (applied) {
+                                    removeLabel(selected.id, label);
+                                  } else {
+                                    addLabel(selected.id, label, MY_INBOX_ASSIGNEE);
+                                  }
+                                }}
+                              >
+                                <Check className={cn("h-3.5 w-3.5 shrink-0", applied ? "opacity-100 text-emerald-500" : "opacity-0")} />
+                                <span className="truncate">{label}</span>
+                              </button>
+                            );
+                          })}
+                        {newLabelText.trim() && !allLabels.some((l) => l.toLowerCase() === newLabelText.toLowerCase()) && (
+                          <button
+                            type="button"
+                            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent transition-colors text-muted-foreground"
+                            onClick={() => {
+                              addLabel(selected.id, newLabelText.trim(), MY_INBOX_ASSIGNEE);
+                              setNewLabelText("");
+                              setAddLabelOpen(false);
+                            }}
+                          >
+                            <Plus className="h-3.5 w-3.5 shrink-0" />
+                            <span className="truncate">Create &ldquo;{newLabelText.trim()}&rdquo;</span>
+                          </button>
+                        )}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+
+                  {selected.labels.some((label) => AI_ACTIVATION_OPT_IN_LABELS.has(label)) && (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className={cn(
+                            "flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-[11px] font-medium transition-colors",
+                            aiActivated
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300"
+                              : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300"
+                          )}
+                          title="AI activation & opt-in settings"
+                        >
+                          <Zap className="h-3.5 w-3.5" />
+                          {aiActivated ? "AI On" : "AI Off"}
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-3" align="end">
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              checked={aiActivated}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setAiActivated(true);
+                                  setReactivationDate(null);
+                                  setNoLimit(false);
+                                  setShowDatePicker(false);
+                                  recordThreadActivity(selected.id, {
+                                    kind: "ai_activation",
+                                    active: true,
+                                    actor: MY_INBOX_ASSIGNEE,
+                                  });
+                                } else {
+                                  setShowDatePicker(true);
+                                }
+                              }}
+                            />
+                            <span className="text-xs font-medium text-foreground whitespace-nowrap">
+                              AI Activated
+                            </span>
+                            {(!aiActivated || showDatePicker) && (
+                              <div className="flex items-center gap-1.5 ml-1">
+                                <span className="text-[11px] text-muted-foreground whitespace-nowrap">until</span>
+                                {noLimit ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setNoLimit(false);
+                                      setShowDatePicker(true);
+                                    }}
+                                    className="rounded-md border border-input bg-background px-2 py-0.5 text-[11px] transition-colors hover:bg-accent"
+                                  >
+                                    No Limit
+                                  </button>
+                                ) : (
+                                  <Popover open={showDatePicker} onOpenChange={(open) => {
+                                    setShowDatePicker(open);
+                                    if (!open && aiActivated && !reactivationDate && !noLimit) {
+                                      setShowDatePicker(false);
+                                    }
+                                  }}>
+                                    <PopoverTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="flex items-center gap-1 rounded-md border border-input bg-background px-2 py-0.5 text-[11px] transition-colors hover:bg-accent"
+                                      >
+                                        <CalendarIcon className="h-3 w-3 text-muted-foreground" />
+                                        {reactivationDate
+                                          ? reactivationDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                                          : "Date"}
+                                      </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0" align="start">
+                                      <MiniCalendar
+                                        selected={reactivationDate}
+                                        onSelect={(date) => {
+                                          setReactivationDate(date);
+                                          setNoLimit(false);
+                                          setShowDatePicker(false);
+                                          setAiActivated(false);
+                                          recordThreadActivity(selected.id, {
+                                            kind: "ai_activation",
+                                            active: false,
+                                            actor: MY_INBOX_ASSIGNEE,
+                                          });
+                                        }}
+                                        onNoLimit={() => {
+                                          setReactivationDate(null);
+                                          setNoLimit(true);
+                                          setShowDatePicker(false);
+                                          setAiActivated(false);
+                                          recordThreadActivity(selected.id, {
+                                            kind: "ai_activation",
+                                            active: false,
+                                            actor: MY_INBOX_ASSIGNEE,
+                                          });
+                                        }}
+                                      />
+                                    </PopoverContent>
+                                  </Popover>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 border-t border-border pt-2">
+                            <div className="flex items-center gap-2">
+                              <label className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">Phone</label>
+                              <Select
+                                value={phoneOpt}
+                                onValueChange={(v) => {
+                                  const choice = v as ChannelOptChoice;
+                                  setPhoneOpt(choice);
+                                  recordThreadActivity(selected.id, {
+                                    kind: "channel_opt",
+                                    channel: "phone",
+                                    choice,
+                                    actor: MY_INBOX_ASSIGNEE,
+                                  });
+                                }}
+                              >
+                                <SelectTrigger className="h-7 w-[110px] text-[11px]"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
+                                  <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
+                                  <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <label className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">Email</label>
+                              <Select
+                                value={emailOpt}
+                                onValueChange={(v) => {
+                                  const choice = v as ChannelOptChoice;
+                                  setEmailOpt(choice);
+                                  recordThreadActivity(selected.id, {
+                                    kind: "channel_opt",
+                                    channel: "email",
+                                    choice,
+                                    actor: MY_INBOX_ASSIGNEE,
+                                  });
+                                }}
+                              >
+                                <SelectTrigger className="h-7 w-[110px] text-[11px]"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
+                                  <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
+                                  <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  )}
                   {clickToCallEnabled && (
                     <Button
                       type="button"
@@ -2238,7 +2531,17 @@ function ConversationsContent() {
                     <Button
                       size="sm"
                       className="h-8 gap-1.5 px-3 text-xs"
-                      onClick={() => resolveConversation(selected.id, MY_INBOX_ASSIGNEE)}
+                      onClick={() => {
+                        if (isSuperAgent1DemoThread(selected.id)) {
+                          const escalations = selected.labels.filter((l) => l.includes("Escalation"));
+                          if (escalations.length > 0) {
+                            setSa1ResolveSelections(new Set());
+                            setSa1ResolvePickerOpen(true);
+                            return;
+                          }
+                        }
+                        resolveConversation(selected.id, MY_INBOX_ASSIGNEE);
+                      }}
                     >
                       <Check className="h-3.5 w-3.5" />
                       Resolve
@@ -2256,238 +2559,10 @@ function ConversationsContent() {
                 </div>
               </div>
 
-              {/* Row 2: Labels */}
-              <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                {selected.labels.map((label) => (
-                  <Badge
-                    key={label}
-                    variant={label.includes("Escalation") ? "destructive" : "outline"}
-                    className={cn(
-                      "gap-1 rounded-md text-xs font-normal",
-                      label.includes("Escalation")
-                        ? "border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
-                        : "border-border"
-                    )}
-                  >
-                    {label}
-                    <button
-                      type="button"
-                      onClick={() => removeLabel(selected.id, label)}
-                      className="ml-0.5 rounded-sm opacity-60 transition-opacity hover:opacity-100"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </Badge>
-                ))}
-                <Popover open={addLabelOpen} onOpenChange={(open) => { setAddLabelOpen(open); if (!open) setNewLabelText(""); }}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="h-6 w-6 rounded-full border-dashed"
-                      aria-label="Add label"
-                    >
-                      <Plus className="h-3 w-3" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-52 p-0" align="start">
-                    <div className="p-2">
-                      <Input
-                        autoFocus
-                        value={newLabelText}
-                        onChange={(e) => setNewLabelText(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && newLabelText.trim()) {
-                            addLabel(selected.id, newLabelText.trim(), MY_INBOX_ASSIGNEE);
-                            setNewLabelText("");
-                            setAddLabelOpen(false);
-                          }
-                        }}
-                        placeholder="Search labels…"
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                    <div className="max-h-40 overflow-y-auto border-t border-border">
-                      {allLabels
-                        .filter((l) => !newLabelText.trim() || l.toLowerCase().includes(newLabelText.toLowerCase()))
-                        .map((label) => {
-                          const applied = selected.labels.includes(label);
-                          return (
-                            <button
-                              key={label}
-                              type="button"
-                              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent transition-colors"
-                              onClick={() => {
-                                if (applied) {
-                                  removeLabel(selected.id, label);
-                                } else {
-                                  addLabel(selected.id, label, MY_INBOX_ASSIGNEE);
-                                }
-                              }}
-                            >
-                              <Check className={cn("h-3.5 w-3.5 shrink-0", applied ? "opacity-100" : "opacity-0")} />
-                              <span className="truncate">{label}</span>
-                            </button>
-                          );
-                        })}
-                      {newLabelText.trim() && !allLabels.some((l) => l.toLowerCase() === newLabelText.toLowerCase()) && (
-                        <button
-                          type="button"
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent transition-colors text-muted-foreground"
-                          onClick={() => {
-                            addLabel(selected.id, newLabelText.trim(), MY_INBOX_ASSIGNEE);
-                            setNewLabelText("");
-                            setAddLabelOpen(false);
-                          }}
-                        >
-                          <Plus className="h-3.5 w-3.5 shrink-0" />
-                          <span className="truncate">Create &ldquo;{newLabelText.trim()}&rdquo;</span>
-                        </button>
-                      )}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
+              {/* Row 2: Labels — hidden behind icon popover */}
 
               {selected.labels.some((label) => AI_ACTIVATION_OPT_IN_LABELS.has(label)) && (
                 <>
-                  {/* AI Activated + Phone/Email opt-in — single row */}
-                  <div className="mt-3 flex items-center gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        checked={aiActivated}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setAiActivated(true);
-                            setReactivationDate(null);
-                            setNoLimit(false);
-                            setShowDatePicker(false);
-                            recordThreadActivity(selected.id, {
-                              kind: "ai_activation",
-                              active: true,
-                              actor: MY_INBOX_ASSIGNEE,
-                            });
-                          } else {
-                            setShowDatePicker(true);
-                          }
-                        }}
-                      />
-                      <span className="text-xs font-medium text-foreground whitespace-nowrap">
-                        AI Activated
-                      </span>
-                      {(!aiActivated || showDatePicker) && (
-                        <div className="flex items-center gap-1.5 ml-1">
-                          <span className="text-[11px] text-muted-foreground whitespace-nowrap">until</span>
-                          {noLimit ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setNoLimit(false);
-                                setShowDatePicker(true);
-                              }}
-                              className="rounded-md border border-input bg-background px-2 py-0.5 text-[11px] transition-colors hover:bg-accent"
-                            >
-                              No Limit
-                            </button>
-                          ) : (
-                            <Popover open={showDatePicker} onOpenChange={(open) => {
-                              setShowDatePicker(open);
-                              if (!open && aiActivated && !reactivationDate && !noLimit) {
-                                setShowDatePicker(false);
-                              }
-                            }}>
-                              <PopoverTrigger asChild>
-                                <button
-                                  type="button"
-                                  className="flex items-center gap-1 rounded-md border border-input bg-background px-2 py-0.5 text-[11px] transition-colors hover:bg-accent"
-                                >
-                                  <CalendarIcon className="h-3 w-3 text-muted-foreground" />
-                                  {reactivationDate
-                                    ? reactivationDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })
-                                    : "Date"}
-                                </button>
-                              </PopoverTrigger>
-                              <PopoverContent className="w-auto p-0" align="start">
-                                <MiniCalendar
-                                  selected={reactivationDate}
-                                  onSelect={(date) => {
-                                    setReactivationDate(date);
-                                    setNoLimit(false);
-                                    setShowDatePicker(false);
-                                    setAiActivated(false);
-                                    recordThreadActivity(selected.id, {
-                                      kind: "ai_activation",
-                                      active: false,
-                                      actor: MY_INBOX_ASSIGNEE,
-                                    });
-                                  }}
-                                  onNoLimit={() => {
-                                    setReactivationDate(null);
-                                    setNoLimit(true);
-                                    setShowDatePicker(false);
-                                    setAiActivated(false);
-                                    recordThreadActivity(selected.id, {
-                                      kind: "ai_activation",
-                                      active: false,
-                                      actor: MY_INBOX_ASSIGNEE,
-                                    });
-                                  }}
-                                />
-                              </PopoverContent>
-                            </Popover>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    <span className="h-4 w-px bg-border" />
-                    <div className="flex items-center gap-2">
-                      <label className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">Phone</label>
-                      <Select
-                        value={phoneOpt}
-                        onValueChange={(v) => {
-                          const choice = v as ChannelOptChoice;
-                          setPhoneOpt(choice);
-                          recordThreadActivity(selected.id, {
-                            kind: "channel_opt",
-                            channel: "phone",
-                            choice,
-                            actor: MY_INBOX_ASSIGNEE,
-                          });
-                        }}
-                      >
-                        <SelectTrigger className="h-7 w-[110px] text-[11px]"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
-                          <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
-                          <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <label className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">Email</label>
-                      <Select
-                        value={emailOpt}
-                        onValueChange={(v) => {
-                          const choice = v as ChannelOptChoice;
-                          setEmailOpt(choice);
-                          recordThreadActivity(selected.id, {
-                            kind: "channel_opt",
-                            channel: "email",
-                            choice,
-                            actor: MY_INBOX_ASSIGNEE,
-                          });
-                        }}
-                      >
-                        <SelectTrigger className="h-7 w-[110px] text-[11px]"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
-                          <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
-                          <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
                   {selected.escalationId && linkedByEscalation.length > 0 && (
                     <div
                       className="mt-2 overflow-hidden rounded-lg border border-violet-200/80 bg-violet-50/50 shadow-sm dark:border-violet-900/50 dark:bg-violet-950/20"
@@ -2541,7 +2616,7 @@ function ConversationsContent() {
             </div>
 
             {/* Messages */}
-            <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-hover bg-muted/30 px-5 py-4">
+            <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-hover bg-background px-5 py-4">
               <div className="space-y-4">
                 {selected.channel === "Email" && (
                   <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
@@ -2589,7 +2664,7 @@ function ConversationsContent() {
                       )}
                       {selected.messages.map((msg, idx) => {
                         if (msg.type === "handoff") {
-                          if (isSuperAgentDemoThread(selected.id)) return null;
+                          if (isSuperAgentDemoThread(selected.id) || isSuperAgent1DemoThread(selected.id)) return null;
                           const escalationLabel = selected.labels.find((l) => l.includes("Escalation"));
                           return (
                             <div key={idx} className={cn(
@@ -2618,14 +2693,45 @@ function ConversationsContent() {
                           );
                         }
                         if (msg.type === "thread_activity" && msg.threadActivity) {
+                          if (isSuperAgent1DemoThread(selected.id) && msg.threadActivity.kind === "status" && msg.threadActivity.action === "resolved") {
+                            return null;
+                          }
                           return <ConversationThreadActivityRow key={idx} message={msg} />;
                         }
                         if (msg.type === "label_activity" && msg.labelActivity) {
-                          const { actor, labelsAdded } = msg.labelActivity;
+                          const { actor, labelsAdded, action } = msg.labelActivity;
                           const isEscalation = labelsAdded.some((l) => l.includes("Escalation"));
+
+                          if (action === "resolved_escalation") {
+                            return (
+                              <div key={idx} className="flex items-center justify-center gap-2 rounded-md border border-emerald-200 bg-emerald-50/80 py-2.5 px-3 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+                                <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden />
+                                <p className="text-center text-[11px] text-emerald-800 dark:text-emerald-200">
+                                  <span className="font-semibold text-emerald-900 dark:text-emerald-100">{actor}</span>
+                                  {" resolved "}
+                                  {labelsAdded.map((label, i) => (
+                                    <span key={label}>
+                                      {i > 0 && <span className="text-emerald-600">{" & "}</span>}
+                                      <span className="inline-flex items-center rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+                                        {label}
+                                      </span>
+                                    </span>
+                                  ))}
+                                  {msg.timestamp && (
+                                    <>
+                                      <span className="opacity-60"> · </span>
+                                      <span>{msg.timestamp}</span>
+                                    </>
+                                  )}
+                                </p>
+                              </div>
+                            );
+                          }
+
                           return (
                             <div
                               key={idx}
+                              data-escalation-label={isEscalation ? labelsAdded.find((l) => l.includes("Escalation")) : undefined}
                               className={cn(
                                 "flex items-center justify-center gap-2 rounded-md border py-2.5 px-3",
                                 isEscalation
@@ -2819,6 +2925,7 @@ function ConversationsContent() {
                 {selected.channel !== "Email" &&
                 selected.messages.map((msg, idx) => {
                   if (msg.type === "handoff") {
+                    if (isSuperAgentDemoThread(selected.id) || isSuperAgent1DemoThread(selected.id)) return null;
                     return (
                       <div key={idx} className="flex items-center justify-center gap-2 py-1">
                         <CornerDownRight className="h-3 w-3 text-muted-foreground" />
@@ -2834,6 +2941,9 @@ function ConversationsContent() {
                   }
 
                   if (msg.type === "thread_activity" && msg.threadActivity) {
+                    if (isSuperAgent1DemoThread(selected.id) && msg.threadActivity.kind === "status" && msg.threadActivity.action === "resolved") {
+                      return null;
+                    }
                     return <ConversationThreadActivityRow key={idx} message={msg} />;
                   }
 
@@ -2882,11 +2992,80 @@ function ConversationsContent() {
                   }
 
                   if (msg.type === "label_activity" && msg.labelActivity) {
-                    const { actor, labelsAdded } = msg.labelActivity;
+                    const { actor, labelsAdded, action } = msg.labelActivity;
                     const isEscalation = labelsAdded.some((l) => l.includes("Escalation"));
+                    const isContextProvided = action === "context_provided";
+
+                    if (isContextProvided) {
+                      return (
+                        <div key={idx} className="rounded-md border border-emerald-200 bg-emerald-50/80 px-3 py-2.5 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+                          <div className="flex items-center gap-2">
+                            <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden />
+                            <p className="flex-1 text-[11px] text-emerald-800 dark:text-emerald-200">
+                              <span className="font-semibold text-emerald-900 dark:text-emerald-100">{actor}</span>
+                              {" provided context for "}
+                              {labelsAdded.map((label, i) => (
+                                <span key={label}>
+                                  {i > 0 && <span className="text-emerald-600">{" & "}</span>}
+                                  <span className="inline-flex items-center rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+                                    {label}
+                                  </span>
+                                </span>
+                              ))}
+                              {msg.timestamp && (
+                                <>
+                                  <span className="opacity-60"> · </span>
+                                  <span>{msg.timestamp}</span>
+                                </>
+                              )}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setContextDetailOpenIdx(contextDetailOpenIdx === idx ? null : idx)}
+                              className="rounded-md border border-emerald-300 bg-white px-2 py-0.5 text-[10px] font-medium text-emerald-700 transition-colors hover:bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
+                            >
+                              {contextDetailOpenIdx === idx ? "Hide" : "Details"}
+                            </button>
+                          </div>
+                          {contextDetailOpenIdx === idx && (
+                            <div className="mt-2 rounded-md border border-emerald-100 bg-white p-2.5 text-[11px] leading-relaxed text-foreground/80 dark:border-emerald-900/40 dark:bg-card">
+                              {selected.messages[idx - 1]?.role === "staff" ? selected.messages[idx - 1].text : "Context provided to AI."}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    if (action === "resolved_escalation") {
+                      return (
+                        <div key={idx} className="flex items-center justify-center gap-2 rounded-md border border-emerald-200 bg-emerald-50/80 py-2.5 px-3 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+                          <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden />
+                          <p className="text-center text-[11px] text-emerald-800 dark:text-emerald-200">
+                            <span className="font-semibold text-emerald-900 dark:text-emerald-100">{actor}</span>
+                            {" resolved "}
+                            {labelsAdded.map((label, i) => (
+                              <span key={label}>
+                                {i > 0 && <span className="text-emerald-600">{" & "}</span>}
+                                <span className="inline-flex items-center rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+                                  {label}
+                                </span>
+                              </span>
+                            ))}
+                            {msg.timestamp && (
+                              <>
+                                <span className="opacity-60"> · </span>
+                                <span>{msg.timestamp}</span>
+                              </>
+                            )}
+                          </p>
+                        </div>
+                      );
+                    }
+
                     return (
                       <div
                         key={idx}
+                        data-escalation-label={isEscalation ? labelsAdded.find((l) => l.includes("Escalation")) : undefined}
                         className={cn(
                           "flex items-center justify-center gap-2 rounded-md border py-2.5 px-3",
                           isEscalation
@@ -3018,7 +3197,7 @@ function ConversationsContent() {
             </div>
 
             {/* Chat input */}
-            <div className="shrink-0 bg-muted/50">
+            <div className="shrink-0 border-t border-border bg-muted/40 shadow-[0_-2px_6px_rgba(0,0,0,0.04)]">
               {/* Mode toggle — hidden for Super Agent when AI is active */}
               {!(selected && isSuperAgentDemoThread(selected.id) && aiActivated) && (
                 <div className="flex items-center gap-1 px-5 pt-3 pb-2">
@@ -3046,37 +3225,45 @@ function ConversationsContent() {
                     <StickyNote className="h-3.5 w-3.5" />
                     Private Note
                   </Button>
+                  {selected && isSuperAgent1DemoThread(selected.id) && (
+                    <button
+                      type="button"
+                      onClick={() => setEscalationSummaryOpen((v) => !v)}
+                      className="ml-auto flex items-center gap-1.5 rounded-md bg-gradient-to-r from-indigo-500 to-blue-500 px-2.5 py-1.5 text-[10px] font-semibold text-white shadow-sm transition-all hover:from-indigo-600 hover:to-blue-600 hover:shadow-md"
+                    >
+                      <Sparkles className="h-3 w-3" />
+                      AI Summary
+                    </button>
+                  )}
                 </div>
               )}
 
-              {/* Escalation context summary — always visible for Super Agent */}
-              {selected && isSuperAgentDemoThread(selected.id) && inputMode === "message" && (
-                <div className="px-5 pb-2">
-                  <div className="mb-0">
-                    <button
-                      type="button"
-                      onClick={() => setEscalationSummaryOpen(!escalationSummaryOpen)}
-                      className="flex w-full items-center gap-2 rounded-lg border border-blue-200 bg-blue-50/70 px-3 py-2 text-left transition-colors hover:bg-blue-50 dark:border-blue-900/50 dark:bg-blue-950/20 dark:hover:bg-blue-950/30"
-                    >
-                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-blue-100 dark:bg-blue-900/50">
-                        <FileText className="h-3.5 w-3.5 text-blue-600 dark:text-blue-300" />
-                      </div>
-                      <span className="flex-1 text-xs font-semibold text-blue-800 dark:text-blue-200">
-                        Escalation Context Summary
-                      </span>
-                      <ChevronRight className={cn(
-                        "h-4 w-4 text-blue-500 transition-transform duration-200",
-                        escalationSummaryOpen && "rotate-90"
-                      )} />
-                    </button>
-                    {escalationSummaryOpen && (
-                      <div className="mt-1.5 space-y-2 rounded-lg border border-blue-100 bg-white p-3 shadow-sm dark:border-blue-900/40 dark:bg-card">
+              {/* Escalation selector + context summary for Super Agent */}
+              {selected && isSuperAgentDemoThread(selected.id) && aiActivated && inputMode === "message" && (
+                <div className="px-5 pt-3 pb-2">
+                  {escalationSummaryOpen ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setEscalationSummaryOpen(false)}
+                        className="flex w-full items-center gap-2 rounded-t-lg border border-b-0 border-blue-200 bg-blue-50/70 px-3 py-2 text-left transition-colors hover:bg-blue-50 dark:border-blue-900/50 dark:bg-blue-950/20 dark:hover:bg-blue-950/30"
+                      >
+                        <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-blue-100 dark:bg-blue-900/50">
+                          <FileText className="h-3 w-3 text-blue-600 dark:text-blue-300" />
+                        </div>
+                        <span className="flex-1 text-xs font-semibold text-blue-800 dark:text-blue-200">
+                          Escalation Context Summary
+                        </span>
+                        <ChevronDown className="h-4 w-4 text-blue-500" />
+                      </button>
+                      <div className="space-y-2 rounded-b-lg border border-t-0 border-blue-200 bg-white p-3 dark:border-blue-900/50 dark:bg-card">
                         {selected.labels
                           .filter((l) => l.includes("Escalation"))
                           .map((label) => {
                             const summaryMap: Record<string, string> = {
                               "Renewals AI Escalation": "Resident is requesting a rate exception on their 12-month renewal offer ($1,850/mo, 3% increase). They've been a tenant for 2 years with on-time payment history and feel the increase is higher than expected.",
                               "Payments AI Escalation": "Resident's October rent payment ($1,795) was returned due to insufficient funds (employer payroll delay). A $50 late fee was applied. Resident is requesting a late fee waiver given their clean 2-year payment history.",
+                              "Other Escalation": "Resident wants to host a birthday party at the pool area next month (15\u201320 guests, Saturday afternoon). Needs info on reservation process, community guidelines, and any applicable fees.",
                             };
                             const summary = summaryMap[label] ?? "AI escalated this topic for staff review.";
                             return (
@@ -3096,67 +3283,171 @@ function ConversationsContent() {
                             );
                           })}
                       </div>
-                    )}
-                  </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Select The Escalation You Want To Give Context For
+                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setSuperAgentNoteOpen(true)}
+                            className="flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[10px] font-semibold text-amber-700 shadow-sm transition-all hover:bg-amber-100 hover:shadow-md dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                          >
+                            <StickyNote className="h-3 w-3" />
+                            Private Note
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEscalationSummaryOpen(true)}
+                            className="flex items-center gap-1.5 rounded-md bg-gradient-to-r from-indigo-500 to-blue-500 px-2.5 py-1.5 text-[10px] font-semibold text-white shadow-sm transition-all hover:from-indigo-600 hover:to-blue-600 hover:shadow-md"
+                          >
+                            <Sparkles className="h-3 w-3" />
+                            AI Summary
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        {selected.labels
+                          .filter((l) => l.includes("Escalation"))
+                          .map((label) => {
+                            const isSelected = selectedEscalationTypes.has(label);
+                            return (
+                              <button
+                                key={label}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedEscalationTypes((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(label)) next.delete(label);
+                                    else next.add(label);
+                                    if (selected) superAgentSelectionsRef.current.set(selected.id, next);
+                                    return next;
+                                  });
+                                  setEscalationError(false);
+                                  chatTextareaRef.current?.focus();
+                                }}
+                                className={cn(
+                                  "flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-all",
+                                  isSelected
+                                    ? "border-orange-400 bg-orange-50 text-orange-800 ring-1 ring-orange-400 dark:border-orange-600 dark:bg-orange-950/30 dark:text-orange-200"
+                                    : escalationError
+                                      ? "border-red-400 bg-red-50 text-red-700 ring-1 ring-red-300 animate-pulse dark:border-red-600 dark:bg-red-950/20 dark:text-red-300"
+                                      : "border-border bg-background text-muted-foreground hover:border-orange-300 hover:bg-orange-50/50 hover:text-orange-700"
+                                )}
+                              >
+                                <span className={cn(
+                                  "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                                  isSelected
+                                    ? "border-orange-500 bg-orange-500 text-white"
+                                    : "border-muted-foreground/30"
+                                )}>
+                                  {isSelected && <Check className="h-2.5 w-2.5" />}
+                                </span>
+                                {label.replace(" Escalation", "")}
+                              </button>
+                            );
+                          })}
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
-              {/* Escalation type selector for Super Agent — only when AI active */}
-              {selected && isSuperAgentDemoThread(selected.id) && aiActivated && inputMode === "message" && (
-                <div className="px-5 pb-2">
-                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    Select The Escalation You Want To Give Context For
-                  </p>
+              {/* Escalation context summary — visible when AI deactivated for Super Agent */}
+              {selected && isSuperAgentDemoThread(selected.id) && !aiActivated && inputMode === "message" && (
+                <div className="px-5 pt-3 pb-2">
+                  <button
+                    type="button"
+                    onClick={() => setEscalationSummaryOpen(!escalationSummaryOpen)}
+                    className="flex w-full items-center gap-2 rounded-lg border border-blue-200 bg-blue-50/70 px-3 py-2 text-left transition-colors hover:bg-blue-50 dark:border-blue-900/50 dark:bg-blue-950/20 dark:hover:bg-blue-950/30"
+                  >
+                    <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-blue-100 dark:bg-blue-900/50">
+                      <FileText className="h-3 w-3 text-blue-600 dark:text-blue-300" />
+                    </div>
+                    <span className="flex-1 text-xs font-semibold text-blue-800 dark:text-blue-200">
+                      Escalation Context Summary
+                    </span>
+                    <ChevronRight className={cn(
+                      "h-4 w-4 text-blue-500 transition-transform duration-200",
+                      escalationSummaryOpen && "rotate-90"
+                    )} />
+                  </button>
+                  {escalationSummaryOpen && (
+                    <div className="mt-1.5 space-y-2 rounded-lg border border-blue-100 bg-white p-3 shadow-sm dark:border-blue-900/40 dark:bg-card">
+                      {selected.labels
+                        .filter((l) => l.includes("Escalation"))
+                        .map((label) => {
+                          const summaryMap: Record<string, string> = {
+                            "Renewals AI Escalation": "Resident is requesting a rate exception on their 12-month renewal offer ($1,850/mo, 3% increase). They've been a tenant for 2 years with on-time payment history and feel the increase is higher than expected.",
+                            "Payments AI Escalation": "Resident's October rent payment ($1,795) was returned due to insufficient funds (employer payroll delay). A $50 late fee was applied. Resident is requesting a late fee waiver given their clean 2-year payment history.",
+                            "Other Escalation": "Resident wants to host a birthday party at the pool area next month (15\u201320 guests, Saturday afternoon). Needs info on reservation process, community guidelines, and any applicable fees.",
+                          };
+                          const summary = summaryMap[label] ?? "AI escalated this topic for staff review.";
+                          return (
+                            <div
+                              key={label}
+                              className="rounded-md border-l-[3px] border-l-orange-400 bg-orange-50/50 px-3 py-2 dark:bg-orange-950/10"
+                            >
+                              <div className="flex items-center gap-1.5 mb-1">
+                                <span className="text-[11px] font-bold text-orange-800 dark:text-orange-200">
+                                  {label.replace(" Escalation", "")}
+                                </span>
+                              </div>
+                              <p className="text-[11px] leading-relaxed text-foreground/80">
+                                {summary}
+                              </p>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                </div>
+              )}
 
-                  <div className="flex gap-2">
+              {/* Escalation context summary panel for Super Agent 1.0 */}
+              {selected && isSuperAgent1DemoThread(selected.id) && inputMode === "message" && escalationSummaryOpen && (
+                <div className="px-5 pb-2">
+                  <button
+                    type="button"
+                    onClick={() => setEscalationSummaryOpen(false)}
+                    className="flex w-full items-center gap-2 rounded-t-lg border border-b-0 border-blue-200 bg-blue-50/70 px-3 py-2 text-left transition-colors hover:bg-blue-50 dark:border-blue-900/50 dark:bg-blue-950/20 dark:hover:bg-blue-950/30"
+                  >
+                    <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-blue-100 dark:bg-blue-900/50">
+                      <FileText className="h-3 w-3 text-blue-600 dark:text-blue-300" />
+                    </div>
+                    <span className="flex-1 text-xs font-semibold text-blue-800 dark:text-blue-200">
+                      Escalation Context Summary
+                    </span>
+                    <ChevronDown className="h-4 w-4 text-blue-500" />
+                  </button>
+                  <div className="space-y-2 rounded-b-lg border border-t-0 border-blue-200 bg-white p-3 dark:border-blue-900/50 dark:bg-card">
                     {selected.labels
                       .filter((l) => l.includes("Escalation"))
                       .map((label) => {
-                        const isSelected = selectedEscalationTypes.has(label);
+                        const summaryMap: Record<string, string> = {
+                          "Renewals AI Escalation": "Resident is requesting a rate exception on their 12-month renewal offer ($1,850/mo, 3% increase). They've been a tenant for 2 years with on-time payment history and feel the increase is higher than expected.",
+                          "Payments AI Escalation": "Resident's October rent payment ($1,795) was returned due to insufficient funds (employer payroll delay). A $50 late fee was applied. Resident is requesting a late fee waiver given their clean 2-year payment history.",
+                        };
+                        const summary = summaryMap[label] ?? "AI escalated this topic for staff review.";
                         return (
-                          <button
+                          <div
                             key={label}
-                            type="button"
-                            onClick={() => {
-                              setSelectedEscalationTypes((prev) => {
-                                const next = new Set(prev);
-                                if (next.has(label)) next.delete(label);
-                                else next.add(label);
-                                if (selected) superAgentSelectionsRef.current.set(selected.id, next);
-                                return next;
-                              });
-                              setEscalationError(false);
-                              chatTextareaRef.current?.focus();
-                            }}
-                            className={cn(
-                              "flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-all",
-                              isSelected
-                                ? "border-orange-400 bg-orange-50 text-orange-800 ring-1 ring-orange-400 dark:border-orange-600 dark:bg-orange-950/30 dark:text-orange-200"
-                                : escalationError
-                                  ? "border-red-400 bg-red-50 text-red-700 ring-1 ring-red-300 animate-pulse dark:border-red-600 dark:bg-red-950/20 dark:text-red-300"
-                                  : "border-border bg-background text-muted-foreground hover:border-orange-300 hover:bg-orange-50/50 hover:text-orange-700"
-                            )}
+                            className="rounded-md border-l-[3px] border-l-orange-400 bg-orange-50/50 px-3 py-2 dark:bg-orange-950/10"
                           >
-                            <span className={cn(
-                              "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
-                              isSelected
-                                ? "border-orange-500 bg-orange-500 text-white"
-                                : "border-muted-foreground/30"
-                            )}>
-                              {isSelected && <Check className="h-2.5 w-2.5" />}
-                            </span>
-                            {label}
-                          </button>
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <span className="text-[11px] font-bold text-orange-800 dark:text-orange-200">
+                                {label.replace(" Escalation", "")}
+                              </span>
+                            </div>
+                            <p className="text-[11px] leading-relaxed text-foreground/80">
+                              {summary}
+                            </p>
+                          </div>
                         );
                       })}
-                    <button
-                      type="button"
-                      onClick={() => setSuperAgentNoteOpen(true)}
-                      className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-muted-foreground transition-all hover:border-amber-300 hover:bg-amber-50/50 hover:text-amber-700"
-                    >
-                      <StickyNote className="h-3.5 w-3.5" />
-                      Private Note
-                    </button>
                   </div>
                 </div>
               )}
@@ -3287,9 +3578,114 @@ function ConversationsContent() {
                           setSelectedEscalationTypes(selections);
                           if (selected) superAgentSelectionsRef.current.set(selected.id, selections);
                           setEscalationPickerOpen(false);
+                          setTimeout(() => {
+                            if (scrollRef.current) {
+                              const allEscalationEls = scrollRef.current.querySelectorAll("[data-escalation-label]");
+                              for (const el of allEscalationEls) {
+                                const label = el.getAttribute("data-escalation-label");
+                                if (label && selections.has(label)) {
+                                  el.scrollIntoView({ behavior: "smooth", block: "start" });
+                                  break;
+                                }
+                              }
+                            }
+                          }, 300);
                         }}
                       >
                         Continue
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              )}
+
+              {/* SA1 Resolve escalation picker modal */}
+              {selected && isSuperAgent1DemoThread(selected.id) && (
+                <Dialog open={sa1ResolvePickerOpen} onOpenChange={setSa1ResolvePickerOpen}>
+                  <DialogContent className="sm:max-w-sm">
+                    <DialogHeader>
+                      <DialogTitle>Which escalation are you resolving?</DialogTitle>
+                      <DialogDescription>
+                        Select the AI escalation(s) you are resolving for this conversation.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-2 pt-2">
+                      {selected.labels
+                        .filter((l) => l.includes("Escalation"))
+                        .map((label) => {
+                          const isSelected = sa1ResolveSelections.has(label);
+                          return (
+                            <button
+                              key={label}
+                              type="button"
+                              onClick={() => {
+                                setSa1ResolveSelections((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(label)) next.delete(label);
+                                  else next.add(label);
+                                  return next;
+                                });
+                              }}
+                              className={cn(
+                                "flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm font-medium transition-all",
+                                isSelected
+                                  ? "border-emerald-400 bg-emerald-50 text-emerald-800 ring-1 ring-emerald-400"
+                                  : "border-border bg-background text-foreground hover:border-emerald-300 hover:bg-emerald-50/50"
+                              )}
+                            >
+                              <span className={cn(
+                                "flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors",
+                                isSelected
+                                  ? "border-emerald-500 bg-emerald-500 text-white"
+                                  : "border-muted-foreground/30"
+                              )}>
+                                {isSelected && <Check className="h-3 w-3" />}
+                              </span>
+                              <span className={cn("h-2 w-2 rounded-full shrink-0", isSelected ? "bg-emerald-500" : "bg-muted-foreground/30")} />
+                              {label.replace(" Escalation", "")}
+                            </button>
+                          );
+                        })}
+                    </div>
+                    <div className="flex justify-end gap-2 pt-3">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSa1ResolvePickerOpen(false)}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={sa1ResolveSelections.size === 0}
+                        onClick={() => {
+                          if (!selected) return;
+                          const resolved = Array.from(sa1ResolveSelections);
+                          addMessage(selected.id, {
+                            role: "staff",
+                            text: "",
+                            timestamp: new Date().toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true, timeZoneName: "short" }).replace(",", " ·"),
+                            type: "label_activity",
+                            labelActivity: {
+                              actor: MY_INBOX_ASSIGNEE,
+                              labelsAdded: resolved,
+                              action: "resolved_escalation",
+                            },
+                          });
+                          for (const esc of resolved) {
+                            removeLabel(selected.id, esc);
+                          }
+                          const remaining = selected.labels.filter(
+                            (l) => l.includes("Escalation") && !sa1ResolveSelections.has(l)
+                          );
+                          if (remaining.length === 0) {
+                            resolveConversation(selected.id, MY_INBOX_ASSIGNEE);
+                          }
+                          setSa1ResolvePickerOpen(false);
+                          setSa1ResolveSelections(new Set());
+                        }}
+                      >
+                        Resolve
                       </Button>
                     </div>
                   </DialogContent>
@@ -3313,17 +3709,6 @@ function ConversationsContent() {
                       <span className="text-[11px] font-medium text-red-600 dark:text-red-400">
                         Please select an escalation above to send context for.
                       </span>
-                    </div>
-                  )}
-                  {selected && isSuperAgentDemoThread(selected.id) && aiActivated && selectedEscalationTypes.size > 0 && inputMode !== "private_note" && (
-                    <div className="flex items-center gap-2 px-4 pt-2.5 pb-0">
-                      <span className="text-[11px] text-muted-foreground">Responding to</span>
-                      {Array.from(selectedEscalationTypes).map((esc) => (
-                        <span key={esc} className="inline-flex items-center gap-1 rounded-md bg-orange-100 px-2 py-0.5 text-[11px] font-bold text-orange-800 dark:bg-orange-900/40 dark:text-orange-200">
-                          <span className="h-1.5 w-1.5 rounded-full bg-orange-500" />
-                          {esc}
-                        </span>
-                      ))}
                     </div>
                   )}
                   {inputMode === "private_note" &&
@@ -5487,7 +5872,8 @@ function CommunicationsDemoControl({
   onSimulateInboundCall,
   superAgentEnabled,
   onToggleSuperAgent,
-  onTriggerProfileCommsPopup,
+  superAgent1Enabled,
+  onToggleSuperAgent1,
 }: {
   clickToCallEnabled: boolean;
   onToggleClickToCall: () => void;
@@ -5496,10 +5882,11 @@ function CommunicationsDemoControl({
   onSimulateInboundCall: (callerType?: IncomingCallerType) => void;
   superAgentEnabled: boolean;
   onToggleSuperAgent: () => void;
-  onTriggerProfileCommsPopup: () => void;
+  superAgent1Enabled: boolean;
+  onToggleSuperAgent1: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const anyActive = clickToCallEnabled || callSystemEnabled || superAgentEnabled;
+  const anyActive = clickToCallEnabled || callSystemEnabled || superAgentEnabled || superAgent1Enabled;
 
   return (
     <div className="shrink-0 border-t border-border bg-muted/30">
@@ -5591,9 +5978,23 @@ function CommunicationsDemoControl({
 
           <label className="flex cursor-pointer items-start justify-between gap-2 rounded-md px-1.5 py-1.5 transition-colors hover:bg-muted/60">
             <div className="min-w-0 flex-1">
-              <p className="text-[12px] font-semibold leading-tight text-foreground">Super Agent</p>
+              <p className="text-[12px] font-semibold leading-tight text-foreground">Super Agent 1.0</p>
               <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
-                Show AI Super Agent multi-topic conversations
+                Normal composer with resolve button
+              </p>
+            </div>
+            <Switch
+              checked={superAgent1Enabled}
+              onCheckedChange={onToggleSuperAgent1}
+              className="mt-0.5"
+            />
+          </label>
+
+          <label className="flex cursor-pointer items-start justify-between gap-2 rounded-md px-1.5 py-1.5 transition-colors hover:bg-muted/60">
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-semibold leading-tight text-foreground">Super Agent 2.0</p>
+              <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+                Escalation selector with AI context flow
               </p>
             </div>
             <Switch
@@ -5603,21 +6004,6 @@ function CommunicationsDemoControl({
             />
           </label>
 
-          <button
-            type="button"
-            onClick={onTriggerProfileCommsPopup}
-            className="mt-1 flex w-full items-start gap-2 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-muted/60"
-          >
-            <MessageCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-indigo-500" strokeWidth={2} />
-            <div className="min-w-0 flex-1">
-              <p className="text-[12px] font-semibold leading-tight text-foreground">
-                Profile Comms Pop Up
-              </p>
-              <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
-                Open resident profile without conversation panel
-              </p>
-            </div>
-          </button>
         </div>
       )}
     </div>
