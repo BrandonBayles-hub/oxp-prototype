@@ -99,6 +99,17 @@ export function AssistantBubble({
           key={art.id}
           artifact={art}
           handoffContext={{ scopeLabel: message.scope.label, prompt: priorPrompt }}
+          insightContext={
+            priorPrompt
+              ? {
+                  prompt: priorPrompt,
+                  lens: message.lens,
+                  depth: message.depth,
+                  model: message.model,
+                  scope: message.scope,
+                }
+              : undefined
+          }
         />
       ))}
 

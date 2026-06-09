@@ -1,10 +1,20 @@
 "use client";
 import * as React from "react";
-import type { Conversation, AutomationCandidate } from "@/lib/entrata-experts-v2/types";
+import type { Conversation, AutomationCandidate, IntentCluster, Scope } from "@/lib/entrata-experts-v2/types";
 import { buildClusters, buildAutomationCandidates } from "@/lib/entrata-experts-v2/data/activity";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, Bookmark, Workflow, ArrowUpRight, Users, MessageCircle, Clock } from "lucide-react";
+import { Calendar, Bookmark, Workflow, ArrowUpRight, Users, MessageCircle, Clock, Check } from "lucide-react";
+import {
+  SaveAsInsightDialog,
+  type InsightDraft,
+} from "../chat/save-as-insight-dialog";
+
+const PORTFOLIO_SCOPE: Scope = {
+  kind: "portfolio",
+  id: "portfolio",
+  label: "Whole portfolio",
+};
 
 const KIND_META: Record<AutomationCandidate["graduateTo"], { icon: React.ComponentType<{ className?: string }>; label: string; description: string; variant: "secondary" | "green" | "yellow" }> = {
   "scheduled-digest": {
@@ -33,6 +43,33 @@ export function AutomationCandidates({ activity }: { activity: Conversation[] })
     () => buildAutomationCandidates(activity, clusters),
     [activity, clusters],
   );
+
+  // Index clusters by their canonical pattern label so we can recover the
+  // top lens + example question when the user graduates an "automation
+  // candidate" → "Saved Insight". Candidates are derived from clusters but
+  // don't carry the cluster's lens through.
+  const clusterByPattern = React.useMemo(() => {
+    const map = new Map<string, IntentCluster>();
+    clusters.forEach((c) => map.set(c.label, c));
+    return map;
+  }, [clusters]);
+
+  const [promoting, setPromoting] = React.useState<AutomationCandidate | null>(null);
+  const [justSaved, setJustSaved] = React.useState<string | null>(null);
+
+  const draft: InsightDraft | null = React.useMemo(() => {
+    if (!promoting) return null;
+    const cluster = clusterByPattern.get(promoting.pattern);
+    return {
+      prompt: promoting.example,
+      lens: cluster?.topLens ?? "auto",
+      depth: "auto",
+      model: "auto",
+      scope: PORTFOLIO_SCOPE,
+      source: "admin",
+      suggestedName: promoting.pattern,
+    };
+  }, [promoting, clusterByPattern]);
 
   if (candidates.length === 0) {
     return (
@@ -85,16 +122,49 @@ export function AutomationCandidates({ activity }: { activity: Conversation[] })
               </div>
 
               <div className="mt-auto flex items-center gap-2 pt-1">
-                <Button size="sm" className="gap-1.5">
+                <Button
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={
+                    c.graduateTo === "saved-insight"
+                      ? () => {
+                          setPromoting(c);
+                          setJustSaved(null);
+                        }
+                      : undefined
+                  }
+                  disabled={c.graduateTo !== "saved-insight"}
+                  title={
+                    c.graduateTo === "saved-insight"
+                      ? "Save as a reusable Saved Insight"
+                      : "Coming soon"
+                  }
+                >
                   {c.graduateLabel}
                   <ArrowUpRight className="h-3.5 w-3.5" />
                 </Button>
                 <Button variant="ghost" size="sm">Snooze</Button>
+                {justSaved === c.id && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700">
+                    <Check className="h-3 w-3" />
+                    Saved
+                  </span>
+                )}
               </div>
             </div>
           );
         })}
       </div>
+
+      <SaveAsInsightDialog
+        open={!!promoting}
+        draft={draft}
+        onClose={() => setPromoting(null)}
+        onSaved={() => {
+          setJustSaved(promoting?.id ?? null);
+          setPromoting(null);
+        }}
+      />
     </div>
   );
 }

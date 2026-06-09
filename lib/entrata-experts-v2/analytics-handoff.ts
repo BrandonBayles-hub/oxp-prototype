@@ -56,6 +56,37 @@ export const COMPANY_FOLDERS = [
 
 export type HandoffMode = "snapshot" | "live";
 
+/**
+ * Where the handoff lands inside the Analytics Platform.
+ *
+ * - "dashboard"          — new dashboard (today's path: POST /api/agent/dashboard/save)
+ * - "packet"             — append as a report inside a (new or existing) packet
+ *                          (POST /api/packets or PATCH /api/packets/[id])
+ * - "existing-dashboard" — append as a section inside an existing dashboard.
+ *                          *Specced pending* a readable AP endpoint — listed
+ *                          here so the contract is stable; the dialog currently
+ *                          gates this option off (see `targetAvailable`).
+ */
+export type HandoffTarget = "dashboard" | "packet" | "existing-dashboard";
+
+/** Metadata sent alongside every handoff that originated from a Saved Insight,
+ *  so the Analytics Platform can link back to the source and (future) re-pull
+ *  the same prompt on demand. */
+export interface SavedInsightRef {
+  /** Local Saved Insight id (unique per browser). */
+  id: string;
+  /** URL-safe slug — also the `/` command name in chat. */
+  slug: string;
+  /** Display name. */
+  name: string;
+  /** The captured prompt that re-runs the insight. */
+  prompt: string;
+  /** Lens id (so AP can render an icon / chip). */
+  lens: string;
+  /** Human-readable scope label (e.g. "Whole portfolio"). */
+  scopeLabel: string;
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // Eligibility
 // ──────────────────────────────────────────────────────────────────────────
@@ -277,6 +308,22 @@ export interface HandoffPayload {
   /** Company Menu folder (cosmetic in the prototype). */
   menuFolder?: string;
   sessionId?: string | null;
+  /** Where this should land in AP. Defaults to "dashboard" for back-compat. */
+  target?: HandoffTarget;
+  /** Required when target === "packet" — the packet to append to / create. */
+  packet?: {
+    /**
+     * "new" creates a packet named `packetName`; an existing id PATCHes
+     * that packet to append a new report.
+     */
+    id: "new" | string;
+    /** Human name for new packets (ignored when id is an existing packet). */
+    name?: string;
+  };
+  /** Required when target === "existing-dashboard". */
+  existingDashboardId?: string;
+  /** When set, AP can deep-link back to the source insight or re-pull it. */
+  savedInsight?: SavedInsightRef;
 }
 
 /** Human-readable one-liner describing what will be created. */
@@ -349,16 +396,63 @@ export async function deliverHandoff(
   payload: HandoffPayload,
   base: string = ANALYTICS_PLATFORM_URL,
 ): Promise<DeliveryResult> {
-  const target = `${base.replace(/\/$/, "")}/api/agent/dashboard/save`;
-  const body = JSON.stringify({
-    name: payload.name,
-    tier: payload.tier,
-    dashboardSource: payload.dashboardSource,
-    sessionId: payload.sessionId ?? null,
-  });
+  const target: HandoffTarget = payload.target ?? "dashboard";
+  const stripped = base.replace(/\/$/, "");
+
+  // "existing-dashboard" is specced but not deliverable yet — AP doesn't
+  // expose a readable listing of dashboards we could pick from (today's
+  // dashboard save endpoint is no-cors / write-only). The dialog gates this
+  // option, but be defensive in case a stray caller sets it.
+  if (target === "existing-dashboard") {
+    return {
+      delivered: false,
+      baseUrl: base,
+      error:
+        "Add to existing dashboard is pending an Analytics Platform readable endpoint. Pick 'New dashboard' or 'Packet' for now.",
+    };
+  }
+
+  const url =
+    target === "packet"
+      ? payload.packet?.id && payload.packet.id !== "new"
+        ? `${stripped}/api/packets/${payload.packet.id}`
+        : `${stripped}/api/packets`
+      : `${stripped}/api/agent/dashboard/save`;
+  const method =
+    target === "packet" && payload.packet?.id && payload.packet.id !== "new"
+      ? "PATCH"
+      : "POST";
+
+  // Body shape is target-specific so AP doesn't have to branch on a meta-flag.
+  // Saved-insight metadata travels alongside the payload regardless of target.
+  const body =
+    target === "packet"
+      ? JSON.stringify({
+          name: payload.packet?.name ?? payload.name,
+          // For new packets we seed a single report from the same dashboard
+          // source we'd otherwise create standalone. AP's PacketReport type
+          // accepts an arbitrary record, so the savedInsight + dashboardSource
+          // both ride along inside `reports[0]`.
+          reports: [
+            {
+              name: payload.name,
+              dashboardSource: payload.dashboardSource,
+              savedInsight: payload.savedInsight,
+            },
+          ],
+          savedInsight: payload.savedInsight,
+        })
+      : JSON.stringify({
+          name: payload.name,
+          tier: payload.tier,
+          dashboardSource: payload.dashboardSource,
+          sessionId: payload.sessionId ?? null,
+          savedInsight: payload.savedInsight,
+        });
+
   try {
-    await fetch(target, {
-      method: "POST",
+    await fetch(url, {
+      method,
       mode: "no-cors",
       // text/plain keeps this a CORS-safelisted "simple request" (no preflight);
       // the platform's route parses the JSON body regardless of content type.
@@ -376,4 +470,9 @@ export async function deliverHandoff(
           : String(err),
     };
   }
+}
+
+/** Deep link to the Analytics Platform packets list. */
+export function packetsUrl(base: string): string {
+  return `${base.replace(/\/$/, "")}/packets`;
 }

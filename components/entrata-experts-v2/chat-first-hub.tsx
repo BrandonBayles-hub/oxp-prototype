@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Beaker,
+  Bookmark,
   ChevronDown,
   ChevronRight,
   FileBarChart,
@@ -33,6 +34,7 @@ import { AssistantChat } from "./assistant-chat";
 import { ReportAnalyzerChat } from "./report-analyzer-chat";
 import { ReportAnalyzerModule } from "./report-analyzer-module";
 import { CreditsUsage } from "./credits-usage";
+import { SavedInsightsLibrary } from "./saved-insights-library";
 import { SharedHistorySidebar } from "./shared-history-sidebar";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -46,6 +48,7 @@ import {
   type HistoryThread,
   type ThreadSource,
 } from "@/lib/entrata-experts-v2/history-store";
+import { SavedInsightsProvider } from "@/lib/entrata-experts-v2/saved-insights-store";
 
 // =============================================================================
 // Chat-first hub
@@ -68,7 +71,8 @@ type Selection =
   | { kind: "analyst" }
   | { kind: "assistant"; id: string }
   | { kind: "report-picker" }
-  | { kind: "report"; id: string };
+  | { kind: "report"; id: string }
+  | { kind: "saved-insights" };
 
 // Top-level page mode. Entrata Experts (the chat-first workspace) and Tokens &
 // Usage are peer "pages" switched via the segmented toggle in the hub top bar
@@ -100,6 +104,7 @@ function loadSelection(): Selection {
     if (
       parsed.kind === "analyst" ||
       parsed.kind === "report-picker" ||
+      parsed.kind === "saved-insights" ||
       (parsed.kind === "assistant" && typeof parsed.id === "string") ||
       (parsed.kind === "report" && typeof parsed.id === "string")
     ) {
@@ -130,11 +135,15 @@ function sourceToSelection(s: ThreadSource): Selection {
 }
 
 // Public entry — provides the shared history context to the whole workspace so
-// every surface (Analyst, Assistants, Report Analyzer) reads/writes one list.
+// every surface (Analyst, Assistants, Report Analyzer) reads/writes one list,
+// plus the Saved Insights library so the `/insight-name` command and the
+// "Save to Insights" affordances on artifacts can both reach it.
 export function ChatFirstHub(props: ChatFirstHubProps = {}) {
   return (
     <ExpertsHistoryProvider>
-      <ChatFirstHubInner {...props} />
+      <SavedInsightsProvider>
+        <ChatFirstHubInner {...props} />
+      </SavedInsightsProvider>
     </ExpertsHistoryProvider>
   );
 }
@@ -197,6 +206,17 @@ function ChatFirstHubInner({ onExitFocus }: ChatFirstHubProps) {
     setPendingSelection({ kind: "report", id });
     history.newThread();
   };
+  const selectSavedInsights = () => {
+    setPendingSelection({ kind: "saved-insights" });
+    history.newThread();
+  };
+  // The library's Run button calls this after queueing the pending insight.
+  // We flip the surface to Analyst with no active thread so ChatView's
+  // pending-run effect drains the queue into a fresh conversation.
+  const runFromLibrary = () => {
+    setPendingSelection({ kind: "analyst" });
+    history.newThread();
+  };
   const openThread = (thread: HistoryThread) => {
     setPendingSelection(sourceToSelection(thread.source));
     history.setActiveId(thread.id);
@@ -228,6 +248,7 @@ function ChatFirstHubInner({ onExitFocus }: ChatFirstHubProps) {
             onSelectAssistant={selectAssistant}
             onSelectReportPicker={selectReportPicker}
             onSelectReport={selectReport}
+            onSelectSavedInsights={selectSavedInsights}
           />
           <SharedHistorySidebar
             threads={history.threads}
@@ -263,6 +284,9 @@ function ChatFirstHubInner({ onExitFocus }: ChatFirstHubProps) {
                   hideNew
                 />
               </EmbeddedShell>
+            )}
+            {selection.kind === "saved-insights" && (
+              <SavedInsightsLibrary onRunStarted={runFromLibrary} />
             )}
           </main>
         </div>
@@ -530,12 +554,14 @@ function ExpertsRail({
   onSelectAssistant,
   onSelectReportPicker,
   onSelectReport,
+  onSelectSavedInsights,
 }: {
   selection: Selection;
   onSelectAnalyst: () => void;
   onSelectAssistant: (id: string) => void;
   onSelectReportPicker: () => void;
   onSelectReport: (id: string) => void;
+  onSelectSavedInsights: () => void;
 }) {
   const activeReport =
     selection.kind === "report" ? REPORT_BY_ID[selection.id] : undefined;
@@ -579,6 +605,20 @@ function ExpertsRail({
               />
             );
           })}
+        </RailGroup>
+
+        <RailGroup label="Library">
+          <RailRow
+            active={selection.kind === "saved-insights"}
+            onClick={onSelectSavedInsights}
+            icon={
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-indigo-50 text-indigo-600">
+                <Bookmark className="h-3.5 w-3.5" />
+              </span>
+            }
+            title="Saved Insights"
+            subtitle="One-click prompts"
+          />
         </RailGroup>
 
         <RailGroup label="Reports">

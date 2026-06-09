@@ -26,6 +26,9 @@ import {
   Camera,
   Database,
   ExternalLink,
+  LayoutDashboard,
+  PackageOpen,
+  Layers,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Artifact } from "@/lib/entrata-experts-v2/types";
@@ -34,18 +37,24 @@ import {
   COMPANY_FOLDERS,
   type Tier,
   type HandoffMode,
+  type HandoffTarget,
+  type SavedInsightRef,
   artifactToDashboardSource,
   describeArtifact,
   deliverHandoff,
   continueBuildingUrl,
   libraryUrl,
   companyMenuUrl,
+  packetsUrl,
   ANALYTICS_PLATFORM_URL,
 } from "@/lib/entrata-experts-v2/analytics-handoff";
 
 export interface HandoffContext {
   scopeLabel?: string;
   prompt?: string;
+  /** Metadata about the originating Saved Insight, when this handoff was
+   *  launched from the library. AP can use it to link back / re-pull. */
+  savedInsight?: SavedInsightRef;
 }
 
 type Step = "form" | "success";
@@ -65,8 +74,10 @@ export function SendToAnalyticsDialog({
 
   const [step, setStep] = React.useState<Step>("form");
   const [name, setName] = React.useState(defaultName);
+  const [target, setTarget] = React.useState<HandoffTarget>("dashboard");
   const [tier, setTier] = React.useState<Tier>("PERSONAL");
   const [folder, setFolder] = React.useState<string>(COMPANY_FOLDERS[0]);
+  const [packetName, setPacketName] = React.useState<string>("");
   const [mode, setMode] = React.useState<HandoffMode>("snapshot");
   const [sending, setSending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -77,13 +88,17 @@ export function SendToAnalyticsDialog({
     if (open) {
       setStep("form");
       setName(defaultName);
+      setTarget("dashboard");
       setTier("PERSONAL");
       setFolder(COMPANY_FOLDERS[0]);
+      setPacketName(
+        context?.savedInsight ? `${context.savedInsight.name} packet` : "",
+      );
       setMode("snapshot");
       setSending(false);
       setError(null);
     }
-  }, [open, defaultName]);
+  }, [open, defaultName, context?.savedInsight]);
 
   const built = React.useMemo(
     () => artifactToDashboardSource(artifact, { mode, title: name }),
@@ -91,7 +106,12 @@ export function SendToAnalyticsDialog({
   );
   const bindingSummary = React.useMemo(() => describeArtifact(artifact, mode), [artifact, mode]);
 
-  const destLabel = DESTINATIONS.find((d) => d.tier === tier)?.label ?? "Analytics Platform";
+  const destLabel =
+    target === "packet"
+      ? "Packets"
+      : target === "existing-dashboard"
+        ? "Existing dashboard"
+        : DESTINATIONS.find((d) => d.tier === tier)?.label ?? "Analytics Platform";
 
   async function handleSend() {
     setSending(true);
@@ -100,7 +120,13 @@ export function SendToAnalyticsDialog({
       name: name.trim() || defaultName,
       tier,
       dashboardSource: built.source,
-      menuFolder: tier === "COMPANY" ? folder : undefined,
+      menuFolder: target === "dashboard" && tier === "COMPANY" ? folder : undefined,
+      target,
+      packet:
+        target === "packet"
+          ? { id: "new", name: packetName.trim() || `${name.trim() || defaultName} packet` }
+          : undefined,
+      savedInsight: context?.savedInsight,
     });
     setSending(false);
     if (res.delivered) {
@@ -119,7 +145,12 @@ export function SendToAnalyticsDialog({
     if (typeof window !== "undefined") window.open(url, "_blank", "noopener");
   }
 
-  const successHref = tier === "COMPANY" ? companyMenuUrl(baseUrl) : libraryUrl(baseUrl);
+  const successHref =
+    target === "packet"
+      ? packetsUrl(baseUrl)
+      : tier === "COMPANY"
+        ? companyMenuUrl(baseUrl)
+        : libraryUrl(baseUrl);
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -134,6 +165,14 @@ export function SendToAnalyticsDialog({
             </DialogHeader>
 
             <div className="space-y-4 py-1">
+              {context?.savedInsight && (
+                <div className="rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-[12px] text-indigo-700">
+                  Linking back to <span className="font-semibold">{context.savedInsight.name}</span>{" "}
+                  (<code className="rounded bg-white/60 px-1 py-0.5 text-[11px]">/{context.savedInsight.slug}</code>).
+                  Analytics Platform can re-pull this insight later.
+                </div>
+              )}
+
               {/* Name */}
               <div className="space-y-1.5">
                 <Label htmlFor="handoff-name">Name</Label>
@@ -145,34 +184,71 @@ export function SendToAnalyticsDialog({
                 />
               </div>
 
-              {/* Destination */}
+              {/* Target — new dashboard / packet / existing dashboard */}
               <div className="space-y-1.5">
-                <Label>Where should this live?</Label>
+                <Label>Target</Label>
                 <div className="grid grid-cols-3 gap-1.5">
-                  {DESTINATIONS.map((d) => {
-                    const active = d.tier === tier;
-                    return (
-                      <button
-                        key={d.tier}
-                        type="button"
-                        onClick={() => setTier(d.tier)}
-                        className={cn(
-                          "rounded-md border px-2.5 py-2 text-left transition-colors",
-                          active
-                            ? "border-indigo-400 bg-indigo-50 ring-1 ring-indigo-300"
-                            : "border-border bg-background hover:bg-muted/50",
-                        )}
-                      >
-                        <div className="text-[13px] font-medium text-foreground">{d.label}</div>
-                        <div className="text-[11px] text-muted-foreground">{d.hint}</div>
-                      </button>
-                    );
-                  })}
+                  <TargetOption
+                    active={target === "dashboard"}
+                    onClick={() => setTarget("dashboard")}
+                    icon={<LayoutDashboard className="h-3.5 w-3.5" />}
+                    title="New dashboard"
+                    sub="Create or replace"
+                  />
+                  <TargetOption
+                    active={target === "packet"}
+                    onClick={() => setTarget("packet")}
+                    icon={<PackageOpen className="h-3.5 w-3.5" />}
+                    title="Packet"
+                    sub="Scheduled bundle"
+                  />
+                  <TargetOption
+                    active={target === "existing-dashboard"}
+                    onClick={() => setTarget("existing-dashboard")}
+                    icon={<Layers className="h-3.5 w-3.5" />}
+                    title="Existing dashboard"
+                    sub="Coming soon"
+                    disabled
+                  />
                 </div>
+                {target === "existing-dashboard" && (
+                  <p className="text-[11px] text-amber-600">
+                    Pending an Analytics Platform readable endpoint to pick the
+                    target dashboard.
+                  </p>
+                )}
               </div>
 
-              {/* Company Menu folder */}
-              {tier === "COMPANY" && (
+              {/* Dashboard-only: destination tier */}
+              {target === "dashboard" && (
+                <div className="space-y-1.5">
+                  <Label>Where should this live?</Label>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {DESTINATIONS.map((d) => {
+                      const active = d.tier === tier;
+                      return (
+                        <button
+                          key={d.tier}
+                          type="button"
+                          onClick={() => setTier(d.tier)}
+                          className={cn(
+                            "rounded-md border px-2.5 py-2 text-left transition-colors",
+                            active
+                              ? "border-indigo-400 bg-indigo-50 ring-1 ring-indigo-300"
+                              : "border-border bg-background hover:bg-muted/50",
+                          )}
+                        >
+                          <div className="text-[13px] font-medium text-foreground">{d.label}</div>
+                          <div className="text-[11px] text-muted-foreground">{d.hint}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Company Menu folder — only when publishing as a Company dashboard */}
+              {target === "dashboard" && tier === "COMPANY" && (
                 <div className="space-y-1.5">
                   <Label htmlFor="handoff-folder">Company Menu folder</Label>
                   <Select value={folder} onValueChange={setFolder}>
@@ -187,6 +263,23 @@ export function SendToAnalyticsDialog({
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+              )}
+
+              {/* Packet target — name the packet we create on AP */}
+              {target === "packet" && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="handoff-packet-name">Packet name</Label>
+                  <Input
+                    id="handoff-packet-name"
+                    value={packetName}
+                    onChange={(e) => setPacketName(e.target.value)}
+                    placeholder={`${name || defaultName} packet`}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Creates a new packet in Analytics Platform with this report
+                    as its first entry. You can add recipients + schedule there.
+                  </p>
                 </div>
               )}
 
@@ -262,7 +355,21 @@ export function SendToAnalyticsDialog({
                 <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={sending}>
                   Cancel
                 </Button>
-                <Button type="button" size="sm" onClick={handleSend} disabled={sending || !name.trim()}>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleSend}
+                  disabled={
+                    sending ||
+                    !name.trim() ||
+                    target === "existing-dashboard"
+                  }
+                  title={
+                    target === "existing-dashboard"
+                      ? "Coming soon — pending an AP readable endpoint"
+                      : undefined
+                  }
+                >
                   {sending ? (
                     <>
                       <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Sending…
@@ -284,9 +391,10 @@ export function SendToAnalyticsDialog({
               </div>
               <DialogTitle className="text-center">Sent to {destLabel}</DialogTitle>
               <DialogDescription className="text-center">
-                <span className="font-medium text-foreground">{name.trim() || defaultName}</span> will
-                appear in your {destLabel}
-                {tier === "COMPANY" ? ` → ${folder}` : ""}.
+                <span className="font-medium text-foreground">{name.trim() || defaultName}</span>{" "}
+                {target === "packet"
+                  ? `was added to ${packetName.trim() || `${name.trim() || defaultName} packet`}. Open Packets to set recipients and schedule.`
+                  : `will appear in your ${destLabel}${tier === "COMPANY" ? ` → ${folder}` : ""}.`}
               </DialogDescription>
             </DialogHeader>
 
@@ -340,6 +448,52 @@ function BindingOption({
       )}
     >
       <span className={cn("shrink-0", active ? "text-indigo-600" : "text-muted-foreground")}>{icon}</span>
+      <span className="min-w-0">
+        <span className="block text-[13px] font-medium text-foreground">{title}</span>
+        <span className="block text-[11px] text-muted-foreground">{sub}</span>
+      </span>
+    </button>
+  );
+}
+
+function TargetOption({
+  active,
+  onClick,
+  icon,
+  title,
+  sub,
+  disabled = false,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  title: string;
+  sub: string;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      // Disabled targets stay clickable so the user can preview them; the
+      // Send button is what's actually gated. This lets the dialog explain
+      // the "coming soon" state inline without making the option mysterious.
+      className={cn(
+        "flex items-start gap-2 rounded-md border px-2.5 py-2 text-left transition-colors",
+        active
+          ? "border-indigo-400 bg-indigo-50 ring-1 ring-indigo-300"
+          : "border-border bg-background hover:bg-muted/50",
+        disabled && "opacity-70",
+      )}
+    >
+      <span
+        className={cn(
+          "mt-0.5 shrink-0",
+          active ? "text-indigo-600" : "text-muted-foreground",
+        )}
+      >
+        {icon}
+      </span>
       <span className="min-w-0">
         <span className="block text-[13px] font-medium text-foreground">{title}</span>
         <span className="block text-[11px] text-muted-foreground">{sub}</span>

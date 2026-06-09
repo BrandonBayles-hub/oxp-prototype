@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { useAnalyticsHandoff } from "@/lib/analytics-handoff-context";
 import { isHandoffEligible } from "@/lib/entrata-experts-v2/analytics-handoff";
 import type { HandoffContext } from "./send-to-analytics-dialog";
+import { SaveAsInsightDialog, type InsightDraft } from "./save-as-insight-dialog";
 
 const TONE_BG: Record<string, string> = {
   good: "bg-emerald-50 text-emerald-900 border-emerald-200",
@@ -31,12 +32,28 @@ export function Artifact({
   artifact,
   compact = false,
   handoffContext,
+  insightContext,
 }: {
   artifact: ArtifactType;
   compact?: boolean;
   handoffContext?: HandoffContext;
+  /**
+   * Captured prompt + composer params at the moment this answer was produced.
+   * Required for the "Save to Insights" affordance to know what to persist.
+   * When omitted the affordance is hidden.
+   */
+  insightContext?: Omit<InsightDraft, "lastResult" | "source" | "suggestedName">;
 }) {
   const { handoffEnabled, openHandoff } = useAnalyticsHandoff();
+  const [saveOpen, setSaveOpen] = React.useState(false);
+  const draft: InsightDraft | null = insightContext
+    ? {
+        ...insightContext,
+        source: "chat",
+        lastResult: [artifact],
+        suggestedName: artifact.title,
+      }
+    : null;
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-card">
       <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
@@ -59,9 +76,17 @@ export function Artifact({
                 <Share2 className="h-3.5 w-3.5" />
               </Button>
             )}
-            <Button variant="ghost" size="icon" className="h-7 w-7" title="Save to Insights">
-              <BookmarkPlus className="h-3.5 w-3.5" />
-            </Button>
+            {draft && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                title="Save to Insights"
+                onClick={() => setSaveOpen(true)}
+              >
+                <BookmarkPlus className="h-3.5 w-3.5" />
+              </Button>
+            )}
             <Button variant="ghost" size="icon" className="h-7 w-7" title="Copy">
               <Copy className="h-3.5 w-3.5" />
             </Button>
@@ -71,6 +96,13 @@ export function Artifact({
           </div>
         )}
       </div>
+      {draft && (
+        <SaveAsInsightDialog
+          open={saveOpen}
+          draft={draft}
+          onClose={() => setSaveOpen(false)}
+        />
+      )}
       <div className="p-4">
         {artifact.kind === "table" && <TableArtifact a={artifact} />}
         {artifact.kind === "bar-chart" && <BarArtifact a={artifact} />}

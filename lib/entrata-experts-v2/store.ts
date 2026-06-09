@@ -43,6 +43,19 @@ const REMEMBERED_BY_ROLE: Record<RoleId, string[]> = {
   ],
 };
 
+/**
+ * Per-call overrides for `send`. Used when re-running a Saved Insight so the
+ * insight's stored lens/depth/model/scope are honored regardless of what the
+ * composer is currently set to. Any field omitted falls back to the store's
+ * current state.
+ */
+export interface SendOverrides {
+  lens?: LensId;
+  depth?: Depth;
+  model?: ModelId;
+  scope?: Scope;
+}
+
 export interface ChatState {
   role: RoleId;
   setRole: (r: RoleId) => void;
@@ -59,7 +72,7 @@ export interface ChatState {
   remembered: string[];
   newConversation: () => void;
   selectConversation: (id: string) => void;
-  send: (prompt: string) => void;
+  send: (prompt: string, overrides?: SendOverrides) => void;
   activity: Conversation[];
 }
 
@@ -147,7 +160,16 @@ export function useChatStore(): ChatState {
     history.setActiveId(id);
   }
 
-  function send(prompt: string) {
+  function send(prompt: string, overrides?: SendOverrides) {
+    // Per-call params (e.g. a Saved Insight's stored lens/scope) take
+    // precedence over the composer's current state. This lets `/insight-name`
+    // re-run a saved question with its original params regardless of how the
+    // user has tweaked the composer since.
+    const effLens = overrides?.lens ?? lens;
+    const effDepth = overrides?.depth ?? depth;
+    const effModel = overrides?.model ?? model;
+    const effScope = overrides?.scope ?? scope;
+
     const now = Date.now();
     const userMsg: UserMessage = {
       id: `u-${now}`,
@@ -174,7 +196,7 @@ export function useChatStore(): ChatState {
       convId = history.createThread({
         source: { kind: "analyst" },
         title: prompt.length > 60 ? prompt.slice(0, 57) + "..." : prompt,
-        lens,
+        lens: effLens,
         message: userMsg,
       });
     }
@@ -187,7 +209,7 @@ export function useChatStore(): ChatState {
       const aMsg: AssistantMessage = {
         ...message,
         id: `a-${Date.now()}`,
-        model,
+        model: effModel,
         createdAt: new Date().toISOString(),
       };
       history.appendMessage(convId, aMsg, { lens: aMsg.lens });
@@ -197,9 +219,9 @@ export function useChatStore(): ChatState {
     // Built-in mock answer engine — used when LiteLLM isn't configured or the
     // live call fails, so the prototype always responds.
     const runMock = () => {
-      const thinkMs = depth === "fast" ? 900 : depth === "reasoning" ? 1900 : 1100;
+      const thinkMs = effDepth === "fast" ? 900 : effDepth === "reasoning" ? 1900 : 1100;
       setTimeout(() => {
-        const composed = compose({ prompt, lens, depth, scope });
+        const composed = compose({ prompt, lens: effLens, depth: effDepth, scope: effScope });
         appendAssistant(composed.message);
       }, thinkMs);
     };
@@ -212,7 +234,15 @@ export function useChatStore(): ChatState {
         const res = await fetch("/api/experts/chat/", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt, lens, depth, model, role, scope, messages: priorTurns }),
+          body: JSON.stringify({
+            prompt,
+            lens: effLens,
+            depth: effDepth,
+            model: effModel,
+            role,
+            scope: effScope,
+            messages: priorTurns,
+          }),
         });
         const data = await res.json().catch(() => null);
         if (res.ok && data?.ok && data.message) {

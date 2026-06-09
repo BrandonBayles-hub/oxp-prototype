@@ -409,3 +409,138 @@ live-metric payload returned `201` and created reports.
 **Out of scope (noting, not doing here):** rebuilding dashboard authoring inside
 Analyst; real cross-app SSO; the lens-prompt report-name corrections (separate
 task).
+
+---
+
+## Part 10 — Saved Insights → Analytics Platform handoff (contract)
+
+This part extends the handoff to cover the **Saved Insights** library. Entrata
+Experts owns the library locally (`localStorage`); the Analytics Platform is
+the composition home reached through this handoff. **No Analytics Platform
+code changes are made in this Experts-side change set** — this section
+documents the contract the platform should implement.
+
+### 10.1 What changed in the handoff payload
+
+`HandoffPayload` (lib/entrata-experts-v2/analytics-handoff.ts) now carries
+three additional fields. All are optional → existing callers stay on the
+"new dashboard" path with no change in behavior.
+
+| Field | Type | Purpose |
+|---|---|---|
+| `target` | `"dashboard" \| "packet" \| "existing-dashboard"` | Where the handoff lands. Defaults to `"dashboard"`. |
+| `packet` | `{ id: "new" \| string; name?: string }` | Required when `target === "packet"`. `"new"` creates a packet; an existing id PATCHes that packet. |
+| `existingDashboardId` | `string` | Required when `target === "existing-dashboard"` (pending AP endpoint). |
+| `savedInsight` | `SavedInsightRef` | When set, AP can link back to the source Saved Insight and re-pull it. |
+
+`SavedInsightRef` is the minimal back-link metadata:
+
+```ts
+interface SavedInsightRef {
+  id: string;          // Local Saved Insight id (unique per browser)
+  slug: string;        // URL-safe slug; the `/` command name in chat
+  name: string;        // Display name
+  prompt: string;      // Captured prompt that re-runs the insight
+  lens: string;        // Lens id, so AP can render an icon/chip
+  scopeLabel: string;  // e.g. "Whole portfolio"
+}
+```
+
+### 10.2 Endpoint routing matrix
+
+The Experts client routes by `target`. All requests stay `mode: "no-cors"` +
+`text/plain` to remain CORS-safelisted (same constraint as Part 9).
+
+| Target | Method | Endpoint | Used today? |
+|---|---|---|---|
+| `dashboard` | `POST` | `/api/agent/dashboard/save` | ✅ existing |
+| `packet` (new) | `POST` | `/api/packets` | ✅ existing |
+| `packet` (existing) | `PATCH` | `/api/packets/[id]` | ✅ existing |
+| `existing-dashboard` | — | **pending** | ❌ blocked (see 10.4) |
+
+### 10.3 Body shapes
+
+**`POST /api/agent/dashboard/save`** (unchanged, with optional `savedInsight`):
+
+```json
+{
+  "name": "Delinquency by aging bucket",
+  "tier": "PERSONAL",
+  "dashboardSource": "<python source>",
+  "sessionId": null,
+  "savedInsight": { /* SavedInsightRef, optional */ }
+}
+```
+
+**`POST /api/packets`** (matches AP's existing `PacketReport[]` shape):
+
+```json
+{
+  "name": "Delinquency packet",
+  "reports": [
+    {
+      "name": "Delinquency by aging bucket",
+      "dashboardSource": "<python source>",
+      "savedInsight": { /* SavedInsightRef, optional */ }
+    }
+  ],
+  "savedInsight": { /* SavedInsightRef, optional */ }
+}
+```
+
+**`PATCH /api/packets/[id]`** appends to an existing packet by sending a new
+`reports` array (AP today replaces; a real implementation likely needs an
+append-only `addReport` semantic — see 10.4).
+
+### 10.4 One **new** endpoint AP must add
+
+The "Add to existing dashboard" target ships as a **spec only**. AP's current
+write endpoints are `no-cors` / opaque, so the client cannot read back a list
+of dashboards to pick from. The Experts dialog gates this option off until
+AP adds a readable lister:
+
+```
+GET /api/dashboards
+→ 200 { dashboards: Array<{ id: string; name: string; tier: Tier; updatedAt: string }> }
+```
+
+Requirements:
+- **CORS-readable** (`Access-Control-Allow-Origin: *` or an allow-list
+  including the Entrata Analyst origin). Today's `/api/agent/dashboard/save`
+  is `no-cors`; this listing must be true CORS so the Experts dialog can
+  render the dropdown.
+- Returns the user's accessible dashboards across `PERSONAL`/`TEAM`/`COMPANY`
+  with stable ids the client can pass back in `existingDashboardId`.
+- Once present, Experts will also send the corresponding write:
+  `PATCH /api/dashboards/[id]` with `{ append: { /* dashboard block */ }, savedInsight }`.
+
+Until that endpoint exists, the Experts dialog continues to allow **New
+dashboard** and **Packet** targets; **Existing dashboard** stays disabled
+with an inline "Coming soon" hint.
+
+### 10.5 What AP should do with `savedInsight`
+
+Treat it as opaque link-back metadata for now:
+- Store on the saved dashboard/report/packet entry as `sourceSavedInsight`
+  (or equivalent) — useful for "where did this come from?" attribution.
+- Optionally show a small "Saved insight: {name}" chip on the rendered
+  dashboard so the user knows it's traceable.
+- (Future) Provide a "Re-pull from Entrata Analyst" affordance that deep-links
+  back to `${ANALYST_URL}/?run=/${slug}` (Experts already routes `/slug`
+  commands via the composer slash menu).
+
+### 10.6 Status & follow-ups (Experts side, this change set)
+
+**Shipped (Experts):**
+- Target picker (New dashboard / Packet / Existing dashboard) in the handoff
+  dialog (`send-to-analytics-dialog.tsx`).
+- Packet payload + endpoint routing in `analytics-handoff.ts`.
+- Saved Insights library panel under Experts → Library → Saved Insights with
+  a "Send to Analytics Platform" action that prefills `savedInsight`.
+- `savedInsight` carried through to every handoff destination.
+
+**Pending (AP side):**
+- `GET /api/dashboards` readable listing (see 10.4).
+- Decide append semantics for `PATCH /api/packets/[id]` (Experts currently
+  replaces `reports[]` — AP may want a dedicated `addReport` payload).
+- Decide whether to surface `savedInsight` in the AP UI (recommended).

@@ -228,3 +228,32 @@ export interface AutomationCandidate {
   graduateLabel: string;
   example: string;
 }
+
+/**
+ * A condensed, parameterized prompt the user can re-run on demand from chat
+ * (via the `/insight-name` slash command) or hand off to the Analytics
+ * Platform (as a new dashboard, a packet entry, or — once AP exposes the
+ * readable endpoint — added to an existing dashboard).
+ *
+ * Saved Insights are *not* dashboards. They re-run the original ask against
+ * the live model with the original lens/depth/model/scope every time, so the
+ * answer is always fresh. `lastResult` is just an optional preview cache —
+ * the source of truth is the prompt + params.
+ */
+export interface SavedInsight {
+  id: string;
+  /** URL- and command-safe slug used by the `/insight-name` form. */
+  slug: string;
+  name: string;
+  prompt: string;
+  lens: LensId;
+  depth: Depth;
+  model: ModelId;
+  scope: Scope;
+  /** Where this insight was created (chat artifact vs. admin graduation). */
+  source: "chat" | "admin";
+  createdAt: string;
+  updatedAt: string;
+  /** Optional cached preview of the most recent run (display-only). */
+  lastResult?: Artifact[];
+}

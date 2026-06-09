@@ -17,6 +17,7 @@ import { AcademyDemoControls } from "../trainings-sop/academy/AcademyDemoControl
 import { Badge } from "@/components/ui/badge";
 import { Sparkles, BookOpen, AlertCircle, MessageSquare, GraduationCap } from "lucide-react";
 import { useEntrataExpertsRelease } from "@/lib/entrata-experts-release-context";
+import { SavedInsightsProvider } from "@/lib/entrata-experts-v2/saved-insights-store";
 
 type SourceId = "experts" | "trainings" | "escalations" | "communications" | "academy";
 
@@ -195,7 +196,7 @@ export default function AdminInsightsPage() {
   const SourceIcon = currentSource.icon;
 
   return (
-    <>
+    <SavedInsightsProvider>
       <PageHeader
         title="Admin Insights"
         description="Cross-platform observability — see what your team is doing with AI across OXP, surface gaps, and graduate patterns into automation."
@@ -326,6 +327,6 @@ export default function AdminInsightsPage() {
           </div>
         )}
       </div>
-    </>
+    </SavedInsightsProvider>
   );
 }
