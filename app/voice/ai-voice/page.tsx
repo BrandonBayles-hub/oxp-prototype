@@ -13,9 +13,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import {
   useVoice,
+  AGENT_TONE_IDS,
   DEFAULT_NOVA2_VOICE_ID,
   getNova2Voice,
   getNova2VoicesByGender,
@@ -27,6 +29,7 @@ import {
 import {
   ArrowLeft,
   Building2,
+  Check,
   ChevronDown,
   ChevronRight,
   CreditCard,
@@ -38,12 +41,14 @@ import {
   Pencil,
   Plus,
   RotateCcw,
+  Search,
   ShieldCheck,
   Briefcase,
   Trash2,
   AlertTriangle,
   Wrench,
   Sparkles,
+  X,
 } from "lucide-react";
 import { PropertySelector } from "@/components/property-filter";
 import {
@@ -103,6 +108,20 @@ const AGENTS: AgentMeta[] = [
     accent: "sky",
   },
 ];
+
+// The Voice tab uses one unified voice for every ELI+ agent at a property — Leasing,
+// Renewal, Payments, and Maintenance all share the same voice settings. We keep the
+// per-agent voice slices in the store (so other surfaces that read per-agent voice keep
+// working) but the UI configures and renders a single set of voice settings.
+const CONSOLIDATED_AGENT: AgentMeta = {
+  id: "leasing",
+  name: "Voice",
+  description:
+    "One voice setting for every ELI+ agent at a property. Applies to Leasing, Renewal, Payments, and Maintenance AI.",
+  icon: Sparkles,
+  accent: "indigo",
+};
+const CANONICAL_VOICE_AGENT_ID: AgentToneId = "leasing";
 
 const VERTICAL_META: Record<Vertical, { icon: typeof Building2; color: string; bg: string; description: string }> = {
   Conventional: { icon: Building2, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-950/30", description: "Market-rate multifamily apartments" },
@@ -193,7 +212,9 @@ export default function AIVoicePage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [selectedAgentId, setSelectedAgentId] = useState<AgentToneId | null>(null);
+  // Consolidated mode replaces the per-agent picker. We still need a flag in addition
+  // to the URL so deep-link queries (legacy ?agent=leasing) land on the same screen.
+  const [consolidatedOpen, setConsolidatedOpen] = useState(false);
   const [vanityOpen, setVanityOpen] = useState(false);
 
   const queryAgent = searchParams.get("agent");
@@ -201,25 +222,26 @@ export default function AIVoicePage() {
   const queryScrollTo = searchParams.get("scrollTo");
 
   useEffect(() => {
-    if (isAgentToneId(queryAgent)) {
-      setSelectedAgentId(queryAgent);
+    // Any legacy or new deep-link with an agent param routes to the consolidated voice view.
+    if (queryAgent && (queryAgent === "all" || isAgentToneId(queryAgent))) {
+      setConsolidatedOpen(true);
       return;
     }
     if (!queryAgent) {
-      setSelectedAgentId(null);
+      setConsolidatedOpen(false);
     }
   }, [queryAgent]);
 
-  const selectAgent = (agentId: AgentToneId) => {
-    setSelectedAgentId(agentId);
+  const openConsolidated = () => {
+    setConsolidatedOpen(true);
     const params = new URLSearchParams(searchParams.toString());
-    params.set("agent", agentId);
+    params.set("agent", "all");
     params.delete("property");
     router.replace(`${pathname}?${params.toString()}`);
   };
 
-  const clearSelectedAgent = () => {
-    setSelectedAgentId(null);
+  const closeConsolidated = () => {
+    setConsolidatedOpen(false);
     router.replace(pathname);
   };
 
@@ -227,45 +249,111 @@ export default function AIVoicePage() {
     return <VanityNumbersDetailView onBack={() => setVanityOpen(false)} />;
   }
 
-  if (!selectedAgentId) {
+  if (!consolidatedOpen) {
     return (
       <AgentPickerView
         defaults={voice.agentVoiceDefaults}
         verticalOverrides={voice.agentVerticalVoiceOverrides}
         propertyOverrides={voice.agentPropertyVoiceOverrides}
-        onPick={selectAgent}
+        onOpenConsolidated={openConsolidated}
         onPickVanity={() => setVanityOpen(true)}
       />
     );
   }
 
-  const defaultSettings = voice.agentVoiceDefaults[selectedAgentId] ?? voice.voiceSettings;
+  // Use the leasing agent as the canonical source of truth for the consolidated view.
+  // Writes are mirrored to every agent so per-agent reads elsewhere stay consistent.
+  const defaultSettings =
+    voice.agentVoiceDefaults[CANONICAL_VOICE_AGENT_ID] ?? voice.voiceSettings;
   const verticalOverrides = voice.agentVerticalVoiceOverrides.filter(
-    (override) => override.agentId === selectedAgentId,
+    (override) => override.agentId === CANONICAL_VOICE_AGENT_ID,
   ) as VerticalOverrideRecord[];
   const propertyOverrides = voice.agentPropertyVoiceOverrides.filter(
-    (override) => override.agentId === selectedAgentId,
+    (override) => override.agentId === CANONICAL_VOICE_AGENT_ID,
   ) as PropertyOverrideRecord[];
+
+  const propagateVerticalChange = (
+    canonicalId: string,
+    apply: (override: AgentVerticalVoiceOverride) => void,
+  ) => {
+    const canonicalRecord = voice.agentVerticalVoiceOverrides.find((override) => override.id === canonicalId);
+    if (!canonicalRecord) return;
+    AGENT_TONE_IDS.forEach((agentId) => {
+      const match = voice.agentVerticalVoiceOverrides.find(
+        (override) => override.agentId === agentId && override.vertical === canonicalRecord.vertical,
+      );
+      if (match) apply(match);
+    });
+  };
+
+  const propagatePropertyChange = (
+    canonicalId: string,
+    apply: (override: AgentPropertyVoiceOverride) => void,
+  ) => {
+    const canonicalRecord = voice.agentPropertyVoiceOverrides.find((override) => override.id === canonicalId);
+    if (!canonicalRecord) return;
+    AGENT_TONE_IDS.forEach((agentId) => {
+      const match = voice.agentPropertyVoiceOverrides.find(
+        (override) => override.agentId === agentId && override.propertyName === canonicalRecord.propertyName,
+      );
+      if (match) apply(match);
+    });
+  };
 
   return (
     <AgentDetailView
-      agent={AGENTS.find((agent) => agent.id === selectedAgentId)!}
+      agent={CONSOLIDATED_AGENT}
+      consolidated
       defaultSettings={defaultSettings}
       verticalOverrides={verticalOverrides}
       propertyOverrides={propertyOverrides}
       pendingProperty={queryProperty}
       pendingScrollTo={queryScrollTo}
-      onBack={clearSelectedAgent}
-      onUpdateDefault={(next) => voice.updateAgentVoiceDefault(selectedAgentId, next)}
-      onResetDefault={() => voice.resetAgentVoiceDefault(selectedAgentId)}
-      onAddVertical={(record) => voice.addAgentVerticalVoiceOverride({ ...record, agentId: selectedAgentId })}
-      onUpdateVertical={(id, next) => voice.updateAgentVerticalVoiceOverride(id, { settings: next })}
-      onRemoveVertical={(id) => voice.removeAgentVerticalVoiceOverride(id)}
-      onAddProperties={(records) =>
-        voice.addAgentPropertyVoiceOverrides(records.map((record) => ({ ...record, agentId: selectedAgentId })))
-      }
-      onUpdateProperty={(id, next) => voice.updateAgentPropertyVoiceOverride(id, { settings: next })}
-      onRemoveProperty={(id) => voice.removeAgentPropertyVoiceOverride(id)}
+      onBack={closeConsolidated}
+      onUpdateDefault={(next) => {
+        AGENT_TONE_IDS.forEach((agentId) => voice.updateAgentVoiceDefault(agentId, next));
+      }}
+      onResetDefault={() => {
+        AGENT_TONE_IDS.forEach((agentId) => voice.resetAgentVoiceDefault(agentId));
+      }}
+      onAddVertical={(record) => {
+        const now = Date.now();
+        AGENT_TONE_IDS.forEach((agentId, index) => {
+          voice.addAgentVerticalVoiceOverride({
+            ...record,
+            id: `voice-${agentId}-${record.vertical.toLowerCase()}-${now}-${index}`,
+            agentId,
+          });
+        });
+      }}
+      onUpdateVertical={(id, next) => {
+        propagateVerticalChange(id, (override) =>
+          voice.updateAgentVerticalVoiceOverride(override.id, { settings: next }),
+        );
+      }}
+      onRemoveVertical={(id) => {
+        propagateVerticalChange(id, (override) => voice.removeAgentVerticalVoiceOverride(override.id));
+      }}
+      onAddProperties={(records) => {
+        const now = Date.now();
+        AGENT_TONE_IDS.forEach((agentId, agentIndex) => {
+          voice.addAgentPropertyVoiceOverrides(
+            records.map((record, recordIndex) => ({
+              ...record,
+              id: `voice-${agentId}-${record.propertyName.toLowerCase().replace(/\s+/g, "-")}-${now}-${agentIndex}-${recordIndex}`,
+              agentId,
+            })),
+          );
+        });
+      }}
+      onUpdateProperty={(id, next) => {
+        propagatePropertyChange(id, (override) =>
+          voice.updateAgentPropertyVoiceOverride(override.id, { settings: next }),
+        );
+      }}
+      onRemoveProperty={(id) => {
+        propagatePropertyChange(id, (override) => voice.removeAgentPropertyVoiceOverride(override.id));
+      }}
     />
   );
 }
@@ -274,56 +362,62 @@ function AgentPickerView({
   defaults,
   verticalOverrides,
   propertyOverrides,
-  onPick,
+  onOpenConsolidated,
   onPickVanity,
 }: {
   defaults: Record<AgentToneId, VoiceSettings>;
   verticalOverrides: AgentVerticalVoiceOverride[];
   propertyOverrides: AgentPropertyVoiceOverride[];
-  onPick: (agentId: AgentToneId) => void;
+  onOpenConsolidated: () => void;
   onPickVanity: () => void;
 }) {
+  const consolidatedVoice = defaults[CANONICAL_VOICE_AGENT_ID];
+  const consolidatedVerticalCount = verticalOverrides.filter(
+    (override) => override.agentId === CANONICAL_VOICE_AGENT_ID,
+  ).length;
+  const consolidatedPropertyCount = propertyOverrides.filter(
+    (override) => override.agentId === CANONICAL_VOICE_AGENT_ID,
+  ).length;
+
   return (
     <div>
       <p className="mb-6 text-sm text-muted-foreground">
-        Choose an agent to configure voice settings. Each agent has its own portfolio default plus vertical and property overrides.
+        Configure one voice for every ELI+ agent at your properties. Staff Calling is managed separately below.
       </p>
       <div className="grid gap-4 sm:grid-cols-2">
-        {AGENTS.map((agent) => {
-          const defaultVoice = defaults[agent.id];
-          const verticalCount = verticalOverrides.filter((override) => override.agentId === agent.id).length;
-          const propertyCount = propertyOverrides.filter((override) => override.agentId === agent.id).length;
-          return (
-            <button
-              key={agent.id}
-              type="button"
-              onClick={() => onPick(agent.id)}
-              className="group rounded-xl border border-border bg-white p-5 text-left transition-all hover:border-zinc-400 hover:shadow-md"
-            >
-              <div className="flex items-start gap-4">
-                <img src="/eli-cube.svg" alt="" width={40} height={40} className="shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-base font-semibold text-foreground">ELI+ {agent.name}</h3>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-                  </div>
-                  <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">{agent.description}</p>
-                  <div className="mt-3 rounded-md bg-muted/40 px-3 py-2">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Default voice</p>
-                    <p className="mt-0.5 text-xs text-foreground line-clamp-2">
-                      {(getNova2Voice(defaultVoice.voiceAccent)?.label ?? defaultVoice.voiceAccent)} • {defaultVoice.voiceGender} • {defaultVoice.voiceLanguages[0] ?? "No language"}
-                      {defaultVoice.voiceLanguages.length > 1 ? ` +${defaultVoice.voiceLanguages.length - 1}` : ""}
-                    </p>
-                  </div>
-                  <div className="mt-3 flex items-center gap-2 text-[10px]">
-                    <Badge variant="secondary" className="font-normal">{verticalCount} vertical override{verticalCount === 1 ? "" : "s"}</Badge>
-                    <Badge variant="secondary" className="font-normal">{propertyCount} property override{propertyCount === 1 ? "" : "s"}</Badge>
-                  </div>
-                </div>
+        <button
+          type="button"
+          onClick={onOpenConsolidated}
+          className="group rounded-xl border border-border bg-white p-5 text-left transition-all hover:border-zinc-400 hover:shadow-md"
+        >
+          <div className="flex items-start gap-4">
+            <img src="/eli-cube.svg" alt="" width={40} height={40} className="shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-base font-semibold text-foreground">ELI+ Voice</h3>
+                <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
               </div>
-            </button>
-          );
-        })}
+              <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">
+                Applies to Leasing, Renewal, Payments, and Maintenance AI at every property.
+              </p>
+              <div className="mt-3 rounded-md bg-muted/40 px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Default voice</p>
+                <p className="mt-0.5 text-xs text-foreground line-clamp-2">
+                  {(getNova2Voice(consolidatedVoice.voiceAccent)?.label ?? consolidatedVoice.voiceAccent)} • {consolidatedVoice.voiceGender} • {consolidatedVoice.voiceLanguages[0] ?? "No language"}
+                  {consolidatedVoice.voiceLanguages.length > 1 ? ` +${consolidatedVoice.voiceLanguages.length - 1}` : ""}
+                </p>
+              </div>
+              <div className="mt-3 flex items-center gap-2 text-[10px]">
+                <Badge variant="secondary" className="font-normal">
+                  {consolidatedVerticalCount} vertical override{consolidatedVerticalCount === 1 ? "" : "s"}
+                </Badge>
+                <Badge variant="secondary" className="font-normal">
+                  {consolidatedPropertyCount} property override{consolidatedPropertyCount === 1 ? "" : "s"}
+                </Badge>
+              </div>
+            </div>
+          </div>
+        </button>
 
         {/* Vanity Numbers card */}
         <button
@@ -357,6 +451,7 @@ function AgentPickerView({
 
 function AgentDetailView({
   agent,
+  consolidated,
   defaultSettings,
   verticalOverrides,
   propertyOverrides,
@@ -373,6 +468,7 @@ function AgentDetailView({
   onRemoveProperty,
 }: {
   agent: AgentMeta;
+  consolidated?: boolean;
   defaultSettings: VoiceSettings;
   verticalOverrides: VerticalOverrideRecord[];
   propertyOverrides: PropertyOverrideRecord[];
@@ -392,12 +488,38 @@ function AgentDetailView({
   const [addPropertyOpen, setAddPropertyOpen] = useState(false);
   const [preselectedPropertyName, setPreselectedPropertyName] = useState<string | null>(null);
   const [autoExpandProperty, setAutoExpandProperty] = useState<string | null>(null);
+  const [propertyFilterSearch, setPropertyFilterSearch] = useState("");
+  const [propertyFilterVerticals, setPropertyFilterVerticals] = useState<Set<Vertical>>(new Set());
+  const [propertyFilterNames, setPropertyFilterNames] = useState<Set<string>>(new Set());
   const defaultSectionRef = useRef<HTMLElement | null>(null);
   const verticalSectionRef = useRef<HTMLElement | null>(null);
   const propertySectionRef = useRef<HTMLElement | null>(null);
   const propertyCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const handledDeepLinkProperty = useRef<string | null>(null);
   const Icon = agent.icon;
+
+  const filteredPropertyOverrides = useMemo(() => {
+    const term = propertyFilterSearch.trim().toLowerCase();
+    if (!term && propertyFilterVerticals.size === 0 && propertyFilterNames.size === 0) {
+      return propertyOverrides;
+    }
+    return propertyOverrides.filter((override) => {
+      const matchesTerm = !term || override.propertyName.toLowerCase().includes(term);
+      const matchesVertical =
+        propertyFilterVerticals.size === 0 || propertyFilterVerticals.has(override.vertical);
+      const matchesName =
+        propertyFilterNames.size === 0 || propertyFilterNames.has(override.propertyName);
+      return matchesTerm && matchesVertical && matchesName;
+    });
+  }, [propertyOverrides, propertyFilterSearch, propertyFilterVerticals, propertyFilterNames]);
+
+  const propertyDropdownOptions = useMemo(
+    () =>
+      propertyOverrides
+        .map((override) => ({ name: override.propertyName, vertical: override.vertical }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [propertyOverrides],
+  );
 
   useEffect(() => {
     if (!pendingProperty) {
@@ -438,13 +560,20 @@ function AgentDetailView({
   return (
     <div className="space-y-8">
       <div>
-        <button type="button" onClick={onBack} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="h-3 w-3" /> All agents
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-white px-3 py-1.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          {consolidated ? "Back to voice settings" : "Back to all agents"}
         </button>
-        <div className="mt-3 flex items-start gap-4">
+        <div className="mt-4 flex items-start gap-4">
           <img src="/eli-cube.svg" alt="" width={40} height={40} className="shrink-0" />
           <div>
-            <h2 className="text-xl font-semibold text-foreground">ELI+ {agent.name}</h2>
+            <h2 className="text-xl font-semibold text-foreground">
+              {consolidated ? "ELI+ Voice" : `ELI+ ${agent.name}`}
+            </h2>
             <p className="text-sm text-muted-foreground">{agent.description}</p>
             <p className="mt-1 text-xs text-muted-foreground">
               Settings cascade <span className="font-medium text-foreground">Portfolio default → Vertical → Property</span>. More specific scopes win.
@@ -513,21 +642,65 @@ function AgentDetailView({
           <EmptyOverrideState label="No property overrides yet." actionLabel="Add property override" onAction={() => setAddPropertyOpen(true)} />
         ) : (
           <div className="space-y-3">
-            {propertyOverrides.map((override) => (
-              <PropertyOverrideCard
-                key={override.id}
-                record={override}
-                autoExpand={autoExpandProperty === override.propertyName}
-                cardRef={(node) => {
-                  propertyCardRefs.current[override.propertyName] = node;
-                }}
-                onChange={(next) => onUpdateProperty(override.id, next)}
-                onRemove={() => onRemoveProperty(override.id)}
-              />
-            ))}
-            <Button variant="outline" size="sm" onClick={() => setAddPropertyOpen(true)} className="gap-1">
-              <Plus className="h-3.5 w-3.5" /> Add another property override
-            </Button>
+            <PropertyOverrideFilterBar
+              search={propertyFilterSearch}
+              onSearchChange={setPropertyFilterSearch}
+              verticalFilter={propertyFilterVerticals}
+              onToggleVertical={(vertical) =>
+                setPropertyFilterVerticals((previous) => {
+                  const next = new Set(previous);
+                  if (next.has(vertical)) {
+                    next.delete(vertical);
+                  } else {
+                    next.add(vertical);
+                  }
+                  return next;
+                })
+              }
+              propertyOptions={propertyDropdownOptions}
+              selectedNames={propertyFilterNames}
+              onSelectedNamesChange={setPropertyFilterNames}
+              onClear={() => {
+                setPropertyFilterSearch("");
+                setPropertyFilterVerticals(new Set());
+                setPropertyFilterNames(new Set());
+              }}
+              filteredCount={filteredPropertyOverrides.length}
+              totalCount={propertyOverrides.length}
+              onAdd={() => setAddPropertyOpen(true)}
+            />
+            {filteredPropertyOverrides.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-center">
+                <p className="text-sm text-muted-foreground">
+                  No properties match your filter.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-3"
+                  onClick={() => {
+                    setPropertyFilterSearch("");
+                    setPropertyFilterVerticals(new Set());
+                    setPropertyFilterNames(new Set());
+                  }}
+                >
+                  Clear filters
+                </Button>
+              </div>
+            ) : (
+              filteredPropertyOverrides.map((override) => (
+                <PropertyOverrideCard
+                  key={override.id}
+                  record={override}
+                  autoExpand={autoExpandProperty === override.propertyName}
+                  cardRef={(node) => {
+                    propertyCardRefs.current[override.propertyName] = node;
+                  }}
+                  onChange={(next) => onUpdateProperty(override.id, next)}
+                  onRemove={() => onRemoveProperty(override.id)}
+                />
+              ))
+            )}
           </div>
         )}
       </section>
@@ -622,6 +795,222 @@ function EmptyOverrideState({
         <Plus className="h-3.5 w-3.5" /> {actionLabel}
       </Button>
     </div>
+  );
+}
+
+function PropertyOverrideFilterBar({
+  search,
+  onSearchChange,
+  verticalFilter,
+  onToggleVertical,
+  propertyOptions,
+  selectedNames,
+  onSelectedNamesChange,
+  onClear,
+  filteredCount,
+  totalCount,
+  onAdd,
+}: {
+  search: string;
+  onSearchChange: (value: string) => void;
+  verticalFilter: Set<Vertical>;
+  onToggleVertical: (vertical: Vertical) => void;
+  propertyOptions: { name: string; vertical: Vertical }[];
+  selectedNames: Set<string>;
+  onSelectedNamesChange: (next: Set<string>) => void;
+  onClear: () => void;
+  filteredCount: number;
+  totalCount: number;
+  onAdd?: () => void;
+}) {
+  const hasFilters =
+    search.trim().length > 0 || verticalFilter.size > 0 || selectedNames.size > 0;
+
+  return (
+    <div className="rounded-lg border border-border bg-muted/20 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[220px] flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            value={search}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder="Filter properties by name…"
+            className="input-base h-8 w-full pl-8 pr-8 text-sm"
+          />
+          {search.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onSearchChange("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label="Clear search"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+        <PropertyDropdownFilter
+          options={propertyOptions}
+          selectedNames={selectedNames}
+          onChange={onSelectedNamesChange}
+        />
+        <span className="text-xs text-muted-foreground whitespace-nowrap">
+          Showing {filteredCount} of {totalCount}
+        </span>
+        {onAdd && (
+          <Button variant="outline" size="sm" onClick={onAdd} className="gap-1 ml-auto">
+            <Plus className="h-3.5 w-3.5" /> Add property override
+          </Button>
+        )}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Vertical</span>
+        {VERTICALS.map((vertical) => {
+          const meta = VERTICAL_META[vertical];
+          const active = verticalFilter.has(vertical);
+          return (
+            <button
+              key={vertical}
+              type="button"
+              onClick={() => onToggleVertical(vertical)}
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors",
+                active
+                  ? "border-foreground bg-foreground text-background"
+                  : cn("border-border text-muted-foreground hover:border-foreground/40", meta.color),
+              )}
+            >
+              {vertical}
+            </button>
+          );
+        })}
+        {hasFilters && (
+          <button
+            type="button"
+            onClick={onClear}
+            className="ml-auto inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+          >
+            <X className="h-3 w-3" /> Clear filters
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PropertyDropdownFilter({
+  options,
+  selectedNames,
+  onChange,
+}: {
+  options: { name: string; vertical: Vertical }[];
+  selectedNames: Set<string>;
+  onChange: (next: Set<string>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [innerSearch, setInnerSearch] = useState("");
+
+  const filtered = useMemo(() => {
+    const term = innerSearch.trim().toLowerCase();
+    if (!term) return options;
+    return options.filter((option) => option.name.toLowerCase().includes(term));
+  }, [options, innerSearch]);
+
+  const triggerLabel =
+    selectedNames.size === 0
+      ? "All properties"
+      : `${selectedNames.size} selected`;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 justify-between gap-1.5 min-w-[160px]"
+        >
+          <span className="truncate text-xs">{triggerLabel}</span>
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 p-0" align="start">
+        <div className="border-b border-border p-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              value={innerSearch}
+              onChange={(event) => setInnerSearch(event.target.value)}
+              placeholder="Search properties…"
+              className="input-base h-8 w-full pl-7 text-xs"
+            />
+          </div>
+        </div>
+        <div className="max-h-[260px] overflow-y-auto p-1">
+          {filtered.length === 0 ? (
+            <p className="px-2 py-3 text-xs italic text-muted-foreground">
+              No matching properties.
+            </p>
+          ) : (
+            filtered.map((option) => {
+              const checked = selectedNames.has(option.name);
+              const meta = VERTICAL_META[option.vertical];
+              return (
+                <button
+                  key={option.name}
+                  type="button"
+                  onClick={() => {
+                    const next = new Set(selectedNames);
+                    if (checked) {
+                      next.delete(option.name);
+                    } else {
+                      next.add(option.name);
+                    }
+                    onChange(next);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted"
+                >
+                  <span
+                    className={cn(
+                      "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                      checked
+                        ? "border-foreground bg-foreground text-background"
+                        : "border-border",
+                    )}
+                  >
+                    {checked && <Check className="h-3 w-3" />}
+                  </span>
+                  <span className="flex-1 truncate text-foreground">{option.name}</span>
+                  <span
+                    className={cn(
+                      "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                      meta.bg,
+                      meta.color,
+                    )}
+                  >
+                    {option.vertical}
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+        {selectedNames.size > 0 && (
+          <div className="flex items-center justify-between border-t border-border p-2">
+            <span className="text-[11px] text-muted-foreground">
+              {selectedNames.size} selected
+            </span>
+            <button
+              type="button"
+              onClick={() => onChange(new Set())}
+              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3 w-3" /> Clear
+            </button>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -1077,6 +1466,7 @@ function AddPropertyOverrideDialog({
           )}
           <PropertySelector
             data={PROPERTY_FILTER_DATA}
+            defaultDropdownOption="Portfolios"
             triggerWidthClassName="w-full"
             panelHeight={420}
             showChips
