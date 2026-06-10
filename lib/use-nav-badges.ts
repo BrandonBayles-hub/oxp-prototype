@@ -76,7 +76,7 @@ export function useNavBadges(): NavBadgeResult {
         (d.approvalStatus === "needs_review" || d.approvalStatus === "review")
     ).length;
     if (pendingReviewDocs > 0) {
-      badges["/trainings-sop"] = { count: pendingReviewDocs, variant: "action" };
+      badges["/sops-knowledge"] = { count: pendingReviewDocs, variant: "action" };
     }
 
     const agentsTraining = agents.filter((a) => a.status === "Training").length;

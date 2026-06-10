@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback, Suspense, useId } from "react";
 import { marked } from "marked";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   FileText, FilePlus, FolderOpen, FolderPlus, Pencil, Send, CheckCircle, Upload, Building2,
   Search, Clock, AlertTriangle, ChevronRight, X, CornerDownRight, BookOpen, Plus, MoreHorizontal, MoreVertical, Trash2, Link2, Blocks, Download, Loader2
@@ -58,8 +58,13 @@ const TRAIN_SOP_METRICS_STORAGE_KEY = "janet-poc-trainings-sop-metrics-prev";
 // persona, and we want the user to land back on the same pill they
 // started from — not on the default "sops" tab. Mirrors the source-
 // persistence pattern in app/admin-insights/page.tsx.
+//
+// Only consulted on the legacy /trainings-sop route. On the split
+// /trainings and /sops-knowledge routes, the tab is forced by the
+// route itself (see `forcedTab` on TrainingsSopContent), so this key
+// is unused there.
 const PAGE_TAB_PREF_KEY = "trainings-sop-page-tab";
-type PageTab = "sops" | "trainings";
+export type PageTab = "sops" | "trainings";
 const isValidPageTab = (v: unknown): v is PageTab => v === "sops" || v === "trainings";
 
 type TrainSopMetricsSnapshot = {
@@ -158,7 +163,7 @@ function CoverageRing({ filled, total, size = 64 }: { filled: number; total: num
   );
 }
 
-function TrainingsSopContent() {
+function TrainingsSopContent({ forcedTab }: { forcedTab?: PageTab } = {}) {
   const {
     documents: items, setDocuments: setItems,
     addDocument: addDocToVault, updateDocument, addFolder: addFolderToVault,
@@ -171,13 +176,16 @@ function TrainingsSopContent() {
   const { agents } = useAgents();
   const { members: workforceMembers, humanMembers } = useWorkforce();
 
-  // We initialize from the default "sops" on the SSR/static-export pass
-  // (no localStorage available), then sync to the saved selection in a
-  // mount-only useEffect once the client hydrates. This avoids hydration
-  // mismatch warnings while still restoring the correct pill after a
-  // reload caused by the Academy demo user-switcher.
-  const [pageTab, setPageTabRaw] = useState<PageTab>("sops");
+  // When `forcedTab` is provided (the new split routes /trainings and
+  // /sops-knowledge), the route itself selects the tab and the in-page
+  // pill toggle is hidden. Only the legacy /trainings-sop route still
+  // hydrates the tab from localStorage, since the Academy demo user-
+  // switcher reloads the window and we want to land back on the same
+  // pill there. Mirrors the source-persistence pattern in
+  // app/admin-insights/page.tsx.
+  const [pageTab, setPageTabRaw] = useState<PageTab>(forcedTab ?? "sops");
   useEffect(() => {
+    if (forcedTab) return;
     if (typeof window === "undefined") return;
     try {
       const saved = window.localStorage.getItem(PAGE_TAB_PREF_KEY);
@@ -187,11 +195,12 @@ function TrainingsSopContent() {
     }
     // Mount-only: do not depend on `pageTab` (would re-sync repeatedly).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [forcedTab]);
   // setPageTab is the public setter — persists the new value as a side
   // effect so a reload (e.g. from the Academy demo user-switcher) lands
-  // the user back on the same pill.
+  // the user back on the same pill. No-op when forcedTab is set.
   const setPageTab = useCallback((next: PageTab) => {
+    if (forcedTab) return;
     setPageTabRaw(next);
     if (typeof window !== "undefined") {
       try {
@@ -200,7 +209,7 @@ function TrainingsSopContent() {
         /* non-fatal */
       }
     }
-  }, []);
+  }, [forcedTab]);
   const [activeTab, setActiveTab] = useState<"compliance" | "library" | "activity">("library");
   const [search, setSearch] = useState("");
   const [activitySearch, setActivitySearch] = useState("");
@@ -242,12 +251,21 @@ function TrainingsSopContent() {
   const [bulkSummaryResult, setBulkSummaryResult] = useState<string | null>(null);
   const router = useRouter();
   const searchParams = useSearchParams();
+  const pathname = usePathname();
+  // Internal folder/connect URLs preserve the current route so the user
+  // stays on whichever surface they entered from (/trainings-sop legacy,
+  // /sops-knowledge, or /trainings).
+  const routeBase = useMemo(() => {
+    if (!pathname) return "/trainings-sop";
+    const trimmed = pathname.replace(/\/$/, "");
+    return trimmed || "/trainings-sop";
+  }, [pathname]);
   const [currentFolderId, setCurrentFolderIdRaw] = useState<string | null>(searchParams.get("folder"));
   const setCurrentFolderId = useCallback((id: string | null) => {
     setCurrentFolderIdRaw(id);
-    const url = id ? `/trainings-sop?folder=${id}` : "/trainings-sop";
+    const url = id ? `${routeBase}?folder=${id}` : routeBase;
     router.push(url, { scroll: false });
-  }, [router]);
+  }, [router, routeBase]);
   const [moveDocId, setMoveDocId] = useState<string | null>(null);
   const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
   const [reviewDocId, setReviewDocId] = useState<string | null>(null);
@@ -315,9 +333,9 @@ function TrainingsSopContent() {
     const connect = searchParams.get("connect");
     if (connect) {
       setShowConnectLibrary(true);
-      router.replace("/trainings-sop", { scroll: false });
+      router.replace(routeBase, { scroll: false });
     }
-  }, [searchParams, router]);
+  }, [searchParams, router, routeBase]);
 
   const fileDocuments = useMemo(() => items.filter((i) => i.type === "file" && !i.isTemplate) as VaultItem[], [items]);
   const templateDocuments = useMemo(() => items.filter((i) => i.type === "file" && i.isTemplate) as VaultItem[], [items]);
@@ -688,7 +706,7 @@ function TrainingsSopContent() {
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <div className="mb-1.5 flex items-center gap-1 text-sm text-muted-foreground">
-                <button type="button" onClick={() => setCurrentFolderId(null)} className="hover:underline text-primary">Trainings & SOP</button>
+                <button type="button" onClick={() => setCurrentFolderId(null)} className="hover:underline text-primary">{forcedTab === "trainings" ? "Trainings" : forcedTab === "sops" ? "SOPs & Knowledge" : "Trainings & SOP"}</button>
                 <ChevronRight className="h-3 w-3" />
                 <span className="font-medium text-foreground">{currentFolder.fileName}</span>
               </div>
@@ -731,14 +749,24 @@ function TrainingsSopContent() {
             </div>
           </div>
         </header>
+      ) : forcedTab ? (
+        // Split routes (/trainings, /sops-knowledge): the route itself
+        // selects the surface, so the pill toggle is hidden. We still
+        // render the AcademyDemoControls on the Trainings surface so
+        // demo personas remain switchable in this layout.
+        pageTab === "trainings" && !currentFolder ? (
+          <div className="-mt-2 mb-3 flex items-center justify-end py-2">
+            <AcademyDemoControls />
+          </div>
+        ) : null
       ) : (
-        // Pill toggle row is `relative` so AcademyDemoControls (rendered only
-        // on the Trainings tab) can absolute-position itself to the right
-        // edge while the pill stays visually centered. The "Trainings & SOP"
-        // PageHeader + description that used to sit below this row was
-        // removed per the PM's "superfluous" call — the pill toggle already
-        // provides the section context, and the host sidebar's "Trainings &
-        // SOP" entry shows where in OXP you are.
+        // Legacy /trainings-sop route: pill toggle row is `relative` so
+        // AcademyDemoControls (rendered only on the Trainings tab) can
+        // absolute-position itself to the right edge while the pill
+        // stays visually centered. The "Trainings & SOP" PageHeader +
+        // description that used to sit below this row was removed per
+        // the PM's "superfluous" call — the pill toggle already
+        // provides the section context.
         <div className="relative -mt-2 mb-3 flex items-center justify-center py-2">
           <div className="inline-flex items-center rounded-lg border border-border bg-muted/40 p-1">
             <button
@@ -2493,3 +2521,8 @@ export default function TrainingsSopPage() {
     </Suspense>
   );
 }
+
+// Exported so the split routes /trainings and /sops-knowledge can
+// render the same surface with `forcedTab` set (see app/trainings/page.tsx
+// and app/sops-knowledge/page.tsx).
+export { TrainingsSopContent };

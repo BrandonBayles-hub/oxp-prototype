@@ -445,11 +445,11 @@ function StepTrainWorkforce() {
       {!isR1Release && <StatusPill ok={docCount > 0} label={docCount > 0 ? `${docCount} document(s) uploaded` : "No documents uploaded yet"} />}
 
       <Link
-        href="/trainings-sop"
+        href="/sops-knowledge"
         className="inline-flex items-center gap-2 rounded-lg bg-[hsl(var(--foreground))] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[hsl(var(--foreground))]/90"
       >
         <FileText className="h-4 w-4" />
-        Go to Trainings &amp; SOPs
+        Go to SOPs &amp; Knowledge
         <ExternalLink className="h-3.5 w-3.5" />
       </Link>
     </div>

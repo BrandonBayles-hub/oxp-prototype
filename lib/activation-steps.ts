@@ -29,7 +29,7 @@ export interface ActivationStep {
 export const ACTIVATION_STEPS: ReadonlyArray<ActivationStep> = [
   { id: "eli-essentials",  title: "Activate ELI Essentials",                          href: "/agent-roster" },
   { id: "ops-efficiency",  title: "Activate Operational & Efficiency Agents",         href: "/agent-roster" },
-  { id: "train-workforce", title: "Train Your Workforce — Upload Documents & SOPs",   href: "/trainings-sop" },
+  { id: "train-workforce", title: "Train Your Workforce — Upload Documents & SOPs",   href: "/sops-knowledge" },
   { id: "playbooks-tasks", title: "Create Playbooks & Tasks",                         href: "/escalations" },
   { id: "workforce",       title: "Configure Your Workforce",                         href: "/workforce" },
   { id: "workflows",       title: "Set up Agent Builder",                             href: "/workflows" },
