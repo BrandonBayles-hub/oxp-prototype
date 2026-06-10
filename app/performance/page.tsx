@@ -540,6 +540,9 @@ export default function PerformancePage() {
               if (chain.id === "leasing") {
                 return <LeasingImpactCard key={chain.id} />;
               }
+              if (chain.id === "maintenance") {
+                return <MaintenanceImpactCard key={chain.id} />;
+              }
               return (
                 <Card key={chain.id} className={`border-border/60 ${!chain.active ? "opacity-70" : ""}`}>
                   <CardHeader className="pb-2">
@@ -992,6 +995,47 @@ function LeasingImpactCard() {
       title="Leasing"
       href="/performance/leasing-ai"
       metrics={LEASING_IMPACT_METRICS}
+    />
+  );
+}
+
+const MAINTENANCE_IMPACT_METRICS: ImpactMetric[] = [
+  {
+    id: "wo_completion_time",
+    kind: "beforeAfter",
+    label: "Avg days to complete",
+    sub: "before \u2192 after AI",
+    before: "6.8d",
+    after: "4.2d",
+    delta: "-2.6d",
+    deltaTone: "blue",
+  },
+  {
+    id: "wo_deflected",
+    kind: "beforeAfter",
+    label: "Work orders deflected",
+    sub: "resolved via AI self-service",
+    before: "25.2%",
+    after: "31.4%",
+    delta: "+6.2 pts",
+    deltaTone: "emerald",
+  },
+  {
+    id: "fully_automated_maintenance",
+    kind: "single",
+    label: "Fully automated",
+    sub: "no human intervention",
+    value: "50.4%",
+    valueSub: "(2,438 of 4,842)",
+  },
+];
+
+function MaintenanceImpactCard() {
+  return (
+    <ImpactCard
+      title="Maintenance"
+      href="/performance/maintenance-ai"
+      metrics={MAINTENANCE_IMPACT_METRICS}
     />
   );
 }
