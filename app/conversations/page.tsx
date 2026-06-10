@@ -66,6 +66,7 @@ import {
   UserX,
   Zap,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -2340,6 +2341,35 @@ function ConversationsContent() {
                         </button>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-3" align="end">
+                        {isSuperAgent1DemoThread(selected.id) ? (
+                          <div className="flex items-center gap-2.5">
+                            <Switch
+                              checked={aiActivated}
+                              onCheckedChange={(checked) => {
+                                setAiActivated(checked);
+                                setReactivationDate(null);
+                                setNoLimit(false);
+                                setShowDatePicker(false);
+                                recordThreadActivity(selected.id, {
+                                  kind: "ai_activation",
+                                  active: checked,
+                                  actor: MY_INBOX_ASSIGNEE,
+                                });
+                                toast.success(
+                                  checked ? "AI activated for this conversation" : "AI deactivated for this conversation",
+                                  {
+                                    description: checked
+                                      ? "Replies will be drafted by AI on this thread."
+                                      : "This thread will not receive AI-drafted replies.",
+                                  }
+                                );
+                              }}
+                            />
+                            <span className="text-xs font-medium text-foreground whitespace-nowrap">
+                              AI Activated
+                            </span>
+                          </div>
+                        ) : (
                         <div className="space-y-3">
                           <div className="flex items-center gap-2">
                             <Switch
@@ -2476,6 +2506,7 @@ function ConversationsContent() {
                             </div>
                           </div>
                         </div>
+                        )}
                       </PopoverContent>
                     </Popover>
                   )}
