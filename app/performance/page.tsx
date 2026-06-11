@@ -532,7 +532,7 @@ export default function PerformancePage() {
       {!isPropertyRole && (
         <section className="mb-8">
           <h2 className="section-title mb-4">How AI is driving asset value</h2>
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             {perf.assetValueChain.map((chain) => {
               if (chain.id === "renewals") {
                 return <RenewalsImpactCard key={chain.id} />;
@@ -583,6 +583,7 @@ export default function PerformancePage() {
                 </Card>
               );
             })}
+            <PaymentsImpactCard />
           </div>
         </section>
       )}
@@ -1036,6 +1037,47 @@ function MaintenanceImpactCard() {
       title="Maintenance"
       href="/performance/maintenance-ai"
       metrics={MAINTENANCE_IMPACT_METRICS}
+    />
+  );
+}
+
+const PAYMENTS_IMPACT_METRICS: ImpactMetric[] = [
+  {
+    id: "rent_collected",
+    kind: "beforeAfter",
+    label: "% of rent collected",
+    sub: "before \u2192 after AI",
+    before: "91.0%",
+    after: "94.2%",
+    delta: "+3.2 pts",
+    deltaTone: "emerald",
+  },
+  {
+    id: "avg_late_payers",
+    kind: "beforeAfter",
+    label: "Avg late payers / property",
+    sub: "after the grace period",
+    before: "186",
+    after: "142",
+    delta: "-44",
+    deltaTone: "blue",
+  },
+  {
+    id: "fully_automated_payments",
+    kind: "single",
+    label: "Fully automated",
+    sub: "reminders sent without office handoff",
+    value: "89%",
+    valueSub: "(37,580 of 42,180)",
+  },
+];
+
+function PaymentsImpactCard() {
+  return (
+    <ImpactCard
+      title="Payments"
+      href="/performance/payments-ai"
+      metrics={PAYMENTS_IMPACT_METRICS}
     />
   );
 }

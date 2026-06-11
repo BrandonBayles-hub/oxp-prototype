@@ -60,6 +60,7 @@ import { MaintenanceFullPage } from "@/components/eli-plus-setup/pages/Maintenan
 import { RenewalsFullPage } from "@/components/eli-plus-setup/pages/RenewalsFullPage";
 import { LeasingAISettingsPanel } from "@/components/leasing-ai-settings-panel";
 import { MaintenanceAISettingsPanel } from "@/components/maintenance-ai-settings-panel";
+import { InternalDemoPanel, isInternalDemoEnabled } from "@/components/internal-demo-panel";
 import { LeadToLeaseSettings } from "@/components/lead-to-lease-settings";
 import { L3AgentSheet, getL3AgentConfig } from "@/components/l3-agent-flyout";
 import { ExpertsConfigSheet } from "@/components/entrata-experts-v2/admin/experts-config-sheet";
@@ -96,6 +97,16 @@ const TEMPLATES: { name: string; bucket: (typeof BUCKETS)[number]; type: AgentTy
   { name: "Payments AI", bucket: "Revenue & Financial Management", type: "autonomous" },
   { name: "Custom (from scratch)", bucket: BUCKETS[0], type: "autonomous" },
 ];
+
+// Four ELI+ L4 agents that are always anchored at the top of the roster,
+// just below the L5 "Autonomous Lease Progression" hero. Order is intentional.
+const PINNED_ELI_PLUS_ORDER = [
+  "Maintenance AI",
+  "Payments AI",
+  "Leasing AI",
+  "Renewal AI",
+] as const;
+const PINNED_ELI_PLUS_NAMES = new Set<string>(PINNED_ELI_PLUS_ORDER);
 
 const CHANNEL_OPTIONS = [
   { value: "Chat", icon: MessageSquare },
@@ -261,6 +272,7 @@ function AgentRosterContent() {
   const [selectedBuckets, setSelectedBuckets] = useState<Set<string>>(new Set());
   const [selectedLevels, setSelectedLevels] = useState<Set<string>>(new Set());
   const [selectedStatuses, setSelectedStatuses] = useState<Set<string>>(new Set());
+  const [eliPlusOnly, setEliPlusOnly] = useState(false);
 
   const toggleSetItem = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, value: string) => {
     setter((prev) => {
@@ -274,6 +286,7 @@ function AgentRosterContent() {
   const cardFiltered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return agents.filter((a) => {
+      if (eliPlusOnly && !PINNED_ELI_PLUS_NAMES.has(a.name)) return false;
       if (selectedBuckets.size > 0 && !selectedBuckets.has(a.bucket)) return false;
       if (selectedStatuses.size > 0 && !selectedStatuses.has(a.status)) return false;
       if (selectedLevels.size > 0) {
@@ -286,7 +299,7 @@ function AgentRosterContent() {
       }
       return true;
     });
-  }, [agents, selectedBuckets, selectedStatuses, selectedLevels, search]);
+  }, [agents, eliPlusOnly, selectedBuckets, selectedStatuses, selectedLevels, search]);
 
   const cardSorted = useMemo(() => {
     const arr = [...cardFiltered];
@@ -299,24 +312,33 @@ function AgentRosterContent() {
         return bHasConfig - aHasConfig;
       });
     }
-    return arr;
+
+    // Always anchor the four ELI+ L4 agents at the top, just below the L5 hero
+    const pinnedItems = PINNED_ELI_PLUS_ORDER
+      .map((name) => arr.find((a) => a.name === name))
+      .filter((a): a is (typeof arr)[number] => Boolean(a));
+    const rest = arr.filter((a) => !PINNED_ELI_PLUS_NAMES.has(a.name));
+    return [...pinnedItems, ...rest];
   }, [cardFiltered, cardSortBy]);
 
   const activeFilterPills = useMemo(() => {
     const pills: { label: string; group: string; value: string }[] = [];
+    if (eliPlusOnly) pills.push({ label: "ELI+ Agents", group: "eliPlus", value: "eliPlus" });
     selectedBuckets.forEach((b) => pills.push({ label: b, group: "bucket", value: b }));
     selectedLevels.forEach((l) => pills.push({ label: l, group: "level", value: l }));
     selectedStatuses.forEach((s) => pills.push({ label: s, group: "status", value: s }));
     return pills;
-  }, [selectedBuckets, selectedLevels, selectedStatuses]);
+  }, [eliPlusOnly, selectedBuckets, selectedLevels, selectedStatuses]);
 
   const removeFilterPill = (group: string, value: string) => {
-    if (group === "bucket") toggleSetItem(setSelectedBuckets, value);
+    if (group === "eliPlus") setEliPlusOnly(false);
+    else if (group === "bucket") toggleSetItem(setSelectedBuckets, value);
     else if (group === "level") toggleSetItem(setSelectedLevels, value);
     else if (group === "status") toggleSetItem(setSelectedStatuses, value);
   };
 
   const clearAllFilters = () => {
+    setEliPlusOnly(false);
     setSelectedBuckets(new Set());
     setSelectedLevels(new Set());
     setSelectedStatuses(new Set());
@@ -397,6 +419,15 @@ function AgentRosterContent() {
               <div>
                 <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Subcategory</p>
                 <div className="space-y-1.5">
+                  <label className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-sm text-foreground transition-colors hover:bg-muted/50">
+                    <input
+                      type="checkbox"
+                      checked={eliPlusOnly}
+                      onChange={() => setEliPlusOnly((v) => !v)}
+                      className="h-3.5 w-3.5 rounded border-border accent-[#7c3aed]"
+                    />
+                    <span className="truncate text-[13px] font-semibold text-[#7c3aed]">ELI+ Agents</span>
+                  </label>
                   {BUCKETS.map((b) => (
                     <label key={b} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-sm text-foreground transition-colors hover:bg-muted/50">
                       <input
@@ -554,6 +585,7 @@ function AgentRosterContent() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {cardSorted.filter((a) => a.type !== "fully_autonomous").map((agent) => {
                 const isOffEliPlus = agent.type === "autonomous" && agent.status === "Off";
+                const isPinnedEliPlus = PINNED_ELI_PLUS_NAMES.has(agent.name);
                 const typeInfo = AGENT_TYPES.find((t) => t.value === agent.type);
                 const levelLabel = typeInfo?.label ?? "L1 · ELI Essentials";
                 const levelShort = levelLabel.split("·")[0].trim();
@@ -573,7 +605,9 @@ function AgentRosterContent() {
                     className={`group relative flex flex-col rounded-xl border bg-white p-4 text-left transition-all hover:shadow-md ${
                       selectedId === agent.id
                         ? "border-[#6366f1]/40 shadow-md ring-1 ring-[#6366f1]/20"
-                        : "border-border hover:border-border/80"
+                        : isPinnedEliPlus
+                          ? "border-2 border-[#7c3aed]/40 hover:border-[#7c3aed]/60"
+                          : "border-border hover:border-border/80"
                     }`}
                   >
                     {/* Header: icon + name + video button */}
@@ -5208,14 +5242,28 @@ const AGENT_FLYOUT_DESCRIPTIONS: Record<string, string> = {
   "Renewal AI": "Automate renewal conversations, offers, and retention outreach.",
 };
 
-type SettingsNav = "property" | "agent-settings" | "voice-tone" | "simulation" | "history";
+type SettingsNav = "property" | "agent-settings" | "voice-tone" | "simulation" | "internal-demo" | "history";
+
+const AGENTS_WITH_HISTORY = new Set<string>([
+  "Maintenance AI",
+  "Payments AI",
+  "Leasing AI",
+  "Renewal AI",
+]);
 
 function getAgentSubPages(agentName: string): { id: SettingsNav; label: string }[] {
-  return [
+  const pages: { id: SettingsNav; label: string }[] = [
     { id: "agent-settings", label: `${agentName} Settings` },
     { id: "voice-tone", label: "Voice & Tone" },
     { id: "simulation", label: "Simulation" },
   ];
+  if (AGENTS_WITH_HISTORY.has(agentName)) {
+    pages.push({ id: "history", label: "History & Logging" });
+  }
+  if (isInternalDemoEnabled(agentName)) {
+    pages.push({ id: "internal-demo", label: "Internal Demo" });
+  }
+  return pages;
 }
 
 function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: string; property: typeof AGENT_FLYOUT_PROPERTIES[0]; onBack: () => void }) {
@@ -5352,6 +5400,8 @@ function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: 
             propertyName={property.name}
             onSimulationStarted={() => setSimulationCount((n) => n + 1)}
           />
+        ) : activeNav === "internal-demo" ? (
+          <InternalDemoPanel agentName={agentName} propertyName={property.name} />
         ) : (
           <AgentHistoryPanel agentName={agentName} propertyName={property.name} />
         )}

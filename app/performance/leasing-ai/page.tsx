@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Bar,
@@ -15,7 +15,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { ArrowLeft, ArrowUpRight, ArrowDownRight, Calendar, ChevronDown, Search, X } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, ArrowDownRight, Calendar, ChevronDown, Loader2, Search, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
@@ -279,6 +279,19 @@ function SectionBanner({ title, description }: { title: string; description: str
   );
 }
 
+function Skeleton({ className }: { className?: string }) {
+  return <div className={cn("animate-pulse rounded-md bg-muted", className)} />;
+}
+
+function LoadingBanner() {
+  return (
+    <div className="mb-4 inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground">
+      <Loader2 className="h-3.5 w-3.5 animate-spin text-foreground" />
+      Refreshing data based on your filter selection…
+    </div>
+  );
+}
+
 // -----------------------------------------------------------------------------
 // Filters
 // -----------------------------------------------------------------------------
@@ -518,7 +531,7 @@ function TrendChart({
 }) {
   if (view === "global") {
     const config = {
-      baseline: { label: "Pre-AI Baseline", color: "#cbd5e1" },
+      baseline: { label: "Pre-AI Baseline", color: "#94a3b8" },
       current: { label: "Current", color: "#0f172a" },
     } satisfies ChartConfig;
     return (
@@ -538,7 +551,7 @@ function TrendChart({
             <Line
               type="monotone"
               dataKey="baseline"
-              stroke="#cbd5e1"
+              stroke="#94a3b8"
               strokeWidth={1.5}
               strokeDasharray="4 4"
               dot={false}
@@ -689,6 +702,16 @@ function DonutWithLegend({
 // Page
 // -----------------------------------------------------------------------------
 
+function serializeFilters(f: FiltersState) {
+  return {
+    periodId: f.periodId,
+    customFrom: f.customFrom,
+    customTo: f.customTo,
+    selected: Array.from(f.selected).sort(),
+    view: f.view,
+  };
+}
+
 export default function LeasingAiDashboardPage() {
   const [filters, setFilters] = useState<FiltersState>({
     periodId: "12m",
@@ -697,6 +720,19 @@ export default function LeasingAiDashboardPage() {
     selected: new Set(PROPERTIES),
     view: "global",
   });
+  const [loading, setLoading] = useState(false);
+  const isFirstRender = useRef(true);
+  const filtersKey = useMemo(() => JSON.stringify(serializeFilters(filters)), [filters]);
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    setLoading(true);
+    const t = setTimeout(() => setLoading(false), 450);
+    return () => clearTimeout(t);
+  }, [filtersKey]);
 
   const months = useMemo(() => {
     if (filters.periodId === "custom") return 12;
@@ -713,9 +749,9 @@ export default function LeasingAiDashboardPage() {
     <div className="-mt-2">
       <Link
         href="/performance"
-        className="mb-3 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+        className="mb-4 inline-flex items-center gap-1.5 rounded-md border border-border bg-white px-3 py-1.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
       >
-        <ArrowLeft className="h-3.5 w-3.5" />
+        <ArrowLeft className="h-4 w-4" />
         Back to Performance
       </Link>
 
@@ -729,11 +765,15 @@ export default function LeasingAiDashboardPage() {
         </p>
       </header>
 
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        <PeriodPicker state={filters} setState={setFilters} />
-        <PropertiesPicker state={filters} setState={setFilters} />
-        <ViewToggle state={filters} setState={setFilters} />
+      <div className="sticky top-0 z-30 -mx-6 mb-5 border-b border-border bg-background/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <div className="flex flex-wrap items-center gap-2">
+          <PeriodPicker state={filters} setState={setFilters} />
+          <PropertiesPicker state={filters} setState={setFilters} />
+          <ViewToggle state={filters} setState={setFilters} />
+        </div>
       </div>
+
+      {loading && <LoadingBanner />}
 
       {/* ============================================================ */}
       {/* Section 1 — Overall Leasing Performance                       */}
@@ -845,7 +885,7 @@ export default function LeasingAiDashboardPage() {
                   <XAxis dataKey="bucket" tickLine={false} axisLine={false} tickMargin={8} angle={-30} textAnchor="end" height={40} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="count" fill="#374151" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="count" fill="#0f172a" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ChartContainer>
             </CardContent>
@@ -919,7 +959,7 @@ export default function LeasingAiDashboardPage() {
                   <XAxis dataKey="reason" tickLine={false} axisLine={false} tickMargin={8} angle={-30} textAnchor="end" height={50} interval={0} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="count" fill="#374151" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="count" fill="#0f172a" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ChartContainer>
             </CardContent>
@@ -949,7 +989,7 @@ export default function LeasingAiDashboardPage() {
                     width={120}
                   />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="count" fill="#374151" radius={[0, 2, 2, 0]} />
+                  <Bar dataKey="count" fill="#0f172a" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ChartContainer>
             </CardContent>
@@ -976,7 +1016,7 @@ export default function LeasingAiDashboardPage() {
                   <XAxis dataKey="status" tickLine={false} axisLine={false} tickMargin={8} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="count" fill="#374151" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="count" fill="#0f172a" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ChartContainer>
             </CardContent>
@@ -992,7 +1032,7 @@ export default function LeasingAiDashboardPage() {
                   <XAxis dataKey="term" tickLine={false} axisLine={false} tickMargin={8} angle={-30} textAnchor="end" height={50} interval={0} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="count" fill="#374151" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="count" fill="#0f172a" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ChartContainer>
             </CardContent>
@@ -1009,33 +1049,43 @@ export default function LeasingAiDashboardPage() {
           description="Time savings, automation metrics, and AI-driven value for properties using Leasing AI"
         />
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <KpiCard
-            label="Staff hours saved"
-            value="2,340"
-            delta="+340 hrs"
-            sub="hours saved by AI automation"
-            subItalic="23,400 messages × 6 min avg manual handling ÷ 60"
-          />
-          <KpiCard
-            label="Avg time to lease (AI)"
-            value="18 days"
-            delta="-14 days faster"
-            deltaTone="positive"
-            sub="vs 32 days without AI"
-          />
-          <KpiCard
-            label="Conversion lift (AI vs non-AI)"
-            value="+5.6 pts"
-            delta="+5.6 pts"
-            sub="AI-managed: 16.2% vs non-AI: 10.6%"
-          />
-          <KpiCard
-            label="Fully automated leases"
-            value="48%"
-            delta="+12 pts"
-            sub="920 of 1,920 leases completed with zero human intervention"
-          />
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,0.4fr)_minmax(0,1fr)]">
+          <Card className="border-border/60 bg-gradient-to-br from-emerald-50 to-background">
+            <CardContent className="px-5 py-4">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Conversion lift (AI vs non-AI)
+              </p>
+              <p className="mt-1 text-4xl font-bold tracking-tight text-foreground">
+                {loading ? "…" : "+5.6 pts"}
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                AI-managed: 16.2% vs non-AI: 10.6%
+              </p>
+            </CardContent>
+          </Card>
+
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+            <KpiCard
+              label="Staff hours saved"
+              value="2,340"
+              delta="+340 hrs"
+              sub="hours saved by AI automation"
+              subItalic="23,400 messages × 6 min avg manual handling ÷ 60"
+            />
+            <KpiCard
+              label="Avg time to lease (AI)"
+              value="18 days"
+              delta="-14 days faster"
+              deltaTone="positive"
+              sub="vs 32 days without AI"
+            />
+            <KpiCard
+              label="Fully automated leases"
+              value="48%"
+              delta="+12 pts"
+              sub="920 of 1,920 leases completed with zero human intervention"
+            />
+          </div>
         </div>
 
         <div className="mt-3 grid gap-3 lg:grid-cols-2">
@@ -1178,7 +1228,7 @@ export default function LeasingAiDashboardPage() {
                   <XAxis dataKey="reason" tickLine={false} axisLine={false} tickMargin={8} angle={-30} textAnchor="end" height={50} interval={0} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="count" fill="#374151" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="count" fill="#0f172a" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ChartContainer>
             </CardContent>
