@@ -2342,32 +2342,82 @@ function ConversationsContent() {
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-3" align="end">
                         {isSuperAgent1DemoThread(selected.id) ? (
-                          <div className="flex items-center gap-2.5">
-                            <Switch
-                              checked={aiActivated}
-                              onCheckedChange={(checked) => {
-                                setAiActivated(checked);
-                                setReactivationDate(null);
-                                setNoLimit(false);
-                                setShowDatePicker(false);
-                                recordThreadActivity(selected.id, {
-                                  kind: "ai_activation",
-                                  active: checked,
-                                  actor: MY_INBOX_ASSIGNEE,
-                                });
-                                toast.success(
-                                  checked ? "AI activated for this conversation" : "AI deactivated for this conversation",
-                                  {
-                                    description: checked
-                                      ? "Replies will be drafted by AI on this thread."
-                                      : "This thread will not receive AI-drafted replies.",
-                                  }
-                                );
-                              }}
-                            />
-                            <span className="text-xs font-medium text-foreground whitespace-nowrap">
-                              AI Activated
-                            </span>
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2.5">
+                              <Switch
+                                checked={aiActivated}
+                                onCheckedChange={(checked) => {
+                                  setAiActivated(checked);
+                                  setReactivationDate(null);
+                                  setNoLimit(false);
+                                  setShowDatePicker(false);
+                                  recordThreadActivity(selected.id, {
+                                    kind: "ai_activation",
+                                    active: checked,
+                                    actor: MY_INBOX_ASSIGNEE,
+                                  });
+                                  toast.success(
+                                    checked ? "AI activated for this conversation" : "AI deactivated for this conversation",
+                                    {
+                                      description: checked
+                                        ? "Replies will be drafted by AI on this thread."
+                                        : "This thread will not receive AI-drafted replies.",
+                                    }
+                                  );
+                                }}
+                              />
+                              <span className="text-xs font-medium text-foreground whitespace-nowrap">
+                                AI Activated
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3 border-t border-border pt-2">
+                              <div className="flex items-center gap-2">
+                                <label className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">Phone</label>
+                                <Select
+                                  value={phoneOpt}
+                                  onValueChange={(v) => {
+                                    const choice = v as ChannelOptChoice;
+                                    setPhoneOpt(choice);
+                                    recordThreadActivity(selected.id, {
+                                      kind: "channel_opt",
+                                      channel: "phone",
+                                      choice,
+                                      actor: MY_INBOX_ASSIGNEE,
+                                    });
+                                  }}
+                                >
+                                  <SelectTrigger className="h-7 w-[110px] text-[11px]"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
+                                    <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
+                                    <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <label className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">Email</label>
+                                <Select
+                                  value={emailOpt}
+                                  onValueChange={(v) => {
+                                    const choice = v as ChannelOptChoice;
+                                    setEmailOpt(choice);
+                                    recordThreadActivity(selected.id, {
+                                      kind: "channel_opt",
+                                      channel: "email",
+                                      choice,
+                                      actor: MY_INBOX_ASSIGNEE,
+                                    });
+                                  }}
+                                >
+                                  <SelectTrigger className="h-7 w-[110px] text-[11px]"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
+                                    <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
+                                    <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
                           </div>
                         ) : (
                         <div className="space-y-3">
