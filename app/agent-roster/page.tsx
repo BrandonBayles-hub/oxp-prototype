@@ -3792,15 +3792,19 @@ type ConversationMessage = {
   trace?: TraceStep[];
 };
 
+type ConversationChannel = "SMS" | "Chat" | "Email" | "Voice";
+
 type ConversationLog = {
   id: string;
   residentName: string;
-  channel: "SMS" | "Chat" | "Email";
+  channel: ConversationChannel;
   topic: string;
   summary: string;
   outcome: "resolved" | "escalated" | "pending";
   sentiment: "positive" | "neutral" | "negative";
   startedAt: string;
+  /** Days back from "today" for date-range filtering. 0 = today, 1 = yesterday, etc. */
+  daysAgo: number;
   duration: string;
   turns: number;
   messages: ConversationMessage[];
@@ -3808,6 +3812,15 @@ type ConversationLog = {
   trace: TraceStep[];
   monitors: { label: string; passed: boolean }[];
 };
+
+const CONVERSATION_CHANNELS: ConversationChannel[] = ["Chat", "SMS", "Voice", "Email"];
+
+function conversationChannelIcon(channel: ConversationChannel) {
+  if (channel === "SMS") return <Phone className="h-2.5 w-2.5" />;
+  if (channel === "Email") return <Mail className="h-2.5 w-2.5" />;
+  if (channel === "Voice") return <Volume2 className="h-2.5 w-2.5" />;
+  return <MessageSquare className="h-2.5 w-2.5" />;
+}
 
 const L4_AGENTS_PER_REPLY_TRACE = new Set(["Leasing AI", "Payments AI", "Maintenance AI", "Renewal AI"]);
 
@@ -3916,9 +3929,9 @@ function AgentTraceTimeline({ trace }: { trace: TraceStep[] }) {
   );
 }
 
-function generateConversationLogs(agentName: string, propertyName: string): ConversationLog[] {
+function generateBaseConversationLogs(agentName: string, propertyName: string): ConversationLog[] {
   if (agentName === "Leasing AI") return [
-    { id: "conv-l1", residentName: "Sarah Mitchell", channel: "Chat", topic: "Tour Scheduling", summary: "Prospect scheduled a Saturday tour for a 2BR unit.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 2:14 PM", duration: "4m 22s", turns: 6,
+    { id: "conv-l1", residentName: "Sarah Mitchell", channel: "Chat", topic: "Tour Scheduling", summary: "Prospect scheduled a Saturday tour for a 2BR unit.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 2:14 PM", daysAgo: 0, duration: "4m 22s", turns: 6,
       messages: [
         { role: "resident", text: "Hi! I saw your listing for the 2-bedroom on Apartments.com. Do you have any tours available this weekend?", timestamp: "2:14 PM" },
         { role: "agent", text: `Welcome to ${propertyName}! We'd love to show you around. We have availability Saturday at 10am, 1pm, and 3pm. Which works best for you?`, timestamp: "2:14 PM",
@@ -3952,7 +3965,7 @@ function generateConversationLogs(agentName: string, propertyName: string): Conv
       trace: [],
       monitors: [{ label: "Coherent response", passed: true }, { label: "Factually grounded", passed: true }, { label: "Positive sentiment", passed: true }, { label: "No repetition", passed: true }],
     },
-    { id: "conv-l2", residentName: "David Park", channel: "SMS", topic: "Pricing Inquiry", summary: "Prospect asked about 1BR pricing. Sent floor plans. No tour scheduled yet.", outcome: "pending", sentiment: "neutral", startedAt: "Today, 11:43 AM", duration: "2m 10s", turns: 4,
+    { id: "conv-l2", residentName: "David Park", channel: "SMS", topic: "Pricing Inquiry", summary: "Prospect asked about 1BR pricing. Sent floor plans. No tour scheduled yet.", outcome: "pending", sentiment: "neutral", startedAt: "Today, 11:43 AM", daysAgo: 0, duration: "2m 10s", turns: 4,
       messages: [
         { role: "resident", text: "Hey, what's the price for a 1 bedroom?", timestamp: "11:43 AM" },
         { role: "agent", text: `Thanks for reaching out about ${propertyName}! Our 1BR units start at $1,350/mo for the standard layout and $1,475/mo for the upgraded finish package. We're currently offering $500 off the first month. Want me to send you floor plans?`, timestamp: "11:43 AM",
@@ -3975,7 +3988,7 @@ function generateConversationLogs(agentName: string, propertyName: string): Conv
       trace: [],
       monitors: [{ label: "Coherent response", passed: true }, { label: "Factually grounded", passed: true }, { label: "Positive sentiment", passed: true }, { label: "No repetition", passed: true }],
     },
-    { id: "conv-l3", residentName: "Maria Gonzalez", channel: "Chat", topic: "Application Questions", summary: "Prospect had questions about income requirements. Escalated to leasing manager due to Section 8 voucher.", outcome: "escalated", sentiment: "neutral", startedAt: "Yesterday, 4:30 PM", duration: "6m 15s", turns: 8,
+    { id: "conv-l3", residentName: "Maria Gonzalez", channel: "Chat", topic: "Application Questions", summary: "Prospect had questions about income requirements. Escalated to leasing manager due to Section 8 voucher.", outcome: "escalated", sentiment: "neutral", startedAt: "Yesterday, 4:30 PM", daysAgo: 1, duration: "6m 15s", turns: 8,
       messages: [
         { role: "resident", text: "I want to apply but I have a Section 8 voucher. Do you accept those?", timestamp: "4:30 PM" },
         { role: "agent", text: `Great question! ${propertyName} does accept Section 8 Housing Choice Vouchers. The process is slightly different from a standard application — let me connect you with our leasing manager who can walk you through the specific requirements and timeline.`, timestamp: "4:31 PM",
@@ -4002,7 +4015,7 @@ function generateConversationLogs(agentName: string, propertyName: string): Conv
   ];
 
   if (agentName === "Payments AI") return [
-    { id: "conv-p1", residentName: "James Wilson", channel: "SMS", topic: "Late Rent Follow-Up", summary: "Resident paid after receiving reminder. Payment confirmed.", outcome: "resolved", sentiment: "neutral", startedAt: "Today, 10:08 AM", duration: "3m 45s", turns: 6,
+    { id: "conv-p1", residentName: "James Wilson", channel: "SMS", topic: "Late Rent Follow-Up", summary: "Resident paid after receiving reminder. Payment confirmed.", outcome: "resolved", sentiment: "neutral", startedAt: "Today, 10:08 AM", daysAgo: 0, duration: "3m 45s", turns: 6,
       messages: [
         { role: "agent", text: `Hi James, this is a friendly reminder from ${propertyName} that your rent payment of $1,650 was due on the 3rd. Your current balance is $1,650. Would you like a link to make a payment?`, timestamp: "10:08 AM",
           trace: [
@@ -4034,7 +4047,7 @@ function generateConversationLogs(agentName: string, propertyName: string): Conv
       trace: [],
       monitors: [{ label: "Coherent response", passed: true }, { label: "Accurate balance", passed: true }, { label: "Positive sentiment", passed: true }, { label: "No repetition", passed: true }],
     },
-    { id: "conv-p2", residentName: "Amy Chen", channel: "Chat", topic: "Payment Plan Request", summary: "Resident approved for 2-installment plan. Agreement sent for signature.", outcome: "resolved", sentiment: "positive", startedAt: "Yesterday, 3:22 PM", duration: "5m 30s", turns: 6,
+    { id: "conv-p2", residentName: "Amy Chen", channel: "Chat", topic: "Payment Plan Request", summary: "Resident approved for 2-installment plan. Agreement sent for signature.", outcome: "resolved", sentiment: "positive", startedAt: "Yesterday, 3:22 PM", daysAgo: 1, duration: "5m 30s", turns: 6,
       messages: [
         { role: "resident", text: "I can't pay my full rent this month. Are payment plans an option?", timestamp: "3:22 PM" },
         { role: "agent", text: "I'm sorry to hear that, Amy. Yes, we do offer payment plans. Based on your account, you're eligible for a 2-installment plan: $825 due by the 5th and $825 by the 20th. Would you like me to set that up?", timestamp: "3:22 PM",
@@ -4061,7 +4074,7 @@ function generateConversationLogs(agentName: string, propertyName: string): Conv
   ];
 
   if (agentName === "Maintenance AI") return [
-    { id: "conv-m1", residentName: "Tom Bradley", channel: "SMS", topic: "Emergency — Kitchen Flooding", summary: "Emergency work order created. On-call tech dispatched within 5 minutes.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 7:45 AM", duration: "8m 10s", turns: 8,
+    { id: "conv-m1", residentName: "Tom Bradley", channel: "SMS", topic: "Emergency — Kitchen Flooding", summary: "Emergency work order created. On-call tech dispatched within 5 minutes.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 7:45 AM", daysAgo: 0, duration: "8m 10s", turns: 8,
       messages: [
         { role: "resident", text: "HELP my kitchen is flooding!! Water everywhere!!", timestamp: "7:45 AM" },
         { role: "agent", text: "I'm so sorry — let me help right away! This is being flagged as an emergency. First, please locate the shutoff valve under your sink and turn it clockwise to stop the water. I'm dispatching our on-call technician now.", timestamp: "7:45 AM",
@@ -4095,7 +4108,7 @@ function generateConversationLogs(agentName: string, propertyName: string): Conv
       trace: [],
       monitors: [{ label: "Emergency detected", passed: true }, { label: "Fast response (<30s)", passed: true }, { label: "Tech dispatched", passed: true }, { label: "Follow-up scheduled", passed: true }],
     },
-    { id: "conv-m2", residentName: "Lisa Park", channel: "Chat", topic: "AC Not Cooling", summary: "Guided troubleshooting, then created work order for HVAC technician.", outcome: "resolved", sentiment: "neutral", startedAt: "Yesterday, 2:15 PM", duration: "5m 40s", turns: 6,
+    { id: "conv-m2", residentName: "Lisa Park", channel: "Chat", topic: "AC Not Cooling", summary: "Guided troubleshooting, then created work order for HVAC technician.", outcome: "resolved", sentiment: "neutral", startedAt: "Yesterday, 2:15 PM", daysAgo: 1, duration: "5m 40s", turns: 6,
       messages: [
         { role: "resident", text: "My AC has been running all day but it's still 80 degrees in here. Something is wrong.", timestamp: "2:15 PM" },
         { role: "agent", text: "I'm sorry about that! Let's try a few things first. Can you check if the air filter is clean? It's behind the return vent, usually in the hallway. A dirty filter is the most common cause of cooling issues.", timestamp: "2:15 PM",
@@ -4123,7 +4136,7 @@ function generateConversationLogs(agentName: string, propertyName: string): Conv
   ];
 
   if (agentName === "Renewal AI") return [
-    { id: "conv-r1", residentName: "Kevin Pham", channel: "Email", topic: "Renewal Offer Accepted", summary: "Resident accepted renewal at $1,695/mo for 14-month term with loyalty adjustment.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 9:30 AM", duration: "12m 5s", turns: 8,
+    { id: "conv-r1", residentName: "Kevin Pham", channel: "Email", topic: "Renewal Offer Accepted", summary: "Resident accepted renewal at $1,695/mo for 14-month term with loyalty adjustment.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 9:30 AM", daysAgo: 0, duration: "12m 5s", turns: 8,
       messages: [
         {
           role: "agent",
@@ -4170,7 +4183,7 @@ function generateConversationLogs(agentName: string, propertyName: string): Conv
       trace: [],
       monitors: [{ label: "Coherent response", passed: true }, { label: "Accurate pricing", passed: true }, { label: "Positive sentiment", passed: true }, { label: "Retention outcome", passed: true }],
     },
-    { id: "conv-r2", residentName: "Rachel Adams", channel: "SMS", topic: "Move-Out Notice", summary: "Resident decided to move out. Notice processed, move-out checklist sent.", outcome: "resolved", sentiment: "negative", startedAt: "Yesterday, 11:15 AM", duration: "7m 20s", turns: 6,
+    { id: "conv-r2", residentName: "Rachel Adams", channel: "SMS", topic: "Move-Out Notice", summary: "Resident decided to move out. Notice processed, move-out checklist sent.", outcome: "resolved", sentiment: "negative", startedAt: "Yesterday, 11:15 AM", daysAgo: 1, duration: "7m 20s", turns: 6,
       messages: [
         { role: "resident", text: "Hi, I've decided not to renew my lease. What do I need to do?", timestamp: "11:15 AM" },
         {
@@ -4220,6 +4233,184 @@ function generateConversationLogs(agentName: string, propertyName: string): Conv
   return [];
 }
 
+/* ─────────────────────────────────────────────────────────────────────
+   Additional preloaded conversation logs for the Eli Plus agents.
+   These are intentionally lighter than the hand-crafted baseline entries
+   above (a short message exchange + a 3-step trace) — their purpose is to
+   give the History & Logging list realistic volume so the filter UI can
+   be demoed against ~20 rows per agent.
+   ───────────────────────────────────────────────────────────────────── */
+
+type QuickLogSpec = {
+  id: string;
+  residentName: string;
+  channel: ConversationChannel;
+  topic: string;
+  summary: string;
+  outcome: ConversationLog["outcome"];
+  sentiment: ConversationLog["sentiment"];
+  startedAt: string;
+  daysAgo: number;
+  duration: string;
+  turns: number;
+  residentText: string;
+  agentText: string;
+  toolName: string;
+  toolHint?: string;
+  monitors?: { label: string; passed: boolean }[];
+};
+
+function buildQuickLog(spec: QuickLogSpec): ConversationLog {
+  const timestamp = spec.startedAt.includes(", ")
+    ? spec.startedAt.slice(spec.startedAt.indexOf(", ") + 2)
+    : spec.startedAt;
+  const requestId = `mcp-${spec.id}-r1`;
+  return {
+    id: spec.id,
+    residentName: spec.residentName,
+    channel: spec.channel,
+    topic: spec.topic,
+    summary: spec.summary,
+    outcome: spec.outcome,
+    sentiment: spec.sentiment,
+    startedAt: spec.startedAt,
+    daysAgo: spec.daysAgo,
+    duration: spec.duration,
+    turns: spec.turns,
+    messages: [
+      { role: "resident", text: spec.residentText, timestamp },
+      {
+        role: "agent",
+        text: spec.agentText,
+        timestamp,
+        trace: [
+          {
+            type: "mcp_tool",
+            label: `MCP · ${spec.toolName}`,
+            mcpToolName: spec.toolName,
+            durationMs: 112,
+            status: "success",
+            detail: spec.toolHint,
+            mcpRequestJson: `{\n  "jsonrpc": "2.0",\n  "id": "${requestId}",\n  "method": "tools/call",\n  "params": { "name": "${spec.toolName}" }\n}`,
+            mcpResponseJson: `{\n  "jsonrpc": "2.0",\n  "id": "${requestId}",\n  "result": { "ok": true }\n}`,
+          },
+          { type: "reasoning", label: "Reply framing", durationMs: 38 },
+          { type: "response", label: "Model · reply", durationMs: 72 },
+        ],
+      },
+    ],
+    trace: [],
+    monitors: spec.monitors ?? [
+      { label: "Coherent response", passed: true },
+      { label: "Factually grounded", passed: true },
+      { label: spec.outcome === "escalated" ? "Appropriate escalation" : "Appropriate tone", passed: true },
+      { label: "No repetition", passed: true },
+    ],
+  };
+}
+
+function generateAdditionalConversationLogs(agentName: string, propertyName: string): ConversationLog[] {
+  if (agentName === "Leasing AI") {
+    return [
+      buildQuickLog({ id: "conv-l4", residentName: "Jordan Reyes", channel: "Voice", topic: "Virtual Tour Request", summary: "Prospect requested a self-guided video tour. Sent personalized walkthrough link.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 9:12 AM", daysAgo: 0, duration: "3m 04s", turns: 4, residentText: "Hi, I'm out of state — can I do a virtual tour of the 2-bedroom before I fly in?", agentText: `Absolutely! I just sent you a self-guided video tour for the 2BR at ${propertyName}, plus a Zoom slot for a live walkthrough Thursday at 11am MT if you'd prefer that.`, toolName: "entrata.tours.sendVirtualPacket" }),
+      buildQuickLog({ id: "conv-l5", residentName: "Emily Carter", channel: "Email", topic: "Amenity Questions", summary: "Asked about gym hours and co-working space. Sent amenity sheet.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 8:48 AM", daysAgo: 0, duration: "2m 41s", turns: 4, residentText: "What are the gym hours, and is the co-working space free for residents?", agentText: `Our 24/7 fitness center is open round the clock with a key fob, and the co-working space is free for residents weekdays 7am–10pm. I'm attaching the full amenity sheet for ${propertyName}.`, toolName: "entrata.property.getAmenities" }),
+      buildQuickLog({ id: "conv-l6", residentName: "Brandon Lee", channel: "Chat", topic: "Parking Availability", summary: "Confirmed covered parking availability and reserved a spot for move-in.", outcome: "resolved", sentiment: "neutral", startedAt: "Today, 7:33 AM", daysAgo: 0, duration: "3m 18s", turns: 5, residentText: "Do you have covered parking? I drive a truck.", agentText: "Yes! Covered parking is $75/month and we have 4 oversized stalls that fit full-size trucks. I held one for your application on file.", toolName: "entrata.parking.getInventory" }),
+      buildQuickLog({ id: "conv-l7", residentName: "Olivia Tran", channel: "SMS", topic: "Lease Term Options", summary: "Asked about 9-month lease. Quoted seasonal premium.", outcome: "pending", sentiment: "neutral", startedAt: "Yesterday, 6:55 PM", daysAgo: 1, duration: "1m 52s", turns: 3, residentText: "Do you offer a 9-month lease? Starting in August.", agentText: "Yes — 9-month leases are available at a $125/mo premium over our 12-month rate. The August 1 move-in 1BR comes to $1,475/mo on a 9-month term.", toolName: "entrata.pricing.getTermOptions" }),
+      buildQuickLog({ id: "conv-l8", residentName: "Marcus Johnson", channel: "Chat", topic: "Pet Deposit Question", summary: "Clarified deposit for a second pet. Sent pet addendum.", outcome: "resolved", sentiment: "positive", startedAt: "Yesterday, 5:20 PM", daysAgo: 1, duration: "2m 08s", turns: 4, residentText: "I have two cats — is the deposit per pet or just one fee?", agentText: "It's per pet — $200 refundable + $15/mo per pet. Total for two cats is a $400 refundable deposit + $30/mo. I'll email you the pet addendum to review.", toolName: "entrata.policy.getPetPolicy" }),
+      buildQuickLog({ id: "conv-l9", residentName: "Hannah Brooks", channel: "Email", topic: "Application Status", summary: "Resident application stalled on income verification — escalated to leasing.", outcome: "escalated", sentiment: "negative", startedAt: "Yesterday, 3:02 PM", daysAgo: 1, duration: "4m 12s", turns: 6, residentText: "It's been 5 days since I uploaded my paystubs and I haven't heard back. Is something wrong?", agentText: "I'm sorry for the delay, Hannah. I'm escalating this directly to our leasing manager Jennifer — she'll personally review your file within the hour and call you with an update.", toolName: "entrata.crm.createEscalation", monitors: [{ label: "Coherent response", passed: true }, { label: "Appropriate escalation", passed: true }, { label: "Empathetic tone", passed: true }, { label: "SLA on file", passed: true }] }),
+      buildQuickLog({ id: "conv-l10", residentName: "Ahmed Khan", channel: "Voice", topic: "Move-In Date Flexibility", summary: "Confirmed unit hold for 10-day delayed move-in.", outcome: "resolved", sentiment: "positive", startedAt: "2 days ago, 1:45 PM", daysAgo: 2, duration: "5m 22s", turns: 6, residentText: "I signed yesterday but my movers can't come until the 17th. Is that OK?", agentText: "No problem — your move-in date is updated to August 17th. There's no proration penalty since you're still in the same month. You'll get your fob and key on the 17th.", toolName: "entrata.leasing.adjustMoveInDate" }),
+      buildQuickLog({ id: "conv-l11", residentName: "Priya Patel", channel: "Chat", topic: "School District Inquiry", summary: "Looked up school assignments for the property zip. Linked district website.", outcome: "resolved", sentiment: "neutral", startedAt: "2 days ago, 11:11 AM", daysAgo: 2, duration: "2m 30s", turns: 4, residentText: "We have two kids. What elementary school would they go to?", agentText: `${propertyName} is in the Cherry Creek district — Belleview Elementary for K–5. Here's the district's school locator page so you can confirm the boundary.`, toolName: "entrata.knowledge.lookupSchoolDistrict" }),
+      buildQuickLog({ id: "conv-l12", residentName: "Tyler Robinson", channel: "SMS", topic: "Income Requirement", summary: "Quoted 3x rent requirement. Prospect to provide co-signer info.", outcome: "pending", sentiment: "neutral", startedAt: "3 days ago, 4:08 PM", daysAgo: 3, duration: "1m 41s", turns: 3, residentText: "What's the income requirement to qualify?", agentText: "We look for 3x the monthly rent in gross household income, or a qualified co-signer if you're under. For a $1,475 unit that's $4,425/mo combined.", toolName: "entrata.screening.getQualifyingRules" }),
+      buildQuickLog({ id: "conv-l13", residentName: "Sophia Nguyen", channel: "Chat", topic: "Furnished Options", summary: "Asked about short-term furnished. Out of inventory; offered waitlist.", outcome: "pending", sentiment: "neutral", startedAt: "3 days ago, 2:36 PM", daysAgo: 3, duration: "2m 19s", turns: 4, residentText: "Do you have any furnished short-term units available?", agentText: "We don't have furnished inventory available right now, but I added you to the waitlist and you'll get a notice as soon as one opens up — usually 2–3 per quarter.", toolName: "entrata.inventory.checkFurnished" }),
+      buildQuickLog({ id: "conv-l14", residentName: "Devon Wright", channel: "Email", topic: "Holding Deposit Refund", summary: "Application withdrawn before screening. Refund processed.", outcome: "resolved", sentiment: "neutral", startedAt: "4 days ago, 10:24 AM", daysAgo: 4, duration: "3m 50s", turns: 5, residentText: "I changed my mind on the apartment — can I get my holding deposit back?", agentText: "Since we hadn't run screening yet, your $200 holding deposit is fully refundable. I just initiated the refund — you'll see it back on your card in 3–5 business days.", toolName: "entrata.payments.refundHold" }),
+      buildQuickLog({ id: "conv-l15", residentName: "Grace Liu", channel: "Voice", topic: "ADA Unit Inquiry", summary: "Confirmed wheelchair-accessible 1BR availability. Booked priority tour.", outcome: "resolved", sentiment: "positive", startedAt: "5 days ago, 1:09 PM", daysAgo: 5, duration: "4m 33s", turns: 5, residentText: "I use a wheelchair — do you have any ground-floor accessible units coming up?", agentText: "Yes! We have an ADA-compliant 1BR opening August 1 with a roll-in shower and lowered counters. I booked you a priority tour for Saturday at 10am with our community manager.", toolName: "entrata.inventory.getAccessibleUnits" }),
+      buildQuickLog({ id: "conv-l16", residentName: "Nathan Reed", channel: "Chat", topic: "Roommate Add to Lease", summary: "Walked prospect through roommate qualification flow.", outcome: "pending", sentiment: "neutral", startedAt: "5 days ago, 11:48 AM", daysAgo: 5, duration: "3m 02s", turns: 5, residentText: "My girlfriend wants to be on the lease too. How does that work?", agentText: "She'll fill out a co-applicant form and run the same screening — $50 app fee. Once approved, we add her to the lease via an amendment. I'll email both you the link.", toolName: "entrata.leasing.startCoApplicant" }),
+      buildQuickLog({ id: "conv-l17", residentName: "Isabella Romano", channel: "Email", topic: "Application Denied — Appeal", summary: "Soft denial appealed; routed to compliance for review.", outcome: "escalated", sentiment: "negative", startedAt: "6 days ago, 9:30 AM", daysAgo: 6, duration: "6m 47s", turns: 7, residentText: "My application was denied but I think there's a mistake on the credit report it pulled.", agentText: "I hear you. Per our policy I'm escalating this to our compliance team — they'll review the credit dispute and respond within 2 business days with next steps and the adverse action notice.", toolName: "entrata.compliance.openAppeal", monitors: [{ label: "Coherent response", passed: true }, { label: "Appropriate escalation", passed: true }, { label: "Empathetic tone", passed: true }, { label: "Compliance routed", passed: true }] }),
+      buildQuickLog({ id: "conv-l18", residentName: "Carlos Mendoza", channel: "SMS", topic: "Application Approved — Next Steps", summary: "Sent move-in checklist and renter's insurance link.", outcome: "resolved", sentiment: "positive", startedAt: "7 days ago, 3:14 PM", daysAgo: 7, duration: "2m 21s", turns: 3, residentText: "Just saw the approval email! What's next?", agentText: "Congrats Carlos! Next: (1) pay the security deposit, (2) e-sign the lease (link sent), (3) bind renter's insurance before move-in. Want me to walk you through any of these?", toolName: "entrata.leasing.getMoveInChecklist" }),
+      buildQuickLog({ id: "conv-l19", residentName: "Megan O'Brien", channel: "Chat", topic: "Specials & Concessions", summary: "Quoted current LMC concession. Prospect to confirm tour.", outcome: "pending", sentiment: "positive", startedAt: "9 days ago, 4:51 PM", daysAgo: 9, duration: "2m 12s", turns: 4, residentText: "Any move-in specials right now?", agentText: "Yes! Sign by August 31 and get $750 off your first full month, plus we waive the $250 admin fee. That applies to the 2BR/2BA you looked at.", toolName: "entrata.specials.getActive" }),
+      buildQuickLog({ id: "conv-l20", residentName: "Jamal Williams", channel: "Voice", topic: "Tour No-Show Reschedule", summary: "Rescheduled missed tour. Sent calendar invite.", outcome: "resolved", sentiment: "neutral", startedAt: "11 days ago, 12:02 PM", daysAgo: 11, duration: "3m 25s", turns: 4, residentText: "I'm sorry I missed our tour yesterday — can we reschedule?", agentText: "Of course! I have Saturday at 11am or Sunday at 1pm. I'll send the calendar invite as soon as you confirm.", toolName: "entrata.tours.rescheduleTour" }),
+    ];
+  }
+
+  if (agentName === "Payments AI") {
+    return [
+      buildQuickLog({ id: "conv-p3", residentName: "Robert Singh", channel: "Chat", topic: "Autopay Setup", summary: "Resident enrolled in monthly ACH autopay on the 3rd.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 11:32 AM", daysAgo: 0, duration: "3m 08s", turns: 5, residentText: "How do I set up autopay so I stop forgetting?", agentText: "Easy — I'll send you a one-tap setup link. You can pick the 1st, 3rd, or 5th of each month and we'll auto-debit from your bank. You can cancel anytime in resident portal.", toolName: "entrata.payments.startAutopayEnrollment" }),
+      buildQuickLog({ id: "conv-p4", residentName: "Linda Thompson", channel: "SMS", topic: "Returned ACH", summary: "Resident's ACH bounced. Sent retry link with fee disclosed.", outcome: "pending", sentiment: "neutral", startedAt: "Today, 9:54 AM", daysAgo: 0, duration: "2m 27s", turns: 4, residentText: "I got a notice my payment bounced. What now?", agentText: "Your bank returned the ACH (likely insufficient funds). The total due with the $35 NSF fee is $1,725. Here's a retry link — you can pay by debit or a different bank.", toolName: "entrata.payments.handleNsf" }),
+      buildQuickLog({ id: "conv-p5", residentName: "Marcus Davis", channel: "Voice", topic: "Balance Inquiry", summary: "Read out current balance and recent posting.", outcome: "resolved", sentiment: "neutral", startedAt: "Today, 8:19 AM", daysAgo: 0, duration: "1m 42s", turns: 3, residentText: "What's my current balance?", agentText: "Your balance as of today is $0.00 — your $1,650 payment posted yesterday morning. You're all set for August.", toolName: "entrata.ledger.getBalance" }),
+      buildQuickLog({ id: "conv-p6", residentName: "Sofia Martinez", channel: "Email", topic: "Receipt Request", summary: "Sent itemized receipt for tax purposes.", outcome: "resolved", sentiment: "positive", startedAt: "Yesterday, 4:08 PM", daysAgo: 1, duration: "2m 03s", turns: 3, residentText: "Can you send me an itemized receipt for all my rent payments this year?", agentText: "Sent! Your 2025 YTD itemized receipt is in your inbox — $11,550 across 7 monthly payments with confirmation numbers and dates.", toolName: "entrata.ledger.exportItemizedReceipt" }),
+      buildQuickLog({ id: "conv-p7", residentName: "William Hayes", channel: "SMS", topic: "Late Fee Dispute", summary: "Late fee waived as one-time courtesy; escalation logged.", outcome: "resolved", sentiment: "neutral", startedAt: "Yesterday, 2:35 PM", daysAgo: 1, duration: "3m 51s", turns: 5, residentText: "I paid on the 5th, why was I charged a late fee?", agentText: "I see — the grace period ended at midnight on the 5th and your payment posted at 12:42am on the 6th. As a one-time courtesy I've waived the $75 fee. Your balance is $0.", toolName: "entrata.policy.waiveLateFee" }),
+      buildQuickLog({ id: "conv-p8", residentName: "Emma Garcia", channel: "Chat", topic: "Partial Payment", summary: "Logged $500 partial payment intent; reminder set for balance.", outcome: "pending", sentiment: "neutral", startedAt: "2 days ago, 5:14 PM", daysAgo: 2, duration: "2m 47s", turns: 4, residentText: "I can pay $500 now and the rest on Friday. Can I do that?", agentText: "Yes — I'll log a partial payment intent. Pay $500 today and I'll send a reminder Friday for the remaining $1,150 with a one-tap pay link.", toolName: "entrata.payments.logPartialIntent" }),
+      buildQuickLog({ id: "conv-p9", residentName: "Anthony Russo", channel: "Voice", topic: "Credit Card Decline", summary: "Card decline; switched to ACH; payment cleared.", outcome: "resolved", sentiment: "neutral", startedAt: "2 days ago, 1:33 PM", daysAgo: 2, duration: "4m 11s", turns: 6, residentText: "My credit card got declined. Can I use a different way?", agentText: "Of course. You can pay by ACH for free, or use a debit card with a 2.95% fee. I'll send the secure payment link to your phone now.", toolName: "entrata.payments.createHostedPayLink" }),
+      buildQuickLog({ id: "conv-p10", residentName: "Natalie Foster", channel: "Email", topic: "Move-Out Refund Status", summary: "Sent SODA timeline and current refund status.", outcome: "resolved", sentiment: "positive", startedAt: "3 days ago, 11:20 AM", daysAgo: 3, duration: "2m 56s", turns: 4, residentText: "I moved out 2 weeks ago — when do I get my security deposit back?", agentText: "Per Colorado law we have 60 days from move-out to send the SODA. Your file shows the unit inspected clean, refund of $1,425 is in the queue for processing on August 25.", toolName: "entrata.moveout.getSodaStatus" }),
+      buildQuickLog({ id: "conv-p11", residentName: "Christopher Yang", channel: "SMS", topic: "Pet Rent Adjustment", summary: "Removed pet rent after pet rehoming proof received.", outcome: "resolved", sentiment: "neutral", startedAt: "3 days ago, 9:48 AM", daysAgo: 3, duration: "3m 18s", turns: 5, residentText: "I rehomed my cat last month — can you remove the pet rent?", agentText: "I've removed the $15/mo pet rent going forward. I also credited $30 back for the months since you sent confirmation. Your new monthly is $1,620.", toolName: "entrata.ledger.adjustRecurringCharge" }),
+      buildQuickLog({ id: "conv-p12", residentName: "Ashley Cooper", channel: "Chat", topic: "Duplicate Payment", summary: "Identified duplicate ACH; refund initiated.", outcome: "resolved", sentiment: "positive", startedAt: "4 days ago, 3:42 PM", daysAgo: 4, duration: "4m 02s", turns: 5, residentText: "I think I paid twice this month by accident!", agentText: "You did — two ACH posts of $1,650. I just initiated a refund of one to your bank on file; it'll clear in 3–5 business days. Account balance is now $0.", toolName: "entrata.payments.refundDuplicate" }),
+      buildQuickLog({ id: "conv-p13", residentName: "Daniel Brooks", channel: "Voice", topic: "Roommate Split Pay", summary: "Set up split-pay between three roommates.", outcome: "resolved", sentiment: "neutral", startedAt: "5 days ago, 1:55 PM", daysAgo: 5, duration: "5m 14s", turns: 6, residentText: "Can my two roommates and I split the rent into thirds?", agentText: "Yes — I just enabled Split Pay on the unit. Each of you will get a portal link to pay your $616.67 share. The full rent is collected when all three pay.", toolName: "entrata.payments.enableSplitPay" }),
+      buildQuickLog({ id: "conv-p14", residentName: "Victoria Patel", channel: "Email", topic: "Section 8 Portion Question", summary: "Clarified HCV tenant portion vs. HAP portion.", outcome: "resolved", sentiment: "neutral", startedAt: "6 days ago, 10:32 AM", daysAgo: 6, duration: "3m 37s", turns: 4, residentText: "My voucher covers most of my rent but I'm confused what I actually owe.", agentText: "Your HCV covers $1,150 monthly (paid by the housing authority). Your tenant portion is $385/mo, due on the 1st. The autopay link below is set to that amount.", toolName: "entrata.affordable.getTenantPortion" }),
+      buildQuickLog({ id: "conv-p15", residentName: "Brandon Schwartz", channel: "SMS", topic: "Eviction Warning Push-Back", summary: "Resident upset about pre-eviction notice — escalated to property manager.", outcome: "escalated", sentiment: "negative", startedAt: "6 days ago, 8:14 AM", daysAgo: 6, duration: "5m 22s", turns: 6, residentText: "Why am I getting eviction papers?? I told you I'd pay!", agentText: "I hear you Brandon, and I'm sorry this is stressful. I'm pulling our property manager Sarah in directly — she'll call you within the hour to walk through options before anything moves forward.", toolName: "entrata.collections.escalateToManager", monitors: [{ label: "Empathetic tone", passed: true }, { label: "Appropriate escalation", passed: true }, { label: "Manager paged", passed: true }, { label: "De-escalation attempted", passed: true }] }),
+      buildQuickLog({ id: "conv-p16", residentName: "Erica Goldberg", channel: "Chat", topic: "Concession Question", summary: "Resident asked why concession was clawed back — explained 12-month minimum.", outcome: "resolved", sentiment: "neutral", startedAt: "7 days ago, 11:18 AM", daysAgo: 7, duration: "3m 49s", turns: 5, residentText: "My first month said $0 rent but now I'm being charged for it?", agentText: "Per your lease, the 1-month concession is amortized over the 12-month term. If you stay the full lease, you net the savings. The line item shows the monthly contra-credit.", toolName: "entrata.leasing.getConcessionTerms" }),
+      buildQuickLog({ id: "conv-p17", residentName: "Jonathan Kim", channel: "Voice", topic: "Payment Plan — Rejected", summary: "Resident requested plan; outside grace policy; escalated.", outcome: "escalated", sentiment: "negative", startedAt: "8 days ago, 2:55 PM", daysAgo: 8, duration: "4m 32s", turns: 6, residentText: "Can I split my rent over the next 60 days?", agentText: "I can't approve a 60-day plan automatically — our policy caps at 30 days. I'll route this to our community manager who can review options based on your account history.", toolName: "entrata.collections.routePlanRequest", monitors: [{ label: "Coherent response", passed: true }, { label: "Appropriate escalation", passed: true }, { label: "Policy boundaries respected", passed: true }, { label: "Empathetic tone", passed: true }] }),
+      buildQuickLog({ id: "conv-p18", residentName: "Mia Singh", channel: "Email", topic: "Renters Insurance Lapse", summary: "Resident notified of insurance lapse; reinstatement link sent.", outcome: "pending", sentiment: "neutral", startedAt: "9 days ago, 4:18 PM", daysAgo: 9, duration: "2m 41s", turns: 4, residentText: "I got a notice that my renters insurance lapsed — what do I need to do?", agentText: "Your Lemonade policy expired last week. You can either reinstate with them or use our partner program for $12/mo. Either way you'll need active coverage on file by next Friday.", toolName: "entrata.compliance.getInsuranceStatus" }),
+      buildQuickLog({ id: "conv-p19", residentName: "Hunter Wallace", channel: "SMS", topic: "Late Payment — Resolved", summary: "Resident paid + late fee. Account current.", outcome: "resolved", sentiment: "neutral", startedAt: "10 days ago, 9:50 AM", daysAgo: 10, duration: "2m 14s", turns: 4, residentText: "Sorry, just paying now. Total with the fee?", agentText: "No worries — total due with the $75 late fee is $1,725. Pay link below. Confirmation will hit your phone the moment it posts.", toolName: "entrata.ledger.getBalance" }),
+      buildQuickLog({ id: "conv-p20", residentName: "Lauren Sato", channel: "Chat", topic: "Direct Deposit For Refund", summary: "Confirmed bank account on file for SODA refund.", outcome: "resolved", sentiment: "positive", startedAt: "12 days ago, 1:30 PM", daysAgo: 12, duration: "1m 58s", turns: 3, residentText: "Can my deposit refund go to the same bank I autopay from?", agentText: "Yes — we'll send the refund to the same account ending in •1239 you used for autopay. No action needed on your end.", toolName: "entrata.payments.verifyRefundDestination" }),
+    ];
+  }
+
+  if (agentName === "Maintenance AI") {
+    return [
+      buildQuickLog({ id: "conv-m3", residentName: "Greg Hamilton", channel: "Chat", topic: "Garbage Disposal Jammed", summary: "Walked resident through reset. Resolved without dispatch.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 12:18 PM", daysAgo: 0, duration: "4m 02s", turns: 6, residentText: "My garbage disposal is making a weird hum and won't turn.", agentText: "Sounds like a jam — find the red reset button on the bottom of the unit, press it firmly. If that doesn't work, the hex key under the sink turns the impeller manually. Let me know if it spins free!", toolName: "entrata.maintenance.getSelfHelpGuide" }),
+      buildQuickLog({ id: "conv-m4", residentName: "Rebecca Chen", channel: "Voice", topic: "Smoke Alarm Beeping", summary: "Resolved low-battery beep without dispatch.", outcome: "resolved", sentiment: "neutral", startedAt: "Today, 10:25 AM", daysAgo: 0, duration: "3m 14s", turns: 5, residentText: "My smoke alarm is beeping every 30 seconds and it's driving me crazy.", agentText: "That's the low-battery chirp. The smoke alarm in the bedroom hallway takes a 9V — you should find spares in the welcome kit. If you don't have one, swing by the office and we'll hand you a fresh battery.", toolName: "entrata.maintenance.classifyAlarm" }),
+      buildQuickLog({ id: "conv-m5", residentName: "Kyle Anderson", channel: "SMS", topic: "Toilet Won't Stop Running", summary: "Created routine WO. Plumber scheduled for next morning.", outcome: "resolved", sentiment: "neutral", startedAt: "Today, 7:48 AM", daysAgo: 0, duration: "2m 50s", turns: 5, residentText: "Toilet in master bath has been running constantly since last night.", agentText: "Created work order MNT-5102 — flapper replacement. Our plumber Carlos has you scheduled for tomorrow 9–11am. He'll text 20 min before arrival.", toolName: "entrata.workorders.createRoutine" }),
+      buildQuickLog({ id: "conv-m6", residentName: "Vanessa Lopez", channel: "Email", topic: "Dishwasher Not Draining", summary: "Diagnosed clogged filter. WO created for tech if self-help fails.", outcome: "pending", sentiment: "neutral", startedAt: "Yesterday, 6:42 PM", daysAgo: 1, duration: "3m 35s", turns: 5, residentText: "My dishwasher won't drain — there's standing water at the bottom.", agentText: "First try cleaning the bottom filter (twist counterclockwise to remove). Run a hot cycle after. If water remains tomorrow, reply STILL and I'll dispatch our appliance tech.", toolName: "entrata.maintenance.getSelfHelpGuide" }),
+      buildQuickLog({ id: "conv-m7", residentName: "Jared Mills", channel: "SMS", topic: "Lockout — After Hours", summary: "Verified identity, dispatched on-call locksmith.", outcome: "resolved", sentiment: "positive", startedAt: "Yesterday, 11:14 PM", daysAgo: 1, duration: "4m 21s", turns: 5, residentText: "I'm locked out of my unit. It's almost midnight, help!", agentText: "I confirmed your identity via account info — our on-call locksmith Terry is on the way, ETA 25 min. He'll meet you at the leasing office door. There's a $75 after-hours service charge billed to your ledger.", toolName: "entrata.dispatch.pageLockoutVendor" }),
+      buildQuickLog({ id: "conv-m8", residentName: "Catherine Wells", channel: "Chat", topic: "Cockroach Sighting", summary: "Logged pest sighting. Routine pest treatment scheduled.", outcome: "resolved", sentiment: "negative", startedAt: "Yesterday, 5:08 PM", daysAgo: 1, duration: "3m 19s", turns: 5, residentText: "I just saw a roach in my kitchen!! Is this normal??", agentText: "I'm sorry, that's frustrating. I scheduled our pest control vendor Eco-Tech to treat your unit Friday between 1–3pm. They'll also do common areas as a precaution. Please remove all dishes from sinks/counters before.", toolName: "entrata.workorders.schedulePestTreatment", monitors: [{ label: "Empathetic tone", passed: true }, { label: "Vendor dispatched", passed: true }, { label: "Resident prep instructions sent", passed: true }, { label: "No repetition", passed: true }] }),
+      buildQuickLog({ id: "conv-m9", residentName: "Trevor Olson", channel: "Voice", topic: "Hot Water Outage — Building", summary: "Building-wide outage; on-call boiler tech en route.", outcome: "resolved", sentiment: "neutral", startedAt: "2 days ago, 6:15 AM", daysAgo: 2, duration: "2m 47s", turns: 4, residentText: "There's no hot water in any of my faucets.", agentText: "We're tracking a hot water outage in building C — boiler tripped overnight. Our boiler tech is on site, ETA to restore: 2 hours. I'll text the whole building once it's back up.", toolName: "entrata.maintenance.getBuildingOutages" }),
+      buildQuickLog({ id: "conv-m10", residentName: "Jasmine Patel", channel: "Chat", topic: "Light Fixture Flickering", summary: "Routine WO for electrical. Tech scheduled.", outcome: "resolved", sentiment: "neutral", startedAt: "2 days ago, 4:33 PM", daysAgo: 2, duration: "2m 38s", turns: 4, residentText: "Living room ceiling light keeps flickering even after I changed the bulb.", agentText: "Likely a loose fixture connection — that's an electrical task. Created MNT-5141. Our maintenance lead Mike will be by Thursday between 10am–12pm.", toolName: "entrata.workorders.createRoutine" }),
+      buildQuickLog({ id: "conv-m11", residentName: "Eric Sandoval", channel: "SMS", topic: "Window Won't Lock", summary: "Created safety WO; prioritized for next-day.", outcome: "resolved", sentiment: "neutral", startedAt: "3 days ago, 7:09 PM", daysAgo: 3, duration: "1m 56s", turns: 3, residentText: "Window in my bedroom won't latch shut.", agentText: "Logging as safety priority. Tomorrow morning between 8–10am our tech will come repair or replace the latch. You'll get a text 20 minutes before he arrives.", toolName: "entrata.workorders.createPriority" }),
+      buildQuickLog({ id: "conv-m12", residentName: "Olivia Bennett", channel: "Email", topic: "Mold Concern", summary: "Mold inspection escalated to property manager.", outcome: "escalated", sentiment: "negative", startedAt: "3 days ago, 9:22 AM", daysAgo: 3, duration: "5m 11s", turns: 6, residentText: "I noticed black spots on the wall behind my couch — I'm worried it's mold.", agentText: "Thanks for flagging this. Per policy any suspected mold goes to our property manager Sarah for inspection — she'll come by today between 2–4pm with a moisture meter and document everything.", toolName: "entrata.maintenance.escalateMoldCheck", monitors: [{ label: "Coherent response", passed: true }, { label: "Appropriate escalation", passed: true }, { label: "Compliance documented", passed: true }, { label: "Resident reassured", passed: true }] }),
+      buildQuickLog({ id: "conv-m13", residentName: "Brian Foster", channel: "Voice", topic: "Garage Door Stuck Open", summary: "Common area WO created; vendor scheduled.", outcome: "pending", sentiment: "neutral", startedAt: "4 days ago, 8:14 PM", daysAgo: 4, duration: "2m 35s", turns: 4, residentText: "The community garage door is stuck open right now.", agentText: "I see the sensor alert too. Logged WO MNT-5168 with the door vendor — they'll be out first thing tomorrow. I'll alert our property manager to keep the security gate down overnight.", toolName: "entrata.workorders.createCommonArea" }),
+      buildQuickLog({ id: "conv-m14", residentName: "Hannah Wright", channel: "Chat", topic: "Bathroom Fan Not Working", summary: "Routine fan replacement scheduled.", outcome: "resolved", sentiment: "neutral", startedAt: "5 days ago, 2:01 PM", daysAgo: 5, duration: "2m 18s", turns: 4, residentText: "Bathroom exhaust fan stopped working — humidity is bad.", agentText: "Created routine WO for fan motor swap — our tech will be by Wednesday 9–11am. In the meantime cracking the window after showers helps with the humidity.", toolName: "entrata.workorders.createRoutine" }),
+      buildQuickLog({ id: "conv-m15", residentName: "Logan Park", channel: "Email", topic: "Refrigerator Not Cooling", summary: "Appliance tech dispatched; loaner mini-fridge offered.", outcome: "resolved", sentiment: "neutral", startedAt: "5 days ago, 11:43 AM", daysAgo: 5, duration: "4m 26s", turns: 6, residentText: "Fridge stopped cooling overnight, lost a bunch of food.", agentText: "Sorry about that. Tech is scheduled today between 1–4pm. In the meantime I can drop a loaner mini-fridge at your door this morning — want me to do that?", toolName: "entrata.workorders.createPriority" }),
+      buildQuickLog({ id: "conv-m16", residentName: "Maya Robertson", channel: "SMS", topic: "Pipe Leak — Ceiling", summary: "Emergency WO; upstairs unit shutoff; ceiling repair vendor queued.", outcome: "resolved", sentiment: "positive", startedAt: "6 days ago, 5:28 AM", daysAgo: 6, duration: "11m 14s", turns: 9, residentText: "Water is dripping from my ceiling, I think there's a leak from upstairs!", agentText: "Emergency — I dispatched our plumber Marcus now (ETA 15 min) and shut off water to the unit above yours. Place towels and a bucket under the drip. Ceiling repair vendor will be scheduled once the leak is patched.", toolName: "entrata.workorders.createEmergency", monitors: [{ label: "Emergency detected", passed: true }, { label: "Fast response (<5 min)", passed: true }, { label: "Containment guidance", passed: true }, { label: "Follow-up scheduled", passed: true }] }),
+      buildQuickLog({ id: "conv-m17", residentName: "Derek Holland", channel: "Voice", topic: "Carpet Stain — Move-In Document", summary: "Documented pre-existing stain for move-in inspection.", outcome: "resolved", sentiment: "positive", startedAt: "7 days ago, 10:15 AM", daysAgo: 7, duration: "3m 02s", turns: 4, residentText: "I just moved in and there's a stain in the living room carpet I want documented.", agentText: "Got it — logged on your move-in inspection report with today's date. If you can text a photo to this number I'll attach it to the record so it won't come out of your deposit later.", toolName: "entrata.inspections.appendMoveInNote" }),
+      buildQuickLog({ id: "conv-m18", residentName: "Stephanie Cole", channel: "Chat", topic: "Pool Card Reset", summary: "Reset pool fob access remotely.", outcome: "resolved", sentiment: "positive", startedAt: "8 days ago, 3:34 PM", daysAgo: 8, duration: "1m 47s", turns: 3, residentText: "My pool fob isn't working.", agentText: "Just reset your fob remotely — try it again in 2 min. If it still doesn't work, swing by the office and we'll re-encode it on the spot.", toolName: "entrata.access.resetResidentFob" }),
+      buildQuickLog({ id: "conv-m19", residentName: "Marco Russo", channel: "Email", topic: "Cabinet Door Loose", summary: "Routine cabinet repair scheduled.", outcome: "pending", sentiment: "neutral", startedAt: "10 days ago, 4:18 PM", daysAgo: 10, duration: "1m 38s", turns: 3, residentText: "One of the kitchen cabinet doors is loose, the hinge looks stripped.", agentText: "Created MNT-5212 — cabinet hinge replacement. Our tech will be by next Tuesday between 9–11am.", toolName: "entrata.workorders.createRoutine" }),
+      buildQuickLog({ id: "conv-m20", residentName: "Allison Pierce", channel: "SMS", topic: "Pest Follow-Up", summary: "Re-treatment scheduled per residual sighting.", outcome: "pending", sentiment: "negative", startedAt: "12 days ago, 9:02 AM", daysAgo: 12, duration: "2m 24s", turns: 4, residentText: "Still seeing roaches a week after the treatment.", agentText: "I'm really sorry — that shouldn't happen. I scheduled Eco-Tech for a follow-up treatment Friday at no charge, and I'm flagging this for our property manager to check the building-wide schedule.", toolName: "entrata.workorders.escalatePestRecurrence", monitors: [{ label: "Empathetic tone", passed: true }, { label: "Vendor re-dispatched", passed: true }, { label: "Manager flagged", passed: true }, { label: "Resident reassured", passed: true }] }),
+    ];
+  }
+
+  if (agentName === "Renewal AI") {
+    return [
+      buildQuickLog({ id: "conv-r3", residentName: "Mason Bell", channel: "Email", topic: "Renewal Decline — Job Change", summary: "Resident declining renewal due to job relocation; exit survey logged.", outcome: "resolved", sentiment: "negative", startedAt: "Today, 10:14 AM", daysAgo: 0, duration: "5m 22s", turns: 5, residentText: "I won't be renewing — accepted a job in Seattle starting October.", agentText: "Congrats on the new role! I've logged your non-renewal with reason RELOCATION_WORK. Your move-out checklist is on its way, and we'll waive the early termination fee since your lease ends on time. Best of luck in Seattle.", toolName: "entrata.crm.logExitSurvey" }),
+      buildQuickLog({ id: "conv-r4", residentName: "Lily Zhao", channel: "Voice", topic: "Renewal Offer Negotiation", summary: "Counter offer accepted at $1,675/12 mo with parking included.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 9:04 AM", daysAgo: 0, duration: "8m 38s", turns: 7, residentText: "The renewal offer is $80 more than I expected. Can we talk?", agentText: "Of course. Given your 3 years here and perfect payment history, I can hold the 12-month rate at $1,675 and include a covered parking spot ($75 value). That's a 2.1% effective YoY. Sound fair?", toolName: "entrata.renewals.evaluateLoyaltyAdjustment" }),
+      buildQuickLog({ id: "conv-r5", residentName: "Caleb Foster", channel: "Chat", topic: "Lease Transfer Request", summary: "Transfer to 2BR approved; lease amendment generated.", outcome: "resolved", sentiment: "positive", startedAt: "Yesterday, 4:48 PM", daysAgo: 1, duration: "6m 17s", turns: 6, residentText: "We had a baby — need to move into a 2BR mid-lease.", agentText: "Congratulations! There's a 2BR opening on the 15th. I prorated your current rent and generated a lease amendment for the swap. No transfer fee since you're a current resident. Sending the document now.", toolName: "entrata.leasing.startInternalTransfer" }),
+      buildQuickLog({ id: "conv-r6", residentName: "Sandra Webb", channel: "SMS", topic: "Renewal — Asking For Time", summary: "Extension granted; soft follow-up scheduled.", outcome: "pending", sentiment: "neutral", startedAt: "Yesterday, 2:11 PM", daysAgo: 1, duration: "1m 49s", turns: 3, residentText: "I need a few more days to decide on the renewal.", agentText: "Take your time — I've extended your decision deadline to August 8. No pressure. I'll send a single reminder on the 7th if I haven't heard back.", toolName: "entrata.renewals.extendDecisionWindow" }),
+      buildQuickLog({ id: "conv-r7", residentName: "Diego Morales", channel: "Email", topic: "Month-to-Month Decision", summary: "MTM premium quoted; resident accepted 6-month instead.", outcome: "resolved", sentiment: "neutral", startedAt: "2 days ago, 1:22 PM", daysAgo: 2, duration: "4m 05s", turns: 5, residentText: "Can I just go month-to-month after my lease ends?", agentText: "Yes — MTM is $1,925/mo, a $230 premium over our 6-month rate of $1,695. Since you mentioned flexibility but want value, would the 6-month at $1,695 work better?", toolName: "entrata.renewals.getOptions" }),
+      buildQuickLog({ id: "conv-r8", residentName: "Whitney Cole", channel: "Chat", topic: "Renewal With Roommate Change", summary: "Replaced co-tenant on renewal; new applicant screening.", outcome: "pending", sentiment: "neutral", startedAt: "2 days ago, 11:48 AM", daysAgo: 2, duration: "5m 14s", turns: 6, residentText: "My roommate is moving out. I want to renew with a new roommate — how does that work?", agentText: "Great. Your new roommate will apply ($50 screening fee) — once approved we issue a lease amendment that releases your current co-tenant and adds the new one, effective on the renewal date.", toolName: "entrata.leasing.startCoTenantSwap" }),
+      buildQuickLog({ id: "conv-r9", residentName: "Tyler Bennett", channel: "Voice", topic: "Early Termination", summary: "Early termination quoted with 2-month fee; resident considering.", outcome: "pending", sentiment: "negative", startedAt: "3 days ago, 5:32 PM", daysAgo: 3, duration: "4m 47s", turns: 5, residentText: "I need to break my lease 3 months early. What's the cost?", agentText: "Per lease the early termination fee is 2 months' rent ($3,300) and you forfeit the remaining concession. If you give 60-day notice now and find a replacement renter, we can waive the fee under our Reletting Option.", toolName: "entrata.leasing.getEtfQuote" }),
+      buildQuickLog({ id: "conv-r10", residentName: "Amelia Park", channel: "Email", topic: "Renewal Locked", summary: "Resident accepted 14-month at $1,725 with carpet cleaning perk.", outcome: "resolved", sentiment: "positive", startedAt: "3 days ago, 10:05 AM", daysAgo: 3, duration: "3m 41s", turns: 4, residentText: "The 14-month works for me, let's lock it in.", agentText: "Locked! 14-month at $1,725/mo starting October 1, complimentary carpet clean after signing. Renewal agreement is on its way to your email — please sign by September 1.", toolName: "entrata.renewals.lockSelectedOffer" }),
+      buildQuickLog({ id: "conv-r11", residentName: "Jasper Knight", channel: "Chat", topic: "Renewal With Pet Add", summary: "Pet added to renewal lease; deposit collected.", outcome: "resolved", sentiment: "positive", startedAt: "4 days ago, 3:18 PM", daysAgo: 4, duration: "4m 02s", turns: 5, residentText: "We just got a puppy. Can I add him to the renewal lease?", agentText: "Of course! I'll add him to the pet roster with a $300 refundable deposit and $25/mo pet rent starting on the renewal. Vaccination records can be uploaded via the resident portal.", toolName: "entrata.leasing.addPetToRenewal" }),
+      buildQuickLog({ id: "conv-r12", residentName: "Beatrice Ng", channel: "SMS", topic: "Renewal — Asking About Market", summary: "Provided market comp context; resident still negotiating.", outcome: "pending", sentiment: "neutral", startedAt: "5 days ago, 11:44 AM", daysAgo: 5, duration: "2m 58s", turns: 4, residentText: "Other buildings in the area are cheaper than my renewal offer. Why?", agentText: "I checked — median 2BR rent in your submarket is $1,825. Your renewal at $1,725 is below market plus you skip the move costs and any new-resident fees. Happy to break the math down if helpful.", toolName: "entrata.market.getComparables" }),
+      buildQuickLog({ id: "conv-r13", residentName: "Ezra Mitchell", channel: "Voice", topic: "Renewal — No Increase Request", summary: "Flat renewal denied; loyalty discount approved instead.", outcome: "resolved", sentiment: "neutral", startedAt: "5 days ago, 9:21 AM", daysAgo: 5, duration: "6m 12s", turns: 6, residentText: "Any chance you can renew me at the same rate I'm paying now?", agentText: "I can't go flat, but I checked with regional — a loyalty rate of $1,685 (vs the $1,725 standard offer) is approved on a 12-month renewal. That's a 1.2% increase from your current $1,665.", toolName: "entrata.renewals.evaluateLoyaltyAdjustment" }),
+      buildQuickLog({ id: "conv-r14", residentName: "Faith Coleman", channel: "Email", topic: "Renewal Question — HCV", summary: "Section 8 renewal routed to compliance.", outcome: "escalated", sentiment: "neutral", startedAt: "6 days ago, 2:34 PM", daysAgo: 6, duration: "4m 02s", turns: 5, residentText: "I'm a Section 8 voucher holder — how does my renewal work?", agentText: "Your HCV renewal goes through a different process. I'm looping in our compliance specialist Linda — she'll coordinate with your housing authority case worker and send updated paperwork within 2 business days.", toolName: "entrata.compliance.routeHcvRenewal", monitors: [{ label: "Coherent response", passed: true }, { label: "Appropriate escalation", passed: true }, { label: "Compliance routed", passed: true }, { label: "Empathetic tone", passed: true }] }),
+      buildQuickLog({ id: "conv-r15", residentName: "Owen Russell", channel: "Chat", topic: "Renewal — Decline Without Reason", summary: "Resident declined; reason captured; manager notified.", outcome: "resolved", sentiment: "negative", startedAt: "7 days ago, 4:21 PM", daysAgo: 7, duration: "3m 36s", turns: 4, residentText: "Not renewing. Don't want to discuss it.", agentText: "Understood, Owen. I've logged your non-renewal — no further questions from me. Your move-out checklist is on its way. Best of luck with whatever comes next.", toolName: "entrata.crm.logExitSurvey" }),
+      buildQuickLog({ id: "conv-r16", residentName: "Stella Foster", channel: "Voice", topic: "Renewal — Maintenance Concerns", summary: "Open work orders surfaced before renewal; ops escalated.", outcome: "escalated", sentiment: "negative", startedAt: "8 days ago, 1:58 PM", daysAgo: 8, duration: "5m 47s", turns: 7, residentText: "I'd renew but I've had 3 unresolved maintenance tickets sitting open.", agentText: "That's a fair concern. I pulled your open WO list and flagged it to the property manager — she'll personally walk your unit this week to close them out before you finalize the renewal decision.", toolName: "entrata.workorders.summarizeOpenForResident", monitors: [{ label: "Coherent response", passed: true }, { label: "Appropriate escalation", passed: true }, { label: "Empathetic tone", passed: true }, { label: "Manager paged", passed: true }] }),
+      buildQuickLog({ id: "conv-r17", residentName: "Riley Hammond", channel: "SMS", topic: "Renewal Offer Sent", summary: "Initial renewal offer delivered with 3 term options.", outcome: "pending", sentiment: "neutral", startedAt: "9 days ago, 8:45 AM", daysAgo: 9, duration: "1m 33s", turns: 2, residentText: "[proactive]", agentText: "Hi Riley — your lease at " + propertyName + " ends November 30. Renewal options: 12-mo $1,795 / 14-mo $1,765 / MTM $2,050. Reply with the term you'd like, or DECLINE if you're moving on.", toolName: "entrata.renewals.sendInitialOffer" }),
+      buildQuickLog({ id: "conv-r18", residentName: "Hayden Sims", channel: "Email", topic: "Renewal Locked With Upgrade", summary: "Renewed + opted into mid-lease upgrade package.", outcome: "resolved", sentiment: "positive", startedAt: "10 days ago, 11:30 AM", daysAgo: 10, duration: "5m 18s", turns: 6, residentText: "I want to renew but also do the kitchen upgrade you mentioned.", agentText: "Locked! 12-month renewal at $1,725 + kitchen upgrade package ($95/mo amortized over the term — quartz counters, new fixtures, dishwasher). Install scheduled for Nov 5.", toolName: "entrata.renewals.bundleUpgrade" }),
+      buildQuickLog({ id: "conv-r19", residentName: "Naomi Hart", channel: "Voice", topic: "Renewal — Roommate Departing", summary: "Confirmed solo renewal feasible; income verified.", outcome: "resolved", sentiment: "neutral", startedAt: "11 days ago, 3:09 PM", daysAgo: 11, duration: "4m 40s", turns: 5, residentText: "My roommate is leaving — can I renew the 2BR by myself?", agentText: "I pulled your income — at $84k you comfortably meet the 3x rent rule on the 2BR ($1,725). Solo renewal is approved. Sending the amended lease over now.", toolName: "entrata.screening.requalifySolo" }),
+      buildQuickLog({ id: "conv-r20", residentName: "Quincy Bell", channel: "Chat", topic: "Renewal — Switch To Different Unit", summary: "Transfer renewal coordinated with 1BR opening.", outcome: "pending", sentiment: "positive", startedAt: "13 days ago, 10:55 AM", daysAgo: 13, duration: "3m 47s", turns: 4, residentText: "Instead of renewing my 2BR, can I downsize to a 1BR at the same complex?", agentText: "Great timing — a 1BR opens November 1. I'd renew you into unit 04-118 at $1,475/12-mo. Same building, same fob. Want me to hold it while you decide?", toolName: "entrata.renewals.proposeUnitChange" }),
+    ];
+  }
+
+  return [];
+}
+
+function generateConversationLogs(agentName: string, propertyName: string): ConversationLog[] {
+  return [
+    ...generateBaseConversationLogs(agentName, propertyName),
+    ...generateAdditionalConversationLogs(agentName, propertyName),
+  ];
+}
+
 function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; propertyName: string }) {
   const logs = useMemo(() => generateConversationLogs(agentName, propertyName), [agentName, propertyName]);
   const [selectedLog, setSelectedLog] = useState<ConversationLog | null>(null);
@@ -4229,6 +4420,58 @@ function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; pro
     replyPreview: string;
     precedingResident: string | null;
   } | null>(null);
+
+  const [residentQuery, setResidentQuery] = useState("");
+  const [dateFrom, setDateFrom] = useState<string>("");
+  const [dateTo, setDateTo] = useState<string>("");
+  const [channelFilter, setChannelFilter] = useState<Set<ConversationChannel>>(new Set());
+  const [escalatedOnly, setEscalatedOnly] = useState(false);
+
+  const toggleChannel = (channel: ConversationChannel) => {
+    setChannelFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(channel)) next.delete(channel);
+      else next.add(channel);
+      return next;
+    });
+  };
+
+  const clearAllFilters = () => {
+    setResidentQuery("");
+    setDateFrom("");
+    setDateTo("");
+    setChannelFilter(new Set());
+    setEscalatedOnly(false);
+  };
+
+  const hasActiveFilters =
+    residentQuery.trim().length > 0 ||
+    dateFrom !== "" ||
+    dateTo !== "" ||
+    channelFilter.size > 0 ||
+    escalatedOnly;
+
+  const filteredLogs = useMemo(() => {
+    const trimmedQuery = residentQuery.trim().toLowerCase();
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const MS_PER_DAY = 86_400_000;
+
+    const fromTs = dateFrom ? new Date(dateFrom + "T00:00:00").getTime() : null;
+    const toTs = dateTo ? new Date(dateTo + "T23:59:59.999").getTime() : null;
+
+    return logs.filter((log) => {
+      if (trimmedQuery && !log.residentName.toLowerCase().includes(trimmedQuery)) return false;
+      if (channelFilter.size > 0 && !channelFilter.has(log.channel)) return false;
+      if (escalatedOnly && log.outcome !== "escalated") return false;
+      if (fromTs !== null || toTs !== null) {
+        const logTs = startOfToday.getTime() - log.daysAgo * MS_PER_DAY;
+        if (fromTs !== null && logTs < fromTs) return false;
+        if (toTs !== null && logTs > toTs) return false;
+      }
+      return true;
+    });
+  }, [logs, residentQuery, dateFrom, dateTo, channelFilter, escalatedOnly]);
 
   const l4PerReplyTraces = L4_AGENTS_PER_REPLY_TRACE.has(agentName);
 
@@ -4263,7 +4506,7 @@ function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; pro
               <span className="text-xs text-border">|</span>
               <span className="text-sm font-medium text-foreground">{selectedLog.residentName}</span>
               <span className="inline-flex items-center gap-1 rounded-full border border-border bg-zinc-50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                {selectedLog.channel === "SMS" ? <Phone className="h-2.5 w-2.5" /> : selectedLog.channel === "Email" ? <Mail className="h-2.5 w-2.5" /> : <MessageSquare className="h-2.5 w-2.5" />}
+                {conversationChannelIcon(selectedLog.channel)}
                 {selectedLog.channel}
               </span>
               <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${outcomeBadge(selectedLog.outcome)}`}>
@@ -4410,43 +4653,157 @@ function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; pro
       <div className="flex items-center justify-between mb-1.5">
         <h2 className="text-xl font-bold text-foreground">History & Logging</h2>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">{logs.filter(l => l.outcome === "resolved").length} Resolved</span>
-          <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">{logs.filter(l => l.outcome === "escalated").length} Escalated</span>
-          <span className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500">{logs.filter(l => l.outcome === "pending").length} Pending</span>
+          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">{filteredLogs.filter(l => l.outcome === "resolved").length} Resolved</span>
+          <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">{filteredLogs.filter(l => l.outcome === "escalated").length} Escalated</span>
+          <span className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500">{filteredLogs.filter(l => l.outcome === "pending").length} Pending</span>
         </div>
       </div>
-      <p className="text-sm text-muted-foreground mb-6">
+      <p className="text-sm text-muted-foreground mb-5">
         Review past conversations, inspect agent reasoning traces, and monitor quality for {agentName} at {propertyName}.
       </p>
-      <div className="space-y-3">
-        {logs.map((conversationLog) => (
-          <button
-            key={conversationLog.id}
-            type="button"
-            onClick={() => setSelectedLog(conversationLog)}
-            className="w-full flex items-center gap-4 rounded-xl border border-border bg-white p-4 text-left transition-all hover:border-zinc-400 hover:shadow-md group"
-          >
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <p className="text-sm font-semibold text-foreground">{conversationLog.residentName}</p>
-                <span className="inline-flex items-center gap-1 rounded-full border border-border bg-zinc-50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                  {conversationLog.channel === "SMS" ? <Phone className="h-2.5 w-2.5" /> : conversationLog.channel === "Email" ? <Mail className="h-2.5 w-2.5" /> : <MessageSquare className="h-2.5 w-2.5" />}
-                  {conversationLog.channel}
-                </span>
-                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${outcomeBadge(conversationLog.outcome)}`}>{conversationLog.outcome}</span>
-                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${sentimentBadge(conversationLog.sentiment)}`}>{conversationLog.sentiment}</span>
-              </div>
-              <p className="text-xs text-muted-foreground">{conversationLog.topic} — {conversationLog.summary}</p>
-              <div className="flex items-center gap-3 mt-1.5 text-[10px] text-muted-foreground/70">
-                <span>{conversationLog.startedAt}</span>
-                <span>{conversationLog.turns} turns</span>
-                <span>{conversationLog.duration}</span>
-                <span>{countLogTraceSteps(conversationLog, agentName)} trace steps</span>
-              </div>
+
+      {/* Filters */}
+      <div className="mb-4 rounded-xl border border-border bg-white p-4">
+        <div className="flex flex-wrap items-end gap-4">
+          {/* Resident search */}
+          <div className="flex-1 min-w-[200px]">
+            <label className="block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Resident</label>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                type="text"
+                value={residentQuery}
+                onChange={(e) => setResidentQuery(e.target.value)}
+                placeholder="Search by name…"
+                className="h-9 pl-8 text-sm"
+              />
             </div>
-            <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors shrink-0" />
-          </button>
-        ))}
+          </div>
+
+          {/* Date range */}
+          <div>
+            <label className="block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">From</label>
+            <Input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="h-9 text-sm w-[150px]"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">To</label>
+            <Input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="h-9 text-sm w-[150px]"
+            />
+          </div>
+
+          {/* Escalated toggle */}
+          <div>
+            <label className="block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Status</label>
+            <button
+              type="button"
+              onClick={() => setEscalatedOnly((v) => !v)}
+              className={`h-9 inline-flex items-center gap-1.5 rounded-md border px-3 text-sm font-medium transition-colors ${
+                escalatedOnly
+                  ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                  : "border-border bg-white text-muted-foreground hover:bg-zinc-50 hover:text-foreground"
+              }`}
+            >
+              <AlertCircle className="h-3.5 w-3.5" />
+              Escalated only
+            </button>
+          </div>
+
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              className="h-9 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2"
+            >
+              <X className="h-3 w-3" />
+              Clear
+            </button>
+          )}
+        </div>
+
+        {/* Channel chips */}
+        <div className="mt-3 flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mr-1">Channel</span>
+          {CONVERSATION_CHANNELS.map((channel) => {
+            const isActive = channelFilter.has(channel);
+            return (
+              <button
+                key={channel}
+                type="button"
+                onClick={() => toggleChannel(channel)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                  isActive
+                    ? "border-blue-300 bg-blue-50 text-blue-700"
+                    : "border-border bg-white text-muted-foreground hover:bg-zinc-50 hover:text-foreground"
+                }`}
+              >
+                {conversationChannelIcon(channel)}
+                {channel}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {hasActiveFilters && (
+        <p className="text-xs text-muted-foreground mb-3">
+          Showing <span className="font-medium text-foreground">{filteredLogs.length}</span> of {logs.length} conversations
+        </p>
+      )}
+
+      <div className="space-y-3">
+        {filteredLogs.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border bg-zinc-50/50 p-8 text-center">
+            <p className="text-sm font-medium text-foreground">No conversations match these filters</p>
+            <p className="text-xs text-muted-foreground mt-1">Try adjusting your filters or clearing them to see all conversations.</p>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={clearAllFilters}
+                className="mt-3 text-xs font-medium text-blue-700 hover:text-blue-800 hover:underline"
+              >
+                Clear all filters
+              </button>
+            )}
+          </div>
+        ) : (
+          filteredLogs.map((conversationLog) => (
+            <button
+              key={conversationLog.id}
+              type="button"
+              onClick={() => setSelectedLog(conversationLog)}
+              className="w-full flex items-center gap-4 rounded-xl border border-border bg-white p-4 text-left transition-all hover:border-zinc-400 hover:shadow-md group"
+            >
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-sm font-semibold text-foreground">{conversationLog.residentName}</p>
+                  <span className="inline-flex items-center gap-1 rounded-full border border-border bg-zinc-50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    {conversationChannelIcon(conversationLog.channel)}
+                    {conversationLog.channel}
+                  </span>
+                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${outcomeBadge(conversationLog.outcome)}`}>{conversationLog.outcome}</span>
+                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${sentimentBadge(conversationLog.sentiment)}`}>{conversationLog.sentiment}</span>
+                </div>
+                <p className="text-xs text-muted-foreground">{conversationLog.topic} — {conversationLog.summary}</p>
+                <div className="flex items-center gap-3 mt-1.5 text-[10px] text-muted-foreground/70">
+                  <span>{conversationLog.startedAt}</span>
+                  <span>{conversationLog.turns} turns</span>
+                  <span>{conversationLog.duration}</span>
+                  <span>{countLogTraceSteps(conversationLog, agentName)} trace steps</span>
+                </div>
+              </div>
+              <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors shrink-0" />
+            </button>
+          ))
+        )}
       </div>
     </div>
   );
