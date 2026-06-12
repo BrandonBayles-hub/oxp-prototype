@@ -56,7 +56,7 @@ const navGroups = [
       activationItem,
       { href: "/workflows", label: "Agent Builder", icon: GitBranch },
       { href: "/sops-knowledge", label: "SOPs & Knowledge", icon: Library },
-      { href: "/trainings", label: "Trainings", icon: GraduationCap },
+      { href: "/trainings", label: "Entrata Academy", icon: GraduationCap },
       { href: "/voice", label: "Agent Voice & Tone", icon: Mic },
       { href: "/brand-center", label: "Brand Center", icon: Palette },
       // { href: "/tools", label: "Tools", icon: Wrench },
