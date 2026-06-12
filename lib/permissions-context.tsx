@@ -147,8 +147,8 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: "p-training-publish", capability: "Publish SOPs", description: "Publish SOPs and make them available for playbook use", section: "SOPs & Knowledge" },
   { id: "p-training-assign", capability: "Manage SOP Review Assignments", description: "Assign SOP reviews to team members", section: "SOPs & Knowledge" },
 
-  // ── Trainings ──
-  { id: "p-training-entrata-academy", capability: "Trainings - Entrata Academy", description: "Access Entrata Academy trainings and learning content", section: "Trainings" },
+  // ── Entrata Academy ──
+  { id: "p-training-entrata-academy", capability: "Trainings - Entrata Academy", description: "Access Entrata Academy trainings and learning content", section: "Entrata Academy" },
 
   // ── Voice ──
   { id: "p-voice-view", capability: "View Voice Settings", description: "Access voice configuration and settings", section: "Voice" },
@@ -173,7 +173,7 @@ export const ALL_PERMISSIONS: Permission[] = [
 
 export const PERMISSION_SECTIONS = [
   "Communications", "Calling Communications", "Escalations", "Entrata Experts", "Performance", "Agent Roster", "Workforce",
-  "Activation", "Workflows", "SOPs & Knowledge", "Trainings", "Voice", "Governance",
+  "Activation", "Workflows", "SOPs & Knowledge", "Entrata Academy", "Voice", "Governance",
 ];
 
 export const SECTION_VIEW_PERMISSION: Record<string, string> = {
@@ -186,7 +186,7 @@ export const SECTION_VIEW_PERMISSION: Record<string, string> = {
   "Activation": "p-activation-view",
   "Workflows": "p-workflows-view",
   "SOPs & Knowledge": "p-training-view",
-  "Trainings": "p-training-entrata-academy",
+  "Entrata Academy": "p-training-entrata-academy",
   "Voice": "p-voice-view",
   "Governance": "p-gov-view",
   "Entrata Experts": "p-experts-view",
