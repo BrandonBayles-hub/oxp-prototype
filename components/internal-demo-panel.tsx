@@ -8,7 +8,7 @@ import { useState } from "react";
 //
 //  Resident-side simulation surface that lives under each ELI+ agent's
 //  per-property settings (Property Settings ▸ Simulation). The actual
-//  conversational engine is hosted externally (admin-ui-nu-one.vercel.app —
+//  conversational engine is hosted externally (eli-voice-demo.prototype.entrata.io —
 //  a custom voice stack using OpenAI + Grok TTS, not ElevenLabs Conv AI), so
 //  we embed it as an iframe and own the wrapper chrome on this side: the
 //  "Internal only" header, framing, sizing, "open in new tab" affordance,
@@ -22,13 +22,13 @@ import { useState } from "react";
 
 const INTERNAL_DEMO_AGENTS: Record<string, { url: string }> = {
   "Renewal AI": {
-    url: "https://admin-ui-nu-one.vercel.app/#/demo/b631d233-e2ff-4391-8e6f-76d7afee8c18",
+    url: "https://eli-voice-demo.prototype.entrata.io/#/demo/b631d233-e2ff-4391-8e6f-76d7afee8c18",
   },
   "Leasing AI": {
-    url: "https://admin-ui-nu-one.vercel.app/#/demo/fc36d78b-6922-48cd-b00e-97619f7058b1",
+    url: "https://eli-voice-demo.prototype.entrata.io/#/demo/fc36d78b-6922-48cd-b00e-97619f7058b1",
   },
   "Maintenance AI": {
-    url: "https://admin-ui-nu-one.vercel.app/#/demo/b21d4592-ad80-4ca8-a10d-990d1c9f29d6",
+    url: "https://eli-voice-demo.prototype.entrata.io/#/demo/b21d4592-ad80-4ca8-a10d-990d1c9f29d6",
   },
 };
 
@@ -71,7 +71,7 @@ export function InternalDemoPanel({
               <button
                 type="button"
                 onClick={() => setReloadKey((k) => k + 1)}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-white px-3 py-1.5 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
+                className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 shadow-sm transition-colors hover:border-indigo-300 hover:bg-indigo-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
                 Reload simulation
@@ -80,7 +80,7 @@ export function InternalDemoPanel({
                 href={config.url}
                 target="_blank"
                 rel="noreferrer noopener"
-                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-white px-3 py-1.5 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
+                className="inline-flex items-center gap-1.5 rounded-md border border-transparent bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
               >
                 <ExternalLink className="h-3.5 w-3.5" />
                 Open in new tab
