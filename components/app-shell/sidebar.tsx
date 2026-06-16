@@ -27,6 +27,7 @@ import {
   Sparkles,
   Wand2,
   Eye,
+  BrainCircuit,
 } from "lucide-react";
 
 const activationItem = { href: "/getting-started", label: "AI & Agent Activation", icon: Rocket };
@@ -58,6 +59,7 @@ const navGroups = [
       { href: "/sops-knowledge", label: "SOPs & Knowledge", icon: Library },
       { href: "/trainings", label: "Entrata Academy", icon: GraduationCap },
       { href: "/voice", label: "Agent Voice & Tone", icon: Mic },
+      { href: "/agent-knowledge-hub", label: "Agent Knowledge Hub", icon: BrainCircuit },
       { href: "/brand-center", label: "Brand Center", icon: Palette },
       // { href: "/tools", label: "Tools", icon: Wrench },
       { href: "/governance", label: "Governance", icon: Shield },
