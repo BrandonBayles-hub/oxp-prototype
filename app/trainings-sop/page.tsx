@@ -131,15 +131,6 @@ function generateMockAnswer(question: string, docs: VaultItem[]): string {
   return `Based on ${docNames}:\n\n${snippet || `Refer to ${first.fileName} for detailed guidance on this topic.`}`;
 }
 
-// Mock bulk summarize
-function generateMockSummary(docs: VaultItem[]): string {
-  return docs.map((d) => {
-    const body = (d.body ?? "").replace(/<[^>]+>/g, "").trim();
-    const snippet = body ? body.slice(0, 120) + "..." : "No content.";
-    return `• ${d.fileName}: ${snippet}`;
-  }).join("\n");
-}
-
 // Compliance coverage SVG ring
 function CoverageRing({ filled, total, size = 64 }: { filled: number; total: number; size?: number }) {
   const pct = total > 0 ? filled / total : 0;
@@ -237,7 +228,7 @@ function TrainingsSopContent({ forcedTab }: { forcedTab?: PageTab } = {}) {
   const [viewMode, setViewMode] = useState<"list" | "templates">("list");
   const [showExploreSops, setShowExploreSops] = useState(false);
   const [showConnectLibrary, setShowConnectLibrary] = useState(false);
-  const [bulkActionResult, setBulkActionResult] = useState<string | null>(null);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [complianceSelectSubject, setComplianceSelectSubject] = useState<string | null>(null);
   const [previousMetrics, setPreviousMetrics] = useState<TrainSopMetricsSnapshot | null>(null);
@@ -246,9 +237,6 @@ function TrainingsSopContent({ forcedTab }: { forcedTab?: PageTab } = {}) {
   const [askChatMessages, setAskChatMessages] = useState<ChatMessage[]>([
     { id: "welcome", role: "assistant", text: "Hi! Ask me anything about your documents, SOPs, or policies." },
   ]);
-  const [bulkTagInput, setBulkTagInput] = useState("");
-  const [showBulkTagInput, setShowBulkTagInput] = useState(false);
-  const [bulkSummaryResult, setBulkSummaryResult] = useState<string | null>(null);
   const router = useRouter();
   const searchParams = useSearchParams();
   const pathname = usePathname();
@@ -507,45 +495,12 @@ function TrainingsSopContent({ forcedTab }: { forcedTab?: PageTab } = {}) {
 
   const selectedDocs = useMemo(() => items.filter((i) => selectedIds.has(i.id) && i.type === "file"), [items, selectedIds]);
 
-  const runBulkAnalysis = () => {
+  const confirmBulkDelete = () => {
     const count = selectedDocs.length;
-    const needsReview = selectedDocs.filter(
-      (d) => d.approvalStatus === "review" || d.approvalStatus === "needs_review"
-    ).length;
-    const noBody = selectedDocs.filter((d) => !d.body?.trim()).length;
-    setBulkActionResult(
-      `Analysis of ${count} document(s). ` +
-      `${needsReview} pending review. ${noBody} missing content. ` +
-      `${count - noBody} ready for training.`
-    );
-    addActivity({ action: "Bulk analysis", by: "Admin", detail: `Analyzed ${count} document(s)` });
-  };
-
-  const runBulkSummarize = () => {
-    const summary = generateMockSummary(selectedDocs);
-    setBulkSummaryResult(summary);
-    setBulkActionResult(null);
-    addActivity({ action: "Bulk summarize", by: "Admin", detail: `Summarized ${selectedDocs.length} document(s)` });
-  };
-
-  const runBulkTag = () => {
-    setShowBulkTagInput(true);
-    setBulkActionResult(null);
-  };
-
-  const applyBulkTag = () => {
-    const tag = bulkTagInput.trim();
-    if (!tag) return;
-    selectedDocs.forEach((doc) => {
-      const existing = doc.tags ?? [];
-      if (!existing.map((t) => t.toLowerCase()).includes(tag.toLowerCase())) {
-        updateDocument(doc.id, { tags: [...existing, tag] });
-      }
-    });
-    setBulkActionResult(`Tag "${tag}" applied to ${selectedDocs.length} document(s).`);
-    setShowBulkTagInput(false);
-    setBulkTagInput("");
-    addActivity({ action: "Bulk tag", by: "Admin", detail: `Applied tag "${tag}" to ${selectedDocs.length} document(s)` });
+    selectedDocs.forEach((doc) => deleteDocument(doc.id));
+    addActivity({ action: "Bulk delete", by: "Admin", detail: `Deleted ${count} document(s)` });
+    setSelectedIds(new Set());
+    setShowBulkDeleteConfirm(false);
   };
 
   const setApproval = (id: string, status: ApprovalStatus) => {
@@ -1209,31 +1164,17 @@ function TrainingsSopContent({ forcedTab }: { forcedTab?: PageTab } = {}) {
 
           {/* Bulk actions */}
           {selectedIds.size > 0 && (
-            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-md border border-border bg-muted/30 p-3">
+            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3">
               <span className="text-sm font-medium text-foreground">{selectedIds.size} selected</span>
-              <Button variant="secondary" size="sm" onClick={runBulkAnalysis}>Run analysis</Button>
-              <Button variant="secondary" size="sm" onClick={runBulkSummarize}>Summarize</Button>
-              <Button variant="secondary" size="sm" onClick={runBulkTag}>Tag</Button>
-              <Button asChild size="sm"><Link href={`/workflows?docs=${Array.from(selectedIds).join(",")}`}>Run workflow</Link></Button>
-              <button type="button" onClick={() => { setSelectedIds(new Set()); setShowBulkTagInput(false); setBulkActionResult(null); setBulkSummaryResult(null); }} className="text-sm text-muted-foreground hover:underline">Clear</button>
-            </div>
-          )}
-
-          {showBulkTagInput && (
-            <div className="mb-4 flex items-center gap-2 rounded-md border border-border bg-muted/20 p-3">
-              <input type="text" value={bulkTagInput} onChange={(e) => setBulkTagInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") applyBulkTag(); }} placeholder="Enter tag to apply" className="input-base h-8 w-48 text-sm" autoFocus />
-              <Button size="sm" onClick={applyBulkTag} disabled={!bulkTagInput.trim()}>Apply tag</Button>
-              <Button variant="ghost" size="sm" onClick={() => { setShowBulkTagInput(false); setBulkTagInput(""); }}>Cancel</Button>
-            </div>
-          )}
-
-          {bulkActionResult && <p className="mb-4 text-sm text-muted-foreground">{bulkActionResult}</p>}
-
-          {bulkSummaryResult && (
-            <div className="mb-4 rounded-md border border-border bg-muted/20 p-3">
-              <p className="mb-1 text-xs font-medium text-foreground">Summary</p>
-              <pre className="whitespace-pre-wrap text-xs text-muted-foreground">{bulkSummaryResult}</pre>
-              <button type="button" onClick={() => setBulkSummaryResult(null)} className="mt-2 text-xs text-primary hover:underline">Dismiss</button>
+              <div className="ml-auto flex items-center gap-2">
+                <Button size="sm" variant="ghost" className="h-8 text-xs text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => setShowBulkDeleteConfirm(true)}>
+                  <Trash2 className="mr-1 h-3.5 w-3.5" />
+                  Delete
+                </Button>
+                <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setSelectedIds(new Set())}>
+                  Clear
+                </Button>
+              </div>
             </div>
           )}
 
@@ -1543,6 +1484,23 @@ function TrainingsSopContent({ forcedTab }: { forcedTab?: PageTab } = {}) {
       {showNewFolder && (
         <SimpleModal title="New Folder" placeholder="Folder name" onClose={() => setShowNewFolder(false)} onSave={addFolder} />
       )}
+      <Dialog open={showBulkDeleteConfirm} onOpenChange={setShowBulkDeleteConfirm}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete {selectedDocs.length} document{selectedDocs.length === 1 ? "" : "s"}?</DialogTitle>
+            <DialogDescription>
+              This permanently removes the selected document{selectedDocs.length === 1 ? "" : "s"} from your library. This action can&apos;t be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowBulkDeleteConfirm(false)}>Cancel</Button>
+            <Button variant="destructive" size="sm" onClick={confirmBulkDelete}>
+              <Trash2 className="mr-1 h-3.5 w-3.5" />
+              Delete
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       {renamingFolderId && (
         <SimpleModal
           title="Rename Folder"
