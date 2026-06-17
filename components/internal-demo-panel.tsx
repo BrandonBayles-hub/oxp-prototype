@@ -21,14 +21,17 @@ import { useState } from "react";
 // =============================================================================
 
 const INTERNAL_DEMO_AGENTS: Record<string, { url: string }> = {
-  "Renewal AI": {
-    url: "https://eli-voice-demo.prototype.entrata.io/#/demo/b631d233-e2ff-4391-8e6f-76d7afee8c18",
-  },
   "Leasing AI": {
     url: "https://eli-voice-demo.prototype.entrata.io/#/demo/fc36d78b-6922-48cd-b00e-97619f7058b1",
   },
+  "Payments AI": {
+    url: "https://eli-voice-demo.prototype.entrata.io/#/demo/f6e16b97-9d30-4f41-9dfb-abd2c722c56f",
+  },
   "Maintenance AI": {
     url: "https://eli-voice-demo.prototype.entrata.io/#/demo/b21d4592-ad80-4ca8-a10d-990d1c9f29d6",
+  },
+  "Renewal AI": {
+    url: "https://eli-voice-demo.prototype.entrata.io/#/demo/b631d233-e2ff-4391-8e6f-76d7afee8c18",
   },
 };
 
