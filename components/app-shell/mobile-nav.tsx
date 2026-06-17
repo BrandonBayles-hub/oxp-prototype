@@ -24,6 +24,7 @@ import {
   Wrench,
   Shield,
   Wand2,
+  BrainCircuit,
 } from "lucide-react";
 
 const activationItem = { href: "/getting-started", label: "AI & Agent Activation", icon: Rocket };
@@ -52,6 +53,7 @@ const navGroups = [
       { href: "/sops-knowledge", label: "SOPs & Knowledge", icon: Library },
       { href: "/trainings", label: "Entrata Academy", icon: GraduationCap },
       { href: "/voice", label: "Agent Voice & Tone", icon: Mic },
+      { href: "/agent-knowledge-hub", label: "Agent Knowledge Hub", icon: BrainCircuit },
       { href: "/brand-center", label: "Brand Center", icon: Palette },
       // { href: "/tools", label: "Tools", icon: Wrench },
       { href: "/governance", label: "Governance", icon: Shield },
@@ -104,8 +106,10 @@ export function MobileNav() {
   const { isR2Release } = useR2Release();
   const { badges, activation } = useNavBadges();
 
-  const r1HiddenRoutes = ["/performance", "/voice", "/brand-center", "/governance"];
-  const r2HiddenRoutes = ["/performance", "/voice", "/brand-center", "/governance"];
+  const r1HiddenRoutes = ["/performance", "/voice", "/trainings", "/agent-knowledge-hub", "/brand-center", "/governance"];
+  const r2HiddenRoutes = ["/performance", "/voice", "/agent-knowledge-hub", "/brand-center", "/governance"];
+
+  const isFullVersion = !isR1Release && !isR2Release;
 
   const navGroupsWithVisibility = navGroups
     .map((group) => ({
@@ -113,7 +117,12 @@ export function MobileNav() {
       items: group.items
         .filter((item) => isRouteAllowed(item.href))
         .filter((item) => !(isR1Release && r1HiddenRoutes.includes(item.href)))
-        .filter((item) => !(isR2Release && r2HiddenRoutes.includes(item.href))),
+        .filter((item) => !(isR2Release && r2HiddenRoutes.includes(item.href)))
+        .map((item) =>
+          item.href === "/sops-knowledge" && isFullVersion
+            ? { ...item, label: "Policies & SOPs" }
+            : item
+        ),
     }))
     .filter((group) => group.items.length > 0);
 
