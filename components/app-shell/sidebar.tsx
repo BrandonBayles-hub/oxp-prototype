@@ -116,6 +116,8 @@ export function Sidebar() {
     "/performance",
     "/admin-insights",
     "/voice",
+    "/trainings",
+    "/agent-knowledge-hub",
     "/brand-center",
     "/governance",
   ];
@@ -123,9 +125,12 @@ export function Sidebar() {
     "/performance",
     "/admin-insights",
     "/voice",
+    "/agent-knowledge-hub",
     "/brand-center",
     "/governance",
   ];
+
+  const isFullVersion = !isR1Release && !isR2Release;
 
   const navGroupsWithVisibility = navGroups
     .map((group) => ({
@@ -133,7 +138,12 @@ export function Sidebar() {
       items: group.items
         .filter((item) => isRouteAllowed(item.href))
         .filter((item) => !(isR1Release && r1HiddenRoutes.includes(item.href)))
-        .filter((item) => !(isR2Release && r2HiddenRoutes.includes(item.href))),
+        .filter((item) => !(isR2Release && r2HiddenRoutes.includes(item.href)))
+        .map((item) =>
+          item.href === "/sops-knowledge" && isFullVersion
+            ? { ...item, label: "Policies & SOPs" }
+            : item
+        ),
     }))
     .filter((group) => group.items.length > 0);
 
