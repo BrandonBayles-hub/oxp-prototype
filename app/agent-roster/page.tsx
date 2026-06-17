@@ -5874,9 +5874,9 @@ const AGENTS_WITH_HISTORY = new Set<string>([
 
 /**
  * The four ELI+ agents. These all get a "Simulation" tab (formerly named
- * "Internal Demo"). For Leasing AI and Renewal AI it embeds the live demo
- * iframe; for Payments AI and Maintenance AI it shows a Coming Soon placeholder
- * until their demo URLs are configured in INTERNAL_DEMO_AGENTS.
+ * "Internal Demo"). For each agent it embeds the live demo iframe. If an
+ * agent's demo URL is not yet configured in INTERNAL_DEMO_AGENTS, the panel
+ * falls back to a Coming Soon placeholder.
  */
 const ELI_PLUS_AGENTS = new Set<string>([
   "Leasing AI",
