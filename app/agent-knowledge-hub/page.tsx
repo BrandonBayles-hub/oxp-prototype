@@ -1135,7 +1135,7 @@ export default function AgentKnowledgeHubPage() {
 
   // ── Render ─────────────────────────────────────────────────────
   return (
-    <div className="page-content space-y-6 pb-12">
+    <div className="space-y-6 pb-12">
       <PageHeader
         title="Agent Knowledge Hub"
         description={
