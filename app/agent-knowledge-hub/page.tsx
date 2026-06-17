@@ -1200,7 +1200,7 @@ export default function AgentKnowledgeHubPage() {
           <CardContent className="flex items-start gap-3 p-4 text-sm">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-700" />
             <div className="flex-1">
-              <p className="font-medium text-red-900">Couldn't load property knowledge</p>
+              <p className="font-medium text-red-900">Couldn&apos;t load property knowledge</p>
               <p className="text-red-800/80">Something went wrong reaching the knowledge service. Try again.</p>
             </div>
             <Button size="sm" variant="outline" onClick={() => setViewState("normal")}>
@@ -1807,7 +1807,7 @@ function GapsTab({
             <AlertTriangle className="h-4 w-4" />
           </div>
           <p className="text-sm text-muted-foreground">
-            Escalations the AI couldn't resolve, clustered by question and ranked by impact. Turn the
+            Escalations the AI couldn&apos;t resolve, clustered by question and ranked by impact. Turn the
             answers your staff already give into canonical knowledge — and the escalations drop.
           </p>
         </CardContent>
