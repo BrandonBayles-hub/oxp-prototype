@@ -360,6 +360,65 @@ const AI_ACTIVATION_OPT_IN_LABELS = new Set([
   "AI Conversation",
 ]);
 
+/**
+ * Super Agent 1.0 — known ELI+ AI sub-agents. The presence of a "{name} Escalation"
+ * label on the conversation means that specific sub-agent is blocked from responding
+ * (Column 1 of the SA 1.0 schematic — "Blocking Sub Agent"). Sub-agents not listed
+ * here keep responding (Columns 3 & 4 — non-blocking escalations).
+ */
+const SA1_KNOWN_SUB_AGENTS = [
+  "Renewals AI",
+  "Payments AI",
+  "Leasing AI",
+  "Maintenance AI",
+] as const;
+type Sa1SubAgent = (typeof SA1_KNOWN_SUB_AGENTS)[number];
+
+/**
+ * Super Agent 1.0 — blocking super-agent escalation label (Column 2 of the schematic).
+ * When present, EVERY AI agent is paused until staff resolves it via the Resolve picker.
+ */
+const SA1_SUPER_AGENT_BLOCK_LABEL = "Super Agent Escalation";
+
+/**
+ * Super Agent 1.0 — profile-level "never reply with AI" mark. This represents a resident
+ * profile setting (in the prototype it lives as a conversation label) where staff have
+ * decided AI must never auto-reply to this resident on any conversation, indefinitely,
+ * until a human lifts the block. Beats every conversation-scoped state.
+ */
+const SA1_RESIDENT_PROFILE_BLOCK_LABEL = "Profile · No AI";
+
+type Sa1AiStateKind =
+  | "on"
+  | "partial"
+  | "off-all-subs"
+  | "off-super"
+  | "off-manual"
+  | "off-profile";
+type Sa1AiState = {
+  kind: Sa1AiStateKind;
+  hasSuperAgentBlock: boolean;
+  hasResidentProfileBlock: boolean;
+  blockedSubAgents: Sa1SubAgent[];
+};
+
+function computeSa1AiState(c: ConversationItem, manualOn: boolean): Sa1AiState {
+  const hasResidentProfileBlock = c.labels.includes(SA1_RESIDENT_PROFILE_BLOCK_LABEL);
+  const hasSuperAgentBlock = c.labels.includes(SA1_SUPER_AGENT_BLOCK_LABEL);
+  const blockedSubAgents = SA1_KNOWN_SUB_AGENTS.filter((a) =>
+    c.labels.includes(`${a} Escalation`),
+  );
+  let kind: Sa1AiStateKind;
+  if (hasResidentProfileBlock) kind = "off-profile";
+  else if (!manualOn) kind = "off-manual";
+  else if (hasSuperAgentBlock) kind = "off-super";
+  else if (blockedSubAgents.length === SA1_KNOWN_SUB_AGENTS.length)
+    kind = "off-all-subs";
+  else if (blockedSubAgents.length > 0) kind = "partial";
+  else kind = "on";
+  return { kind, hasSuperAgentBlock, hasResidentProfileBlock, blockedSubAgents };
+}
+
 function isLiveAiPropertyInbox(c: ConversationItem, property: string): boolean {
   if (c.property !== property) return false;
   if (c.labels.some((l) => LIVE_AI_PROPERTY_FORBIDDEN.has(l))) return false;
@@ -2323,103 +2382,288 @@ function ConversationsContent() {
                     </PopoverContent>
                   </Popover>
 
-                  {selected.labels.some((label) => AI_ACTIVATION_OPT_IN_LABELS.has(label)) && (
+                  {selected.labels.some((label) => AI_ACTIVATION_OPT_IN_LABELS.has(label)) && (() => {
+                    const sa1State = isSuperAgent1DemoThread(selected.id)
+                      ? computeSa1AiState(selected, aiActivated)
+                      : null;
+                    const pillVariant: "on" | "partial" | "off" = sa1State
+                      ? sa1State.kind === "on"
+                        ? "on"
+                        : sa1State.kind === "partial"
+                        ? "partial"
+                        : "off"
+                      : aiActivated
+                      ? "on"
+                      : "off";
+                    const pillLabel = sa1State
+                      ? sa1State.kind === "on"
+                        ? "AI On"
+                        : sa1State.kind === "partial"
+                        ? "AI Partially Off"
+                        : "AI Off"
+                      : aiActivated
+                      ? "AI On"
+                      : "AI Off";
+                    const pillClass =
+                      pillVariant === "on"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300"
+                        : pillVariant === "partial"
+                        ? "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+                        : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300";
+                    return (
                     <Popover>
                       <PopoverTrigger asChild>
                         <button
                           type="button"
                           className={cn(
                             "flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-[11px] font-medium transition-colors",
-                            aiActivated
-                              ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300"
-                              : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300"
+                            pillClass
                           )}
                           title="AI activation & opt-in settings"
                         >
                           <Zap className="h-3.5 w-3.5" />
-                          {aiActivated ? "AI On" : "AI Off"}
+                          {pillLabel}
                         </button>
                       </PopoverTrigger>
-                      <PopoverContent className="w-auto p-3" align="end">
-                        {isSuperAgent1DemoThread(selected.id) ? (
-                          <div className="space-y-3">
-                            <div className="flex items-center gap-2.5">
-                              <Switch
-                                checked={aiActivated}
-                                onCheckedChange={(checked) => {
-                                  setAiActivated(checked);
-                                  setReactivationDate(null);
-                                  setNoLimit(false);
-                                  setShowDatePicker(false);
-                                  recordThreadActivity(selected.id, {
-                                    kind: "ai_activation",
-                                    active: checked,
-                                    actor: MY_INBOX_ASSIGNEE,
-                                  });
-                                  toast.success(
-                                    checked ? "AI activated for this conversation" : "AI deactivated for this conversation",
-                                    {
-                                      description: checked
-                                        ? "Replies will be drafted by AI on this thread."
-                                        : "This thread will not receive AI-drafted replies.",
+                      <PopoverContent
+                        className={cn("p-3", sa1State ? "w-[360px]" : "w-auto")}
+                        align="end"
+                      >
+                        {sa1State ? (() => {
+                          const residentLabel = selected.resident || "this resident";
+                          const bannerCopy =
+                            sa1State.kind === "on"
+                              ? "All AI agents will respond on this conversation."
+                              : sa1State.kind === "partial"
+                              ? `${sa1State.blockedSubAgents.join(" and ")} ${sa1State.blockedSubAgents.length === 1 ? "is" : "are"} paused until staff resolves the blocking escalation. Other AI agents continue to respond.`
+                              : sa1State.kind === "off-profile"
+                              ? `${residentLabel}'s profile is marked "no AI" by staff. AI will never reply to this resident on any conversation until the profile block is lifted.`
+                              : sa1State.kind === "off-super"
+                              ? "All AI agents are paused — the resident asked for a human. AI will not reply until staff resolves the super-agent escalation."
+                              : sa1State.kind === "off-all-subs"
+                              ? "Every AI agent is blocked by a sub-agent escalation. AI will not reply until staff resolves at least one."
+                              : "AI has been manually deactivated for this conversation by staff.";
+                          const bannerClass =
+                            sa1State.kind === "on"
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200"
+                              : sa1State.kind === "partial"
+                              ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
+                              : "border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/30 dark:text-red-200";
+                          const allOffByAuto =
+                            sa1State.kind === "off-super" ||
+                            sa1State.kind === "off-all-subs" ||
+                            sa1State.kind === "off-profile";
+                          return (
+                            <div className="space-y-3">
+                              <div className={cn("rounded-md border px-2.5 py-2 text-[11px] leading-snug", bannerClass)}>
+                                {bannerCopy}
+                              </div>
+
+                              <div className="space-y-1.5">
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                  AI Agent status
+                                </p>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  {SA1_KNOWN_SUB_AGENTS.map((agent) => {
+                                    const blocked =
+                                      sa1State.kind === "off-manual" ||
+                                      allOffByAuto ||
+                                      sa1State.blockedSubAgents.includes(agent);
+                                    return (
+                                      <div
+                                        key={agent}
+                                        className={cn(
+                                          "flex items-center justify-between rounded-md border px-2 py-1.5 text-[11px]",
+                                          blocked
+                                            ? "border-red-200 bg-red-50/60 dark:border-red-900/50 dark:bg-red-950/20"
+                                            : "border-emerald-200 bg-emerald-50/60 dark:border-emerald-900/50 dark:bg-emerald-950/20"
+                                        )}
+                                      >
+                                        <span className="font-medium text-foreground">{agent}</span>
+                                        <span
+                                          className={cn(
+                                            "text-[10px] font-bold uppercase tracking-wide",
+                                            blocked
+                                              ? "text-red-700 dark:text-red-300"
+                                              : "text-emerald-700 dark:text-emerald-300"
+                                          )}
+                                        >
+                                          {blocked ? "Off" : "On"}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2 border-t border-border pt-2">
+                                <span className="text-xs font-medium text-foreground whitespace-nowrap">
+                                  AI Activated
+                                </span>
+                                <Select
+                                  value={sa1State.hasResidentProfileBlock ? "off-profile" : "active"}
+                                  onValueChange={(v) => {
+                                    const next = v as "active" | "off-profile";
+                                    const wasProfileBlocked = sa1State.hasResidentProfileBlock;
+
+                                    if (next === "off-profile") {
+                                      if (!wasProfileBlocked) {
+                                        addLabel(
+                                          selected.id,
+                                          SA1_RESIDENT_PROFILE_BLOCK_LABEL,
+                                          "ELI+ Super Agent",
+                                        );
+                                      }
+                                      toast.info(`${residentLabel}'s profile marked "no AI"`, {
+                                        description:
+                                          "AI will never reply to this resident on any conversation until staff lifts the block.",
+                                      });
+                                    } else {
+                                      if (wasProfileBlocked) {
+                                        removeLabel(selected.id, SA1_RESIDENT_PROFILE_BLOCK_LABEL);
+                                        toast.success("Profile AI block cleared", {
+                                          description: "AI agents can resume responding to this resident.",
+                                        });
+                                      } else if (
+                                        sa1State.hasSuperAgentBlock ||
+                                        sa1State.blockedSubAgents.length > 0
+                                      ) {
+                                        toast.info("AI activation set on", {
+                                          description:
+                                            "Some agents stay paused until the blocking escalations are resolved.",
+                                        });
+                                      } else {
+                                        toast.success("AI activated for this conversation", {
+                                          description:
+                                            "Replies will be drafted by AI on this thread.",
+                                        });
+                                      }
                                     }
-                                  );
-                                }}
-                              />
-                              <span className="text-xs font-medium text-foreground whitespace-nowrap">
-                                AI Activated
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-3 border-t border-border pt-2">
-                              <div className="flex items-center gap-2">
-                                <label className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">Phone</label>
-                                <Select
-                                  value={phoneOpt}
-                                  onValueChange={(v) => {
-                                    const choice = v as ChannelOptChoice;
-                                    setPhoneOpt(choice);
-                                    recordThreadActivity(selected.id, {
-                                      kind: "channel_opt",
-                                      channel: "phone",
-                                      choice,
-                                      actor: MY_INBOX_ASSIGNEE,
-                                    });
                                   }}
                                 >
-                                  <SelectTrigger className="h-7 w-[110px] text-[11px]"><SelectValue /></SelectTrigger>
+                                  <SelectTrigger className="h-7 flex-1 text-[11px]">
+                                    <SelectValue />
+                                  </SelectTrigger>
                                   <SelectContent>
-                                    <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
-                                    <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
-                                    <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
+                                    <SelectItem value="active">
+                                      <span className="flex items-center gap-2">
+                                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                                        Active
+                                      </span>
+                                    </SelectItem>
+                                    <SelectItem value="off-profile">
+                                      <span className="flex items-center gap-2">
+                                        <UserX className="h-3.5 w-3.5 text-red-500" />
+                                        Off — profile (indefinite)
+                                      </span>
+                                    </SelectItem>
                                   </SelectContent>
                                 </Select>
                               </div>
-                              <div className="flex items-center gap-2">
-                                <label className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">Email</label>
-                                <Select
-                                  value={emailOpt}
-                                  onValueChange={(v) => {
-                                    const choice = v as ChannelOptChoice;
-                                    setEmailOpt(choice);
-                                    recordThreadActivity(selected.id, {
-                                      kind: "channel_opt",
-                                      channel: "email",
-                                      choice,
-                                      actor: MY_INBOX_ASSIGNEE,
-                                    });
+
+                              <div className="flex items-center gap-3 border-t border-border pt-2">
+                                <div className="flex items-center gap-2">
+                                  <label className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">Phone</label>
+                                  <Select
+                                    value={phoneOpt}
+                                    onValueChange={(v) => {
+                                      const choice = v as ChannelOptChoice;
+                                      setPhoneOpt(choice);
+                                      recordThreadActivity(selected.id, {
+                                        kind: "channel_opt",
+                                        channel: "phone",
+                                        choice,
+                                        actor: MY_INBOX_ASSIGNEE,
+                                      });
+                                    }}
+                                  >
+                                    <SelectTrigger className="h-7 w-[110px] text-[11px]"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
+                                      <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
+                                      <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <label className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">Email</label>
+                                  <Select
+                                    value={emailOpt}
+                                    onValueChange={(v) => {
+                                      const choice = v as ChannelOptChoice;
+                                      setEmailOpt(choice);
+                                      recordThreadActivity(selected.id, {
+                                        kind: "channel_opt",
+                                        channel: "email",
+                                        choice,
+                                        actor: MY_INBOX_ASSIGNEE,
+                                      });
+                                    }}
+                                  >
+                                    <SelectTrigger className="h-7 w-[110px] text-[11px]"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
+                                      <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
+                                      <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-1.5 border-t border-dashed border-border pt-2">
+                                <Beaker className="h-3 w-3 text-muted-foreground" />
+                                <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
+                                  Demo
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (sa1State.hasSuperAgentBlock) {
+                                      removeLabel(selected.id, SA1_SUPER_AGENT_BLOCK_LABEL);
+                                      toast.success("Super-agent block cleared");
+                                    } else {
+                                      addLabel(selected.id, SA1_SUPER_AGENT_BLOCK_LABEL, "ELI+ Super Agent");
+                                      toast.info("Super-agent block added", {
+                                        description: "All AI agents are now paused for this thread.",
+                                      });
+                                    }
                                   }}
+                                  className="rounded border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:bg-muted"
                                 >
-                                  <SelectTrigger className="h-7 w-[110px] text-[11px]"><SelectValue /></SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
-                                    <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
-                                    <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
-                                  </SelectContent>
-                                </Select>
+                                  {sa1State.hasSuperAgentBlock ? "Clear super-agent block" : "Add super-agent block"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const missing = SA1_KNOWN_SUB_AGENTS.filter(
+                                      (a) => !selected.labels.includes(`${a} Escalation`)
+                                    );
+                                    if (missing.length > 0) {
+                                      for (const a of missing) {
+                                        addLabel(selected.id, `${a} Escalation`, "ELI+ Super Agent");
+                                      }
+                                      toast.info("All sub-agent blocks added", {
+                                        description: "Every known AI sub-agent is now blocked on this thread.",
+                                      });
+                                    } else {
+                                      for (const a of SA1_KNOWN_SUB_AGENTS) {
+                                        removeLabel(selected.id, `${a} Escalation`);
+                                      }
+                                      toast.success("Sub-agent blocks cleared", {
+                                        description: "All known AI sub-agents are back on.",
+                                      });
+                                    }
+                                  }}
+                                  className="rounded border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:bg-muted"
+                                >
+                                  {SA1_KNOWN_SUB_AGENTS.every((a) => selected.labels.includes(`${a} Escalation`))
+                                    ? "Clear all sub-agent blocks"
+                                    : "Block all sub-agents"}
+                                </button>
                               </div>
                             </div>
-                          </div>
-                        ) : (
+                          );
+                        })() : (
                         <div className="space-y-3">
                           <div className="flex items-center gap-2">
                             <Switch
@@ -2559,7 +2803,8 @@ function ConversationsContent() {
                         )}
                       </PopoverContent>
                     </Popover>
-                  )}
+                    );
+                  })()}
                   {clickToCallEnabled && (
                     <Button
                       type="button"
