@@ -84,8 +84,12 @@ import {
   ThumbsUp,
   ThumbsDown,
   ChevronRight,
+  FileText,
+  Loader2,
+  BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useVault, type VaultItem } from "@/lib/vault-context";
 
 /* ──────────────────────────────────────────────────────────────
  * 1) Types
@@ -184,12 +188,16 @@ interface AddPrefill {
   title: string;
   body: string;
   origin?: string;
+  /** Agents that should use this knowledge — prefilled when editing or drafting from a gap/suggestion. */
+  agents?: AgentName[];
   /** When set, submitting edits this existing entry in place (new version) instead of creating a new row. */
   editId?: string;
 }
 
 type LevelFilter = "all" | "portfolio" | "property";
 type TypeFilter = "all" | EntryType;
+type StatusFilter = "all" | "approved" | "in_review" | "archived";
+type AgentFilter = "all" | AgentName;
 type ViewState = "normal" | "loading" | "error" | "empty";
 
 /* ──────────────────────────────────────────────────────────────
@@ -256,6 +264,25 @@ const STATUS_META: Record<
   suppressed: { label: "Suppressed", cls: "bg-red-50 text-red-800 ring-1 ring-inset ring-red-200" },
   archived: { label: "Archived", cls: "bg-zinc-100 text-zinc-600 ring-1 ring-inset ring-zinc-200" },
 };
+
+/* Maps an entry's granular status onto the three coarse buckets used by the
+ * status filter dropdown. "Approved" covers live entries (approved + active
+ * guardrails); "In review" covers anything awaiting approval. */
+function matchesStatusFilter(
+  status: EntryStatus,
+  filter: "all" | "approved" | "in_review" | "archived"
+): boolean {
+  switch (filter) {
+    case "all":
+      return true;
+    case "approved":
+      return status === "approved" || status === "suppressed";
+    case "in_review":
+      return status === "in_review" || status === "draft";
+    case "archived":
+      return status === "archived";
+  }
+}
 
 const SOURCE_LABEL: Record<EntrySource, string> = {
   manual: "Manual",
@@ -830,20 +857,26 @@ function CategoryChip({ category }: { category: Category }) {
   );
 }
 
+const ALL_AGENTS: AgentName[] = [
+  "Leasing AI",
+  "Renewals AI",
+  "Maintenance AI",
+  "Payments AI",
+];
+
+const AGENT_TONE: Record<AgentName, string> = {
+  "Leasing AI": "bg-indigo-50 text-indigo-700 ring-indigo-200",
+  "Renewals AI": "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  "Maintenance AI": "bg-sky-50 text-sky-700 ring-sky-200",
+  "Payments AI": "bg-amber-50 text-amber-800 ring-amber-200",
+};
+
 function AgentChip({ agent }: { agent: AgentName }) {
-  const tone =
-    agent === "Leasing AI"
-      ? "bg-indigo-50 text-indigo-700 ring-indigo-200"
-      : agent === "Renewals AI"
-      ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
-      : agent === "Payments AI"
-      ? "bg-amber-50 text-amber-800 ring-amber-200"
-      : "bg-sky-50 text-sky-700 ring-sky-200";
   return (
     <span
       className={cn(
         "inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset",
-        tone
+        AGENT_TONE[agent]
       )}
     >
       {agent}
@@ -911,7 +944,8 @@ export default function AgentKnowledgeHubPage() {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [levelFilter, setLevelFilter] = useState<LevelFilter>("all");
-  const [statusFilter, setStatusFilter] = useState<"all" | "in_review">("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [agentFilter, setAgentFilter] = useState<AgentFilter>("all");
 
   // Add flow
   const [addOpen, setAddOpen] = useState(false);
@@ -933,7 +967,8 @@ export default function AgentKnowledgeHubPage() {
     const q = search.trim().toLowerCase();
     return entries.filter((e) => {
       if (typeFilter !== "all" && e.type !== typeFilter) return false;
-      if (statusFilter === "in_review" && e.status !== "in_review") return false;
+      if (!matchesStatusFilter(e.status, statusFilter)) return false;
+      if (agentFilter !== "all" && !e.agents.includes(agentFilter)) return false;
       if (q.length === 0) return true;
       return (
         e.title.toLowerCase().includes(q) ||
@@ -941,7 +976,7 @@ export default function AgentKnowledgeHubPage() {
         CATEGORY_META[e.category].label.toLowerCase().includes(q)
       );
     });
-  }, [entries, search, typeFilter, statusFilter]);
+  }, [entries, search, typeFilter, statusFilter, agentFilter]);
 
   const portfolioFiltered = filtered.filter((e) => e.scope === "portfolio");
   const propertyFiltered = filtered.filter((e) => e.scope === "property");
@@ -956,7 +991,8 @@ export default function AgentKnowledgeHubPage() {
     search.trim().length > 0 ||
     typeFilter !== "all" ||
     levelFilter !== "all" ||
-    statusFilter !== "all";
+    statusFilter !== "all" ||
+    agentFilter !== "all";
 
   // ── Action handlers ────────────────────────────────────────────
   const openAdd = (prefill?: AddPrefill | null) => {
@@ -979,6 +1015,7 @@ export default function AgentKnowledgeHubPage() {
           title: e.title,
           body: e.body,
           scope: e.scope,
+          agents: e.agents,
           status: "in_review",
           owner: "You",
           version: nextVersion,
@@ -1023,6 +1060,7 @@ export default function AgentKnowledgeHubPage() {
       category: g.suggestedCategory,
       title: g.question,
       body: g.staffAnswer,
+      agents: [g.agent],
       origin: `Drafted from ${g.escalations} escalation${g.escalations === 1 ? "" : "s"} (last seen ${g.lastSeen})`,
     });
   };
@@ -1062,6 +1100,7 @@ export default function AgentKnowledgeHubPage() {
       category: s.suggestedCategory,
       title: s.proposedTitle,
       body: s.proposedBody,
+      agents: [s.agent],
       origin: `From ${suggestionSourceLabel(s)} suggestion (${Math.round(s.confidence * 100)}% confidence)`,
     });
     setSuggestions((prev) => prev.filter((x) => x.id !== s.id));
@@ -1082,6 +1121,7 @@ export default function AgentKnowledgeHubPage() {
     setTypeFilter("all");
     setLevelFilter("all");
     setStatusFilter("all");
+    setAgentFilter("all");
   };
 
   // Approve a pending entry (review loop)
@@ -1253,6 +1293,8 @@ export default function AgentKnowledgeHubPage() {
             setLevelFilter={setLevelFilter}
             statusFilter={statusFilter}
             setStatusFilter={setStatusFilter}
+            agentFilter={agentFilter}
+            setAgentFilter={setAgentFilter}
             pendingReviewCount={pendingReviewCount}
             onClearFilters={clearFilters}
             onSelectEntry={setSelected}
@@ -1303,6 +1345,7 @@ export default function AgentKnowledgeHubPage() {
             category: e.category,
             title: e.title,
             body: e.body,
+            agents: e.agents,
             origin: `Editing v${e.version} · last updated ${e.updatedAt}`,
           });
         }}
@@ -1333,8 +1376,10 @@ interface KnowledgeTabProps {
   setTypeFilter: (v: TypeFilter) => void;
   levelFilter: LevelFilter;
   setLevelFilter: (v: LevelFilter) => void;
-  statusFilter: "all" | "in_review";
-  setStatusFilter: (v: "all" | "in_review") => void;
+  statusFilter: StatusFilter;
+  setStatusFilter: (v: StatusFilter) => void;
+  agentFilter: AgentFilter;
+  setAgentFilter: (v: AgentFilter) => void;
   pendingReviewCount: number;
   onClearFilters: () => void;
   onSelectEntry: (e: KnowledgeEntry) => void;
@@ -1362,6 +1407,8 @@ function KnowledgeTab(props: KnowledgeTabProps) {
     setLevelFilter,
     statusFilter,
     setStatusFilter,
+    agentFilter,
+    setAgentFilter,
     pendingReviewCount,
     onClearFilters,
     onSelectEntry,
@@ -1429,7 +1476,7 @@ function KnowledgeTab(props: KnowledgeTabProps) {
         onShowAll={() => setLevelFilter("all")}
       />
 
-      {/* Toolbar: search + type filter */}
+      {/* Toolbar: type filter + agent/status dropdowns + search */}
       <div className="flex flex-wrap items-center gap-3 border-b border-border/60 pb-3">
         <SegmentedRow<TypeFilter>
           value={typeFilter}
@@ -1442,7 +1489,49 @@ function KnowledgeTab(props: KnowledgeTabProps) {
             { value: "procedure", label: TYPE_META.procedure.plural },
           ]}
         />
-        <div className="relative ml-auto min-w-[260px] flex-1 sm:flex-initial sm:w-80">
+        <div className="flex items-center gap-2">
+          <Select
+            value={agentFilter}
+            onValueChange={(v) => setAgentFilter(v as AgentFilter)}
+          >
+            <SelectTrigger
+              className={cn(
+                "h-9 w-[150px]",
+                agentFilter !== "all" && "border-foreground/30 bg-muted/50"
+              )}
+            >
+              <SelectValue placeholder="All agents" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All agents</SelectItem>
+              {ALL_AGENTS.map((a) => (
+                <SelectItem key={a} value={a}>
+                  {a}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={statusFilter}
+            onValueChange={(v) => setStatusFilter(v as StatusFilter)}
+          >
+            <SelectTrigger
+              className={cn(
+                "h-9 w-[140px]",
+                statusFilter !== "all" && "border-foreground/30 bg-muted/50"
+              )}
+            >
+              <SelectValue placeholder="All statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              <SelectItem value="approved">Approved</SelectItem>
+              <SelectItem value="in_review">In review</SelectItem>
+              <SelectItem value="archived">Archived</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="relative ml-auto min-w-[220px] flex-1 sm:flex-initial sm:w-72">
           <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search title, body, or category"
@@ -1458,7 +1547,7 @@ function KnowledgeTab(props: KnowledgeTabProps) {
         <div className="rounded-lg border border-dashed border-border p-8 text-center">
           <p className="text-sm font-medium text-foreground">No knowledge matches your filters</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Try adjusting the level, type, or search query.
+            Try adjusting the level, type, agent, status, or search query.
           </p>
           <Button variant="outline" size="sm" className="mt-3" onClick={onClearFilters}>
             Clear filters
@@ -2177,6 +2266,94 @@ function EntryRow({ entry, onSelect }: { entry: KnowledgeEntry; onSelect: () => 
 }
 
 /* ──────────────────────────────────────────────────────────────
+ * 8b) SOP / Policy → Knowledge generation
+ *     Mirrors the "Create playbook from a document" flow: pick an
+ *     approved SOP/policy from the vault, parse its procedures, and
+ *     pre-fill a knowledge entry for the user to review.
+ * ──────────────────────────────────────────────────────────── */
+
+function approvalBadgeClass(status: string) {
+  switch (status) {
+    case "approved":
+      return "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200";
+    case "review":
+    case "needs_review":
+      return "bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-200";
+    default:
+      return "bg-zinc-100 text-zinc-600 ring-1 ring-inset ring-zinc-200";
+  }
+}
+
+function approvalLabel(status: string) {
+  switch (status) {
+    case "approved":
+      return "Approved";
+    case "review":
+    case "needs_review":
+      return "Needs review";
+    default:
+      return status;
+  }
+}
+
+function keywordFallbackBody(lower: string, name: string, typeLabel: string): string {
+  if (lower.includes("deposit")) {
+    return `Summarized from the ${typeLabel} "${name}":\n\n• Security deposits are returned per state-specific timelines (default 30 days).\n• Itemized deductions must be documented with receipts.\n• Disputes are escalated to the property manager.\n\nReview and adjust before saving.`;
+  }
+  if (lower.includes("fair housing") || lower.includes("discrimin")) {
+    return `Summarized from the ${typeLabel} "${name}":\n\n• Treat all applicants and residents equally regardless of protected class.\n• Never steer prospects toward or away from units based on personal characteristics.\n• Escalate any fair-housing concern to a manager.\n\nReview and adjust before saving.`;
+  }
+  if (lower.includes("maintenance") || lower.includes("escalation")) {
+    return `Summarized from the ${typeLabel} "${name}":\n\n• Emergency maintenance (flooding, gas, no heat) is escalated immediately.\n• Routine requests are logged and scheduled within standard SLAs.\n• Keep the resident updated on status and timing.\n\nReview and adjust before saving.`;
+  }
+  if (lower.includes("refund") || lower.includes("payment")) {
+    return `Summarized from the ${typeLabel} "${name}":\n\n• Refunds follow approval thresholds; large amounts require manager sign-off.\n• Standard refunds are processed within 5 business days of approval.\n• Don't commit to specific amounts without approval.\n\nReview and adjust before saving.`;
+  }
+  return `Summarized from the ${typeLabel} "${name}". Review the document's procedures and capture the key facts the AI should know, then save.`;
+}
+
+/** Parses a vault document into a draft knowledge entry (title, body, category). */
+function generateKnowledgeFromDocument(doc: VaultItem): {
+  title: string;
+  body: string;
+  category: Category;
+} {
+  const name = doc.fileName;
+  const lower = name.toLowerCase();
+  const typeLabel = doc.documentType === "policy" ? "policy" : "SOP";
+
+  const points: string[] = [];
+  if (doc.body) {
+    for (const raw of doc.body.split("\n")) {
+      const line = raw
+        .replace(/^[\s]*[●○■◦•\-*]+\s*/, "")
+        .replace(/^\d+[.)]\s*/, "")
+        .trim();
+      if (line.length < 12 || line.length > 180) continue;
+      // Skip ALL-CAPS section headers (e.g. "SCOPE", "ELIGIBILITY").
+      if (line === line.toUpperCase() && line.split(" ").length <= 4) continue;
+      points.push(line);
+      if (points.length >= 8) break;
+    }
+  }
+
+  const body =
+    points.length >= 3
+      ? `Key points from the ${typeLabel} "${name}":\n\n` +
+        points.map((p) => `• ${p}`).join("\n")
+      : keywordFallbackBody(lower, name, typeLabel);
+
+  const category: Category =
+    lower.includes("parking")
+      ? "parking"
+      : lower.includes("pet")
+      ? "pet_rules"
+      : "policies";
+
+  return { title: name, body, category };
+}
+
+/* ──────────────────────────────────────────────────────────────
  * 9) AddKnowledgeDialog — type picker → type-specific form
  *     Skips the picker when opened with a prefill.
  * ──────────────────────────────────────────────────────────── */
@@ -2194,8 +2371,30 @@ function AddKnowledgeDialog({
   property: string;
   onSubmit: (e: KnowledgeEntry) => void;
 }) {
-  const [step, setStep] = useState<"pick" | "form">(prefill ? "form" : "pick");
+  const [step, setStep] = useState<"pick" | "form" | "selectDoc" | "generating">(
+    prefill ? "form" : "pick"
+  );
   const [type, setType] = useState<EntryType>(prefill?.type ?? "factual");
+
+  // SOP / Policy → knowledge generation
+  const { documents } = useVault();
+  const [docSearch, setDocSearch] = useState("");
+  const [docTypeFilter, setDocTypeFilter] = useState<string>("all");
+  const [selectedDoc, setSelectedDoc] = useState<VaultItem | null>(null);
+  const [sourceDoc, setSourceDoc] = useState<VaultItem | null>(null);
+
+  const sopPolicyDocs = useMemo(() => {
+    const q = docSearch.trim().toLowerCase();
+    return documents.filter((d) => {
+      if (d.type !== "file") return false;
+      if (d.isTemplate) return false;
+      if (d.approvalStatus !== "approved") return false;
+      if (d.documentType !== "sop" && d.documentType !== "policy") return false;
+      if (docTypeFilter !== "all" && d.documentType !== docTypeFilter) return false;
+      if (q && !d.fileName.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [documents, docSearch, docTypeFilter]);
 
   // Form fields
   const [title, setTitle] = useState(prefill?.title ?? "");
@@ -2204,7 +2403,13 @@ function AddKnowledgeDialog({
     prefill?.category ?? TYPE_DEFAULT_CATEGORY[type]
   );
   const [scope, setScope] = useState<KnowledgeEntry["scope"]>("property");
+  const [agents, setAgents] = useState<AgentName[]>(prefill?.agents ?? []);
   const [expiresAt, setExpiresAt] = useState<string>("");
+
+  const toggleAgent = (a: AgentName) =>
+    setAgents((prev) =>
+      prev.includes(a) ? prev.filter((x) => x !== a) : [...prev, a]
+    );
 
   // Clarification
   const [pmsName, setPmsName] = useState("");
@@ -2230,6 +2435,7 @@ function AddKnowledgeDialog({
     setBody(prefill?.body ?? "");
     setCategory(prefill?.category ?? TYPE_DEFAULT_CATEGORY[prefill?.type ?? "factual"]);
     setScope("property");
+    setAgents(prefill?.agents ?? []);
     setExpiresAt("");
     setPmsName("");
     setPmsValue("");
@@ -2238,6 +2444,10 @@ function AddKnowledgeDialog({
     setTriggers("");
     setSteps("");
     setProcTag("");
+    setDocSearch("");
+    setDocTypeFilter("all");
+    setSelectedDoc(null);
+    setSourceDoc(null);
   }, [open, prefill]);
 
   const reset = () => {
@@ -2247,6 +2457,7 @@ function AddKnowledgeDialog({
     setBody(prefill?.body ?? "");
     setCategory(prefill?.category ?? TYPE_DEFAULT_CATEGORY[prefill?.type ?? "factual"]);
     setScope("property");
+    setAgents(prefill?.agents ?? []);
     setExpiresAt("");
     setPmsName("");
     setPmsValue("");
@@ -2255,12 +2466,30 @@ function AddKnowledgeDialog({
     setTriggers("");
     setSteps("");
     setProcTag("");
+    setDocSearch("");
+    setDocTypeFilter("all");
+    setSelectedDoc(null);
+    setSourceDoc(null);
   };
 
   const pickType = (t: EntryType) => {
     setType(t);
     setCategory(TYPE_DEFAULT_CATEGORY[t]);
     setStep("form");
+  };
+
+  // Confirm a document and "generate" a knowledge draft from it.
+  const handleConfirmDoc = (doc: VaultItem) => {
+    setSelectedDoc(doc);
+    setStep("generating");
+    setTimeout(() => {
+      const draft = generateKnowledgeFromDocument(doc);
+      setTitle(draft.title);
+      setBody(draft.body);
+      setCategory(draft.category);
+      setSourceDoc(doc);
+      setStep("form");
+    }, 2200);
   };
 
   const handleClose = (v: boolean) => {
@@ -2289,14 +2518,16 @@ function AddKnowledgeDialog({
           version: 1,
           date: new Date().toLocaleDateString(),
           author: "You",
-          note: "Submitted for review.",
+          note: sourceDoc
+            ? `Generated from "${sourceDoc.fileName}" and submitted for review.`
+            : "Submitted for review.",
           title: title.trim(),
           body: body.trim(),
         },
       ],
       usageCount: 0,
       updatedAt: "Just now",
-      agents: [],
+      agents,
       expiresAt: expiresAt.trim() || undefined,
       entrataSetting:
         type === "clarification" && pmsName.trim()
@@ -2330,7 +2561,7 @@ function AddKnowledgeDialog({
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="w-[96vw] max-w-5xl max-h-[92vh] overflow-y-auto">
-        {step === "pick" ? (
+        {step === "pick" && (
           <>
             <DialogHeader>
               <DialogTitle>Add knowledge</DialogTitle>
@@ -2369,7 +2600,166 @@ function AddKnowledgeDialog({
               </Button>
             </DialogFooter>
           </>
-        ) : (
+        )}
+
+        {step === "selectDoc" && (
+          <>
+            <DialogHeader>
+              <DialogTitle>Select an SOP or policy</DialogTitle>
+              <DialogDescription>
+                Choose a document from Policies &amp; SOPs to generate this knowledge entry from.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={docSearch}
+                  onChange={(e) => setDocSearch(e.target.value)}
+                  placeholder="Search documents"
+                  className="h-9 pl-8"
+                />
+              </div>
+              <Select value={docTypeFilter} onValueChange={setDocTypeFilter}>
+                <SelectTrigger className="h-9 w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All types</SelectItem>
+                  <SelectItem value="sop">SOP</SelectItem>
+                  <SelectItem value="policy">Policy</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="max-h-[52vh] overflow-y-auto rounded-lg border border-border">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40">
+                    <th className="px-4 py-2 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Name
+                    </th>
+                    <th className="px-4 py-2 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Type
+                    </th>
+                    <th className="px-4 py-2 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Property
+                    </th>
+                    <th className="px-4 py-2 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Approval
+                    </th>
+                    <th className="px-4 py-2 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Modified
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sopPolicyDocs.map((row) => (
+                    <tr
+                      key={row.id}
+                      className="cursor-pointer border-b border-border transition-colors last:border-b-0 hover:bg-muted/30"
+                      onClick={() => handleConfirmDoc(row)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          handleConfirmDoc(row);
+                        }
+                      }}
+                    >
+                      <td className="px-4 py-2.5 font-medium text-foreground">
+                        <span className="inline-flex items-center gap-2">
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border bg-background">
+                            <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                          </span>
+                          <span className="truncate text-sm">{row.fileName}</span>
+                          {row.version && (
+                            <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+                              v{row.version}
+                            </Badge>
+                          )}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-sm capitalize text-muted-foreground">
+                        {row.documentType}
+                      </td>
+                      <td className="px-4 py-2.5 text-sm text-muted-foreground">{row.property}</td>
+                      <td className="px-4 py-2.5">
+                        <span
+                          className={cn(
+                            "inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium",
+                            approvalBadgeClass(row.approvalStatus)
+                          )}
+                        >
+                          {approvalLabel(row.approvalStatus)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-sm text-muted-foreground">{row.modified}</td>
+                    </tr>
+                  ))}
+                  {sopPolicyDocs.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-12 text-center">
+                        <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                          <FileText className="h-8 w-8 opacity-30" />
+                          <p className="text-sm">No approved SOPs or policies match your search.</p>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setStep("form")}>
+                <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
+                Back
+              </Button>
+              <Button variant="ghost" onClick={() => handleClose(false)}>
+                Cancel
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+
+        {step === "generating" && (
+          <>
+            <DialogHeader>
+              <DialogTitle>Generating knowledge</DialogTitle>
+              <DialogDescription>
+                Analyzing{" "}
+                <span className="font-medium text-foreground">{selectedDoc?.fileName}</span> and
+                extracting the key facts…
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col items-center justify-center gap-6 py-16">
+              <div className="relative flex items-center justify-center">
+                <div className="absolute h-20 w-20 animate-ping rounded-full bg-primary/10" />
+                <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
+                  <Sparkles className="h-7 w-7 animate-pulse text-primary" />
+                </div>
+              </div>
+              <div className="flex flex-col items-center gap-2 text-center">
+                <p className="text-sm font-medium text-foreground">Generating knowledge…</p>
+                <p className="max-w-xs text-xs text-muted-foreground">
+                  Analyzing{" "}
+                  <span className="font-medium text-foreground">{selectedDoc?.fileName}</span> and
+                  turning its procedures into a knowledge entry.
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:0ms]" />
+                <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:150ms]" />
+                <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:300ms]" />
+              </div>
+            </div>
+          </>
+        )}
+
+        {step === "form" && (
           <>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
@@ -2382,6 +2772,47 @@ function AddKnowledgeDialog({
                 Will be sent for review and used by the AI once approved.
               </DialogDescription>
             </DialogHeader>
+
+            {/* Generate-from-document shortcut */}
+            {!sourceDoc && (
+              <button
+                type="button"
+                onClick={() => setStep("selectDoc")}
+                className="group flex items-center gap-3 rounded-lg border border-dashed border-border p-3 text-left transition-colors hover:border-primary hover:bg-primary/5"
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-primary/10 group-hover:text-primary">
+                  <BookOpen className="h-4.5 w-4.5" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold text-foreground">
+                    Add knowledge from an SOP or policy
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    Generate this entry from an existing document&apos;s procedures.
+                  </span>
+                </span>
+                <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5" />
+              </button>
+            )}
+
+            {sourceDoc && (
+              <div className="flex items-center justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50/60 p-2.5 text-xs text-emerald-900">
+                <span className="inline-flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span>
+                    <span className="font-semibold">Generated from</span> {sourceDoc.fileName} —
+                    review and edit before saving.
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setStep("selectDoc")}
+                  className="shrink-0 font-medium text-emerald-800 underline-offset-2 hover:underline"
+                >
+                  Change document
+                </button>
+              </div>
+            )}
 
             {prefill?.origin && (
               <div className="rounded-md border border-purple-200 bg-purple-50/60 p-2.5 text-xs text-purple-900">
@@ -2403,6 +2834,56 @@ function AddKnowledgeDialog({
                   onChange={(e) => setBody(e.target.value)}
                   placeholder="Plain language is fine — bullets, a sentence, or a full write-up. The AI turns it into natural answers."
                 />
+              </div>
+
+              <div className="space-y-1.5 rounded-md border border-border bg-muted/30 p-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm">Which agents use this?</Label>
+                  <button
+                    type="button"
+                    className="text-[11px] font-medium text-muted-foreground hover:text-foreground"
+                    onClick={() =>
+                      setAgents(agents.length === ALL_AGENTS.length ? [] : [...ALL_AGENTS])
+                    }
+                  >
+                    {agents.length === ALL_AGENTS.length ? "Clear all" : "Select all"}
+                  </button>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Pick the agents allowed to use this knowledge. Only selected agents will see it.
+                </p>
+                <div className="flex flex-wrap gap-2 pt-0.5">
+                  {ALL_AGENTS.map((a) => {
+                    const active = agents.includes(a);
+                    return (
+                      <button
+                        key={a}
+                        type="button"
+                        onClick={() => toggleAgent(a)}
+                        aria-pressed={active}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                          active
+                            ? cn("ring-1 ring-inset border-transparent", AGENT_TONE[a])
+                            : "border-border bg-background text-muted-foreground hover:border-foreground/30 hover:text-foreground"
+                        )}
+                      >
+                        {active ? (
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                        ) : (
+                          <Plus className="h-3.5 w-3.5" />
+                        )}
+                        {a}
+                      </button>
+                    );
+                  })}
+                </div>
+                {agents.length === 0 && (
+                  <p className="flex items-center gap-1 pt-0.5 text-[11px] text-amber-700">
+                    <AlertTriangle className="h-3 w-3" />
+                    No agents selected — no agent will use this entry yet.
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
