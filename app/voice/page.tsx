@@ -63,8 +63,6 @@ import {
   Briefcase,
   Trash2,
   X,
-  CheckCircle,
-  XCircle,
   AlertTriangle,
   Info,
   CreditCard,
@@ -319,42 +317,8 @@ function AgentPickerView({
                   <span className="text-[13px] text-muted-foreground">{tone.persona || "Not configured"}</span>
                 </div>
                 <div>
-                  <span className="text-[13px] font-semibold text-foreground">Agent Tone Instructions: </span>
+                  <span className="text-[13px] font-semibold text-foreground">Agent Tone Guidelines: </span>
                   <span className="text-[13px] text-muted-foreground">{tone.guidelines || "Not configured"}</span>
-                </div>
-              </div>
-
-              {/* Do / Don't */}
-              <div className="mt-4 grid grid-cols-2 gap-4">
-                <div>
-                  <p className="mb-1.5 text-[13px] font-semibold text-emerald-700">Do</p>
-                  {tone.doExamples.length > 0 ? (
-                    <ul className="space-y-1.5">
-                      {tone.doExamples.map((item, i) => (
-                        <li key={i} className="flex items-start gap-1.5 text-[13px] text-muted-foreground">
-                          <CheckCircle className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
-                          <span>{item}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-[13px] text-muted-foreground">None</p>
-                  )}
-                </div>
-                <div>
-                  <p className="mb-1.5 text-[13px] font-semibold text-red-700">Don&apos;t</p>
-                  {tone.dontExamples.length > 0 ? (
-                    <ul className="space-y-1.5">
-                      {tone.dontExamples.map((item, i) => (
-                        <li key={i} className="flex items-start gap-1.5 text-[13px] text-muted-foreground">
-                          <XCircle className="h-3.5 w-3.5 text-red-500 mt-0.5 shrink-0" />
-                          <span>{item}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-[13px] text-muted-foreground">None</p>
-                  )}
                 </div>
               </div>
 
@@ -1350,12 +1314,8 @@ function ToneEditor({
           <p className="mt-1 text-foreground">{settings.persona || <span className="italic text-muted-foreground">Not set</span>}</p>
         </div>
         <div>
-          <p className="text-xs font-medium text-muted-foreground">Agent tone & instructions</p>
+          <p className="text-xs font-medium text-muted-foreground">Agent tone guidelines</p>
           <p className="mt-1 whitespace-pre-wrap text-foreground">{settings.guidelines || <span className="italic text-muted-foreground">Not set</span>}</p>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <ListReadout title="Do" entries={settings.doExamples} icon={<CheckCircle className="h-3.5 w-3.5 text-emerald-500" />} />
-          <ListReadout title="Don't" entries={settings.dontExamples} icon={<XCircle className="h-3.5 w-3.5 text-red-500" />} />
         </div>
       </div>
     );
@@ -1374,7 +1334,7 @@ function ToneEditor({
         />
       </div>
       <div>
-        <label className="mb-1 block text-xs font-medium text-muted-foreground">Agent tone & instructions</label>
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">Agent tone guidelines</label>
         <textarea
           value={settings.guidelines}
           onChange={(e) => update({ guidelines: e.target.value })}
@@ -1383,87 +1343,6 @@ function ToneEditor({
           placeholder="e.g. Direct and clear, but never judgmental..."
         />
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <ListEditor
-          title="Do"
-          entries={settings.doExamples}
-          accent="emerald"
-          onChange={(doExamples) => update({ doExamples })}
-        />
-        <ListEditor
-          title="Don't"
-          entries={settings.dontExamples}
-          accent="red"
-          onChange={(dontExamples) => update({ dontExamples })}
-        />
-      </div>
-    </div>
-  );
-}
-
-function ListReadout({ title, entries, icon }: { title: string; entries: string[]; icon: React.ReactNode }) {
-  return (
-    <div className="rounded-md border border-border bg-muted/20 p-3">
-      <p className="mb-2 text-xs font-medium text-muted-foreground">{title}</p>
-      {entries.length === 0 ? (
-        <p className="text-xs italic text-muted-foreground">None</p>
-      ) : (
-        <ul className="space-y-1.5">
-          {entries.map((e, i) => (
-            <li key={i} className="flex items-start gap-1.5 text-xs">
-              <span className="mt-0.5">{icon}</span>
-              <span className="text-foreground">{e}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function ListEditor({
-  title,
-  entries,
-  accent,
-  onChange,
-}: {
-  title: string;
-  entries: string[];
-  accent: "emerald" | "red";
-  onChange: (next: string[]) => void;
-}) {
-  const accentText = accent === "emerald" ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400";
-
-  return (
-    <div className="rounded-lg border border-border p-3">
-      <p className={cn("mb-2 text-xs font-semibold", accentText)}>{title}</p>
-      <ul className="space-y-2">
-        {entries.map((entry, i) => (
-          <li key={i} className="flex items-start gap-2">
-            <input
-              type="text"
-              value={entry}
-              onChange={(e) => {
-                const next = [...entries];
-                next[i] = e.target.value;
-                onChange(next);
-              }}
-              className="input-base h-8 flex-1 text-sm"
-            />
-            <button
-              type="button"
-              onClick={() => onChange(entries.filter((_, j) => j !== i))}
-              className="text-muted-foreground hover:text-foreground"
-              aria-label="Remove"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </li>
-        ))}
-      </ul>
-      <Button variant="ghost" size="sm" className="mt-2 h-7 text-xs" onClick={() => onChange([...entries, ""])}>
-        <Plus className="h-3 w-3" /> Add
-      </Button>
     </div>
   );
 }
