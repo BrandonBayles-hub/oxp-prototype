@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { MessageSquareText, Phone } from "lucide-react";
 
 const TABS = [
-  { href: "/voice",          label: "Tone & Guidelines", icon: MessageSquareText, exact: true },
+  { href: "/voice",          label: "Tone Guidelines", icon: MessageSquareText, exact: true },
   { href: "/voice/ai-voice", label: "Voice",             icon: Phone,             exact: false },
 ];
 

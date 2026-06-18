@@ -471,6 +471,10 @@ export default function PerformancePage() {
     ? perf.efficiencyMetrics.filter((m) => !AI_ONLY_EFFICIENCY_IDS.has(m.id))
     : perf.efficiencyMetrics;
 
+  // Temporarily hidden per design review — code retained for easy restore.
+  const showValueBanner = false;
+  const showAssetImpact = false;
+
   return (
     <>
       <PageHeader
@@ -479,7 +483,7 @@ export default function PerformancePage() {
       />
 
 
-      {!isPropertyRole && <ValueYoureMissingBanner />}
+      {showValueBanner && !isPropertyRole && <ValueYoureMissingBanner />}
 
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <select
@@ -503,7 +507,7 @@ export default function PerformancePage() {
         </select>
       </div>
 
-      {!isPropertyRole && (
+      {showAssetImpact && !isPropertyRole && (
         <section className="mb-8">
           <h2 className="section-title mb-4">Asset & revenue impact</h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -529,9 +533,40 @@ export default function PerformancePage() {
         </section>
       )}
 
+      <section className="mb-8">
+        <Card className="border-border/60">
+          <CardHeader>
+            <CardTitle className="text-base">Property and portfolio health</CardTitle>
+            <CardDescription>Key property management KPIs (portfolio)</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              {HEALTH_METRICS.map((m) => (
+                <div key={m.id} className="rounded-lg border border-border/60 bg-muted/40 px-3 py-2.5">
+                  <p className="text-xs font-medium tracking-wider text-muted-foreground">{m.label}</p>
+                  <p className="mt-1 text-lg font-semibold text-foreground">{m.value}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{m.sub}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mb-2 text-xs font-medium tracking-wider text-muted-foreground">Renewal & occupancy trend</p>
+            <ChartContainer config={healthChartConfig} className="h-[120px] w-full">
+              <LineChart data={trendData} margin={{ left: 12, right: 12 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} />
+                <YAxis tickLine={false} axisLine={false} tickMargin={8} width={28} domain={[60, 100]} />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <Line type="monotone" dataKey="renewal" stroke="hsl(var(--chart-1))" strokeWidth={2} dot={false} name="Renewal %" />
+                <Line type="monotone" dataKey="occupancy" stroke="hsl(var(--chart-2))" strokeWidth={2} dot={false} name="Occupancy %" />
+              </LineChart>
+            </ChartContainer>
+          </CardContent>
+        </Card>
+      </section>
+
       {!isPropertyRole && (
         <section className="mb-8">
-          <h2 className="section-title mb-4">How AI is driving asset value</h2>
+          <h2 className="section-title mb-4">How AI is driving value</h2>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             {perf.assetValueChain.map((chain) => {
               if (chain.id === "renewals") {
@@ -587,37 +622,6 @@ export default function PerformancePage() {
           </div>
         </section>
       )}
-
-      <section className="mb-8">
-        <Card className="border-border/60">
-          <CardHeader>
-            <CardTitle className="text-base">PM health</CardTitle>
-            <CardDescription>Key property management KPIs (portfolio)</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-              {HEALTH_METRICS.map((m) => (
-                <div key={m.id} className="rounded-lg border border-border/60 bg-muted/40 px-3 py-2.5">
-                  <p className="text-xs font-medium tracking-wider text-muted-foreground">{m.label}</p>
-                  <p className="mt-1 text-lg font-semibold text-foreground">{m.value}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{m.sub}</p>
-                </div>
-              ))}
-            </div>
-            <p className="mb-2 text-xs font-medium tracking-wider text-muted-foreground">Renewal & occupancy trend</p>
-            <ChartContainer config={healthChartConfig} className="h-[120px] w-full">
-              <LineChart data={trendData} margin={{ left: 12, right: 12 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} />
-                <YAxis tickLine={false} axisLine={false} tickMargin={8} width={28} domain={[60, 100]} />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Line type="monotone" dataKey="renewal" stroke="hsl(var(--chart-1))" strokeWidth={2} dot={false} name="Renewal %" />
-                <Line type="monotone" dataKey="occupancy" stroke="hsl(var(--chart-2))" strokeWidth={2} dot={false} name="Occupancy %" />
-              </LineChart>
-            </ChartContainer>
-          </CardContent>
-        </Card>
-      </section>
 
       <section className="mb-8">
         <h2 className="section-title mb-4">Efficiency & capacity</h2>

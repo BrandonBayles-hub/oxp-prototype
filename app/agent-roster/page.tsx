@@ -3748,7 +3748,7 @@ const AGENT_FLYOUT_PROPERTIES = [
    Agent History & Logging — conversation logs with trace drill-down
    ═══════════════════════════════════════════════════════════════════════ */
 
-type TraceStep = {
+export type TraceStep = {
   type:
     | "instruction"
     | "tool_call"
@@ -3784,7 +3784,7 @@ type TraceStep = {
   promptExcerpt?: string;
 };
 
-type ConversationMessage = {
+export type ConversationMessage = {
   role: "resident" | "agent";
   text: string;
   timestamp: string;
@@ -3792,9 +3792,9 @@ type ConversationMessage = {
   trace?: TraceStep[];
 };
 
-type ConversationChannel = "SMS" | "Chat" | "Email" | "Voice";
+export type ConversationChannel = "SMS" | "Chat" | "Email" | "Voice";
 
-type ConversationLog = {
+export type ConversationLog = {
   id: string;
   residentName: string;
   channel: ConversationChannel;
@@ -3815,16 +3815,16 @@ type ConversationLog = {
 
 const CONVERSATION_CHANNELS: ConversationChannel[] = ["Chat", "SMS", "Voice", "Email"];
 
-function conversationChannelIcon(channel: ConversationChannel) {
+export function conversationChannelIcon(channel: ConversationChannel) {
   if (channel === "SMS") return <Phone className="h-2.5 w-2.5" />;
   if (channel === "Email") return <Mail className="h-2.5 w-2.5" />;
   if (channel === "Voice") return <Volume2 className="h-2.5 w-2.5" />;
   return <MessageSquare className="h-2.5 w-2.5" />;
 }
 
-const L4_AGENTS_PER_REPLY_TRACE = new Set(["Leasing AI", "Payments AI", "Maintenance AI", "Renewal AI"]);
+export const L4_AGENTS_PER_REPLY_TRACE = new Set(["Leasing AI", "Payments AI", "Maintenance AI", "Renewal AI"]);
 
-function countLogTraceSteps(log: ConversationLog, agentName: string): number {
+export function countLogTraceSteps(log: ConversationLog, agentName: string): number {
   if (L4_AGENTS_PER_REPLY_TRACE.has(agentName)) {
     return log.messages.reduce((sum, m) => sum + (m.role === "agent" ? (m.trace?.length ?? 0) : 0), 0);
   }
@@ -4404,22 +4404,205 @@ function generateAdditionalConversationLogs(agentName: string, propertyName: str
   return [];
 }
 
-function generateConversationLogs(agentName: string, propertyName: string): ConversationLog[] {
+export function generateConversationLogs(agentName: string, propertyName: string): ConversationLog[] {
   return [
     ...generateBaseConversationLogs(agentName, propertyName),
     ...generateAdditionalConversationLogs(agentName, propertyName),
   ];
 }
 
-function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; propertyName: string }) {
-  const logs = useMemo(() => generateConversationLogs(agentName, propertyName), [agentName, propertyName]);
-  const [selectedLog, setSelectedLog] = useState<ConversationLog | null>(null);
+/**
+ * Full conversation detail — transcript with per-reply "View Trace" drill-down,
+ * summary + monitors sidebar, and the trace Sheet. Reused by the agent roster
+ * History panel and the knowledge-hub gap conversations popup.
+ */
+export function ConversationDetailView({
+  log,
+  agentName,
+  onBack,
+}: {
+  log: ConversationLog;
+  agentName: string;
+  onBack: () => void;
+}) {
   const [traceExpanded, setTraceExpanded] = useState(true);
   const [replyTraceSheet, setReplyTraceSheet] = useState<{
     steps: TraceStep[];
     replyPreview: string;
     precedingResident: string | null;
   } | null>(null);
+
+  const l4PerReplyTraces = L4_AGENTS_PER_REPLY_TRACE.has(agentName);
+
+  const outcomeBadge = (outcome: ConversationLog["outcome"]) => {
+    if (outcome === "resolved") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+    if (outcome === "escalated") return "bg-amber-50 text-amber-700 border-amber-200";
+    return "bg-zinc-100 text-zinc-500 border-zinc-200";
+  };
+
+  return (
+    <div className="relative h-full w-full">
+      <div className="flex h-full">
+        <div className="flex-1 min-w-0 flex flex-col border-r border-border">
+          <div className="flex items-center gap-3 px-5 py-3 border-b border-border bg-white shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setReplyTraceSheet(null);
+                onBack();
+              }}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ArrowLeft className="h-3 w-3" /> All Conversations
+            </button>
+            <span className="text-xs text-border">|</span>
+            <span className="text-sm font-medium text-foreground">{log.residentName}</span>
+            <span className="inline-flex items-center gap-1 rounded-full border border-border bg-zinc-50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              {conversationChannelIcon(log.channel)}
+              {log.channel}
+            </span>
+            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${outcomeBadge(log.outcome)}`}>
+              {log.outcome}
+            </span>
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto bg-muted px-5 py-5">
+            <div className="space-y-4 max-w-2xl">
+              {log.messages.map((msg, i) => {
+                let precedingResident: string | null = null;
+                for (let j = i - 1; j >= 0; j--) {
+                  if (log.messages[j].role === "resident") {
+                    precedingResident = log.messages[j].text;
+                    break;
+                  }
+                }
+                const hasReplyTrace = l4PerReplyTraces && msg.role === "agent" && msg.trace && msg.trace.length > 0;
+                return (
+                  <div key={i} className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-medium tracking-wider text-muted-foreground">
+                        {msg.role === "resident" ? log.residentName : agentName}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground/60">{msg.timestamp}</span>
+                    </div>
+                    <div
+                      className={
+                        msg.role === "resident"
+                          ? "max-w-[85%] rounded-2xl px-3 py-2 bg-background text-foreground border border-border shadow-sm text-sm"
+                          : "max-w-full py-1 text-foreground text-sm whitespace-pre-line"
+                      }
+                    >
+                      {msg.text}
+                    </div>
+                    {hasReplyTrace && msg.trace ? (
+                      <button
+                        type="button"
+                        className="mt-1.5 self-start text-xs font-medium text-emerald-700 hover:text-emerald-800 hover:underline"
+                        onClick={() =>
+                          setReplyTraceSheet({
+                            steps: msg.trace!,
+                            replyPreview: msg.text.length > 200 ? msg.text.slice(0, 200) + "\u2026" : msg.text,
+                            precedingResident,
+                          })
+                        }
+                      >
+                        View Trace
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div className="px-5 py-3 border-t border-border bg-white shrink-0">
+            <div className="flex items-center gap-4 text-xs text-muted-foreground">
+              <span>{log.turns} turns</span>
+              <span>{log.duration}</span>
+              <span>{log.startedAt}</span>
+            </div>
+          </div>
+        </div>
+        <aside className="w-80 shrink-0 bg-white overflow-y-auto">
+          <div className="p-5 space-y-6">
+            <div>
+              <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-3">Conversation Summary</h4>
+              <p className="text-xs text-foreground leading-relaxed">{log.summary}</p>
+            </div>
+            <div>
+              <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-3">Monitors</h4>
+              <div className="space-y-1.5">
+                {log.monitors.map((m, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs">
+                    {m.passed ? <CheckCircle className="h-3.5 w-3.5 text-emerald-600 shrink-0" /> : <XCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                    <span className={m.passed ? "text-foreground" : "text-red-600 font-medium"}>{m.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {!l4PerReplyTraces && log.trace.length > 0 ? (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setTraceExpanded(!traceExpanded)}
+                  className="flex items-center justify-between w-full mb-3"
+                >
+                  <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
+                    Agent Trace ({log.trace.length} steps)
+                  </h4>
+                  <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${traceExpanded ? "" : "-rotate-90"}`} />
+                </button>
+                {traceExpanded ? <AgentTraceTimeline trace={log.trace} /> : null}
+              </div>
+            ) : null}
+            {l4PerReplyTraces ? (
+              <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3">
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Traces are attached to each {agentName} reply. Use <span className="font-medium text-foreground">View Trace</span> under a message to see tools, knowledge, and reasoning for that response.
+                </p>
+              </div>
+            ) : null}
+          </div>
+        </aside>
+      </div>
+
+      {l4PerReplyTraces ? (
+        <Sheet open={replyTraceSheet !== null} onOpenChange={(open) => { if (!open) setReplyTraceSheet(null); }}>
+          <SheetContent className="z-[120] flex w-full flex-col overflow-y-auto sm:max-w-3xl">
+            <SheetHeader>
+              <SheetTitle>Trace for this reply</SheetTitle>
+              <SheetDescription>Steps and context that led to this {agentName} response.</SheetDescription>
+            </SheetHeader>
+            {replyTraceSheet ? (
+              <div className="mt-6 space-y-5">
+                {replyTraceSheet.precedingResident ? (
+                  <div className="rounded-lg border border-border bg-muted/50 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Resident message (context)</p>
+                    <p className="text-xs text-foreground leading-relaxed whitespace-pre-line">{replyTraceSheet.precedingResident}</p>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Proactive agent message — there is no prior resident turn in this thread for this reply.
+                  </p>
+                )}
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Agent reply</p>
+                  <p className="text-xs text-foreground leading-relaxed whitespace-pre-line">{replyTraceSheet.replyPreview}</p>
+                </div>
+                <div>
+                  <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-3">Execution trace</h4>
+                  <AgentTraceTimeline trace={replyTraceSheet.steps} />
+                </div>
+              </div>
+            ) : null}
+          </SheetContent>
+        </Sheet>
+      ) : null}
+    </div>
+  );
+}
+
+function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; propertyName: string }) {
+  const logs = useMemo(() => generateConversationLogs(agentName, propertyName), [agentName, propertyName]);
+  const [selectedLog, setSelectedLog] = useState<ConversationLog | null>(null);
 
   const [residentQuery, setResidentQuery] = useState("");
   const [dateFrom, setDateFrom] = useState<string>("");
@@ -4473,7 +4656,11 @@ function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; pro
     });
   }, [logs, residentQuery, dateFrom, dateTo, channelFilter, escalatedOnly]);
 
-  const l4PerReplyTraces = L4_AGENTS_PER_REPLY_TRACE.has(agentName);
+  const sentimentBadge = (s: ConversationLog["sentiment"]) => {
+    if (s === "positive") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+    if (s === "negative") return "bg-red-50 text-red-700 border-red-200";
+    return "bg-zinc-100 text-zinc-500 border-zinc-200";
+  };
 
   const outcomeBadge = (outcome: ConversationLog["outcome"]) => {
     if (outcome === "resolved") return "bg-emerald-50 text-emerald-700 border-emerald-200";
@@ -4481,170 +4668,13 @@ function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; pro
     return "bg-zinc-100 text-zinc-500 border-zinc-200";
   };
 
-  const sentimentBadge = (s: ConversationLog["sentiment"]) => {
-    if (s === "positive") return "bg-emerald-50 text-emerald-700 border-emerald-200";
-    if (s === "negative") return "bg-red-50 text-red-700 border-red-200";
-    return "bg-zinc-100 text-zinc-500 border-zinc-200";
-  };
-
   if (selectedLog) {
     return (
-      <div className="relative h-full w-full">
-        <div className="flex h-full">
-          <div className="flex-1 min-w-0 flex flex-col border-r border-border">
-            <div className="flex items-center gap-3 px-5 py-3 border-b border-border bg-white shrink-0">
-              <button
-                type="button"
-                onClick={() => {
-                  setReplyTraceSheet(null);
-                  setSelectedLog(null);
-                }}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <ArrowLeft className="h-3 w-3" /> All Conversations
-              </button>
-              <span className="text-xs text-border">|</span>
-              <span className="text-sm font-medium text-foreground">{selectedLog.residentName}</span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-border bg-zinc-50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                {conversationChannelIcon(selectedLog.channel)}
-                {selectedLog.channel}
-              </span>
-              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${outcomeBadge(selectedLog.outcome)}`}>
-                {selectedLog.outcome}
-              </span>
-            </div>
-            <div className="flex-1 min-h-0 overflow-y-auto bg-muted px-5 py-5">
-              <div className="space-y-4 max-w-2xl">
-                {selectedLog.messages.map((msg, i) => {
-                  let precedingResident: string | null = null;
-                  for (let j = i - 1; j >= 0; j--) {
-                    if (selectedLog.messages[j].role === "resident") {
-                      precedingResident = selectedLog.messages[j].text;
-                      break;
-                    }
-                  }
-                  const hasReplyTrace = l4PerReplyTraces && msg.role === "agent" && msg.trace && msg.trace.length > 0;
-                  return (
-                    <div key={i} className="flex flex-col gap-0.5">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-medium tracking-wider text-muted-foreground">
-                          {msg.role === "resident" ? selectedLog.residentName : agentName}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground/60">{msg.timestamp}</span>
-                      </div>
-                      <div
-                        className={
-                          msg.role === "resident"
-                            ? "max-w-[85%] rounded-2xl px-3 py-2 bg-background text-foreground border border-border shadow-sm text-sm"
-                            : "max-w-full py-1 text-foreground text-sm whitespace-pre-line"
-                        }
-                      >
-                        {msg.text}
-                      </div>
-                      {hasReplyTrace && msg.trace ? (
-                        <button
-                          type="button"
-                          className="mt-1.5 self-start text-xs font-medium text-emerald-700 hover:text-emerald-800 hover:underline"
-                          onClick={() =>
-                            setReplyTraceSheet({
-                              steps: msg.trace!,
-                              replyPreview: msg.text.length > 200 ? msg.text.slice(0, 200) + "\u2026" : msg.text,
-                              precedingResident,
-                            })
-                          }
-                        >
-                          View Trace
-                        </button>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="px-5 py-3 border-t border-border bg-white shrink-0">
-              <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                <span>{selectedLog.turns} turns</span>
-                <span>{selectedLog.duration}</span>
-                <span>{selectedLog.startedAt}</span>
-              </div>
-            </div>
-          </div>
-          <aside className="w-80 shrink-0 bg-white overflow-y-auto">
-            <div className="p-5 space-y-6">
-              <div>
-                <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-3">Conversation Summary</h4>
-                <p className="text-xs text-foreground leading-relaxed">{selectedLog.summary}</p>
-              </div>
-              <div>
-                <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-3">Monitors</h4>
-                <div className="space-y-1.5">
-                  {selectedLog.monitors.map((m, i) => (
-                    <div key={i} className="flex items-center gap-2 text-xs">
-                      {m.passed ? <CheckCircle className="h-3.5 w-3.5 text-emerald-600 shrink-0" /> : <XCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />}
-                      <span className={m.passed ? "text-foreground" : "text-red-600 font-medium"}>{m.label}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              {!l4PerReplyTraces && selectedLog.trace.length > 0 ? (
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => setTraceExpanded(!traceExpanded)}
-                    className="flex items-center justify-between w-full mb-3"
-                  >
-                    <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
-                      Agent Trace ({selectedLog.trace.length} steps)
-                    </h4>
-                    <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${traceExpanded ? "" : "-rotate-90"}`} />
-                  </button>
-                  {traceExpanded ? <AgentTraceTimeline trace={selectedLog.trace} /> : null}
-                </div>
-              ) : null}
-              {l4PerReplyTraces ? (
-                <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3">
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">
-                    Traces are attached to each {agentName} reply. Use <span className="font-medium text-foreground">View Trace</span> under a message to see tools, knowledge, and reasoning for that response.
-                  </p>
-                </div>
-              ) : null}
-            </div>
-          </aside>
-        </div>
-
-        {l4PerReplyTraces ? (
-          <Sheet open={replyTraceSheet !== null} onOpenChange={(open) => { if (!open) setReplyTraceSheet(null); }}>
-            <SheetContent className="flex w-full flex-col overflow-y-auto sm:max-w-3xl">
-              <SheetHeader>
-                <SheetTitle>Trace for this reply</SheetTitle>
-                <SheetDescription>Steps and context that led to this {agentName} response.</SheetDescription>
-              </SheetHeader>
-              {replyTraceSheet ? (
-                <div className="mt-6 space-y-5">
-                  {replyTraceSheet.precedingResident ? (
-                    <div className="rounded-lg border border-border bg-muted/50 p-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Resident message (context)</p>
-                      <p className="text-xs text-foreground leading-relaxed whitespace-pre-line">{replyTraceSheet.precedingResident}</p>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      Proactive agent message — there is no prior resident turn in this thread for this reply.
-                    </p>
-                  )}
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Agent reply</p>
-                    <p className="text-xs text-foreground leading-relaxed whitespace-pre-line">{replyTraceSheet.replyPreview}</p>
-                  </div>
-                  <div>
-                    <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-3">Execution trace</h4>
-                    <AgentTraceTimeline trace={replyTraceSheet.steps} />
-                  </div>
-                </div>
-              ) : null}
-            </SheetContent>
-          </Sheet>
-        ) : null}
-      </div>
+      <ConversationDetailView
+        log={selectedLog}
+        agentName={agentName}
+        onBack={() => setSelectedLog(null)}
+      />
     );
   }
 
@@ -5042,6 +5072,10 @@ function AgentToneSection({
 
   const hasPropertyOverride = !!propOvr;
 
+  // Do's/Don'ts now live in the Agent Knowledge Hub (General Knowledge), so they
+  // are hidden here. Flag retained so the UI can be restored if that changes.
+  const showDosDonts = false;
+
   // ─── Editor state ────────────────────────────────────────────────────────
   const [editing, setEditing] = useState(false);
   const [draftPersona, setDraftPersona] = useState(persona.value);
@@ -5141,50 +5175,52 @@ function AgentToneSection({
 
           <div className="rounded-xl border border-border bg-white p-5">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-sm font-semibold text-foreground">Agent Tone & Instructions</p>
+              <p className="text-sm font-semibold text-foreground">Agent Tone Guidelines</p>
               <SourceBadge source={guidelines.source} />
             </div>
             <p className="text-sm text-muted-foreground whitespace-pre-wrap">{guidelines.value || "Not configured"}</p>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="rounded-xl border border-border bg-white p-5">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-semibold text-emerald-700">Do&apos;s</p>
-                <SourceBadge source={doList.source} />
+          {showDosDonts && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="rounded-xl border border-border bg-white p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold text-emerald-700">Do&apos;s</p>
+                  <SourceBadge source={doList.source} />
+                </div>
+                {doList.value.length > 0 ? (
+                  <ul className="space-y-1.5">
+                    {doList.value.map((item, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                        <CheckCircle className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No items configured</p>
+                )}
               </div>
-              {doList.value.length > 0 ? (
-                <ul className="space-y-1.5">
-                  {doList.value.map((item, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
-                      <CheckCircle className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-sm text-muted-foreground">No items configured</p>
-              )}
-            </div>
-            <div className="rounded-xl border border-border bg-white p-5">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-semibold text-red-700">Don&apos;ts</p>
-                <SourceBadge source={dontList.source} />
+              <div className="rounded-xl border border-border bg-white p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold text-red-700">Don&apos;ts</p>
+                  <SourceBadge source={dontList.source} />
+                </div>
+                {dontList.value.length > 0 ? (
+                  <ul className="space-y-1.5">
+                    {dontList.value.map((item, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                        <XCircle className="h-3.5 w-3.5 text-red-500 mt-0.5 shrink-0" />
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No items configured</p>
+                )}
               </div>
-              {dontList.value.length > 0 ? (
-                <ul className="space-y-1.5">
-                  {dontList.value.map((item, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
-                      <XCircle className="h-3.5 w-3.5 text-red-500 mt-0.5 shrink-0" />
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-sm text-muted-foreground">No items configured</p>
-              )}
             </div>
-          </div>
+          )}
         </div>
       )}
 
@@ -5220,7 +5256,7 @@ function AgentToneSection({
 
             <div>
               <label className="mb-1 block text-sm font-medium text-foreground">
-                Agent Tone &amp; Instructions
+                Agent Tone Guidelines
               </label>
               <textarea
                 value={draftGuidelines}
@@ -5234,24 +5270,26 @@ function AgentToneSection({
               </p>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <ToneListEditor
-                title="Do's"
-                items={draftDos}
-                onChange={setDraftDos}
-                accent="emerald"
-                placeholder="Add a Do…"
-                inheritedSource={doList.source}
-              />
-              <ToneListEditor
-                title="Don'ts"
-                items={draftDonts}
-                onChange={setDraftDonts}
-                accent="red"
-                placeholder="Add a Don't…"
-                inheritedSource={dontList.source}
-              />
-            </div>
+            {showDosDonts && (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <ToneListEditor
+                  title="Do's"
+                  items={draftDos}
+                  onChange={setDraftDos}
+                  accent="emerald"
+                  placeholder="Add a Do…"
+                  inheritedSource={doList.source}
+                />
+                <ToneListEditor
+                  title="Don'ts"
+                  items={draftDonts}
+                  onChange={setDraftDonts}
+                  accent="red"
+                  placeholder="Add a Don't…"
+                  inheritedSource={dontList.source}
+                />
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-3">

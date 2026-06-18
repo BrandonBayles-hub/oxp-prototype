@@ -49,6 +49,13 @@ import {
 import { PropertySelector } from "@/components/property-filter";
 import { PROPERTY_FILTER_DATA } from "@/lib/voice-properties";
 import {
+  generateConversationLogs,
+  conversationChannelIcon,
+  countLogTraceSteps,
+  ConversationDetailView,
+  type ConversationLog,
+} from "@/app/agent-roster/page";
+import {
   Plus,
   Search,
   Sparkles,
@@ -87,7 +94,13 @@ import {
   FileText,
   Loader2,
   BookOpen,
+  LayoutGrid,
+  Boxes,
+  DoorOpen,
+  Check,
+  Library,
 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { useVault, type VaultItem } from "@/lib/vault-context";
 
@@ -95,7 +108,7 @@ import { useVault, type VaultItem } from "@/lib/vault-context";
  * 1) Types
  * ──────────────────────────────────────────────────────────── */
 
-type EntryType = "factual" | "clarification" | "suppression" | "procedure";
+type EntryType = "factual" | "general" | "suppression" | "procedure";
 type EntryStatus = "approved" | "in_review" | "draft" | "suppressed" | "archived";
 type EntrySource = "manual" | "ai_suggested" | "from_conversation" | "pms";
 type CategoryGroup = "pms_mirror" | "hub_only";
@@ -114,7 +127,8 @@ type HubCategory =
   | "local_context"
   | "seasonal"
   | "escalation_rules"
-  | "guardrails";
+  | "guardrails"
+  | "general";
 type Category = MirrorCategory | HubCategory;
 
 type AgentName = "Leasing AI" | "Renewals AI" | "Maintenance AI" | "Payments AI";
@@ -129,6 +143,17 @@ interface KnowledgeVersion {
   body?: string;
 }
 
+/**
+ * Optional location targeting for property-scoped knowledge. When any list has
+ * entries, the knowledge applies ONLY to those locations rather than the whole
+ * property. Empty (or undefined) means it applies to the entire property.
+ */
+interface PropertyLocationTargets {
+  floorPlans: string[];
+  unitTypes: string[];
+  units: string[];
+}
+
 interface KnowledgeEntry {
   id: string;
   type: EntryType;
@@ -139,6 +164,13 @@ interface KnowledgeEntry {
   status: EntryStatus;
   source: EntrySource;
   scope: "portfolio" | "property";
+  /**
+   * For scope "property", the property this entry belongs to. Legacy/seed
+   * entries without this field are treated as the default property.
+   */
+  property?: string;
+  /** When scope is "property", optionally narrows to specific locations. */
+  appliesTo?: PropertyLocationTargets;
   overridesPortfolio?: { label: string; portfolioValue: string };
   owner: string;
   version: number;
@@ -190,6 +222,8 @@ interface AddPrefill {
   origin?: string;
   /** Agents that should use this knowledge — prefilled when editing or drafting from a gap/suggestion. */
   agents?: AgentName[];
+  /** Location targeting prefilled when editing an existing property-scoped entry. */
+  appliesTo?: PropertyLocationTargets;
   /** When set, submitting edits this existing entry in place (new version) instead of creating a new row. */
   editId?: string;
 }
@@ -216,6 +250,16 @@ const TYPE_META: Record<
     blurb: string; // shown on the type picker
   }
 > = {
+  general: {
+    label: "General Knowledge",
+    plural: "General Knowledge",
+    icon: Library,
+    badge: "bg-teal-50 text-teal-800 ring-1 ring-inset ring-teal-200",
+    accent: "bg-teal-50/60 border-teal-200",
+    usageVerb: "used",
+    blurb:
+      "A broad, freeform body of knowledge — from a few lines to thousands. Catch-all reference the AI can draw on across a portfolio, property, or specific locations.",
+  },
   factual: {
     label: "Factual",
     plural: "Factual",
@@ -225,14 +269,14 @@ const TYPE_META: Record<
     usageVerb: "used",
     blurb: "A true thing the AI can share — wayfinding, dimensions, amenities, local context.",
   },
-  clarification: {
-    label: "Clarification",
-    plural: "Clarifications",
-    icon: Wand2,
-    badge: "bg-purple-50 text-purple-800 ring-1 ring-inset ring-purple-200",
-    accent: "bg-purple-50/60 border-purple-200",
-    usageVerb: "used",
-    blurb: "The PMS says one thing — the real answer differs. The AI prefers this.",
+  procedure: {
+    label: "Procedure / Instructions",
+    plural: "Procedures / Instructions",
+    icon: ListChecks,
+    badge: "bg-amber-50 text-amber-900 ring-1 ring-inset ring-amber-200",
+    accent: "bg-amber-50/60 border-amber-200",
+    usageVerb: "triggered",
+    blurb: "Named triggers + ordered steps or instructions for sensitive situations and escalations.",
   },
   suppression: {
     label: "Guardrail",
@@ -242,15 +286,6 @@ const TYPE_META: Record<
     accent: "bg-red-50/60 border-red-200",
     usageVerb: "blocked",
     blurb: "A topic the AI must NOT discuss — with a redirect for the prospect.",
-  },
-  procedure: {
-    label: "Procedure",
-    plural: "Procedures",
-    icon: ListChecks,
-    badge: "bg-amber-50 text-amber-900 ring-1 ring-inset ring-amber-200",
-    accent: "bg-amber-50/60 border-amber-200",
-    usageVerb: "triggered",
-    blurb: "Named triggers + ordered steps for sensitive situations and escalations.",
   },
 };
 
@@ -308,6 +343,7 @@ const CATEGORY_META: Record<
   seasonal: { label: "Seasonal", group: "hub_only", icon: Calendar },
   escalation_rules: { label: "Escalation rules", group: "hub_only", icon: GitBranch },
   guardrails: { label: "Guardrails", group: "hub_only", icon: ShieldOff },
+  general: { label: "General knowledge", group: "hub_only", icon: Library },
 };
 
 const MIRROR_CATEGORIES: MirrorCategory[] = [
@@ -321,6 +357,7 @@ const MIRROR_CATEGORIES: MirrorCategory[] = [
   "faqs",
 ];
 const HUB_CATEGORIES: HubCategory[] = [
+  "general",
   "wayfinding",
   "local_context",
   "seasonal",
@@ -339,10 +376,97 @@ const IMPACT_META: Record<
 
 const TYPE_DEFAULT_CATEGORY: Record<EntryType, Category> = {
   factual: "faqs",
-  clarification: "pricing",
+  general: "general",
   suppression: "guardrails",
   procedure: "escalation_rules",
 };
+
+/**
+ * Lightweight, keyword-driven classifier that "synthesizes" what kind of
+ * knowledge the author wrote so the form can pre-pick a type. This is a
+ * prototype stand-in for a real LLM classification call: it scans the title +
+ * body for signal phrases, scores each type, and returns the best match plus a
+ * short human-readable rationale. Defaults to "factual" when nothing matches.
+ */
+function classifyKnowledge(
+  title: string,
+  body: string
+): { type: EntryType; rationale: string } {
+  const text = `${title}\n${body}`.toLowerCase();
+  const has = (...needles: string[]) => needles.some((n) => text.includes(n));
+
+  // Guardrail / suppression — the AI should NOT discuss something.
+  if (
+    has(
+      "don't discuss",
+      "do not discuss",
+      "don't mention",
+      "do not mention",
+      "never say",
+      "never mention",
+      "not discuss",
+      "must not",
+      "can't share",
+      "cannot share",
+      "avoid discussing",
+      "under legal review",
+      "legal review",
+      "off-limits",
+      "off limits",
+      "suppress",
+      "do not speculate",
+      "redirect to",
+      "hand off"
+    )
+  ) {
+    return {
+      type: "suppression",
+      rationale: "Mentions a topic the AI should avoid or redirect away from.",
+    };
+  }
+
+  // Procedure — ordered steps / triggers / escalation handling.
+  if (
+    has(
+      "step 1",
+      "step one",
+      "1.",
+      "2.",
+      "first,",
+      "then,",
+      "follow these",
+      "process",
+      "procedure",
+      "escalat",
+      "trigger",
+      "workflow",
+      "when this happens",
+      "if a resident",
+      "if a prospect"
+    )
+  ) {
+    return {
+      type: "procedure",
+      rationale: "Reads like ordered steps or a triggered escalation flow.",
+    };
+  }
+
+  // General knowledge — a large, freeform body of reference content. We treat
+  // length as the signal: long or multi-paragraph write-ups are better kept as
+  // catch-all general knowledge than as a single tight fact.
+  const lineCount = body.split("\n").filter((l) => l.trim().length > 0).length;
+  if (body.trim().length > 600 || lineCount >= 8) {
+    return {
+      type: "general",
+      rationale: "A large, freeform body of reference — best kept as general knowledge.",
+    };
+  }
+
+  return {
+    type: "factual",
+    rationale: "Reads like a straightforward fact the AI can share.",
+  };
+}
 
 const DEFAULT_PROPERTY = "Sunset Ridge Apartments";
 
@@ -352,8 +476,127 @@ const DEFAULT_PROPERTY = "Sunset Ridge Apartments";
 
 const SEED_ENTRIES: KnowledgeEntry[] = [
   {
+    id: "gk-portfolio",
+    type: "general",
+    group: "hub_only",
+    category: "general",
+    title: "Coastal Holdings resident experience playbook",
+    body:
+      "This is the shared reference every Coastal Holdings community draws on. Treat it as background the AI can pull from when no more specific property answer exists.\n\nWho we are: Coastal Holdings manages conventional multifamily communities across the West Coast. We compete on responsiveness and warmth, not the lowest price. When in doubt, be helpful, concrete, and human.\n\nVoice & tone: Friendly, professional, and concise. Use the resident's first name when known. Avoid jargon and never sound like a form letter. It's fine to show a little personality.\n\nService standards: Acknowledge every inbound message, even if the full answer takes longer. Tours and leasing questions get a same-day reply. Maintenance requests are confirmed with a ticket number. Anything involving safety, legal, or money disputes is escalated to onsite staff rather than answered with a guess.\n\nWhat we promise residents: Transparent pricing with no surprise fees, flexible self-guided and live tour options, and a 24/7 path to reach a human for emergencies. We honor quoted prices for 48 hours.\n\nWhat we never do: Make up policies, quote availability we can't confirm, or discuss another resident's account. If a question touches fair housing, income qualification, or accommodations, stay neutral and route to staff.",
+    status: "approved",
+    source: "manual",
+    scope: "portfolio",
+    owner: "Corporate",
+    version: 2,
+    history: [
+      {
+        version: 2,
+        date: "Jun 02, 2026",
+        author: "Corporate",
+        note: "Added 48-hour price-hold and escalation guidance.",
+        title: "Coastal Holdings resident experience playbook",
+        body: "Shared brand voice, service standards, and guardrails for every Coastal Holdings community.",
+      },
+      {
+        version: 1,
+        date: "Jan 15, 2026",
+        author: "Corporate",
+        note: "Initial portfolio playbook.",
+        title: "Coastal Holdings resident experience playbook",
+        body: "Shared brand voice and service standards for every Coastal Holdings community.",
+      },
+    ],
+    usageCount: 63,
+    updatedAt: "Jun 02, 2026",
+    agents: ["Leasing AI", "Renewals AI", "Maintenance AI", "Payments AI"],
+  },
+  {
+    id: "gk-sunset",
+    type: "general",
+    group: "hub_only",
+    category: "general",
+    title: "Sunset Ridge community & neighborhood guide",
+    body:
+      "Background the agents can draw on for prospect and resident questions about Sunset Ridge Apartments and the surrounding area.\n\nThe community: 240 units in California, a mix of studios through 3-bedrooms set around two landscaped courtyards. The vibe is quiet and professional — a lot of remote workers and young families. Built in 2019, so finishes are modern (quartz counters, stainless appliances, in-unit washer/dryer in most homes).\n\nAmenities residents love: resort-style pool and spa, a 24/7 fitness center, two co-working lounges with fast Wi-Fi, a dog park and on-site pet spa, and a package room with smart lockers. Covered and reserved parking are available for an added fee.\n\nNeighborhood: Walkable to the Ridgeline shopping center (grocery, coffee, a handful of restaurants) about 8 minutes on foot. The 24 bus stops at the corner and connects to the downtown transit hub in ~20 minutes. Highway 101 is a 5-minute drive.\n\nSchools & families: Zoned for Oakmont Elementary, Pinecrest Middle, and Sunset High — all rated well. The library and a large community park are within a mile.\n\nGood to know: The leasing office is open Mon–Sat; tours can also be self-guided after hours. The community is smoke-free, and quiet hours run 10pm–7am.",
+    status: "approved",
+    source: "manual",
+    scope: "property",
+    property: "Sunset Ridge Apartments",
+    owner: "J. Ruiz",
+    version: 1,
+    history: [
+      {
+        version: 1,
+        date: "May 28, 2026",
+        author: "J. Ruiz",
+        note: "Initial community & neighborhood guide.",
+        title: "Sunset Ridge community & neighborhood guide",
+        body: "Property overview, amenities, neighborhood, and schools for Sunset Ridge Apartments.",
+      },
+    ],
+    usageCount: 38,
+    updatedAt: "May 28, 2026",
+    agents: ["Leasing AI", "Renewals AI"],
+  },
+  {
+    id: "gk-reserve",
+    type: "general",
+    group: "hub_only",
+    category: "general",
+    title: "The Reserve at Millcreek — property overview & local area",
+    body:
+      "Reference material for prospects and residents asking about The Reserve at Millcreek.\n\nThe community: 180 units in Millcreek, Utah, tucked against the foothills. Newer garden-style buildings with mountain views from the upper floors. Popular with outdoor enthusiasts and commuters into Salt Lake City.\n\nAmenities: heated saltwater pool, clubhouse with a coffee bar, EV charging stations in the main lot, ski/bike storage rooms, and a fenced bark park. Many homes have private balconies and gas fireplaces.\n\nNeighborhood: Five minutes from the Millcreek Common shops and dining. Quick canyon access for hiking and skiing — Brighton and Solitude are roughly a 35–45 minute drive. I-215 is close for the commute downtown (about 20 minutes off-peak).\n\nSeasonal notes: Winters bring snow; the community plows lots and sidewalks by 7am and salts entries. Remind residents about winter parking rules during storms so plows can clear the lots.\n\nGood to know: Pet-friendly with breed and weight specifics handled by staff. The office is open Mon–Fri plus Saturday mornings.",
+    status: "approved",
+    source: "manual",
+    scope: "property",
+    property: "The Reserve at Millcreek",
+    owner: "M. Olsen",
+    version: 1,
+    history: [
+      {
+        version: 1,
+        date: "Jun 05, 2026",
+        author: "M. Olsen",
+        note: "Initial overview for The Reserve at Millcreek.",
+        title: "The Reserve at Millcreek — property overview & local area",
+        body: "Property overview, amenities, and local-area context for The Reserve at Millcreek.",
+      },
+    ],
+    usageCount: 21,
+    updatedAt: "Jun 05, 2026",
+    agents: ["Leasing AI", "Renewals AI", "Maintenance AI"],
+  },
+  {
+    id: "gk-parkside",
+    type: "general",
+    group: "hub_only",
+    category: "general",
+    title: "Parkside Lofts building guide & resident know-how",
+    body:
+      "Background for questions about living at Parkside Lofts.\n\nThe community: 96 loft-style units in a converted warehouse in Portland, Oregon. High ceilings, exposed brick, oversized windows, and polished concrete floors. Draws creatives and professionals who want a true loft feel close to downtown.\n\nBuilding quirks worth knowing: It's an adaptive-reuse building, so layouts vary unit to unit and a few homes have sleeping lofts reached by ladder or open stairs. Sound carries more than in standard wood-frame construction — worth mentioning to noise-sensitive prospects.\n\nAmenities: rooftop deck with skyline views, secure bike room and repair station, a small fitness studio, and ground-floor retail (a cafe and a bakery). Parking is limited; the building uses a waitlist for the underground garage and there's metered street parking nearby.\n\nNeighborhood: Steps from the Parkside light-rail stop, the riverfront path, and Sunday farmers' market. Walk Score is high — most errands are done on foot.\n\nGood to know: No central AC in the original units; portable units are allowed per the lease. The freight elevator is the move-in path and must be reserved with the office.",
+    status: "approved",
+    source: "manual",
+    scope: "property",
+    property: "Parkside Lofts",
+    owner: "D. Nguyen",
+    version: 1,
+    history: [
+      {
+        version: 1,
+        date: "Jun 09, 2026",
+        author: "D. Nguyen",
+        note: "Initial building guide for Parkside Lofts.",
+        title: "Parkside Lofts building guide & resident know-how",
+        body: "Building character, amenities, and neighborhood context for Parkside Lofts.",
+      },
+    ],
+    usageCount: 12,
+    updatedAt: "Jun 09, 2026",
+    agents: ["Leasing AI", "Maintenance AI"],
+  },
+  {
     id: "e-1",
-    type: "clarification",
+    type: "factual",
     group: "pms_mirror",
     category: "pet_rules",
     title: "Pet rent waived for current employees",
@@ -703,7 +946,7 @@ const SEED_GAPS: KnowledgeGap[] = [
     staffAnswer: "Credit card accepted in the portal with a 2.95% fee. ACH is free.",
     conflicting: true,
     conflictNote: "Staff disagree: 3 said 'yes, with a fee', 6 said 'no, ACH only'. Resolve before publishing.",
-    suggestedType: "clarification",
+    suggestedType: "factual",
     suggestedCategory: "pricing",
   },
   {
@@ -752,7 +995,7 @@ const SEED_SUGGESTIONS: SuggestedEntry[] = [
     proposedTitle: "Renewal offers go out 90 days before lease end",
     proposedBody:
       "The agent repeatedly cited a 60-day window, but staff corrected it to 90 days in 3 conversations. Suggest updating to 90 days.",
-    suggestedType: "clarification",
+    suggestedType: "factual",
     suggestedCategory: "policies",
     confidence: 0.78,
     agent: "Renewals AI",
@@ -884,6 +1127,239 @@ function AgentChip({ agent }: { agent: AgentName }) {
   );
 }
 
+/* ──────────────────────────────────────────────────────────────
+ * Property location targeting — mock Entrata floor plans / unit
+ * types / units that a property-scoped entry can be narrowed to.
+ * ──────────────────────────────────────────────────────────── */
+
+const FLOOR_PLANS: string[] = [
+  "A1 · Studio",
+  "A2 · Studio Deluxe",
+  "B1 · 1 Bed / 1 Bath",
+  "B2 · 1 Bed + Den",
+  "C1 · 2 Bed / 2 Bath",
+  "C2 · 2 Bed Townhome",
+  "D1 · 3 Bed / 2 Bath",
+];
+
+const UNIT_TYPES: string[] = [
+  "Studio",
+  "1 Bedroom",
+  "2 Bedroom",
+  "3 Bedroom",
+  "Townhome",
+  "Live/Work Loft",
+];
+
+const UNITS: string[] = [
+  "Bldg A · 101",
+  "Bldg A · 102",
+  "Bldg A · 103",
+  "Bldg A · 201",
+  "Bldg A · 202",
+  "Bldg B · 110",
+  "Bldg B · 111",
+  "Bldg B · 210",
+  "Bldg B · 305",
+  "Bldg C · 120",
+  "Bldg C · 121",
+  "Bldg C · 220",
+  "Bldg C · 320",
+  "Bldg D · 130",
+  "Bldg D · 230",
+  "Bldg D · 330",
+];
+
+type LocationKind = "floorPlan" | "unitType" | "unit";
+
+const LOCATION_CONFIG: Record<
+  LocationKind,
+  {
+    label: string;
+    plural: string;
+    icon: React.ComponentType<{ className?: string }>;
+    options: string[];
+    tone: string;
+    chipTone: string;
+  }
+> = {
+  floorPlan: {
+    label: "Floor plan",
+    plural: "floor plans",
+    icon: LayoutGrid,
+    options: FLOOR_PLANS,
+    tone: "bg-sky-50 text-sky-700 ring-sky-200",
+    chipTone: "bg-sky-50 text-sky-700 ring-sky-200",
+  },
+  unitType: {
+    label: "Unit type",
+    plural: "unit types",
+    icon: Boxes,
+    options: UNIT_TYPES,
+    tone: "bg-violet-50 text-violet-700 ring-violet-200",
+    chipTone: "bg-violet-50 text-violet-700 ring-violet-200",
+  },
+  unit: {
+    label: "Unit",
+    plural: "units",
+    icon: DoorOpen,
+    options: UNITS,
+    tone: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+    chipTone: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  },
+};
+
+/**
+ * A pill-styled trigger (mirrors the agent chips) that opens a searchable,
+ * multi-select checklist of locations of one kind (floor plans / unit types /
+ * units). Selected entries surface as removable chips beside it.
+ */
+function LocationMultiSelect({
+  kind,
+  selected,
+  onToggle,
+}: {
+  kind: LocationKind;
+  selected: string[];
+  onToggle: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const cfg = LOCATION_CONFIG[kind];
+  const Icon = cfg.icon;
+  const count = selected.length;
+  const filtered = cfg.options.filter((o) =>
+    o.toLowerCase().includes(query.trim().toLowerCase())
+  );
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(v) => {
+        setOpen(v);
+        if (!v) setQuery("");
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+            count > 0
+              ? cn("ring-1 ring-inset border-transparent", cfg.tone)
+              : "border-border bg-background text-muted-foreground hover:border-foreground/30 hover:text-foreground"
+          )}
+        >
+          <Icon className="h-3.5 w-3.5" />
+          {cfg.label}
+          {count > 0 ? (
+            <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white/70 px-1 text-[10px] font-semibold">
+              {count}
+            </span>
+          ) : (
+            <Plus className="h-3.5 w-3.5" />
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-72 p-0">
+        <div className="border-b border-border p-2">
+          <div className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2">
+            <Search className="h-3.5 w-3.5 text-muted-foreground" />
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={`Search ${cfg.plural}…`}
+              className="h-7 w-full bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+            />
+          </div>
+        </div>
+        <div className="max-h-56 overflow-y-auto p-1">
+          {filtered.length === 0 ? (
+            <p className="px-2 py-4 text-center text-xs text-muted-foreground">
+              No {cfg.plural} match “{query}”.
+            </p>
+          ) : (
+            filtered.map((o) => {
+              const checked = selected.includes(o);
+              return (
+                <button
+                  key={o}
+                  type="button"
+                  onClick={() => onToggle(o)}
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-muted"
+                >
+                  <span
+                    className={cn(
+                      "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                      checked
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-background"
+                    )}
+                  >
+                    {checked && <Check className="h-3 w-3" />}
+                  </span>
+                  <span className="truncate">{o}</span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** Removable chip representing one selected location target. */
+function LocationChip({
+  kind,
+  value,
+  onRemove,
+}: {
+  kind: LocationKind;
+  value: string;
+  onRemove: () => void;
+}) {
+  const cfg = LOCATION_CONFIG[kind];
+  const Icon = cfg.icon;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset",
+        cfg.chipTone
+      )}
+    >
+      <Icon className="h-3 w-3" />
+      {value}
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`Remove ${value}`}
+        className="ml-0.5 rounded-full p-0.5 hover:bg-black/10"
+      >
+        <XIcon className="h-3 w-3" />
+      </button>
+    </span>
+  );
+}
+
+/** Read-only variant of a location chip used in the entry detail view. */
+function LocationChipStatic({ kind, value }: { kind: LocationKind; value: string }) {
+  const cfg = LOCATION_CONFIG[kind];
+  const Icon = cfg.icon;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset",
+        cfg.chipTone
+      )}
+    >
+      <Icon className="h-3 w-3" />
+      {value}
+    </span>
+  );
+}
+
 function SegmentedRow<T extends string>({
   options,
   value,
@@ -959,7 +1435,9 @@ export default function AgentKnowledgeHubPage() {
 
   // Derived counts (use full entries set, not filtered, for the cascade strip)
   const portfolioTotal = entries.filter((e) => e.scope === "portfolio").length;
-  const propertyTotal = entries.filter((e) => e.scope === "property").length;
+  const propertyTotal = entries.filter(
+    (e) => e.scope === "property" && (e.property ?? DEFAULT_PROPERTY) === property
+  ).length;
   const propertyOverrides = entries.filter((e) => !!e.overridesPortfolio).length;
   const pendingReviewCount = entries.filter((e) => e.status === "in_review").length;
 
@@ -979,7 +1457,9 @@ export default function AgentKnowledgeHubPage() {
   }, [entries, search, typeFilter, statusFilter, agentFilter]);
 
   const portfolioFiltered = filtered.filter((e) => e.scope === "portfolio");
-  const propertyFiltered = filtered.filter((e) => e.scope === "property");
+  const propertyFiltered = filtered.filter(
+    (e) => e.scope === "property" && (e.property ?? DEFAULT_PROPERTY) === property
+  );
 
   // Visible-after-level-filter (the cascade tiles act as scope filters)
   const showPortfolio = levelFilter === "all" || levelFilter === "portfolio";
@@ -1015,6 +1495,7 @@ export default function AgentKnowledgeHubPage() {
           title: e.title,
           body: e.body,
           scope: e.scope,
+          appliesTo: e.appliesTo,
           agents: e.agents,
           status: "in_review",
           owner: "You",
@@ -1303,7 +1784,7 @@ export default function AgentKnowledgeHubPage() {
         </TabsContent>
 
         <TabsContent value="gaps" className="space-y-4">
-          <GapsTab gaps={gaps} onDismiss={dismissGap} onDraft={draftFromGap} />
+          <GapsTab gaps={gaps} onDismiss={dismissGap} onDraft={draftFromGap} propertyName={property} />
         </TabsContent>
 
         {/* Suggested tab content — hidden for now, re-enable when needed */}
@@ -1340,13 +1821,14 @@ export default function AgentKnowledgeHubPage() {
         onEdit={(e) => {
           setSelected(null);
           openAdd({
-            editId: e.id,
-            type: e.type,
-            category: e.category,
-            title: e.title,
-            body: e.body,
-            agents: e.agents,
-            origin: `Editing v${e.version} · last updated ${e.updatedAt}`,
+          editId: e.id,
+          type: e.type,
+          category: e.category,
+          title: e.title,
+          body: e.body,
+          agents: e.agents,
+          appliesTo: e.appliesTo,
+          origin: `Editing v${e.version} · last updated ${e.updatedAt}`,
           });
         }}
       />
@@ -1483,10 +1965,10 @@ function KnowledgeTab(props: KnowledgeTabProps) {
           onChange={setTypeFilter}
           options={[
             { value: "all", label: "All" },
+            { value: "general", label: TYPE_META.general.plural },
             { value: "factual", label: TYPE_META.factual.plural },
-            { value: "clarification", label: TYPE_META.clarification.plural },
-            { value: "suppression", label: TYPE_META.suppression.plural },
             { value: "procedure", label: TYPE_META.procedure.plural },
+            { value: "suppression", label: TYPE_META.suppression.plural },
           ]}
         />
         <div className="flex items-center gap-2">
@@ -1557,7 +2039,7 @@ function KnowledgeTab(props: KnowledgeTabProps) {
 
       {/* Portfolio first, then property — both honor levelFilter */}
       {totalFilteredAcross > 0 && (
-        <>
+        <div className="space-y-8 pt-1">
           {showPortfolio &&
             (portfolioFiltered.length > 0 ? (
               <LevelSection
@@ -1579,7 +2061,7 @@ function KnowledgeTab(props: KnowledgeTabProps) {
             ) : (
               <EmptyLevel level="property" property={property} />
             ))}
-        </>
+        </div>
       )}
     </div>
   );
@@ -1711,7 +2193,6 @@ function CascadeStrip({
 }
 
 function CascadeTile({
-  tone,
   active,
   dimmed,
   icon: Icon,
@@ -1729,36 +2210,23 @@ function CascadeTile({
   count: number;
   onClick: () => void;
 }) {
-  const isPortfolio = tone === "portfolio";
-
   // Three visual states: active (selected filter), dimmed (other one is selected), idle (no filter).
+  // Neutral palette — the portfolio/property distinction reads from the icon + label.
   const tile = active
-    ? isPortfolio
-      ? "border-blue-500 bg-blue-50 ring-2 ring-blue-500/25 shadow-sm"
-      : "border-orange-500 bg-orange-50 ring-2 ring-orange-500/25 shadow-sm"
+    ? "border-foreground/40 bg-muted ring-1 ring-foreground/10 shadow-sm"
     : dimmed
     ? "border-border bg-card opacity-60 hover:opacity-100"
-    : isPortfolio
-    ? "border-blue-200 bg-blue-50/40 hover:border-blue-400 hover:bg-blue-50"
-    : "border-orange-200 bg-orange-50/40 hover:border-orange-400 hover:bg-orange-50";
+    : "border-border bg-card hover:border-foreground/30 hover:bg-muted/50";
 
   const iconTile = active
-    ? isPortfolio
-      ? "bg-blue-600 text-white"
-      : "bg-orange-600 text-white"
-    : isPortfolio
-    ? "bg-blue-100 text-blue-700"
-    : "bg-orange-100 text-orange-700";
+    ? "bg-foreground text-background"
+    : "bg-muted text-muted-foreground";
 
-  const labelText = isPortfolio ? "text-blue-950" : "text-orange-950";
+  const labelText = "text-foreground";
 
   const countTile = active
-    ? isPortfolio
-      ? "bg-blue-600 text-white"
-      : "bg-orange-600 text-white"
-    : isPortfolio
-    ? "bg-blue-100 text-blue-900"
-    : "bg-orange-100 text-orange-900";
+    ? "bg-foreground text-background"
+    : "bg-muted text-foreground";
 
   return (
     <button
@@ -1809,7 +2277,7 @@ function LevelSection({
   onSelectEntry: (e: KnowledgeEntry) => void;
 }) {
   const isPortfolio = level === "portfolio";
-  const dot = isPortfolio ? "bg-blue-500" : "bg-orange-500";
+  const HeaderIcon = isPortfolio ? Building2 : Home;
   const label = isPortfolio
     ? "Portfolio knowledge"
     : `Property knowledge — ${property}`;
@@ -1817,20 +2285,16 @@ function LevelSection({
     ? "Inherited by every property"
     : "Specific to this property · property overrides win";
   return (
-    <section className="space-y-2">
-      <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-        <span className={cn("h-2 w-2 rounded-full", dot)} />
-        <span className="text-sm font-bold uppercase tracking-wide text-foreground">
-          {label}
-        </span>
-        <span className="text-muted-foreground/60">·</span>
-        <span className="text-muted-foreground/80">
+    <section className="space-y-3">
+      <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
+        <HeaderIcon className="h-4 w-4 text-muted-foreground/70" aria-hidden />
+        <span className="text-sm font-semibold text-foreground">{label}</span>
+        <span className="text-muted-foreground/40">·</span>
+        <span className="text-muted-foreground">
           {entries.length} {entries.length === 1 ? "item" : "items"}
         </span>
-        <span className="text-muted-foreground/60">·</span>
-        <span className="font-normal normal-case tracking-normal text-muted-foreground/70">
-          {sub}
-        </span>
+        <span className="text-muted-foreground/40">·</span>
+        <span className="text-muted-foreground/80">{sub}</span>
       </div>
 
       <div className="space-y-3">
@@ -1850,17 +2314,15 @@ function EmptyLevel({
   property?: string;
 }) {
   const isPortfolio = level === "portfolio";
-  const dot = isPortfolio ? "bg-blue-500" : "bg-orange-500";
+  const HeaderIcon = isPortfolio ? Building2 : Home;
   const label = isPortfolio ? "Portfolio knowledge" : `Property knowledge — ${property}`;
   return (
-    <section className="space-y-2">
-      <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-        <span className={cn("h-2 w-2 rounded-full", dot)} />
-        <span className="text-sm font-bold uppercase tracking-wide text-foreground">
-          {label}
-        </span>
-        <span className="text-muted-foreground/60">·</span>
-        <span className="text-muted-foreground/80">0 items</span>
+    <section className="space-y-3">
+      <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
+        <HeaderIcon className="h-4 w-4 text-muted-foreground/70" aria-hidden />
+        <span className="text-sm font-semibold text-foreground">{label}</span>
+        <span className="text-muted-foreground/40">·</span>
+        <span className="text-muted-foreground">0 items</span>
       </div>
       <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-5 text-center text-xs text-muted-foreground">
         Nothing at this level matches the current filter.
@@ -1877,10 +2339,12 @@ function GapsTab({
   gaps,
   onDismiss,
   onDraft,
+  propertyName,
 }: {
   gaps: KnowledgeGap[];
   onDismiss: (id: string) => void;
   onDraft: (g: KnowledgeGap) => void;
+  propertyName: string;
 }) {
   const sorted = [...gaps].sort((a, b) => {
     const order: Record<KnowledgeGap["impact"], number> = { high: 0, medium: 1, low: 2 };
@@ -1915,7 +2379,13 @@ function GapsTab({
       ) : (
         <div className="space-y-3">
           {sorted.map((g) => (
-            <GapCard key={g.id} gap={g} onDismiss={() => onDismiss(g.id)} onDraft={() => onDraft(g)} />
+            <GapCard
+              key={g.id}
+              gap={g}
+              onDismiss={() => onDismiss(g.id)}
+              onDraft={() => onDraft(g)}
+              propertyName={propertyName}
+            />
           ))}
         </div>
       )}
@@ -1927,13 +2397,16 @@ function GapCard({
   gap,
   onDismiss,
   onDraft,
+  propertyName,
 }: {
   gap: KnowledgeGap;
   onDismiss: () => void;
   onDraft: () => void;
+  propertyName: string;
 }) {
   const TypeIcon = TYPE_META[gap.suggestedType].icon;
   const [confirmDismiss, setConfirmDismiss] = useState(false);
+  const [showConversations, setShowConversations] = useState(false);
   return (
     <Card>
       <CardContent className="space-y-3 p-4">
@@ -1994,7 +2467,7 @@ function GapCard({
             <CategoryChip category={gap.suggestedCategory} />
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm">
+            <Button variant="ghost" size="sm" onClick={() => setShowConversations(true)}>
               <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
               View {gap.escalations} conversations
             </Button>
@@ -2037,7 +2510,132 @@ function GapCard({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <GapConversationsDialog
+        open={showConversations}
+        onOpenChange={setShowConversations}
+        gap={gap}
+        propertyName={propertyName}
+      />
     </Card>
+  );
+}
+
+/**
+ * Popup showing the specific conversations behind a knowledge gap. It reuses
+ * the agent roster's real conversation logs and the exact transcript + trace
+ * drill-down (ConversationDetailView) — effectively a filtered-down version of
+ * the roster's History & Logging screen for just this gap's agent.
+ */
+function GapConversationsDialog({
+  open,
+  onOpenChange,
+  gap,
+  propertyName,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  gap: KnowledgeGap;
+  propertyName: string;
+}) {
+  const rosterAgent = gap.agent === "Renewals AI" ? "Renewal AI" : gap.agent;
+  const logs = useMemo(
+    () => generateConversationLogs(rosterAgent, propertyName).slice(0, gap.escalations),
+    [rosterAgent, propertyName, gap.escalations]
+  );
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = logs.find((l) => l.id === selectedId) ?? null;
+
+  useEffect(() => {
+    if (!open) setSelectedId(null);
+  }, [open]);
+
+  const outcomeBadge = (o: ConversationLog["outcome"]) =>
+    o === "resolved"
+      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+      : o === "escalated"
+      ? "bg-amber-50 text-amber-700 border-amber-200"
+      : "bg-zinc-100 text-zinc-500 border-zinc-200";
+  const sentimentBadge = (s: ConversationLog["sentiment"]) =>
+    s === "positive"
+      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+      : s === "negative"
+      ? "bg-red-50 text-red-700 border-red-200"
+      : "bg-zinc-100 text-zinc-500 border-zinc-200";
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        aria-describedby={undefined}
+        className="block w-[97vw] max-w-6xl h-[90vh] gap-0 overflow-hidden p-0"
+      >
+        <DialogTitle className="sr-only">Conversations behind this gap</DialogTitle>
+        {selected ? (
+          <div className="h-full">
+            <ConversationDetailView
+              log={selected}
+              agentName={rosterAgent}
+              onBack={() => setSelectedId(null)}
+            />
+          </div>
+        ) : (
+          <div className="flex h-full flex-col">
+            <div className="shrink-0 border-b border-border px-6 py-4">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="h-4 w-4 text-foreground" />
+                <h2 className="text-base font-semibold text-foreground">Conversations behind this gap</h2>
+              </div>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                {logs.length} {gap.agent} conversation{logs.length === 1 ? "" : "s"} where this
+                question came up without a canonical answer.
+              </p>
+              <div className="mt-3 flex items-start gap-2 rounded-lg border border-border bg-muted/30 p-3">
+                <Quote className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <p className="text-sm font-semibold leading-snug text-foreground">{gap.question}</p>
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+              <div className="space-y-3">
+                {logs.map((log) => (
+                  <button
+                    key={log.id}
+                    type="button"
+                    onClick={() => setSelectedId(log.id)}
+                    className="group flex w-full items-center gap-4 rounded-xl border border-border bg-white p-4 text-left transition-all hover:border-zinc-400 hover:shadow-md"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-1 flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-semibold text-foreground">{log.residentName}</p>
+                        <span className="inline-flex items-center gap-1 rounded-full border border-border bg-zinc-50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          {conversationChannelIcon(log.channel)}
+                          {log.channel}
+                        </span>
+                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${outcomeBadge(log.outcome)}`}>
+                          {log.outcome}
+                        </span>
+                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${sentimentBadge(log.sentiment)}`}>
+                          {log.sentiment}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {log.topic} — {log.summary}
+                      </p>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground/70">
+                        <span>{log.startedAt}</span>
+                        <span>{log.turns} turns</span>
+                        <span>{log.duration}</span>
+                        <span>{countLogTraceSteps(log, rosterAgent)} trace steps</span>
+                      </div>
+                    </div>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -2175,24 +2773,17 @@ function EntryRow({ entry, onSelect }: { entry: KnowledgeEntry; onSelect: () => 
   const Icon = TYPE_META[entry.type].icon;
   const meta = TYPE_META[entry.type];
   const isProperty = entry.scope === "property";
-  const accentStripe = isProperty ? "bg-orange-500" : "bg-blue-500";
   return (
     <button
       type="button"
       onClick={onSelect}
-      className="group flex w-full items-stretch overflow-hidden rounded-lg border border-border bg-card text-left transition-colors hover:border-foreground/20"
+      className="group block w-full overflow-hidden rounded-lg border border-border bg-card text-left transition-colors hover:border-foreground/20"
     >
-      {/* Left scope accent stripe */}
-      <div className={cn("w-1 shrink-0", accentStripe)} aria-hidden />
-
       <div className="min-w-0 flex-1">
         {/* Top region — icon tile + title + meta line + body + right rail */}
         <div className="flex items-start gap-3 px-4 py-3">
           <div
-            className={cn(
-              "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md",
-              meta.badge
-            )}
+            className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
             aria-hidden
           >
             <Icon className="h-4 w-4" />
@@ -2210,56 +2801,45 @@ function EntryRow({ entry, onSelect }: { entry: KnowledgeEntry; onSelect: () => 
               )}
             </div>
             <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground">
-              <span className={cn("font-medium", meta.badge.split(" ").find((c) => c.startsWith("text-")))}>
-                {meta.label}
-              </span>
-              <span>·</span>
+              <span className="font-medium text-foreground/70">{meta.label}</span>
+              <span className="text-muted-foreground/40">·</span>
               <CategoryChip category={entry.category} />
             </div>
             <p className="mt-1.5 line-clamp-2 text-[13px] leading-relaxed text-muted-foreground">
               {entry.body}
             </p>
           </div>
-          <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <div className="flex shrink-0 items-center gap-2">
             {entry.status !== "approved" && <StatusBadge status={entry.status} />}
-            <Badge variant="secondary" className="text-[10px] capitalize">
-              {meta.usageVerb} {entry.usageCount}×
-            </Badge>
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5" />
           </div>
         </div>
 
-        {/* Bottom region — meta + (for property) agent linkage. Mirrors the
-            admin-insights gap card's muted lower panel. */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border/60 bg-muted/30 px-4 py-2 text-[11px] text-muted-foreground">
-          <span>{entry.owner}</span>
-          <span className="text-muted-foreground/50">·</span>
-          <span>v{entry.version}</span>
-          <span className="text-muted-foreground/50">·</span>
-          <span>Updated {entry.updatedAt}</span>
-          {entry.expiresAt && (
-            <>
-              <span className="text-muted-foreground/50">·</span>
+        {/* Bottom region — only shown when there's linkage to surface
+            (agents for property entries, or an expiry). */}
+        {(entry.expiresAt || (isProperty && entry.agents.length > 0)) && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border/60 bg-muted/30 px-4 py-2 text-[11px] text-muted-foreground">
+            {entry.expiresAt && (
               <span className="inline-flex items-center gap-1 text-orange-700">
                 <Calendar className="h-3 w-3" />
                 expires {entry.expiresAt}
               </span>
-            </>
-          )}
-          {isProperty && entry.agents.length > 0 && (
-            <>
-              <span className="text-muted-foreground/50">·</span>
-              <span className="font-semibold uppercase tracking-wide text-muted-foreground/80">
-                Used by
-              </span>
-              <div className="flex flex-wrap items-center gap-1">
-                {entry.agents.map((a) => (
-                  <AgentChip key={a} agent={a} />
-                ))}
-              </div>
-            </>
-          )}
-          <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5" />
-        </div>
+            )}
+            {isProperty && entry.agents.length > 0 && (
+              <>
+                {entry.expiresAt && <span className="text-muted-foreground/50">·</span>}
+                <span className="font-semibold uppercase tracking-wide text-muted-foreground/80">
+                  Used by
+                </span>
+                <div className="flex flex-wrap items-center gap-1">
+                  {entry.agents.map((a) => (
+                    <AgentChip key={a} agent={a} />
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </button>
   );
@@ -2371,10 +2951,15 @@ function AddKnowledgeDialog({
   property: string;
   onSubmit: (e: KnowledgeEntry) => void;
 }) {
-  const [step, setStep] = useState<"pick" | "form" | "selectDoc" | "generating">(
-    prefill ? "form" : "pick"
-  );
+  const [step, setStep] = useState<
+    "compose" | "analyzing" | "form" | "selectDoc" | "generating"
+  >(prefill ? "form" : "compose");
   const [type, setType] = useState<EntryType>(prefill?.type ?? "factual");
+  // How the current type was chosen — drives the form's "AI-detected" affordance.
+  const [typeSource, setTypeSource] = useState<"auto" | "manual">(
+    prefill ? "manual" : "auto"
+  );
+  const [detectRationale, setDetectRationale] = useState<string>("");
 
   // SOP / Policy → knowledge generation
   const { documents } = useVault();
@@ -2406,14 +2991,28 @@ function AddKnowledgeDialog({
   const [agents, setAgents] = useState<AgentName[]>(prefill?.agents ?? []);
   const [expiresAt, setExpiresAt] = useState<string>("");
 
+  // Location targeting (only meaningful when scope === "property").
+  const [floorPlans, setFloorPlans] = useState<string[]>(prefill?.appliesTo?.floorPlans ?? []);
+  const [unitTypes, setUnitTypes] = useState<string[]>(prefill?.appliesTo?.unitTypes ?? []);
+  const [units, setUnits] = useState<string[]>(prefill?.appliesTo?.units ?? []);
+  const hasLocations = floorPlans.length + unitTypes.length + units.length > 0;
+
   const toggleAgent = (a: AgentName) =>
     setAgents((prev) =>
       prev.includes(a) ? prev.filter((x) => x !== a) : [...prev, a]
     );
 
-  // Clarification
-  const [pmsName, setPmsName] = useState("");
-  const [pmsValue, setPmsValue] = useState("");
+  const toggleLocation =
+    (setter: React.Dispatch<React.SetStateAction<string[]>>) => (value: string) =>
+      setter((prev) =>
+        prev.includes(value) ? prev.filter((x) => x !== value) : [...prev, value]
+      );
+
+  const clearLocations = () => {
+    setFloorPlans([]);
+    setUnitTypes([]);
+    setUnits([]);
+  };
 
   // Suppression
   const [suppressReason, setSuppressReason] = useState("");
@@ -2429,16 +3028,19 @@ function AddKnowledgeDialog({
   // type-picker and jump straight to the filled-in form.
   useEffect(() => {
     if (!open) return;
-    setStep(prefill ? "form" : "pick");
+    setStep(prefill ? "form" : "compose");
     setType(prefill?.type ?? "factual");
+    setTypeSource(prefill ? "manual" : "auto");
+    setDetectRationale("");
     setTitle(prefill?.title ?? "");
     setBody(prefill?.body ?? "");
     setCategory(prefill?.category ?? TYPE_DEFAULT_CATEGORY[prefill?.type ?? "factual"]);
     setScope("property");
     setAgents(prefill?.agents ?? []);
+    setFloorPlans(prefill?.appliesTo?.floorPlans ?? []);
+    setUnitTypes(prefill?.appliesTo?.unitTypes ?? []);
+    setUnits(prefill?.appliesTo?.units ?? []);
     setExpiresAt("");
-    setPmsName("");
-    setPmsValue("");
     setSuppressReason("");
     setRedirectMessage("");
     setTriggers("");
@@ -2451,16 +3053,19 @@ function AddKnowledgeDialog({
   }, [open, prefill]);
 
   const reset = () => {
-    setStep(prefill ? "form" : "pick");
+    setStep(prefill ? "form" : "compose");
     setType(prefill?.type ?? "factual");
+    setTypeSource(prefill ? "manual" : "auto");
+    setDetectRationale("");
     setTitle(prefill?.title ?? "");
     setBody(prefill?.body ?? "");
     setCategory(prefill?.category ?? TYPE_DEFAULT_CATEGORY[prefill?.type ?? "factual"]);
     setScope("property");
     setAgents(prefill?.agents ?? []);
+    setFloorPlans(prefill?.appliesTo?.floorPlans ?? []);
+    setUnitTypes(prefill?.appliesTo?.unitTypes ?? []);
+    setUnits(prefill?.appliesTo?.units ?? []);
     setExpiresAt("");
-    setPmsName("");
-    setPmsValue("");
     setSuppressReason("");
     setRedirectMessage("");
     setTriggers("");
@@ -2472,10 +3077,37 @@ function AddKnowledgeDialog({
     setSourceDoc(null);
   };
 
-  const pickType = (t: EntryType) => {
+  const canAnalyze = title.trim().length > 0 && body.trim().length > 0;
+
+  // Step 1 → 2: "synthesize" the entry to determine its type, then reveal the
+  // remaining fields. Runs a brief analyzing animation before classifying.
+  const runAnalysis = () => {
+    if (!canAnalyze) return;
+    setStep("analyzing");
+    setTimeout(() => {
+      const { type: detected, rationale } = classifyKnowledge(title, body);
+      setType(detected);
+      setCategory(TYPE_DEFAULT_CATEGORY[detected]);
+      setTypeSource("auto");
+      setDetectRationale(rationale);
+      setStep("form");
+    }, 1500);
+  };
+
+  // Author overrides the detected type from inside the form.
+  const changeType = (t: EntryType) => {
     setType(t);
     setCategory(TYPE_DEFAULT_CATEGORY[t]);
-    setStep("form");
+    setTypeSource("manual");
+  };
+
+  // Re-run detection against the current (possibly edited) title + body.
+  const reanalyzeType = () => {
+    const { type: detected, rationale } = classifyKnowledge(title, body);
+    setType(detected);
+    setCategory(TYPE_DEFAULT_CATEGORY[detected]);
+    setTypeSource("auto");
+    setDetectRationale(rationale);
   };
 
   // Confirm a document and "generate" a knowledge draft from it.
@@ -2484,9 +3116,13 @@ function AddKnowledgeDialog({
     setStep("generating");
     setTimeout(() => {
       const draft = generateKnowledgeFromDocument(doc);
+      const { type: detected, rationale } = classifyKnowledge(draft.title, draft.body);
       setTitle(draft.title);
       setBody(draft.body);
+      setType(detected);
       setCategory(draft.category);
+      setTypeSource("auto");
+      setDetectRationale(rationale);
       setSourceDoc(doc);
       setStep("form");
     }, 2200);
@@ -2511,6 +3147,11 @@ function AddKnowledgeDialog({
       status: "in_review",
       source: "manual",
       scope,
+      property: scope === "property" ? property : undefined,
+      appliesTo:
+        scope === "property" && (floorPlans.length || unitTypes.length || units.length)
+          ? { floorPlans, unitTypes, units }
+          : undefined,
       owner: "You",
       version: 1,
       history: [
@@ -2529,10 +3170,6 @@ function AddKnowledgeDialog({
       updatedAt: "Just now",
       agents,
       expiresAt: expiresAt.trim() || undefined,
-      entrataSetting:
-        type === "clarification" && pmsName.trim()
-          ? { name: pmsName.trim(), value: pmsValue.trim() }
-          : undefined,
       suppressReason: type === "suppression" ? suppressReason.trim() || undefined : undefined,
       redirectMessage: type === "suppression" ? redirectMessage.trim() || undefined : undefined,
       triggers:
@@ -2560,45 +3197,109 @@ function AddKnowledgeDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="w-[96vw] max-w-5xl max-h-[92vh] overflow-y-auto">
-        {step === "pick" && (
+      <DialogContent className="w-[96vw] max-w-6xl max-h-[94vh] overflow-y-auto">
+        {step === "compose" && (
           <>
             <DialogHeader>
               <DialogTitle>Add knowledge</DialogTitle>
-              <DialogDescription>What kind of knowledge are you adding?</DialogDescription>
+              <DialogDescription>
+                Start with the basics — write it in plain language and we&apos;ll figure out the
+                rest.
+              </DialogDescription>
             </DialogHeader>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {(Object.keys(TYPE_META) as EntryType[]).map((t) => {
-                const m = TYPE_META[t];
-                const I = m.icon;
-                return (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => pickType(t)}
-                    className="group flex flex-col gap-1.5 rounded-lg border border-border p-3 text-left transition-colors hover:border-foreground/30 hover:bg-muted/40"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={cn(
-                          "inline-flex h-6 w-6 items-center justify-center rounded-md",
-                          m.badge
-                        )}
-                      >
-                        <I className="h-3.5 w-3.5" />
-                      </span>
-                      <span className="text-sm font-semibold text-foreground">{m.label}</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">{m.blurb}</p>
-                  </button>
-                );
-              })}
+
+            {/* Generate-from-document shortcut */}
+            <button
+              type="button"
+              onClick={() => setStep("selectDoc")}
+              className="group flex items-center gap-3 rounded-lg border border-dashed border-border p-3 text-left transition-colors hover:border-primary hover:bg-primary/5"
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-primary/10 group-hover:text-primary">
+                <BookOpen className="h-4.5 w-4.5" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-foreground">
+                  Add knowledge from an SOP or policy
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Generate this entry from an existing document&apos;s procedures.
+                </span>
+              </span>
+              <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5" />
+            </button>
+
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <Label>Title</Label>
+                <Input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Short, plain-language title"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      runAnalysis();
+                    }
+                  }}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label>Knowledge</Label>
+                <textarea
+                  className="min-h-[440px] h-[58vh] w-full rounded-md border border-border bg-background p-2 text-sm"
+                  value={body}
+                  onChange={(e) => setBody(e.target.value)}
+                  placeholder="Plain language is fine — bullets, a sentence, or a full write-up. Paste as much as you need — from a few lines to thousands. The AI turns it into natural answers."
+                />
+              </div>
+
+              <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <Sparkles className="h-3.5 w-3.5 text-primary" />
+                Next, we&apos;ll suggest a type (Factual, Clarification, Guardrail, or Procedure)
+                and the rest of the details.
+              </p>
             </div>
+
             <DialogFooter>
               <Button variant="ghost" onClick={() => handleClose(false)}>
                 Cancel
               </Button>
+              <Button onClick={runAnalysis} disabled={!canAnalyze}>
+                Continue
+                <ChevronRight className="ml-1.5 h-3.5 w-3.5" />
+              </Button>
             </DialogFooter>
+          </>
+        )}
+
+        {step === "analyzing" && (
+          <>
+            <DialogHeader>
+              <DialogTitle>Analyzing your knowledge</DialogTitle>
+              <DialogDescription>
+                Determining the best type and category for this entry…
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col items-center justify-center gap-6 py-16">
+              <div className="relative flex items-center justify-center">
+                <div className="absolute h-20 w-20 animate-ping rounded-full bg-primary/10" />
+                <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
+                  <Sparkles className="h-7 w-7 animate-pulse text-primary" />
+                </div>
+              </div>
+              <div className="flex flex-col items-center gap-2 text-center">
+                <p className="text-sm font-medium text-foreground">Synthesizing…</p>
+                <p className="max-w-xs text-xs text-muted-foreground">
+                  Reading what you wrote to suggest a type and set up the right fields.
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:0ms]" />
+                <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:150ms]" />
+                <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:300ms]" />
+              </div>
+            </div>
           </>
         )}
 
@@ -2773,28 +3474,6 @@ function AddKnowledgeDialog({
               </DialogDescription>
             </DialogHeader>
 
-            {/* Generate-from-document shortcut */}
-            {!sourceDoc && (
-              <button
-                type="button"
-                onClick={() => setStep("selectDoc")}
-                className="group flex items-center gap-3 rounded-lg border border-dashed border-border p-3 text-left transition-colors hover:border-primary hover:bg-primary/5"
-              >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-primary/10 group-hover:text-primary">
-                  <BookOpen className="h-4.5 w-4.5" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm font-semibold text-foreground">
-                    Add knowledge from an SOP or policy
-                  </span>
-                  <span className="block text-xs text-muted-foreground">
-                    Generate this entry from an existing document&apos;s procedures.
-                  </span>
-                </span>
-                <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5" />
-              </button>
-            )}
-
             {sourceDoc && (
               <div className="flex items-center justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50/60 p-2.5 text-xs text-emerald-900">
                 <span className="inline-flex items-center gap-1.5">
@@ -2821,6 +3500,66 @@ function AddKnowledgeDialog({
             )}
 
             <div className="space-y-3">
+              <div
+                className={cn(
+                  "flex flex-wrap items-center justify-between gap-3 rounded-md border p-3",
+                  meta.accent
+                )}
+              >
+                <div className="flex items-start gap-2.5">
+                  <span
+                    className={cn(
+                      "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md",
+                      meta.badge
+                    )}
+                  >
+                    <Icon className="h-4 w-4" />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-semibold text-foreground">
+                        {meta.label}
+                      </span>
+                      {typeSource === "auto" && !prefill && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                          <Sparkles className="h-2.5 w-2.5" />
+                          AI-detected
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      {typeSource === "auto" && detectRationale
+                        ? detectRationale
+                        : meta.blurb}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {!prefill && (
+                    <button
+                      type="button"
+                      onClick={reanalyzeType}
+                      className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+                    >
+                      <Sparkles className="h-3 w-3" />
+                      Re-analyze
+                    </button>
+                  )}
+                  <Select value={type} onValueChange={(v) => changeType(v as EntryType)}>
+                    <SelectTrigger className="h-8 w-40 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(Object.keys(TYPE_META) as EntryType[]).map((t) => (
+                        <SelectItem key={t} value={t}>
+                          {TYPE_META[t].label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
               <div className="space-y-1">
                 <Label>Title</Label>
                 <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Short, plain-language title" />
@@ -2834,6 +3573,82 @@ function AddKnowledgeDialog({
                   onChange={(e) => setBody(e.target.value)}
                   placeholder="Plain language is fine — bullets, a sentence, or a full write-up. The AI turns it into natural answers."
                 />
+              </div>
+
+              {type === "suppression" && (
+                <div className="space-y-2 rounded-md border border-red-200 bg-red-50/40 p-3">
+                  <div className="space-y-1">
+                    <Label>Why suppress (internal only)</Label>
+                    <textarea
+                      className="min-h-[60px] w-full rounded-md border border-border bg-background p-2 text-sm"
+                      value={suppressReason}
+                      onChange={(e) => setSuppressReason(e.target.value)}
+                      placeholder="The reason your team needs to know — never shown to prospects."
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>What the AI says instead (prospect-facing)</Label>
+                    <textarea
+                      className="min-h-[60px] w-full rounded-md border border-border bg-background p-2 text-sm"
+                      value={redirectMessage}
+                      onChange={(e) => setRedirectMessage(e.target.value)}
+                      placeholder='e.g. "Let me connect you with a leasing agent who can give you the most up-to-date details."'
+                    />
+                  </div>
+                </div>
+              )}
+
+              {type === "procedure" && (
+                <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50/40 p-3">
+                  <div className="space-y-1">
+                    <Label>Triggers (comma-separated)</Label>
+                    <Input
+                      value={triggers}
+                      onChange={(e) => setTriggers(e.target.value)}
+                      placeholder="water leak, units 305-315, mold"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Steps (one per line)</Label>
+                    <textarea
+                      className="min-h-[80px] w-full rounded-md border border-border bg-background p-2 text-sm"
+                      value={steps}
+                      onChange={(e) => setSteps(e.target.value)}
+                      placeholder={"1. Don't answer with specifics.\n2. Acknowledge warmly.\n3. Hand off to onsite team.\n4. Tag the conversation."}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Conversation tag</Label>
+                    <Input value={procTag} onChange={(e) => setProcTag(e.target.value)} placeholder="e.g. water-leak" />
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <Label>Category</Label>
+                <Select value={category} onValueChange={(v) => setCategory(v as Category)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <div className="px-2 pt-1.5 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Property / Portfolio information
+                    </div>
+                    {MIRROR_CATEGORIES.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {CATEGORY_META[c].label}
+                      </SelectItem>
+                    ))}
+                    <div className="px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Additional information and context
+                    </div>
+                    {HUB_CATEGORIES.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {CATEGORY_META[c].label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-1.5 rounded-md border border-border bg-muted/30 p-3">
@@ -2886,45 +3701,157 @@ function AddKnowledgeDialog({
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label>Category</Label>
-                  <Select value={category} onValueChange={(v) => setCategory(v as Category)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <div className="px-2 pt-1.5 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        From PMS
-                      </div>
-                      {MIRROR_CATEGORIES.map((c) => (
-                        <SelectItem key={c} value={c}>
-                          {CATEGORY_META[c].label}
-                        </SelectItem>
-                      ))}
-                      <div className="px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Added by your team
-                      </div>
-                      {HUB_CATEGORIES.map((c) => (
-                        <SelectItem key={c} value={c}>
-                          {CATEGORY_META[c].label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+              <div className="space-y-2.5 rounded-md border border-border bg-muted/30 p-3">
+                <div>
+                  <Label className="text-sm">Where does this apply?</Label>
+                  <p className="text-[11px] text-muted-foreground">
+                    Choose how broadly this knowledge applies.
+                  </p>
                 </div>
-                <div className="space-y-1">
-                  <Label>Scope</Label>
-                  <Select value={scope} onValueChange={(v) => setScope(v as KnowledgeEntry["scope"])}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="property">This property ({property})</SelectItem>
-                      <SelectItem value="portfolio">Whole portfolio</SelectItem>
-                    </SelectContent>
-                  </Select>
+
+                <div className="grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      {
+                        value: "property" as const,
+                        icon: Pin,
+                        title: "This property",
+                        subtitle: property,
+                      },
+                      {
+                        value: "portfolio" as const,
+                        icon: Building2,
+                        title: "Whole portfolio",
+                        subtitle: "Every property",
+                      },
+                    ]
+                  ).map((opt) => {
+                    const active = scope === opt.value;
+                    const OptIcon = opt.icon;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setScope(opt.value)}
+                        aria-pressed={active}
+                        className={cn(
+                          "flex items-start gap-2 rounded-md border p-2.5 text-left transition-colors",
+                          active
+                            ? "border-primary bg-primary/5 ring-1 ring-inset ring-primary/30"
+                            : "border-border bg-background hover:border-foreground/30"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md",
+                            active ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                          )}
+                        >
+                          <OptIcon className="h-3.5 w-3.5" />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-xs font-semibold text-foreground">
+                            {opt.title}
+                          </span>
+                          <span className="block truncate text-[11px] text-muted-foreground">
+                            {opt.subtitle}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
+
+                {scope === "portfolio" && (
+                  <p className="flex items-center gap-1.5 rounded-md bg-indigo-50 px-2.5 py-1.5 text-[11px] text-indigo-800">
+                    <Building2 className="h-3.5 w-3.5 shrink-0" />
+                    Applies across every property in the portfolio.
+                  </p>
+                )}
+
+                {scope === "property" && (
+                  <div className="space-y-2 rounded-md border border-border bg-background p-2.5">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs">
+                        Property locations{" "}
+                        <span className="font-normal text-muted-foreground">(optional)</span>
+                      </Label>
+                      {hasLocations && (
+                        <button
+                          type="button"
+                          className="text-[11px] font-medium text-muted-foreground hover:text-foreground"
+                          onClick={clearLocations}
+                        >
+                          Clear all
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Narrow this knowledge to specific floor plans, unit types, or units within{" "}
+                      {property}.
+                    </p>
+
+                    <div className="flex flex-wrap gap-2">
+                      <LocationMultiSelect
+                        kind="floorPlan"
+                        selected={floorPlans}
+                        onToggle={toggleLocation(setFloorPlans)}
+                      />
+                      <LocationMultiSelect
+                        kind="unitType"
+                        selected={unitTypes}
+                        onToggle={toggleLocation(setUnitTypes)}
+                      />
+                      <LocationMultiSelect
+                        kind="unit"
+                        selected={units}
+                        onToggle={toggleLocation(setUnits)}
+                      />
+                    </div>
+
+                    {hasLocations && (
+                      <div className="flex flex-wrap gap-1.5 border-t border-border/60 pt-2">
+                        {floorPlans.map((v) => (
+                          <LocationChip
+                            key={`fp-${v}`}
+                            kind="floorPlan"
+                            value={v}
+                            onRemove={() => toggleLocation(setFloorPlans)(v)}
+                          />
+                        ))}
+                        {unitTypes.map((v) => (
+                          <LocationChip
+                            key={`ut-${v}`}
+                            kind="unitType"
+                            value={v}
+                            onRemove={() => toggleLocation(setUnitTypes)(v)}
+                          />
+                        ))}
+                        {units.map((v) => (
+                          <LocationChip
+                            key={`u-${v}`}
+                            kind="unit"
+                            value={v}
+                            onRemove={() => toggleLocation(setUnits)(v)}
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    {hasLocations ? (
+                      <p className="flex items-start gap-1 text-[11px] text-amber-700">
+                        <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                        Applies only to the selected locations — not the entire property.
+                      </p>
+                    ) : (
+                      <p className="flex items-start gap-1 text-[11px] text-amber-700">
+                        <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                        No specific locations selected — this knowledge applies to the entire
+                        property.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1">
@@ -2935,80 +3862,11 @@ function AddKnowledgeDialog({
                   placeholder="e.g. Jul 15, 2026"
                 />
               </div>
-
-              {type === "clarification" && (
-                <div className="space-y-2 rounded-md border border-purple-200 bg-purple-50/40 p-3">
-                  <p className="text-xs font-semibold text-purple-900">
-                    Overrides which PMS setting?
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Input
-                      value={pmsName}
-                      onChange={(e) => setPmsName(e.target.value)}
-                      placeholder="Setting name (e.g. Pet rent)"
-                    />
-                    <Input
-                      value={pmsValue}
-                      onChange={(e) => setPmsValue(e.target.value)}
-                      placeholder="PMS value (e.g. $35.00)"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {type === "suppression" && (
-                <div className="space-y-2 rounded-md border border-red-200 bg-red-50/40 p-3">
-                  <div className="space-y-1">
-                    <Label>Why suppress (internal only)</Label>
-                    <textarea
-                      className="min-h-[60px] w-full rounded-md border border-border bg-background p-2 text-sm"
-                      value={suppressReason}
-                      onChange={(e) => setSuppressReason(e.target.value)}
-                      placeholder="The reason your team needs to know — never shown to prospects."
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>What the AI says instead (prospect-facing)</Label>
-                    <textarea
-                      className="min-h-[60px] w-full rounded-md border border-border bg-background p-2 text-sm"
-                      value={redirectMessage}
-                      onChange={(e) => setRedirectMessage(e.target.value)}
-                      placeholder='e.g. "Let me connect you with a leasing agent who can give you the most up-to-date details."'
-                    />
-                  </div>
-                </div>
-              )}
-
-              {type === "procedure" && (
-                <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50/40 p-3">
-                  <div className="space-y-1">
-                    <Label>Triggers (comma-separated)</Label>
-                    <Input
-                      value={triggers}
-                      onChange={(e) => setTriggers(e.target.value)}
-                      placeholder="water leak, units 305-315, mold"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>Steps (one per line)</Label>
-                    <textarea
-                      className="min-h-[80px] w-full rounded-md border border-border bg-background p-2 text-sm"
-                      value={steps}
-                      onChange={(e) => setSteps(e.target.value)}
-                      placeholder={"1. Don't answer with specifics.\n2. Acknowledge warmly.\n3. Hand off to onsite team.\n4. Tag the conversation."}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>Conversation tag</Label>
-                    <Input value={procTag} onChange={(e) => setProcTag(e.target.value)} placeholder="e.g. water-leak" />
-                  </div>
-                </div>
-              )}
             </div>
 
             <DialogFooter className="gap-2">
               {!prefill && (
-                <Button variant="outline" onClick={() => setStep("pick")}>
+                <Button variant="outline" onClick={() => setStep("compose")}>
                   <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
                   Back
                 </Button>
@@ -3047,7 +3905,7 @@ function EntryDetailSheet({
   const open = !!entry;
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="block w-[96vw] max-w-5xl max-h-[92vh] gap-0 overflow-y-auto p-0">
+      <DialogContent className="block w-[96vw] max-w-6xl max-h-[94vh] gap-0 overflow-y-auto p-0">
         {entry && (
           <EntryDetail
             entry={entry}
@@ -3135,7 +3993,9 @@ function EntryDetail({
       <div className="space-y-5 p-5">
         {/* Body */}
         <Section title={entry.type === "suppression" ? "What's suppressed" : "Knowledge"}>
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{entry.body}</p>
+          <div className="rounded-lg border border-border bg-muted/20 p-4">
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{entry.body}</p>
+          </div>
         </Section>
 
         {/* Level + inheritance */}
@@ -3182,7 +4042,7 @@ function EntryDetail({
                 PMS value: <span className="font-semibold">{entry.entrataSetting.value}</span>
               </p>
               <p className="mt-2 text-xs text-purple-900/80">
-                When prospects ask about this, the AI prefers the clarification over the raw PMS value.
+                When prospects ask about this, the AI prefers this entry over the raw PMS value.
               </p>
             </div>
           </Section>
@@ -3266,6 +4126,42 @@ function EntryDetail({
                 <AgentChip key={a} agent={a} />
               ))}
             </div>
+          </Section>
+        )}
+
+        {/* Location targeting */}
+        {entry.scope === "property" && (
+          <Section title="Applies to">
+            {(() => {
+              const at = entry.appliesTo;
+              const targeted =
+                at && (at.floorPlans.length || at.unitTypes.length || at.units.length);
+              if (!targeted) {
+                return (
+                  <p className="text-sm text-muted-foreground">
+                    The entire property — no specific floor plans, unit types, or units.
+                  </p>
+                );
+              }
+              return (
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">
+                    Only the locations below — not the entire property.
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {at!.floorPlans.map((v) => (
+                      <LocationChipStatic key={`d-fp-${v}`} kind="floorPlan" value={v} />
+                    ))}
+                    {at!.unitTypes.map((v) => (
+                      <LocationChipStatic key={`d-ut-${v}`} kind="unitType" value={v} />
+                    ))}
+                    {at!.units.map((v) => (
+                      <LocationChipStatic key={`d-u-${v}`} kind="unit" value={v} />
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
           </Section>
         )}
 
