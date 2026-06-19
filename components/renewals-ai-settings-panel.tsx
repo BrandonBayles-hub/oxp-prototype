@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select"
 import {
   CalendarClock,
+  CalendarOff,
   Plus,
   Trash2,
   Lock,
@@ -23,6 +24,7 @@ import {
   Clock,
   FileSignature,
   Mail,
+  Check,
 } from "lucide-react"
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -53,8 +55,25 @@ interface CommunicationWindow {
   days: DayOfWeek[]
 }
 
+interface BlackoutHoliday {
+  key: string
+  enabled: boolean
+}
+
+interface CustomBlackoutDate {
+  id: string
+  date: string
+  label: string
+}
+
+interface BlackoutDates {
+  holidays: BlackoutHoliday[]
+  customDates: CustomBlackoutDate[]
+}
+
 interface PanelState {
   communicationWindow: CommunicationWindow
+  blackoutDates: BlackoutDates
   offerSteps: OfferFollowUpStep[]
   leaseSteps: LeaseFollowUpStep[]
 }
@@ -88,6 +107,73 @@ const DAY_LABELS: { id: DayOfWeek; short: string; label: string }[] = [
   { id: "sun", short: "S", label: "Sunday" },
 ]
 
+type HolidayRule =
+  | { type: "fixed"; month: number; day: number }
+  | { type: "nthWeekday"; month: number; weekday: number; n: number }
+  | { type: "lastWeekday"; month: number; weekday: number }
+
+interface HolidayDef {
+  key: string
+  name: string
+  rule: HolidayRule
+}
+
+const BANK_HOLIDAYS: HolidayDef[] = [
+  { key: "new_years", name: "New Year's Day", rule: { type: "fixed", month: 0, day: 1 } },
+  { key: "mlk", name: "Martin Luther King Jr. Day", rule: { type: "nthWeekday", month: 0, weekday: 1, n: 3 } },
+  { key: "presidents", name: "Presidents' Day", rule: { type: "nthWeekday", month: 1, weekday: 1, n: 3 } },
+  { key: "memorial", name: "Memorial Day", rule: { type: "lastWeekday", month: 4, weekday: 1 } },
+  { key: "juneteenth", name: "Juneteenth", rule: { type: "fixed", month: 5, day: 19 } },
+  { key: "independence", name: "Independence Day", rule: { type: "fixed", month: 6, day: 4 } },
+  { key: "labor", name: "Labor Day", rule: { type: "nthWeekday", month: 8, weekday: 1, n: 1 } },
+  { key: "columbus", name: "Columbus Day", rule: { type: "nthWeekday", month: 9, weekday: 1, n: 2 } },
+  { key: "veterans", name: "Veterans Day", rule: { type: "fixed", month: 10, day: 11 } },
+  { key: "thanksgiving", name: "Thanksgiving Day", rule: { type: "nthWeekday", month: 10, weekday: 4, n: 4 } },
+  { key: "christmas", name: "Christmas Day", rule: { type: "fixed", month: 11, day: 25 } },
+]
+
+function computeHolidayDate(rule: HolidayRule, year: number): Date {
+  if (rule.type === "fixed") {
+    return new Date(year, rule.month, rule.day)
+  }
+  if (rule.type === "nthWeekday") {
+    const first = new Date(year, rule.month, 1)
+    const firstWeekday = first.getDay()
+    let day = 1 + ((rule.weekday - firstWeekday + 7) % 7)
+    day += (rule.n - 1) * 7
+    return new Date(year, rule.month, day)
+  }
+  const lastDay = new Date(year, rule.month + 1, 0)
+  let d = lastDay.getDate()
+  while (new Date(year, rule.month, d).getDay() !== rule.weekday) d--
+  return new Date(year, rule.month, d)
+}
+
+function formatHolidayDate(date: Date): string {
+  return date.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })
+}
+
+function getHolidaysForYear(year: number): { key: string; name: string; date: Date; formatted: string }[] {
+  return BANK_HOLIDAYS.map((h) => {
+    const date = computeHolidayDate(h.rule, year)
+    return { key: h.key, name: h.name, date, formatted: formatHolidayDate(date) }
+  })
+}
+
+const DEFAULT_BLACKOUT_HOLIDAYS: BlackoutHoliday[] = BANK_HOLIDAYS.map((h) => ({
+  key: h.key,
+  enabled: ["new_years", "memorial", "independence", "labor", "thanksgiving", "christmas"].includes(h.key),
+}))
+
+function makeBlackoutId(): string {
+  return `bd-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+}
+
 function makeOfferId(): string {
   return `os-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
 }
@@ -116,6 +202,10 @@ function makeDefaultState(): PanelState {
     communicationWindow: {
       sendHour: "09:00",
       days: ["mon", "tue", "wed", "thu", "fri", "sat"],
+    },
+    blackoutDates: {
+      holidays: DEFAULT_BLACKOUT_HOLIDAYS,
+      customDates: [],
     },
     offerSteps: DEFAULT_OFFER_STEPS,
     leaseSteps: DEFAULT_LEASE_STEPS,
@@ -175,7 +265,16 @@ export function RenewalsAISettingsPanel({
             agentDisplayLabel={agentDisplayLabel}
           />
 
-          {/* ── Section 2: Renewal Offer Follow-Ups ── */}
+          {/* ── Section 2: Blackout Dates ── */}
+          <BlackoutDatesSection
+            blackout={state.blackoutDates}
+            onChange={(b) =>
+              setState((s) => ({ ...s, blackoutDates: b }))
+            }
+            agentDisplayLabel={agentDisplayLabel}
+          />
+
+          {/* ── Section 3: Renewal Offer Follow-Ups ── */}
           <GroupHeading label="Renewal Offer Follow-Ups" />
           <SectionShell
             icon={Mail}
@@ -190,7 +289,7 @@ export function RenewalsAISettingsPanel({
             />
           </SectionShell>
 
-          {/* ── Section 3: Renewal Lease Follow-Ups ── */}
+          {/* ── Section 4: Renewal Lease Follow-Ups ── */}
           <GroupHeading label="Renewal Lease Follow-Ups" />
           <SectionShell
             icon={FileSignature}
@@ -324,6 +423,240 @@ function CommunicationWindowSection({
         </div>
       </div>
     </SectionShell>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Blackout Dates
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function BlackoutDatesSection({
+  blackout,
+  onChange,
+  agentDisplayLabel,
+}: {
+  blackout: BlackoutDates
+  onChange: (b: BlackoutDates) => void
+  agentDisplayLabel: string
+}) {
+  const currentYear = new Date().getFullYear()
+  const nextYear = currentYear + 1
+  const holidaysCurrent = getHolidaysForYear(currentYear)
+  const holidaysNext = getHolidaysForYear(nextYear)
+
+  const toggleHoliday = (key: string) => {
+    onChange({
+      ...blackout,
+      holidays: blackout.holidays.map((h) =>
+        h.key === key ? { ...h, enabled: !h.enabled } : h
+      ),
+    })
+  }
+
+  const enabledCount =
+    blackout.holidays.filter((h) => h.enabled).length +
+    blackout.customDates.length
+
+  const addCustomDate = () => {
+    onChange({
+      ...blackout,
+      customDates: [
+        ...blackout.customDates,
+        { id: makeBlackoutId(), date: "", label: "" },
+      ],
+    })
+  }
+
+  const removeCustomDate = (id: string) => {
+    onChange({
+      ...blackout,
+      customDates: blackout.customDates.filter((d) => d.id !== id),
+    })
+  }
+
+  const updateCustomDate = (
+    id: string,
+    patch: Partial<CustomBlackoutDate>
+  ) => {
+    onChange({
+      ...blackout,
+      customDates: blackout.customDates.map((d) =>
+        d.id === id ? { ...d, ...patch } : d
+      ),
+    })
+  }
+
+  const enableAll = () => {
+    onChange({
+      ...blackout,
+      holidays: blackout.holidays.map((h) => ({ ...h, enabled: true })),
+    })
+  }
+
+  const disableAll = () => {
+    onChange({
+      ...blackout,
+      holidays: blackout.holidays.map((h) => ({ ...h, enabled: false })),
+    })
+  }
+
+  const allEnabled = blackout.holidays.every((h) => h.enabled)
+  const noneEnabled = blackout.holidays.every((h) => !h.enabled)
+
+  return (
+    <>
+      <GroupHeading label="Blackout Dates" />
+      <SectionShell
+        icon={CalendarOff}
+        title="Blackout Dates"
+        description={`Define dates when ${agentDisplayLabel} should not send proactive outbound messages — such as holidays or periods when the office is unavailable for escalations. The agent will still respond to residents who message on these days.`}
+        headerAction={
+          <Badge variant="gray" className="text-[10px]">
+            {enabledCount} date{enabledCount !== 1 ? "s" : ""}
+          </Badge>
+        }
+      >
+        <div className="space-y-6">
+          {/* Bank Holidays */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold text-foreground">
+                  Bank holidays
+                </p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  Select the holidays on which {agentDisplayLabel} should
+                  not send proactive messages.
+                </p>
+              </div>
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={enableAll}
+                  disabled={allEnabled}
+                  className="text-[10px] font-medium text-zinc-500 hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  Select all
+                </button>
+                <span className="text-zinc-300 text-[10px]">·</span>
+                <button
+                  type="button"
+                  onClick={disableAll}
+                  disabled={noneEnabled}
+                  className="text-[10px] font-medium text-zinc-500 hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  Clear all
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-border divide-y divide-border">
+              {blackout.holidays.map((h) => {
+                const defCurrent = holidaysCurrent.find(
+                  (hd) => hd.key === h.key
+                )!
+                const defNext = holidaysNext.find(
+                  (hd) => hd.key === h.key
+                )!
+                return (
+                  <button
+                    key={h.key}
+                    type="button"
+                    onClick={() => toggleHoliday(h.key)}
+                    className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-zinc-50 transition-colors"
+                  >
+                    <div
+                      className={cn(
+                        "flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-all",
+                        h.enabled
+                          ? "bg-zinc-900 border-zinc-900 text-white"
+                          : "border-zinc-300 bg-white"
+                      )}
+                    >
+                      {h.enabled && <Check className="h-3 w-3" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-foreground">
+                        {defCurrent.name}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-[11px] text-muted-foreground">
+                        {defCurrent.formatted}
+                      </p>
+                      <p className="text-[10px] text-zinc-400">
+                        {defNext.formatted}
+                      </p>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Custom Dates */}
+          <div className="space-y-3">
+            <div>
+              <p className="text-xs font-semibold text-foreground">
+                Custom blackout dates
+              </p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                Add specific dates when the agent should pause proactive
+                outreach — busy seasons, office closures, company events,
+                or any other dates unique to this property.
+              </p>
+            </div>
+
+            {blackout.customDates.length > 0 && (
+              <div className="space-y-2">
+                {blackout.customDates.map((cd) => (
+                  <div
+                    key={cd.id}
+                    className="group flex items-center gap-2 rounded-lg border border-border bg-white px-3 py-2.5 hover:border-zinc-300 transition-all"
+                  >
+                    <Input
+                      type="date"
+                      value={cd.date}
+                      onChange={(e) =>
+                        updateCustomDate(cd.id, { date: e.target.value })
+                      }
+                      className="h-8 w-40 text-xs shrink-0"
+                    />
+                    <Input
+                      type="text"
+                      placeholder="Label (e.g. Office Closure)"
+                      value={cd.label}
+                      onChange={(e) =>
+                        updateCustomDate(cd.id, { label: e.target.value })
+                      }
+                      className="h-8 text-xs flex-1"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeCustomDate(cd.id)}
+                      className="shrink-0 text-muted-foreground transition-colors hover:text-destructive"
+                      aria-label="Remove date"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={addCustomDate}
+              className="w-full border-dashed"
+            >
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              Add blackout date
+            </Button>
+          </div>
+        </div>
+      </SectionShell>
+    </>
   )
 }
 
