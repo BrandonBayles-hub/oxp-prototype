@@ -15,6 +15,10 @@ out/
 /build
 dist/
 
+# transient stash created by scripts/build-static.mjs (server routes moved
+# aside during static export); should never be committed
+.app-api.stash/
+
 # misc
 .DS_Store
 
