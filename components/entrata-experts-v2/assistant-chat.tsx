@@ -4,13 +4,10 @@ import { BackBar } from "./back-bar";
 import { MessageInput } from "./chat/message-input";
 import { SuggestedStarters } from "./chat/suggested-starters";
 import { ASSISTANT_BY_ID } from "@/lib/entrata-experts-v2/assistants";
-import { useAssistantChatStore, type AssistantThread } from "@/lib/entrata-experts-v2/assistant-chat-store";
+import { useAssistantChatStore } from "@/lib/entrata-experts-v2/assistant-chat-store";
 import { Button } from "@/components/ui/button";
 import { PROPERTIES } from "@/lib/entrata-experts-v2/data/portfolio";
 import type { Scope } from "@/lib/entrata-experts-v2/types";
-import { Plus, Sparkles } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { formatRelative } from "@/lib/entrata-experts-v2/format";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 // ---------------------------------------------------------------------------
@@ -67,8 +64,6 @@ export function AssistantChat({
     );
   }
 
-  const Icon = def.icon;
-
   return (
     <TooltipProvider delayDuration={120}>
       <div className="flex h-[calc(100vh-12rem)] min-h-[600px] flex-col overflow-hidden rounded-lg border border-border bg-background shadow-sm">
@@ -83,16 +78,6 @@ export function AssistantChat({
         />
 
         <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
-          <AssistantThreadsSidebar
-            threads={store.threads}
-            activeId={store.activeId}
-            onSelect={store.selectThread}
-            onNew={store.newThread}
-            assistantName={def.shortName}
-            assistantHue={def.hue}
-            AssistantIcon={Icon}
-          />
-
           <main className="flex min-w-0 flex-1 flex-col">
             {!activeThread ? (
               <EmptyState
@@ -262,104 +247,4 @@ function renderInlineBold(text: string): React.ReactNode {
   }
   if (last < text.length) parts.push(<React.Fragment key={key++}>{text.slice(last)}</React.Fragment>);
   return parts;
-}
-
-// ---------------------------------------------------------------------------
-// Threads sidebar — same visual treatment as Analyst's ThreadsSidebar:
-// full-width New button, grouped by Today / Yesterday / Earlier, footer.
-// Per-thread icon uses the assistant's hue so the rail reads as "this
-// assistant" without us needing a lens concept.
-// ---------------------------------------------------------------------------
-
-function AssistantThreadsSidebar({
-  threads,
-  activeId,
-  onSelect,
-  onNew,
-  assistantName,
-  assistantHue,
-  AssistantIcon,
-}: {
-  threads: AssistantThread[];
-  activeId: string | null;
-  onSelect: (id: string) => void;
-  onNew: () => void;
-  assistantName: string;
-  assistantHue: string;
-  AssistantIcon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
-}) {
-  const groups: { label: string; items: AssistantThread[] }[] = [
-    { label: "Today", items: [] },
-    { label: "Yesterday", items: [] },
-    { label: "Earlier", items: [] },
-  ];
-  const now = new Date();
-  threads.forEach((t) => {
-    const d = new Date(t.updatedAt);
-    const diffMs = now.getTime() - d.getTime();
-    const day = 24 * 3600 * 1000;
-    if (diffMs < day) groups[0].items.push(t);
-    else if (diffMs < 2 * day) groups[1].items.push(t);
-    else groups[2].items.push(t);
-  });
-
-  return (
-    <aside className="flex h-full w-[260px] shrink-0 flex-col border-r border-border bg-muted/30">
-      <div className="border-b border-border px-3 py-3">
-        <Button
-          onClick={onNew}
-          variant="outline"
-          className="w-full justify-start gap-2"
-        >
-          <Plus className="h-4 w-4" />
-          New conversation
-        </Button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto scrollbar-hover px-2 py-2">
-        {groups.filter((g) => g.items.length > 0).map((g) => (
-          <div key={g.label} className="mb-3">
-            <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-              {g.label}
-            </div>
-            {g.items.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => onSelect(t.id)}
-                className={cn(
-                  "group flex w-full items-start gap-2 rounded-md px-2 py-2 text-left transition-colors hover:bg-muted/60",
-                  activeId === t.id && "bg-muted",
-                )}
-              >
-                <AssistantIcon
-                  className="mt-0.5 h-3.5 w-3.5 shrink-0"
-                  style={{ color: assistantHue }}
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] leading-tight text-foreground">
-                    {t.title}
-                  </div>
-                  <div className="mt-0.5 text-[10px] text-muted-foreground">
-                    {formatRelative(t.updatedAt)}
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-        ))}
-        {threads.length === 0 && (
-          <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-            No conversations yet. Ask anything to get started.
-          </div>
-        )}
-      </div>
-
-      <div className="border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
-        <div className="flex items-center gap-1.5">
-          <Sparkles className="h-3 w-3" />
-          <span>{assistantName} · Assistant</span>
-        </div>
-      </div>
-    </aside>
-  );
 }

@@ -1,16 +1,44 @@
 "use client";
 import * as React from "react";
-import type { Conversation } from "@/lib/entrata-experts-v2/types";
+import type { Conversation, IntentCluster, Scope } from "@/lib/entrata-experts-v2/types";
 import { buildClusters } from "@/lib/entrata-experts-v2/data/activity";
 import { LENS_BY_ID } from "@/lib/entrata-experts-v2/lenses";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ChevronRight, Users, MessageCircle, BookmarkPlus, ArrowRight } from "lucide-react";
+import { ChevronRight, Users, MessageCircle, BookmarkPlus, ArrowRight, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  SaveAsInsightDialog,
+  type InsightDraft,
+} from "../chat/save-as-insight-dialog";
+
+// Default scope for admin-promoted insights — the admin doesn't have a
+// composer-side scope picker, so we save against the whole portfolio and let
+// the user adjust later.
+const PORTFOLIO_SCOPE: Scope = {
+  kind: "portfolio",
+  id: "portfolio",
+  label: "Whole portfolio",
+};
 
 export function ClusterList({ activity }: { activity: Conversation[] }) {
   const clusters = React.useMemo(() => buildClusters(activity), [activity]);
   const [open, setOpen] = React.useState<string | null>(clusters[0]?.intent ?? null);
+  const [promoting, setPromoting] = React.useState<IntentCluster | null>(null);
+  const [justSaved, setJustSaved] = React.useState<string | null>(null);
+
+  const draft: InsightDraft | null = React.useMemo(() => {
+    if (!promoting) return null;
+    return {
+      prompt: promoting.exampleQuestions[0] ?? promoting.label,
+      lens: promoting.topLens,
+      depth: "auto",
+      model: "auto",
+      scope: PORTFOLIO_SCOPE,
+      source: "admin",
+      suggestedName: promoting.label,
+    };
+  }, [promoting]);
 
   return (
     <div className="space-y-3">
@@ -64,6 +92,8 @@ export function ClusterList({ activity }: { activity: Conversation[] }) {
               </button>
 
               {isOpen && (
+                // Inline detail panel — renders the cluster's example questions
+                // and the graduation CTAs.
                 <div className="border-t border-border/40 bg-muted/20 px-4 pb-4 pt-1">
                   <div className="mb-1.5 mt-3 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                     Example questions
@@ -79,7 +109,14 @@ export function ClusterList({ activity }: { activity: Conversation[] }) {
                     ))}
                   </ul>
                   <div className="mt-3 flex items-center gap-2">
-                    <Button size="sm" className="gap-1.5">
+                    <Button
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={() => {
+                        setPromoting(c);
+                        setJustSaved(null);
+                      }}
+                    >
                       <BookmarkPlus className="h-3.5 w-3.5" />
                       Promote to a Saved Insight
                     </Button>
@@ -87,6 +124,12 @@ export function ClusterList({ activity }: { activity: Conversation[] }) {
                       Open in chat
                       <ArrowRight className="h-3.5 w-3.5" />
                     </Button>
+                    {justSaved === c.intent && (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700">
+                        <Check className="h-3 w-3" />
+                        Saved
+                      </span>
+                    )}
                   </div>
                 </div>
               )}
@@ -94,6 +137,16 @@ export function ClusterList({ activity }: { activity: Conversation[] }) {
           );
         })}
       </div>
+
+      <SaveAsInsightDialog
+        open={!!promoting}
+        draft={draft}
+        onClose={() => setPromoting(null)}
+        onSaved={() => {
+          setJustSaved(promoting?.intent ?? null);
+          setPromoting(null);
+        }}
+      />
     </div>
   );
 }

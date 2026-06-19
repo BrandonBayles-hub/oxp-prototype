@@ -1,12 +1,16 @@
 "use client";
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
   Beaker,
+  Bookmark,
   ChevronDown,
   ChevronRight,
+  Eye,
   FileBarChart,
+  Settings,
   Sparkles,
 } from "lucide-react";
 import {
@@ -33,12 +37,23 @@ import { AssistantChat } from "./assistant-chat";
 import { ReportAnalyzerChat } from "./report-analyzer-chat";
 import { ReportAnalyzerModule } from "./report-analyzer-module";
 import { CreditsUsage } from "./credits-usage";
+import { ExpertsInsights } from "./admin/experts-insights";
+import { ExpertsConfigPanel } from "./admin/experts-config-sheet";
+import { SavedInsightsLibrary } from "./saved-insights-library";
+import { SharedHistorySidebar } from "./shared-history-sidebar";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
   useEntrataExpertsRelease,
   ENTRATA_EXPERTS_VERSIONS,
 } from "@/lib/entrata-experts-release-context";
+import {
+  ExpertsHistoryProvider,
+  useExpertsHistory,
+  type HistoryThread,
+  type ThreadSource,
+} from "@/lib/entrata-experts-v2/history-store";
+import { SavedInsightsProvider } from "@/lib/entrata-experts-v2/saved-insights-store";
 
 // =============================================================================
 // Chat-first hub
@@ -61,23 +76,35 @@ type Selection =
   | { kind: "analyst" }
   | { kind: "assistant"; id: string }
   | { kind: "report-picker" }
-  | { kind: "report"; id: string };
+  | { kind: "report"; id: string }
+  | { kind: "saved-insights" };
 
-// Top-level page mode. Entrata Experts (the chat-first workspace) and Tokens &
-// Usage are peer "pages" switched via the segmented toggle in the hub top bar
-// — not entries inside the experts rail.
-type HubMode = "experts" | "tokens";
+// Top-level page mode. Entrata Experts (the chat-first workspace), Tokens &
+// Usage, Admin Insights, and Setup are peer "pages" switched via the segmented
+// toggle in the hub top bar — not entries inside the experts rail.
+type HubMode = "experts" | "tokens" | "insights" | "setup";
+
+const HUB_MODES: readonly HubMode[] = [
+  "experts",
+  "tokens",
+  "insights",
+  "setup",
+];
 
 const STORAGE_KEY = "oxp:experts-v2:chat-first-selection";
 const MODE_STORAGE_KEY = "oxp:experts-v2:chat-first-mode";
 const DEFAULT_SELECTION: Selection = { kind: "analyst" };
 const DEFAULT_MODE: HubMode = "experts";
 
+function isHubMode(value: unknown): value is HubMode {
+  return typeof value === "string" && (HUB_MODES as readonly string[]).includes(value);
+}
+
 function loadMode(): HubMode {
   if (typeof window === "undefined") return DEFAULT_MODE;
   try {
     const raw = window.sessionStorage.getItem(MODE_STORAGE_KEY);
-    return raw === "tokens" ? "tokens" : "experts";
+    return isHubMode(raw) ? raw : DEFAULT_MODE;
   } catch {
     return DEFAULT_MODE;
   }
@@ -93,6 +120,7 @@ function loadSelection(): Selection {
     if (
       parsed.kind === "analyst" ||
       parsed.kind === "report-picker" ||
+      parsed.kind === "saved-insights" ||
       (parsed.kind === "assistant" && typeof parsed.id === "string") ||
       (parsed.kind === "report" && typeof parsed.id === "string")
     ) {
@@ -116,43 +144,120 @@ export interface ChatFirstHubProps {
   onExitFocus?: () => void;
 }
 
-export function ChatFirstHub({ onExitFocus }: ChatFirstHubProps = {}) {
-  const [selection, setSelection] = React.useState<Selection>(DEFAULT_SELECTION);
+function sourceToSelection(s: ThreadSource): Selection {
+  if (s.kind === "analyst") return { kind: "analyst" };
+  if (s.kind === "assistant") return { kind: "assistant", id: s.id };
+  return { kind: "report", id: s.id };
+}
+
+// Public entry — provides the shared history context to the whole workspace so
+// every surface (Analyst, Assistants, Report Analyzer) reads/writes one list,
+// plus the Saved Insights library so the `/insight-name` command and the
+// "Save to Insights" affordances on artifacts can both reach it.
+export function ChatFirstHub(props: ChatFirstHubProps = {}) {
+  return (
+    <ExpertsHistoryProvider>
+      <SavedInsightsProvider>
+        <ChatFirstHubInner {...props} />
+      </SavedInsightsProvider>
+    </ExpertsHistoryProvider>
+  );
+}
+
+function ChatFirstHubInner({ onExitFocus }: ChatFirstHubProps) {
+  const history = useExpertsHistory();
+  // `pendingSelection` is which surface to show when *no* thread is open (a
+  // fresh "new conversation"). When a thread is open, the surface is derived
+  // from that thread's source instead — so selection always matches history.
+  const [pendingSelection, setPendingSelection] = React.useState<Selection>(DEFAULT_SELECTION);
   const [mode, setMode] = React.useState<HubMode>(DEFAULT_MODE);
   const [hydrated, setHydrated] = React.useState(false);
 
-  // Tokens & Usage is a v1.2 surface (see entrata-experts-release-context).
+  const searchParams = useSearchParams();
+
+  // Tokens & Usage is a v1.2 surface and Admin Insights lands in v1.1. Setup
+  // has no release gate (see entrata-experts-release-context).
   const { atLeast } = useEntrataExpertsRelease();
   const showTokens = atLeast("v1.2");
+  const showInsights = atLeast("v1.1");
 
   React.useEffect(() => {
-    setSelection(loadSelection());
-    setMode(loadMode());
+    setPendingSelection(loadSelection());
+    // A `?view=` deep-link (used by the AI & Agent Activation card, the
+    // /entrata-experts-setup redirect, and the admin-summary CTA) takes
+    // precedence over the last stored mode so those entry points land on the
+    // intended tab.
+    const viewParam = searchParams.get("view");
+    setMode(isHubMode(viewParam) ? viewParam : loadMode());
     setHydrated(true);
+    // searchParams is read once on mount; later switches are driven by the
+    // toggle itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   React.useEffect(() => {
     if (!hydrated) return;
     try {
-      window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(selection));
+      window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(pendingSelection));
       window.sessionStorage.setItem(MODE_STORAGE_KEY, mode);
     } catch {
       /* ignore */
     }
-  }, [selection, mode, hydrated]);
+  }, [pendingSelection, mode, hydrated]);
 
-  // If the release is downgraded below v1.2 while Tokens & Usage is open,
-  // snap back to the Experts workspace so we never show a gated surface.
+  // If the release is downgraded below a gated surface's version while it's
+  // open, snap back to the Experts workspace so we never show a gated surface.
   React.useEffect(() => {
     if (!showTokens && mode === "tokens") setMode("experts");
-  }, [showTokens, mode]);
+    if (!showInsights && mode === "insights") setMode("experts");
+  }, [showTokens, showInsights, mode]);
 
-  const selectAnalyst = () => setSelection({ kind: "analyst" });
-  const selectAssistant = (id: string) => setSelection({ kind: "assistant", id });
-  const selectReportPicker = () => setSelection({ kind: "report-picker" });
-  const selectReport = (id: string) => setSelection({ kind: "report", id });
+  const activeThread = history.activeId ? history.getThread(history.activeId) : undefined;
+  const selection: Selection = activeThread
+    ? sourceToSelection(activeThread.source)
+    : pendingSelection;
 
-  const showTokensView = mode === "tokens" && showTokens;
+  // Rail clicks start a fresh conversation on the chosen surface. Specific
+  // threads are reopened from the shared history sidebar.
+  const selectAnalyst = () => {
+    setPendingSelection({ kind: "analyst" });
+    history.newThread();
+  };
+  const selectAssistant = (id: string) => {
+    setPendingSelection({ kind: "assistant", id });
+    history.newThread();
+  };
+  const selectReportPicker = () => {
+    setPendingSelection({ kind: "report-picker" });
+    history.newThread();
+  };
+  const selectReport = (id: string) => {
+    setPendingSelection({ kind: "report", id });
+    history.newThread();
+  };
+  const selectSavedInsights = () => {
+    setPendingSelection({ kind: "saved-insights" });
+    history.newThread();
+  };
+  // The library's Run button calls this after queueing the pending insight.
+  // We flip the surface to Analyst with no active thread so ChatView's
+  // pending-run effect drains the queue into a fresh conversation.
+  const runFromLibrary = () => {
+    setPendingSelection({ kind: "analyst" });
+    history.newThread();
+  };
+  const openThread = (thread: HistoryThread) => {
+    setPendingSelection(sourceToSelection(thread.source));
+    history.setActiveId(thread.id);
+  };
+  const newConversation = () => history.newThread();
+
+  // Resolve the mode to render, defending against a gated mode that the
+  // snap-back effect hasn't cleared yet (effects run after paint).
+  const effectiveMode: HubMode =
+    (mode === "tokens" && !showTokens) || (mode === "insights" && !showInsights)
+      ? "experts"
+      : mode;
 
   return (
     // h-full lets the parent decide the viewport — when rendered in focus
@@ -164,11 +269,16 @@ export function ChatFirstHub({ onExitFocus }: ChatFirstHubProps = {}) {
         mode={mode}
         onChangeMode={setMode}
         showTokens={showTokens}
+        showInsights={showInsights}
         onExitFocus={onExitFocus}
       />
 
-      {showTokensView ? (
+      {effectiveMode === "tokens" ? (
         <TokensView />
+      ) : effectiveMode === "insights" ? (
+        <InsightsView />
+      ) : effectiveMode === "setup" ? (
+        <SetupView />
       ) : (
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <ExpertsRail
@@ -177,16 +287,18 @@ export function ChatFirstHub({ onExitFocus }: ChatFirstHubProps = {}) {
             onSelectAssistant={selectAssistant}
             onSelectReportPicker={selectReportPicker}
             onSelectReport={selectReport}
+            onSelectSavedInsights={selectSavedInsights}
+          />
+          <SharedHistorySidebar
+            threads={history.threads}
+            activeId={history.activeId}
+            onOpen={openThread}
+            onNew={newConversation}
           />
           <main className="flex min-w-0 flex-1 flex-col bg-background">
             {selection.kind === "analyst" && (
               <EmbeddedShell>
-                <AnalystChat
-                  onBack={selectAnalyst}
-                  hideBack
-                  hideNew
-                  alignWithSidebar
-                />
+                <AnalystChat onBack={selectAnalyst} hideBack hideNew />
               </EmbeddedShell>
             )}
             {selection.kind === "assistant" && (
@@ -212,6 +324,9 @@ export function ChatFirstHub({ onExitFocus }: ChatFirstHubProps = {}) {
                 />
               </EmbeddedShell>
             )}
+            {selection.kind === "saved-insights" && (
+              <SavedInsightsLibrary onRunStarted={runFromLibrary} />
+            )}
           </main>
         </div>
       )}
@@ -231,11 +346,13 @@ function HubTopBar({
   mode,
   onChangeMode,
   showTokens,
+  showInsights,
   onExitFocus,
 }: {
   mode: HubMode;
   onChangeMode: (m: HubMode) => void;
   showTokens: boolean;
+  showInsights: boolean;
   onExitFocus?: () => void;
 }) {
   return (
@@ -255,20 +372,12 @@ function HubTopBar({
         </>
       )}
 
-      {showTokens ? (
-        <ModeToggle mode={mode} onChange={onChangeMode} />
-      ) : (
-        <div className="flex items-center gap-2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={EXPERTS_BADGE} alt="" aria-hidden className="h-5 w-5" />
-          <span
-            className="text-[13px] font-semibold tracking-tight text-foreground"
-            style={{ fontFamily: HEADING_FONT }}
-          >
-            Entrata Experts
-          </span>
-        </div>
-      )}
+      <ModeToggle
+        mode={mode}
+        onChange={onChangeMode}
+        showTokens={showTokens}
+        showInsights={showInsights}
+      />
 
       <div className="ml-auto">
         <EntrataExpertsDemoControl />
@@ -387,22 +496,37 @@ function EntrataExpertsDemoControl() {
 }
 
 // Segmented page toggle. Refined pill control — active segment lifts onto a
-// solid background with a hairline ring; the active icon picks up its page's
-// accent hue (indigo for Experts, amber for Tokens & Usage).
+// solid background with a hairline ring. Entrata Experts and Tokens & Usage
+// carry their gradient badge SVGs; Admin Insights and Setup use lucide icons.
+// Gated peers (Tokens & Usage at v1.2, Admin Insights at v1.1) only appear when
+// the active release unlocks them.
+type ModeToggleItem = {
+  id: HubMode;
+  label: string;
+  badge?: string;
+  icon?: React.ComponentType<{ className?: string }>;
+};
+
 function ModeToggle({
   mode,
   onChange,
+  showTokens,
+  showInsights,
 }: {
   mode: HubMode;
   onChange: (m: HubMode) => void;
+  showTokens: boolean;
+  showInsights: boolean;
 }) {
-  const items: {
-    id: HubMode;
-    label: string;
-    badge: string;
-  }[] = [
+  const items: ModeToggleItem[] = [
     { id: "experts", label: "Entrata Experts", badge: EXPERTS_BADGE },
-    { id: "tokens", label: "Tokens & Usage", badge: TOKENS_BADGE },
+    ...(showTokens
+      ? [{ id: "tokens", label: "Tokens & Usage", badge: TOKENS_BADGE } as ModeToggleItem]
+      : []),
+    ...(showInsights
+      ? [{ id: "insights", label: "Admin Insights", icon: Eye } as ModeToggleItem]
+      : []),
+    { id: "setup", label: "Setup", icon: Settings },
   ];
 
   return (
@@ -413,6 +537,7 @@ function ModeToggle({
     >
       {items.map((it) => {
         const active = mode === it.id;
+        const Icon = it.icon;
         return (
           <button
             key={it.id}
@@ -421,22 +546,32 @@ function ModeToggle({
             aria-selected={active}
             onClick={() => onChange(it.id)}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-full py-1 pl-1 pr-3.5 text-[12.5px] font-medium transition-all",
+              "inline-flex items-center gap-1.5 rounded-full py-1 pr-3.5 text-[12.5px] font-medium transition-all",
+              it.badge ? "pl-1" : "pl-3",
               active
                 ? "bg-background text-foreground shadow-sm ring-1 ring-border"
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={it.badge}
-              alt=""
-              aria-hidden
-              className={cn(
-                "h-5 w-5 shrink-0 transition-opacity",
-                active ? "opacity-100" : "opacity-60",
-              )}
-            />
+            {it.badge ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={it.badge}
+                alt=""
+                aria-hidden
+                className={cn(
+                  "h-5 w-5 shrink-0 transition-opacity",
+                  active ? "opacity-100" : "opacity-60",
+                )}
+              />
+            ) : Icon ? (
+              <Icon
+                className={cn(
+                  "h-4 w-4 shrink-0 transition-opacity",
+                  active ? "opacity-100" : "opacity-70",
+                )}
+              />
+            ) : null}
             {it.label}
           </button>
         );
@@ -478,12 +613,14 @@ function ExpertsRail({
   onSelectAssistant,
   onSelectReportPicker,
   onSelectReport,
+  onSelectSavedInsights,
 }: {
   selection: Selection;
   onSelectAnalyst: () => void;
   onSelectAssistant: (id: string) => void;
   onSelectReportPicker: () => void;
   onSelectReport: (id: string) => void;
+  onSelectSavedInsights: () => void;
 }) {
   const activeReport =
     selection.kind === "report" ? REPORT_BY_ID[selection.id] : undefined;
@@ -527,6 +664,20 @@ function ExpertsRail({
               />
             );
           })}
+        </RailGroup>
+
+        <RailGroup label="Library">
+          <RailRow
+            active={selection.kind === "saved-insights"}
+            onClick={onSelectSavedInsights}
+            icon={
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-indigo-50 text-indigo-600">
+                <Bookmark className="h-3.5 w-3.5" />
+              </span>
+            }
+            title="Saved Insights"
+            subtitle="One-click prompts"
+          />
         </RailGroup>
 
         <RailGroup label="Reports">
@@ -681,6 +832,60 @@ function TokensView() {
       <div className="flex-1 overflow-y-auto scrollbar-hover px-6 py-5">
         <CreditsUsage />
       </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// InsightsView — main-area view for Admin Insights. Hosts the Entrata Experts
+// admin observability (activity log, knowledge gaps, intent clusters,
+// automation candidates) that used to live as the "Entrata Experts" source on
+// the cross-platform Admin Insights page.
+// -----------------------------------------------------------------------------
+
+function InsightsView() {
+  return (
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <header className="flex items-center gap-3 border-b border-border px-5 py-3">
+        <span
+          className="flex h-9 w-9 items-center justify-center rounded-md"
+          style={{ background: "#4338ca14", color: "#4338ca" }}
+        >
+          <Sparkles className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2
+            className="text-base font-semibold leading-tight text-foreground"
+            style={{ fontFamily: HEADING_FONT }}
+          >
+            Admin Insights
+          </h2>
+          <p className="truncate text-[12px] text-muted-foreground">
+            Every conversation, who asked, what they got, and where the gaps are
+            — grow your knowledge base and graduate recurring questions into
+            automation.
+          </p>
+        </div>
+      </header>
+
+      <div className="flex-1 overflow-y-auto scrollbar-hover px-6 py-5">
+        <ExpertsInsights />
+      </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// SetupView — main-area view for Setup. Renders the same ExpertsConfigPanel
+// that powers the right-side config sheet and the (now-redirected)
+// /entrata-experts-setup route, so surfaces, spend limits, and model access
+// stay in one place. The panel owns its own header + Save/Discard toolbar.
+// -----------------------------------------------------------------------------
+
+function SetupView() {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <ExpertsConfigPanel />
     </div>
   );
 }

@@ -6,8 +6,10 @@
     "dev": "ulimit -n 65536 && next dev",
     "dev:clean": "ulimit -n 65536 && rm -rf .next && next dev",
     "dev:fresh": "ulimit -n 65536 && lsof -ti:3000 | xargs kill -9 2>/dev/null; rm -rf .next && next dev",
-    "build": "next build && rm -rf dist && cp -r out dist",
-    "start": "npx --yes serve@latest out -l 3000",
+    "build": "ulimit -n 65536 && next build",
+    "build:static": "ulimit -n 65536 && STATIC_EXPORT=1 next build && rm -rf dist && cp -r out dist",
+    "start": "next start",
+    "start:static": "npx --yes serve@latest out -l 3000",
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest"

@@ -5,6 +5,7 @@ import { MessageBody } from "./message-body";
 import { Artifact } from "./artifact";
 import { TraceView } from "./trace-view";
 import { LENS_BY_ID, MODEL_BY_ID, DEPTH_BY_ID } from "@/lib/entrata-experts-v2/lenses";
+import { describeModel } from "@/lib/entrata-experts-v2/llm/model-catalog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -41,7 +42,7 @@ export function AssistantBubble({
 }) {
   const lensDef = LENS_BY_ID[message.lens];
   const Icon = lensDef.icon;
-  const modelDef = MODEL_BY_ID[message.model ?? "auto"];
+  const modelDef = MODEL_BY_ID[message.model ?? "auto"] ?? describeModel(message.model ?? "auto");
   const depthDef = DEPTH_BY_ID[message.depth];
 
   const outcomeBadge =
@@ -98,6 +99,17 @@ export function AssistantBubble({
           key={art.id}
           artifact={art}
           handoffContext={{ scopeLabel: message.scope.label, prompt: priorPrompt }}
+          insightContext={
+            priorPrompt
+              ? {
+                  prompt: priorPrompt,
+                  lens: message.lens,
+                  depth: message.depth,
+                  model: message.model,
+                  scope: message.scope,
+                }
+              : undefined
+          }
         />
       ))}
 

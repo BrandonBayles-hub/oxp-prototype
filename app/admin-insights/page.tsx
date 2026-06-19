@@ -2,23 +2,19 @@
 
 import * as React from "react";
 import { PageHeader } from "@/components/page-header";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { generateActivity } from "@/lib/entrata-experts-v2/data/activity";
-import { HealthStrip } from "@/components/entrata-experts-v2/admin/health-strip";
-import { ActivityLog } from "@/components/entrata-experts-v2/admin/activity-log";
-import { ClusterList } from "@/components/entrata-experts-v2/admin/cluster-list";
-import { GapList } from "@/components/entrata-experts-v2/admin/gap-list";
-import { AutomationCandidates } from "@/components/entrata-experts-v2/admin/automation-candidates";
 import { TrainingsSopInsights } from "@/components/admin-insights/trainings-sop-insights";
 import { EscalationsInsights } from "@/components/admin-insights/escalations-insights";
 import { CommunicationsInsights } from "@/components/admin-insights/communications-insights";
 import { AcademyTab } from "../trainings-sop/academy/AcademyTab";
 import { AcademyDemoControls } from "../trainings-sop/academy/AcademyDemoControls";
-import { Badge } from "@/components/ui/badge";
-import { Sparkles, BookOpen, AlertCircle, MessageSquare, GraduationCap } from "lucide-react";
-import { useEntrataExpertsRelease } from "@/lib/entrata-experts-release-context";
+import { BookOpen, AlertCircle, MessageSquare, GraduationCap } from "lucide-react";
+import { SavedInsightsProvider } from "@/lib/entrata-experts-v2/saved-insights-store";
 
-type SourceId = "experts" | "trainings" | "escalations" | "communications" | "academy";
+// The Entrata Experts source used to live here too. It now lives on the
+// Entrata Experts page itself (chat-first hub → Admin Insights tab, peer to
+// Tokens & Usage). This page keeps the cross-platform sources that aren't part
+// of Entrata Experts.
+type SourceId = "trainings" | "escalations" | "communications" | "academy";
 
 interface SourceMeta {
   id: SourceId;
@@ -29,14 +25,6 @@ interface SourceMeta {
 }
 
 const SOURCES: SourceMeta[] = [
-  {
-    id: "experts",
-    label: "Entrata Experts",
-    icon: Sparkles,
-    heading: "What your team is doing with Entrata Experts",
-    description:
-      "Every conversation, who asked, what they got, and where the gaps are. Use this view to grow your knowledge base, retire unused lenses, and graduate recurring questions into automated workflows.",
-  },
   {
     id: "trainings",
     label: "Trainings & SOP",
@@ -71,17 +59,11 @@ const SOURCES: SourceMeta[] = [
   },
 ];
 
-type ExpertsSubTab =
-  | "activity"
-  | "clusters"
-  | "gaps"
-  | "automation";
-
 // localStorage key used to remember which Admin Insights source the user
 // last selected. We persist this so that the Academy demo-user switcher's
 // full-page reload (writes localStorage.academy_demo_user_email, replays
-// login, reloads) doesn't drop the user back to the default "experts"
-// source — which is what was happening before this key existed.
+// login, reloads) doesn't drop the user back to the default source — which is
+// what was happening before this key existed.
 const SOURCE_PREF_KEY = "admin_insights_source";
 
 // The Admin Insights > Entrata Academy view is hard-pinned to the Admin
@@ -92,8 +74,8 @@ const SOURCE_PREF_KEY = "admin_insights_source";
 // fail (current === ADMIN_EMAIL never satisfied) and the page will
 // reload-loop. Should be a startup test if Academy is ever swapped.
 const ADMIN_EMAIL = "admin@sunsetpm.com";
+const DEFAULT_SOURCE: SourceId = "trainings";
 const VALID_SOURCES: ReadonlyArray<SourceId> = [
-  "experts",
   "trainings",
   "escalations",
   "communications",
@@ -111,12 +93,11 @@ function readSavedSource(): SourceId | null {
 }
 
 export default function AdminInsightsPage() {
-  const activity = React.useMemo(() => generateActivity(), []);
-  // We initialize from "experts" on the server pass (SSR/static export has
+  // We initialize from the default on the server pass (SSR/static export has
   // no localStorage), then sync to the saved source in a useEffect once the
   // client hydrates. This avoids hydration-mismatch warnings while still
   // restoring the correct source after a reload caused by the user-switcher.
-  const [source, setSource] = React.useState<SourceId>("experts");
+  const [source, setSource] = React.useState<SourceId>(DEFAULT_SOURCE);
   React.useEffect(() => {
     const saved = readSavedSource();
     if (saved && saved !== source) setSource(saved);
@@ -159,43 +140,12 @@ export default function AdminInsightsPage() {
          possibly under the wrong persona. */
     }
   }, [source]);
-  const [expertsSubTab, setExpertsSubTab] = React.useState<ExpertsSubTab>("activity");
-
-  // Entrata Experts admin observability lands in v1.1; clusters + automation
-  // candidates sub-tabs land in v1.2. On earlier versions we hide the source
-  // entirely (admins won't see it in the source selector).
-  //
-  // Tokens & Usage used to live here as a sub-tab but now lives on the
-  // Entrata Experts page itself (chat-first hub → Account → Tokens & Usage).
-  const { atLeast } = useEntrataExpertsRelease();
-  const showExpertsSource = atLeast("v1.1");
-  const showExpertsAdvancedTabs = atLeast("v1.2");
-
-  // Filter source list and snap selection away from a hidden source.
-  const visibleSources = React.useMemo(
-    () => SOURCES.filter((s) => s.id !== "experts" || showExpertsSource),
-    [showExpertsSource],
-  );
-  React.useEffect(() => {
-    if (!visibleSources.find((s) => s.id === source)) {
-      setSource(visibleSources[0]?.id ?? "trainings");
-    }
-  }, [visibleSources, source]);
-  // If the active sub-tab is gated off, snap back to "activity".
-  React.useEffect(() => {
-    if (
-      !showExpertsAdvancedTabs &&
-      (expertsSubTab === "clusters" || expertsSubTab === "automation")
-    ) {
-      setExpertsSubTab("activity");
-    }
-  }, [showExpertsAdvancedTabs, expertsSubTab]);
 
   const currentSource = SOURCES.find((s) => s.id === source)!;
   const SourceIcon = currentSource.icon;
 
   return (
-    <>
+    <SavedInsightsProvider>
       <PageHeader
         title="Admin Insights"
         description="Cross-platform observability — see what your team is doing with AI across OXP, surface gaps, and graduate patterns into automation."
@@ -203,7 +153,7 @@ export default function AdminInsightsPage() {
 
       {/* Source selector */}
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        {visibleSources.map((s) => {
+        {SOURCES.map((s) => {
           const Icon = s.icon;
           const isActive = source === s.id;
           return (
@@ -211,10 +161,9 @@ export default function AdminInsightsPage() {
               key={s.id}
               onClick={() => {
                 setSource(s.id);
-                if (s.id === "experts") setExpertsSubTab("activity");
                 // Persist the selection so a reload (e.g. from the Academy
                 // demo user-switcher in the academy source) lands the user
-                // back on the same source instead of resetting to experts.
+                // back on the same source instead of resetting.
                 if (typeof window !== "undefined") {
                   try {
                     window.localStorage.setItem(SOURCE_PREF_KEY, s.id);
@@ -258,54 +207,6 @@ export default function AdminInsightsPage() {
 
       {/* Source-specific content */}
       <div className="mt-5">
-        {source === "experts" && (
-          <>
-            <HealthStrip activity={activity} />
-
-            <Tabs
-              value={expertsSubTab}
-              onValueChange={(v) => setExpertsSubTab(v as ExpertsSubTab)}
-              className="mt-5 space-y-3"
-            >
-              <TabsList className="h-auto flex-wrap justify-start gap-0 p-0.5">
-                <TabsTrigger value="activity" className="text-xs">
-                  Activity log
-                </TabsTrigger>
-                {showExpertsAdvancedTabs && (
-                  <TabsTrigger value="clusters" className="text-xs">
-                    What people are asking
-                  </TabsTrigger>
-                )}
-                <TabsTrigger value="gaps" className="text-xs">
-                  Knowledge gaps
-                </TabsTrigger>
-                {showExpertsAdvancedTabs && (
-                  <TabsTrigger value="automation" className="text-xs">
-                    Automation candidates
-                  </TabsTrigger>
-                )}
-              </TabsList>
-
-              <TabsContent value="activity" className="mt-2">
-                <ActivityLog activity={activity} />
-              </TabsContent>
-              {showExpertsAdvancedTabs && (
-                <TabsContent value="clusters" className="mt-2">
-                  <ClusterList activity={activity} />
-                </TabsContent>
-              )}
-              <TabsContent value="gaps" className="mt-2">
-                <GapList activity={activity} />
-              </TabsContent>
-              {showExpertsAdvancedTabs && (
-                <TabsContent value="automation" className="mt-2">
-                  <AutomationCandidates activity={activity} />
-                </TabsContent>
-              )}
-            </Tabs>
-          </>
-        )}
-
         {source === "trainings" && <TrainingsSopInsights />}
         {source === "escalations" && <EscalationsInsights />}
         {source === "communications" && <CommunicationsInsights />}
@@ -326,6 +227,6 @@ export default function AdminInsightsPage() {
           </div>
         )}
       </div>
-    </>
+    </SavedInsightsProvider>
   );
 }
