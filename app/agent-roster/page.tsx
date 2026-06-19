@@ -33,7 +33,7 @@ import { useTools } from "@/lib/tools-context";
 import { useGovernance } from "@/lib/governance-context";
 import { useAgentCompliance } from "@/lib/use-agent-compliance";
 import { useR1Release } from "@/lib/r1-release-context";
-import { Tag, X, Search, DollarSign, Megaphone, Users, Wrench, ShieldCheck, Power, Activity, AlertCircle, Play, Clock, CheckCircle, CheckCircle2, XCircle, Calendar, Lightbulb, Target, Database, BarChart3, Pencil, Save, ArrowLeft, ArrowRight, Sparkles, BookOpen, Cog, Bot, Box, MessageSquare, Shield, Zap, Eye, EyeOff, Globe, Mail, Phone, Volume2, History, RotateCcw, Lock, ExternalLink, CirclePlay, TrendingUp, TrendingDown, Minus, ArrowUpDown, ChevronDown, ChevronUp, Building2, Layers, Home, Plus, Info, Trash2, Copy } from "lucide-react";
+import { Tag, X, Search, DollarSign, Megaphone, Users, Wrench, ShieldCheck, Power, Activity, AlertCircle, Play, Clock, CheckCircle, CheckCircle2, XCircle, Calendar, Lightbulb, Target, Database, BarChart3, Pencil, Save, ArrowLeft, ArrowRight, Sparkles, BookOpen, Cog, Bot, Box, MessageSquare, Shield, Zap, Eye, EyeOff, Globe, Mail, Phone, Volume2, History, RotateCcw, Lock, ExternalLink, CirclePlay, TrendingUp, TrendingDown, Minus, ArrowUpDown, ChevronDown, ChevronUp, Building2, Layers, Home, Plus, Info, Trash2, Copy, Star } from "lucide-react";
 import {
   useVoice,
   NOVA2_VOICES,
@@ -109,6 +109,27 @@ const PINNED_ELI_PLUS_ORDER = [
   "Renewal AI",
 ] as const;
 const PINNED_ELI_PLUS_NAMES = new Set<string>(PINNED_ELI_PLUS_ORDER);
+
+// Curated section ordering for the default (unfiltered) roster view. These drive
+// the "Trending" and "Most Popular" groupings shown when no filters/search are
+// active. Names must match agent names in agents-context.tsx exactly.
+const TRENDING_AGENT_NAMES = [
+  "Rebuild Renewal Offers When Pricing Changes",
+  "Create Draw Request",
+  "Countersign Individual Docs",
+  "Advance Period Select All AP Agent",
+  "Installation Complete Update",
+  "Business License Bulk Update",
+] as const;
+
+const MOST_POPULAR_AGENT_NAMES = [
+  "Lifecycle Status Update",
+  "Approve Applications",
+  "Approve for Payment",
+  "Activate & Sync Templates",
+  "Renewal Offer Creation",
+  "Advance Accounting Periods",
+] as const;
 
 const CHANNEL_OPTIONS = [
   { value: "Chat", icon: MessageSquare },
@@ -400,6 +421,113 @@ function AgentRosterContent() {
     return map;
   }, [filtered, sortBy]);
 
+  // The default (unfiltered) roster groups agents into curated sections. As soon
+  // as the user applies any filter or types a search, we fall back to the flat
+  // card grid so filtering keeps working exactly as before.
+  const hasActiveFilters = activeFilterPills.length > 0 || search.trim().length > 0;
+
+  const rosterSections = useMemo(() => {
+    // L5 hero is rendered separately above the sections.
+    const pool = cardSorted.filter((a) => a.type !== "fully_autonomous");
+    const used = new Set<string>();
+
+    const eliPlus = PINNED_ELI_PLUS_ORDER
+      .map((name) => pool.find((a) => a.name === name))
+      .filter((a): a is (typeof pool)[number] => Boolean(a));
+    eliPlus.forEach((a) => used.add(a.id));
+
+    const pickByNames = (names: readonly string[]) =>
+      names
+        .map((name) => pool.find((a) => a.name === name && !used.has(a.id)))
+        .filter((a): a is (typeof pool)[number] => Boolean(a));
+
+    const trending = pickByNames(TRENDING_AGENT_NAMES);
+    trending.forEach((a) => used.add(a.id));
+
+    const mostPopular = pickByNames(MOST_POPULAR_AGENT_NAMES);
+    mostPopular.forEach((a) => used.add(a.id));
+
+    const remaining = pool.filter((a) => !used.has(a.id));
+    const byCategory = BUCKETS
+      .map((bucket) => ({ bucket, items: remaining.filter((a) => a.bucket === bucket) }))
+      .filter((g) => g.items.length > 0);
+
+    return { eliPlus, trending, mostPopular, byCategory };
+  }, [cardSorted]);
+
+  const renderAgentCard = (agent: Agent) => {
+    const isOffEliPlus = agent.type === "autonomous" && agent.status === "Off";
+    const isPinnedEliPlus = PINNED_ELI_PLUS_NAMES.has(agent.name);
+    const typeInfo = AGENT_TYPES.find((t) => t.value === agent.type);
+    const levelLabel = typeInfo?.label ?? "L1 · ELI Essentials";
+    const levelShort = levelLabel.split("·")[0].trim();
+    const levelName = levelLabel.split("·")[1]?.trim() ?? "";
+
+    return (
+      <button
+        key={agent.id}
+        type="button"
+        onClick={() => {
+          if (isOffEliPlus) { setEliPlusActivateAgent(agent.name); return; }
+          if (agent.name === "Entrata Experts") { setExpertsConfigOpen(true); return; }
+          if (getL3AgentConfig(agent.name)) { setL3AgentId(agent.id); return; }
+          if (agent.type === "operations" || agent.type === "efficiency" || agent.type === "intelligence") setOpsAgentId(agent.id);
+          else setAutoAgentId(agent.id);
+        }}
+        className={`group relative flex flex-col rounded-xl border bg-white p-4 text-left transition-all hover:shadow-md ${
+          selectedId === agent.id
+            ? "border-[#6366f1]/40 shadow-md ring-1 ring-[#6366f1]/20"
+            : isPinnedEliPlus
+              ? "border-2 border-[#7c3aed]/40 hover:border-[#7c3aed]/60"
+              : "border-border hover:border-border/80"
+        }`}
+      >
+        {/* Header: icon + name + video button */}
+        <div className="mb-3 flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/50">
+            <img src={AGENT_TYPE_ICON[agent.type] ?? "/icon-l1-essentials.svg"} alt="" width={22} height={22} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-semibold leading-tight text-foreground truncate">
+              {agent.type === "autonomous" ? `ELI+ ${agent.name}` : agent.name}
+            </p>
+          </div>
+          {agent.type === "intelligence" && (
+            <button
+              type="button"
+              title="Watch agent walkthrough"
+              className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              onClick={(e) => { e.stopPropagation(); setVideoAgentName(agent.name); }}
+            >
+              <CirclePlay className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Description */}
+        <p className="mb-4 line-clamp-2 text-[12px] leading-relaxed text-muted-foreground">
+          {agent.description}
+        </p>
+
+        {/* Footer: level + status */}
+        <div className="mt-auto flex items-center justify-between gap-2">
+          <span className="rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            {levelShort}{levelName ? ` · ${levelName}` : ""}
+          </span>
+          <span
+            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+              agent.status === "Active"
+                ? "bg-[#B3FFCC] text-black"
+                : "bg-amber-400 text-amber-950"
+            }`}
+          >
+            {agent.status}
+          </span>
+        </div>
+      </button>
+    );
+  };
+
   return (
     <>
       <PageHeader
@@ -539,11 +667,19 @@ function AgentRosterContent() {
               </div>
             )}
 
-            {/* L5 Hero Agent */}
+            {/* Featured · L5 Hero Agent */}
             {(() => {
               const l5Agent = cardSorted.find((a) => a.type === "fully_autonomous");
               if (!l5Agent) return null;
               return (
+                <div className="mb-6">
+                {!hasActiveFilters && (
+                  <div className="mb-3 flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-[#7c3aed]" />
+                    <h2 className="text-base font-semibold text-foreground">Featured</h2>
+                    <span className="text-sm text-muted-foreground">Your top-tier autonomous agent.</span>
+                  </div>
+                )}
                 <button
                   key={l5Agent.id}
                   type="button"
@@ -551,7 +687,7 @@ function AgentRosterContent() {
                     if (l5Agent.status === "Active") setLeadToLeaseOpen(true);
                     else setLeadToLeaseActivateOpen(true);
                   }}
-                  className="mb-6 w-full rounded-2xl border-2 border-[#7c3aed]/30 bg-gradient-to-r from-[#7c3aed]/[0.04] via-white to-[#7c3aed]/[0.04] p-6 text-left transition-all hover:shadow-lg hover:border-[#7c3aed]/50 group"
+                  className="w-full rounded-2xl border-2 border-[#7c3aed]/30 bg-gradient-to-r from-[#7c3aed]/[0.04] via-white to-[#7c3aed]/[0.04] p-6 text-left transition-all hover:shadow-lg hover:border-[#7c3aed]/50 group"
                 >
                   <div className="flex items-center gap-5">
                     <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#7c3aed]/10">
@@ -580,84 +716,88 @@ function AgentRosterContent() {
                     </div>
                   </div>
                 </button>
+                </div>
               );
             })()}
 
-            {/* Card grid */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {cardSorted.filter((a) => a.type !== "fully_autonomous").map((agent) => {
-                const isOffEliPlus = agent.type === "autonomous" && agent.status === "Off";
-                const isPinnedEliPlus = PINNED_ELI_PLUS_NAMES.has(agent.name);
-                const typeInfo = AGENT_TYPES.find((t) => t.value === agent.type);
-                const levelLabel = typeInfo?.label ?? "L1 · ELI Essentials";
-                const levelShort = levelLabel.split("·")[0].trim();
-                const levelName = levelLabel.split("·")[1]?.trim() ?? "";
-
-                return (
-                  <button
-                    key={agent.id}
-                    type="button"
-                    onClick={() => {
-                      if (isOffEliPlus) { setEliPlusActivateAgent(agent.name); return; }
-                      if (agent.name === "Entrata Experts") { setExpertsConfigOpen(true); return; }
-                      if (getL3AgentConfig(agent.name)) { setL3AgentId(agent.id); return; }
-                      if (agent.type === "operations" || agent.type === "efficiency" || agent.type === "intelligence") setOpsAgentId(agent.id);
-                      else setAutoAgentId(agent.id);
-                    }}
-                    className={`group relative flex flex-col rounded-xl border bg-white p-4 text-left transition-all hover:shadow-md ${
-                      selectedId === agent.id
-                        ? "border-[#6366f1]/40 shadow-md ring-1 ring-[#6366f1]/20"
-                        : isPinnedEliPlus
-                          ? "border-2 border-[#7c3aed]/40 hover:border-[#7c3aed]/60"
-                          : "border-border hover:border-border/80"
-                    }`}
-                  >
-                    {/* Header: icon + name + video button */}
-                    <div className="mb-3 flex items-start gap-3">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/50">
-                        <img src={AGENT_TYPE_ICON[agent.type] ?? "/icon-l1-essentials.svg"} alt="" width={22} height={22} />
+            {hasActiveFilters ? (
+              /* ── Filtered / search results: flat grid ── */
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {cardSorted.filter((a) => a.type !== "fully_autonomous").map((agent) => renderAgentCard(agent))}
+              </div>
+            ) : (
+              /* ── Default view: curated sections ── */
+              <div className="space-y-8">
+                {/* ELI+ Premium · Conversational Agents · L4 */}
+                {rosterSections.eliPlus.length > 0 && (
+                  <section className="rounded-2xl border border-[#7c3aed]/20 bg-gradient-to-b from-[#7c3aed]/[0.04] to-transparent p-5">
+                    <div className="mb-4">
+                      <div className="flex items-center gap-2.5">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-[#7c3aed] to-[#6d28d9] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                          <Sparkles className="h-3 w-3" /> ELI+
+                        </span>
+                        <h2 className="text-base font-semibold text-foreground">Conversational Agents · L4</h2>
+                        <span className="text-sm text-muted-foreground">{rosterSections.eliPlus.length}</span>
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[13px] font-semibold leading-tight text-foreground truncate">
-                          {agent.type === "autonomous" ? `ELI+ ${agent.name}` : agent.name}
-                        </p>
+                      <p className="mt-1 text-[13px] text-muted-foreground">Top-tier agents that hold full resident conversations end to end.</p>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                      {rosterSections.eliPlus.map((agent) => renderAgentCard(agent))}
+                    </div>
+                  </section>
+                )}
+
+                {/* Trending */}
+                {rosterSections.trending.length > 0 && (
+                  <section>
+                    <div className="mb-3">
+                      <div className="flex items-center gap-2">
+                        <TrendingUp className="h-4 w-4 text-foreground" />
+                        <h2 className="text-base font-semibold text-foreground">Trending</h2>
+                        <span className="text-sm text-muted-foreground">{rosterSections.trending.length}</span>
                       </div>
-                      {agent.type === "intelligence" && (
-                        <button
-                          type="button"
-                          title="Watch agent walkthrough"
-                          className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                          onClick={(e) => { e.stopPropagation(); setVideoAgentName(agent.name); }}
-                        >
-                          <CirclePlay className="h-4 w-4" />
-                        </button>
-                      )}
+                      <p className="mt-0.5 text-[13px] text-muted-foreground">Gaining momentum across Entrata customers right now.</p>
                     </div>
-
-                    {/* Description */}
-                    <p className="mb-4 line-clamp-2 text-[12px] leading-relaxed text-muted-foreground">
-                      {agent.description}
-                    </p>
-
-                    {/* Footer: level + status */}
-                    <div className="mt-auto flex items-center justify-between gap-2">
-                      <span className="rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                        {levelShort}{levelName ? ` · ${levelName}` : ""}
-                      </span>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                          agent.status === "Active"
-                            ? "bg-[#B3FFCC] text-black"
-                            : "bg-amber-400 text-amber-950"
-                        }`}
-                      >
-                        {agent.status}
-                      </span>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                      {rosterSections.trending.map((agent) => renderAgentCard(agent))}
                     </div>
-                  </button>
-                );
-              })}
-            </div>
+                  </section>
+                )}
+
+                {/* Most Popular */}
+                {rosterSections.mostPopular.length > 0 && (
+                  <section>
+                    <div className="mb-3">
+                      <div className="flex items-center gap-2">
+                        <Star className="h-4 w-4 text-foreground" />
+                        <h2 className="text-base font-semibold text-foreground">Most Popular</h2>
+                        <span className="text-sm text-muted-foreground">{rosterSections.mostPopular.length}</span>
+                      </div>
+                      <p className="mt-0.5 text-[13px] text-muted-foreground">The agents teams use most week to week.</p>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                      {rosterSections.mostPopular.map((agent) => renderAgentCard(agent))}
+                    </div>
+                  </section>
+                )}
+
+                {/* Remaining agents grouped by category */}
+                {rosterSections.byCategory.map(({ bucket, items }) => (
+                  <section key={bucket}>
+                    <div className="mb-3">
+                      <div className="flex items-center gap-2">
+                        {(() => { const Icon = BUCKET_ICONS[bucket]; return Icon ? <Icon className="h-4 w-4 text-foreground" /> : null; })()}
+                        <h2 className="text-base font-semibold text-foreground">{bucket}</h2>
+                        <span className="text-sm text-muted-foreground">{items.length}</span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                      {items.map((agent) => renderAgentCard(agent))}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            )}
 
             {cardSorted.length === 0 && (
               <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border py-16 text-center">
