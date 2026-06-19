@@ -70,6 +70,15 @@ export interface ExpertsPolicy {
     default: ModelPolicy;
     overrides: Record<ScopeKey, ModelPolicy>;
   };
+  /**
+   * The model the Report Analyzer's auto-analysis runs on. The Report Analyzer
+   * is system-initiated — it fires the moment a user opens a report, before any
+   * model selection exists — so an admin sets the model here. This is
+   * deliberately Report-Analyzer-only: the Analyst and Assistants are
+   * user-initiated and rely on the user's own (sticky) selection, not an
+   * admin-imposed default.
+   */
+  reportAnalyzerModel: ModelId;
 }
 
 // -----------------------------------------------------------------------------
@@ -94,10 +103,16 @@ export const DEFAULT_MODEL_POLICY: ModelPolicy = {
   allowedModels: MODELS.map((m) => m.id),
 };
 
+// The seeded Report Analyzer auto-analysis model. Concrete (not "auto") — the
+// admin owns this one model because the Report Analyzer runs without a user
+// pick. Admins change it on the Report Analyzer surface row.
+export const DEFAULT_REPORT_ANALYZER_MODEL: ModelId = "gpt-5-5";
+
 export const DEFAULT_EXPERTS_POLICY: ExpertsPolicy = {
   surfaces: DEFAULT_SURFACE_POLICY,
   spend: { default: DEFAULT_SPEND_POLICY, overrides: {} },
   models: { default: DEFAULT_MODEL_POLICY, overrides: {} },
+  reportAnalyzerModel: DEFAULT_REPORT_ANALYZER_MODEL,
 };
 
 // -----------------------------------------------------------------------------
@@ -172,6 +187,81 @@ export function resolveEffectiveModelDefs(
 }
 
 // -----------------------------------------------------------------------------
+// Model selection resolution
+// -----------------------------------------------------------------------------
+// Two distinct surfaces, two distinct rules:
+//
+//   • USER-INITIATED (Analyst, Assistants) — `startingUserModel`:
+//       allow-list gate → user's sticky pick → "auto" (system picks).
+//       No admin-imposed default; these are driven by the user's own choice.
+//
+//   • SYSTEM-INITIATED (Report Analyzer auto-analysis) — `resolveReportAnalyzerModel`:
+//       the admin-set `reportAnalyzerModel`, clamped to the org allow-list.
+//       Follow-up turns are user-initiated again → `startingReportAnalyzerFollowupModel`
+//       (sticky pick → the Report Analyzer admin default as the floor).
+//
+// `clampModelToPolicy` + `isModelAllowed` enforce the allow-list in all cases.
+// -----------------------------------------------------------------------------
+
+// The curated model ids the allow-list governs. Live ids fetched straight from
+// the LiteLLM proxy are NOT in this set — admin model governance in v1 is built
+// on the curated catalog, so we let ungoverned live ids pass the gate rather
+// than silently dropping a user's real selection.
+const CURATED_MODEL_IDS = new Set<ModelId>(MODELS.map((m) => m.id));
+
+function isModelAllowed(model: ModelId, mp: ModelPolicy): boolean {
+  if (mp.allowedModels.includes(model)) return true;
+  return !CURATED_MODEL_IDS.has(model);
+}
+
+/** Clamp a model id into the allow-list. Empty allow-list ⇒ pass through. */
+export function clampModelToPolicy(
+  model: ModelId,
+  mp: ModelPolicy,
+): ModelId {
+  if (!mp.allowedModels.length) return model;
+  if (isModelAllowed(model, mp)) return model;
+  return mp.allowedModels[0];
+}
+
+/**
+ * The model a USER-INITIATED composer (Analyst, Assistants) should open on:
+ * the user's last-selected model when it's still allowed, otherwise "auto"
+ * (the system picks). There is intentionally no admin default here — these
+ * surfaces are driven by the user's own choice.
+ */
+export function startingUserModel(
+  mp: ModelPolicy,
+  lastModel: ModelId | null,
+): ModelId {
+  if (lastModel && isModelAllowed(lastModel, mp)) return lastModel;
+  return "auto";
+}
+
+/**
+ * The model the Report Analyzer's system-initiated auto-analysis runs on:
+ * the admin-set `reportAnalyzerModel`, clamped to the org-default allow-list.
+ */
+export function resolveReportAnalyzerModel(policy: ExpertsPolicy): ModelId {
+  return clampModelToPolicy(policy.reportAnalyzerModel, policy.models.default);
+}
+
+/**
+ * The model the Report Analyzer's FOLLOW-UP composer opens on once the user is
+ * chatting: their sticky pick if allowed, otherwise the admin Report Analyzer
+ * default (the model the initial analysis just ran on).
+ */
+export function startingReportAnalyzerFollowupModel(
+  policy: ExpertsPolicy,
+  lastModel: ModelId | null,
+): ModelId {
+  if (lastModel && isModelAllowed(lastModel, policy.models.default)) {
+    return lastModel;
+  }
+  return resolveReportAnalyzerModel(policy);
+}
+
+// -----------------------------------------------------------------------------
 // Provider + persistence
 // -----------------------------------------------------------------------------
 
@@ -225,6 +315,8 @@ export function ExpertsPolicyProvider({
             },
             overrides: parsed.models?.overrides ?? {},
           },
+          reportAnalyzerModel:
+            parsed.reportAnalyzerModel ?? DEFAULT_REPORT_ANALYZER_MODEL,
         });
       }
     } catch {

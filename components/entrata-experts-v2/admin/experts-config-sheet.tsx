@@ -28,7 +28,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { ScopeOverrideTable } from "./scope-override-table";
-import { MODELS } from "@/lib/entrata-experts-v2/lenses";
+import { MODELS, MODEL_BY_ID } from "@/lib/entrata-experts-v2/lenses";
 import type { ModelId } from "@/lib/entrata-experts-v2/types";
 import {
   DEFAULT_EXPERTS_POLICY,
@@ -221,6 +221,11 @@ export function ExpertsConfigPanel({ onClose }: ExpertsConfigPanelProps) {
             onChange={(next) =>
               setDraft((d) => ({ ...d, surfaces: next }))
             }
+            reportAnalyzerModel={draft.reportAnalyzerModel}
+            allowedModelIds={draft.models.default.allowedModels}
+            onReportAnalyzerModelChange={(m) =>
+              setDraft((d) => ({ ...d, reportAnalyzerModel: m }))
+            }
           />
           <SpendSection
             value={draft.spend}
@@ -243,9 +248,17 @@ export function ExpertsConfigPanel({ onClose }: ExpertsConfigPanelProps) {
 function SurfacesSection({
   value,
   onChange,
+  reportAnalyzerModel,
+  allowedModelIds,
+  onReportAnalyzerModelChange,
 }: {
   value: SurfacePolicy;
   onChange: (next: SurfacePolicy) => void;
+  /** Admin-set model for the Report Analyzer's system-initiated auto-analysis. */
+  reportAnalyzerModel: ModelId;
+  /** Models the org-default allow-list permits (the RA default must be one of these). */
+  allowedModelIds: ModelId[];
+  onReportAnalyzerModelChange: (m: ModelId) => void;
 }) {
   const surfaces: {
     key: keyof SurfacePolicy;
@@ -302,6 +315,24 @@ function SurfacesSection({
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {description}
               </p>
+              {/* Report Analyzer is system-initiated, so its model is admin-set
+                  here rather than chosen by the user at run time. */}
+              {key === "reportAnalyzer" && value.reportAnalyzer && (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                    Auto-analysis model
+                  </span>
+                  <ReportAnalyzerModelPicker
+                    value={reportAnalyzerModel}
+                    allowedModelIds={allowedModelIds}
+                    onChange={onReportAnalyzerModelChange}
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    Runs before the user picks anything. Follow-up chat uses the
+                    user&rsquo;s own model.
+                  </span>
+                </div>
+              )}
             </div>
             <Switch
               checked={value[key]}
@@ -314,6 +345,98 @@ function SurfacesSection({
         ))}
       </div>
     </SectionShell>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// ReportAnalyzerModelPicker — the admin's single default for the Report
+// Analyzer auto-analysis. Constrained to the org-default allow-list.
+// -----------------------------------------------------------------------------
+
+function ReportAnalyzerModelPicker({
+  value,
+  allowedModelIds,
+  onChange,
+}: {
+  value: ModelId;
+  allowedModelIds: ModelId[];
+  onChange: (m: ModelId) => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const allowed = MODELS.filter(
+    (m) => m.id !== "auto" && allowedModelIds.includes(m.id),
+  );
+
+  if (allowed.length === 0) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-[10px] text-amber-700">
+        No models allowed
+      </span>
+    );
+  }
+
+  const current = MODEL_BY_ID[value];
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          title={`Report Analyzer model: ${current?.label ?? value}`}
+          className="inline-flex h-7 items-center gap-1.5 rounded-full border border-border bg-background px-2.5 text-[11px] font-medium text-foreground transition-colors hover:bg-muted/60"
+        >
+          <Cpu
+            className="h-3 w-3"
+            style={{ color: current?.hue ?? "hsl(var(--muted-foreground))" }}
+          />
+          <span>{current?.short ?? value}</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" sideOffset={6} collisionPadding={16} className="w-[260px] p-0">
+        <div className="border-b border-border px-3 py-2">
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+            Report Analyzer model
+          </span>
+        </div>
+        <div className="max-h-[260px] overflow-y-auto py-1">
+          {allowed.map((m) => {
+            const active = m.id === value;
+            return (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => {
+                  onChange(m.id);
+                  setOpen(false);
+                }}
+                className={cn(
+                  "flex w-full items-center gap-2 px-3 py-2 text-left transition-colors",
+                  active ? "bg-muted/40" : "hover:bg-muted/30",
+                )}
+              >
+                <Cpu className="h-3.5 w-3.5 shrink-0" style={{ color: m.hue }} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="truncate text-[13px] font-medium text-foreground">
+                      {m.label}
+                    </span>
+                    {m.paid && (
+                      <span className="rounded border border-amber-200 bg-amber-50 px-1 py-px text-[9px] font-semibold uppercase tracking-wider text-amber-700">
+                        Paid
+                      </span>
+                    )}
+                  </div>
+                  <div className="truncate text-[11px] text-muted-foreground">
+                    {m.provider}
+                  </div>
+                </div>
+                {active && <Check className="h-3.5 w-3.5 shrink-0 text-foreground" />}
+              </button>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -518,7 +641,7 @@ function ModelAccessSection({
   return (
     <SectionShell
       title="Model access"
-      description="Choose which AI models each scope can select inside Experts. Frontier models can be reserved for corporate roles while leasing staff get a cheaper default — exactly the pattern Cursor enterprise uses."
+      description="Choose which AI models each scope can select inside Experts. Frontier models can be reserved for corporate roles while leasing staff get a cheaper set — exactly the pattern Cursor enterprise uses."
       icon={Cpu}
       hue="#7c3aed"
     >
@@ -564,8 +687,7 @@ function ModelAllowEditor({
     onChange({ allowedModels: Array.from(set) });
   };
 
-  const allowAll = () =>
-    onChange({ allowedModels: MODELS.map((m) => m.id) });
+  const allowAll = () => onChange({ allowedModels: MODELS.map((m) => m.id) });
   const allowNone = () => onChange({ allowedModels: [] });
 
   const allowedSet = new Set(value.allowedModels);

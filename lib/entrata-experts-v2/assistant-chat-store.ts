@@ -7,7 +7,7 @@ import {
   type HistoryThread,
   type ThreadSource,
 } from "./history-store";
-import type { AssistantMessage, Scope, UserMessage } from "./types";
+import type { AssistantMessage, ModelId, Scope, UserMessage } from "./types";
 
 // =============================================================================
 // Assistant / Report chat store — thin adapter over the shared history.
@@ -43,7 +43,12 @@ export interface AssistantChatState {
   isThinking: boolean;
   newThread: () => void;
   selectThread: (id: string) => void;
-  send: (text: string) => void;
+  /**
+   * Send a turn. `model` records which model produced the reply so the bubble
+   * and history reflect the real selection. Surfaces with no picker (the
+   * pre-built Assistants) omit it and fall back to "auto".
+   */
+  send: (text: string, model?: ModelId) => void;
 }
 
 const DEFAULT_SCOPE: Scope = {
@@ -84,14 +89,14 @@ function makeReply(assistantId: string, prompt: string): string {
 
 // Wrap a plain text reply in the shared AssistantMessage shape. Generative
 // assistants have no citations / artifacts, so those stay empty.
-function makeAssistantMessage(body: string): AssistantMessage {
+function makeAssistantMessage(body: string, model: ModelId = "auto"): AssistantMessage {
   return {
     id: `a-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     role: "assistant",
     body,
     lens: "auto",
     depth: "auto",
-    model: "auto",
+    model,
     scope: DEFAULT_SCOPE,
     citations: [],
     artifacts: [],
@@ -126,7 +131,7 @@ export function useAssistantChatStore(assistantId: string): AssistantChatState {
   );
 
   const send = React.useCallback(
-    (text: string) => {
+    (text: string, model: ModelId = "auto") => {
       const trimmed = text.trim();
       if (!trimmed) return;
       const now = Date.now();
@@ -154,7 +159,10 @@ export function useAssistantChatStore(assistantId: string): AssistantChatState {
 
       setIsThinking(true);
       setTimeout(() => {
-        history.appendMessage(threadId, makeAssistantMessage(makeReply(assistantId, trimmed)));
+        history.appendMessage(
+          threadId,
+          makeAssistantMessage(makeReply(assistantId, trimmed), model),
+        );
         setIsThinking(false);
       }, 700);
     },

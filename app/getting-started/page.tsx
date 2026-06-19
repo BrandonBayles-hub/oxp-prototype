@@ -17,7 +17,6 @@ import {
   type RiskLevel,
 } from "@/lib/governance-context";
 import { useR1Release } from "@/lib/r1-release-context";
-import { useR2Release } from "@/lib/r2-release-context";
 import { useActivationProgress } from "@/lib/activation-steps";
 import dynamic from "next/dynamic";
 import {
@@ -44,7 +43,6 @@ import {
   Download,
   Mail,
   ClipboardList,
-  Sparkles,
 } from "lucide-react";
 
 const EliPlusSetup = dynamic(() => import("@/components/eli-plus-setup"), { ssr: false });
@@ -99,7 +97,6 @@ function GettingStartedContent() {
   const { humanMembers } = useWorkforce();
   const { state: govState, updateActivity: updateGovActivity, enabledGuardrailCount } = useGovernance();
   const { isR1Release } = useR1Release();
-  const { isR2Release } = useR2Release();
   const isFullVersion = !isR1Release;
 
   // Canonical activation steps + auto-detection are owned by lib/activation-steps.ts
@@ -220,25 +217,6 @@ function GettingStartedContent() {
             </div>
             <ChevronRight className="h-5 w-5 shrink-0 text-[hsl(var(--muted-foreground))]" />
           </button>
-
-          {!isR2Release && (
-            <Link
-              href="/entrata-experts-setup"
-              className="flex w-full items-center gap-4 rounded-xl border border-[hsl(var(--border))] bg-white p-4 text-left transition-all hover:border-zinc-400 hover:shadow-md"
-            >
-              <div
-                className="flex shrink-0 items-center justify-center rounded-lg bg-zinc-900"
-                style={{ width: 40, height: 40 }}
-              >
-                <Sparkles className="h-5 w-5 text-white" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-[hsl(var(--foreground))]">Entrata Experts</p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">Configure surfaces, spend limits, and model access for the Entrata Experts AI hub — Analyst, Assistants, and Report Analyzer</p>
-              </div>
-              <ChevronRight className="h-5 w-5 shrink-0 text-[hsl(var(--muted-foreground))]" />
-            </Link>
-          )}
         </div>
       )}
 

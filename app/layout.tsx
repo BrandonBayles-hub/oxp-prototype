@@ -27,6 +27,7 @@ import { R1ReleaseProvider } from "@/lib/r1-release-context";
 import { R2ReleaseProvider } from "@/lib/r2-release-context";
 import { EntrataExpertsReleaseProvider } from "@/lib/entrata-experts-release-context";
 import { ExpertsPolicyProvider } from "@/lib/entrata-experts-v2/admin-policy-context";
+import { ModelPreferenceProvider } from "@/lib/entrata-experts-v2/model-preference";
 
 import { EliEmailsProvider } from "@/lib/eli-emails-context";
 import { EliPlusSetupProvider } from "@/lib/eli-plus-setup-context";
@@ -114,6 +115,7 @@ export default function RootLayout({
           <VaultProvider>
             <AgentsProvider>
               <ExpertsPolicyProvider>
+              <ModelPreferenceProvider>
               <WorkforceProvider>
                 <WorkflowsProvider>
                 <AgentBuilderProvider>
@@ -144,6 +146,7 @@ export default function RootLayout({
                 </AgentBuilderProvider>
                 </WorkflowsProvider>
               </WorkforceProvider>
+              </ModelPreferenceProvider>
               </ExpertsPolicyProvider>
             </AgentsProvider>
           </VaultProvider>

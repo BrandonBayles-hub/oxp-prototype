@@ -13,6 +13,8 @@ import type {
 import { compose } from "./data/answers";
 import { generateActivity } from "./data/activity";
 import { useExpertsHistory, type HistoryThread } from "./history-store";
+import { useExpertsPolicy, startingUserModel } from "./admin-policy-context";
+import { useModelPreference } from "./model-preference";
 
 const REMEMBERED_BY_ROLE: Record<RoleId, string[]> = {
   "vp-ops": [
@@ -113,13 +115,38 @@ function toConversation(t: HistoryThread): Conversation {
 
 export function useChatStore(): ChatState {
   const history = useExpertsHistory();
+  const { policy } = useExpertsPolicy();
+  const { lastModel, setLastModel } = useModelPreference();
   const [role, setRole] = React.useState<RoleId>("vp-ops");
   const [scope, setScope] = React.useState<Scope>({ kind: "portfolio", id: "portfolio", label: "Whole portfolio" });
   const [lens, setLens] = React.useState<LensId>("leasing");
   const [depth, setDepth] = React.useState<Depth>("auto");
-  const [model, setModel] = React.useState<ModelId>("auto");
+  // User-initiated surface: open on the user's sticky model (if still allowed),
+  // otherwise "auto" (the system picks). No admin-imposed default here.
+  const [model, setModelState] = React.useState<ModelId>(() =>
+    startingUserModel(policy.models.default, lastModel),
+  );
   const [isThinking, setIsThinking] = React.useState(false);
   const [activity, setActivity] = React.useState<Conversation[]>([]);
+
+  // The admin policy + sticky preference both hydrate from localStorage AFTER
+  // first paint, so keep re-seeding the starting model until the user makes a
+  // manual pick this session (tracked by `touched`).
+  const touched = React.useRef(false);
+  React.useEffect(() => {
+    if (touched.current) return;
+    setModelState(startingUserModel(policy.models.default, lastModel));
+  }, [policy.models.default, lastModel]);
+
+  // A user pick becomes their sticky personal default for next time.
+  const setModel = React.useCallback(
+    (m: ModelId) => {
+      touched.current = true;
+      setModelState(m);
+      setLastModel(m);
+    },
+    [setLastModel],
+  );
 
   React.useEffect(() => {
     setActivity(generateActivity());

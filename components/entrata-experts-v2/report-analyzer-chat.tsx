@@ -1,16 +1,31 @@
 "use client";
 
 import * as React from "react";
-import { ArrowUp, Sparkles, FileBarChart } from "lucide-react";
+import { ArrowUp, Sparkles, FileBarChart, Cpu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BackBar } from "./back-bar";
+import { ModelPicker } from "./chat/composer-controls";
 import {
   REPORT_BY_ID,
   REPORT_CATEGORY_BY_ID,
   startersFor,
 } from "@/lib/entrata-experts-v2/reports";
 import { useAssistantChatStore } from "@/lib/entrata-experts-v2/assistant-chat-store";
+import {
+  useExpertsPolicy,
+  resolveReportAnalyzerModel,
+  startingReportAnalyzerFollowupModel,
+} from "@/lib/entrata-experts-v2/admin-policy-context";
+import { useModelPreference } from "@/lib/entrata-experts-v2/model-preference";
+import { MODEL_BY_ID } from "@/lib/entrata-experts-v2/lenses";
+import { describeModel } from "@/lib/entrata-experts-v2/llm/model-catalog";
+import type { ModelId } from "@/lib/entrata-experts-v2/types";
 import { cn } from "@/lib/utils";
+
+/** Friendly short label for a model id (static catalog first, live fallback). */
+function modelShort(id: ModelId): string {
+  return MODEL_BY_ID[id]?.short ?? describeModel(id).short;
+}
 
 // =============================================================================
 // Report Analyzer chat
@@ -44,6 +59,45 @@ export function ReportAnalyzerChat({
   const store = useAssistantChatStore(`rpt-${reportId}`);
   const activeThread = store.threads.find((t) => t.id === store.activeId) ?? null;
   const scrollRef = React.useRef<HTMLDivElement>(null);
+
+  // --- Model selection -------------------------------------------------------
+  // The Report Analyzer is system-initiated: the first analysis fires without
+  // the user picking anything, so it runs on the ADMIN DEFAULT model. Once the
+  // conversation is going, follow-up turns become user-initiated — the picker
+  // unlocks, seeded from the user's sticky model (or the admin default), and a
+  // pick sticks as their personal default everywhere.
+  const { policy } = useExpertsPolicy();
+  const { lastModel, setLastModel } = useModelPreference();
+  const adminDefault = resolveReportAnalyzerModel(policy);
+
+  const [followUpModel, setFollowUpModelState] = React.useState<ModelId>(() =>
+    startingReportAnalyzerFollowupModel(policy, lastModel),
+  );
+  // Policy + preference hydrate from localStorage after first paint; re-seed
+  // the follow-up model until the user makes a manual pick this session.
+  const touched = React.useRef(false);
+  React.useEffect(() => {
+    if (touched.current) return;
+    setFollowUpModelState(startingReportAnalyzerFollowupModel(policy, lastModel));
+  }, [policy, lastModel]);
+
+  const setFollowUpModel = React.useCallback(
+    (m: ModelId) => {
+      touched.current = true;
+      setFollowUpModelState(m);
+      setLastModel(m);
+    },
+    [setLastModel],
+  );
+
+  // First turn (no thread yet) → admin default; follow-ups → the user's model.
+  const handleSend = React.useCallback(
+    (text: string) => {
+      const modelForTurn = activeThread ? followUpModel : adminDefault;
+      store.send(text, modelForTurn);
+    },
+    [activeThread, followUpModel, adminDefault, store],
+  );
 
   React.useEffect(() => {
     if (scrollRef.current) {
@@ -109,7 +163,8 @@ export function ReportAnalyzerChat({
             Icon={Icon}
             starters={startersFor(report.id)}
             isThinking={store.isThinking}
-            onSend={store.send}
+            onSend={handleSend}
+            analysisModelLabel={modelShort(adminDefault)}
           />
         ) : (
           <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-hover">
@@ -121,6 +176,7 @@ export function ReportAnalyzerChat({
                 code={report.code}
                 categoryLabel={cat.label}
                 categoryHue={cat.hue}
+                analysisModelLabel={modelShort(adminDefault)}
               />
               {activeThread.messages.map((m) => (
                 <Bubble key={m.id} role={m.role} text={m.body} />
@@ -139,9 +195,15 @@ export function ReportAnalyzerChat({
         )}
 
         <Composer
-          onSend={store.send}
+          onSend={handleSend}
           isThinking={store.isThinking}
           placeholder={`Ask anything about ${report.name}…`}
+          // No thread yet → the picker is locked to the admin default (the
+          // initial analysis is system-governed). Once chatting, it unlocks.
+          showModelPicker={!!activeThread}
+          followUpModel={followUpModel}
+          onModelChange={setFollowUpModel}
+          adminDefaultLabel={modelShort(adminDefault)}
         />
       </main>
     </div>
@@ -159,6 +221,7 @@ function EmptyState({
   starters,
   isThinking,
   onSend,
+  analysisModelLabel,
 }: {
   reportName: string;
   description: string;
@@ -166,6 +229,8 @@ function EmptyState({
   starters: string[];
   isThinking: boolean;
   onSend: (text: string) => void;
+  /** The admin-default model the initial analysis will run on. */
+  analysisModelLabel: string;
 }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-5 px-6 py-12 text-center">
@@ -200,6 +265,14 @@ function EmptyState({
           {reportName}
         </h2>
         <p className="text-sm text-muted-foreground">{description}</p>
+        <div className="flex items-center justify-center gap-1.5 pt-1 text-[11px] text-muted-foreground">
+          <Cpu className="h-3 w-3" style={{ color: ACCENT }} />
+          <span>
+            Analysis runs on{" "}
+            <span className="font-medium text-foreground">{analysisModelLabel}</span>
+          </span>
+          <span className="text-muted-foreground/50">· set by your admin</span>
+        </div>
       </div>
 
       <div className="flex w-full max-w-[640px] flex-wrap justify-center gap-2">
@@ -227,20 +300,27 @@ function ContextCard({
   code,
   categoryLabel,
   categoryHue,
+  analysisModelLabel,
 }: {
   reportName: string;
   code: string;
   categoryLabel: string;
   categoryHue: string;
+  /** The admin-default model the initial analysis ran on. */
+  analysisModelLabel: string;
 }) {
   return (
-    <div className="flex items-center gap-2.5 rounded-md border border-indigo-200/60 bg-indigo-50/40 px-3 py-2">
+    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-md border border-indigo-200/60 bg-indigo-50/40 px-3 py-2">
       <FileBarChart className="h-3.5 w-3.5" style={{ color: ACCENT }} />
       <span className="text-[12px] text-foreground">
         Grounded in <span className="font-medium">{reportName}</span>
       </span>
       <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
         {code}
+      </span>
+      <span className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
+        <Cpu className="h-3 w-3" />
+        {analysisModelLabel}
       </span>
       <span className="ml-auto inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
         <span
@@ -303,10 +383,19 @@ function Composer({
   onSend,
   isThinking,
   placeholder,
+  showModelPicker,
+  followUpModel,
+  onModelChange,
+  adminDefaultLabel,
 }: {
   onSend: (text: string) => void;
   isThinking: boolean;
   placeholder: string;
+  /** Picker is shown (unlocked) only once a conversation exists. */
+  showModelPicker: boolean;
+  followUpModel: ModelId;
+  onModelChange: (m: ModelId) => void;
+  adminDefaultLabel: string;
 }) {
   const [value, setValue] = React.useState("");
   const ref = React.useRef<HTMLTextAreaElement>(null);
@@ -346,9 +435,18 @@ function Composer({
             )}
           />
           <div className="flex items-center gap-1.5 px-3 py-2">
-            <span className="text-[11px] text-muted-foreground">
-              Prototype reply — no live model
-            </span>
+            {showModelPicker ? (
+              <ModelPicker model={followUpModel} onSelect={onModelChange} />
+            ) : (
+              <span
+                className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground"
+                title="The initial analysis runs on the admin-set model. Pick your own model for follow-up questions."
+              >
+                <Cpu className="h-3 w-3" />
+                Analysis on{" "}
+                <span className="font-medium text-foreground">{adminDefaultLabel}</span>
+              </span>
+            )}
             <div className="flex-1" />
             <Button
               size="icon"

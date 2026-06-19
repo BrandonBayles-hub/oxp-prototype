@@ -207,7 +207,7 @@ export function AdminSummary({ activity }: { activity: Conversation[] }) {
             candidates in Admin Insights.
           </div>
         </div>
-        <Link href="/admin-insights">
+        <Link href="/entrata-experts/?view=insights">
           <Button className="gap-1.5">
             Open Admin Insights
             <ArrowRight className="h-3.5 w-3.5" />

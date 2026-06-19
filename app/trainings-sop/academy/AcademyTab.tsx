@@ -343,8 +343,8 @@ export function AcademyTab({ mode = "trainings" }: AcademyTabProps) {
             (ev as Event & { stopImmediatePropagation?: () => void }).stopImmediatePropagation!();
           }
           // Persist the source choice so when Admin Insights renders
-          // it lands on Entrata Academy (and not the default Experts
-          // source). admin-insights/page.tsx reads this on mount.
+          // it lands on Entrata Academy (and not the default Trainings &
+          // SOP source). admin-insights/page.tsx reads this on mount.
           try {
             window.localStorage.setItem("admin_insights_source", "academy");
           } catch {
