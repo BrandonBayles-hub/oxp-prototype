@@ -15,6 +15,9 @@ import {
 import {
   CalendarClock,
   CalendarOff,
+  Building2,
+  ExternalLink,
+  Info,
   Plus,
   Trash2,
   Lock,
@@ -60,6 +63,11 @@ interface BlackoutHoliday {
   enabled: boolean
 }
 
+interface PropertyHolidayEntry {
+  key: string
+  enabled: boolean
+}
+
 interface CustomBlackoutDate {
   id: string
   date: string
@@ -68,6 +76,7 @@ interface CustomBlackoutDate {
 
 interface BlackoutDates {
   holidays: BlackoutHoliday[]
+  propertyHolidays: PropertyHolidayEntry[]
   customDates: CustomBlackoutDate[]
 }
 
@@ -170,6 +179,64 @@ const DEFAULT_BLACKOUT_HOLIDAYS: BlackoutHoliday[] = BANK_HOLIDAYS.map((h) => ({
   enabled: ["new_years", "memorial", "independence", "labor", "thanksgiving", "christmas"].includes(h.key),
 }))
 
+interface PropertyHolidayDef {
+  key: string
+  name: string
+  date: string
+  matchesBankHolidayKey?: string
+}
+
+const SAMPLE_PROPERTY_HOLIDAYS: Record<string, PropertyHolidayDef[]> = {
+  "14th-north-pkwy": [
+    { key: "ph-nye", name: "New Year's Eve (Office Closed)", date: "2026-12-31" },
+    { key: "ph-xmas", name: "Christmas Day (Office Closed)", date: "2026-12-25", matchesBankHolidayKey: "christmas" },
+    { key: "ph-xmas-eve", name: "Christmas Eve (Half Day)", date: "2026-12-24" },
+    { key: "ph-thanksgiving", name: "Thanksgiving Break", date: "2026-11-26", matchesBankHolidayKey: "thanksgiving" },
+    { key: "ph-day-after-thanksgiving", name: "Day After Thanksgiving", date: "2026-11-27" },
+    { key: "ph-july4", name: "Independence Day", date: "2026-07-04", matchesBankHolidayKey: "independence" },
+    { key: "ph-memorial", name: "Memorial Day", date: "2026-05-25", matchesBankHolidayKey: "memorial" },
+    { key: "ph-labor", name: "Labor Day", date: "2026-09-07", matchesBankHolidayKey: "labor" },
+    { key: "ph-annual-training", name: "Annual Staff Training", date: "2026-08-14" },
+  ],
+  "aspen-heights": [
+    { key: "ph-xmas", name: "Christmas Day", date: "2026-12-25", matchesBankHolidayKey: "christmas" },
+    { key: "ph-new-years", name: "New Year's Day", date: "2026-01-01", matchesBankHolidayKey: "new_years" },
+    { key: "ph-thanksgiving", name: "Thanksgiving", date: "2026-11-26", matchesBankHolidayKey: "thanksgiving" },
+    { key: "ph-spring-break", name: "Spring Break (Office Closed)", date: "2026-03-16" },
+    { key: "ph-spring-break-2", name: "Spring Break (Office Closed)", date: "2026-03-17" },
+    { key: "ph-spring-break-3", name: "Spring Break (Office Closed)", date: "2026-03-18" },
+  ],
+  "summit-view": [
+    { key: "ph-xmas", name: "Christmas Break Start", date: "2026-12-23", matchesBankHolidayKey: "christmas" },
+    { key: "ph-new-years", name: "New Year's Day", date: "2026-01-01", matchesBankHolidayKey: "new_years" },
+    { key: "ph-move-in-week", name: "Move-In Week (No Outbound)", date: "2026-08-17" },
+    { key: "ph-move-in-week-2", name: "Move-In Week (No Outbound)", date: "2026-08-18" },
+    { key: "ph-move-in-week-3", name: "Move-In Week (No Outbound)", date: "2026-08-19" },
+    { key: "ph-move-in-week-4", name: "Move-In Week (No Outbound)", date: "2026-08-20" },
+    { key: "ph-move-in-week-5", name: "Move-In Week (No Outbound)", date: "2026-08-21" },
+  ],
+}
+
+const DEFAULT_PROPERTY_HOLIDAYS_FOR = (propertyId: string): PropertyHolidayEntry[] => {
+  const defs = SAMPLE_PROPERTY_HOLIDAYS[propertyId] ?? []
+  return defs.map((d) => ({ key: d.key, enabled: true }))
+}
+
+function getPropertyHolidayDefs(propertyId: string): PropertyHolidayDef[] {
+  return SAMPLE_PROPERTY_HOLIDAYS[propertyId] ?? []
+}
+
+function formatDateString(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number)
+  const date = new Date(y, m - 1, d)
+  return date.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })
+}
+
 function makeBlackoutId(): string {
   return `bd-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
 }
@@ -197,7 +264,7 @@ const DEFAULT_LEASE_STEPS: LeaseFollowUpStep[] = [
   { id: "ls-4", days: 7, anchor: "before_lease_end", target: "all_residents" },
 ]
 
-function makeDefaultState(): PanelState {
+function makeDefaultState(propertyId: string): PanelState {
   return {
     communicationWindow: {
       sendHour: "09:00",
@@ -205,6 +272,7 @@ function makeDefaultState(): PanelState {
     },
     blackoutDates: {
       holidays: DEFAULT_BLACKOUT_HOLIDAYS,
+      propertyHolidays: DEFAULT_PROPERTY_HOLIDAYS_FOR(propertyId),
       customDates: [],
     },
     offerSteps: DEFAULT_OFFER_STEPS,
@@ -218,15 +286,17 @@ function makeDefaultState(): PanelState {
 
 interface Props {
   propertyName: string
+  propertyId?: string
   agentDisplayLabel?: string
 }
 
 export function RenewalsAISettingsPanel({
   propertyName,
+  propertyId = "",
   agentDisplayLabel = "Renewal AI",
 }: Props) {
-  const [state, setState] = useState<PanelState>(() => makeDefaultState())
-  const [pristine, setPristine] = useState<PanelState>(() => makeDefaultState())
+  const [state, setState] = useState<PanelState>(() => makeDefaultState(propertyId))
+  const [pristine, setPristine] = useState<PanelState>(() => makeDefaultState(propertyId))
 
   const dirty = JSON.stringify(state) !== JSON.stringify(pristine)
 
@@ -271,6 +341,8 @@ export function RenewalsAISettingsPanel({
             onChange={(b) =>
               setState((s) => ({ ...s, blackoutDates: b }))
             }
+            propertyId={propertyId}
+            propertyName={propertyName}
             agentDisplayLabel={agentDisplayLabel}
           />
 
@@ -430,31 +502,113 @@ function CommunicationWindowSection({
    Blackout Dates
    ══════════════════════════════════════════════════════════════════════════ */
 
+type FlatHolidayRow = {
+  id: string
+  sortDate: number
+  name: string
+  dateFormatted: string
+  nextYearFormatted?: string
+  enabled: boolean
+  source: "federal" | "property" | "both"
+  bankKey?: string
+  propKey?: string
+}
+
+function buildFlatHolidays(
+  bankHolidays: BlackoutHoliday[],
+  propertyHolidays: PropertyHolidayEntry[],
+  holidaysCurrent: { key: string; name: string; date: Date; formatted: string }[],
+  holidaysNext: { key: string; name: string; date: Date; formatted: string }[],
+  propertyHolidayDefs: PropertyHolidayDef[]
+): FlatHolidayRow[] {
+  const rows: FlatHolidayRow[] = []
+  const propKeysMerged = new Set<string>()
+
+  for (const bh of bankHolidays) {
+    const cur = holidaysCurrent.find((h) => h.key === bh.key)!
+    const nxt = holidaysNext.find((h) => h.key === bh.key)!
+    const matchingProp = propertyHolidayDefs.find(
+      (pd) => pd.matchesBankHolidayKey === bh.key
+    )
+    if (matchingProp) propKeysMerged.add(matchingProp.key)
+
+    rows.push({
+      id: `bank-${bh.key}`,
+      sortDate: cur.date.getTime(),
+      name: cur.name,
+      dateFormatted: cur.formatted,
+      nextYearFormatted: nxt.formatted,
+      enabled: bh.enabled,
+      source: matchingProp ? "both" : "federal",
+      bankKey: bh.key,
+      propKey: matchingProp?.key,
+    })
+  }
+
+  for (const pd of propertyHolidayDefs) {
+    if (propKeysMerged.has(pd.key)) continue
+    const phState = propertyHolidays.find((ph) => ph.key === pd.key)
+    const [y, m, d] = pd.date.split("-").map(Number)
+    rows.push({
+      id: `prop-${pd.key}`,
+      sortDate: new Date(y, m - 1, d).getTime(),
+      name: pd.name,
+      dateFormatted: formatDateString(pd.date),
+      enabled: phState?.enabled ?? false,
+      source: "property",
+      propKey: pd.key,
+    })
+  }
+
+  rows.sort((a, b) => a.sortDate - b.sortDate)
+  return rows
+}
+
 function BlackoutDatesSection({
   blackout,
   onChange,
+  propertyId,
+  propertyName,
   agentDisplayLabel,
 }: {
   blackout: BlackoutDates
   onChange: (b: BlackoutDates) => void
+  propertyId: string
+  propertyName: string
   agentDisplayLabel: string
 }) {
   const currentYear = new Date().getFullYear()
   const nextYear = currentYear + 1
   const holidaysCurrent = getHolidaysForYear(currentYear)
   const holidaysNext = getHolidaysForYear(nextYear)
+  const propertyHolidayDefs = getPropertyHolidayDefs(propertyId)
+  const hasPropertyHolidays = propertyHolidayDefs.length > 0
 
-  const toggleHoliday = (key: string) => {
-    onChange({
-      ...blackout,
-      holidays: blackout.holidays.map((h) =>
-        h.key === key ? { ...h, enabled: !h.enabled } : h
-      ),
-    })
+  const flatRows = buildFlatHolidays(
+    blackout.holidays,
+    blackout.propertyHolidays,
+    holidaysCurrent,
+    holidaysNext,
+    propertyHolidayDefs
+  )
+
+  const toggleRow = (row: FlatHolidayRow) => {
+    const next = { ...blackout }
+    if (row.bankKey) {
+      next.holidays = blackout.holidays.map((h) =>
+        h.key === row.bankKey ? { ...h, enabled: !row.enabled } : h
+      )
+    }
+    if (row.propKey) {
+      next.propertyHolidays = blackout.propertyHolidays.map((h) =>
+        h.key === row.propKey ? { ...h, enabled: !row.enabled } : h
+      )
+    }
+    onChange(next)
   }
 
   const enabledCount =
-    blackout.holidays.filter((h) => h.enabled).length +
+    flatRows.filter((r) => r.enabled).length +
     blackout.customDates.length
 
   const addCustomDate = () => {
@@ -490,6 +644,10 @@ function BlackoutDatesSection({
     onChange({
       ...blackout,
       holidays: blackout.holidays.map((h) => ({ ...h, enabled: true })),
+      propertyHolidays: blackout.propertyHolidays.map((h) => ({
+        ...h,
+        enabled: true,
+      })),
     })
   }
 
@@ -497,11 +655,18 @@ function BlackoutDatesSection({
     onChange({
       ...blackout,
       holidays: blackout.holidays.map((h) => ({ ...h, enabled: false })),
+      propertyHolidays: blackout.propertyHolidays.map((h) => ({
+        ...h,
+        enabled: false,
+      })),
     })
   }
 
-  const allEnabled = blackout.holidays.every((h) => h.enabled)
-  const noneEnabled = blackout.holidays.every((h) => !h.enabled)
+  const allEnabled = flatRows.every((r) => r.enabled)
+  const noneEnabled = flatRows.every((r) => !r.enabled)
+
+  const hoursSettingsUrl =
+    "https://DOMAIN.entrata.com/?module=properties_setupxxx&load_large_dialog=%3Fmodule%3Dproperty_details_general_hoursxxx%26property%5Bid%5D%3DPROPERTYID%26"
 
   return (
     <>
@@ -517,16 +682,32 @@ function BlackoutDatesSection({
         }
       >
         <div className="space-y-6">
-          {/* Bank Holidays */}
+          {/* Holidays */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-semibold text-foreground">
-                  Bank holidays
+                  Holidays
                 </p>
                 <p className="mt-0.5 text-[11px] text-muted-foreground">
                   Select the holidays on which {agentDisplayLabel} should
                   not send proactive messages.
+                  {hasPropertyHolidays && (
+                    <>
+                      {" "}Includes holidays from{" "}
+                      <a
+                        href={hoursSettingsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-0.5 underline underline-offset-2 hover:text-foreground transition-colors"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        Property Hours &amp; Holidays
+                        <ExternalLink className="h-2.5 w-2.5" />
+                      </a>
+                      .
+                    </>
+                  )}
                 </p>
               </div>
               <div className="flex gap-1.5">
@@ -551,47 +732,76 @@ function BlackoutDatesSection({
             </div>
 
             <div className="rounded-lg border border-border divide-y divide-border">
-              {blackout.holidays.map((h) => {
-                const defCurrent = holidaysCurrent.find(
-                  (hd) => hd.key === h.key
-                )!
-                const defNext = holidaysNext.find(
-                  (hd) => hd.key === h.key
-                )!
-                return (
-                  <button
-                    key={h.key}
-                    type="button"
-                    onClick={() => toggleHoliday(h.key)}
-                    className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-zinc-50 transition-colors"
+              {flatRows.map((row) => (
+                <button
+                  key={row.id}
+                  type="button"
+                  onClick={() => toggleRow(row)}
+                  className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-zinc-50 transition-colors"
+                >
+                  <div
+                    className={cn(
+                      "flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-all",
+                      row.enabled
+                        ? "bg-zinc-900 border-zinc-900 text-white"
+                        : "border-zinc-300 bg-white"
+                    )}
                   >
-                    <div
-                      className={cn(
-                        "flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-all",
-                        h.enabled
-                          ? "bg-zinc-900 border-zinc-900 text-white"
-                          : "border-zinc-300 bg-white"
-                      )}
-                    >
-                      {h.enabled && <Check className="h-3 w-3" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
+                    {row.enabled && <Check className="h-3 w-3" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <p className="text-xs font-medium text-foreground">
-                        {defCurrent.name}
+                        {row.name}
                       </p>
+                      {(row.source === "federal" || row.source === "both") && (
+                        <Badge
+                          variant="outline"
+                          className="text-[9px] py-0 h-4 border-zinc-200 text-zinc-500"
+                        >
+                          Federal
+                        </Badge>
+                      )}
+                      {(row.source === "property" || row.source === "both") && (
+                        <Badge
+                          variant="outline"
+                          className="text-[9px] py-0 h-4 border-blue-200 text-blue-600"
+                        >
+                          <Building2 className="mr-0.5 h-2.5 w-2.5" />
+                          Property
+                        </Badge>
+                      )}
                     </div>
-                    <div className="shrink-0 text-right">
-                      <p className="text-[11px] text-muted-foreground">
-                        {defCurrent.formatted}
-                      </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-[11px] text-muted-foreground">
+                      {row.dateFormatted}
+                    </p>
+                    {row.nextYearFormatted && (
                       <p className="text-[10px] text-zinc-400">
-                        {defNext.formatted}
+                        {row.nextYearFormatted}
                       </p>
-                    </div>
-                  </button>
-                )
-              })}
+                    )}
+                  </div>
+                </button>
+              ))}
             </div>
+
+            {hasPropertyHolidays && (
+              <p className="text-[10px] text-muted-foreground italic">
+                <Building2 className="inline h-2.5 w-2.5 mr-0.5 -mt-px" />
+                Property holidays are managed in{" "}
+                <a
+                  href={hoursSettingsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-2 hover:text-foreground transition-colors"
+                >
+                  Setup &gt; Property &gt; Hours &amp; Holidays
+                </a>
+                . Changes there will be reflected here automatically.
+              </p>
+            )}
           </div>
 
           {/* Custom Dates */}
@@ -834,6 +1044,8 @@ function LeaseFollowUpList({
    Generic Step Row (for offer follow-ups)
    ══════════════════════════════════════════════════════════════════════════ */
 
+const MTM_WARNING = "Will not trigger for month-to-month leases (no lease end date)."
+
 function StepRow<T extends string>({
   index,
   total,
@@ -855,6 +1067,8 @@ function StepRow<T extends string>({
   onRemove: () => void
   onMove: (direction: "up" | "down") => void
 }) {
+  const showMtmWarning = (anchorValue as string) === "before_lease_end"
+
   return (
     <div className="group rounded-lg border border-border bg-white transition-all hover:border-zinc-300">
       <div className="flex items-center gap-2 px-3 py-2.5">
@@ -919,6 +1133,12 @@ function StepRow<T extends string>({
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       </div>
+      {showMtmWarning && (
+        <div className="flex items-center gap-1.5 px-3 pb-2.5 -mt-1 ml-[3.25rem]">
+          <Info className="h-3 w-3 shrink-0 text-amber-500" />
+          <p className="text-[10px] text-amber-700">{MTM_WARNING}</p>
+        </div>
+      )}
     </div>
   )
 }
@@ -942,6 +1162,8 @@ function LeaseStepRow({
   onRemove: () => void
   onMove: (direction: "up" | "down") => void
 }) {
+  const showMtmWarning = step.anchor === "before_lease_end"
+
   return (
     <div className="group rounded-lg border border-border bg-white transition-all hover:border-zinc-300">
       <div className="flex items-center gap-2 px-3 py-2.5">
@@ -1036,6 +1258,12 @@ function LeaseStepRow({
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       </div>
+      {showMtmWarning && (
+        <div className="flex items-center gap-1.5 px-3 pb-2.5 -mt-1 ml-[3.25rem]">
+          <Info className="h-3 w-3 shrink-0 text-amber-500" />
+          <p className="text-[10px] text-amber-700">{MTM_WARNING}</p>
+        </div>
+      )}
     </div>
   )
 }

@@ -4,7 +4,7 @@
 
 ## Context
 
-You are implementing per-property follow-up cadence settings for Renewals AI in the Entrata OXP platform. The prototype lives on branch `rjones/renewals-ai-follow-up-cadence` in `entrata-product/oxp-prototype-product`. The Jira epic is [DEV-291827](https://entrata.atlassian.net/browse/DEV-291827).
+You are implementing per-property follow-up cadence settings for Renewals AI in the Entrata OXP platform. The prototype lives on branch `rjones/renewals-ai-property-holidays` in `entrata-product/oxp-prototype-product`. The Jira epic is [DEV-291827](https://entrata.atlassian.net/browse/DEV-291827).
 
 Read `_handoff/DEV-291827/PROJECT-DETAILS.md` for full context including component inventory, data model suggestions, and test gaps.
 
@@ -24,19 +24,33 @@ Each property using Renewals AI can configure three settings areas:
 - Steps can be added, removed, and reordered (move up/down)
 - Goal: learn resident intent (renew or not) as early as possible
 - Default cadence: 3d after sent, 7d after sent, 14d after sent, 60d before end, 30d before end
+- **Month-to-month warning**: Steps using `before_lease_end` anchor display an amber info note: "Will not trigger for month-to-month leases (no lease end date)."
 
 ### 3. Renewal Lease Follow-Ups
 - A list of follow-up steps for residents who accepted renewal but haven't signed the lease
 - Each step has: `days`, `anchor` (either `after_lease_generated` or `before_lease_end`), and `target` (either `all_residents` or `unsigned_only`)
 - The `target` field allows differentiating between nudging all responsible parties vs. only those who haven't signed yet
 - Default cadence: 2d after generated (unsigned), 5d after generated (unsigned), 14d before end (unsigned), 7d before end (all)
+- **Month-to-month warning**: Same as offer follow-ups — steps using `before_lease_end` anchor display the amber warning about month-to-month leases
 
-### 4. Clone Settings (Agent Roster Level)
+### 4. Blackout Dates
+- Properties can define dates when the agent should **not** send proactive outbound messages (the agent will still respond to residents who message on blackout days)
+- Three sources of blackout dates displayed in a **single unified, chronologically sorted list**:
+  - **Standard bank holidays**: 11 US federal bank holidays with dynamic date computation (handles fixed dates, nth-weekday-of-month, and last-weekday-of-month rules). Shows dates for current year and next year. Pre-selects 6 most common holidays by default. Displayed with a gray "Federal" pill badge.
+  - **Property holidays**: Pulled from the property's Hours & Holidays configuration in Entrata (`?module=property_details_general_hoursxxx`). Displayed with a blue "Property" pill badge (with building icon).
+  - **Holidays from both sources**: When a property holiday matches a bank holiday (via `matchesBankHolidayKey`), the row shows both "Federal" and "Property" pills. Toggling the checkbox toggles both entries simultaneously.
+  - **Custom blackout dates**: Unlimited custom date entries with a date picker and free-text label (e.g., "Annual Staff Training", "Office Closure")
+- Each holiday row has **one checkbox** — no nested parent/child structure
+- Badge in the section header shows total count of enabled dates across all sources
+- "Select all" / "Clear all" bulk toggles control all holiday types at once
+- A footer note directs users to Entrata's Setup > Property > Hours & Holidays to add/remove property holidays
+
+### 5. Clone Settings (Agent Roster Level)
 - From the properties table, a "Clone Settings" button opens a dialog
 - User selects a source property, picks which setting groups to clone (Communication Windows, Offer Follow-Ups, Lease Follow-Ups), then selects target properties
 - Only properties with Renewals AI active are shown as targets
 
-### 5. Property Settings Updates
+### 6. Property Settings Updates
 - Contact Points: Updated help text explains Renewals AI handles communication directly but deterministic notifications (offer generated, accepted, lease approved) may still need contact points configured in Entrata
 - Property Policies (renamed from Privacy Policy): Links to property general policies in Entrata
 - Removed: Business Hours (covered by Communication Windows), Property Website
@@ -48,15 +62,18 @@ Each property using Renewals AI can configure three settings areas:
 3. **Single send hour, not time range** — Communication windows use a single hour rather than a range. Simpler UX and avoids questions about message distribution within a range.
 4. **Clone overwrites, does not merge** — Cloning settings replaces the target property's settings entirely for the selected categories. No merge logic.
 5. **No channel selection** — The agent determines the best communication channel per follow-up. Channel selection was intentionally excluded.
+6. **Three-tier blackout dates** — Bank holidays are computed client-side from rules (not hardcoded dates), property holidays are read from the existing Entrata property hours/holidays configuration, and custom dates are user-entered. This avoids duplicating the property holidays data store — it's read from the existing source of truth.
+7. **Flat holiday list with source pills** — All holidays (federal and property) are merged into one chronologically sorted list. Each row has a single checkbox and uses pill badges ("Federal", "Property", or both) to indicate the source. When a holiday exists in both sources, toggling the single checkbox toggles both the bank and property entries. This avoids confusing parent/child checkbox nesting.
+8. **Month-to-month lease warning** — Follow-up steps using `before_lease_end` anchor display an inline amber warning that the step will not trigger for month-to-month leases (which have no lease end date). This is a UX-only hint — the backend must also handle the edge case.
 
 ## Implementation Sequence
 
-1. **Database schema** — Create the three settings tables (`renewals_ai_communication_window`, `renewals_ai_offer_follow_up`, `renewals_ai_lease_follow_up`) with the column definitions in PROJECT-DETAILS.md Section 6
-2. **API endpoints** — Build CRUD endpoints for each settings area, scoped by property ID. GET returns current settings (or defaults if none saved). PUT replaces the full settings for a given section.
+1. **Database schema** — Create the settings tables (`renewals_ai_communication_window`, `renewals_ai_offer_follow_up`, `renewals_ai_lease_follow_up`, `renewals_ai_blackout_date`) with the column definitions in PROJECT-DETAILS.md Section 6. The blackout table stores bank holiday keys (enabled/disabled), property holiday references, and custom date entries.
+2. **API endpoints** — Build CRUD endpoints for each settings area, scoped by property ID. GET returns current settings (or defaults if none saved). PUT replaces the full settings for a given section. The blackout dates GET endpoint should also fetch the property's holidays from the existing Entrata property hours/holidays configuration to populate the property holidays list.
 3. **Clone endpoint** — Build a bulk-copy endpoint that reads settings from a source property and writes them to N target properties for the specified setting types
-4. **Wire the React panel** — Replace the local `useState` in `RenewalsAISettingsPanel` with API calls. The component structure and UX are production-ready from the prototype.
+4. **Wire the React panel** — Replace the local `useState` in `RenewalsAISettingsPanel` with API calls. The component structure and UX are production-ready from the prototype. The `propertyId` prop is now required to load property-specific holidays.
 5. **Wire Property Settings links** — The `link` field on `SettingItem` should resolve `DOMAIN` and `PROPERTYID` placeholders to actual values at render time
-6. **Agent runtime integration** — Update the Renewals AI agent to read follow-up cadence from the new settings tables instead of using hardcoded timing
+6. **Agent runtime integration** — Update the Renewals AI agent to check blackout dates before sending proactive messages. If today is a blackout date (enabled bank holiday, enabled property holiday, or custom date), skip proactive outbound but still respond to resident-initiated messages. Read follow-up cadence from the new settings tables instead of using hardcoded timing.
 7. **Feature flag** — Gate behind `renewals_ai_follow_up_cadence` flag, default OFF
 
 ## Integration Points
@@ -99,6 +116,28 @@ interface LeaseFollowUpStep {
   anchor: LeaseFollowUpAnchor
   target: LeaseFollowUpTarget
 }
+
+interface BlackoutHoliday {
+  key: string             // e.g. "christmas", "thanksgiving"
+  enabled: boolean
+}
+
+interface PropertyHolidayEntry {
+  key: string             // unique key for property-level holiday
+  enabled: boolean
+}
+
+interface CustomBlackoutDate {
+  id: string
+  date: string            // "YYYY-MM-DD" format
+  label: string           // user-entered label
+}
+
+interface BlackoutDates {
+  holidays: BlackoutHoliday[]
+  propertyHolidays: PropertyHolidayEntry[]
+  customDates: CustomBlackoutDate[]
+}
 ```
 
 ## Definition of Done
@@ -106,6 +145,14 @@ interface LeaseFollowUpStep {
 - [ ] Communication windows (send hour + days of week) are configurable per property and persisted
 - [ ] Renewal offer follow-up steps are configurable (add/remove/reorder, days + anchor) and persisted
 - [ ] Renewal lease follow-up steps are configurable (add/remove/reorder, days + anchor + target) and persisted
+- [ ] Blackout dates: unified holiday list merges bank and property holidays into a single chronologically sorted list with source pills
+- [ ] Blackout dates: bank holidays (11 US federal) are toggleable per property and persisted
+- [ ] Blackout dates: property holidays from Entrata Hours & Holidays config are displayed and toggleable
+- [ ] Blackout dates: holidays existing in both sources show both "Federal" and "Property" pills and toggle together
+- [ ] Blackout dates: custom dates can be added/removed with date picker and label
+- [ ] Agent runtime skips proactive outbound on enabled blackout dates but still responds to resident messages
+- [ ] Month-to-month warning displays on follow-up steps using `before_lease_end` anchor in both offer and lease sections
+- [ ] Agent runtime gracefully handles month-to-month leases (no lease end date) for `before_lease_end` follow-up steps
 - [ ] Clone settings dialog allows copying settings from one property to multiple target properties
 - [ ] Property Settings page shows updated Contact Points help text with deep link to Entrata
 - [ ] Property Settings page shows "Property Policies" (renamed from Privacy Policy) with deep link

@@ -7,16 +7,20 @@
 | **Submitted by** | Robert Jones |
 | **Product area** | OXP / Renewals AI |
 | **Autonomy level** | Level 3 — Guided Automation |
-| **Prototype branch** | `rjones/renewals-ai-follow-up-cadence` on `entrata-product/oxp-prototype-product` |
+| **Prototype branch** | `rjones/renewals-ai-property-holidays` on `entrata-product/oxp-prototype-product` |
 | **Video walkthrough** | [PENDING: run /create-video and paste the URL here] |
 
 ---
 
 ## 1. Summary
 
-This feature adds per-property follow-up cadence configuration to the Renewals AI settings panel in the OXP Agent Roster. Property managers can define when and how the Renewal AI agent follows up on renewal offers and unsigned renewal leases — including communication windows, renewal offer follow-up schedules, renewal lease follow-up schedules, and the ability to clone these settings across properties.
+This feature adds per-property follow-up cadence and blackout date configuration to the Renewals AI settings panel in the OXP Agent Roster. Property managers can define when and how the Renewal AI agent follows up on renewal offers and unsigned renewal leases — including communication windows, blackout dates (bank holidays, property holidays, and custom dates), renewal offer follow-up schedules, renewal lease follow-up schedules, and the ability to clone these settings across properties.
 
-The codebase footprint is two files: a new `components/renewals-ai-settings-panel.tsx` component (813 lines) and modifications to `app/agent-roster/page.tsx` (clone dialog, Property Settings data updates).
+The blackout dates section supports three tiers merged into a single unified list: standard US bank holidays (11 federal holidays with dynamic date computation), property-specific holidays pulled from Entrata's Property Hours & Holidays configuration, and unlimited custom blackout dates. Each holiday row has a single checkbox and displays pill badges ("Federal", "Property", or both) to indicate the source. Holidays that exist in both sources show both pills and toggle together.
+
+Follow-up steps using the "before lease end date" anchor display an inline amber warning that the step will not trigger for month-to-month leases since those leases have no end date.
+
+The codebase footprint is two files: a new `components/renewals-ai-settings-panel.tsx` component and modifications to `app/agent-roster/page.tsx` (clone dialog, Property Settings data updates, `propertyId` prop).
 
 ---
 
@@ -38,7 +42,7 @@ Without these controls, properties either over-communicate (annoying residents) 
 
 | Path | Purpose |
 |---|---|
-| `components/renewals-ai-settings-panel.tsx` | Full Renewal AI settings panel with three configurable sections: Communication Windows, Renewal Offer Follow-Ups, and Renewal Lease Follow-Ups |
+| `components/renewals-ai-settings-panel.tsx` | Full Renewal AI settings panel with four configurable sections: Communication Windows, Blackout Dates (bank holidays, property holidays, custom dates), Renewal Offer Follow-Ups, and Renewal Lease Follow-Ups |
 | `_handoff/DEV-291827/PROJECT-DETAILS.md` | This document |
 | `_handoff/DEV-291827/ENGINEERING-PROMPT.md` | Engineering implementation starter prompt |
 | `_handoff/DEV-291827/QUICK-REFERENCE.md` | Quick-reference card for engineering |
@@ -124,7 +128,7 @@ New settings require persistence. Suggested schema:
 # Clone and checkout
 git clone https://github.com/entrata-product/oxp-prototype-product.git
 cd oxp-prototype-product
-git checkout rjones/renewals-ai-follow-up-cadence
+git checkout rjones/renewals-ai-property-holidays
 
 # Install and run
 npm install
@@ -166,5 +170,5 @@ npm run dev
 | Resource | URL |
 |---|---|
 | Jira Epic | [DEV-291827](https://entrata.atlassian.net/browse/DEV-291827) |
-| Prototype Branch | [rjones/renewals-ai-follow-up-cadence](https://github.com/entrata-product/oxp-prototype-product/tree/rjones/renewals-ai-follow-up-cadence) |
+| Prototype Branch | [rjones/renewals-ai-property-holidays](https://github.com/entrata-product/oxp-prototype-product/tree/rjones/renewals-ai-property-holidays) |
 | Video Walkthrough | [PENDING: Phase 13] |
