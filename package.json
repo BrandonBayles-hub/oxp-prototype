@@ -7,7 +7,7 @@
     "dev:clean": "ulimit -n 65536 && rm -rf .next && next dev",
     "dev:fresh": "ulimit -n 65536 && lsof -ti:3000 | xargs kill -9 2>/dev/null; rm -rf .next && next dev",
     "build": "ulimit -n 65536 && next build",
-    "build:static": "ulimit -n 65536 && STATIC_EXPORT=1 next build && rm -rf dist && cp -r out dist",
+    "build:static": "ulimit -n 65536 && node scripts/build-static.mjs",
     "start": "next start",
     "start:static": "npx --yes serve@latest out -l 3000",
     "lint": "next lint",
