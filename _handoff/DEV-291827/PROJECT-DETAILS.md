@@ -14,9 +14,11 @@
 
 ## 1. Summary
 
-This feature adds per-property follow-up cadence configuration to the Renewals AI settings panel in the OXP Agent Roster. Property managers can define when and how the Renewal AI agent follows up on renewal offers and unsigned renewal leases — including communication windows, renewal offer follow-up schedules, renewal lease follow-up schedules, and the ability to clone these settings across properties.
+This feature adds per-property follow-up cadence and blackout date configuration to the Renewals AI settings panel in the OXP Agent Roster. Property managers can define when and how the Renewal AI agent follows up on renewal offers and unsigned renewal leases — including communication windows, blackout dates (bank holidays, property holidays, and custom dates), renewal offer follow-up schedules, renewal lease follow-up schedules, and the ability to clone these settings across properties.
 
-The codebase footprint is two files: a new `components/renewals-ai-settings-panel.tsx` component (813 lines) and modifications to `app/agent-roster/page.tsx` (clone dialog, Property Settings data updates).
+The blackout dates section supports three tiers: standard US bank holidays (11 federal holidays with dynamic date computation), property-specific holidays pulled from Entrata's Property Hours & Holidays configuration, and unlimited custom blackout dates. When a property holiday overlaps with an enabled bank holiday, an overlap badge clearly indicates the dual coverage.
+
+The codebase footprint is two files: a new `components/renewals-ai-settings-panel.tsx` component and modifications to `app/agent-roster/page.tsx` (clone dialog, Property Settings data updates, `propertyId` prop).
 
 ---
 
@@ -38,7 +40,7 @@ Without these controls, properties either over-communicate (annoying residents) 
 
 | Path | Purpose |
 |---|---|
-| `components/renewals-ai-settings-panel.tsx` | Full Renewal AI settings panel with three configurable sections: Communication Windows, Renewal Offer Follow-Ups, and Renewal Lease Follow-Ups |
+| `components/renewals-ai-settings-panel.tsx` | Full Renewal AI settings panel with four configurable sections: Communication Windows, Blackout Dates (bank holidays, property holidays, custom dates), Renewal Offer Follow-Ups, and Renewal Lease Follow-Ups |
 | `_handoff/DEV-291827/PROJECT-DETAILS.md` | This document |
 | `_handoff/DEV-291827/ENGINEERING-PROMPT.md` | Engineering implementation starter prompt |
 | `_handoff/DEV-291827/QUICK-REFERENCE.md` | Quick-reference card for engineering |
