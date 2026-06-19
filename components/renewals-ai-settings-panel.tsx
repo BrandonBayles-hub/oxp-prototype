@@ -17,6 +17,7 @@ import {
   CalendarOff,
   Building2,
   ExternalLink,
+  Info,
   Plus,
   Trash2,
   Lock,
@@ -501,67 +502,61 @@ function CommunicationWindowSection({
    Blackout Dates
    ══════════════════════════════════════════════════════════════════════════ */
 
-type UnifiedHolidayRow = {
+type FlatHolidayRow = {
+  id: string
   sortDate: number
+  name: string
+  dateFormatted: string
+  nextYearFormatted?: string
+  enabled: boolean
+  source: "federal" | "property" | "both"
   bankKey?: string
-  bankName?: string
-  bankDateFormatted?: string
-  bankNextYearFormatted?: string
-  bankEnabled?: boolean
   propKey?: string
-  propName?: string
-  propDateFormatted?: string
-  propEnabled?: boolean
 }
 
-function buildUnifiedHolidays(
+function buildFlatHolidays(
   bankHolidays: BlackoutHoliday[],
   propertyHolidays: PropertyHolidayEntry[],
   holidaysCurrent: { key: string; name: string; date: Date; formatted: string }[],
   holidaysNext: { key: string; name: string; date: Date; formatted: string }[],
   propertyHolidayDefs: PropertyHolidayDef[]
-): UnifiedHolidayRow[] {
-  const rows: UnifiedHolidayRow[] = []
-  const bankKeysMerged = new Set<string>()
+): FlatHolidayRow[] {
+  const rows: FlatHolidayRow[] = []
+  const propKeysMerged = new Set<string>()
 
   for (const bh of bankHolidays) {
     const cur = holidaysCurrent.find((h) => h.key === bh.key)!
     const nxt = holidaysNext.find((h) => h.key === bh.key)!
-    const matchingPropDef = propertyHolidayDefs.find(
+    const matchingProp = propertyHolidayDefs.find(
       (pd) => pd.matchesBankHolidayKey === bh.key
     )
-    const matchingPropState = matchingPropDef
-      ? propertyHolidays.find((ph) => ph.key === matchingPropDef.key)
-      : undefined
-
-    if (matchingPropDef) bankKeysMerged.add(matchingPropDef.key)
+    if (matchingProp) propKeysMerged.add(matchingProp.key)
 
     rows.push({
+      id: `bank-${bh.key}`,
       sortDate: cur.date.getTime(),
+      name: cur.name,
+      dateFormatted: cur.formatted,
+      nextYearFormatted: nxt.formatted,
+      enabled: bh.enabled,
+      source: matchingProp ? "both" : "federal",
       bankKey: bh.key,
-      bankName: cur.name,
-      bankDateFormatted: cur.formatted,
-      bankNextYearFormatted: nxt.formatted,
-      bankEnabled: bh.enabled,
-      propKey: matchingPropDef ? matchingPropDef.key : undefined,
-      propName: matchingPropDef ? matchingPropDef.name : undefined,
-      propDateFormatted: matchingPropDef
-        ? formatDateString(matchingPropDef.date)
-        : undefined,
-      propEnabled: matchingPropState?.enabled,
+      propKey: matchingProp?.key,
     })
   }
 
   for (const pd of propertyHolidayDefs) {
-    if (bankKeysMerged.has(pd.key)) continue
+    if (propKeysMerged.has(pd.key)) continue
     const phState = propertyHolidays.find((ph) => ph.key === pd.key)
     const [y, m, d] = pd.date.split("-").map(Number)
     rows.push({
+      id: `prop-${pd.key}`,
       sortDate: new Date(y, m - 1, d).getTime(),
+      name: pd.name,
+      dateFormatted: formatDateString(pd.date),
+      enabled: phState?.enabled ?? false,
+      source: "property",
       propKey: pd.key,
-      propName: pd.name,
-      propDateFormatted: formatDateString(pd.date),
-      propEnabled: phState?.enabled,
     })
   }
 
@@ -589,7 +584,7 @@ function BlackoutDatesSection({
   const propertyHolidayDefs = getPropertyHolidayDefs(propertyId)
   const hasPropertyHolidays = propertyHolidayDefs.length > 0
 
-  const unifiedRows = buildUnifiedHolidays(
+  const flatRows = buildFlatHolidays(
     blackout.holidays,
     blackout.propertyHolidays,
     holidaysCurrent,
@@ -597,27 +592,23 @@ function BlackoutDatesSection({
     propertyHolidayDefs
   )
 
-  const toggleHoliday = (key: string) => {
-    onChange({
-      ...blackout,
-      holidays: blackout.holidays.map((h) =>
-        h.key === key ? { ...h, enabled: !h.enabled } : h
-      ),
-    })
-  }
-
-  const togglePropertyHoliday = (key: string) => {
-    onChange({
-      ...blackout,
-      propertyHolidays: blackout.propertyHolidays.map((h) =>
-        h.key === key ? { ...h, enabled: !h.enabled } : h
-      ),
-    })
+  const toggleRow = (row: FlatHolidayRow) => {
+    const next = { ...blackout }
+    if (row.bankKey) {
+      next.holidays = blackout.holidays.map((h) =>
+        h.key === row.bankKey ? { ...h, enabled: !row.enabled } : h
+      )
+    }
+    if (row.propKey) {
+      next.propertyHolidays = blackout.propertyHolidays.map((h) =>
+        h.key === row.propKey ? { ...h, enabled: !row.enabled } : h
+      )
+    }
+    onChange(next)
   }
 
   const enabledCount =
-    blackout.holidays.filter((h) => h.enabled).length +
-    blackout.propertyHolidays.filter((h) => h.enabled).length +
+    flatRows.filter((r) => r.enabled).length +
     blackout.customDates.length
 
   const addCustomDate = () => {
@@ -671,12 +662,8 @@ function BlackoutDatesSection({
     })
   }
 
-  const allEnabled =
-    blackout.holidays.every((h) => h.enabled) &&
-    blackout.propertyHolidays.every((h) => h.enabled)
-  const noneEnabled =
-    blackout.holidays.every((h) => !h.enabled) &&
-    blackout.propertyHolidays.every((h) => !h.enabled)
+  const allEnabled = flatRows.every((r) => r.enabled)
+  const noneEnabled = flatRows.every((r) => !r.enabled)
 
   const hoursSettingsUrl =
     "https://DOMAIN.entrata.com/?module=properties_setupxxx&load_large_dialog=%3Fmodule%3Dproperty_details_general_hoursxxx%26property%5Bid%5D%3DPROPERTYID%26"
@@ -695,7 +682,7 @@ function BlackoutDatesSection({
         }
       >
         <div className="space-y-6">
-          {/* Unified Holidays */}
+          {/* Holidays */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div>
@@ -745,156 +732,37 @@ function BlackoutDatesSection({
             </div>
 
             <div className="rounded-lg border border-border divide-y divide-border">
-              {unifiedRows.map((row) => {
-                const isBankOnly = !!row.bankKey && !row.propKey
-                const isPropOnly = !row.bankKey && !!row.propKey
-                const isBoth = !!row.bankKey && !!row.propKey
-                const uniqueKey = row.bankKey
-                  ? `bank-${row.bankKey}`
-                  : `prop-${row.propKey}`
-
-                if (isBoth) {
-                  return (
-                    <div key={uniqueKey} className="flex flex-col">
-                      <button
-                        type="button"
-                        onClick={() => toggleHoliday(row.bankKey!)}
-                        className="flex items-center gap-3 w-full px-4 pt-3 pb-1.5 text-left hover:bg-zinc-50 transition-colors"
-                      >
-                        <div
-                          className={cn(
-                            "flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-all",
-                            row.bankEnabled
-                              ? "bg-zinc-900 border-zinc-900 text-white"
-                              : "border-zinc-300 bg-white"
-                          )}
-                        >
-                          {row.bankEnabled && <Check className="h-3 w-3" />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="text-xs font-medium text-foreground">
-                              {row.bankName}
-                            </p>
-                            <Badge
-                              variant="outline"
-                              className="text-[9px] py-0 h-4 border-zinc-200 text-zinc-500"
-                            >
-                              Federal
-                            </Badge>
-                          </div>
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <p className="text-[11px] text-muted-foreground">
-                            {row.bankDateFormatted}
-                          </p>
-                          <p className="text-[10px] text-zinc-400">
-                            {row.bankNextYearFormatted}
-                          </p>
-                        </div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => togglePropertyHoliday(row.propKey!)}
-                        className="flex items-center gap-3 w-full px-4 pt-1 pb-3 text-left hover:bg-blue-50/50 transition-colors ml-8 pr-4"
-                        style={{ width: "calc(100% - 2rem)" }}
-                      >
-                        <div
-                          className={cn(
-                            "flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-all",
-                            row.propEnabled
-                              ? "bg-blue-600 border-blue-600 text-white"
-                              : "border-blue-300 bg-white"
-                          )}
-                        >
-                          {row.propEnabled && <Check className="h-2.5 w-2.5" />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="text-[11px] text-muted-foreground">
-                              {row.propName}
-                            </p>
-                            <Badge
-                              variant="outline"
-                              className="text-[9px] py-0 h-4 border-blue-200 text-blue-600"
-                            >
-                              <Building2 className="mr-0.5 h-2.5 w-2.5" />
-                              Property
-                            </Badge>
-                          </div>
-                        </div>
-                      </button>
-                    </div>
-                  )
-                }
-
-                if (isBankOnly) {
-                  return (
-                    <button
-                      key={uniqueKey}
-                      type="button"
-                      onClick={() => toggleHoliday(row.bankKey!)}
-                      className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-zinc-50 transition-colors"
-                    >
-                      <div
-                        className={cn(
-                          "flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-all",
-                          row.bankEnabled
-                            ? "bg-zinc-900 border-zinc-900 text-white"
-                            : "border-zinc-300 bg-white"
-                        )}
-                      >
-                        {row.bankEnabled && <Check className="h-3 w-3" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-xs font-medium text-foreground">
-                            {row.bankName}
-                          </p>
-                          {hasPropertyHolidays && (
-                            <Badge
-                              variant="outline"
-                              className="text-[9px] py-0 h-4 border-zinc-200 text-zinc-500"
-                            >
-                              Federal
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <p className="text-[11px] text-muted-foreground">
-                          {row.bankDateFormatted}
-                        </p>
-                        <p className="text-[10px] text-zinc-400">
-                          {row.bankNextYearFormatted}
-                        </p>
-                      </div>
-                    </button>
-                  )
-                }
-
-                return (
-                  <button
-                    key={uniqueKey}
-                    type="button"
-                    onClick={() => togglePropertyHoliday(row.propKey!)}
-                    className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-blue-50/50 transition-colors"
+              {flatRows.map((row) => (
+                <button
+                  key={row.id}
+                  type="button"
+                  onClick={() => toggleRow(row)}
+                  className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-zinc-50 transition-colors"
+                >
+                  <div
+                    className={cn(
+                      "flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-all",
+                      row.enabled
+                        ? "bg-zinc-900 border-zinc-900 text-white"
+                        : "border-zinc-300 bg-white"
+                    )}
                   >
-                    <div
-                      className={cn(
-                        "flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-all",
-                        row.propEnabled
-                          ? "bg-blue-600 border-blue-600 text-white"
-                          : "border-blue-300 bg-white"
+                    {row.enabled && <Check className="h-3 w-3" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="text-xs font-medium text-foreground">
+                        {row.name}
+                      </p>
+                      {(row.source === "federal" || row.source === "both") && (
+                        <Badge
+                          variant="outline"
+                          className="text-[9px] py-0 h-4 border-zinc-200 text-zinc-500"
+                        >
+                          Federal
+                        </Badge>
                       )}
-                    >
-                      {row.propEnabled && <Check className="h-3 w-3" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="text-xs font-medium text-foreground">
-                          {row.propName}
-                        </p>
+                      {(row.source === "property" || row.source === "both") && (
                         <Badge
                           variant="outline"
                           className="text-[9px] py-0 h-4 border-blue-200 text-blue-600"
@@ -902,16 +770,21 @@ function BlackoutDatesSection({
                           <Building2 className="mr-0.5 h-2.5 w-2.5" />
                           Property
                         </Badge>
-                      </div>
+                      )}
                     </div>
-                    <div className="shrink-0 text-right">
-                      <p className="text-[11px] text-muted-foreground">
-                        {row.propDateFormatted}
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-[11px] text-muted-foreground">
+                      {row.dateFormatted}
+                    </p>
+                    {row.nextYearFormatted && (
+                      <p className="text-[10px] text-zinc-400">
+                        {row.nextYearFormatted}
                       </p>
-                    </div>
-                  </button>
-                )
-              })}
+                    )}
+                  </div>
+                </button>
+              ))}
             </div>
 
             {hasPropertyHolidays && (
@@ -1171,6 +1044,8 @@ function LeaseFollowUpList({
    Generic Step Row (for offer follow-ups)
    ══════════════════════════════════════════════════════════════════════════ */
 
+const MTM_WARNING = "Will not trigger for month-to-month leases (no lease end date)."
+
 function StepRow<T extends string>({
   index,
   total,
@@ -1192,6 +1067,8 @@ function StepRow<T extends string>({
   onRemove: () => void
   onMove: (direction: "up" | "down") => void
 }) {
+  const showMtmWarning = (anchorValue as string) === "before_lease_end"
+
   return (
     <div className="group rounded-lg border border-border bg-white transition-all hover:border-zinc-300">
       <div className="flex items-center gap-2 px-3 py-2.5">
@@ -1256,6 +1133,12 @@ function StepRow<T extends string>({
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       </div>
+      {showMtmWarning && (
+        <div className="flex items-center gap-1.5 px-3 pb-2.5 -mt-1 ml-[3.25rem]">
+          <Info className="h-3 w-3 shrink-0 text-amber-500" />
+          <p className="text-[10px] text-amber-700">{MTM_WARNING}</p>
+        </div>
+      )}
     </div>
   )
 }
@@ -1279,6 +1162,8 @@ function LeaseStepRow({
   onRemove: () => void
   onMove: (direction: "up" | "down") => void
 }) {
+  const showMtmWarning = step.anchor === "before_lease_end"
+
   return (
     <div className="group rounded-lg border border-border bg-white transition-all hover:border-zinc-300">
       <div className="flex items-center gap-2 px-3 py-2.5">
@@ -1373,6 +1258,12 @@ function LeaseStepRow({
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       </div>
+      {showMtmWarning && (
+        <div className="flex items-center gap-1.5 px-3 pb-2.5 -mt-1 ml-[3.25rem]">
+          <Info className="h-3 w-3 shrink-0 text-amber-500" />
+          <p className="text-[10px] text-amber-700">{MTM_WARNING}</p>
+        </div>
+      )}
     </div>
   )
 }
