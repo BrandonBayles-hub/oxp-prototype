@@ -54,7 +54,7 @@ import {
   countLogTraceSteps,
   ConversationDetailView,
   type ConversationLog,
-} from "@/app/agent-roster/page";
+} from "@/app/agent-roster/conversation-log";
 import {
   Plus,
   Search,
