@@ -4,12 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
-import { MessageSquareText, Phone, PhoneCall } from "lucide-react";
+import { MessageSquareText, Phone } from "lucide-react";
 
 const TABS = [
-  { href: "/voice",          label: "Tone & Guidelines", icon: MessageSquareText, exact: true },
+  { href: "/voice",          label: "Tone Guidelines", icon: MessageSquareText, exact: true },
   { href: "/voice/ai-voice", label: "Voice",             icon: Phone,             exact: false },
-  { href: "/voice/ivr-setup",label: "IVR Setup",         icon: PhoneCall,         exact: false },
 ];
 
 export default function VoiceLayout({ children }: { children: React.ReactNode }) {

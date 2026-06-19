@@ -30,6 +30,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { PropertySelector } from "@/components/property-filter";
 import {
@@ -49,6 +50,7 @@ import {
 import {
   ArrowLeft,
   Building2,
+  Check,
   ChevronRight,
   GraduationCap,
   Home,
@@ -56,12 +58,11 @@ import {
   Pencil,
   Plus,
   RotateCcw,
+  Search,
   ShieldCheck,
   Briefcase,
   Trash2,
   X,
-  CheckCircle,
-  XCircle,
   AlertTriangle,
   Info,
   CreditCard,
@@ -316,42 +317,8 @@ function AgentPickerView({
                   <span className="text-[13px] text-muted-foreground">{tone.persona || "Not configured"}</span>
                 </div>
                 <div>
-                  <span className="text-[13px] font-semibold text-foreground">Agent Tone Instructions: </span>
+                  <span className="text-[13px] font-semibold text-foreground">Agent Tone Guidelines: </span>
                   <span className="text-[13px] text-muted-foreground">{tone.guidelines || "Not configured"}</span>
-                </div>
-              </div>
-
-              {/* Do / Don't */}
-              <div className="mt-4 grid grid-cols-2 gap-4">
-                <div>
-                  <p className="mb-1.5 text-[13px] font-semibold text-emerald-700">Do</p>
-                  {tone.doExamples.length > 0 ? (
-                    <ul className="space-y-1.5">
-                      {tone.doExamples.map((item, i) => (
-                        <li key={i} className="flex items-start gap-1.5 text-[13px] text-muted-foreground">
-                          <CheckCircle className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
-                          <span>{item}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-[13px] text-muted-foreground">None</p>
-                  )}
-                </div>
-                <div>
-                  <p className="mb-1.5 text-[13px] font-semibold text-red-700">Don&apos;t</p>
-                  {tone.dontExamples.length > 0 ? (
-                    <ul className="space-y-1.5">
-                      {tone.dontExamples.map((item, i) => (
-                        <li key={i} className="flex items-start gap-1.5 text-[13px] text-muted-foreground">
-                          <XCircle className="h-3.5 w-3.5 text-red-500 mt-0.5 shrink-0" />
-                          <span>{item}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-[13px] text-muted-foreground">None</p>
-                  )}
                 </div>
               </div>
 
@@ -415,6 +382,9 @@ function AgentDetailView({
   const [addPropertyOpen, setAddPropertyOpen] = useState(false);
   const [preselectedPropertyName, setPreselectedPropertyName] = useState<string | null>(null);
   const [autoExpandProperty, setAutoExpandProperty] = useState<string | null>(null);
+  const [propertyFilterSearch, setPropertyFilterSearch] = useState("");
+  const [propertyFilterVerticals, setPropertyFilterVerticals] = useState<Set<Vertical>>(new Set());
+  const [propertyFilterNames, setPropertyFilterNames] = useState<Set<string>>(new Set());
   const defaultSectionRef = useRef<HTMLElement | null>(null);
   const verticalSectionRef = useRef<HTMLElement | null>(null);
   const propertySectionRef = useRef<HTMLElement | null>(null);
@@ -422,6 +392,29 @@ function AgentDetailView({
   const handledDeepLinkProperty = useRef<string | null>(null);
 
   const Icon = agent.icon;
+
+  const filteredPropertyOverrides = useMemo(() => {
+    const term = propertyFilterSearch.trim().toLowerCase();
+    if (!term && propertyFilterVerticals.size === 0 && propertyFilterNames.size === 0) {
+      return propertyOverrides;
+    }
+    return propertyOverrides.filter((override) => {
+      const matchesTerm = !term || override.propertyName.toLowerCase().includes(term);
+      const matchesVertical =
+        propertyFilterVerticals.size === 0 || propertyFilterVerticals.has(override.vertical);
+      const matchesName =
+        propertyFilterNames.size === 0 || propertyFilterNames.has(override.propertyName);
+      return matchesTerm && matchesVertical && matchesName;
+    });
+  }, [propertyOverrides, propertyFilterSearch, propertyFilterVerticals, propertyFilterNames]);
+
+  const propertyDropdownOptions = useMemo(
+    () =>
+      propertyOverrides
+        .map((override) => ({ name: override.propertyName, vertical: override.vertical }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [propertyOverrides],
+  );
 
   useEffect(() => {
     if (!pendingProperty) {
@@ -479,11 +472,11 @@ function AgentDetailView({
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-white px-3 py-1.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
         >
-          <ArrowLeft className="h-3 w-3" /> All agents
+          <ArrowLeft className="h-4 w-4" /> Back to all agents
         </button>
-        <div className="mt-3 flex items-start gap-4">
+        <div className="mt-4 flex items-start gap-4">
           <img src="/eli-cube.svg" alt="" width={40} height={40} className="shrink-0" />
           <div>
             <h2 className="text-xl font-semibold text-foreground">ELI+ {agent.name}</h2>
@@ -573,21 +566,63 @@ function AgentDetailView({
           />
         ) : (
           <div className="space-y-3">
-            {propertyOverrides.map((override) => (
-              <PropertyOverrideCard
-                key={override.id}
-                record={override}
-                autoExpand={autoExpandProperty === override.propertyName}
-                cardRef={(node) => {
-                  propertyCardRefs.current[override.propertyName] = node;
-                }}
-                onChange={(next) => onUpdateProperty(override.id, next)}
-                onRemove={() => onRemoveProperty(override.id)}
-              />
-            ))}
-            <Button variant="outline" size="sm" onClick={() => setAddPropertyOpen(true)} className="gap-1">
-              <Plus className="h-3.5 w-3.5" /> Add another property override
-            </Button>
+            <PropertyOverrideFilterBar
+              search={propertyFilterSearch}
+              onSearchChange={setPropertyFilterSearch}
+              verticalFilter={propertyFilterVerticals}
+              onToggleVertical={(vertical) =>
+                setPropertyFilterVerticals((previous) => {
+                  const next = new Set(previous);
+                  if (next.has(vertical)) {
+                    next.delete(vertical);
+                  } else {
+                    next.add(vertical);
+                  }
+                  return next;
+                })
+              }
+              propertyOptions={propertyDropdownOptions}
+              selectedNames={propertyFilterNames}
+              onSelectedNamesChange={setPropertyFilterNames}
+              onClear={() => {
+                setPropertyFilterSearch("");
+                setPropertyFilterVerticals(new Set());
+                setPropertyFilterNames(new Set());
+              }}
+              filteredCount={filteredPropertyOverrides.length}
+              totalCount={propertyOverrides.length}
+              onAdd={() => setAddPropertyOpen(true)}
+            />
+            {filteredPropertyOverrides.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-center">
+                <p className="text-sm text-muted-foreground">No properties match your filter.</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-3"
+                  onClick={() => {
+                    setPropertyFilterSearch("");
+                    setPropertyFilterVerticals(new Set());
+                    setPropertyFilterNames(new Set());
+                  }}
+                >
+                  Clear filters
+                </Button>
+              </div>
+            ) : (
+              filteredPropertyOverrides.map((override) => (
+                <PropertyOverrideCard
+                  key={override.id}
+                  record={override}
+                  autoExpand={autoExpandProperty === override.propertyName}
+                  cardRef={(node) => {
+                    propertyCardRefs.current[override.propertyName] = node;
+                  }}
+                  onChange={(next) => onUpdateProperty(override.id, next)}
+                  onRemove={() => onRemoveProperty(override.id)}
+                />
+              ))
+            )}
           </div>
         )}
       </section>
@@ -704,6 +739,221 @@ function EmptyOverrideState({
         <Plus className="h-3.5 w-3.5" /> {actionLabel}
       </Button>
     </div>
+  );
+}
+
+function PropertyOverrideFilterBar({
+  search,
+  onSearchChange,
+  verticalFilter,
+  onToggleVertical,
+  propertyOptions,
+  selectedNames,
+  onSelectedNamesChange,
+  onClear,
+  filteredCount,
+  totalCount,
+  onAdd,
+}: {
+  search: string;
+  onSearchChange: (value: string) => void;
+  verticalFilter: Set<Vertical>;
+  onToggleVertical: (vertical: Vertical) => void;
+  propertyOptions: { name: string; vertical: Vertical }[];
+  selectedNames: Set<string>;
+  onSelectedNamesChange: (next: Set<string>) => void;
+  onClear: () => void;
+  filteredCount: number;
+  totalCount: number;
+  onAdd?: () => void;
+}) {
+  const hasFilters =
+    search.trim().length > 0 || verticalFilter.size > 0 || selectedNames.size > 0;
+
+  return (
+    <div className="rounded-lg border border-border bg-muted/20 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[220px] flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            value={search}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder="Filter properties by name…"
+            className="input-base h-8 w-full pl-8 pr-8 text-sm"
+          />
+          {search.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onSearchChange("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label="Clear search"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+        <PropertyDropdownFilter
+          options={propertyOptions}
+          selectedNames={selectedNames}
+          onChange={onSelectedNamesChange}
+        />
+        <span className="whitespace-nowrap text-xs text-muted-foreground">
+          Showing {filteredCount} of {totalCount}
+        </span>
+        {onAdd && (
+          <Button variant="outline" size="sm" onClick={onAdd} className="ml-auto gap-1">
+            <Plus className="h-3.5 w-3.5" /> Add property override
+          </Button>
+        )}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Vertical</span>
+        {VERTICALS.map((vertical) => {
+          const active = verticalFilter.has(vertical);
+          return (
+            <button
+              key={vertical}
+              type="button"
+              onClick={() => onToggleVertical(vertical)}
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors",
+                active
+                  ? "border-foreground bg-foreground text-background"
+                  : "border-border text-muted-foreground hover:border-foreground/40",
+              )}
+            >
+              {vertical}
+            </button>
+          );
+        })}
+        {hasFilters && (
+          <button
+            type="button"
+            onClick={onClear}
+            className="ml-auto inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+          >
+            <X className="h-3 w-3" /> Clear filters
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PropertyDropdownFilter({
+  options,
+  selectedNames,
+  onChange,
+}: {
+  options: { name: string; vertical: Vertical }[];
+  selectedNames: Set<string>;
+  onChange: (next: Set<string>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [innerSearch, setInnerSearch] = useState("");
+
+  const filtered = useMemo(() => {
+    const term = innerSearch.trim().toLowerCase();
+    if (!term) return options;
+    return options.filter((option) => option.name.toLowerCase().includes(term));
+  }, [options, innerSearch]);
+
+  const triggerLabel =
+    selectedNames.size === 0
+      ? "All properties"
+      : `${selectedNames.size} selected`;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 min-w-[160px] justify-between gap-1.5"
+        >
+          <span className="truncate text-xs">{triggerLabel}</span>
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 p-0" align="start">
+        <div className="border-b border-border p-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              value={innerSearch}
+              onChange={(event) => setInnerSearch(event.target.value)}
+              placeholder="Search properties…"
+              className="input-base h-8 w-full pl-7 text-xs"
+            />
+          </div>
+        </div>
+        <div className="max-h-[260px] overflow-y-auto p-1">
+          {filtered.length === 0 ? (
+            <p className="px-2 py-3 text-xs italic text-muted-foreground">
+              No matching properties.
+            </p>
+          ) : (
+            filtered.map((option) => {
+              const checked = selectedNames.has(option.name);
+              const meta = VERTICAL_META[option.vertical];
+              return (
+                <button
+                  key={option.name}
+                  type="button"
+                  onClick={() => {
+                    const next = new Set(selectedNames);
+                    if (checked) {
+                      next.delete(option.name);
+                    } else {
+                      next.add(option.name);
+                    }
+                    onChange(next);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted"
+                >
+                  <span
+                    className={cn(
+                      "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                      checked
+                        ? "border-foreground bg-foreground text-background"
+                        : "border-border",
+                    )}
+                  >
+                    {checked && <Check className="h-3 w-3" />}
+                  </span>
+                  <span className="flex-1 truncate text-foreground">{option.name}</span>
+                  <span
+                    className={cn(
+                      "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                      meta.bg,
+                      meta.color,
+                    )}
+                  >
+                    {option.vertical}
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+        {selectedNames.size > 0 && (
+          <div className="flex items-center justify-between border-t border-border p-2">
+            <span className="text-[11px] text-muted-foreground">
+              {selectedNames.size} selected
+            </span>
+            <button
+              type="button"
+              onClick={() => onChange(new Set())}
+              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3 w-3" /> Clear
+            </button>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -1064,12 +1314,8 @@ function ToneEditor({
           <p className="mt-1 text-foreground">{settings.persona || <span className="italic text-muted-foreground">Not set</span>}</p>
         </div>
         <div>
-          <p className="text-xs font-medium text-muted-foreground">Agent tone & instructions</p>
+          <p className="text-xs font-medium text-muted-foreground">Agent tone guidelines</p>
           <p className="mt-1 whitespace-pre-wrap text-foreground">{settings.guidelines || <span className="italic text-muted-foreground">Not set</span>}</p>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <ListReadout title="Do" entries={settings.doExamples} icon={<CheckCircle className="h-3.5 w-3.5 text-emerald-500" />} />
-          <ListReadout title="Don't" entries={settings.dontExamples} icon={<XCircle className="h-3.5 w-3.5 text-red-500" />} />
         </div>
       </div>
     );
@@ -1088,7 +1334,7 @@ function ToneEditor({
         />
       </div>
       <div>
-        <label className="mb-1 block text-xs font-medium text-muted-foreground">Agent tone & instructions</label>
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">Agent tone guidelines</label>
         <textarea
           value={settings.guidelines}
           onChange={(e) => update({ guidelines: e.target.value })}
@@ -1097,87 +1343,6 @@ function ToneEditor({
           placeholder="e.g. Direct and clear, but never judgmental..."
         />
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <ListEditor
-          title="Do"
-          entries={settings.doExamples}
-          accent="emerald"
-          onChange={(doExamples) => update({ doExamples })}
-        />
-        <ListEditor
-          title="Don't"
-          entries={settings.dontExamples}
-          accent="red"
-          onChange={(dontExamples) => update({ dontExamples })}
-        />
-      </div>
-    </div>
-  );
-}
-
-function ListReadout({ title, entries, icon }: { title: string; entries: string[]; icon: React.ReactNode }) {
-  return (
-    <div className="rounded-md border border-border bg-muted/20 p-3">
-      <p className="mb-2 text-xs font-medium text-muted-foreground">{title}</p>
-      {entries.length === 0 ? (
-        <p className="text-xs italic text-muted-foreground">None</p>
-      ) : (
-        <ul className="space-y-1.5">
-          {entries.map((e, i) => (
-            <li key={i} className="flex items-start gap-1.5 text-xs">
-              <span className="mt-0.5">{icon}</span>
-              <span className="text-foreground">{e}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function ListEditor({
-  title,
-  entries,
-  accent,
-  onChange,
-}: {
-  title: string;
-  entries: string[];
-  accent: "emerald" | "red";
-  onChange: (next: string[]) => void;
-}) {
-  const accentText = accent === "emerald" ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400";
-
-  return (
-    <div className="rounded-lg border border-border p-3">
-      <p className={cn("mb-2 text-xs font-semibold", accentText)}>{title}</p>
-      <ul className="space-y-2">
-        {entries.map((entry, i) => (
-          <li key={i} className="flex items-start gap-2">
-            <input
-              type="text"
-              value={entry}
-              onChange={(e) => {
-                const next = [...entries];
-                next[i] = e.target.value;
-                onChange(next);
-              }}
-              className="input-base h-8 flex-1 text-sm"
-            />
-            <button
-              type="button"
-              onClick={() => onChange(entries.filter((_, j) => j !== i))}
-              className="text-muted-foreground hover:text-foreground"
-              aria-label="Remove"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </li>
-        ))}
-      </ul>
-      <Button variant="ghost" size="sm" className="mt-2 h-7 text-xs" onClick={() => onChange([...entries, ""])}>
-        <Plus className="h-3 w-3" /> Add
-      </Button>
     </div>
   );
 }
@@ -1445,6 +1610,7 @@ function AddPropertyOverrideDialog({
           )}
           <PropertySelector
             data={PROPERTY_FILTER_DATA}
+            defaultDropdownOption="Portfolios"
             triggerWidthClassName="w-full"
             panelHeight={420}
             showChips

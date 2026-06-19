@@ -141,12 +141,14 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: "p-wf-edit", capability: "Edit Workflows", description: "Modify existing workflow recipes and triggers", section: "Workflows" },
   { id: "p-wf-toggle", capability: "Enable/Disable Workflows", description: "Turn workflows on or off", section: "Workflows" },
 
-  // ── Trainings & SOP ──
-  { id: "p-training-view", capability: "View Trainings & SOPs", description: "Access training documents and SOPs", section: "Trainings & SOP" },
-  { id: "p-training-create", capability: "Create & Edit SOPs", description: "Author and modify standard operating procedures", section: "Trainings & SOP" },
-  { id: "p-training-publish", capability: "Publish SOPs", description: "Publish SOPs and make them available for playbook use", section: "Trainings & SOP" },
-  { id: "p-training-assign", capability: "Manage SOP Review Assignments", description: "Assign SOP reviews to team members", section: "Trainings & SOP" },
-  { id: "p-training-entrata-academy", capability: "Trainings - Entrata Academy", description: "Access Entrata Academy trainings and learning content", section: "Trainings & SOP" },
+  // ── SOPs & Knowledge ──
+  { id: "p-training-view", capability: "View SOPs & Knowledge", description: "Access SOPs, training documents, and knowledge base", section: "SOPs & Knowledge" },
+  { id: "p-training-create", capability: "Create & Edit SOPs", description: "Author and modify standard operating procedures", section: "SOPs & Knowledge" },
+  { id: "p-training-publish", capability: "Publish SOPs", description: "Publish SOPs and make them available for playbook use", section: "SOPs & Knowledge" },
+  { id: "p-training-assign", capability: "Manage SOP Review Assignments", description: "Assign SOP reviews to team members", section: "SOPs & Knowledge" },
+
+  // ── Entrata Academy ──
+  { id: "p-training-entrata-academy", capability: "Trainings - Entrata Academy", description: "Access Entrata Academy trainings and learning content", section: "Entrata Academy" },
 
   // ── Voice ──
   { id: "p-voice-view", capability: "View Voice Settings", description: "Access voice configuration and settings", section: "Voice" },
@@ -171,7 +173,7 @@ export const ALL_PERMISSIONS: Permission[] = [
 
 export const PERMISSION_SECTIONS = [
   "Communications", "Calling Communications", "Escalations", "Entrata Experts", "Performance", "Agent Roster", "Workforce",
-  "Activation", "Workflows", "Trainings & SOP", "Voice", "Governance",
+  "Activation", "Workflows", "SOPs & Knowledge", "Entrata Academy", "Voice", "Governance",
 ];
 
 export const SECTION_VIEW_PERMISSION: Record<string, string> = {
@@ -183,7 +185,8 @@ export const SECTION_VIEW_PERMISSION: Record<string, string> = {
   "Workforce": "p-wf-members-view",
   "Activation": "p-activation-view",
   "Workflows": "p-workflows-view",
-  "Trainings & SOP": "p-training-view",
+  "SOPs & Knowledge": "p-training-view",
+  "Entrata Academy": "p-training-entrata-academy",
   "Voice": "p-voice-view",
   "Governance": "p-gov-view",
   "Entrata Experts": "p-experts-view",

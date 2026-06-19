@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback, Suspense, useId } from "react";
 import { marked } from "marked";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   FileText, FilePlus, FolderOpen, FolderPlus, Pencil, Send, CheckCircle, Upload, Building2,
   Search, Clock, AlertTriangle, ChevronRight, X, CornerDownRight, BookOpen, Plus, MoreHorizontal, MoreVertical, Trash2, Link2, Blocks, Download, Loader2
@@ -58,8 +58,13 @@ const TRAIN_SOP_METRICS_STORAGE_KEY = "janet-poc-trainings-sop-metrics-prev";
 // persona, and we want the user to land back on the same pill they
 // started from — not on the default "sops" tab. Mirrors the source-
 // persistence pattern in app/admin-insights/page.tsx.
+//
+// Only consulted on the legacy /trainings-sop route. On the split
+// /trainings and /sops-knowledge routes, the tab is forced by the
+// route itself (see `forcedTab` on TrainingsSopContent), so this key
+// is unused there.
 const PAGE_TAB_PREF_KEY = "trainings-sop-page-tab";
-type PageTab = "sops" | "trainings";
+export type PageTab = "sops" | "trainings";
 const isValidPageTab = (v: unknown): v is PageTab => v === "sops" || v === "trainings";
 
 type TrainSopMetricsSnapshot = {
@@ -126,15 +131,6 @@ function generateMockAnswer(question: string, docs: VaultItem[]): string {
   return `Based on ${docNames}:\n\n${snippet || `Refer to ${first.fileName} for detailed guidance on this topic.`}`;
 }
 
-// Mock bulk summarize
-function generateMockSummary(docs: VaultItem[]): string {
-  return docs.map((d) => {
-    const body = (d.body ?? "").replace(/<[^>]+>/g, "").trim();
-    const snippet = body ? body.slice(0, 120) + "..." : "No content.";
-    return `• ${d.fileName}: ${snippet}`;
-  }).join("\n");
-}
-
 // Compliance coverage SVG ring
 function CoverageRing({ filled, total, size = 64 }: { filled: number; total: number; size?: number }) {
   const pct = total > 0 ? filled / total : 0;
@@ -158,7 +154,7 @@ function CoverageRing({ filled, total, size = 64 }: { filled: number; total: num
   );
 }
 
-function TrainingsSopContent() {
+function TrainingsSopContent({ forcedTab }: { forcedTab?: PageTab } = {}) {
   const {
     documents: items, setDocuments: setItems,
     addDocument: addDocToVault, updateDocument, addFolder: addFolderToVault,
@@ -171,13 +167,16 @@ function TrainingsSopContent() {
   const { agents } = useAgents();
   const { members: workforceMembers, humanMembers } = useWorkforce();
 
-  // We initialize from the default "sops" on the SSR/static-export pass
-  // (no localStorage available), then sync to the saved selection in a
-  // mount-only useEffect once the client hydrates. This avoids hydration
-  // mismatch warnings while still restoring the correct pill after a
-  // reload caused by the Academy demo user-switcher.
-  const [pageTab, setPageTabRaw] = useState<PageTab>("sops");
+  // When `forcedTab` is provided (the new split routes /trainings and
+  // /sops-knowledge), the route itself selects the tab and the in-page
+  // pill toggle is hidden. Only the legacy /trainings-sop route still
+  // hydrates the tab from localStorage, since the Academy demo user-
+  // switcher reloads the window and we want to land back on the same
+  // pill there. Mirrors the source-persistence pattern in
+  // app/admin-insights/page.tsx.
+  const [pageTab, setPageTabRaw] = useState<PageTab>(forcedTab ?? "sops");
   useEffect(() => {
+    if (forcedTab) return;
     if (typeof window === "undefined") return;
     try {
       const saved = window.localStorage.getItem(PAGE_TAB_PREF_KEY);
@@ -187,11 +186,12 @@ function TrainingsSopContent() {
     }
     // Mount-only: do not depend on `pageTab` (would re-sync repeatedly).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [forcedTab]);
   // setPageTab is the public setter — persists the new value as a side
   // effect so a reload (e.g. from the Academy demo user-switcher) lands
-  // the user back on the same pill.
+  // the user back on the same pill. No-op when forcedTab is set.
   const setPageTab = useCallback((next: PageTab) => {
+    if (forcedTab) return;
     setPageTabRaw(next);
     if (typeof window !== "undefined") {
       try {
@@ -200,7 +200,7 @@ function TrainingsSopContent() {
         /* non-fatal */
       }
     }
-  }, []);
+  }, [forcedTab]);
   const [activeTab, setActiveTab] = useState<"compliance" | "library" | "activity">("library");
   const [search, setSearch] = useState("");
   const [activitySearch, setActivitySearch] = useState("");
@@ -228,7 +228,7 @@ function TrainingsSopContent() {
   const [viewMode, setViewMode] = useState<"list" | "templates">("list");
   const [showExploreSops, setShowExploreSops] = useState(false);
   const [showConnectLibrary, setShowConnectLibrary] = useState(false);
-  const [bulkActionResult, setBulkActionResult] = useState<string | null>(null);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [complianceSelectSubject, setComplianceSelectSubject] = useState<string | null>(null);
   const [previousMetrics, setPreviousMetrics] = useState<TrainSopMetricsSnapshot | null>(null);
@@ -237,17 +237,23 @@ function TrainingsSopContent() {
   const [askChatMessages, setAskChatMessages] = useState<ChatMessage[]>([
     { id: "welcome", role: "assistant", text: "Hi! Ask me anything about your documents, SOPs, or policies." },
   ]);
-  const [bulkTagInput, setBulkTagInput] = useState("");
-  const [showBulkTagInput, setShowBulkTagInput] = useState(false);
-  const [bulkSummaryResult, setBulkSummaryResult] = useState<string | null>(null);
   const router = useRouter();
   const searchParams = useSearchParams();
+  const pathname = usePathname();
+  // Internal folder/connect URLs preserve the current route so the user
+  // stays on whichever surface they entered from (/trainings-sop legacy,
+  // /sops-knowledge, or /trainings).
+  const routeBase = useMemo(() => {
+    if (!pathname) return "/trainings-sop";
+    const trimmed = pathname.replace(/\/$/, "");
+    return trimmed || "/trainings-sop";
+  }, [pathname]);
   const [currentFolderId, setCurrentFolderIdRaw] = useState<string | null>(searchParams.get("folder"));
   const setCurrentFolderId = useCallback((id: string | null) => {
     setCurrentFolderIdRaw(id);
-    const url = id ? `/trainings-sop?folder=${id}` : "/trainings-sop";
+    const url = id ? `${routeBase}?folder=${id}` : routeBase;
     router.push(url, { scroll: false });
-  }, [router]);
+  }, [router, routeBase]);
   const [moveDocId, setMoveDocId] = useState<string | null>(null);
   const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
   const [reviewDocId, setReviewDocId] = useState<string | null>(null);
@@ -315,9 +321,9 @@ function TrainingsSopContent() {
     const connect = searchParams.get("connect");
     if (connect) {
       setShowConnectLibrary(true);
-      router.replace("/trainings-sop", { scroll: false });
+      router.replace(routeBase, { scroll: false });
     }
-  }, [searchParams, router]);
+  }, [searchParams, router, routeBase]);
 
   const fileDocuments = useMemo(() => items.filter((i) => i.type === "file" && !i.isTemplate) as VaultItem[], [items]);
   const templateDocuments = useMemo(() => items.filter((i) => i.type === "file" && i.isTemplate) as VaultItem[], [items]);
@@ -489,45 +495,12 @@ function TrainingsSopContent() {
 
   const selectedDocs = useMemo(() => items.filter((i) => selectedIds.has(i.id) && i.type === "file"), [items, selectedIds]);
 
-  const runBulkAnalysis = () => {
+  const confirmBulkDelete = () => {
     const count = selectedDocs.length;
-    const needsReview = selectedDocs.filter(
-      (d) => d.approvalStatus === "review" || d.approvalStatus === "needs_review"
-    ).length;
-    const noBody = selectedDocs.filter((d) => !d.body?.trim()).length;
-    setBulkActionResult(
-      `Analysis of ${count} document(s). ` +
-      `${needsReview} pending review. ${noBody} missing content. ` +
-      `${count - noBody} ready for training.`
-    );
-    addActivity({ action: "Bulk analysis", by: "Admin", detail: `Analyzed ${count} document(s)` });
-  };
-
-  const runBulkSummarize = () => {
-    const summary = generateMockSummary(selectedDocs);
-    setBulkSummaryResult(summary);
-    setBulkActionResult(null);
-    addActivity({ action: "Bulk summarize", by: "Admin", detail: `Summarized ${selectedDocs.length} document(s)` });
-  };
-
-  const runBulkTag = () => {
-    setShowBulkTagInput(true);
-    setBulkActionResult(null);
-  };
-
-  const applyBulkTag = () => {
-    const tag = bulkTagInput.trim();
-    if (!tag) return;
-    selectedDocs.forEach((doc) => {
-      const existing = doc.tags ?? [];
-      if (!existing.map((t) => t.toLowerCase()).includes(tag.toLowerCase())) {
-        updateDocument(doc.id, { tags: [...existing, tag] });
-      }
-    });
-    setBulkActionResult(`Tag "${tag}" applied to ${selectedDocs.length} document(s).`);
-    setShowBulkTagInput(false);
-    setBulkTagInput("");
-    addActivity({ action: "Bulk tag", by: "Admin", detail: `Applied tag "${tag}" to ${selectedDocs.length} document(s)` });
+    selectedDocs.forEach((doc) => deleteDocument(doc.id));
+    addActivity({ action: "Bulk delete", by: "Admin", detail: `Deleted ${count} document(s)` });
+    setSelectedIds(new Set());
+    setShowBulkDeleteConfirm(false);
   };
 
   const setApproval = (id: string, status: ApprovalStatus) => {
@@ -688,7 +661,7 @@ function TrainingsSopContent() {
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <div className="mb-1.5 flex items-center gap-1 text-sm text-muted-foreground">
-                <button type="button" onClick={() => setCurrentFolderId(null)} className="hover:underline text-primary">Trainings & SOP</button>
+                <button type="button" onClick={() => setCurrentFolderId(null)} className="hover:underline text-primary">{forcedTab === "trainings" ? "Trainings" : forcedTab === "sops" ? "SOPs & Knowledge" : "Trainings & SOP"}</button>
                 <ChevronRight className="h-3 w-3" />
                 <span className="font-medium text-foreground">{currentFolder.fileName}</span>
               </div>
@@ -731,14 +704,24 @@ function TrainingsSopContent() {
             </div>
           </div>
         </header>
+      ) : forcedTab ? (
+        // Split routes (/trainings, /sops-knowledge): the route itself
+        // selects the surface, so the pill toggle is hidden. We still
+        // render the AcademyDemoControls on the Trainings surface so
+        // demo personas remain switchable in this layout.
+        pageTab === "trainings" && !currentFolder ? (
+          <div className="-mt-2 mb-3 flex items-center justify-end py-2">
+            <AcademyDemoControls />
+          </div>
+        ) : null
       ) : (
-        // Pill toggle row is `relative` so AcademyDemoControls (rendered only
-        // on the Trainings tab) can absolute-position itself to the right
-        // edge while the pill stays visually centered. The "Trainings & SOP"
-        // PageHeader + description that used to sit below this row was
-        // removed per the PM's "superfluous" call — the pill toggle already
-        // provides the section context, and the host sidebar's "Trainings &
-        // SOP" entry shows where in OXP you are.
+        // Legacy /trainings-sop route: pill toggle row is `relative` so
+        // AcademyDemoControls (rendered only on the Trainings tab) can
+        // absolute-position itself to the right edge while the pill
+        // stays visually centered. The "Trainings & SOP" PageHeader +
+        // description that used to sit below this row was removed per
+        // the PM's "superfluous" call — the pill toggle already
+        // provides the section context.
         <div className="relative -mt-2 mb-3 flex items-center justify-center py-2">
           <div className="inline-flex items-center rounded-lg border border-border bg-muted/40 p-1">
             <button
@@ -1181,31 +1164,17 @@ function TrainingsSopContent() {
 
           {/* Bulk actions */}
           {selectedIds.size > 0 && (
-            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-md border border-border bg-muted/30 p-3">
+            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3">
               <span className="text-sm font-medium text-foreground">{selectedIds.size} selected</span>
-              <Button variant="secondary" size="sm" onClick={runBulkAnalysis}>Run analysis</Button>
-              <Button variant="secondary" size="sm" onClick={runBulkSummarize}>Summarize</Button>
-              <Button variant="secondary" size="sm" onClick={runBulkTag}>Tag</Button>
-              <Button asChild size="sm"><Link href={`/workflows?docs=${Array.from(selectedIds).join(",")}`}>Run workflow</Link></Button>
-              <button type="button" onClick={() => { setSelectedIds(new Set()); setShowBulkTagInput(false); setBulkActionResult(null); setBulkSummaryResult(null); }} className="text-sm text-muted-foreground hover:underline">Clear</button>
-            </div>
-          )}
-
-          {showBulkTagInput && (
-            <div className="mb-4 flex items-center gap-2 rounded-md border border-border bg-muted/20 p-3">
-              <input type="text" value={bulkTagInput} onChange={(e) => setBulkTagInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") applyBulkTag(); }} placeholder="Enter tag to apply" className="input-base h-8 w-48 text-sm" autoFocus />
-              <Button size="sm" onClick={applyBulkTag} disabled={!bulkTagInput.trim()}>Apply tag</Button>
-              <Button variant="ghost" size="sm" onClick={() => { setShowBulkTagInput(false); setBulkTagInput(""); }}>Cancel</Button>
-            </div>
-          )}
-
-          {bulkActionResult && <p className="mb-4 text-sm text-muted-foreground">{bulkActionResult}</p>}
-
-          {bulkSummaryResult && (
-            <div className="mb-4 rounded-md border border-border bg-muted/20 p-3">
-              <p className="mb-1 text-xs font-medium text-foreground">Summary</p>
-              <pre className="whitespace-pre-wrap text-xs text-muted-foreground">{bulkSummaryResult}</pre>
-              <button type="button" onClick={() => setBulkSummaryResult(null)} className="mt-2 text-xs text-primary hover:underline">Dismiss</button>
+              <div className="ml-auto flex items-center gap-2">
+                <Button size="sm" variant="ghost" className="h-8 text-xs text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => setShowBulkDeleteConfirm(true)}>
+                  <Trash2 className="mr-1 h-3.5 w-3.5" />
+                  Delete
+                </Button>
+                <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setSelectedIds(new Set())}>
+                  Clear
+                </Button>
+              </div>
             </div>
           )}
 
@@ -1515,6 +1484,23 @@ function TrainingsSopContent() {
       {showNewFolder && (
         <SimpleModal title="New Folder" placeholder="Folder name" onClose={() => setShowNewFolder(false)} onSave={addFolder} />
       )}
+      <Dialog open={showBulkDeleteConfirm} onOpenChange={setShowBulkDeleteConfirm}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete {selectedDocs.length} document{selectedDocs.length === 1 ? "" : "s"}?</DialogTitle>
+            <DialogDescription>
+              This permanently removes the selected document{selectedDocs.length === 1 ? "" : "s"} from your library. This action can&apos;t be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowBulkDeleteConfirm(false)}>Cancel</Button>
+            <Button variant="destructive" size="sm" onClick={confirmBulkDelete}>
+              <Trash2 className="mr-1 h-3.5 w-3.5" />
+              Delete
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       {renamingFolderId && (
         <SimpleModal
           title="Rename Folder"
@@ -2493,3 +2479,8 @@ export default function TrainingsSopPage() {
     </Suspense>
   );
 }
+
+// Exported so the split routes /trainings and /sops-knowledge can
+// render the same surface with `forcedTab` set (see app/trainings/page.tsx
+// and app/sops-knowledge/page.tsx).
+export { TrainingsSopContent };

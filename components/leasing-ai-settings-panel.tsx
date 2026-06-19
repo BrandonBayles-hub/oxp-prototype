@@ -1,32 +1,11 @@
 "use client"
 
-/**
- * Leasing AI — per-property settings panel.
- *
- * Renders inside the existing agent-roster slide-out, in the "Leasing AI Settings"
- * left-nav tab (replaces the "Coming Soon" placeholder).
- *
- * Source: leasing-ai-prd-2026-04-29.md §6.3 (settings), §6.6 (multilingual),
- * §6.7 (verification — read-only summary surfaced here), §6.8 (agent identity).
- *
- * Scope: this panel is per-property. The Custom Mode *editor* is company-level
- * and lives in an embedded dialog (kept small on purpose). No separate page.
- */
-
-import React, { useMemo, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useState } from "react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import {
   Select,
   SelectContent,
@@ -35,155 +14,297 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
-  Bot,
-  Globe,
   MessageSquare,
-  Lightbulb,
-  Clock,
-  ShieldCheck,
-  FlaskConical,
+  ListChecks,
   Plus,
-  X,
-  Sparkles,
-  Info,
-  Check,
+  Trash2,
   Pencil,
-  AlertTriangle,
-  ExternalLink,
+  X,
   Lock,
-  Target,
+  AlertTriangle,
+  Info,
+  Home,
+  ShieldCheck,
 } from "lucide-react"
 
 /* ══════════════════════════════════════════════════════════════════════════
-   Types & seeded data
+   Conversation modes
    ══════════════════════════════════════════════════════════════════════════ */
 
-type ToneId = "friendly" | "professional" | "luxury" | "student-casual"
-type Discovery = "minimal" | "standard" | "deep"
-type Screening = "light" | "standard" | "strict"
-type Customization = "default" | "value" | "lifestyle" | "luxury"
-type ConversionGoal = "schedule_tours" | "drive_applications" | "answer_questions"
+type ConversationModeId = "maximize-tour" | "maximize-application"
 
-interface CustomMode {
-  id: string
+interface ConversationMode {
+  id: ConversationModeId
   name: string
   description: string
-  isSeed: boolean
-  discovery: Discovery
-  screening: Screening
-  customization: Customization
-  conversionGoal: ConversionGoal
-  assignedPropertyCount: number
+  cadenceLabel: string
+  conversionGoal: "schedule_tours" | "drive_applications" | "answer_questions"
+  requiresConventionalNoAffordable: boolean
 }
 
-const SEED_MODES: CustomMode[] = [
+const CONVERSATION_MODES: ConversationMode[] = [
   {
-    id: "sales",
-    name: "Sales Mode",
-    description: "Optimize for tour bookings — friendly, low-friction qualification.",
-    isSeed: true,
-    discovery: "standard",
-    screening: "light",
-    customization: "lifestyle",
+    id: "maximize-tour",
+    name: "Maximize Tour Mode",
+    description:
+      "The bot proactively offers available tours and invites the prospect to take a tour. An application is only offered if the prospect asks.",
+    cadenceLabel: "Maximize Tour cadence",
     conversionGoal: "schedule_tours",
-    assignedPropertyCount: 6,
+    requiresConventionalNoAffordable: false,
   },
   {
-    id: "screening",
-    name: "Screening Mode",
-    description: "High occupancy, stabilized — qualify harder before booking.",
-    isSeed: true,
-    discovery: "deep",
-    screening: "strict",
-    customization: "default",
+    id: "maximize-application",
+    name: "Maximize Application Mode",
+    description:
+      "The bot proactively shares the application link and invites the prospect to apply. Tours are only offered if the prospect asks.",
+    cadenceLabel: "Application Mode cadence",
     conversionGoal: "drive_applications",
-    assignedPropertyCount: 1,
-  },
-  {
-    id: "leaseup",
-    name: "Lease-Up Mode",
-    description: "New construction — answer questions, build interest, low friction.",
-    isSeed: true,
-    discovery: "minimal",
-    screening: "light",
-    customization: "value",
-    conversionGoal: "answer_questions",
-    assignedPropertyCount: 0,
+    requiresConventionalNoAffordable: true,
   },
 ]
 
-const TONE_OPTIONS: { value: ToneId; label: string; helper: string }[] = [
-  { value: "friendly", label: "Friendly", helper: "Warm and conversational" },
-  { value: "professional", label: "Professional", helper: "Polished and businesslike" },
-  { value: "luxury", label: "Luxury", helper: "Formal, premium emphasis" },
-  { value: "student-casual", label: "Student-casual", helper: "Approachable and on-trend" },
-]
+const DEFAULT_MODE: ConversationModeId = "maximize-tour"
 
-const DISCOVERY_OPTIONS: { value: Discovery; label: string; helper: string }[] = [
-  { value: "minimal", label: "Minimal", helper: "Move-in date and bedrooms only" },
-  { value: "standard", label: "Standard", helper: "Adds budget and pets" },
-  { value: "deep", label: "Deep", helper: "Adds occupants, employer, prior address" },
-]
-const SCREENING_OPTIONS: { value: Screening; label: string; helper: string }[] = [
-  { value: "light", label: "Light", helper: "Only screen on volunteered info" },
-  { value: "standard", label: "Standard", helper: "Use volunteered info to pre-check fit" },
-  { value: "strict", label: "Strict", helper: "Proactively confirm fit before tour booking" },
-]
-const CUSTOMIZATION_OPTIONS: { value: Customization; label: string; helper: string }[] = [
-  { value: "default", label: "Default", helper: "Balanced selling-point emphasis" },
-  { value: "value", label: "Value", helper: "Lead with price and specials" },
-  { value: "lifestyle", label: "Lifestyle", helper: "Lead with amenities and neighborhood" },
-  { value: "luxury", label: "Luxury", helper: "Formal, premium emphasis" },
-]
-const GOAL_OPTIONS: { value: ConversionGoal; label: string; helper: string }[] = [
-  { value: "schedule_tours", label: "Schedule tours", helper: "Default conversion target" },
-  { value: "drive_applications", label: "Drive applications", helper: "Skip tour where ready" },
-  { value: "answer_questions", label: "Answer questions", helper: "Low-friction, info-first" },
-]
+const LEGACY_MODE_MAP: Record<string, ConversationModeId> = {
+  "tour-first": "maximize-tour",
+  "application-first": "maximize-application",
+  "qualification-first": "maximize-tour",
+}
 
-const SUGGESTED_SELLING_POINTS = [
-  "Resort-style pool with cabanas",
-  "Pet-friendly with on-site dog park",
-  "In-unit washer/dryer in every home",
-  "Private rooftop with skyline views",
-  "Reserved parking and EV chargers",
-  "Walkable to grocery, parks, and transit",
-  "Stainless appliances and quartz counters",
-  "24/7 fitness center with Peloton bikes",
-]
+function normalizeModeId(id: string | undefined): ConversationModeId {
+  if (!id) return DEFAULT_MODE
+  if (CONVERSATION_MODES.some((m) => m.id === id)) return id as ConversationModeId
+  return LEGACY_MODE_MAP[id] ?? DEFAULT_MODE
+}
 
 /* ══════════════════════════════════════════════════════════════════════════
-   Property mock-data shim — the parent only passes a name; we infer the rest
-   so the UI feels real. In production, this comes from Entrata core.
+   Pre-qualification — types, constants, defaults
+   ══════════════════════════════════════════════════════════════════════════ */
+
+type ConversationStart = "affordable_first" | "market_first"
+
+interface AffordableSettings {
+  householdIncome: string
+  householdSize: string
+  vouchersAccepted: boolean
+  // Terminology controls
+  programDisplayName: string
+  avoidTerms: string
+  approvedPhrase: string
+  // Compliance-approved outcome messaging
+  outcomeMessages: Record<string, string>
+  // Adjustable income margin
+  incomeMargin: string
+  marginAction: "needs_review" | "handoff" | "soft_message"
+  // Age requirement (optional)
+  ageRestricted: boolean
+  minimumAge: string
+  ageQuestionWording: string
+  // Required documentation
+  requiredDocuments: string[]
+}
+
+type PreQualOperator =
+  | "greater_than"
+  | "less_than"
+  | "at_least"
+  | "at_most"
+  | "equals"
+  | "not_equals"
+  | "less_than_multiplier"
+  | "at_least_multiplier"
+  | "yes"
+  | "no"
+  | "dont_know"
+
+type PreQualResult =
+  | "qualified"
+  | "over_income"
+  | "under_income"
+  | "unit_ineligible"
+  | "potentially_qualified"
+  | "in_progress"
+
+type PreQualConnector = "and" | "or"
+
+type TourGoal = "offer" | "if_asked" | "none"
+type ApplicationGoal = "offer" | "if_asked" | "none"
+
+interface PreQualGoal {
+  result: PreQualResult
+  tour: TourGoal
+  application: ApplicationGoal
+  waitlist: TourGoal
+  offerMarketRate: boolean
+}
+
+// Master list of screening criteria the user can choose from
+const AVAILABLE_SCREENING_CRITERIA = [
+  "Monthly Income",
+  "Will you need a guarantor or co-signer?",
+  "Do you have any pets?",
+  "Minimum Age",
+  "Credit Score",
+  "Employment Status",
+  "Rental History",
+  "Number of Occupants",
+  "Move-in Date",
+  "Lease Term",
+] as const
+
+interface ScreeningCriterionConfig {
+  id: string
+  label: string
+  value: string
+}
+
+const PREQUAL_OPERATOR_LABELS: Record<PreQualOperator, string> = {
+  greater_than: "is greater than",
+  less_than: "is less than",
+  at_least: "is at least",
+  at_most: "is at most",
+  equals: "equals",
+  not_equals: "does not equal",
+  less_than_multiplier: "is less than (multiplier of rent)",
+  at_least_multiplier: "is at least (multiplier of rent)",
+  yes: "Yes",
+  no: "No",
+  dont_know: "Don't Know",
+}
+
+const YES_NO_INPUTS = new Set([
+  "Will you need a guarantor or co-signer?",
+  "Do you have any pets?",
+])
+
+const INCOME_INPUTS = new Set([
+  "Monthly Income",
+])
+
+function operatorsForInput(input: string): PreQualOperator[] {
+  if (YES_NO_INPUTS.has(input)) return ["yes", "no", "dont_know"]
+  if (INCOME_INPUTS.has(input)) return ["less_than", "greater_than", "at_least", "at_most", "less_than_multiplier", "at_least_multiplier"]
+  return ["greater_than", "less_than", "at_least", "at_most", "equals", "not_equals"]
+}
+
+const PREQUAL_RESULT_LABELS: Record<PreQualResult, string> = {
+  qualified: "Qualified",
+  over_income: "Over-income",
+  under_income: "Under-income",
+  unit_ineligible: "Unit-ineligible",
+  potentially_qualified: "Potentially qualified",
+  in_progress: "In progress",
+}
+
+const PREQUAL_RESULT_BADGE: Record<PreQualResult, string> = {
+  qualified: "bg-emerald-100 text-emerald-800",
+  over_income: "bg-amber-100 text-amber-800",
+  under_income: "bg-red-100 text-red-700",
+  unit_ineligible: "bg-amber-100 text-amber-800",
+  potentially_qualified: "bg-blue-100 text-blue-800",
+  in_progress: "bg-zinc-100 text-zinc-600",
+}
+
+const TOUR_GOAL_LABELS: Record<TourGoal, string> = {
+  offer: "Proactively offer",
+  if_asked: "Only if asked",
+  none: "Do not offer",
+}
+
+const APP_GOAL_LABELS: Record<ApplicationGoal, string> = {
+  offer: "Proactively share",
+  if_asked: "Only if asked",
+  none: "Do not share",
+}
+
+interface PreQualCondition {
+  id: string
+  input: string
+  operator: PreQualOperator
+  value: string
+}
+
+interface PreQualRule {
+  id: string
+  label: string
+  connector: PreQualConnector
+  conditions: PreQualCondition[]
+  tour: TourGoal
+  application: ApplicationGoal
+  offerMarketRate: boolean
+}
+
+function makeCondition(defaultInput?: string): PreQualCondition {
+  return {
+    id: `c-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    input: defaultInput ?? AVAILABLE_SCREENING_CRITERIA[0],
+    operator: "greater_than",
+    value: "",
+  }
+}
+
+const DEFAULT_PREQUAL_RULES: PreQualRule[] = [
+  { id: "r-1", label: "Monthly Income", connector: "and", tour: "if_asked", application: "none", offerMarketRate: true,
+    conditions: [{ id: "r-1-c1", input: "Monthly Income", operator: "less_than_multiplier", value: "3x" }] },
+  { id: "r-2", label: "Minimum Age", connector: "and", tour: "none", application: "none", offerMarketRate: false,
+    conditions: [{ id: "r-2-c1", input: "Minimum Age", operator: "less_than", value: "18" }] },
+  { id: "r-3", label: "Do you have any pets?", connector: "and", tour: "if_asked", application: "none", offerMarketRate: false,
+    conditions: [{ id: "r-3-c1", input: "Do you have any pets?", operator: "yes", value: "yes" }] },
+]
+
+const DEFAULT_PREQUAL_GOALS: PreQualGoal[] = [
+  { result: "qualified",             tour: "offer",    application: "offer",    waitlist: "none",     offerMarketRate: false },
+  { result: "over_income",           tour: "none",     application: "none",     waitlist: "if_asked", offerMarketRate: true },
+  { result: "under_income",          tour: "if_asked", application: "none",     waitlist: "offer",    offerMarketRate: false },
+  { result: "unit_ineligible",       tour: "if_asked", application: "none",     waitlist: "if_asked", offerMarketRate: true },
+  { result: "potentially_qualified", tour: "offer",    application: "offer",    waitlist: "none",     offerMarketRate: false },
+  { result: "in_progress",           tour: "none",     application: "none",     waitlist: "none",     offerMarketRate: false },
+]
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Property mock-data shim
    ══════════════════════════════════════════════════════════════════════════ */
 
 interface DerivedPropertyData {
   vertical: "Conventional" | "Student" | "Affordable"
-  jurisdictionState: string
-  jurisdictionRule: string | null
   affordable: { lihtc: boolean; section8: boolean; mixedIncome: boolean }
 }
 
 const PROPERTY_PROFILES: Record<string, Partial<DerivedPropertyData>> = {
-  "Aspen Heights":              { vertical: "Conventional", jurisdictionState: "Utah",     jurisdictionRule: null },
-  "14th North Parkway":         { vertical: "Conventional", jurisdictionState: "California", jurisdictionRule: "AB 2216 — fee disclosure" },
-  "The Rails on Main":          { vertical: "Conventional", jurisdictionState: "Colorado",   jurisdictionRule: "HB 23-1095 — fee disclosure" },
-  "Summit View at Lakewood":    { vertical: "Student",      jurisdictionState: "Colorado",   jurisdictionRule: "HB 23-1095 — fee disclosure" },
-  "Bellamy Place":              { vertical: "Conventional", jurisdictionState: "Texas",      jurisdictionRule: null },
-  "Ivy Gate Residences":        { vertical: "Affordable",   jurisdictionState: "New York",   jurisdictionRule: "NYC all-in pricing",
-                                  affordable: { lihtc: true, section8: true, mixedIncome: false } },
-  "Copper Ridge":               { vertical: "Conventional", jurisdictionState: "Arizona",    jurisdictionRule: null },
-  "Harborstone Landing":        { vertical: "Conventional", jurisdictionState: "Washington", jurisdictionRule: null },
+  "Aspen Heights":           { vertical: "Conventional" },
+  "14th North Parkway":      { vertical: "Conventional" },
+  "The Rails on Main":       { vertical: "Conventional" },
+  "Summit View at Lakewood": { vertical: "Student" },
+  "Bellamy Place":           { vertical: "Conventional" },
+  "Ivy Gate Residences":     { vertical: "Affordable",   affordable: { lihtc: true, section8: true, mixedIncome: false } },
+  "Copper Ridge":            { vertical: "Conventional" },
+  "Harborstone Landing":     { vertical: "Conventional" },
+  "Harvest Peak Capital":    { vertical: "Conventional" },
+  "Skyline Apartments":      { vertical: "Conventional" },
+  "The Meridian":            { vertical: "Conventional" },
+  "Oakwood Village":         { vertical: "Conventional" },
+  "Pine Ridge Estates":      { vertical: "Conventional" },
+  "Campus View":             { vertical: "Student" },
+  "Metro Heights":           { vertical: "Conventional" },
+  "Lakeside Commons":        { vertical: "Conventional" },
+  "Heritage Place":          { vertical: "Affordable",   affordable: { lihtc: true, section8: false, mixedIncome: true } },
+  "Summit Towers":           { vertical: "Conventional" },
+  "Jamison Apartments":      { vertical: "Conventional" },
 }
 
 function deriveProperty(name: string): DerivedPropertyData {
   const profile = PROPERTY_PROFILES[name] ?? {}
   return {
     vertical: profile.vertical ?? "Conventional",
-    jurisdictionState: profile.jurisdictionState ?? "—",
-    jurisdictionRule: profile.jurisdictionRule ?? null,
     affordable: profile.affordable ?? { lihtc: false, section8: false, mixedIncome: false },
   }
+}
+
+function isApplicationModeEligible(derived: DerivedPropertyData): boolean {
+  const hasAffordableUnits =
+    derived.affordable.lihtc || derived.affordable.section8 || derived.affordable.mixedIncome
+  return derived.vertical === "Conventional" && !hasAffordableUnits
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -191,33 +312,40 @@ function deriveProperty(name: string): DerivedPropertyData {
    ══════════════════════════════════════════════════════════════════════════ */
 
 interface PanelState {
-  agentDisplayName: string
-  agentPersonaTone: ToneId
-  customModeId: string
-  // explicit per-property overrides on top of the assigned mode (rarely used; collapsed by default)
-  modeOverrides: Partial<Pick<CustomMode, "discovery" | "screening" | "customization" | "conversionGoal">>
-  spanishEnabled: boolean
-  sellingPoints: string[]
-  agentGoal: ConversionGoal
-  coldLeadFirstTouchMinutes: number
-  followUpCadence: { firstHours: number; secondHours: number; thirdDays: number }
-  jurisdictionOverride: string | null
-  affordableOverride: Partial<{ lihtc: boolean; section8: boolean; mixedIncome: boolean }>
+  conversationMode: ConversationModeId
+  preQualEnabled: boolean
+  screeningCriteria: ScreeningCriterionConfig[]
+  affordableFlowEnabled: boolean
+  conversationStart: ConversationStart
+  affordableSettings: AffordableSettings
+  preQualRules: PreQualRule[]
+  preQualGoals: PreQualGoal[]
 }
 
-function makeDefaultState(derived: DerivedPropertyData): PanelState {
+function makeDefaultState(): PanelState {
   return {
-    agentGoal: "schedule_tours",
-    agentDisplayName: "",
-    agentPersonaTone: derived.vertical === "Student" ? "student-casual" : "friendly",
-    customModeId: derived.vertical === "Student" ? "leaseup" : "sales",
-    modeOverrides: {},
-    spanishEnabled: false,
-    sellingPoints: [],
-    coldLeadFirstTouchMinutes: 5,
-    followUpCadence: { firstHours: 24, secondHours: 72, thirdDays: 7 },
-    jurisdictionOverride: null,
-    affordableOverride: {},
+    conversationMode: DEFAULT_MODE,
+    preQualEnabled: false,
+    screeningCriteria: [
+      { id: "sc-1", label: "Monthly Income", value: "3x monthly rent" },
+      { id: "sc-2", label: "Do you have any pets?", value: "" },
+      { id: "sc-3", label: "Minimum Age", value: "18" },
+    ],
+    affordableFlowEnabled: false,
+    conversationStart: "market_first",
+    affordableSettings: {
+      householdIncome: "", householdSize: "", vouchersAccepted: false,
+      programDisplayName: "", avoidTerms: "", approvedPhrase: "",
+      outcomeMessages: {
+        over_income: "Based on what you shared, your estimated income may be above the limit for this affordable unit. Final eligibility is determined during the application review.",
+        under_income: "Based on the information provided, you may not meet the initial income criteria for this program. Final eligibility is determined through the formal application and compliance review.",
+      },
+      incomeMargin: "", marginAction: "needs_review",
+      ageRestricted: false, minimumAge: "", ageQuestionWording: "",
+      requiredDocuments: ["Government-issued ID", "4 most recent pay stubs", "Bank statements"],
+    },
+    preQualRules: DEFAULT_PREQUAL_RULES,
+    preQualGoals: DEFAULT_PREQUAL_GOALS,
   }
 }
 
@@ -227,53 +355,167 @@ function makeDefaultState(derived: DerivedPropertyData): PanelState {
 
 interface Props {
   propertyName: string
-  agentDisplayLabel?: string // e.g. "ELI+ Leasing AI" — used in the body copy
-  /** Number of simulations the user has started in the Simulation tab for this property. */
+  agentDisplayLabel?: string
+  /** Accepted for compatibility with the OXP agent-roster integration. */
   simulationCount?: number
-  /** Switch the parent's left nav to the Simulation tab. */
+  /** Accepted for compatibility with the OXP agent-roster integration. */
   onOpenSimulation?: () => void
 }
 
 export function LeasingAISettingsPanel({
   propertyName,
   agentDisplayLabel = "Leasing AI",
-  simulationCount = 0,
-  onOpenSimulation,
 }: Props) {
   const derived = useMemo(() => deriveProperty(propertyName), [propertyName])
-  const [state, setState] = useState<PanelState>(() => makeDefaultState(derived))
-  const [pristine, setPristine] = useState<PanelState>(() => makeDefaultState(derived))
-  const [modes, setModes] = useState<CustomMode[]>(() => SEED_MODES)
-  const [showAdvancedMode, setShowAdvancedMode] = useState(false)
-  const [manageModesOpen, setManageModesOpen] = useState(false)
+  const appModeEligible = useMemo(() => isApplicationModeEligible(derived), [derived])
+
+  const [state, setState] = useState<PanelState>(() => makeDefaultState())
+  const [pristine, setPristine] = useState<PanelState>(() => makeDefaultState())
+  const [backendStatus, setBackendStatus] = useState<"idle" | "ok" | "error">("idle")
+
+  const CHATBOT_API = "http://localhost:8000"
+
+  useEffect(() => {
+    fetch(`${CHATBOT_API}/sales-mode`)
+      .then((res) => { if (res.ok) return res.json(); throw new Error() })
+      .then((data: {
+        mode_id?: string
+        prequalification_enabled?: boolean
+        conversation_start?: string
+        household_income?: string
+        household_size?: string
+        vouchers_accepted?: boolean
+        prequalification_rules?: {
+          label?: string
+          connector?: string
+          conditions?: { input: string; operator: string; value: string }[]
+          input?: string
+          operator?: string
+          value?: string
+          tour?: string
+          application?: string
+          offer_market_rate?: boolean
+          result?: string
+        }[]
+        prequalification_goals?: { result: string; tour: string; application: string; waitlist?: string; offer_market_rate: boolean }[]
+        prequalification_actions?: { result: string; action: string }[]
+      }) => {
+        const defaults = makeDefaultState()
+        const loaded: Partial<PanelState> = {
+          conversationMode: normalizeModeId(data.mode_id),
+          preQualEnabled: Boolean(data.prequalification_enabled),
+          conversationStart: (data.conversation_start as ConversationStart) ?? "market_first",
+          affordableSettings: {
+            ...defaults.affordableSettings,
+            householdIncome: data.household_income ?? "",
+            householdSize: data.household_size ?? "",
+            vouchersAccepted: Boolean(data.vouchers_accepted),
+          },
+        }
+        if (data.prequalification_rules && data.prequalification_rules.length > 0) {
+          loaded.preQualRules = data.prequalification_rules.map((r, i) => {
+            const conditions: PreQualCondition[] =
+              r.conditions && r.conditions.length > 0
+                ? r.conditions.map((c, j) => ({
+                    id: `r-${i + 1}-c${j + 1}`,
+                    input: c.input,
+                    operator: c.operator as PreQualOperator,
+                    value: c.value,
+                  }))
+                : [{
+                    id: `r-${i + 1}-c1`,
+                    input: r.input ?? AVAILABLE_SCREENING_CRITERIA[0],
+                    operator: (r.operator as PreQualOperator) ?? "greater_than",
+                    value: r.value ?? "",
+                  }]
+            return {
+              id: `r-${i + 1}`,
+              label: r.label ?? "",
+              connector: (r.connector as PreQualConnector) ?? "and",
+              conditions,
+              tour: (r.tour as TourGoal) ?? "none",
+              application: (r.application as ApplicationGoal) ?? "none",
+              offerMarketRate: Boolean(r.offer_market_rate),
+            }
+          })
+        }
+        if (data.prequalification_goals && data.prequalification_goals.length > 0) {
+          loaded.preQualGoals = data.prequalification_goals.map((g) => ({
+            result: g.result as PreQualResult,
+            tour: g.tour as TourGoal,
+            application: g.application as ApplicationGoal,
+            waitlist: (g.waitlist as TourGoal) ?? "none",
+            offerMarketRate: Boolean(g.offer_market_rate),
+          }))
+        }
+        setState((s) => ({ ...s, ...loaded }))
+        setPristine((s) => ({ ...s, ...loaded }))
+        setBackendStatus("ok")
+      })
+      .catch(() => setBackendStatus("error"))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (!appModeEligible && state.conversationMode === "maximize-application") {
+      setState((s) => ({ ...s, conversationMode: DEFAULT_MODE }))
+    }
+  }, [appModeEligible, state.conversationMode])
 
   const dirty = JSON.stringify(state) !== JSON.stringify(pristine)
-  const assignedMode = modes.find((m) => m.id === state.customModeId) ?? modes[0]
-
   const update = <K extends keyof PanelState>(key: K, value: PanelState[K]) =>
     setState((s) => ({ ...s, [key]: value }))
 
-  const handleSave = () => setPristine(state)
+  const syncToBackend = useCallback((s: PanelState) => {
+    const activeMode = CONVERSATION_MODES.find((m) => m.id === s.conversationMode)
+    fetch(`${CHATBOT_API}/sales-mode`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode_id: s.conversationMode,
+        mode_name: activeMode?.name ?? s.conversationMode,
+        conversion_goal: activeMode?.conversionGoal ?? "schedule_tours",
+        prequalification_enabled: s.preQualEnabled,
+        conversation_start: s.preQualEnabled ? s.conversationStart : undefined,
+        household_income: s.preQualEnabled ? s.affordableSettings.householdIncome : undefined,
+        household_size: s.preQualEnabled ? s.affordableSettings.householdSize : undefined,
+        vouchers_accepted: s.preQualEnabled ? s.affordableSettings.vouchersAccepted : undefined,
+        prequalification_rules: s.preQualEnabled
+          ? s.preQualRules
+              .map((r) => ({
+                label: r.label,
+                connector: r.connector,
+                conditions: r.conditions.filter((c) => c.value.trim()).map((c) => ({ input: c.input, operator: c.operator, value: c.value })),
+                tour: r.tour,
+                application: r.application,
+                offer_market_rate: r.offerMarketRate,
+              }))
+              .filter((r) => r.conditions.length > 0)
+          : [],
+        prequalification_goals: s.preQualEnabled
+          ? s.preQualGoals.map((g) => ({ result: g.result, tour: g.tour, application: g.application, waitlist: g.waitlist, offer_market_rate: g.offerMarketRate }))
+          : [],
+      }),
+    })
+      .then(() => setBackendStatus("ok"))
+      .catch(() => setBackendStatus("error"))
+  }, [])
+
+  const handleSave = () => {
+    setPristine(state)
+    syncToBackend(state)
+  }
   const handleDiscard = () => setState(pristine)
 
-  // Activation gate is driven by real Simulation runs in the next tab over.
-  const requiredSimulations = state.spanishEnabled ? 2 : 1
-  const activationGate = computeActivationGate({
-    spanishEnabled: state.spanishEnabled,
-    simulationCount,
-    requiredSimulations,
-  })
-
   return (
-    <div className="flex h-full flex-col">
-      {/* Header */}
+    <div className="flex h-full flex-col relative">
       <header className="border-b border-border bg-white px-8 py-5">
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-bold text-foreground">{agentDisplayLabel} Settings</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Configure how {agentDisplayLabel} behaves at <strong>{propertyName}</strong>. Most fields auto-populate from
-              Entrata — review and adjust only what&apos;s specific to this property.
+              Configure how {agentDisplayLabel} guides prospects at <strong>{propertyName}</strong>.
+              Set the conversation mode and optional pre-qualification flow for this property.
             </p>
           </div>
           <Badge variant="gray" className="shrink-0">
@@ -283,146 +525,40 @@ export function LeasingAISettingsPanel({
         </div>
       </header>
 
-      {/* Activation status banner */}
-      <ActivationGateBanner status={activationGate} propertyName={propertyName} />
-
-      {/* Body */}
       <div className="flex-1 overflow-y-auto px-8 pb-32 pt-6">
         <div className="mx-auto max-w-3xl space-y-8">
-          <SectionAgentGoal state={state} update={update} />
-
-          <SectionAgentIdentity state={state} update={update} agentDisplayLabel={agentDisplayLabel} />
-
-          <SectionConversationMode
-            state={state}
-            update={update}
-            modes={modes}
-            assignedMode={assignedMode}
-            showAdvanced={showAdvancedMode}
-            onToggleAdvanced={() => setShowAdvancedMode((v) => !v)}
-            onOpenManageModes={() => setManageModesOpen(true)}
-          />
-
-          <SectionLanguages
-            state={state}
-            update={update}
-            needsSpanishTest={simulationCount < requiredSimulations}
-          />
-
-          <SectionSellingPoints state={state} update={update} derived={derived} />
-
-          <SectionOutreach state={state} update={update} />
-
-          <SectionCompliance state={state} update={update} derived={derived} />
-
-          <SectionTestBeforeLaunch
-            spanishEnabled={state.spanishEnabled}
-            simulationCount={simulationCount}
-            requiredSimulations={requiredSimulations}
-            onOpenSimulation={onOpenSimulation}
-          />
-
-          <p className="pt-4 text-center text-xs text-muted-foreground">
-            Source of record:{" "}
-            <span className="font-mono">leasing-ai-prd-2026-04-29.md §6.3, §6.6, §6.8</span>
-          </p>
+          <GroupHeading label="Leasing AI Settings" />
+          <SectionConversationMode state={state} update={update} appModeEligible={appModeEligible} />
+          <SectionPreQualification state={state} update={update} setState={setState} />
         </div>
       </div>
 
-      {/* Sticky footer */}
-      <FooterActionBar dirty={dirty} onSave={handleSave} onDiscard={handleDiscard} />
-
-      {/* Manage Custom Modes dialog (company-level) */}
-      <ManageCustomModesDialog
-        open={manageModesOpen}
-        onOpenChange={setManageModesOpen}
-        modes={modes}
-        onModesChange={setModes}
-      />
+      <FooterActionBar dirty={dirty} onSave={handleSave} onDiscard={handleDiscard} backendStatus={backendStatus} />
     </div>
   )
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   Activation gate logic
+   Group heading
    ══════════════════════════════════════════════════════════════════════════ */
 
-type GateStatus =
-  | { kind: "ready"; reasons: string[] }
-  | { kind: "needs_test"; reasons: string[] }
-
-function computeActivationGate(args: {
-  spanishEnabled: boolean
-  simulationCount: number
-  requiredSimulations: number
-}): GateStatus {
-  const { spanishEnabled, simulationCount, requiredSimulations } = args
-  if (simulationCount >= requiredSimulations) return { kind: "ready", reasons: [] }
-  const remaining = requiredSimulations - simulationCount
-  const reasons: string[] = []
-  if (spanishEnabled) {
-    reasons.push(
-      `Run ${remaining} more test conversation${remaining === 1 ? "" : "s"} (one in English, one in Spanish)`,
-    )
-  } else {
-    reasons.push("Run at least one test conversation in the Simulation tab")
-  }
-  return { kind: "needs_test", reasons }
-}
-
-function ActivationGateBanner({
-  status,
-  propertyName,
-}: {
-  status: GateStatus
-  propertyName: string
-}) {
-  if (status.kind === "ready") {
-    return (
-      <div className="border-b border-emerald-200 bg-emerald-50 px-8 py-3">
-        <div className="mx-auto flex max-w-3xl items-center gap-3">
-          <Check className="h-4 w-4 text-emerald-700" />
-          <p className="text-xs text-emerald-900">
-            <strong>Ready to go live.</strong> All required test conversations completed for {propertyName}.
-          </p>
-        </div>
-      </div>
-    )
-  }
+function GroupHeading({ label }: { label: string }) {
   return (
-    <div className="border-b border-amber-200 bg-amber-50 px-8 py-3">
-      <div className="mx-auto flex max-w-3xl items-start gap-3">
-        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
-        <div className="text-xs text-amber-900">
-          <strong>Activation blocked — {status.reasons.length} item{status.reasons.length === 1 ? "" : "s"} pending.</strong>{" "}
-          Before {propertyName} can take real prospect traffic:
-          <ul className="ml-4 mt-1 list-disc space-y-0.5">
-            {status.reasons.map((r) => (
-              <li key={r}>{r}</li>
-            ))}
-          </ul>
-        </div>
-      </div>
+    <div className="flex items-center gap-3 pt-2">
+      <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">{label}</span>
+      <div className="flex-1 border-t border-border" />
     </div>
   )
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   Section primitives
+   Section shell
    ══════════════════════════════════════════════════════════════════════════ */
 
-function SectionShell({
-  icon: Icon,
-  title,
-  description,
-  derivedPill,
-  headerAction,
-  children,
-}: {
+function SectionShell({ icon: Icon, title, description, headerAction, children }: {
   icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>
   title: string
   description: string
-  derivedPill?: string
   headerAction?: React.ReactNode
   children: React.ReactNode
 }) {
@@ -433,14 +569,7 @@ function SectionShell({
           <Icon className="h-4 w-4" aria-hidden />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-            {derivedPill && (
-              <Badge variant="gray" className="text-[10px]">
-                {derivedPill}
-              </Badge>
-            )}
-          </div>
+          <h3 className="text-sm font-semibold text-foreground">{title}</h3>
           <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
         </div>
         {headerAction && <div className="shrink-0 self-center">{headerAction}</div>}
@@ -451,41 +580,52 @@ function SectionShell({
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   Section: Agent goal
+   Conversation Mode
    ══════════════════════════════════════════════════════════════════════════ */
 
-function SectionAgentGoal({
-  state,
-  update,
-}: {
+function SectionConversationMode({ state, update, appModeEligible }: {
   state: PanelState
   update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
+  appModeEligible: boolean
 }) {
   return (
     <SectionShell
-      icon={Target}
-      title="Agent goal"
-      description="The primary action the agent drives prospects toward at this property."
+      icon={MessageSquare}
+      title="Conversation Mode"
+      description="Choose how the agent prioritizes and converts prospects at this property."
     >
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        {GOAL_OPTIONS.map((opt) => {
-          const active = state.agentGoal === opt.value
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {CONVERSATION_MODES.map((m) => {
+          const active = state.conversationMode === m.id
+          const blocked = m.requiresConventionalNoAffordable && !appModeEligible
           return (
             <button
-              key={opt.value}
+              key={m.id}
               type="button"
-              onClick={() => update("agentGoal", opt.value)}
+              disabled={blocked}
+              onClick={() => !blocked && update("conversationMode", m.id)}
               className={cn(
-                "rounded-lg border px-4 py-3 text-left text-xs transition-all",
-                active
-                  ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
-                  : "border-border bg-white text-foreground hover:border-zinc-400",
+                "rounded-lg border px-4 py-4 text-left text-xs transition-all",
+                blocked
+                  ? "cursor-not-allowed border-dashed border-border bg-zinc-50 opacity-60"
+                  : active
+                    ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+                    : "border-border bg-white text-foreground hover:border-zinc-400",
               )}
             >
-              <div className="font-semibold">{opt.label}</div>
-              <div className={cn("mt-0.5 text-[11px] leading-snug", active ? "text-white/70" : "text-muted-foreground")}>
-                {opt.helper}
+              <div className="flex items-center gap-1.5">
+                <span className="font-semibold leading-snug">{m.name}</span>
+                {m.id === "maximize-tour" && <Badge variant="gray" className="text-[9px]">Default</Badge>}
               </div>
+              <div className={cn("mt-1.5 text-[11px] leading-snug", active ? "text-white/75" : "text-muted-foreground")}>
+                {m.description}
+              </div>
+              {blocked && (
+                <div className="mt-2 flex items-start gap-1 text-[10px] font-medium text-amber-700">
+                  <Lock className="mt-0.5 h-3 w-3 shrink-0" />
+                  Conventional, non-affordable only
+                </div>
+              )}
             </button>
           )
         })}
@@ -495,842 +635,615 @@ function SectionAgentGoal({
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   Section: Agent identity
+   Pre-qualification
    ══════════════════════════════════════════════════════════════════════════ */
 
-function SectionAgentIdentity({
-  state,
-  update,
-  agentDisplayLabel,
-}: {
+function SectionPreQualification({ state, update, setState }: {
   state: PanelState
   update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
-  agentDisplayLabel: string
+  setState: React.Dispatch<React.SetStateAction<PanelState>>
 }) {
-  return (
-    <SectionShell
-      icon={Bot}
-      title="Agent identity"
-      description="Brand the agent and set its tone. The agent always acknowledges it's AI when asked."
-    >
-      <div className="space-y-5">
-        <div>
-          <label className="text-xs font-medium text-foreground">Display name</label>
-          <Input
-            value={state.agentDisplayName}
-            onChange={(e) => update("agentDisplayName", e.target.value)}
-            placeholder="your leasing assistant"
-            maxLength={40}
-            className="mt-1.5"
-          />
-          <p className="mt-1.5 text-[11px] text-muted-foreground">
-            What the agent calls itself. Leave blank for the generic{" "}
-            <em>your leasing assistant</em>. Companies in unified mode see this set at the company level.
-          </p>
-        </div>
+  // ── Add-rule form state ──
+  const [newConnector, setNewConnector] = useState<PreQualConnector>("and")
+  const [newConditions, setNewConditions] = useState<PreQualCondition[]>(() => [makeCondition()])
+  const [newTour, setNewTour] = useState<TourGoal>("none")
+  const [newApp, setNewApp] = useState<ApplicationGoal>("none")
+  const [newMarketRate, setNewMarketRate] = useState(false)
 
-        <div>
-          <label className="text-xs font-medium text-foreground">Tone</label>
-          <div className="mt-1.5 grid grid-cols-2 gap-2">
-            {TONE_OPTIONS.map((t) => {
-              const active = state.agentPersonaTone === t.value
-              return (
-                <button
-                  key={t.value}
-                  type="button"
-                  onClick={() => update("agentPersonaTone", t.value)}
-                  className={cn(
-                    "rounded-lg border px-3 py-3 text-left text-xs transition-all",
-                    active
-                      ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
-                      : "border-border bg-white text-foreground hover:border-zinc-400",
-                  )}
-                >
-                  <div className="font-semibold">{t.label}</div>
-                  <div className={cn("mt-0.5 text-[11px] leading-snug", active ? "text-white/80" : "text-muted-foreground")}>
-                    {t.helper}
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-        </div>
+  const addDraftCondition = () => setNewConditions((cs) => [...cs, makeCondition()])
+  const removeDraftCondition = (id: string) =>
+    setNewConditions((cs) => (cs.length > 1 ? cs.filter((c) => c.id !== id) : cs))
+  const patchDraftCondition = (id: string, patch: Partial<PreQualCondition>) =>
+    setNewConditions((cs) => cs.map((c) => (c.id === id ? { ...c, ...patch } : c)))
 
-        <div className="rounded-lg border border-zinc-200 bg-zinc-50/60 px-3 py-2.5">
-          <p className="text-[11px] leading-relaxed text-zinc-700">
-            <Info className="mr-1 inline h-3 w-3" /> The agent&apos;s compliance, workflow, and Fair-Housing rules
-            are locked. Tone affects phrasing, not behavior. Custom names never let the agent impersonate a human —
-            asking <em>&ldquo;are you a bot?&rdquo;</em> always triggers an honest disclosure.
-          </p>
-        </div>
-      </div>
-    </SectionShell>
-  )
-}
+  const draftValid = newConditions.some((c) => c.value.trim())
 
-/* ══════════════════════════════════════════════════════════════════════════
-   Section: Conversation mode (Custom Mode assignment + optional overrides)
-   ══════════════════════════════════════════════════════════════════════════ */
-
-function SectionConversationMode({
-  state,
-  update,
-  modes,
-  assignedMode,
-  showAdvanced,
-  onToggleAdvanced,
-  onOpenManageModes,
-}: {
-  state: PanelState
-  update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
-  modes: CustomMode[]
-  assignedMode: CustomMode
-  showAdvanced: boolean
-  onToggleAdvanced: () => void
-  onOpenManageModes: () => void
-}) {
-  const overrides = state.modeOverrides
-  const hasOverrides = Object.keys(overrides).length > 0
-
-  const effective = {
-    discovery: overrides.discovery ?? assignedMode.discovery,
-    screening: overrides.screening ?? assignedMode.screening,
-    customization: overrides.customization ?? assignedMode.customization,
-    conversionGoal: overrides.conversionGoal ?? assignedMode.conversionGoal,
+  const addRule = () => {
+    if (!draftValid) return
+    const filledConditions = newConditions.filter((c) => c.value.trim())
+    const autoLabel = filledConditions[0]?.input || ""
+    update("preQualRules", [
+      ...state.preQualRules,
+      { id: `r-${Date.now()}`, label: autoLabel, connector: newConnector, conditions: filledConditions, tour: newTour, application: newApp, offerMarketRate: newMarketRate },
+    ])
+    setNewConnector("and"); setNewConditions([makeCondition()]); setNewTour("none"); setNewApp("none"); setNewMarketRate(false)
   }
 
+  const removeRule = (id: string) => update("preQualRules", state.preQualRules.filter((r) => r.id !== id))
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
+  const patchRule = (id: string, patch: Partial<PreQualRule>) =>
+    update("preQualRules", state.preQualRules.map((r) => (r.id === id ? { ...r, ...patch } : r)))
+
+  // ── Post-qualification goals helpers ──
+  const goalFor = (result: PreQualResult): PreQualGoal =>
+    state.preQualGoals.find((g) => g.result === result) ?? { result, tour: "none", application: "none", waitlist: "none", offerMarketRate: false }
+
+  const setGoalField = (result: PreQualResult, patch: Partial<PreQualGoal>) => {
+    const exists = state.preQualGoals.some((g) => g.result === result)
+    const next = exists
+      ? state.preQualGoals.map((g) => (g.result === result ? { ...g, ...patch } : g))
+      : [...state.preQualGoals, { ...goalFor(result), ...patch }]
+    update("preQualGoals", next)
+  }
+
+  // ── Affordable settings shorthand ──
+  const aff = state.affordableSettings
+  const setAff = (patch: Partial<AffordableSettings>) =>
+    setState((s) => ({ ...s, affordableSettings: { ...s.affordableSettings, ...patch } }))
+
   return (
     <SectionShell
-      icon={MessageSquare}
-      title="Conversation mode"
-      description="Mode bundles four behaviors — discovery depth, screening rigor, tone emphasis, conversion goal."
+      icon={ListChecks}
+      title="Pre-qualification"
+      description="When enabled, the AI prequalifies leads against the building's units by asking for household size, income, and other configured qualifications before proceeding."
       headerAction={
-        <Button variant="outline" size="sm" onClick={onOpenManageModes}>
-          <Pencil className="mr-1.5 h-3.5 w-3.5" />
-          Manage modes
-        </Button>
+        <label className="flex cursor-pointer items-center gap-2">
+          <span className="text-[11px] font-medium text-muted-foreground">
+            {state.preQualEnabled ? "On" : "Off"}
+          </span>
+          <Checkbox
+            checked={state.preQualEnabled}
+            onCheckedChange={(v) => update("preQualEnabled", v === true)}
+          />
+        </label>
       }
     >
-      <div className="space-y-5">
-        {/* Mode picker */}
-        <div>
-          <label className="text-xs font-medium text-foreground">Assigned Custom Mode</label>
-          <Select value={state.customModeId} onValueChange={(v) => update("customModeId", v)}>
-            <SelectTrigger className="mt-1.5">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {modes.map((m) => (
-                <SelectItem key={m.id} value={m.id}>
-                  <div className="flex items-center gap-2">
-                    <span>{m.name}</span>
-                    {m.isSeed && (
-                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Default</span>
-                    )}
-                  </div>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="mt-1.5 text-[11px] text-muted-foreground">{assignedMode.description}</p>
-        </div>
-
-        {/* Effective behavior summary */}
-        <div className="grid grid-cols-2 gap-2 rounded-lg border border-border bg-zinc-50/40 p-3 lg:grid-cols-4">
-          <DimensionPill label="Discovery" value={labelFor(DISCOVERY_OPTIONS, effective.discovery)}
-            overridden={overrides.discovery !== undefined} />
-          <DimensionPill label="Screening" value={labelFor(SCREENING_OPTIONS, effective.screening)}
-            overridden={overrides.screening !== undefined} />
-          <DimensionPill label="Tone emphasis" value={labelFor(CUSTOMIZATION_OPTIONS, effective.customization)}
-            overridden={overrides.customization !== undefined} />
-          <DimensionPill label="Goal" value={labelFor(GOAL_OPTIONS, effective.conversionGoal)}
-            overridden={overrides.conversionGoal !== undefined} />
-        </div>
-
-        {/* Override toggle */}
-        <div className="flex items-center justify-between border-t border-border pt-4">
-          <div>
-            <p className="text-xs font-medium text-foreground">
-              Property-level override
-              {hasOverrides && (
-                <Badge variant="yellow" className="ml-2 text-[10px]">
-                  {Object.keys(overrides).length} active
-                </Badge>
-              )}
-            </p>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">
-              Rarely needed. Override one or more dimensions just for this property.
-            </p>
-          </div>
-          <Button variant="ghost" size="sm" onClick={onToggleAdvanced}>
-            {showAdvanced ? "Hide" : "Show"}
-          </Button>
-        </div>
-
-        {showAdvanced && (
-          <div className="grid gap-3 rounded-lg border border-dashed border-border bg-zinc-50/40 p-3 md:grid-cols-2">
-            <OverrideSelect
-              label="Discovery"
-              options={DISCOVERY_OPTIONS}
-              modeValue={assignedMode.discovery}
-              overrideValue={overrides.discovery}
-              onChange={(v) => update("modeOverrides", { ...overrides, discovery: v })}
-              onClear={() => {
-                const next = { ...overrides }
-                delete next.discovery
-                update("modeOverrides", next)
-              }}
-            />
-            <OverrideSelect
-              label="Screening"
-              options={SCREENING_OPTIONS}
-              modeValue={assignedMode.screening}
-              overrideValue={overrides.screening}
-              onChange={(v) => update("modeOverrides", { ...overrides, screening: v })}
-              onClear={() => {
-                const next = { ...overrides }
-                delete next.screening
-                update("modeOverrides", next)
-              }}
-            />
-            <OverrideSelect
-              label="Tone emphasis"
-              options={CUSTOMIZATION_OPTIONS}
-              modeValue={assignedMode.customization}
-              overrideValue={overrides.customization}
-              onChange={(v) => update("modeOverrides", { ...overrides, customization: v })}
-              onClear={() => {
-                const next = { ...overrides }
-                delete next.customization
-                update("modeOverrides", next)
-              }}
-            />
-            <OverrideSelect
-              label="Conversion goal"
-              options={GOAL_OPTIONS}
-              modeValue={assignedMode.conversionGoal}
-              overrideValue={overrides.conversionGoal}
-              onChange={(v) => update("modeOverrides", { ...overrides, conversionGoal: v })}
-              onClear={() => {
-                const next = { ...overrides }
-                delete next.conversionGoal
-                update("modeOverrides", next)
-              }}
-            />
-          </div>
-        )}
-      </div>
-    </SectionShell>
-  )
-}
-
-function labelFor<T extends string>(opts: { value: T; label: string }[], v: T) {
-  return opts.find((o) => o.value === v)?.label ?? v
-}
-
-function DimensionPill({
-  label,
-  value,
-  overridden,
-}: {
-  label: string
-  value: string
-  overridden: boolean
-}) {
-  return (
-    <div
-      className={cn(
-        "rounded-md border bg-white px-2.5 py-2",
-        overridden ? "border-amber-300 bg-amber-50" : "border-border",
-      )}
-    >
-      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div className="mt-0.5 text-xs font-semibold text-foreground">
-        {value}
-        {overridden && <span className="ml-1 text-[10px] text-amber-700">(override)</span>}
-      </div>
-    </div>
-  )
-}
-
-function OverrideSelect<T extends string>({
-  label,
-  options,
-  modeValue,
-  overrideValue,
-  onChange,
-  onClear,
-}: {
-  label: string
-  options: { value: T; label: string; helper: string }[]
-  modeValue: T
-  overrideValue: T | undefined
-  onChange: (v: T) => void
-  onClear: () => void
-}) {
-  const value = overrideValue ?? modeValue
-  return (
-    <div>
-      <div className="flex items-center justify-between">
-        <label className="text-xs font-medium text-foreground">{label}</label>
-        {overrideValue !== undefined && (
-          <button onClick={onClear} className="text-[10px] text-zinc-500 hover:text-zinc-900 underline">
-            reset
-          </button>
-        )}
-      </div>
-      <Select value={value} onValueChange={(v) => onChange(v as T)}>
-        <SelectTrigger className="mt-1">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((o) => (
-            <SelectItem key={o.value} value={o.value}>
-              {o.label}
-              <span className="ml-2 text-[10px] text-muted-foreground">{o.helper}</span>
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  )
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
-   Section: Languages
-   ══════════════════════════════════════════════════════════════════════════ */
-
-function SectionLanguages({
-  state,
-  update,
-  needsSpanishTest,
-}: {
-  state: PanelState
-  update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
-  needsSpanishTest: boolean
-}) {
-  return (
-    <SectionShell
-      icon={Globe}
-      title="Languages"
-      description="Choose which languages the agent speaks. Each enabled language requires its own test conversation before going live."
-    >
-      <div className="space-y-3">
-        <label className="flex items-start gap-3 rounded-lg border border-zinc-200 bg-zinc-50/40 p-3">
-          <Checkbox checked disabled className="mt-0.5" />
-          <div className="flex-1">
-            <p className="text-sm font-medium text-foreground">English</p>
-            <p className="text-[11px] text-muted-foreground">Default language — always enabled.</p>
-          </div>
-          <Lock className="mt-0.5 h-3.5 w-3.5 text-muted-foreground" />
-        </label>
-        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-white p-3 hover:border-zinc-400">
-          <Checkbox
-            checked={state.spanishEnabled}
-            onCheckedChange={(v) => update("spanishEnabled", v === true)}
-            className="mt-0.5"
-          />
-          <div className="flex-1">
-            <p className="text-sm font-medium text-foreground">Español</p>
-            <p className="text-[11px] text-muted-foreground">
-              Bilingual replies, jurisdiction-mandated text authored in Spanish, Latin American TTS for voice.
-            </p>
-          </div>
-        </label>
-
-        {state.spanishEnabled && needsSpanishTest && (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-700" />
-            <p className="text-[11px] text-amber-900">
-              Spanish enabled — you&apos;ll need to run a test conversation in Spanish before this property can go live.
-            </p>
-          </div>
-        )}
-      </div>
-    </SectionShell>
-  )
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
-   Section: Selling points
-   ══════════════════════════════════════════════════════════════════════════ */
-
-function SectionSellingPoints({
-  state,
-  update,
-  derived,
-}: {
-  state: PanelState
-  update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
-  derived: DerivedPropertyData
-}) {
-  const [draft, setDraft] = useState("")
-  const max = 10
-  const charLimit = 200
-  const remaining = max - state.sellingPoints.length
-
-  const addSellingPoint = (text: string) => {
-    const trimmed = text.trim().slice(0, charLimit)
-    if (!trimmed || state.sellingPoints.length >= max) return
-    update("sellingPoints", [...state.sellingPoints, trimmed])
-  }
-
-  const removeAt = (i: number) => {
-    update("sellingPoints", state.sellingPoints.filter((_, idx) => idx !== i))
-  }
-
-  const acceptSuggestion = (text: string) => {
-    if (state.sellingPoints.includes(text) || state.sellingPoints.length >= max) return
-    update("sellingPoints", [...state.sellingPoints, text])
-  }
-
-  return (
-    <SectionShell
-      icon={Lightbulb}
-      title="Selling points"
-      description="Up to 10 short selling points the agent weaves in naturally. Auto-suggested from your amenities — review and refine."
-    >
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <p className="text-xs text-muted-foreground">
-            <strong className="text-foreground">{state.sellingPoints.length}</strong> of {max} added
-            <span className="ml-2 text-[11px]">· {charLimit} char max each</span>
+      {!state.preQualEnabled ? (
+        <div className="flex items-start gap-2 rounded-lg border border-dashed border-border bg-zinc-50/40 px-3 py-3">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <p className="text-[11px] text-muted-foreground">
+            Pre-qualification is off. The agent proceeds straight into the selected conversation mode
+            without qualifying the prospect. Toggle on to configure qualification rules.
           </p>
-          {derived.vertical !== "Affordable" && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                const slots = max - state.sellingPoints.length
-                const next = SUGGESTED_SELLING_POINTS
-                  .filter((s) => !state.sellingPoints.includes(s))
-                  .slice(0, slots)
-                update("sellingPoints", [...state.sellingPoints, ...next])
-              }}
-              disabled={state.sellingPoints.length >= max}
-            >
-              <Sparkles className="mr-1.5 h-3.5 w-3.5" />
-              Auto-fill from amenities
-            </Button>
-          )}
         </div>
+      ) : (
+        <div className="space-y-6">
 
-        {/* Existing points */}
-        {state.sellingPoints.length > 0 && (
-          <ul className="space-y-2">
-            {state.sellingPoints.map((point, i) => (
-              <li
-                key={`${point}-${i}`}
-                className="group flex items-center gap-2 rounded-lg border border-border bg-white px-3 py-2"
-              >
-                <span className="text-[10px] font-mono text-muted-foreground">{i + 1}</span>
-                <Input
-                  value={point}
-                  maxLength={charLimit}
-                  onChange={(e) => {
-                    const next = [...state.sellingPoints]
-                    next[i] = e.target.value
-                    update("sellingPoints", next)
-                  }}
-                  className="flex-1 border-transparent bg-transparent shadow-none focus-visible:border-input focus-visible:bg-white"
-                />
-                <span className="hidden text-[10px] tabular-nums text-muted-foreground group-hover:inline">
-                  {point.length}/{charLimit}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => removeAt(i)}
-                  className="rounded-md p-1 text-muted-foreground hover:bg-zinc-100 hover:text-foreground"
-                  aria-label={`Remove selling point ${i + 1}`}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+          {/* ── Screening setup ── */}
+          <div className="space-y-3">
+            <div>
+              <p className="text-xs font-semibold text-foreground">Screening setup</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                Select which criteria the AI will screen prospects on. Each selected item becomes available as an input when building rules below.
+              </p>
+            </div>
 
-        {/* Add new */}
-        {remaining > 0 && (
-          <div className="flex gap-2">
-            <Input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="Add a selling point — what makes this property worth a tour?"
-              maxLength={charLimit}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  addSellingPoint(draft)
-                  setDraft("")
-                }
-              }}
-              className="flex-1"
-            />
-            <Button
-              onClick={() => {
-                addSellingPoint(draft)
-                setDraft("")
-              }}
-              disabled={!draft.trim()}
-              size="sm"
-            >
-              <Plus className="mr-1 h-3.5 w-3.5" />
-              Add
-            </Button>
-          </div>
-        )}
-
-        {/* Inline suggestions */}
-        {state.sellingPoints.length < max && (
-          <div className="rounded-lg border border-dashed border-border bg-zinc-50/40 p-3">
-            <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-              Suggested from your amenities
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {SUGGESTED_SELLING_POINTS.filter((s) => !state.sellingPoints.includes(s))
-                .slice(0, 4)
-                .map((s) => (
+            {/* Picklist */}
+            <div className="flex flex-wrap gap-2">
+              {AVAILABLE_SCREENING_CRITERIA.map((label) => {
+                const isSelected = state.screeningCriteria.some((sc) => sc.label === label)
+                return (
                   <button
-                    key={s}
+                    key={label}
                     type="button"
-                    onClick={() => acceptSuggestion(s)}
-                    className="rounded-md border border-border bg-white px-2 py-1 text-[11px] text-foreground transition-colors hover:border-zinc-400 hover:bg-zinc-50"
+                    onClick={() => {
+                      if (isSelected) {
+                        update("screeningCriteria", state.screeningCriteria.filter((sc) => sc.label !== label))
+                      } else {
+                        update("screeningCriteria", [...state.screeningCriteria, { id: `sc-${Date.now()}`, label, value: "" }])
+                      }
+                    }}
+                    className={cn(
+                      "rounded-full border px-3 py-1.5 text-xs font-medium transition-all",
+                      isSelected
+                        ? "border-zinc-900 bg-zinc-900 text-white"
+                        : "border-border bg-white text-foreground hover:border-zinc-400",
+                    )}
                   >
-                    <Plus className="mr-1 inline h-3 w-3" />
-                    {s}
+                    {isSelected && <span className="mr-1">✓</span>}
+                    {label}
                   </button>
+                )
+              })}
+            </div>
+
+            {/* Configuration for selected criteria */}
+            {state.screeningCriteria.length > 0 && (
+              <div className="space-y-2 rounded-lg border border-border bg-zinc-50/30 p-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Configure Screening Criteria</p>
+                {state.screeningCriteria.map((sc) => (
+                  <div key={sc.id} className="flex items-center gap-3">
+                    <span className="w-56 shrink-0 text-xs font-medium text-foreground">{sc.label}</span>
+                    <Input
+                      value={sc.value}
+                      onChange={(e) => {
+                        update("screeningCriteria", state.screeningCriteria.map((s) =>
+                          s.id === sc.id ? { ...s, value: e.target.value } : s
+                        ))
+                      }}
+                      placeholder={
+                        YES_NO_INPUTS.has(sc.label) ? "e.g. breed restrictions, weight limits"
+                        : INCOME_INPUTS.has(sc.label) ? "e.g. 3x monthly rent or $4,500"
+                        : "e.g. threshold or requirement"
+                      }
+                      className="h-8 flex-1 text-xs"
+                    />
+                    <button
+                      onClick={() => update("screeningCriteria", state.screeningCriteria.filter((s) => s.id !== sc.id))}
+                      className="text-muted-foreground hover:text-destructive transition-colors"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 ))}
+              </div>
+            )}
+          </div>
+
+          {/* ── Post-qualification actions ── */}
+          <div className="space-y-3 border-t border-border pt-5">
+            <div>
+              <p className="text-xs font-semibold text-foreground">Post-qualification actions</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                Evaluated top to bottom — the first matching rule determines what the agent may offer. The agent
+                collects answers for each input; rules decide the next action deterministically.
+              </p>
+            </div>
+
+            {state.preQualRules.length === 0 ? (
+              <div className="flex items-center justify-center rounded-lg border border-dashed border-border bg-zinc-50/40 py-8">
+                <p className="text-sm text-muted-foreground">No rules yet — add one below.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-lg border border-border">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-zinc-50/60">
+                      <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">#</th>
+                      <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Conditions</th>
+                      <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Tour</th>
+                      <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Application</th>
+                      <th className="px-3 py-2 w-8" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {state.preQualRules.map((r, i) => {
+                      const isEditing = editingRuleId === r.id
+                      return (
+                        <tr key={r.id} className={cn("border-b border-border/50 last:border-0 transition-colors", isEditing ? "bg-blue-50/40" : "hover:bg-zinc-50/40")}>
+                          <td className="px-3 py-2 align-top text-muted-foreground text-xs tabular-nums">{i + 1}</td>
+                          <td className="px-3 py-2 align-top text-muted-foreground">
+                            <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                              {r.conditions.map((c, idx) => (
+                                <React.Fragment key={c.id}>
+                                  {idx > 0 && (
+                                    <span className="rounded bg-zinc-200/70 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-zinc-600">
+                                      {r.connector}
+                                    </span>
+                                  )}
+                                  <span className="whitespace-nowrap">
+                                    <span className="font-medium text-foreground">{c.input}</span>{" "}
+                                    {YES_NO_INPUTS.has(c.input)
+                                      ? <span className="text-foreground">= {PREQUAL_OPERATOR_LABELS[c.operator]}</span>
+                                      : <>{PREQUAL_OPERATOR_LABELS[c.operator]} <span className="text-foreground">&quot;{c.value}&quot;</span></>}
+                                  </span>
+                                </React.Fragment>
+                              ))}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 align-top">
+                            {isEditing ? (
+                              <Select value={r.tour} onValueChange={(v) => patchRule(r.id, { tour: v as TourGoal })}>
+                                <SelectTrigger className="h-7 w-32 text-xs"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {(Object.keys(TOUR_GOAL_LABELS) as TourGoal[]).map((t) => <SelectItem key={t} value={t} className="text-xs">{TOUR_GOAL_LABELS[t]}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <span className="text-xs">{TOUR_GOAL_LABELS[r.tour]}</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 align-top">
+                            {isEditing ? (
+                              <Select value={r.application} onValueChange={(v) => patchRule(r.id, { application: v as ApplicationGoal })}>
+                                <SelectTrigger className="h-7 w-32 text-xs"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {(Object.keys(APP_GOAL_LABELS) as ApplicationGoal[]).map((a) => <SelectItem key={a} value={a} className="text-xs">{APP_GOAL_LABELS[a]}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <span className="text-xs">{APP_GOAL_LABELS[r.application]}</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 align-top">
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => setEditingRuleId(isEditing ? null : r.id)}
+                                className={cn("transition-colors", isEditing ? "text-blue-600 hover:text-blue-800" : "text-muted-foreground hover:text-foreground")}
+                                aria-label={isEditing ? `Done editing rule ${i + 1}` : `Edit rule ${i + 1}`}
+                              >
+                                {isEditing ? <X className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
+                              </button>
+                              <button onClick={() => removeRule(r.id)} className="text-muted-foreground transition-colors hover:text-destructive" aria-label={`Remove rule ${i + 1}`}>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Add rule form */}
+            <div className="rounded-lg border border-dashed border-border p-3 space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Add rule</p>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-foreground">Conditions</label>
+                  {newConditions.length > 1 && (
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] text-muted-foreground">Match</span>
+                      <div className="flex overflow-hidden rounded-md border border-border">
+                        {(["and", "or"] as PreQualConnector[]).map((conn) => (
+                          <button key={conn} type="button" onClick={() => setNewConnector(conn)}
+                            className={cn("px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors",
+                              newConnector === conn ? "bg-zinc-900 text-white" : "bg-white text-muted-foreground hover:bg-zinc-50")}>
+                            {conn === "and" ? "All (AND)" : "Any (OR)"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {newConditions.map((c, idx) => (
+                  <div key={c.id} className="space-y-2">
+                    {idx > 0 && (
+                      <div className="flex items-center">
+                        <span className="rounded bg-zinc-200/70 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-zinc-600">{newConnector}</span>
+                      </div>
+                    )}
+                    <div className="flex items-end gap-2">
+                      <div className="grid flex-1 gap-2 sm:grid-cols-3">
+                        <div className="space-y-1">
+                          {idx === 0 && <label className="text-[10px] font-medium text-muted-foreground">Input</label>}
+                          <Select value={c.input} onValueChange={(v) => patchDraftCondition(c.id, { input: v })}>
+                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>{state.screeningCriteria.map((sc) => <SelectItem key={sc.id} value={sc.label} className="text-xs">{sc.label}</SelectItem>)}</SelectContent>
+                          </Select>
+                        </div>
+                        {YES_NO_INPUTS.has(c.input) ? (
+                          <div className="space-y-1 sm:col-span-2">
+                            {idx === 0 && <label className="text-[10px] font-medium text-muted-foreground">Answer</label>}
+                            <Select value={c.operator} onValueChange={(v) => patchDraftCondition(c.id, { operator: v as PreQualOperator, value: v })}>
+                              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                {operatorsForInput(c.input).map((op) => (
+                                  <SelectItem key={op} value={op} className="text-xs">{PREQUAL_OPERATOR_LABELS[op]}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="space-y-1">
+                              {idx === 0 && <label className="text-[10px] font-medium text-muted-foreground">Operator</label>}
+                              <Select value={c.operator} onValueChange={(v) => patchDraftCondition(c.id, { operator: v as PreQualOperator })}>
+                                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {operatorsForInput(c.input).map((op) => (
+                                    <SelectItem key={op} value={op} className="text-xs">{PREQUAL_OPERATOR_LABELS[op]}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1">
+                              {idx === 0 && <label className="text-[10px] font-medium text-muted-foreground">Value / source</label>}
+                              <Input placeholder="e.g. $68,000" className="h-8 text-xs" value={c.value} onChange={(e) => patchDraftCondition(c.id, { value: e.target.value })} />
+                            </div>
+                          </>
+                        )}
+                      </div>
+                      <button type="button" onClick={() => removeDraftCondition(c.id)} disabled={newConditions.length === 1}
+                        className="mb-1.5 text-muted-foreground transition-colors hover:text-destructive disabled:cursor-not-allowed disabled:opacity-30" aria-label="Remove condition">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={addDraftCondition}>
+                  <Plus className="mr-1 h-3 w-3" />Add condition
+                </Button>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-foreground">Tour</label>
+                  <Select value={newTour} onValueChange={(v) => setNewTour(v as TourGoal)}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {(Object.keys(TOUR_GOAL_LABELS) as TourGoal[]).map((t) => <SelectItem key={t} value={t} className="text-xs">{TOUR_GOAL_LABELS[t]}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-foreground">Application</label>
+                  <Select value={newApp} onValueChange={(v) => setNewApp(v as ApplicationGoal)}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {(Object.keys(APP_GOAL_LABELS) as ApplicationGoal[]).map((a) => <SelectItem key={a} value={a} className="text-xs">{APP_GOAL_LABELS[a]}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <Button size="sm" variant="outline" onClick={addRule} disabled={!draftValid}>
+                <Plus className="mr-1.5 h-3.5 w-3.5" />Add rule
+              </Button>
             </div>
           </div>
-        )}
-      </div>
-    </SectionShell>
-  )
-}
 
-/* ══════════════════════════════════════════════════════════════════════════
-   Section: Outreach timing
-   ══════════════════════════════════════════════════════════════════════════ */
+          {/* ── Affordable flow toggle ── */}
+          <div className="space-y-3 border-t border-border pt-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold text-foreground">Affordable qualification</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  Enable to configure affordable-specific settings: income limits, household size, vouchers, conversation opener, and post-qualification actions.
+                </p>
+              </div>
+              <label className="flex cursor-pointer items-center gap-2">
+                <span className="text-[11px] font-medium text-muted-foreground">
+                  {state.affordableFlowEnabled ? "On" : "Off"}
+                </span>
+                <Checkbox
+                  checked={state.affordableFlowEnabled}
+                  onCheckedChange={(v) => update("affordableFlowEnabled", v === true)}
+                />
+              </label>
+            </div>
 
-function SectionOutreach({
-  state,
-  update,
-}: {
-  state: PanelState
-  update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
-}) {
-  return (
-    <SectionShell
-      icon={Clock}
-      title="Outreach timing"
-      description="When the agent reaches out first, and how it follows up after a tour or abandoned application."
-    >
-      <div className="space-y-5">
-        <div>
-          <label className="text-xs font-medium text-foreground">Cold-lead first-touch</label>
-          <p className="mb-2 text-[11px] text-muted-foreground">
-            If no human or AI has contacted a new lead within this many minutes, the agent reaches out first.
-          </p>
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              min={0}
-              max={120}
-              value={state.coldLeadFirstTouchMinutes}
-              onChange={(e) => update("coldLeadFirstTouchMinutes", Math.max(0, Number(e.target.value) || 0))}
-              className="w-24"
-            />
-            <span className="text-xs text-muted-foreground">minutes after guest card creation</span>
-            {state.coldLeadFirstTouchMinutes !== 5 && (
-              <Badge variant="yellow" className="ml-auto text-[10px]">Override</Badge>
+            {state.affordableFlowEnabled && (
+              <div className="space-y-5 rounded-lg border border-border bg-zinc-50/30 p-4">
+                {/* Eligibility settings */}
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-foreground">Eligibility settings</p>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-foreground">Household income limit</label>
+                      <Input value={aff.householdIncome} onChange={(e) => setAff({ householdIncome: e.target.value })} placeholder="e.g. $68,000 or 60% AMI" className="h-8 text-xs" />
+                      <p className="text-[10px] text-muted-foreground">Max income by household size or AMI band.</p>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-foreground">Household size</label>
+                      <Input value={aff.householdSize} onChange={(e) => setAff({ householdSize: e.target.value })} placeholder="e.g. Max 4 per unit" className="h-8 text-xs" />
+                      <p className="text-[10px] text-muted-foreground">Occupancy limit or household size rule.</p>
+                    </div>
+                    <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-white p-3 hover:border-zinc-400">
+                      <Checkbox checked={aff.vouchersAccepted} onCheckedChange={(v) => setAff({ vouchersAccepted: v === true })} className="mt-0.5" />
+                      <div>
+                        <p className="text-xs font-medium text-foreground">Vouchers accepted</p>
+                        <p className="text-[10px] text-muted-foreground">Voucher holders may bypass income rejection.</p>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Adjustable income margin */}
+                <div className="space-y-2 border-t border-border pt-4">
+                  <p className="text-xs font-medium text-foreground">Adjustable income margin</p>
+                  <p className="text-[10px] text-muted-foreground">Apply a buffer around income thresholds. Borderline prospects are routed to review instead of a hard qualified/unqualified answer.</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-foreground">Qualification margin</label>
+                      <Input value={aff.incomeMargin} onChange={(e) => setAff({ incomeMargin: e.target.value })} placeholder="e.g. 5%" className="h-8 text-xs" />
+                      <p className="text-[10px] text-muted-foreground">Prospects within this margin are treated as borderline.</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Age requirement (optional) */}
+                <div className="space-y-2 border-t border-border pt-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-medium text-foreground">Age requirement</p>
+                      <p className="text-[10px] text-muted-foreground">Enable for age-restricted communities (e.g. senior housing).</p>
+                    </div>
+                    <Checkbox checked={aff.ageRestricted} onCheckedChange={(v) => setAff({ ageRestricted: v === true })} />
+                  </div>
+                  {aff.ageRestricted && (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-foreground">Minimum age</label>
+                        <Input value={aff.minimumAge} onChange={(e) => setAff({ minimumAge: e.target.value })} placeholder="e.g. 62" className="h-8 text-xs" />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-foreground">Question wording</label>
+                        <Input value={aff.ageQuestionWording} onChange={(e) => setAff({ ageQuestionWording: e.target.value })} placeholder="e.g. Does at least one household member meet the 62+ age requirement?" className="h-8 text-xs" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Terminology controls */}
+                <div className="space-y-2 border-t border-border pt-4">
+                  <p className="text-xs font-medium text-foreground">Affordable terminology</p>
+                  <p className="text-[10px] text-muted-foreground">Control the language the AI uses when describing the affordable program. Sensitive branding and regulatory considerations apply.</p>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-foreground">Program display name</label>
+                      <Input value={aff.programDisplayName} onChange={(e) => setAff({ programDisplayName: e.target.value })} placeholder="e.g. Essential Housing" className="h-8 text-xs" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-foreground">Avoid these terms</label>
+                      <Input value={aff.avoidTerms} onChange={(e) => setAff({ avoidTerms: e.target.value })} placeholder="e.g. low-income, subsidized" className="h-8 text-xs" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-foreground">Approved phrase</label>
+                      <Input value={aff.approvedPhrase} onChange={(e) => setAff({ approvedPhrase: e.target.value })} placeholder="e.g. income-restricted apartment homes" className="h-8 text-xs" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Compliance-approved outcome messaging */}
+                <div className="space-y-2 border-t border-border pt-4">
+                  <p className="text-xs font-medium text-foreground">Compliance-approved messaging</p>
+                  <p className="text-[10px] text-muted-foreground">Configure what the AI tells the prospect for each outcome. Avoids free-form language that may create compliance exposure.</p>
+                  <div className="space-y-3">
+                    {(["over_income", "under_income"] as const).map((outcome) => (
+                      <div key={outcome} className="space-y-1">
+                        <label className="text-xs font-medium text-foreground">
+                          {outcome === "over_income" ? "Over-income explanation" : "Under-income explanation"}
+                        </label>
+                        <textarea
+                          value={aff.outcomeMessages[outcome] ?? ""}
+                          onChange={(e) => setAff({ outcomeMessages: { ...aff.outcomeMessages, [outcome]: e.target.value } })}
+                          placeholder="Enter compliance-approved messaging for this outcome..."
+                          className="w-full rounded-md border border-border bg-white px-3 py-2 text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-zinc-400"
+                          rows={3}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Required documentation */}
+                <div className="space-y-2 border-t border-border pt-4">
+                  <p className="text-xs font-medium text-foreground">Required documentation</p>
+                  <p className="text-[10px] text-muted-foreground">Documents the prospect may need for the application or certification. The AI shares this checklist after qualification or when the prospect asks how to apply.</p>
+                  <div className="space-y-2">
+                    {aff.requiredDocuments.map((doc, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <Input
+                          value={doc}
+                          onChange={(e) => {
+                            const next = [...aff.requiredDocuments]
+                            next[i] = e.target.value
+                            setAff({ requiredDocuments: next })
+                          }}
+                          className="h-8 flex-1 text-xs"
+                        />
+                        <button
+                          onClick={() => setAff({ requiredDocuments: aff.requiredDocuments.filter((_, idx) => idx !== i) })}
+                          className="text-muted-foreground hover:text-destructive transition-colors"
+                          aria-label={`Remove document ${i + 1}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                    <Button size="sm" variant="ghost" className="h-7 text-[11px]"
+                      onClick={() => setAff({ requiredDocuments: [...aff.requiredDocuments, ""] })}>
+                      <Plus className="mr-1 h-3 w-3" />Add document
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Conversation flow start */}
+                <div className="space-y-2 border-t border-border pt-4">
+                  <p className="text-xs font-medium text-foreground">Conversation flow start</p>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {([
+                      { id: "affordable_first" as ConversationStart, title: "Start with Affordable Units", desc: "Opens offering affordable units. Falls back to market-rate if unqualified.", icon: Home },
+                      { id: "market_first" as ConversationStart, title: "Start with Market Rate Units", desc: "Opens offering market-rate. Switches to affordable if asked or inventory runs out.", icon: ShieldCheck },
+                    ]).map((opt) => {
+                      const active = state.conversationStart === opt.id
+                      return (
+                        <button key={opt.id} type="button" onClick={() => update("conversationStart", opt.id)}
+                          className={cn("rounded-lg border px-3 py-3 text-left text-xs transition-all",
+                            active ? "border-zinc-900 bg-zinc-900 text-white shadow-sm" : "border-border bg-white text-foreground hover:border-zinc-400")}>
+                          <div className="flex items-center gap-2">
+                            <opt.icon className={cn("h-3.5 w-3.5 shrink-0", active ? "text-white" : "text-muted-foreground")} />
+                            <span className="font-semibold">{opt.title}</span>
+                          </div>
+                          <p className={cn("mt-1 text-[10px] leading-snug", active ? "text-white/75" : "text-muted-foreground")}>{opt.desc}</p>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Post-qualification actions (affordable only) */}
+                <div className="space-y-2 border-t border-border pt-4">
+                  <div>
+                    <p className="text-xs font-medium text-foreground">Post-qualification actions</p>
+                    <p className="mt-0.5 text-[10px] text-muted-foreground">
+                      Configure what the AI may offer for each affordable qualification outcome.
+                    </p>
+                  </div>
+                  <div className="overflow-x-auto rounded-lg border border-border">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border bg-zinc-50/60">
+                          <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Outcome</th>
+                          <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Tour</th>
+                          <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Application</th>
+                          <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Waitlist</th>
+                          <th className="px-3 py-2 text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Market-rate</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(["qualified", "over_income", "under_income"] as PreQualResult[]).map((result) => {
+                          const g = goalFor(result)
+                          return (
+                            <tr key={result} className="border-b border-border/50 last:border-0 hover:bg-zinc-50/40 transition-colors">
+                              <td className="px-3 py-2">
+                                <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap", PREQUAL_RESULT_BADGE[result])}>
+                                  {PREQUAL_RESULT_LABELS[result]}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2">
+                                <Select value={g.tour} onValueChange={(v) => setGoalField(result, { tour: v as TourGoal })}>
+                                  <SelectTrigger className="h-7 w-32 text-xs"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    {(Object.keys(TOUR_GOAL_LABELS) as TourGoal[]).map((t) => <SelectItem key={t} value={t} className="text-xs">{TOUR_GOAL_LABELS[t]}</SelectItem>)}
+                                  </SelectContent>
+                                </Select>
+                              </td>
+                              <td className="px-3 py-2">
+                                <Select value={g.application} onValueChange={(v) => setGoalField(result, { application: v as ApplicationGoal })}>
+                                  <SelectTrigger className="h-7 w-32 text-xs"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    {(Object.keys(APP_GOAL_LABELS) as ApplicationGoal[]).map((a) => <SelectItem key={a} value={a} className="text-xs">{APP_GOAL_LABELS[a]}</SelectItem>)}
+                                  </SelectContent>
+                                </Select>
+                              </td>
+                              <td className="px-3 py-2">
+                                <Select value={g.waitlist ?? "none"} onValueChange={(v) => setGoalField(result, { waitlist: v as TourGoal })}>
+                                  <SelectTrigger className="h-7 w-32 text-xs"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="offer" className="text-xs">Proactively offer</SelectItem>
+                                    <SelectItem value="if_asked" className="text-xs">Only if asked</SelectItem>
+                                    <SelectItem value="none" className="text-xs">Do not offer</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </td>
+                              <td className="px-3 py-2 text-center">
+                                <Checkbox checked={g.offerMarketRate} onCheckedChange={(v) => setGoalField(result, { offerMarketRate: v === true })} />
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
+
         </div>
-
-        <div className="border-t border-border pt-5">
-          <label className="text-xs font-medium text-foreground">Follow-up cadence overrides</label>
-          <p className="mb-3 text-[11px] text-muted-foreground">
-            Default cadence after a tour or abandoned application. Most properties leave these alone.
-          </p>
-          <div className="grid grid-cols-3 gap-3">
-            <CadenceField
-              label="First touch"
-              value={state.followUpCadence.firstHours}
-              unit="hours"
-              defaultValue={24}
-              onChange={(v) =>
-                update("followUpCadence", { ...state.followUpCadence, firstHours: v })
-              }
-            />
-            <CadenceField
-              label="Second touch"
-              value={state.followUpCadence.secondHours}
-              unit="hours"
-              defaultValue={72}
-              onChange={(v) =>
-                update("followUpCadence", { ...state.followUpCadence, secondHours: v })
-              }
-            />
-            <CadenceField
-              label="Third touch"
-              value={state.followUpCadence.thirdDays}
-              unit="days"
-              defaultValue={7}
-              onChange={(v) =>
-                update("followUpCadence", { ...state.followUpCadence, thirdDays: v })
-              }
-            />
-          </div>
-        </div>
-      </div>
-    </SectionShell>
-  )
-}
-
-function CadenceField({
-  label,
-  value,
-  unit,
-  defaultValue,
-  onChange,
-}: {
-  label: string
-  value: number
-  unit: string
-  defaultValue: number
-  onChange: (v: number) => void
-}) {
-  const isOverride = value !== defaultValue
-  return (
-    <div>
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] font-medium text-foreground">{label}</span>
-        {isOverride && (
-          <button onClick={() => onChange(defaultValue)} className="text-[10px] text-zinc-500 underline hover:text-zinc-900">
-            reset
-          </button>
-        )}
-      </div>
-      <div className="mt-1 flex items-center gap-1.5">
-        <Input
-          type="number"
-          min={1}
-          value={value}
-          onChange={(e) => onChange(Math.max(1, Number(e.target.value) || 1))}
-          className={cn("w-full", isOverride && "border-amber-300")}
-        />
-        <span className="text-[11px] text-muted-foreground">{unit}</span>
-      </div>
-      <p className="mt-1 text-[10px] text-muted-foreground">
-        default {defaultValue} {unit}
-      </p>
-    </div>
-  )
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
-   Section: Compliance overlays
-   ══════════════════════════════════════════════════════════════════════════ */
-
-function SectionCompliance({
-  state,
-  update,
-  derived,
-}: {
-  state: PanelState
-  update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
-  derived: DerivedPropertyData
-}) {
-  const detectedJurisdiction = derived.jurisdictionState
-  const detectedRule = derived.jurisdictionRule
-  const effectiveJurisdiction = state.jurisdictionOverride ?? detectedJurisdiction
-
-  const merged = {
-    lihtc: state.affordableOverride.lihtc ?? derived.affordable.lihtc,
-    section8: state.affordableOverride.section8 ?? derived.affordable.section8,
-    mixedIncome: state.affordableOverride.mixedIncome ?? derived.affordable.mixedIncome,
-  }
-
-  return (
-    <SectionShell
-      icon={ShieldCheck}
-      title="Compliance overlays"
-      description="Auto-detected from Entrata core. Override only if our detection is wrong for this property."
-      derivedPill="Auto-populated"
-    >
-      <div className="space-y-5">
-        <div>
-          <label className="text-xs font-medium text-foreground">Jurisdiction (fee disclosure overlay)</label>
-          <div className="mt-1.5 flex items-center gap-2">
-            <Select
-              value={effectiveJurisdiction}
-              onValueChange={(v) =>
-                update("jurisdictionOverride", v === detectedJurisdiction ? null : v)
-              }
-            >
-              <SelectTrigger className="flex-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={detectedJurisdiction}>
-                  {detectedJurisdiction} {detectedRule ? `· ${detectedRule}` : "· no special disclosure"}
-                </SelectItem>
-                <SelectItem value="California">California · AB 2216</SelectItem>
-                <SelectItem value="Colorado">Colorado · HB 23-1095</SelectItem>
-                <SelectItem value="New York">New York · NYC all-in pricing</SelectItem>
-                <SelectItem value="None">None</SelectItem>
-              </SelectContent>
-            </Select>
-            {state.jurisdictionOverride && (
-              <Button variant="ghost" size="sm" onClick={() => update("jurisdictionOverride", null)}>
-                Reset
-              </Button>
-            )}
-          </div>
-          <p className="mt-1.5 text-[11px] text-muted-foreground">
-            Detected from address: <strong>{detectedJurisdiction}</strong>
-            {detectedRule && (
-              <>
-                {" · "}
-                {detectedRule}
-              </>
-            )}
-            {state.jurisdictionOverride && (
-              <Badge variant="yellow" className="ml-2 text-[10px]">
-                Override
-              </Badge>
-            )}
-          </p>
-        </div>
-
-        <div className="border-t border-border pt-5">
-          <label className="text-xs font-medium text-foreground">Affordable program overlays</label>
-          <p className="mb-2 text-[11px] text-muted-foreground">
-            Activates compliance behavior — voucher pre-checks, income-limit awareness, recertification escalation.
-          </p>
-          <div className="space-y-2">
-            <AffordableFlag
-              label="LIHTC"
-              detail="Income limits enforced (max + min)"
-              detected={derived.affordable.lihtc}
-              effective={merged.lihtc}
-              onChange={(v) =>
-                update("affordableOverride", { ...state.affordableOverride, lihtc: v })
-              }
-            />
-            <AffordableFlag
-              label="Section 8 voucher acceptance"
-              detail="Voucher questions trigger guided flow"
-              detected={derived.affordable.section8}
-              effective={merged.section8}
-              onChange={(v) =>
-                update("affordableOverride", { ...state.affordableOverride, section8: v })
-              }
-            />
-            <AffordableFlag
-              label="Mixed-income"
-              detail="Property has both market-rate and affordable units"
-              detected={derived.affordable.mixedIncome}
-              effective={merged.mixedIncome}
-              onChange={(v) =>
-                update("affordableOverride", { ...state.affordableOverride, mixedIncome: v })
-              }
-            />
-          </div>
-        </div>
-      </div>
-    </SectionShell>
-  )
-}
-
-function AffordableFlag({
-  label,
-  detail,
-  detected,
-  effective,
-  onChange,
-}: {
-  label: string
-  detail: string
-  detected: boolean
-  effective: boolean
-  onChange: (v: boolean) => void
-}) {
-  const isOverride = detected !== effective
-  return (
-    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border bg-white px-3 py-2 hover:border-zinc-400">
-      <Checkbox checked={effective} onCheckedChange={(v) => onChange(v === true)} className="mt-0.5" />
-      <div className="flex-1">
-        <p className="text-xs font-medium text-foreground">
-          {label}
-          {detected && (
-            <Badge variant="gray" className="ml-2 text-[9px]">
-              Detected
-            </Badge>
-          )}
-          {isOverride && (
-            <Badge variant="yellow" className="ml-2 text-[9px]">
-              Override
-            </Badge>
-          )}
-        </p>
-        <p className="text-[11px] text-muted-foreground">{detail}</p>
-      </div>
-    </label>
-  )
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
-   Section: Test before going live
-   ══════════════════════════════════════════════════════════════════════════ */
-
-function SectionTestBeforeLaunch({
-  spanishEnabled,
-  simulationCount,
-  requiredSimulations,
-  onOpenSimulation,
-}: {
-  spanishEnabled: boolean
-  simulationCount: number
-  requiredSimulations: number
-  onOpenSimulation?: () => void
-}) {
-  const ready = simulationCount >= requiredSimulations
-
-  return (
-    <SectionShell
-      icon={FlaskConical}
-      title="Test before going live"
-      description="Run real conversations against this property's full configuration. The activation gate blocks until at least one passes."
-    >
-      <div className="rounded-lg border border-border bg-zinc-50/40 px-4 py-3.5">
-        <div className="flex items-start gap-3">
-          <div
-            className={cn(
-              "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
-              ready ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700",
-            )}
-          >
-            {ready ? <Check className="h-4 w-4" /> : <FlaskConical className="h-4 w-4" />}
-          </div>
-          <div className="flex-1">
-            <p className="text-xs font-semibold text-foreground">
-              {Math.min(simulationCount, requiredSimulations)} of {requiredSimulations} test conversation
-              {requiredSimulations === 1 ? "" : "s"} completed
-            </p>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">
-              {spanishEnabled
-                ? "One required in English, one in Spanish — this property has Spanish enabled."
-                : "One required in English."}{" "}
-              Test conversations use real configuration but never send messages or create real records.
-            </p>
-            <Button variant="outline" size="sm" className="mt-3" onClick={onOpenSimulation}>
-              {ready ? "Run another test" : "Open Simulation tab"}
-              <ExternalLink className="ml-1.5 h-3 w-3" />
-            </Button>
-          </div>
-        </div>
-      </div>
+      )}
     </SectionShell>
   )
 }
@@ -1339,317 +1252,27 @@ function SectionTestBeforeLaunch({
    Sticky footer
    ══════════════════════════════════════════════════════════════════════════ */
 
-function FooterActionBar({
-  dirty,
-  onSave,
-  onDiscard,
-}: {
-  dirty: boolean
-  onSave: () => void
-  onDiscard: () => void
-}) {
+function FooterActionBar({ dirty, onSave, onDiscard, backendStatus = "idle" }: { dirty: boolean; onSave: () => void; onDiscard: () => void; backendStatus?: "idle" | "ok" | "error" }) {
   return (
-    <footer
-      className={cn(
-        "absolute inset-x-0 bottom-0 border-t bg-white px-8 py-3 transition-all",
-        dirty ? "border-amber-200 bg-amber-50" : "border-border",
-      )}
-    >
+    <footer className={cn("sticky bottom-0 inset-x-0 border-t bg-white px-8 py-3 transition-all",
+      dirty ? "border-amber-200 bg-amber-50" : "border-border")}>
       <div className="mx-auto flex max-w-3xl items-center justify-between">
-        <div className="text-xs">
-          {dirty ? (
-            <span className="font-medium text-amber-900">
-              <AlertTriangle className="mr-1 inline h-3.5 w-3.5" /> Unsaved changes — won&apos;t take effect until saved.
+        <div className="flex items-center gap-4 text-xs">
+          {dirty
+            ? <span className="font-medium text-amber-900"><AlertTriangle className="mr-1 inline h-3.5 w-3.5" /> Unsaved changes — won&apos;t take effect until saved.</span>
+            : <span className="text-muted-foreground">No pending changes</span>}
+          {backendStatus !== "idle" && (
+            <span className="flex items-center gap-1.5 text-muted-foreground">
+              <span className={`h-2 w-2 rounded-full ${backendStatus === "ok" ? "bg-emerald-400" : "bg-red-400"}`} />
+              {backendStatus === "ok" ? "Chatbot connected" : "Chatbot offline"}
             </span>
-          ) : (
-            <span className="text-muted-foreground">No pending changes</span>
           )}
         </div>
         <div className="flex gap-2">
-          <Button variant="ghost" size="sm" onClick={onDiscard} disabled={!dirty}>
-            Discard
-          </Button>
-          <Button size="sm" onClick={onSave} disabled={!dirty}>
-            Save changes
-          </Button>
+          <Button variant="ghost" size="sm" onClick={onDiscard} disabled={!dirty}>Discard</Button>
+          <Button size="sm" onClick={onSave} disabled={!dirty}>Save changes</Button>
         </div>
       </div>
     </footer>
-  )
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
-   Manage Custom Modes — company-level dialog
-   ══════════════════════════════════════════════════════════════════════════ */
-
-function ManageCustomModesDialog({
-  open,
-  onOpenChange,
-  modes,
-  onModesChange,
-}: {
-  open: boolean
-  onOpenChange: (v: boolean) => void
-  modes: CustomMode[]
-  onModesChange: (m: CustomMode[]) => void
-}) {
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const editing = editingId ? modes.find((m) => m.id === editingId) ?? null : null
-
-  const handleClone = (m: CustomMode) => {
-    const id = `${m.id}-copy-${Date.now()}`
-    const clone: CustomMode = {
-      ...m,
-      id,
-      name: `${m.name} (copy)`,
-      isSeed: false,
-      assignedPropertyCount: 0,
-    }
-    onModesChange([...modes, clone])
-    setEditingId(id)
-  }
-
-  const handleCreate = () => {
-    const id = `mode-${Date.now()}`
-    const created: CustomMode = {
-      id,
-      name: "New Mode",
-      description: "",
-      isSeed: false,
-      discovery: "standard",
-      screening: "standard",
-      customization: "default",
-      conversionGoal: "schedule_tours",
-      assignedPropertyCount: 0,
-    }
-    onModesChange([...modes, created])
-    setEditingId(id)
-  }
-
-  const handleDelete = (id: string) => {
-    onModesChange(modes.filter((m) => m.id !== id))
-    if (editingId === id) setEditingId(null)
-  }
-
-  const handleEditField = <K extends keyof CustomMode>(id: string, key: K, value: CustomMode[K]) => {
-    onModesChange(modes.map((m) => (m.id === id ? { ...m, [key]: value } : m)))
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>Manage Custom Modes</DialogTitle>
-          <DialogDescription>
-            Modes are defined here at the company level and assigned to properties individually. The three default
-            modes can be cloned and customized; they cannot be deleted.
-          </DialogDescription>
-        </DialogHeader>
-
-        {editing ? (
-          /* ─────────────── Edit one mode ─────────────── */
-          <div className="space-y-5">
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setEditingId(null)}
-                className="text-xs text-muted-foreground hover:text-foreground"
-              >
-                ← Back to all modes
-              </button>
-              {editing.isSeed && (
-                <Badge variant="gray" className="text-[10px]">
-                  <Lock className="mr-1 h-3 w-3" />
-                  Default — read-only
-                </Badge>
-              )}
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2">
-              <div>
-                <label className="text-xs font-medium text-foreground">Mode name</label>
-                <Input
-                  value={editing.name}
-                  onChange={(e) => handleEditField(editing.id, "name", e.target.value)}
-                  disabled={editing.isSeed}
-                  className="mt-1"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-foreground">Description</label>
-                <Input
-                  value={editing.description}
-                  onChange={(e) => handleEditField(editing.id, "description", e.target.value)}
-                  disabled={editing.isSeed}
-                  className="mt-1"
-                  placeholder="When should this mode be used?"
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-3 rounded-lg border border-border bg-zinc-50/40 p-3 md:grid-cols-2">
-              <DimensionEditor
-                label="Discovery"
-                helper="How many qualifying questions the agent asks"
-                options={DISCOVERY_OPTIONS}
-                value={editing.discovery}
-                disabled={editing.isSeed}
-                onChange={(v) => handleEditField(editing.id, "discovery", v)}
-              />
-              <DimensionEditor
-                label="Screening"
-                helper="How aggressively to enforce qualification"
-                options={SCREENING_OPTIONS}
-                value={editing.screening}
-                disabled={editing.isSeed}
-                onChange={(v) => handleEditField(editing.id, "screening", v)}
-              />
-              <DimensionEditor
-                label="Tone emphasis"
-                helper="Selling-point emphasis layered on top of agent persona"
-                options={CUSTOMIZATION_OPTIONS}
-                value={editing.customization}
-                disabled={editing.isSeed}
-                onChange={(v) => handleEditField(editing.id, "customization", v)}
-              />
-              <DimensionEditor
-                label="Conversion goal"
-                helper="What the agent optimizes for"
-                options={GOAL_OPTIONS}
-                value={editing.conversionGoal}
-                disabled={editing.isSeed}
-                onChange={(v) => handleEditField(editing.id, "conversionGoal", v)}
-              />
-            </div>
-
-            <div className="text-[11px] text-muted-foreground">
-              Assigned to <strong>{editing.assignedPropertyCount}</strong> propert
-              {editing.assignedPropertyCount === 1 ? "y" : "ies"}.
-              Mode changes take effect on next inbound message at each property.
-            </div>
-
-            <DialogFooter>
-              {editing.isSeed ? (
-                <>
-                  <Button variant="ghost" onClick={() => setEditingId(null)}>
-                    Close
-                  </Button>
-                  <Button onClick={() => handleClone(editing)}>
-                    <Pencil className="mr-1.5 h-3.5 w-3.5" />
-                    Clone & customize
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Button
-                    variant="ghost"
-                    className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                    onClick={() => handleDelete(editing.id)}
-                    disabled={editing.assignedPropertyCount > 0}
-                  >
-                    Delete mode
-                  </Button>
-                  <Button onClick={() => setEditingId(null)}>Done</Button>
-                </>
-              )}
-            </DialogFooter>
-          </div>
-        ) : (
-          /* ─────────────── List all modes ─────────────── */
-          <div className="space-y-3">
-            {modes.map((m) => (
-              <div
-                key={m.id}
-                className="rounded-lg border border-border bg-white p-3 transition-colors hover:border-zinc-400"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <h4 className="text-sm font-semibold text-foreground">{m.name}</h4>
-                      {m.isSeed && (
-                        <Badge variant="gray" className="text-[10px]">
-                          Default
-                        </Badge>
-                      )}
-                    </div>
-                    {m.description && (
-                      <p className="mt-0.5 text-xs text-muted-foreground">{m.description}</p>
-                    )}
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      <ModePillSm label="Discovery" value={labelFor(DISCOVERY_OPTIONS, m.discovery)} />
-                      <ModePillSm label="Screening" value={labelFor(SCREENING_OPTIONS, m.screening)} />
-                      <ModePillSm label="Tone" value={labelFor(CUSTOMIZATION_OPTIONS, m.customization)} />
-                      <ModePillSm label="Goal" value={labelFor(GOAL_OPTIONS, m.conversionGoal)} />
-                    </div>
-                    <p className="mt-2 text-[11px] text-muted-foreground">
-                      Assigned to <strong>{m.assignedPropertyCount}</strong> propert
-                      {m.assignedPropertyCount === 1 ? "y" : "ies"}
-                    </p>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Button variant="outline" size="sm" onClick={() => setEditingId(m.id)}>
-                      <Pencil className="mr-1 h-3 w-3" />
-                      {m.isSeed ? "View" : "Edit"}
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleClone(m)}>
-                      Clone
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ))}
-
-            <Button variant="outline" onClick={handleCreate} className="w-full">
-              <Plus className="mr-1.5 h-4 w-4" />
-              Create new mode
-            </Button>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function DimensionEditor<T extends string>({
-  label,
-  helper,
-  options,
-  value,
-  disabled,
-  onChange,
-}: {
-  label: string
-  helper: string
-  options: { value: T; label: string; helper: string }[]
-  value: T
-  disabled: boolean
-  onChange: (v: T) => void
-}) {
-  return (
-    <div>
-      <label className="text-xs font-medium text-foreground">{label}</label>
-      <p className="text-[10px] text-muted-foreground">{helper}</p>
-      <Select value={value} onValueChange={(v) => onChange(v as T)} disabled={disabled}>
-        <SelectTrigger className="mt-1">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((o) => (
-            <SelectItem key={o.value} value={o.value}>
-              {o.label}
-              <span className="ml-2 text-[10px] text-muted-foreground">{o.helper}</span>
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  )
-}
-
-function ModePillSm({ label, value }: { label: string; value: string }) {
-  return (
-    <span className="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-1.5 py-0.5 text-[10px]">
-      <span className="font-medium uppercase tracking-wider text-muted-foreground">{label}</span>
-      <span className="text-foreground">{value}</span>
-    </span>
   )
 }

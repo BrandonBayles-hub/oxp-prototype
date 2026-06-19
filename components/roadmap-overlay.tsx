@@ -19,7 +19,7 @@ type RoadmapItem = {
 };
 
 const DOMAIN_ROUTES: Record<string, string> = {
-  "Trainings & SOPs": "/trainings-sop",
+  "Trainings & SOPs": "/sops-knowledge",
   "Escalations": "/escalations",
   "Workforce": "/workforce",
   "Communications": "/conversations",
@@ -27,7 +27,7 @@ const DOMAIN_ROUTES: Record<string, string> = {
   "Voice & Brand": "/voice",
   "Agent Roster": "/agent-roster",
   "Governance": "/governance",
-  "SOP Intelligence": "/trainings-sop",
+  "SOP Intelligence": "/sops-knowledge",
   "Command Center": "/command-center",
   "Performance": "/performance",
   "AI & Agent Activation": "/getting-started",

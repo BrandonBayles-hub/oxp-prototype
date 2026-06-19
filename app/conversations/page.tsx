@@ -66,6 +66,7 @@ import {
   UserX,
   Zap,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -358,6 +359,65 @@ const AI_ACTIVATION_OPT_IN_LABELS = new Set([
   "Renewals AI",
   "AI Conversation",
 ]);
+
+/**
+ * Super Agent 1.0 — known ELI+ AI sub-agents. The presence of a "{name} Escalation"
+ * label on the conversation means that specific sub-agent is blocked from responding
+ * (Column 1 of the SA 1.0 schematic — "Blocking Sub Agent"). Sub-agents not listed
+ * here keep responding (Columns 3 & 4 — non-blocking escalations).
+ */
+const SA1_KNOWN_SUB_AGENTS = [
+  "Renewals AI",
+  "Payments AI",
+  "Leasing AI",
+  "Maintenance AI",
+] as const;
+type Sa1SubAgent = (typeof SA1_KNOWN_SUB_AGENTS)[number];
+
+/**
+ * Super Agent 1.0 — blocking super-agent escalation label (Column 2 of the schematic).
+ * When present, EVERY AI agent is paused until staff resolves it via the Resolve picker.
+ */
+const SA1_SUPER_AGENT_BLOCK_LABEL = "Super Agent Escalation";
+
+/**
+ * Super Agent 1.0 — profile-level "never reply with AI" mark. This represents a resident
+ * profile setting (in the prototype it lives as a conversation label) where staff have
+ * decided AI must never auto-reply to this resident on any conversation, indefinitely,
+ * until a human lifts the block. Beats every conversation-scoped state.
+ */
+const SA1_RESIDENT_PROFILE_BLOCK_LABEL = "Profile · No AI";
+
+type Sa1AiStateKind =
+  | "on"
+  | "partial"
+  | "off-all-subs"
+  | "off-super"
+  | "off-manual"
+  | "off-profile";
+type Sa1AiState = {
+  kind: Sa1AiStateKind;
+  hasSuperAgentBlock: boolean;
+  hasResidentProfileBlock: boolean;
+  blockedSubAgents: Sa1SubAgent[];
+};
+
+function computeSa1AiState(c: ConversationItem, manualOn: boolean): Sa1AiState {
+  const hasResidentProfileBlock = c.labels.includes(SA1_RESIDENT_PROFILE_BLOCK_LABEL);
+  const hasSuperAgentBlock = c.labels.includes(SA1_SUPER_AGENT_BLOCK_LABEL);
+  const blockedSubAgents = SA1_KNOWN_SUB_AGENTS.filter((a) =>
+    c.labels.includes(`${a} Escalation`),
+  );
+  let kind: Sa1AiStateKind;
+  if (hasResidentProfileBlock) kind = "off-profile";
+  else if (!manualOn) kind = "off-manual";
+  else if (hasSuperAgentBlock) kind = "off-super";
+  else if (blockedSubAgents.length === SA1_KNOWN_SUB_AGENTS.length)
+    kind = "off-all-subs";
+  else if (blockedSubAgents.length > 0) kind = "partial";
+  else kind = "on";
+  return { kind, hasSuperAgentBlock, hasResidentProfileBlock, blockedSubAgents };
+}
 
 function isLiveAiPropertyInbox(c: ConversationItem, property: string): boolean {
   if (c.property !== property) return false;
@@ -2322,24 +2382,288 @@ function ConversationsContent() {
                     </PopoverContent>
                   </Popover>
 
-                  {selected.labels.some((label) => AI_ACTIVATION_OPT_IN_LABELS.has(label)) && (
+                  {selected.labels.some((label) => AI_ACTIVATION_OPT_IN_LABELS.has(label)) && (() => {
+                    const sa1State = isSuperAgent1DemoThread(selected.id)
+                      ? computeSa1AiState(selected, aiActivated)
+                      : null;
+                    const pillVariant: "on" | "partial" | "off" = sa1State
+                      ? sa1State.kind === "on"
+                        ? "on"
+                        : sa1State.kind === "partial"
+                        ? "partial"
+                        : "off"
+                      : aiActivated
+                      ? "on"
+                      : "off";
+                    const pillLabel = sa1State
+                      ? sa1State.kind === "on"
+                        ? "AI On"
+                        : sa1State.kind === "partial"
+                        ? "AI Partially Off"
+                        : "AI Off"
+                      : aiActivated
+                      ? "AI On"
+                      : "AI Off";
+                    const pillClass =
+                      pillVariant === "on"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300"
+                        : pillVariant === "partial"
+                        ? "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+                        : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300";
+                    return (
                     <Popover>
                       <PopoverTrigger asChild>
                         <button
                           type="button"
                           className={cn(
                             "flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-[11px] font-medium transition-colors",
-                            aiActivated
-                              ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300"
-                              : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300"
+                            pillClass
                           )}
                           title="AI activation & opt-in settings"
                         >
                           <Zap className="h-3.5 w-3.5" />
-                          {aiActivated ? "AI On" : "AI Off"}
+                          {pillLabel}
                         </button>
                       </PopoverTrigger>
-                      <PopoverContent className="w-auto p-3" align="end">
+                      <PopoverContent
+                        className={cn("p-3", sa1State ? "w-[360px]" : "w-auto")}
+                        align="end"
+                      >
+                        {sa1State ? (() => {
+                          const residentLabel = selected.resident || "this resident";
+                          const bannerCopy =
+                            sa1State.kind === "on"
+                              ? "All AI agents will respond on this conversation."
+                              : sa1State.kind === "partial"
+                              ? `${sa1State.blockedSubAgents.join(" and ")} ${sa1State.blockedSubAgents.length === 1 ? "is" : "are"} paused until staff resolves the blocking escalation. Other AI agents continue to respond.`
+                              : sa1State.kind === "off-profile"
+                              ? `${residentLabel}'s profile is marked "no AI" by staff. AI will never reply to this resident on any conversation until the profile block is lifted.`
+                              : sa1State.kind === "off-super"
+                              ? "All AI agents are paused — the resident asked for a human. AI will not reply until staff resolves the super-agent escalation."
+                              : sa1State.kind === "off-all-subs"
+                              ? "Every AI agent is blocked by a sub-agent escalation. AI will not reply until staff resolves at least one."
+                              : "AI has been manually deactivated for this conversation by staff.";
+                          const bannerClass =
+                            sa1State.kind === "on"
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200"
+                              : sa1State.kind === "partial"
+                              ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
+                              : "border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/30 dark:text-red-200";
+                          const allOffByAuto =
+                            sa1State.kind === "off-super" ||
+                            sa1State.kind === "off-all-subs" ||
+                            sa1State.kind === "off-profile";
+                          return (
+                            <div className="space-y-3">
+                              <div className={cn("rounded-md border px-2.5 py-2 text-[11px] leading-snug", bannerClass)}>
+                                {bannerCopy}
+                              </div>
+
+                              <div className="space-y-1.5">
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                  AI Agent status
+                                </p>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  {SA1_KNOWN_SUB_AGENTS.map((agent) => {
+                                    const blocked =
+                                      sa1State.kind === "off-manual" ||
+                                      allOffByAuto ||
+                                      sa1State.blockedSubAgents.includes(agent);
+                                    return (
+                                      <div
+                                        key={agent}
+                                        className={cn(
+                                          "flex items-center justify-between rounded-md border px-2 py-1.5 text-[11px]",
+                                          blocked
+                                            ? "border-red-200 bg-red-50/60 dark:border-red-900/50 dark:bg-red-950/20"
+                                            : "border-emerald-200 bg-emerald-50/60 dark:border-emerald-900/50 dark:bg-emerald-950/20"
+                                        )}
+                                      >
+                                        <span className="font-medium text-foreground">{agent}</span>
+                                        <span
+                                          className={cn(
+                                            "text-[10px] font-bold uppercase tracking-wide",
+                                            blocked
+                                              ? "text-red-700 dark:text-red-300"
+                                              : "text-emerald-700 dark:text-emerald-300"
+                                          )}
+                                        >
+                                          {blocked ? "Off" : "On"}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2 border-t border-border pt-2">
+                                <span className="text-xs font-medium text-foreground whitespace-nowrap">
+                                  AI Activated
+                                </span>
+                                <Select
+                                  value={sa1State.hasResidentProfileBlock ? "off-profile" : "active"}
+                                  onValueChange={(v) => {
+                                    const next = v as "active" | "off-profile";
+                                    const wasProfileBlocked = sa1State.hasResidentProfileBlock;
+
+                                    if (next === "off-profile") {
+                                      if (!wasProfileBlocked) {
+                                        addLabel(
+                                          selected.id,
+                                          SA1_RESIDENT_PROFILE_BLOCK_LABEL,
+                                          "ELI+ Super Agent",
+                                        );
+                                      }
+                                      toast.info(`${residentLabel}'s profile marked "no AI"`, {
+                                        description:
+                                          "AI will never reply to this resident on any conversation until staff lifts the block.",
+                                      });
+                                    } else {
+                                      if (wasProfileBlocked) {
+                                        removeLabel(selected.id, SA1_RESIDENT_PROFILE_BLOCK_LABEL);
+                                        toast.success("Profile AI block cleared", {
+                                          description: "AI agents can resume responding to this resident.",
+                                        });
+                                      } else if (
+                                        sa1State.hasSuperAgentBlock ||
+                                        sa1State.blockedSubAgents.length > 0
+                                      ) {
+                                        toast.info("AI activation set on", {
+                                          description:
+                                            "Some agents stay paused until the blocking escalations are resolved.",
+                                        });
+                                      } else {
+                                        toast.success("AI activated for this conversation", {
+                                          description:
+                                            "Replies will be drafted by AI on this thread.",
+                                        });
+                                      }
+                                    }
+                                  }}
+                                >
+                                  <SelectTrigger className="h-7 flex-1 text-[11px]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="active">
+                                      <span className="flex items-center gap-2">
+                                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                                        Active
+                                      </span>
+                                    </SelectItem>
+                                    <SelectItem value="off-profile">
+                                      <span className="flex items-center gap-2">
+                                        <UserX className="h-3.5 w-3.5 text-red-500" />
+                                        Off — profile (indefinite)
+                                      </span>
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              <div className="flex items-center gap-3 border-t border-border pt-2">
+                                <div className="flex items-center gap-2">
+                                  <label className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">Phone</label>
+                                  <Select
+                                    value={phoneOpt}
+                                    onValueChange={(v) => {
+                                      const choice = v as ChannelOptChoice;
+                                      setPhoneOpt(choice);
+                                      recordThreadActivity(selected.id, {
+                                        kind: "channel_opt",
+                                        channel: "phone",
+                                        choice,
+                                        actor: MY_INBOX_ASSIGNEE,
+                                      });
+                                    }}
+                                  >
+                                    <SelectTrigger className="h-7 w-[110px] text-[11px]"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
+                                      <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
+                                      <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <label className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">Email</label>
+                                  <Select
+                                    value={emailOpt}
+                                    onValueChange={(v) => {
+                                      const choice = v as ChannelOptChoice;
+                                      setEmailOpt(choice);
+                                      recordThreadActivity(selected.id, {
+                                        kind: "channel_opt",
+                                        channel: "email",
+                                        choice,
+                                        actor: MY_INBOX_ASSIGNEE,
+                                      });
+                                    }}
+                                  >
+                                    <SelectTrigger className="h-7 w-[110px] text-[11px]"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
+                                      <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
+                                      <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-1.5 border-t border-dashed border-border pt-2">
+                                <Beaker className="h-3 w-3 text-muted-foreground" />
+                                <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
+                                  Demo
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (sa1State.hasSuperAgentBlock) {
+                                      removeLabel(selected.id, SA1_SUPER_AGENT_BLOCK_LABEL);
+                                      toast.success("Super-agent block cleared");
+                                    } else {
+                                      addLabel(selected.id, SA1_SUPER_AGENT_BLOCK_LABEL, "ELI+ Super Agent");
+                                      toast.info("Super-agent block added", {
+                                        description: "All AI agents are now paused for this thread.",
+                                      });
+                                    }
+                                  }}
+                                  className="rounded border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:bg-muted"
+                                >
+                                  {sa1State.hasSuperAgentBlock ? "Clear super-agent block" : "Add super-agent block"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const missing = SA1_KNOWN_SUB_AGENTS.filter(
+                                      (a) => !selected.labels.includes(`${a} Escalation`)
+                                    );
+                                    if (missing.length > 0) {
+                                      for (const a of missing) {
+                                        addLabel(selected.id, `${a} Escalation`, "ELI+ Super Agent");
+                                      }
+                                      toast.info("All sub-agent blocks added", {
+                                        description: "Every known AI sub-agent is now blocked on this thread.",
+                                      });
+                                    } else {
+                                      for (const a of SA1_KNOWN_SUB_AGENTS) {
+                                        removeLabel(selected.id, `${a} Escalation`);
+                                      }
+                                      toast.success("Sub-agent blocks cleared", {
+                                        description: "All known AI sub-agents are back on.",
+                                      });
+                                    }
+                                  }}
+                                  className="rounded border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:bg-muted"
+                                >
+                                  {SA1_KNOWN_SUB_AGENTS.every((a) => selected.labels.includes(`${a} Escalation`))
+                                    ? "Clear all sub-agent blocks"
+                                    : "Block all sub-agents"}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })() : (
                         <div className="space-y-3">
                           <div className="flex items-center gap-2">
                             <Switch
@@ -2476,9 +2800,11 @@ function ConversationsContent() {
                             </div>
                           </div>
                         </div>
+                        )}
                       </PopoverContent>
                     </Popover>
-                  )}
+                    );
+                  })()}
                   {clickToCallEnabled && (
                     <Button
                       type="button"
@@ -3407,50 +3733,59 @@ function ConversationsContent() {
                 </div>
               )}
 
-              {/* Escalation context summary panel for Super Agent 1.0 */}
-              {selected && isSuperAgent1DemoThread(selected.id) && inputMode === "message" && escalationSummaryOpen && (
-                <div className="px-5 pb-2">
-                  <button
-                    type="button"
-                    onClick={() => setEscalationSummaryOpen(false)}
-                    className="flex w-full items-center gap-2 rounded-t-lg border border-b-0 border-blue-200 bg-blue-50/70 px-3 py-2 text-left transition-colors hover:bg-blue-50 dark:border-blue-900/50 dark:bg-blue-950/20 dark:hover:bg-blue-950/30"
-                  >
-                    <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-blue-100 dark:bg-blue-900/50">
-                      <FileText className="h-3 w-3 text-blue-600 dark:text-blue-300" />
+              {/* AI Summary panel for Super Agent 1.0 — overall conversation snapshot + action items */}
+              {selected && isSuperAgent1DemoThread(selected.id) && inputMode === "message" && escalationSummaryOpen && (() => {
+                const escalations = selected.labels.filter((l) => l.includes("Escalation"));
+                const actionMap: Record<string, string> = {
+                  "Renewals AI Escalation":
+                    "Decide on the rate exception for the 12-month renewal offer ($1,850/mo, a 3% increase from $1,795). Resident is asking you to reconsider given 2 years of on-time payments.",
+                  "Payments AI Escalation":
+                    "Decide on the $50 late-fee waiver from the October returned payment (employer payroll delay). Clean 2-year history, one-time event.",
+                };
+                return (
+                  <div className="px-5 pb-2">
+                    <button
+                      type="button"
+                      onClick={() => setEscalationSummaryOpen(false)}
+                      className="flex w-full items-center gap-2 rounded-t-lg border border-b-0 border-blue-200 bg-blue-50/70 px-3 py-2 text-left transition-colors hover:bg-blue-50 dark:border-blue-900/50 dark:bg-blue-950/20 dark:hover:bg-blue-950/30"
+                    >
+                      <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-blue-100 dark:bg-blue-900/50">
+                        <Sparkles className="h-3 w-3 text-blue-600 dark:text-blue-300" />
+                      </div>
+                      <span className="flex-1 text-xs font-semibold text-blue-800 dark:text-blue-200">
+                        AI Summary
+                      </span>
+                      <ChevronDown className="h-4 w-4 text-blue-500" />
+                    </button>
+                    <div className="space-y-3 rounded-b-lg border border-t-0 border-blue-200 bg-white p-3.5 dark:border-blue-900/50 dark:bg-card">
+                      <p className="text-[13px] leading-relaxed text-foreground/80">
+                        <span className="font-semibold text-foreground">{selected.resident}</span>
+                        {selected.unit ? ` (${selected.unit}, ${selected.property})` : ` (${selected.property})`} — a 2-year tenant with on-time payment history — reached out about their upcoming renewal and an October payment issue. The AI handled the routine questions and confirmed a teammate would follow up on the {escalations.length === 1 ? "item" : `${escalations.length} items`} below.
+                      </p>
+                      {escalations.length > 0 && (
+                        <div className="space-y-2 rounded-md border-l-[3px] border-l-orange-400 bg-orange-50/50 px-3 py-2.5 dark:bg-orange-950/10">
+                          <p className="text-[11px] font-bold uppercase tracking-wide text-orange-800 dark:text-orange-200">
+                            Needs your response
+                          </p>
+                          {escalations.map((label) => {
+                            const action = actionMap[label] ?? "Review the conversation and respond on this escalation.";
+                            return (
+                              <div key={label} className="flex gap-2">
+                                <span className="shrink-0 text-[13px] font-semibold text-orange-700 dark:text-orange-300">
+                                  {label.replace(" Escalation", "")}:
+                                </span>
+                                <span className="text-[13px] leading-relaxed text-foreground/80">
+                                  {action}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                    <span className="flex-1 text-xs font-semibold text-blue-800 dark:text-blue-200">
-                      Escalation Context Summary
-                    </span>
-                    <ChevronDown className="h-4 w-4 text-blue-500" />
-                  </button>
-                  <div className="space-y-2 rounded-b-lg border border-t-0 border-blue-200 bg-white p-3 dark:border-blue-900/50 dark:bg-card">
-                    {selected.labels
-                      .filter((l) => l.includes("Escalation"))
-                      .map((label) => {
-                        const summaryMap: Record<string, string> = {
-                          "Renewals AI Escalation": "Resident is requesting a rate exception on their 12-month renewal offer ($1,850/mo, 3% increase). They've been a tenant for 2 years with on-time payment history and feel the increase is higher than expected.",
-                          "Payments AI Escalation": "Resident's October rent payment ($1,795) was returned due to insufficient funds (employer payroll delay). A $50 late fee was applied. Resident is requesting a late fee waiver given their clean 2-year payment history.",
-                        };
-                        const summary = summaryMap[label] ?? "AI escalated this topic for staff review.";
-                        return (
-                          <div
-                            key={label}
-                            className="rounded-md border-l-[3px] border-l-orange-400 bg-orange-50/50 px-3 py-2 dark:bg-orange-950/10"
-                          >
-                            <div className="flex items-center gap-1.5 mb-1">
-                              <span className="text-[11px] font-bold text-orange-800 dark:text-orange-200">
-                                {label.replace(" Escalation", "")}
-                              </span>
-                            </div>
-                            <p className="text-[11px] leading-relaxed text-foreground/80">
-                              {summary}
-                            </p>
-                          </div>
-                        );
-                      })}
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* Private Note modal for Super Agent */}
               {selected && isSuperAgentDemoThread(selected.id) && (

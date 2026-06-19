@@ -33,7 +33,7 @@ import { useTools } from "@/lib/tools-context";
 import { useGovernance } from "@/lib/governance-context";
 import { useAgentCompliance } from "@/lib/use-agent-compliance";
 import { useR1Release } from "@/lib/r1-release-context";
-import { Tag, X, Search, DollarSign, Megaphone, Users, Wrench, ShieldCheck, Power, Activity, AlertCircle, Play, Clock, CheckCircle, CheckCircle2, XCircle, Calendar, Lightbulb, Target, Database, BarChart3, Pencil, Save, ArrowLeft, ArrowRight, Sparkles, BookOpen, Cog, Bot, Box, MessageSquare, Shield, Zap, Eye, EyeOff, Globe, Mail, Phone, Volume2, History, RotateCcw, Lock, ExternalLink, CirclePlay, TrendingUp, TrendingDown, Minus, ArrowUpDown, ChevronDown, ChevronUp, Building2, Layers, Home, Plus, Info } from "lucide-react";
+import { Tag, X, Search, DollarSign, Megaphone, Users, Wrench, ShieldCheck, Power, Activity, AlertCircle, Play, Clock, CheckCircle, CheckCircle2, XCircle, Calendar, Lightbulb, Target, Database, BarChart3, Pencil, Save, ArrowLeft, ArrowRight, Sparkles, BookOpen, Cog, Bot, Box, MessageSquare, Shield, Zap, Eye, EyeOff, Globe, Mail, Phone, Volume2, History, RotateCcw, Lock, ExternalLink, CirclePlay, TrendingUp, TrendingDown, Minus, ArrowUpDown, ChevronDown, ChevronUp, Building2, Layers, Home, Plus, Info, Trash2, Copy } from "lucide-react";
 import {
   useVoice,
   NOVA2_VOICES,
@@ -43,6 +43,7 @@ import {
   type AgentToneId,
   type AgentVoiceTuning,
   type VoiceSettings,
+  type ToneSettings,
 } from "@/lib/voice-context";
 import { Chat, type ChatMessage, type ChatSource, type ChatToolCall } from "@/components/ui/chat";
 
@@ -60,6 +61,8 @@ import { MaintenanceFullPage } from "@/components/eli-plus-setup/pages/Maintenan
 import { RenewalsFullPage } from "@/components/eli-plus-setup/pages/RenewalsFullPage";
 import { LeasingAISettingsPanel } from "@/components/leasing-ai-settings-panel";
 import { MaintenanceAISettingsPanel } from "@/components/maintenance-ai-settings-panel";
+import { RenewalsAISettingsPanel } from "@/components/renewals-ai-settings-panel";
+import { InternalDemoPanel } from "@/components/internal-demo-panel";
 import { LeadToLeaseSettings } from "@/components/lead-to-lease-settings";
 import { L3AgentSheet, getL3AgentConfig } from "@/components/l3-agent-flyout";
 import { ExpertsConfigSheet } from "@/components/entrata-experts-v2/admin/experts-config-sheet";
@@ -96,6 +99,16 @@ const TEMPLATES: { name: string; bucket: (typeof BUCKETS)[number]; type: AgentTy
   { name: "Payments AI", bucket: "Revenue & Financial Management", type: "autonomous" },
   { name: "Custom (from scratch)", bucket: BUCKETS[0], type: "autonomous" },
 ];
+
+// Four ELI+ L4 agents that are always anchored at the top of the roster,
+// just below the L5 "Autonomous Lease Progression" hero. Order is intentional.
+const PINNED_ELI_PLUS_ORDER = [
+  "Maintenance AI",
+  "Payments AI",
+  "Leasing AI",
+  "Renewal AI",
+] as const;
+const PINNED_ELI_PLUS_NAMES = new Set<string>(PINNED_ELI_PLUS_ORDER);
 
 const CHANNEL_OPTIONS = [
   { value: "Chat", icon: MessageSquare },
@@ -261,6 +274,7 @@ function AgentRosterContent() {
   const [selectedBuckets, setSelectedBuckets] = useState<Set<string>>(new Set());
   const [selectedLevels, setSelectedLevels] = useState<Set<string>>(new Set());
   const [selectedStatuses, setSelectedStatuses] = useState<Set<string>>(new Set());
+  const [eliPlusOnly, setEliPlusOnly] = useState(false);
 
   const toggleSetItem = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, value: string) => {
     setter((prev) => {
@@ -274,6 +288,7 @@ function AgentRosterContent() {
   const cardFiltered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return agents.filter((a) => {
+      if (eliPlusOnly && !PINNED_ELI_PLUS_NAMES.has(a.name)) return false;
       if (selectedBuckets.size > 0 && !selectedBuckets.has(a.bucket)) return false;
       if (selectedStatuses.size > 0 && !selectedStatuses.has(a.status)) return false;
       if (selectedLevels.size > 0) {
@@ -286,7 +301,7 @@ function AgentRosterContent() {
       }
       return true;
     });
-  }, [agents, selectedBuckets, selectedStatuses, selectedLevels, search]);
+  }, [agents, eliPlusOnly, selectedBuckets, selectedStatuses, selectedLevels, search]);
 
   const cardSorted = useMemo(() => {
     const arr = [...cardFiltered];
@@ -299,24 +314,33 @@ function AgentRosterContent() {
         return bHasConfig - aHasConfig;
       });
     }
-    return arr;
+
+    // Always anchor the four ELI+ L4 agents at the top, just below the L5 hero
+    const pinnedItems = PINNED_ELI_PLUS_ORDER
+      .map((name) => arr.find((a) => a.name === name))
+      .filter((a): a is (typeof arr)[number] => Boolean(a));
+    const rest = arr.filter((a) => !PINNED_ELI_PLUS_NAMES.has(a.name));
+    return [...pinnedItems, ...rest];
   }, [cardFiltered, cardSortBy]);
 
   const activeFilterPills = useMemo(() => {
     const pills: { label: string; group: string; value: string }[] = [];
+    if (eliPlusOnly) pills.push({ label: "ELI+ Agents", group: "eliPlus", value: "eliPlus" });
     selectedBuckets.forEach((b) => pills.push({ label: b, group: "bucket", value: b }));
     selectedLevels.forEach((l) => pills.push({ label: l, group: "level", value: l }));
     selectedStatuses.forEach((s) => pills.push({ label: s, group: "status", value: s }));
     return pills;
-  }, [selectedBuckets, selectedLevels, selectedStatuses]);
+  }, [eliPlusOnly, selectedBuckets, selectedLevels, selectedStatuses]);
 
   const removeFilterPill = (group: string, value: string) => {
-    if (group === "bucket") toggleSetItem(setSelectedBuckets, value);
+    if (group === "eliPlus") setEliPlusOnly(false);
+    else if (group === "bucket") toggleSetItem(setSelectedBuckets, value);
     else if (group === "level") toggleSetItem(setSelectedLevels, value);
     else if (group === "status") toggleSetItem(setSelectedStatuses, value);
   };
 
   const clearAllFilters = () => {
+    setEliPlusOnly(false);
     setSelectedBuckets(new Set());
     setSelectedLevels(new Set());
     setSelectedStatuses(new Set());
@@ -397,6 +421,15 @@ function AgentRosterContent() {
               <div>
                 <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Subcategory</p>
                 <div className="space-y-1.5">
+                  <label className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-sm text-foreground transition-colors hover:bg-muted/50">
+                    <input
+                      type="checkbox"
+                      checked={eliPlusOnly}
+                      onChange={() => setEliPlusOnly((v) => !v)}
+                      className="h-3.5 w-3.5 rounded border-border accent-[#7c3aed]"
+                    />
+                    <span className="truncate text-[13px] font-semibold text-[#7c3aed]">ELI+ Agents</span>
+                  </label>
                   {BUCKETS.map((b) => (
                     <label key={b} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-sm text-foreground transition-colors hover:bg-muted/50">
                       <input
@@ -554,6 +587,7 @@ function AgentRosterContent() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {cardSorted.filter((a) => a.type !== "fully_autonomous").map((agent) => {
                 const isOffEliPlus = agent.type === "autonomous" && agent.status === "Off";
+                const isPinnedEliPlus = PINNED_ELI_PLUS_NAMES.has(agent.name);
                 const typeInfo = AGENT_TYPES.find((t) => t.value === agent.type);
                 const levelLabel = typeInfo?.label ?? "L1 · ELI Essentials";
                 const levelShort = levelLabel.split("·")[0].trim();
@@ -573,7 +607,9 @@ function AgentRosterContent() {
                     className={`group relative flex flex-col rounded-xl border bg-white p-4 text-left transition-all hover:shadow-md ${
                       selectedId === agent.id
                         ? "border-[#6366f1]/40 shadow-md ring-1 ring-[#6366f1]/20"
-                        : "border-border hover:border-border/80"
+                        : isPinnedEliPlus
+                          ? "border-2 border-[#7c3aed]/40 hover:border-[#7c3aed]/60"
+                          : "border-border hover:border-border/80"
                     }`}
                   >
                     {/* Header: icon + name + video button */}
@@ -3257,7 +3293,7 @@ const ELI_PLUS_SETTINGS_MAP: Record<string, React.ComponentType<FlyoutPageProps>
   "Renewal AI": RenewalsFullPage as React.ComponentType<FlyoutPageProps>,
 };
 
-type SettingItem = { name: string; description: string };
+type SettingItem = { name: string; description: string; link?: string };
 type TabDef = { id: string; label: string; settings: SettingItem[] };
 
 const AGENT_SETTINGS_TABS: Record<string, TabDef[]> = {
@@ -3362,14 +3398,12 @@ const AGENT_SETTINGS_TABS: Record<string, TabDef[]> = {
   "Renewal AI": [
     { id: "property", label: "Property Info", settings: [
       { name: "Primary Address", description: "The property's physical address used in renewal communications." },
-      { name: "Business Hours", description: "Set operating hours for renewal-related support at this property." },
-      { name: "Contact Points", description: "Configure renewal notification triggers — offer generated, accepted, lease approved, etc." },
+      { name: "Contact Points", description: "Renewal AI handles resident communication directly, but you may still want to configure renewal contact points in Entrata for deterministic notifications such as offer generated, accepted, or lease approved emails.", link: "https://DOMAIN.entrata.com/?module=properties_setupxxx&load_large_dialog=/%3Fmodule%3Dproperty_communication_contact_points_renewals_and_lease_modificationsxxx%26property%5Bid%5D%3DPROPERTYID%26" },
       { name: "ELI+ Dashboard Permissions", description: "Permission users who directly manage the ELI+ console for this property." },
     ]},
     { id: "marketing", label: "Marketing", settings: [
       { name: "Prospect Portal", description: "Configure the prospect-facing portal used for this property." },
-      { name: "Property Website", description: "Set the property website URL shared in renewal communications." },
-      { name: "Privacy Policy", description: "Link to the privacy policy displayed during renewal interactions." },
+      { name: "Property Policies", description: "Review and update the property policies displayed to residents during renewal interactions.", link: "https://DOMAIN.entrata.com/?module=properties_setupxxx&load_large_dialog=%3Fmodule%3Dproperty_details_general_policiesxxx%26property%5Bid%5D%3DPROPERTYID%26" },
     ]},
   ],
 };
@@ -3709,499 +3743,71 @@ const AGENT_FLYOUT_PROPERTIES = [
   { id: "broadstone-park", name: "Broadstone Park", vertical: "Conventional", status: "Inactive" as const },
 ];
 
-/* ═══════════════════════════════════════════════════════════════════════
-   Agent History & Logging — conversation logs with trace drill-down
-   ═══════════════════════════════════════════════════════════════════════ */
-
-type TraceStep = {
-  type:
-    | "instruction"
-    | "tool_call"
-    | "knowledge"
-    | "reasoning"
-    | "response"
-    | "mcp_tool"
-    | "http_api"
-    | "prompt_citation";
-  label: string;
-  detail?: string;
-  durationMs: number;
-  status?: "success" | "error" | "warning";
-  /** MCP tool name as registered on the gateway (e.g. entrata.renewals.getLeaseSnapshot). */
-  mcpToolName?: string;
-  /** Full MCP JSON-RPC style request payload (prototype demo). */
-  mcpRequestJson?: string;
-  /** Full MCP JSON-RPC style response payload (prototype demo). */
-  mcpResponseJson?: string;
-  /** HTTP-style trace when the host still calls REST instead of MCP. */
-  httpMethod?: string;
-  httpPath?: string;
-  httpRequestHeaders?: string;
-  httpRequestBody?: string;
-  httpResponseStatus?: number;
-  httpResponseHeaders?: string;
-  httpResponseBody?: string;
-  /** Agent chain-of-thought: how tool outputs + policy led to the visible reply. */
-  thoughtProcess?: string;
-  /** Label for where the excerpt came from (system prompt block, SOP, etc.). */
-  promptSourceLabel?: string;
-  /** Verbatim or near-verbatim excerpt from the agent prompt / policy pack. */
-  promptExcerpt?: string;
-};
-
-type ConversationMessage = {
-  role: "resident" | "agent";
-  text: string;
-  timestamp: string;
-  /** Per-reply trace (L4 conversational agents — one trace per agent message). */
-  trace?: TraceStep[];
-};
-
-type ConversationLog = {
-  id: string;
-  residentName: string;
-  channel: "SMS" | "Chat" | "Email";
-  topic: string;
-  summary: string;
-  outcome: "resolved" | "escalated" | "pending";
-  sentiment: "positive" | "neutral" | "negative";
-  startedAt: string;
-  duration: string;
-  turns: number;
-  messages: ConversationMessage[];
-  /** Whole-conversation trace (legacy). L4 agents use `messages[].trace` per agent reply instead. */
-  trace: TraceStep[];
-  monitors: { label: string; passed: boolean }[];
-};
-
-const L4_AGENTS_PER_REPLY_TRACE = new Set(["Leasing AI", "Payments AI", "Maintenance AI", "Renewal AI"]);
-
-function countLogTraceSteps(log: ConversationLog, agentName: string): number {
-  if (L4_AGENTS_PER_REPLY_TRACE.has(agentName)) {
-    return log.messages.reduce((sum, m) => sum + (m.role === "agent" ? (m.trace?.length ?? 0) : 0), 0);
-  }
-  return log.trace.length;
-}
-
-function TracePayloadBlock({ title, body }: { title: string; body: string }) {
-  return (
-    <div className="mt-2 rounded-md border border-border bg-muted/60">
-      <p className="border-b border-border px-2 py-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
-      <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words p-2 font-mono text-[10px] leading-snug text-foreground">{body}</pre>
-    </div>
-  );
-}
-
-function AgentTraceTimeline({ trace }: { trace: TraceStep[] }) {
-  const totalTraceMs = trace.reduce((sum, s) => sum + s.durationMs, 0);
-  const traceIcon = (type: TraceStep["type"]) => {
-    if (type === "mcp_tool") return <Box className="h-3 w-3" />;
-    if (type === "http_api") return <Globe className="h-3 w-3" />;
-    if (type === "prompt_citation") return <BookOpen className="h-3 w-3" />;
-    if (type === "tool_call") return <Wrench className="h-3 w-3" />;
-    if (type === "knowledge") return <Database className="h-3 w-3" />;
-    if (type === "reasoning") return <Lightbulb className="h-3 w-3" />;
-    if (type === "response") return <MessageSquare className="h-3 w-3" />;
-    return <Cog className="h-3 w-3" />;
-  };
-  const iconRing = (step: TraceStep) => {
-    if (step.type === "mcp_tool") return "bg-sky-50 text-sky-700";
-    if (step.type === "http_api") return "bg-cyan-50 text-cyan-700";
-    if (step.type === "prompt_citation") return "bg-violet-50 text-violet-700";
-    if (step.type === "tool_call") return "bg-blue-50 text-blue-600";
-    if (step.type === "knowledge") return "bg-purple-50 text-purple-600";
-    if (step.type === "reasoning") return "bg-amber-50 text-amber-600";
-    if (step.type === "response") return "bg-emerald-50 text-emerald-600";
-    return "bg-zinc-100 text-zinc-500";
-  };
-  return (
-    <div className="space-y-0">
-      {trace.map((step, i) => (
-        <div key={i} className="flex gap-3 pb-4 last:pb-0">
-          <div className="flex flex-col items-center">
-            <div className={`h-6 w-6 rounded-full flex items-center justify-center shrink-0 ${iconRing(step)}`}>{traceIcon(step.type)}</div>
-            {i < trace.length - 1 && <div className="w-px flex-1 bg-border mt-1" />}
-          </div>
-          <div className="min-w-0 flex-1 pt-0.5">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="text-xs font-medium text-foreground">{step.label}</p>
-              {step.mcpToolName && (
-                <span className="rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 font-mono text-[9px] font-medium text-sky-800">{step.mcpToolName}</span>
-              )}
-              <span className="text-[10px] text-muted-foreground">{step.durationMs}ms</span>
-              {step.status && (
-                <span className="text-[9px] font-medium uppercase text-muted-foreground">{step.status}</span>
-              )}
-            </div>
-            {step.detail && <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">{step.detail}</p>}
-
-            {step.promptSourceLabel && step.promptExcerpt && (
-              <div className="mt-2 rounded-md border border-violet-200 bg-violet-50/50 p-2">
-                <p className="text-[9px] font-semibold uppercase tracking-wider text-violet-800">{step.promptSourceLabel}</p>
-                <blockquote className="mt-1 border-l-2 border-violet-400 pl-2 text-[11px] italic leading-relaxed text-foreground">{step.promptExcerpt}</blockquote>
-              </div>
-            )}
-
-            {step.thoughtProcess && (
-              <div className="mt-2 rounded-md border border-amber-200 bg-amber-50/40 p-2">
-                <p className="text-[9px] font-semibold uppercase tracking-wider text-amber-900">Agent thought process</p>
-                <p className="mt-1 text-[11px] leading-relaxed text-foreground whitespace-pre-wrap">{step.thoughtProcess}</p>
-              </div>
-            )}
-
-            {(step.type === "mcp_tool" || step.mcpRequestJson || step.mcpResponseJson) && (step.mcpRequestJson || step.mcpResponseJson) ? (
-              <div className="mt-1 space-y-2">
-                {step.mcpRequestJson ? <TracePayloadBlock title="MCP request (full)" body={step.mcpRequestJson} /> : null}
-                {step.mcpResponseJson ? <TracePayloadBlock title="MCP response (full)" body={step.mcpResponseJson} /> : null}
-              </div>
-            ) : null}
-
-            {step.type === "http_api" || step.httpMethod || step.httpResponseBody ? (
-              <div className="mt-1 space-y-2">
-                {step.httpMethod && step.httpPath ? (
-                  <p className="mt-1 font-mono text-[10px] text-foreground">
-                    {step.httpMethod} {step.httpPath}
-                    {step.httpResponseStatus != null ? <span className="ml-2 text-muted-foreground">→ {step.httpResponseStatus}</span> : null}
-                  </p>
-                ) : null}
-                {step.httpRequestHeaders ? <TracePayloadBlock title="HTTP request headers" body={step.httpRequestHeaders} /> : null}
-                {step.httpRequestBody ? <TracePayloadBlock title="HTTP request body" body={step.httpRequestBody} /> : null}
-                {step.httpResponseHeaders ? <TracePayloadBlock title="HTTP response headers" body={step.httpResponseHeaders} /> : null}
-                {step.httpResponseBody ? <TracePayloadBlock title="HTTP response body" body={step.httpResponseBody} /> : null}
-              </div>
-            ) : null}
-          </div>
-        </div>
-      ))}
-      <div className="mt-3 flex justify-between border-t border-border pt-3 text-[10px] text-muted-foreground">
-        <span>Total trace time</span>
-        <span className="font-medium text-foreground">{totalTraceMs}ms</span>
-      </div>
-    </div>
-  );
-}
-
-function generateConversationLogs(agentName: string, propertyName: string): ConversationLog[] {
-  if (agentName === "Leasing AI") return [
-    { id: "conv-l1", residentName: "Sarah Mitchell", channel: "Chat", topic: "Tour Scheduling", summary: "Prospect scheduled a Saturday tour for a 2BR unit.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 2:14 PM", duration: "4m 22s", turns: 6,
-      messages: [
-        { role: "resident", text: "Hi! I saw your listing for the 2-bedroom on Apartments.com. Do you have any tours available this weekend?", timestamp: "2:14 PM" },
-        { role: "agent", text: `Welcome to ${propertyName}! We'd love to show you around. We have availability Saturday at 10am, 1pm, and 3pm. Which works best for you?`, timestamp: "2:14 PM",
-          trace: [
-            { type: "prompt_citation", label: "Tour slot grounding", durationMs: 6, promptSourceLabel: "System prompt · Leasing AI (guest card v2.1)", promptExcerpt: "Offer tour times only from entrata.tours.getAvailability. Never invent slots. Chat replies: max 3 short paragraphs, one question at the end." },
-            { type: "mcp_tool", label: "MCP · entrata.tours.getAvailability", mcpToolName: "entrata.tours.getAvailability", durationMs: 128, status: "success", detail: "Weekend 2BR tour slots for this property.", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-ls-101\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.tours.getAvailability\",\n    \"arguments\": { \"propertyId\": \"prop-14th-north\", \"bedrooms\": 2, \"window\": \"THIS_WEEKEND\" }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-ls-101\",\n  \"result\": {\n    \"slots\": [\n      { \"start\": \"2025-05-03T10:00:00-06:00\", \"tourType\": \"GROUP\" },\n      { \"start\": \"2025-05-03T13:00:00-06:00\", \"tourType\": \"GROUP\" },\n      { \"start\": \"2025-05-03T15:00:00-06:00\", \"tourType\": \"GROUP\" }\n    ]\n  }\n}" },
-            { type: "http_api", label: "Legacy REST (shadow) · GET /api/tours/summary", durationMs: 34, status: "success", httpMethod: "GET", httpPath: "/api/v2/properties/prop-14th-north/tours/summary?weekend=1", httpResponseStatus: 200, httpResponseBody: "{ \"cached\": true, \"slotCount\": 3 }" },
-            { type: "reasoning", label: "Wording", durationMs: 52, thoughtProcess: "MCP returned three Saturday slots in local TZ—surface as 10am / 1pm / 3pm. Prospect asked weekend only; no weekday upsell per prompt." },
-            { type: "response", label: "Model · chat reply", durationMs: 86 },
-          ],
-        },
-        { role: "resident", text: "1pm would be perfect! Will I get to see the actual unit?", timestamp: "2:15 PM" },
-        { role: "agent", text: "Great — you're confirmed for Saturday at 1:00 PM! You'll tour a model unit that matches the 2BR/2BA layout. Our leasing agent will meet you at the main office. I'll send a confirmation email with directions.", timestamp: "2:15 PM",
-          trace: [
-            { type: "mcp_tool", label: "MCP · entrata.tours.bookTour", mcpToolName: "entrata.tours.bookTour", durationMs: 156, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-ls-102\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.tours.bookTour\",\n    \"arguments\": {\n      \"propertyId\": \"prop-14th-north\",\n      \"slot\": \"2025-05-03T13:00:00-06:00\",\n      \"prospectEmail\": \"sarah.mitchell@gmail.com\",\n      \"tourType\": \"GROUP\"\n    }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-ls-102\",\n  \"result\": { \"confirmationId\": \"tour-8aa21\", \"unitShown\": \"MODEL_MATCH_2BR2BA\" }\n}" },
-            { type: "mcp_tool", label: "MCP · entrata.comms.sendTransactionalEmail", mcpToolName: "entrata.comms.sendTransactionalEmail", durationMs: 98, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-ls-103\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.comms.sendTransactionalEmail\",\n    \"arguments\": { \"templateId\": \"leasing-tour-confirm\", \"to\": \"sarah.mitchell@gmail.com\", \"mergeFields\": { \"TIME\": \"1:00 PM Saturday\", \"PROPERTY\": \"14th North Parkway\" } }\n  }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"id\": \"mcp-ls-103\", \"result\": { \"queued\": true } }" },
-            { type: "prompt_citation", label: "Model vs actual unit", durationMs: 4, promptSourceLabel: "Leasing AI · tour disclosure", promptExcerpt: "If the booked tour is a model, say so explicitly and name the layout match (e.g. 2BR/2BA); never claim it is the exact listed unit unless inventory tool confirms it." },
-            { type: "reasoning", label: "Copy", durationMs: 44, thoughtProcess: "bookTour returned MODEL_MATCH_2BR2BA—reply must disclose model tour, not actual unit, per disclosure pack." },
-            { type: "response", label: "Model · confirmation", durationMs: 91 },
-          ],
-        },
-        { role: "resident", text: "Awesome, thank you! One more thing — do you allow dogs?", timestamp: "2:16 PM" },
-        { role: "agent", text: "Yes! We're pet-friendly. Dogs are welcome with a $300 refundable deposit and $25/month pet rent. There is a 50 lb weight limit and some breed restrictions. I can email you the full policy if you'd like!", timestamp: "2:16 PM",
-          trace: [
-            { type: "mcp_tool", label: "MCP · entrata.policy.getPetPolicy", mcpToolName: "entrata.policy.getPetPolicy", durationMs: 112, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-ls-104\",\n  \"method\": \"tools/call\",\n  \"params\": { \"name\": \"entrata.policy.getPetPolicy\", \"arguments\": { \"propertyId\": \"prop-14th-north\" } }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-ls-104\",\n  \"result\": {\n    \"dogsAllowed\": true,\n    \"deposit\": 300,\n    \"depositRefundable\": true,\n    \"monthlyPetRent\": 25,\n    \"weightLimitLb\": 50,\n    \"breedRestrictions\": [\"AGGRESSIVE_BREED_LIST_V3\"]\n  }\n}" },
-            { type: "reasoning", label: "Numbers in reply", durationMs: 38, thoughtProcess: "All dollar amounts and limits come straight from MCP JSON; offer full policy PDF via email to avoid SMS-length breed list." },
-            { type: "response", label: "Model · pet policy", durationMs: 74 },
-          ],
-        },
-      ],
-      trace: [],
-      monitors: [{ label: "Coherent response", passed: true }, { label: "Factually grounded", passed: true }, { label: "Positive sentiment", passed: true }, { label: "No repetition", passed: true }],
-    },
-    { id: "conv-l2", residentName: "David Park", channel: "SMS", topic: "Pricing Inquiry", summary: "Prospect asked about 1BR pricing. Sent floor plans. No tour scheduled yet.", outcome: "pending", sentiment: "neutral", startedAt: "Today, 11:43 AM", duration: "2m 10s", turns: 4,
-      messages: [
-        { role: "resident", text: "Hey, what's the price for a 1 bedroom?", timestamp: "11:43 AM" },
-        { role: "agent", text: `Thanks for reaching out about ${propertyName}! Our 1BR units start at $1,350/mo for the standard layout and $1,475/mo for the upgraded finish package. We're currently offering $500 off the first month. Want me to send you floor plans?`, timestamp: "11:43 AM",
-          trace: [
-            { type: "mcp_tool", label: "MCP · entrata.pricing.getUnitBands", mcpToolName: "entrata.pricing.getUnitBands", durationMs: 142, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-ls-201\",\n  \"method\": \"tools/call\",\n  \"params\": { \"name\": \"entrata.pricing.getUnitBands\", \"arguments\": { \"propertyId\": \"prop-rails-main\", \"bedrooms\": 1 } }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"standardFrom\": 1350, \"upgradedFrom\": 1475, \"currency\": \"USD\" } }" },
-            { type: "mcp_tool", label: "MCP · entrata.specials.getActive", mcpToolName: "entrata.specials.getActive", durationMs: 101, status: "success", mcpRequestJson: "{}", mcpResponseJson: "{ \"result\": { \"concessions\": [ { \"type\": \"FIRST_MONTH\", \"amount\": 500 } ] } }" },
-            { type: "reasoning", label: "SMS brevity", durationMs: 36, thoughtProcess: "Two price anchors + one special; end with single yes/no question for SMS length." },
-            { type: "response", label: "Model · pricing SMS", durationMs: 88 },
-          ],
-        },
-        { role: "resident", text: "Yeah send them over", timestamp: "11:44 AM" },
-        { role: "agent", text: "Done! I just sent the 1BR floor plans and pricing to your email. Let me know when you'd like to schedule a tour — we have availability all week!", timestamp: "11:44 AM",
-          trace: [
-            { type: "mcp_tool", label: "MCP · entrata.comms.sendFloorPlans", mcpToolName: "entrata.comms.sendFloorPlans", durationMs: 128, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-ls-202\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.comms.sendFloorPlans\",\n    \"arguments\": { \"prospectPhone\": \"+15551234567\", \"layout\": \"1BR\", \"propertyId\": \"prop-rails-main\" }\n  }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"sent\": true, \"messageId\": \"msg-sms-901\" } }" },
-            { type: "http_api", label: "Legacy · POST /api/marketing/attach-pdf", durationMs: 41, status: "success", httpMethod: "POST", httpPath: "/api/marketing/attach-pdf", httpResponseStatus: 200, httpResponseBody: "{ \"bytes\": 842102 }" },
-            { type: "response", label: "Model · follow-up CTA", durationMs: 72 },
-          ],
-        },
-      ],
-      trace: [],
-      monitors: [{ label: "Coherent response", passed: true }, { label: "Factually grounded", passed: true }, { label: "Positive sentiment", passed: true }, { label: "No repetition", passed: true }],
-    },
-    { id: "conv-l3", residentName: "Maria Gonzalez", channel: "Chat", topic: "Application Questions", summary: "Prospect had questions about income requirements. Escalated to leasing manager due to Section 8 voucher.", outcome: "escalated", sentiment: "neutral", startedAt: "Yesterday, 4:30 PM", duration: "6m 15s", turns: 8,
-      messages: [
-        { role: "resident", text: "I want to apply but I have a Section 8 voucher. Do you accept those?", timestamp: "4:30 PM" },
-        { role: "agent", text: `Great question! ${propertyName} does accept Section 8 Housing Choice Vouchers. The process is slightly different from a standard application — let me connect you with our leasing manager who can walk you through the specific requirements and timeline.`, timestamp: "4:31 PM",
-          trace: [
-            { type: "mcp_tool", label: "MCP · entrata.compliance.getSubsidyPolicy", mcpToolName: "entrata.compliance.getSubsidyPolicy", durationMs: 118, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-ls-301\",\n  \"method\": \"tools/call\",\n  \"params\": { \"name\": \"entrata.compliance.getSubsidyPolicy\", \"arguments\": { \"propertyId\": \"prop-ivy-gate\", \"program\": \"HCV\" } }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"hcvAccepted\": true, \"requiresManagerBrief\": true } }" },
-            { type: "prompt_citation", label: "Escalation when voucher", durationMs: 5, promptSourceLabel: "Leasing AI · affordable / voucher SOP", promptExcerpt: "When HCV or project-based voucher is mentioned and property accepts subsidies, do not quote income math in chat—offer manager handoff and log intent." },
-            { type: "reasoning", label: "No DIY income rules", durationMs: 49, thoughtProcess: "MCP says HCV accepted but requiresManagerBrief—reply confirms acceptance and routes to human without improvising income thresholds." },
-            { type: "response", label: "Model · handoff intro", durationMs: 81 },
-          ],
-        },
-        { role: "resident", text: "Okay, how long does that usually take?", timestamp: "4:31 PM" },
-        { role: "agent", text: "The Section 8 approval process typically takes 2-4 weeks after your housing authority completes their inspection. Our leasing manager, Jennifer, will be able to give you a more specific timeline. I'm transferring you now — she'll reach out within the hour.", timestamp: "4:32 PM",
-          trace: [
-            { type: "mcp_tool", label: "MCP · entrata.crm.createEscalation", mcpToolName: "entrata.crm.createEscalation", durationMs: 134, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-ls-302\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.crm.createEscalation\",\n    \"arguments\": {\n      \"propertyId\": \"prop-ivy-gate\",\n      \"assignee\": \"jennifer.torres@example.com\",\n      \"topic\": \"HCV_APPLICATION\",\n      \"slaMinutes\": 60\n    }\n  }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"ticketId\": \"esc-4412\", \"status\": \"OPEN\" } }" },
-            { type: "knowledge", label: "KB · HCV timeline band", durationMs: 62, detail: "Default messaging: 2–4 weeks post HA inspection when property has no custom SLA text." },
-            { type: "reasoning", label: "SLA promise", durationMs: 41, thoughtProcess: "Escalation SLA is 60 minutes from MCP—surface as 'within the hour' to match without overpromising minutes." },
-            { type: "response", label: "Model · timeline + transfer", durationMs: 77 },
-          ],
-        },
-      ],
-      trace: [],
-      monitors: [{ label: "Coherent response", passed: true }, { label: "Factually grounded", passed: true }, { label: "Positive sentiment", passed: true }, { label: "Appropriate escalation", passed: true }],
-    },
-  ];
-
-  if (agentName === "Payments AI") return [
-    { id: "conv-p1", residentName: "James Wilson", channel: "SMS", topic: "Late Rent Follow-Up", summary: "Resident paid after receiving reminder. Payment confirmed.", outcome: "resolved", sentiment: "neutral", startedAt: "Today, 10:08 AM", duration: "3m 45s", turns: 6,
-      messages: [
-        { role: "agent", text: `Hi James, this is a friendly reminder from ${propertyName} that your rent payment of $1,650 was due on the 3rd. Your current balance is $1,650. Would you like a link to make a payment?`, timestamp: "10:08 AM",
-          trace: [
-            { type: "prompt_citation", label: "Payment reminder tone", durationMs: 5, promptSourceLabel: "System prompt · Payments AI", promptExcerpt: "Balances and due dates must come from ledger tools only. Keep reminders neutral—no shaming language. Offer one-tap pay link when channel is SMS." },
-            { type: "mcp_tool", label: "MCP · entrata.ledger.getBalance", mcpToolName: "entrata.ledger.getBalance", durationMs: 154, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-pay-001\",\n  \"method\": \"tools/call\",\n  \"params\": { \"name\": \"entrata.ledger.getBalance\", \"arguments\": { \"residentId\": \"res-james-wilson\", \"asOf\": \"2025-05-04\" } }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"balance\": 1650, \"currency\": \"USD\", \"dueDate\": \"2025-05-03\" } }" },
-            { type: "http_api", label: "Legacy · GET /api/residents/{id}/billing-summary", durationMs: 33, status: "success", httpMethod: "GET", httpPath: "/api/v3/residents/res-james-wilson/billing-summary", httpResponseStatus: 200, httpResponseBody: "{ \"postedRent\": 1650, \"graceUntil\": \"2025-05-05\" }" },
-            { type: "reasoning", label: "Proactive cadence", durationMs: 36, thoughtProcess: "Campaign rules triggered day+1 after due with zero payment applied; balance matches both MCP and REST shadow." },
-            { type: "response", label: "Model · SMS reminder", durationMs: 79 },
-          ],
-        },
-        { role: "resident", text: "Oh shoot, I forgot. Yes please send the link", timestamp: "10:10 AM" },
-        { role: "agent", text: "No worries! Here's your payment link: pay.entrata.com/aspen-heights/jwilson. You can pay by ACH, debit, or credit card. The grace period ends on the 5th, so paying today avoids any late fees.", timestamp: "10:10 AM",
-          trace: [
-            { type: "mcp_tool", label: "MCP · entrata.payments.createHostedPayLink", mcpToolName: "entrata.payments.createHostedPayLink", durationMs: 121, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-pay-002\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.payments.createHostedPayLink\",\n    \"arguments\": { \"residentId\": \"res-james-wilson\", \"amountDue\": 1650, \"channel\": \"SMS\" }\n  }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"url\": \"https://pay.entrata.com/aspen-heights/jwilson\", \"expiresAt\": \"2025-05-05T23:59:59Z\" } }" },
-            { type: "mcp_tool", label: "MCP · entrata.policy.getLateFeeRules", mcpToolName: "entrata.policy.getLateFeeRules", durationMs: 88, status: "success", mcpRequestJson: "{}", mcpResponseJson: "{ \"result\": { \"graceEnd\": \"2025-05-05\", \"feeAfterGrace\": 75 } }" },
-            { type: "reasoning", label: "Grace copy", durationMs: 34, thoughtProcess: "Quote grace end from policy tool; do not invent card network fees." },
-            { type: "response", label: "Model · pay link SMS", durationMs: 71 },
-          ],
-        },
-        { role: "resident", text: "Just paid. Can you confirm you got it?", timestamp: "10:12 AM" },
-        { role: "agent", text: "Payment of $1,650 received and confirmed! Your balance is now $0.00. Thank you, James. Have a great day!", timestamp: "10:12 AM",
-          trace: [
-            { type: "mcp_tool", label: "MCP · entrata.payments.verifySettlement", mcpToolName: "entrata.payments.verifySettlement", durationMs: 198, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-pay-003\",\n  \"method\": \"tools/call\",\n  \"params\": { \"name\": \"entrata.payments.verifySettlement\", \"arguments\": { \"residentId\": \"res-james-wilson\", \"windowMinutes\": 15 } }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"matchedPayment\": { \"amount\": 1650, \"method\": \"ACH\" }, \"newBalance\": 0 } }" },
-            { type: "reasoning", label: "Confirmation safety", durationMs: 28, thoughtProcess: "Only confirm after verifySettlement returns matchedPayment; echo amount and zero balance." },
-            { type: "response", label: "Model · receipt tone", durationMs: 62 },
-          ],
-        },
-      ],
-      trace: [],
-      monitors: [{ label: "Coherent response", passed: true }, { label: "Accurate balance", passed: true }, { label: "Positive sentiment", passed: true }, { label: "No repetition", passed: true }],
-    },
-    { id: "conv-p2", residentName: "Amy Chen", channel: "Chat", topic: "Payment Plan Request", summary: "Resident approved for 2-installment plan. Agreement sent for signature.", outcome: "resolved", sentiment: "positive", startedAt: "Yesterday, 3:22 PM", duration: "5m 30s", turns: 6,
-      messages: [
-        { role: "resident", text: "I can't pay my full rent this month. Are payment plans an option?", timestamp: "3:22 PM" },
-        { role: "agent", text: "I'm sorry to hear that, Amy. Yes, we do offer payment plans. Based on your account, you're eligible for a 2-installment plan: $825 due by the 5th and $825 by the 20th. Would you like me to set that up?", timestamp: "3:22 PM",
-          trace: [
-            { type: "mcp_tool", label: "MCP · entrata.paymentPlans.checkEligibility", mcpToolName: "entrata.paymentPlans.checkEligibility", durationMs: 176, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-pay-101\",\n  \"method\": \"tools/call\",\n  \"params\": { \"name\": \"entrata.paymentPlans.checkEligibility\", \"arguments\": { \"residentId\": \"res-amy-chen\" } }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"eligible\": true, \"maxInstallments\": 2, \"historyBand\": \"GOOD\" } }" },
-            { type: "mcp_tool", label: "MCP · entrata.ledger.getBalance", mcpToolName: "entrata.ledger.getBalance", durationMs: 91, status: "success", mcpRequestJson: "{}", mcpResponseJson: "{ \"result\": { \"balance\": 1650 } }" },
-            { type: "reasoning", label: "Split math", durationMs: 40, thoughtProcess: "Eligible for 2 installments; split 1650/2 = 825; dates from property plan template (5th and 20th)." },
-            { type: "response", label: "Model · offer", durationMs: 84 },
-          ],
-        },
-        { role: "resident", text: "Yes please, that would be a huge help.", timestamp: "3:23 PM" },
-        { role: "agent", text: "You're all set! I've sent the payment plan agreement to your email at amy.chen@email.com. Please sign it by the 4th and make the first payment of $825 by the 5th. No late fees will apply as long as both payments are on time.", timestamp: "3:24 PM",
-          trace: [
-            { type: "mcp_tool", label: "MCP · entrata.paymentPlans.createPlan", mcpToolName: "entrata.paymentPlans.createPlan", durationMs: 201, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-pay-102\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.paymentPlans.createPlan\",\n    \"arguments\": {\n      \"residentId\": \"res-amy-chen\",\n      \"installments\": [ { \"due\": \"2025-05-05\", \"amount\": 825 }, { \"due\": \"2025-05-20\", \"amount\": 825 } ],\n      \"waiveLateFeesIfCurrent\": true\n    }\n  }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"planId\": \"pp-8821\", \"agreementDocId\": \"doc-pp-8821\" } }" },
-            { type: "mcp_tool", label: "MCP · entrata.comms.sendTransactionalEmail", mcpToolName: "entrata.comms.sendTransactionalEmail", durationMs: 96, status: "success", mcpRequestJson: "{}", mcpResponseJson: "{ \"result\": { \"queued\": true } }" },
-            { type: "prompt_citation", label: "Fee waiver wording", durationMs: 3, promptSourceLabel: "Payments AI · plans", promptExcerpt: "State late-fee waiver only when createPlan returns waiveLateFeesIfCurrent true." },
-            { type: "response", label: "Model · confirmation", durationMs: 73 },
-          ],
-        },
-      ],
-      trace: [],
-      monitors: [{ label: "Coherent response", passed: true }, { label: "Policy compliant", passed: true }, { label: "Positive sentiment", passed: true }, { label: "No repetition", passed: true }],
-    },
-  ];
-
-  if (agentName === "Maintenance AI") return [
-    { id: "conv-m1", residentName: "Tom Bradley", channel: "SMS", topic: "Emergency — Kitchen Flooding", summary: "Emergency work order created. On-call tech dispatched within 5 minutes.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 7:45 AM", duration: "8m 10s", turns: 8,
-      messages: [
-        { role: "resident", text: "HELP my kitchen is flooding!! Water everywhere!!", timestamp: "7:45 AM" },
-        { role: "agent", text: "I'm so sorry — let me help right away! This is being flagged as an emergency. First, please locate the shutoff valve under your sink and turn it clockwise to stop the water. I'm dispatching our on-call technician now.", timestamp: "7:45 AM",
-          trace: [
-            { type: "prompt_citation", label: "Emergency triage", durationMs: 4, promptSourceLabel: "Maintenance AI · water intrusion", promptExcerpt: "For active flooding: (1) instruct safe shutoff, (2) create emergency WO, (3) page on-call—do not troubleshoot beyond shutoff in SMS." },
-            { type: "mcp_tool", label: "MCP · entrata.workorders.classifyUrgency", mcpToolName: "entrata.workorders.classifyUrgency", durationMs: 56, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-mnt-001\",\n  \"method\": \"tools/call\",\n  \"params\": { \"name\": \"entrata.workorders.classifyUrgency\", \"arguments\": { \"text\": \"HELP my kitchen is flooding!! Water everywhere!!\" } }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"level\": \"EMERGENCY\", \"category\": \"WATER_ACTIVE\" } }" },
-            { type: "mcp_tool", label: "MCP · entrata.workorders.createEmergency", mcpToolName: "entrata.workorders.createEmergency", durationMs: 118, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-mnt-002\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.workorders.createEmergency\",\n    \"arguments\": { \"unitId\": \"u-tom-12b\", \"title\": \"Kitchen flooding\", \"category\": \"WATER_ACTIVE\" }\n  }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"workOrderId\": \"MNT-4892\" } }" },
-            { type: "mcp_tool", label: "MCP · entrata.dispatch.pageOnCall", mcpToolName: "entrata.dispatch.pageOnCall", durationMs: 92, status: "success", mcpRequestJson: "{}", mcpResponseJson: "{ \"result\": { \"tech\": \"Marcus Rivera\", \"etaMinutes\": 20 } }" },
-            { type: "reasoning", label: "SMS safety order", durationMs: 38, thoughtProcess: "Shutoff first per playbook; then state dispatch without promising arrival second—use ETA from pageOnCall." },
-            { type: "response", label: "Model · emergency SMS", durationMs: 81 },
-          ],
-        },
-        { role: "resident", text: "Ok I found it, water is slowing down", timestamp: "7:47 AM" },
-        { role: "agent", text: "Great work! Our technician Marcus is on his way — ETA 20 minutes. In the meantime, place towels around the area to contain the water. Work order #MNT-4892 has been created. Marcus will call you when he arrives.", timestamp: "7:47 AM",
-          trace: [
-            { type: "mcp_tool", label: "MCP · entrata.dispatch.getStatus", mcpToolName: "entrata.dispatch.getStatus", durationMs: 71, status: "success", mcpRequestJson: "{}", mcpResponseJson: "{ \"result\": { \"workOrderId\": \"MNT-4892\", \"assignee\": \"Marcus Rivera\", \"etaMinutes\": 20, \"status\": \"EN_ROUTE\" } }" },
-            { type: "http_api", label: "Legacy · POST /api/maintenance/notify-resident", durationMs: 36, status: "success", httpMethod: "POST", httpPath: "/api/maintenance/notify-resident", httpResponseStatus: 204 },
-            { type: "response", label: "Model · status update", durationMs: 68 },
-          ],
-        },
-        { role: "resident", text: "He's here now, thank you so much for the fast response!", timestamp: "8:05 AM" },
-        { role: "agent", text: "So glad Marcus got there quickly! He'll take it from here. If you need anything else, don't hesitate to reach out. We'll follow up tomorrow to make sure everything is resolved.", timestamp: "8:05 AM",
-          trace: [
-            { type: "mcp_tool", label: "MCP · entrata.workorders.logResidentUpdate", mcpToolName: "entrata.workorders.logResidentUpdate", durationMs: 64, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-mnt-003\",\n  \"method\": \"tools/call\",\n  \"params\": { \"name\": \"entrata.workorders.logResidentUpdate\", \"arguments\": { \"workOrderId\": \"MNT-4892\", \"note\": \"Tech on site — resident confirmed\" } }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"ok\": true } }" },
-            { type: "mcp_tool", label: "MCP · entrata.scheduler.scheduleFollowUp", mcpToolName: "entrata.scheduler.scheduleFollowUp", durationMs: 81, status: "success", mcpRequestJson: "{}", mcpResponseJson: "{ \"result\": { \"when\": \"2025-05-05T09:00:00-06:00\" } }" },
-            { type: "reasoning", label: "Closure tone", durationMs: 29, thoughtProcess: "Positive resident signal—acknowledge tech by name, schedule follow-up from tool output." },
-            { type: "response", label: "Model · wrap-up", durationMs: 59 },
-          ],
-        },
-      ],
-      trace: [],
-      monitors: [{ label: "Emergency detected", passed: true }, { label: "Fast response (<30s)", passed: true }, { label: "Tech dispatched", passed: true }, { label: "Follow-up scheduled", passed: true }],
-    },
-    { id: "conv-m2", residentName: "Lisa Park", channel: "Chat", topic: "AC Not Cooling", summary: "Guided troubleshooting, then created work order for HVAC technician.", outcome: "resolved", sentiment: "neutral", startedAt: "Yesterday, 2:15 PM", duration: "5m 40s", turns: 6,
-      messages: [
-        { role: "resident", text: "My AC has been running all day but it's still 80 degrees in here. Something is wrong.", timestamp: "2:15 PM" },
-        { role: "agent", text: "I'm sorry about that! Let's try a few things first. Can you check if the air filter is clean? It's behind the return vent, usually in the hallway. A dirty filter is the most common cause of cooling issues.", timestamp: "2:15 PM",
-          trace: [
-            { type: "mcp_tool", label: "MCP · entrata.workorders.classifyUrgency", mcpToolName: "entrata.workorders.classifyUrgency", durationMs: 48, status: "success", mcpRequestJson: "{}", mcpResponseJson: "{ \"result\": { \"level\": \"ROUTINE\", \"category\": \"HVAC_COOLING\" } }" },
-            { type: "knowledge", label: "KB · HVAC triage L1", durationMs: 72, detail: "Step 1 filter, step 2 thermostat mode, step 3 schedule tech if unresolved." },
-            { type: "reasoning", label: "Non-emergency path", durationMs: 41, thoughtProcess: "No heat-stress keywords for elderly/vulnerable in thread—start with filter check before dispatch." },
-            { type: "response", label: "Model · triage chat", durationMs: 86 },
-          ],
-        },
-        { role: "resident", text: "I checked, the filter looks pretty dirty actually", timestamp: "2:17 PM" },
-        { role: "agent", text: "That's likely the culprit! We have replacement filters at the leasing office — you can grab one anytime during office hours. If the AC still isn't cooling properly after 2-3 hours with the new filter, let me know and I'll schedule an HVAC tech visit.", timestamp: "2:18 PM",
-          trace: [
-            { type: "mcp_tool", label: "MCP · entrata.maintenance.logSelfHelp", mcpToolName: "entrata.maintenance.logSelfHelp", durationMs: 69, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-mnt-201\",\n  \"method\": \"tools/call\",\n  \"params\": { \"name\": \"entrata.maintenance.logSelfHelp\", \"arguments\": { \"unitId\": \"u-lisa-4c\", \"step\": \"FILTER_DIRTY\", \"channel\": \"CHAT\" } }\n}", mcpResponseJson: "{ \"jsonrpc\": \"2.0\", \"result\": { \"logged\": true } }" },
-            { type: "mcp_tool", label: "MCP · entrata.inventory.getConsumablesLocation", mcpToolName: "entrata.inventory.getConsumablesLocation", durationMs: 58, status: "success", mcpRequestJson: "{}", mcpResponseJson: "{ \"result\": { \"filtersPickup\": \"LEASING_OFFICE\", \"hours\": \"9-6 M-F\" } }" },
-            { type: "prompt_citation", label: "When to promise tech", durationMs: 3, promptSourceLabel: "Maintenance AI · HVAC", promptExcerpt: "Offer vendor dispatch only after resident confirms self-help failed or declines—avoid duplicate WO spam." },
-            { type: "reasoning", label: "Next step gate", durationMs: 35, thoughtProcess: "Dirty filter confirmed—direct to office stock; conditional tech visit after 2–3h with new filter." },
-            { type: "response", label: "Model · guidance", durationMs: 74 },
-          ],
-        },
-      ],
-      trace: [],
-      monitors: [{ label: "Coherent response", passed: true }, { label: "Followed troubleshooting protocol", passed: true }, { label: "Appropriate triage", passed: true }, { label: "No repetition", passed: true }],
-    },
-  ];
-
-  if (agentName === "Renewal AI") return [
-    { id: "conv-r1", residentName: "Kevin Pham", channel: "Email", topic: "Renewal Offer Accepted", summary: "Resident accepted renewal at $1,695/mo for 14-month term with loyalty adjustment.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 9:30 AM", duration: "12m 5s", turns: 8,
-      messages: [
-        {
-          role: "agent",
-          text: "Hi Kevin! Your lease at Aspen Heights is coming up for renewal on September 14. We'd love to have you stay! Here are your options:\n\n• 12-month: $1,725/mo\n• 14-month: $1,695/mo\n• Month-to-month: $1,950/mo\n\nAs a valued 2-year resident, we're also including a complimentary carpet cleaning. Would you like to discuss these options?",
-          timestamp: "9:30 AM",
-          trace: [
-            { type: "prompt_citation", label: "Grounding: renewal voice + disclosure rules", durationMs: 6, promptSourceLabel: "System prompt · Renewal AI (production pack v3.2)", promptExcerpt: "You are Renewal AI for multifamily operators. Always (1) cite current rent and lease end from MCP tools—never invent numbers, (2) present at least two term options when available, (3) include a retention perk only when policy JSON marks the household as eligible, (4) invite dialogue before negotiating, (5) log every MCP tool call id on the trace for audit." },
-            { type: "mcp_tool", label: "MCP · entrata.renewals.getLeaseSnapshot", mcpToolName: "entrata.renewals.getLeaseSnapshot", durationMs: 118, status: "success", detail: "Resolved canonical lease + renewal window for Kevin Pham / unit 12-204.", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-a114\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.renewals.getLeaseSnapshot\",\n    \"arguments\": {\n      \"propertyId\": \"prop-aspen-heights\",\n      \"residentId\": \"res-kevin-pham\",\n      \"includeMarketBands\": true,\n      \"includePerks\": true\n    }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-a114\",\n  \"result\": {\n    \"content\": [\n      {\n        \"type\": \"text\",\n        \"text\": {\n          \"leaseId\": \"ls-991204\",\n          \"unit\": \"12-204\",\n          \"currentRent\": 1650,\n          \"currency\": \"USD\",\n          \"leaseEnd\": \"2025-09-14\",\n          \"renewalOfferState\": \"NOT_SENT\",\n          \"eligiblePerks\": [\"COMPLIMENTARY_CARPET_CLEAN\"],\n          \"tenureMonths\": 26,\n          \"ledgerStatus\": \"CURRENT\",\n          \"lastLateFeeDate\": null\n        }\n      }\n    ]\n  }\n}" },
-            { type: "mcp_tool", label: "MCP · entrata.market.getComparables", mcpToolName: "entrata.market.getComparables", durationMs: 164, status: "success", detail: "Pulled ILS + internal comps for 2BR in submarket.", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-a115\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.market.getComparables\",\n    \"arguments\": {\n      \"propertyId\": \"prop-aspen-heights\",\n      \"bedrooms\": 2,\n      \"radiusMiles\": 3,\n      \"asOf\": \"2025-05-04\"\n    }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-a115\",\n  \"result\": {\n    \"content\": [\n      {\n        \"type\": \"text\",\n        \"text\": {\n          \"medianAsk\": 1825,\n          \"p25\": 1750,\n          \"p75\": 1900,\n          \"sampleSize\": 38,\n          \"sources\": [\"ILS_AGGREGATE\", \"INTERNAL_LAST_90_LEASES\"]\n        }\n      }\n    ]\n  }\n}" },
-            { type: "http_api", label: "Legacy REST (shadow) · POST /api/internal/renewals/pricing-engine", durationMs: 41, status: "success", detail: "Same payload mirrored to REST for parity during MCP cutover.", httpMethod: "POST", httpPath: "/api/internal/renewals/v2/pricing-engine", httpRequestHeaders: "Authorization: Bearer ***redacted***\nContent-Type: application/json\nX-Idempotency-Key: idem-ren-88421-20250504", httpRequestBody: "{\n  \"leaseId\": \"ls-991204\",\n  \"policyPackId\": \"renewals-default-2025Q2\",\n  \"objectives\": [\"RETENTION\", \"MINIMIZE_DISCOUNT_DEPTH\"],\n  \"constraints\": { \"maxMtmPremiumPct\": 18 }\n}", httpResponseStatus: 200, httpResponseHeaders: "content-type: application/json\ncache-control: no-store", httpResponseBody: "{\n  \"options\": [\n    { \"termMonths\": 12, \"rent\": 1725, \"rationale\": \"BASE_TABLE\" },\n    { \"termMonths\": 14, \"rent\": 1695, \"rationale\": \"TERM_DISCOUNT_BAND_B\" },\n    { \"termMonths\": 1, \"rent\": 1950, \"rationale\": \"MTM_PREMIUM_CAP\" }\n  ],\n  \"perks\": [\"COMPLIMENTARY_CARPET_CLEAN\"],\n  \"traceId\": \"rest-9aa0f1\"\n}" },
-            { type: "reasoning", label: "Synthesis · offers + tone", durationMs: 72, thoughtProcess: "MCP lease snapshot locks current rent at $1,650 and end date 2025-09-14—so I must anchor any percentage language to those facts, not to rounded marketing numbers.\n\nComps from entrata.market.getComparables show median ask $1,825 for 2BR, which justifies the 12-mo table rate $1,725 as \"below market\" without sounding defensive.\n\nThe REST shadow response matches MCP-derived options (12 @ 1725, 14 @ 1695, MTM @ 1950). Per system prompt §4, I present at least two non-MTM options first and keep MTM as a last line because it is a churn vector.\n\nPerk COMPLIMENTARY_CARPET_CLEAN is present in both MCP and REST payloads and tenure is 26 months with CURRENT ledger—so I am allowed to mention the perk explicitly.\n\nI will structure the email with bullets (readability) and end with an open question to invite negotiation rather than pushing immediate acceptance—matching the prompt's \"invite dialogue before negotiating\" clause." },
-            { type: "prompt_citation", label: "Applied constraint from prompt", durationMs: 3, promptSourceLabel: "Policy excerpt · Renewal AI pack", promptExcerpt: "When presenting renewal options, always pair each rent with its term length in the same sentence or bullet, and never imply that MTM is the default continuation path." },
-            { type: "response", label: "Model · draft email body", durationMs: 112, detail: "Rendered structured offer block + soft CTA; injected perk only because eligibility flags were true in MCP result." },
-          ],
-        },
-        { role: "resident", text: "The increase is more than I expected. Is there any flexibility on the 12-month rate?", timestamp: "9:45 AM" },
-        {
-          role: "agent",
-          text: "I completely understand, Kevin. Since you've been with us for 2 years with a great payment history, I've checked with our renewal team and we can offer a loyalty adjustment of $1,695/mo on the 12-month term — that's only a 2.7% increase vs. the standard 4.5%. The 14-month option at $1,695 is also a great value. What do you think?",
-          timestamp: "9:46 AM",
-          trace: [
-            { type: "prompt_citation", label: "Negotiation stance", durationMs: 4, promptSourceLabel: "System prompt · Renewal AI §6 (pushback)", promptExcerpt: "If the resident challenges rent, (1) acknowledge first, (2) cite tenure + payment history from MCP ledger facts, (3) only then introduce loyalty adjustments that appear in entrata.renewals.evaluateLoyaltyAdjustment, (4) never promise adjustments not returned by that tool." },
-            { type: "mcp_tool", label: "MCP · entrata.ledger.getResidentLedgerSummary", mcpToolName: "entrata.ledger.getResidentLedgerSummary", durationMs: 88, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-b201\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.ledger.getResidentLedgerSummary\",\n    \"arguments\": { \"residentId\": \"res-kevin-pham\", \"windowDays\": 730 }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-b201\",\n  \"result\": {\n    \"content\": [{ \"type\": \"text\", \"text\": {\n      \"onTimePaymentsLast24m\": 24,\n      \"nsfCount\": 0,\n      \"avgDaysPastDue\": 0.0,\n      \"riskBand\": \"LOW\"\n    }}]\n  }\n}" },
-            { type: "mcp_tool", label: "MCP · entrata.renewals.evaluateLoyaltyAdjustment", mcpToolName: "entrata.renewals.evaluateLoyaltyAdjustment", durationMs: 134, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-b202\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.renewals.evaluateLoyaltyAdjustment\",\n    \"arguments\": {\n      \"leaseId\": \"ls-991204\",\n      \"requestedTermMonths\": 12,\n      \"tableRent\": 1725,\n      \"residentRiskBand\": \"LOW\",\n      \"tenureMonths\": 26\n    }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-b202\",\n  \"result\": {\n    \"content\": [{ \"type\": \"text\", \"text\": {\n      \"approved\": true,\n      \"adjustedRent\": 1695,\n      \"maxApproverLevel\": \"REGIONAL\",\n      \"reasonCodes\": [\"TENURE_GE_24M\", \"LEDGER_CURRENT\", \"RETENTION_TIER_A\"],\n      \"disclosure\": {\n        \"standardYoYPercent\": 4.5,\n        \"effectiveYoYPercent\": 2.7\n      }\n    }}]\n  }\n}" },
-            { type: "reasoning", label: "Why this reply wording", durationMs: 81, thoughtProcess: "Resident objected to the 12-mo increase emotionally (\"more than I expected\"). Prompt §6 requires acknowledgement before numbers—so the reply opens with empathy, not with the discount.\n\nMCP ledger summary confirms LOW risk and perfect payment cadence; I reference \"2 years\" and \"great payment history\" because those phrases are directly supported by ledger facts (not flattery).\n\nevaluateLoyaltyAdjustment returned approved=true with adjustedRent 1695 on the 12-mo line. That is the only number I am allowed to quote as a loyalty price; I therefore anchor the 12-mo offer to 1695 and compute YoY vs prior rent 1650 using the disclosure block (4.5% standard vs 2.7% effective) exactly as returned—no hand-wavy percentages.\n\nI also restate the 14-mo option at 1695 because the pricing engine already showed parity; the prompt encourages transparent comparison when two options collapse to the same rent to avoid cherry-picking confusion." },
-            { type: "response", label: "Model · generated reply", durationMs: 98, detail: "Mirrored concern, cited tenure+ledger, quoted only MCP-approved rents and disclosed YoY from tool output." },
-          ],
-        },
-        { role: "resident", text: "The 14 month at 1695 sounds good. Let's do that.", timestamp: "10:02 AM" },
-        {
-          role: "agent",
-          text: "Excellent choice! I've prepared your renewal agreement for 14 months at $1,695/mo starting September 15. The agreement has been sent to your email — please review and sign by August 15. The complimentary carpet cleaning will be scheduled after signing. Thank you for staying with us, Kevin!",
-          timestamp: "10:02 AM",
-          trace: [
-            { type: "mcp_tool", label: "MCP · entrata.renewals.lockSelectedOffer", mcpToolName: "entrata.renewals.lockSelectedOffer", durationMs: 61, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-c301\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.renewals.lockSelectedOffer\",\n    \"arguments\": {\n      \"leaseId\": \"ls-991204\",\n      \"selectedTermMonths\": 14,\n      \"selectedRent\": 1695,\n      \"residentConfirmationText\": \"The 14 month at 1695 sounds good. Let's do that.\"\n    }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-c301\",\n  \"result\": {\n    \"content\": [{ \"type\": \"text\", \"text\": {\n      \"lockId\": \"lock-ren-441b\",\n      \"renewalStart\": \"2025-09-15\",\n      \"signBy\": \"2025-08-15\",\n      \"documentTemplateId\": \"tmpl-ren-2025-standard\"\n    }}]\n  }\n}" },
-            { type: "mcp_tool", label: "MCP · entrata.documents.generateRenewalAgreement", mcpToolName: "entrata.documents.generateRenewalAgreement", durationMs: 176, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-c302\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.documents.generateRenewalAgreement\",\n    \"arguments\": {\n      \"lockId\": \"lock-ren-441b\",\n      \"includePerks\": [\"COMPLIMENTARY_CARPET_CLEAN\"]\n    }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-c302\",\n  \"result\": {\n    \"content\": [{ \"type\": \"text\", \"text\": {\n      \"documentId\": \"doc-ren-77812\",\n      \"pdfUri\": \"s3://redacted-bucket/renewals/doc-ren-77812.pdf\",\n      \"sha256\": \"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"\n    }}]\n  }\n}" },
-            { type: "mcp_tool", label: "MCP · entrata.comms.sendTransactionalEmail", mcpToolName: "entrata.comms.sendTransactionalEmail", durationMs: 92, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-c303\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.comms.sendTransactionalEmail\",\n    \"arguments\": {\n      \"templateId\": \"txn-renewal-agreement-ready\",\n      \"to\": \"kevin.pham@email.com\",\n      \"mergeFields\": {\n        \"TERM_MONTHS\": \"14\",\n        \"RENT\": \"1695\",\n        \"START_DATE\": \"2025-09-15\",\n        \"SIGN_BY\": \"2025-08-15\"\n      },\n      \"attachments\": [\"doc-ren-77812\"]\n    }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-7c21-c303\",\n  \"result\": {\n    \"content\": [{ \"type\": \"text\", \"text\": { \"queued\": true, \"providerMessageId\": \"sg-aa9912\" }}]\n  }\n}" },
-            { type: "prompt_citation", label: "Closing obligations", durationMs: 3, promptSourceLabel: "System prompt · Renewal AI §9 (documents)", promptExcerpt: "After a term selection is locked, always restate sign-by date, start date, and any conditional perks tied to signature—using only fields returned by lock + document tools." },
-            { type: "reasoning", label: "Final copy decisions", durationMs: 48, thoughtProcess: "lockSelectedOffer returned renewalStart 2025-09-15 and signBy 2025-08-15; I must surface both dates verbatim.\n\nThe resident already verbally accepted 14 months @ 1695; I treat that as sufficient intent to lock, but I still avoid claiming \"signed\"—only \"prepared\" and \"sent\" per truthfulness rules.\n\nCarpet cleaning is conditional on signature per policy pack; the prompt says to mention scheduling after signing, not before.\n\nI end with gratitude to match voice guidelines without adding new financial commitments." },
-            { type: "response", label: "Model · confirmation email", durationMs: 86 },
-          ],
-        },
-      ],
-      trace: [],
-      monitors: [{ label: "Coherent response", passed: true }, { label: "Accurate pricing", passed: true }, { label: "Positive sentiment", passed: true }, { label: "Retention outcome", passed: true }],
-    },
-    { id: "conv-r2", residentName: "Rachel Adams", channel: "SMS", topic: "Move-Out Notice", summary: "Resident decided to move out. Notice processed, move-out checklist sent.", outcome: "resolved", sentiment: "negative", startedAt: "Yesterday, 11:15 AM", duration: "7m 20s", turns: 6,
-      messages: [
-        { role: "resident", text: "Hi, I've decided not to renew my lease. What do I need to do?", timestamp: "11:15 AM" },
-        {
-          role: "agent",
-          text: "I'm sorry to hear you'll be leaving, Rachel. To process your move-out, you'll need to submit written 60-day notice (your deadline is July 15). I can start that process for you now. Would you like me to send you the official notice form and move-out checklist?",
-          timestamp: "11:15 AM",
-          trace: [
-            { type: "prompt_citation", label: "Move-out / churn tone", durationMs: 5, promptSourceLabel: "System prompt · Renewal AI §11 (move-out)", promptExcerpt: "When a resident states non-renewal, open with empathy, cite notice rules from MCP legal calendar only, never threaten, and always offer the official notice artifact through entrata.moveout.sendPacket rather than improvising PDF links." },
-            { type: "mcp_tool", label: "MCP · entrata.lease.getNoticeRules", mcpToolName: "entrata.lease.getNoticeRules", durationMs: 102, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-8d02-a001\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.lease.getNoticeRules\",\n    \"arguments\": { \"leaseId\": \"ls-aa4412\", \"jurisdiction\": \"US-CO\" }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-8d02-a001\",\n  \"result\": {\n    \"content\": [{ \"type\": \"text\", \"text\": {\n      \"minWrittenNoticeDays\": 60,\n      \"noticeCalendar\": \"BUSINESS\",\n      \"latestValidNoticeDate\": \"2025-07-15\",\n      \"leaseEnd\": \"2025-09-14\"\n    }}]\n  }\n}" },
-            { type: "http_api", label: "Legacy REST (read-only) · GET /api/leases/{id}/calendar", durationMs: 36, status: "success", httpMethod: "GET", httpPath: "/api/v3/leases/ls-aa4412/calendar", httpResponseStatus: 200, httpResponseBody: "{\n  \"leaseEnd\": \"2025-09-14\",\n  \"noticeDeadline\": \"2025-07-15\",\n  \"timezone\": \"America/Denver\"\n}" },
-            { type: "reasoning", label: "SMS framing", durationMs: 58, thoughtProcess: "MCP notice rules returned 60-day written notice with latestValidNoticeDate 2025-07-15. I must present that date as the deadline, not \"about two months\".\n\nChannel is SMS—prompt warns against long URLs; I therefore offer to send forms via email rather than pasting links.\n\nI keep empathy in the first sentence because the resident announced churn; the prompt forbids sounding transactional in the opening clause." },
-            { type: "response", label: "Model · SMS reply", durationMs: 91 },
-          ],
-        },
-        { role: "resident", text: "Yes please. And when is the move-out inspection?", timestamp: "11:17 AM" },
-        {
-          role: "agent",
-          text: "I've sent the notice form and move-out checklist to your email. The pre-move-out inspection is typically scheduled 2 weeks before your lease end date. We'll contact you in early September to set that up. Is there anything that might change your mind? We may be able to offer adjusted terms.",
-          timestamp: "11:18 AM",
-          trace: [
-            { type: "mcp_tool", label: "MCP · entrata.moveout.sendPacket", mcpToolName: "entrata.moveout.sendPacket", durationMs: 118, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-8d02-b010\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.moveout.sendPacket\",\n    \"arguments\": {\n      \"residentId\": \"res-rachel-adams\",\n      \"packet\": [\"NOTICE_PDF\", \"MOVEOUT_CHECKLIST\"],\n      \"channel\": \"EMAIL\"\n    }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-8d02-b010\",\n  \"result\": {\n    \"content\": [{ \"type\": \"text\", \"text\": { \"messageId\": \"msg-ff901\", \"delivered\": true }}]\n  }\n}" },
-            { type: "mcp_tool", label: "MCP · entrata.ops.getInspectionPolicy", mcpToolName: "entrata.ops.getInspectionPolicy", durationMs: 84, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-8d02-b011\",\n  \"method\": \"tools/call\",\n  \"params\": { \"name\": \"entrata.ops.getInspectionPolicy\", \"arguments\": { \"propertyId\": \"prop-aspen-heights\" } }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-8d02-b011\",\n  \"result\": {\n    \"content\": [{ \"type\": \"text\", \"text\": {\n      \"preMoveInspectionLeadDays\": 14,\n      \"schedulingWindow\": \"BUSINESS_HOURS\",\n      \"contactTemplate\": \"MAINTENANCE_COORDINATOR\"\n    }}]\n  }\n}" },
-            { type: "prompt_citation", label: "Retention boundary", durationMs: 3, promptSourceLabel: "System prompt · Renewal AI §11.3", promptExcerpt: "You may ask exactly one soft retention question per move-out thread after logistics are satisfied, and you must not repeat it if the resident declines." },
-            { type: "reasoning", label: "Why retention hook is included", durationMs: 55, thoughtProcess: "sendPacket succeeded, so logistics are handled—this satisfies the prompt gate for a single retention probe.\n\nInspection answer is driven strictly by getInspectionPolicy (14 days before lease end) translated into resident-friendly language (\"early September\" relative to Sep 14 end) without inventing a calendar appointment id.\n\nI include the win-back question once, phrased as optional adjusted terms, matching §11.3." },
-            { type: "response", label: "Model · SMS reply", durationMs: 94 },
-          ],
-        },
-        { role: "resident", text: "No, I'm relocating for work. Thanks for the info.", timestamp: "11:20 AM" },
-        {
-          role: "agent",
-          text: "Completely understandable! We wish you the best with your move. If anything changes, we're here. I've noted the reason as work relocation. Take care, Rachel!",
-          timestamp: "11:20 AM",
-          trace: [
-            { type: "prompt_citation", label: "Hard stop after explicit reason", durationMs: 2, promptSourceLabel: "System prompt · Renewal AI §11.4", promptExcerpt: "If the resident gives a concrete relocation/employer-driven reason and declines retention, do not run additional save attempts or inventory new offers in the same session." },
-            { type: "mcp_tool", label: "MCP · entrata.crm.logExitSurvey", mcpToolName: "entrata.crm.logExitSurvey", durationMs: 76, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-8d02-c020\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.crm.logExitSurvey\",\n    \"arguments\": {\n      \"residentId\": \"res-rachel-adams\",\n      \"primaryReasonCode\": \"RELOCATION_WORK\",\n      \"verbatim\": \"No, I'm relocating for work. Thanks for the info.\"\n    }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-8d02-c020\",\n  \"result\": {\n    \"content\": [{ \"type\": \"text\", \"text\": { \"crmNoteId\": \"note-aa901\", \"syncedToPMS\": true }}]\n  }\n}" },
-            { type: "mcp_tool", label: "MCP · entrata.notify.propertyManager", mcpToolName: "entrata.notify.propertyManager", durationMs: 71, status: "success", mcpRequestJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-8d02-c021\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"entrata.notify.propertyManager\",\n    \"arguments\": {\n      \"propertyId\": \"prop-aspen-heights\",\n      \"subject\": \"Move-out intent logged\",\n      \"body\": \"Rachel Adams — reason RELOCATION_WORK — lease ends 2025-09-14\"\n    }\n  }\n}", mcpResponseJson: "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"mcp-8d02-c021\",\n  \"result\": {\n    \"content\": [{ \"type\": \"text\", \"text\": { \"delivered\": true, \"channel\": \"SLACK_DM\" }}]\n  }\n}" },
-            { type: "reasoning", label: "Why no second save attempt", durationMs: 41, thoughtProcess: "The resident cited relocation for work and thanked me—this triggers §11.4 hard stop. CRM log captures verbatim text; manager notification is informational only.\n\nI avoid any new financial offer language because that would violate the stop rule even if models sometimes suggest \"one more promo\"." },
-            { type: "response", label: "Model · SMS closing", durationMs: 63 },
-          ],
-        },
-      ],
-      trace: [],
-      monitors: [{ label: "Coherent response", passed: true }, { label: "Retention attempted", passed: true }, { label: "Empathetic tone", passed: true }, { label: "Process followed", passed: true }],
-    },
-  ];
-
-  return [];
-}
+import {
+  conversationChannelIcon,
+  countLogTraceSteps,
+  generateConversationLogs,
+  ConversationDetailView,
+  CONVERSATION_CHANNELS,
+  type ConversationChannel,
+  type ConversationLog,
+} from "./conversation-log";
 
 function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; propertyName: string }) {
   const logs = useMemo(() => generateConversationLogs(agentName, propertyName), [agentName, propertyName]);
   const [selectedLog, setSelectedLog] = useState<ConversationLog | null>(null);
-  const [traceExpanded, setTraceExpanded] = useState(true);
-  const [replyTraceSheet, setReplyTraceSheet] = useState<{
-    steps: TraceStep[];
-    replyPreview: string;
-    precedingResident: string | null;
-  } | null>(null);
 
-  const l4PerReplyTraces = L4_AGENTS_PER_REPLY_TRACE.has(agentName);
+  const [residentQuery, setResidentQuery] = useState("");
+  const [dateFrom, setDateFrom] = useState<string>("");
+  const [dateTo, setDateTo] = useState<string>("");
+  const [channelFilter, setChannelFilter] = useState<Set<ConversationChannel>>(new Set());
+  const [escalatedOnly, setEscalatedOnly] = useState(false);
 
-  const outcomeBadge = (outcome: ConversationLog["outcome"]) => {
-    if (outcome === "resolved") return "bg-emerald-50 text-emerald-700 border-emerald-200";
-    if (outcome === "escalated") return "bg-amber-50 text-amber-700 border-amber-200";
-    return "bg-zinc-100 text-zinc-500 border-zinc-200";
+  const toggleChannel = (channel: ConversationChannel) => {
+    setChannelFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(channel)) next.delete(channel);
+      else next.add(channel);
+      return next;
+    });
   };
+
+  const clearAllFilters = () => {
+    setResidentQuery("");
+    setDateFrom("");
+    setDateTo("");
+    setChannelFilter(new Set());
+    setEscalatedOnly(false);
+  };
+
+  const hasActiveFilters =
+    residentQuery.trim().length > 0 ||
+    dateFrom !== "" ||
+    dateTo !== "" ||
+    channelFilter.size > 0 ||
+    escalatedOnly;
+
+  const filteredLogs = useMemo(() => {
+    const trimmedQuery = residentQuery.trim().toLowerCase();
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const MS_PER_DAY = 86_400_000;
+
+    const fromTs = dateFrom ? new Date(dateFrom + "T00:00:00").getTime() : null;
+    const toTs = dateTo ? new Date(dateTo + "T23:59:59.999").getTime() : null;
+
+    return logs.filter((log) => {
+      if (trimmedQuery && !log.residentName.toLowerCase().includes(trimmedQuery)) return false;
+      if (channelFilter.size > 0 && !channelFilter.has(log.channel)) return false;
+      if (escalatedOnly && log.outcome !== "escalated") return false;
+      if (fromTs !== null || toTs !== null) {
+        const logTs = startOfToday.getTime() - log.daysAgo * MS_PER_DAY;
+        if (fromTs !== null && logTs < fromTs) return false;
+        if (toTs !== null && logTs > toTs) return false;
+      }
+      return true;
+    });
+  }, [logs, residentQuery, dateFrom, dateTo, channelFilter, escalatedOnly]);
 
   const sentimentBadge = (s: ConversationLog["sentiment"]) => {
     if (s === "positive") return "bg-emerald-50 text-emerald-700 border-emerald-200";
@@ -4209,164 +3815,19 @@ function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; pro
     return "bg-zinc-100 text-zinc-500 border-zinc-200";
   };
 
+  const outcomeBadge = (outcome: ConversationLog["outcome"]) => {
+    if (outcome === "resolved") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+    if (outcome === "escalated") return "bg-amber-50 text-amber-700 border-amber-200";
+    return "bg-zinc-100 text-zinc-500 border-zinc-200";
+  };
+
   if (selectedLog) {
     return (
-      <div className="relative h-full w-full">
-        <div className="flex h-full">
-          <div className="flex-1 min-w-0 flex flex-col border-r border-border">
-            <div className="flex items-center gap-3 px-5 py-3 border-b border-border bg-white shrink-0">
-              <button
-                type="button"
-                onClick={() => {
-                  setReplyTraceSheet(null);
-                  setSelectedLog(null);
-                }}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <ArrowLeft className="h-3 w-3" /> All Conversations
-              </button>
-              <span className="text-xs text-border">|</span>
-              <span className="text-sm font-medium text-foreground">{selectedLog.residentName}</span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-border bg-zinc-50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                {selectedLog.channel === "SMS" ? <Phone className="h-2.5 w-2.5" /> : selectedLog.channel === "Email" ? <Mail className="h-2.5 w-2.5" /> : <MessageSquare className="h-2.5 w-2.5" />}
-                {selectedLog.channel}
-              </span>
-              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${outcomeBadge(selectedLog.outcome)}`}>
-                {selectedLog.outcome}
-              </span>
-            </div>
-            <div className="flex-1 min-h-0 overflow-y-auto bg-muted px-5 py-5">
-              <div className="space-y-4 max-w-2xl">
-                {selectedLog.messages.map((msg, i) => {
-                  let precedingResident: string | null = null;
-                  for (let j = i - 1; j >= 0; j--) {
-                    if (selectedLog.messages[j].role === "resident") {
-                      precedingResident = selectedLog.messages[j].text;
-                      break;
-                    }
-                  }
-                  const hasReplyTrace = l4PerReplyTraces && msg.role === "agent" && msg.trace && msg.trace.length > 0;
-                  return (
-                    <div key={i} className="flex flex-col gap-0.5">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-medium tracking-wider text-muted-foreground">
-                          {msg.role === "resident" ? selectedLog.residentName : agentName}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground/60">{msg.timestamp}</span>
-                      </div>
-                      <div
-                        className={
-                          msg.role === "resident"
-                            ? "max-w-[85%] rounded-2xl px-3 py-2 bg-background text-foreground border border-border shadow-sm text-sm"
-                            : "max-w-full py-1 text-foreground text-sm whitespace-pre-line"
-                        }
-                      >
-                        {msg.text}
-                      </div>
-                      {hasReplyTrace && msg.trace ? (
-                        <button
-                          type="button"
-                          className="mt-1.5 self-start text-xs font-medium text-emerald-700 hover:text-emerald-800 hover:underline"
-                          onClick={() =>
-                            setReplyTraceSheet({
-                              steps: msg.trace!,
-                              replyPreview: msg.text.length > 200 ? msg.text.slice(0, 200) + "\u2026" : msg.text,
-                              precedingResident,
-                            })
-                          }
-                        >
-                          View Trace
-                        </button>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="px-5 py-3 border-t border-border bg-white shrink-0">
-              <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                <span>{selectedLog.turns} turns</span>
-                <span>{selectedLog.duration}</span>
-                <span>{selectedLog.startedAt}</span>
-              </div>
-            </div>
-          </div>
-          <aside className="w-80 shrink-0 bg-white overflow-y-auto">
-            <div className="p-5 space-y-6">
-              <div>
-                <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-3">Conversation Summary</h4>
-                <p className="text-xs text-foreground leading-relaxed">{selectedLog.summary}</p>
-              </div>
-              <div>
-                <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-3">Monitors</h4>
-                <div className="space-y-1.5">
-                  {selectedLog.monitors.map((m, i) => (
-                    <div key={i} className="flex items-center gap-2 text-xs">
-                      {m.passed ? <CheckCircle className="h-3.5 w-3.5 text-emerald-600 shrink-0" /> : <XCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />}
-                      <span className={m.passed ? "text-foreground" : "text-red-600 font-medium"}>{m.label}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              {!l4PerReplyTraces && selectedLog.trace.length > 0 ? (
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => setTraceExpanded(!traceExpanded)}
-                    className="flex items-center justify-between w-full mb-3"
-                  >
-                    <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
-                      Agent Trace ({selectedLog.trace.length} steps)
-                    </h4>
-                    <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${traceExpanded ? "" : "-rotate-90"}`} />
-                  </button>
-                  {traceExpanded ? <AgentTraceTimeline trace={selectedLog.trace} /> : null}
-                </div>
-              ) : null}
-              {l4PerReplyTraces ? (
-                <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3">
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">
-                    Traces are attached to each {agentName} reply. Use <span className="font-medium text-foreground">View Trace</span> under a message to see tools, knowledge, and reasoning for that response.
-                  </p>
-                </div>
-              ) : null}
-            </div>
-          </aside>
-        </div>
-
-        {l4PerReplyTraces ? (
-          <Sheet open={replyTraceSheet !== null} onOpenChange={(open) => { if (!open) setReplyTraceSheet(null); }}>
-            <SheetContent className="flex w-full flex-col overflow-y-auto sm:max-w-3xl">
-              <SheetHeader>
-                <SheetTitle>Trace for this reply</SheetTitle>
-                <SheetDescription>Steps and context that led to this {agentName} response.</SheetDescription>
-              </SheetHeader>
-              {replyTraceSheet ? (
-                <div className="mt-6 space-y-5">
-                  {replyTraceSheet.precedingResident ? (
-                    <div className="rounded-lg border border-border bg-muted/50 p-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Resident message (context)</p>
-                      <p className="text-xs text-foreground leading-relaxed whitespace-pre-line">{replyTraceSheet.precedingResident}</p>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      Proactive agent message — there is no prior resident turn in this thread for this reply.
-                    </p>
-                  )}
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Agent reply</p>
-                    <p className="text-xs text-foreground leading-relaxed whitespace-pre-line">{replyTraceSheet.replyPreview}</p>
-                  </div>
-                  <div>
-                    <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-3">Execution trace</h4>
-                    <AgentTraceTimeline trace={replyTraceSheet.steps} />
-                  </div>
-                </div>
-              ) : null}
-            </SheetContent>
-          </Sheet>
-        ) : null}
-      </div>
+      <ConversationDetailView
+        log={selectedLog}
+        agentName={agentName}
+        onBack={() => setSelectedLog(null)}
+      />
     );
   }
 
@@ -4375,43 +3836,157 @@ function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; pro
       <div className="flex items-center justify-between mb-1.5">
         <h2 className="text-xl font-bold text-foreground">History & Logging</h2>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">{logs.filter(l => l.outcome === "resolved").length} Resolved</span>
-          <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">{logs.filter(l => l.outcome === "escalated").length} Escalated</span>
-          <span className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500">{logs.filter(l => l.outcome === "pending").length} Pending</span>
+          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">{filteredLogs.filter(l => l.outcome === "resolved").length} Resolved</span>
+          <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">{filteredLogs.filter(l => l.outcome === "escalated").length} Escalated</span>
+          <span className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500">{filteredLogs.filter(l => l.outcome === "pending").length} Pending</span>
         </div>
       </div>
-      <p className="text-sm text-muted-foreground mb-6">
+      <p className="text-sm text-muted-foreground mb-5">
         Review past conversations, inspect agent reasoning traces, and monitor quality for {agentName} at {propertyName}.
       </p>
-      <div className="space-y-3">
-        {logs.map((conversationLog) => (
-          <button
-            key={conversationLog.id}
-            type="button"
-            onClick={() => setSelectedLog(conversationLog)}
-            className="w-full flex items-center gap-4 rounded-xl border border-border bg-white p-4 text-left transition-all hover:border-zinc-400 hover:shadow-md group"
-          >
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <p className="text-sm font-semibold text-foreground">{conversationLog.residentName}</p>
-                <span className="inline-flex items-center gap-1 rounded-full border border-border bg-zinc-50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                  {conversationLog.channel === "SMS" ? <Phone className="h-2.5 w-2.5" /> : conversationLog.channel === "Email" ? <Mail className="h-2.5 w-2.5" /> : <MessageSquare className="h-2.5 w-2.5" />}
-                  {conversationLog.channel}
-                </span>
-                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${outcomeBadge(conversationLog.outcome)}`}>{conversationLog.outcome}</span>
-                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${sentimentBadge(conversationLog.sentiment)}`}>{conversationLog.sentiment}</span>
-              </div>
-              <p className="text-xs text-muted-foreground">{conversationLog.topic} — {conversationLog.summary}</p>
-              <div className="flex items-center gap-3 mt-1.5 text-[10px] text-muted-foreground/70">
-                <span>{conversationLog.startedAt}</span>
-                <span>{conversationLog.turns} turns</span>
-                <span>{conversationLog.duration}</span>
-                <span>{countLogTraceSteps(conversationLog, agentName)} trace steps</span>
-              </div>
+
+      {/* Filters */}
+      <div className="mb-4 rounded-xl border border-border bg-white p-4">
+        <div className="flex flex-wrap items-end gap-4">
+          {/* Resident search */}
+          <div className="flex-1 min-w-[200px]">
+            <label className="block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Resident</label>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                type="text"
+                value={residentQuery}
+                onChange={(e) => setResidentQuery(e.target.value)}
+                placeholder="Search by name…"
+                className="h-9 pl-8 text-sm"
+              />
             </div>
-            <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors shrink-0" />
-          </button>
-        ))}
+          </div>
+
+          {/* Date range */}
+          <div>
+            <label className="block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">From</label>
+            <Input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="h-9 text-sm w-[150px]"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">To</label>
+            <Input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="h-9 text-sm w-[150px]"
+            />
+          </div>
+
+          {/* Escalated toggle */}
+          <div>
+            <label className="block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Status</label>
+            <button
+              type="button"
+              onClick={() => setEscalatedOnly((v) => !v)}
+              className={`h-9 inline-flex items-center gap-1.5 rounded-md border px-3 text-sm font-medium transition-colors ${
+                escalatedOnly
+                  ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                  : "border-border bg-white text-muted-foreground hover:bg-zinc-50 hover:text-foreground"
+              }`}
+            >
+              <AlertCircle className="h-3.5 w-3.5" />
+              Escalated only
+            </button>
+          </div>
+
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              className="h-9 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2"
+            >
+              <X className="h-3 w-3" />
+              Clear
+            </button>
+          )}
+        </div>
+
+        {/* Channel chips */}
+        <div className="mt-3 flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mr-1">Channel</span>
+          {CONVERSATION_CHANNELS.map((channel) => {
+            const isActive = channelFilter.has(channel);
+            return (
+              <button
+                key={channel}
+                type="button"
+                onClick={() => toggleChannel(channel)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                  isActive
+                    ? "border-blue-300 bg-blue-50 text-blue-700"
+                    : "border-border bg-white text-muted-foreground hover:bg-zinc-50 hover:text-foreground"
+                }`}
+              >
+                {conversationChannelIcon(channel)}
+                {channel}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {hasActiveFilters && (
+        <p className="text-xs text-muted-foreground mb-3">
+          Showing <span className="font-medium text-foreground">{filteredLogs.length}</span> of {logs.length} conversations
+        </p>
+      )}
+
+      <div className="space-y-3">
+        {filteredLogs.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border bg-zinc-50/50 p-8 text-center">
+            <p className="text-sm font-medium text-foreground">No conversations match these filters</p>
+            <p className="text-xs text-muted-foreground mt-1">Try adjusting your filters or clearing them to see all conversations.</p>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={clearAllFilters}
+                className="mt-3 text-xs font-medium text-blue-700 hover:text-blue-800 hover:underline"
+              >
+                Clear all filters
+              </button>
+            )}
+          </div>
+        ) : (
+          filteredLogs.map((conversationLog) => (
+            <button
+              key={conversationLog.id}
+              type="button"
+              onClick={() => setSelectedLog(conversationLog)}
+              className="w-full flex items-center gap-4 rounded-xl border border-border bg-white p-4 text-left transition-all hover:border-zinc-400 hover:shadow-md group"
+            >
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-sm font-semibold text-foreground">{conversationLog.residentName}</p>
+                  <span className="inline-flex items-center gap-1 rounded-full border border-border bg-zinc-50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    {conversationChannelIcon(conversationLog.channel)}
+                    {conversationLog.channel}
+                  </span>
+                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${outcomeBadge(conversationLog.outcome)}`}>{conversationLog.outcome}</span>
+                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${sentimentBadge(conversationLog.sentiment)}`}>{conversationLog.sentiment}</span>
+                </div>
+                <p className="text-xs text-muted-foreground">{conversationLog.topic} — {conversationLog.summary}</p>
+                <div className="flex items-center gap-3 mt-1.5 text-[10px] text-muted-foreground/70">
+                  <span>{conversationLog.startedAt}</span>
+                  <span>{conversationLog.turns} turns</span>
+                  <span>{conversationLog.duration}</span>
+                  <span>{countLogTraceSteps(conversationLog, agentName)} trace steps</span>
+                </div>
+              </div>
+              <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors shrink-0" />
+            </button>
+          ))
+        )}
       </div>
     </div>
   );
@@ -4553,7 +4128,7 @@ function AgentVoiceTonePanel({ agentName, property }: { agentName: string; prope
     <div className="p-8 max-w-3xl">
       <h2 className="text-xl font-bold text-foreground">Voice & Tone</h2>
       <p className="text-sm text-muted-foreground mt-1.5">
-        How {agentName} communicates at {property.name}. Tone settings cascade from Default → Vertical → Property, while voice settings still resolve through the platform voice configuration.
+        How {agentName} communicates at {property.name}. Both tone and voice cascade from Company → Vertical → Property. You can edit the property-level override from this screen; Company and Vertical defaults are managed in the centralized Agent Voice &amp; Tone settings.
       </p>
 
       <div className="mt-5 flex gap-1 rounded-lg border border-border bg-zinc-50/50 p-1 w-fit">
@@ -4588,6 +4163,16 @@ function AgentVoiceTonePanel({ agentName, property }: { agentName: string; prope
 
 /* ─── Tone Section ─── */
 
+/**
+ * Builds a stable, idempotent ID for a per-agent + per-property tone override
+ * created from this screen. Mirrors the slugged pattern used by the centralized
+ * Voice & Tone admin so overrides created here surface there cleanly.
+ */
+function buildToneOverrideId(toneAgentId: AgentToneId, propertyName: string) {
+  const slug = propertyName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return `${toneAgentId}-${slug}`;
+}
+
 function AgentToneSection({
   agentName,
   property,
@@ -4611,116 +4196,357 @@ function AgentToneSection({
       )
     : undefined;
 
+  // Cascade resolution. Source label "Company" is used for the agent's default
+  // tone so the cascade reads consistently with the Voice tab (Company → Vertical
+  // → Property) — the user explicitly only manages the property level from here.
   const persona = (() => {
     if (propOvr?.settings.persona) return { value: propOvr.settings.persona, source: "Property" as CascadeLevel };
     if (vertOvr?.settings.persona) return { value: vertOvr.settings.persona, source: "Vertical" as CascadeLevel };
-    return { value: defaultTone?.persona ?? "", source: "Default" as CascadeLevel };
+    return { value: defaultTone?.persona ?? "", source: "Company" as CascadeLevel };
   })();
 
   const guidelines = (() => {
     if (propOvr?.settings.guidelines) return { value: propOvr.settings.guidelines, source: "Property" as CascadeLevel };
     if (vertOvr?.settings.guidelines) return { value: vertOvr.settings.guidelines, source: "Vertical" as CascadeLevel };
-    return { value: defaultTone?.guidelines ?? "", source: "Default" as CascadeLevel };
+    return { value: defaultTone?.guidelines ?? "", source: "Company" as CascadeLevel };
   })();
 
   const doList = (() => {
     if (propOvr?.settings.doExamples.length) return { value: propOvr.settings.doExamples, source: "Property" as CascadeLevel };
     if (vertOvr?.settings.doExamples.length) return { value: vertOvr.settings.doExamples, source: "Vertical" as CascadeLevel };
-    return { value: defaultTone?.doExamples ?? [], source: "Default" as CascadeLevel };
+    return { value: defaultTone?.doExamples ?? [], source: "Company" as CascadeLevel };
   })();
 
   const dontList = (() => {
     if (propOvr?.settings.dontExamples.length) return { value: propOvr.settings.dontExamples, source: "Property" as CascadeLevel };
     if (vertOvr?.settings.dontExamples.length) return { value: vertOvr.settings.dontExamples, source: "Vertical" as CascadeLevel };
-    return { value: defaultTone?.dontExamples ?? [], source: "Default" as CascadeLevel };
+    return { value: defaultTone?.dontExamples ?? [], source: "Company" as CascadeLevel };
   })();
 
-  const editHref = toneAgentId
-    ? `/voice?agent=${toneAgentId}&property=${encodeURIComponent(property.name)}`
-    : "/voice";
+  const hasPropertyOverride = !!propOvr;
+
+  // Do's/Don'ts now live in the Agent Knowledge Hub (General Knowledge), so they
+  // are hidden here. Flag retained so the UI can be restored if that changes.
+  const showDosDonts = false;
+
+  // ─── Editor state ────────────────────────────────────────────────────────
+  const [editing, setEditing] = useState(false);
+  const [draftPersona, setDraftPersona] = useState(persona.value);
+  const [draftGuidelines, setDraftGuidelines] = useState(guidelines.value);
+  const [draftDos, setDraftDos] = useState<string[]>(doList.value);
+  const [draftDonts, setDraftDonts] = useState<string[]>(dontList.value);
+
+  const startEditing = () => {
+    // Seed drafts with the currently inherited values so the user starts from
+    // what is effectively in play (rather than blank fields).
+    setDraftPersona(persona.value);
+    setDraftGuidelines(guidelines.value);
+    setDraftDos([...doList.value]);
+    setDraftDonts([...dontList.value]);
+    setEditing(true);
+  };
+
+  const saveOverride = () => {
+    if (!toneAgentId) return;
+    const settings: ToneSettings = {
+      persona: draftPersona.trim(),
+      guidelines: draftGuidelines.trim(),
+      doExamples: draftDos.map((d) => d.trim()).filter(Boolean),
+      dontExamples: draftDonts.map((d) => d.trim()).filter(Boolean),
+    };
+    if (propOvr) {
+      voice.updateAgentPropertyToneOverride(propOvr.id, { settings });
+    } else {
+      voice.addAgentPropertyToneOverrides([
+        {
+          id: buildToneOverrideId(toneAgentId, property.name),
+          agentId: toneAgentId,
+          propertyName: property.name,
+          vertical: property.vertical,
+          settings,
+        },
+      ]);
+    }
+    setEditing(false);
+  };
+
+  const removeOverride = () => {
+    if (propOvr) {
+      voice.removeAgentPropertyToneOverride(propOvr.id);
+    }
+    setEditing(false);
+  };
+
+  const toneAvailable = !!toneAgentId;
 
   return (
     <>
-      <div className="mt-6 rounded-xl border border-border bg-zinc-50/50 p-4">
+      <div className="mt-6 rounded-xl border border-border bg-zinc-50/50 px-4 pt-4 pb-8">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Cascade Inheritance</p>
             <CascadeDots
               hasVertical={!!vertOvr}
-              hasProperty={!!propOvr}
+              hasProperty={hasPropertyOverride}
               hasAgent={false}
-              rootLabel="Default"
+              rootLabel="Company"
               includeAgent={false}
             />
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => window.location.assign(editHref)}
-            className="gap-1"
-          >
-            <Pencil className="h-3 w-3" /> Edit in Voice & Tone settings
-          </Button>
-        </div>
-      </div>
-
-      <div className="mt-6 space-y-4">
-        <div className="rounded-xl border border-border bg-white p-5">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-semibold text-foreground">AI Persona</p>
-            <SourceBadge source={persona.source} />
-          </div>
-          <p className="text-sm text-muted-foreground">{persona.value || "Not configured"}</p>
-        </div>
-
-        <div className="rounded-xl border border-border bg-white p-5">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-semibold text-foreground">Agent Tone & Instructions</p>
-            <SourceBadge source={guidelines.source} />
-          </div>
-          <p className="text-sm text-muted-foreground whitespace-pre-wrap">{guidelines.value || "Not configured"}</p>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div className="rounded-xl border border-border bg-white p-5">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-semibold text-emerald-700">Do&apos;s</p>
-              <SourceBadge source={doList.source} />
-            </div>
-            {doList.value.length > 0 ? (
-              <ul className="space-y-1.5">
-                {doList.value.map((item, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
-                    <CheckCircle className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-muted-foreground">No items configured</p>
+          <div className="flex items-center gap-2">
+            {hasPropertyOverride && !editing && (
+              <Badge variant="outline" className="text-emerald-700 border-emerald-300 bg-emerald-50 text-xs">
+                Property Override Active
+              </Badge>
             )}
-          </div>
-          <div className="rounded-xl border border-border bg-white p-5">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-semibold text-red-700">Don&apos;ts</p>
-              <SourceBadge source={dontList.source} />
-            </div>
-            {dontList.value.length > 0 ? (
-              <ul className="space-y-1.5">
-                {dontList.value.map((item, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
-                    <XCircle className="h-3.5 w-3.5 text-red-500 mt-0.5 shrink-0" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-muted-foreground">No items configured</p>
+            {!editing && toneAvailable && (
+              <Button variant="outline" size="sm" onClick={startEditing} className="gap-1">
+                {hasPropertyOverride ? (
+                  <>
+                    <Pencil className="h-3 w-3" /> Edit Property Override
+                  </>
+                ) : (
+                  <>
+                    <Plus className="h-3.5 w-3.5" /> Add Property Override
+                  </>
+                )}
+              </Button>
             )}
           </div>
         </div>
       </div>
+
+      {!editing && (
+        <div className="mt-6 space-y-4">
+          <div className="rounded-xl border border-border bg-white p-5">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-foreground">AI Persona</p>
+              <SourceBadge source={persona.source} />
+            </div>
+            <p className="text-sm text-muted-foreground">{persona.value || "Not configured"}</p>
+          </div>
+
+          <div className="rounded-xl border border-border bg-white p-5">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-foreground">Agent Tone Guidelines</p>
+              <SourceBadge source={guidelines.source} />
+            </div>
+            <p className="text-sm text-muted-foreground whitespace-pre-wrap">{guidelines.value || "Not configured"}</p>
+          </div>
+
+          {showDosDonts && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="rounded-xl border border-border bg-white p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold text-emerald-700">Do&apos;s</p>
+                  <SourceBadge source={doList.source} />
+                </div>
+                {doList.value.length > 0 ? (
+                  <ul className="space-y-1.5">
+                    {doList.value.map((item, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                        <CheckCircle className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No items configured</p>
+                )}
+              </div>
+              <div className="rounded-xl border border-border bg-white p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold text-red-700">Don&apos;ts</p>
+                  <SourceBadge source={dontList.source} />
+                </div>
+                {dontList.value.length > 0 ? (
+                  <ul className="space-y-1.5">
+                    {dontList.value.map((item, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                        <XCircle className="h-3.5 w-3.5 text-red-500 mt-0.5 shrink-0" />
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No items configured</p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {editing && (
+        <div className="mt-6 space-y-5">
+          <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50/30 p-5 space-y-5">
+            <div className="flex items-center gap-2 mb-1">
+              <Home className="h-4 w-4 text-emerald-600" />
+              <p className="text-sm font-semibold text-foreground">Property-Level Tone Override</p>
+              <span className="text-xs text-muted-foreground">
+                for {agentName} at {property.name}
+              </span>
+            </div>
+            <p className="-mt-3 text-xs text-muted-foreground">
+              Changes save as a property-level override and will appear in the centralized
+              Agent Voice &amp; Tone settings. Company and Vertical defaults aren&apos;t editable
+              from this screen.
+            </p>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-foreground">AI Persona</label>
+              <input
+                type="text"
+                value={draftPersona}
+                onChange={(e) => setDraftPersona(e.target.value)}
+                className="input-base text-sm"
+                placeholder="e.g. Luxury concierge"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Inherited: {persona.value || "Not configured"} ({persona.source})
+              </p>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-foreground">
+                Agent Tone Guidelines
+              </label>
+              <textarea
+                value={draftGuidelines}
+                onChange={(e) => setDraftGuidelines(e.target.value)}
+                rows={5}
+                className="input-base resize-y text-sm"
+                placeholder="Describe how the agent should sound at this property..."
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Inherited from {guidelines.source} level
+              </p>
+            </div>
+
+            {showDosDonts && (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <ToneListEditor
+                  title="Do's"
+                  items={draftDos}
+                  onChange={setDraftDos}
+                  accent="emerald"
+                  placeholder="Add a Do…"
+                  inheritedSource={doList.source}
+                />
+                <ToneListEditor
+                  title="Don'ts"
+                  items={draftDonts}
+                  onChange={setDraftDonts}
+                  accent="red"
+                  placeholder="Add a Don't…"
+                  inheritedSource={dontList.source}
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Button size="sm" onClick={saveOverride} className="gap-1">
+              <Save className="h-3.5 w-3.5" /> Save Override
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
+            {hasPropertyOverride && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={removeOverride}
+                className="gap-1 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200 ml-auto"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Remove Override
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
     </>
+  );
+}
+
+/**
+ * Editable list (Do's / Don'ts) used inside the property-level tone override
+ * editor. Mirrors the read-only list styling so the editor feels like an
+ * in-place edit of the same cards.
+ */
+function ToneListEditor({
+  title,
+  items,
+  onChange,
+  accent,
+  placeholder,
+  inheritedSource,
+}: {
+  title: string;
+  items: string[];
+  onChange: (next: string[]) => void;
+  accent: "emerald" | "red";
+  placeholder: string;
+  inheritedSource: CascadeLevel;
+}) {
+  const [draft, setDraft] = useState("");
+  const titleColor = accent === "emerald" ? "text-emerald-700" : "text-red-700";
+  const iconColor = accent === "emerald" ? "text-emerald-500" : "text-red-500";
+  const Icon = accent === "emerald" ? CheckCircle : XCircle;
+
+  const addItem = () => {
+    const value = draft.trim();
+    if (!value) return;
+    onChange([...items, value]);
+    setDraft("");
+  };
+
+  return (
+    <div className="rounded-xl border border-border bg-white p-4">
+      <div className="flex items-center justify-between mb-2">
+        <p className={`text-sm font-semibold ${titleColor}`}>{title}</p>
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          Inherited from {inheritedSource}
+        </span>
+      </div>
+      <ul className="space-y-1.5 mb-3">
+        {items.length === 0 && (
+          <li className="text-xs text-muted-foreground italic">No items yet — add one below.</li>
+        )}
+        {items.map((item, i) => (
+          <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+            <Icon className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${iconColor}`} />
+            <span className="flex-1">{item}</span>
+            <button
+              type="button"
+              onClick={() => onChange(items.filter((_, idx) => idx !== i))}
+              className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-zinc-100 hover:text-red-600 transition-colors"
+              aria-label={`Remove ${title} item`}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div className="flex gap-1.5">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              addItem();
+            }
+          }}
+          className="input-base text-sm flex-1"
+          placeholder={placeholder}
+        />
+        <Button type="button" size="sm" variant="outline" onClick={addItem} className="gap-1 shrink-0">
+          <Plus className="h-3 w-3" /> Add
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -4755,11 +4581,18 @@ function AgentVoiceSection({
   const hasVerticalVoice = vertOvr?.voiceSettings && Object.keys(vertOvr.voiceSettings).length > 0;
   const hasPropertyVoice = propOvr?.voiceSettings && Object.keys(propOvr.voiceSettings).length > 0;
 
+  // The per-agent + per-property override is presented to the user as the
+  // "Property" override on this screen — the Agent cascade dot was removed so
+  // the inheritance reads consistently with the Tone tab (Company → Vertical
+  // → Property). Persistence still goes through `agentTuning` so we don't break
+  // existing reads; future cleanup could migrate this to
+  // `agentPropertyVoiceOverrides` for a single source of truth.
   const agentOvr = voice.agentTuning.find(
     t => t.agentId === agentId && t.propertyName === property.name,
   );
   const ovr = agentOvr?.voiceOverrides;
   const hasAgentVoiceOverride = !!ovr;
+  const hasAnyPropertyOverride = !!hasPropertyVoice || hasAgentVoiceOverride;
 
   const [editing, setEditing] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -4826,17 +4659,19 @@ function AgentVoiceSection({
   const effectiveGender = hasAgentVoiceOverride ? ovr!.voiceGender ?? gender.value : gender.value;
   const effectiveAccent = hasAgentVoiceOverride ? ovr!.voiceAccent ?? accent.value : accent.value;
   const effectiveLanguages = hasAgentVoiceOverride ? ovr!.voiceLanguages ?? languages.value : languages.value;
-  const genderSource: CascadeLevel = hasAgentVoiceOverride && ovr!.voiceGender ? "Agent" : gender.source;
-  const accentSource: CascadeLevel = hasAgentVoiceOverride && ovr!.voiceAccent ? "Agent" : accent.source;
-  const languagesSource: CascadeLevel = hasAgentVoiceOverride && ovr!.voiceLanguages ? "Agent" : languages.source;
-  const autoDetectSource: CascadeLevel = hasAgentVoiceOverride && ovr!.autoDetectLanguage !== undefined ? "Agent" : autoDetectLanguage.source;
-  const recordAudioSource: CascadeLevel = hasAgentVoiceOverride && ovr!.recordAudio !== undefined ? "Agent" : recordAudio.source;
-  const transcriptsSource: CascadeLevel = hasAgentVoiceOverride && ovr!.generateTranscripts !== undefined ? "Agent" : generateTranscripts.source;
-  const legalSource: CascadeLevel = hasAgentVoiceOverride && ovr!.legalDisclosureEnabled !== undefined ? "Agent" : legalDisclosureEnabled.source;
-  const greetingSource: CascadeLevel = hasAgentVoiceOverride && ovr!.greeting !== undefined ? "Agent" : greeting.source;
-  const holdPhraseSource: CascadeLevel = hasAgentVoiceOverride && ovr!.holdPhrase !== undefined ? "Agent" : holdPhrase.source;
-  const maxCallSource: CascadeLevel = hasAgentVoiceOverride && ovr!.maxCallLength !== undefined ? "Agent" : maxCallLength.source;
-  const disclosureSource: CascadeLevel = hasAgentVoiceOverride && ovr!.aiDisclosureEnabled !== undefined ? "Agent" : aiDisclosure.source;
+  // Per-agent-per-property edits are surfaced as "Property" level overrides on
+  // this screen (no separate "Agent" tier in the cascade UI here).
+  const genderSource: CascadeLevel = hasAgentVoiceOverride && ovr!.voiceGender ? "Property" : gender.source;
+  const accentSource: CascadeLevel = hasAgentVoiceOverride && ovr!.voiceAccent ? "Property" : accent.source;
+  const languagesSource: CascadeLevel = hasAgentVoiceOverride && ovr!.voiceLanguages ? "Property" : languages.source;
+  const autoDetectSource: CascadeLevel = hasAgentVoiceOverride && ovr!.autoDetectLanguage !== undefined ? "Property" : autoDetectLanguage.source;
+  const recordAudioSource: CascadeLevel = hasAgentVoiceOverride && ovr!.recordAudio !== undefined ? "Property" : recordAudio.source;
+  const transcriptsSource: CascadeLevel = hasAgentVoiceOverride && ovr!.generateTranscripts !== undefined ? "Property" : generateTranscripts.source;
+  const legalSource: CascadeLevel = hasAgentVoiceOverride && ovr!.legalDisclosureEnabled !== undefined ? "Property" : legalDisclosureEnabled.source;
+  const greetingSource: CascadeLevel = hasAgentVoiceOverride && ovr!.greeting !== undefined ? "Property" : greeting.source;
+  const holdPhraseSource: CascadeLevel = hasAgentVoiceOverride && ovr!.holdPhrase !== undefined ? "Property" : holdPhrase.source;
+  const maxCallSource: CascadeLevel = hasAgentVoiceOverride && ovr!.maxCallLength !== undefined ? "Property" : maxCallLength.source;
+  const disclosureSource: CascadeLevel = hasAgentVoiceOverride && ovr!.aiDisclosureEnabled !== undefined ? "Property" : aiDisclosure.source;
 
   const effectiveRecordAudio = hasAgentVoiceOverride && ovr!.recordAudio !== undefined ? ovr!.recordAudio : recordAudio.value;
   const effectiveTranscripts = hasAgentVoiceOverride && ovr!.generateTranscripts !== undefined ? ovr!.generateTranscripts : generateTranscripts.value;
@@ -4849,25 +4684,31 @@ function AgentVoiceSection({
 
   return (
     <>
-      <div className="mt-6 rounded-xl border border-border bg-zinc-50/50 p-4">
+      <div className="mt-6 rounded-xl border border-border bg-zinc-50/50 px-4 pt-4 pb-8">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Cascade Inheritance</p>
-            <CascadeDots hasVertical={!!hasVerticalVoice} hasProperty={!!hasPropertyVoice} hasAgent={hasAgentVoiceOverride} />
+            <CascadeDots
+              hasVertical={!!hasVerticalVoice}
+              hasProperty={hasAnyPropertyOverride}
+              hasAgent={false}
+              rootLabel="Company"
+              includeAgent={false}
+            />
           </div>
           <div className="flex items-center gap-2">
             {hasAgentVoiceOverride ? (
               <>
-                <Badge variant="outline" className="text-emerald-700 border-emerald-300 bg-emerald-50 text-xs">Agent Override Active</Badge>
+                <Badge variant="outline" className="text-emerald-700 border-emerald-300 bg-emerald-50 text-xs">Property Override Active</Badge>
                 {!editing && (
                   <Button variant="outline" size="sm" onClick={startEditing} className="gap-1">
-                    <Pencil className="h-3 w-3" /> Edit
+                    <Pencil className="h-3 w-3" /> Edit Property Override
                   </Button>
                 )}
               </>
             ) : (
               <Button variant="outline" size="sm" onClick={startEditing} className="gap-1">
-                <Plus className="h-3.5 w-3.5" /> Add Agent Override
+                <Plus className="h-3.5 w-3.5" /> Add Property Override
               </Button>
             )}
           </div>
@@ -4987,10 +4828,15 @@ function AgentVoiceSection({
         <div className="mt-6 space-y-5">
           <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50/30 p-5 space-y-5">
             <div className="flex items-center gap-2 mb-1">
-              <Bot className="h-4 w-4 text-emerald-600" />
-              <p className="text-sm font-semibold text-foreground">Agent-Level Voice Override</p>
+              <Home className="h-4 w-4 text-emerald-600" />
+              <p className="text-sm font-semibold text-foreground">Property-Level Voice Override</p>
               <span className="text-xs text-muted-foreground">for {agentName} at {property.name}</span>
             </div>
+            <p className="-mt-3 text-xs text-muted-foreground">
+              Changes save as a property-level override and will appear in the centralized
+              Agent Voice &amp; Tone settings. Company and Vertical defaults aren&apos;t editable
+              from this screen.
+            </p>
 
             <div>
               <label className="mb-2 block text-sm font-medium">Voice Gender</label>
@@ -5208,14 +5054,44 @@ const AGENT_FLYOUT_DESCRIPTIONS: Record<string, string> = {
   "Renewal AI": "Automate renewal conversations, offers, and retention outreach.",
 };
 
-type SettingsNav = "property" | "agent-settings" | "voice-tone" | "simulation" | "history";
+type SettingsNav = "property" | "agent-settings" | "voice-tone" | "simulation" | "internal-demo" | "history";
+
+const AGENTS_WITH_HISTORY = new Set<string>([
+  "Maintenance AI",
+  "Payments AI",
+  "Leasing AI",
+  "Renewal AI",
+]);
+
+/**
+ * The four ELI+ agents. These all get a "Simulation" tab (formerly named
+ * "Internal Demo"). For each agent it embeds the live demo iframe. If an
+ * agent's demo URL is not yet configured in INTERNAL_DEMO_AGENTS, the panel
+ * falls back to a Coming Soon placeholder.
+ */
+const ELI_PLUS_AGENTS = new Set<string>([
+  "Leasing AI",
+  "Renewal AI",
+  "Payments AI",
+  "Maintenance AI",
+]);
 
 function getAgentSubPages(agentName: string): { id: SettingsNav; label: string }[] {
-  return [
+  const pages: { id: SettingsNav; label: string }[] = [
     { id: "agent-settings", label: `${agentName} Settings` },
     { id: "voice-tone", label: "Voice & Tone" },
-    { id: "simulation", label: "Simulation" },
+    // NOTE: legacy "Simulation" tab intentionally hidden from the nav.
+    // The "simulation" id, AgentSimulationPanel, and routing branch are kept
+    // intact so we can re-enable later without code churn.
+    // { id: "simulation", label: "Simulation" },
   ];
+  if (AGENTS_WITH_HISTORY.has(agentName)) {
+    pages.push({ id: "history", label: "History & Logging" });
+  }
+  if (ELI_PLUS_AGENTS.has(agentName)) {
+    pages.push({ id: "internal-demo", label: "Simulation" });
+  }
+  return pages;
 }
 
 function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: string; property: typeof AGENT_FLYOUT_PROPERTIES[0]; onBack: () => void }) {
@@ -5290,8 +5166,10 @@ function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: 
                     {section.settings.map(setting => (
                       <a
                         key={setting.name}
-                        href="#"
-                        onClick={e => e.preventDefault()}
+                        href={setting.link ?? "#"}
+                        target={setting.link ? "_blank" : undefined}
+                        rel={setting.link ? "noopener noreferrer" : undefined}
+                        onClick={setting.link ? undefined : (e => e.preventDefault())}
                         className="flex items-center gap-4 rounded-xl border border-border bg-white p-4 text-left transition-all hover:border-zinc-400 hover:shadow-md group"
                       >
                         <div className="flex-1 min-w-0">
@@ -5301,7 +5179,7 @@ function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: 
                           )}
                         </div>
                         <div className="h-8 w-8 rounded-full bg-zinc-900 flex items-center justify-center shrink-0 group-hover:bg-zinc-700 transition-colors">
-                          <ArrowRight className="h-4 w-4 text-white" />
+                          {setting.link ? <ExternalLink className="h-4 w-4 text-white" /> : <ArrowRight className="h-4 w-4 text-white" />}
                         </div>
                       </a>
                     ))}
@@ -5317,11 +5195,16 @@ function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: 
                 propertyName={property.name}
                 agentDisplayLabel={`ELI+ ${agentName}`}
                 simulationCount={simulationCount}
-                onOpenSimulation={() => setActiveNav("simulation")}
+                onOpenSimulation={() => setActiveNav("internal-demo")}
               />
             </div>
           ) : agentName === "Maintenance AI" ? (
             <MaintenanceAISettingsPanel
+              propertyName={property.name}
+              agentDisplayLabel={`ELI+ ${agentName}`}
+            />
+          ) : agentName === "Renewal AI" ? (
+            <RenewalsAISettingsPanel
               propertyName={property.name}
               agentDisplayLabel={`ELI+ ${agentName}`}
             />
@@ -5352,6 +5235,8 @@ function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: 
             propertyName={property.name}
             onSimulationStarted={() => setSimulationCount((n) => n + 1)}
           />
+        ) : activeNav === "internal-demo" ? (
+          <InternalDemoPanel agentName={agentName} propertyName={property.name} />
         ) : (
           <AgentHistoryPanel agentName={agentName} propertyName={property.name} />
         )}
@@ -5359,6 +5244,8 @@ function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: 
     </div>
   );
 }
+
+type CloneSettingType = "communication_windows" | "offer_follow_ups" | "lease_follow_ups";
 
 function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string; SettingsPage: React.ComponentType<FlyoutPageProps> }) {
   const [selectedProperty, setSelectedProperty] = useState<typeof AGENT_FLYOUT_PROPERTIES[0] | null>(null);
@@ -5369,6 +5256,48 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
   const [sortField, setSortField] = useState<"name" | "vertical" | "status">("name");
   const [sortAsc, setSortAsc] = useState(true);
   const [activatePopover, setActivatePopover] = useState<string | null>(null);
+
+  const [cloneOpen, setCloneOpen] = useState(false);
+  const [cloneSource, setCloneSource] = useState<string | null>(null);
+  const [cloneSettings, setCloneSettings] = useState<Set<CloneSettingType>>(new Set(["communication_windows", "offer_follow_ups", "lease_follow_ups"]));
+  const [cloneTargets, setCloneTargets] = useState<Set<string>>(new Set());
+  const [cloneSuccess, setCloneSuccess] = useState(false);
+
+  const activeProperties = AGENT_FLYOUT_PROPERTIES.filter(p => p.status === "Active");
+  const isRenewalAI = agentName === "Renewal AI";
+
+  const openCloneDialog = () => {
+    setCloneSource(null);
+    setCloneSettings(new Set(["communication_windows", "offer_follow_ups", "lease_follow_ups"]));
+    setCloneTargets(new Set());
+    setCloneSuccess(false);
+    setCloneOpen(true);
+  };
+
+  const toggleCloneSetting = (s: CloneSettingType) => {
+    setCloneSettings(prev => {
+      const next = new Set(prev);
+      if (next.has(s)) next.delete(s); else next.add(s);
+      return next;
+    });
+  };
+
+  const toggleCloneTarget = (id: string) => {
+    setCloneTargets(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllTargets = () => {
+    const eligible = activeProperties.filter(p => p.id !== cloneSource).map(p => p.id);
+    setCloneTargets(new Set(eligible));
+  };
+
+  const deselectAllTargets = () => setCloneTargets(new Set());
+
+  const handleClone = () => setCloneSuccess(true);
 
   const filtered = AGENT_FLYOUT_PROPERTIES
     .filter(p => visibleIds.has(p.id))
@@ -5429,6 +5358,16 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
           >
             {filterLabel} <ChevronDown className="h-3.5 w-3.5 text-muted-foreground ml-1" />
           </button>
+          {isRenewalAI && activeProperties.length > 1 && (
+            <button
+              type="button"
+              onClick={openCloneDialog}
+              className="h-9 flex items-center gap-2 rounded-lg border border-border bg-white pl-3 pr-3 text-sm text-foreground hover:border-zinc-400 transition-colors"
+            >
+              <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+              Clone Settings
+            </button>
+          )}
         </div>
 
         <table className="w-full text-sm">
@@ -5624,6 +5563,160 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
                 Apply Filter
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {cloneOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onClick={() => setCloneOpen(false)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 flex flex-col" style={{ maxHeight: "85vh" }} onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-border">
+              <div>
+                <h2 className="text-lg font-bold text-foreground">Clone Renewal AI Settings</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">Copy settings from one property to others.</p>
+              </div>
+              <button type="button" onClick={() => setCloneOpen(false)} className="p-1 rounded-md hover:bg-zinc-100 text-muted-foreground hover:text-foreground transition-colors">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {cloneSuccess ? (
+              <div className="flex flex-col items-center justify-center py-16 px-6">
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 mb-4">
+                  <CheckCircle className="h-7 w-7 text-emerald-600" />
+                </div>
+                <h3 className="text-base font-semibold text-foreground mb-1">Settings cloned successfully</h3>
+                <p className="text-sm text-muted-foreground text-center max-w-sm mb-6">
+                  {cloneSettings.size} setting{cloneSettings.size !== 1 ? "s" : ""} from <strong>{activeProperties.find(p => p.id === cloneSource)?.name}</strong> {cloneSettings.size !== 1 ? "have" : "has"} been applied to {cloneTargets.size} propert{cloneTargets.size !== 1 ? "ies" : "y"}.
+                </p>
+                <button type="button" onClick={() => setCloneOpen(false)} className="px-6 py-2 rounded-full bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-800 transition-colors">
+                  Done
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-6">
+                  {/* Step 1: Source property */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-900 text-[10px] font-bold text-white">1</span>
+                      <p className="text-sm font-semibold text-foreground">Select source property</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground ml-7">Choose the property whose settings you want to copy from.</p>
+                    <div className="ml-7 grid grid-cols-2 gap-1.5">
+                      {activeProperties.map(p => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => { setCloneSource(p.id); setCloneTargets(prev => { const n = new Set(prev); n.delete(p.id); return n; }); }}
+                          className={`text-left px-3 py-2 text-sm rounded-lg border transition-all ${
+                            cloneSource === p.id
+                              ? "border-zinc-900 bg-zinc-50 font-medium"
+                              : "border-border hover:border-zinc-400"
+                          }`}
+                        >
+                          {p.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Step 2: Which settings */}
+                  {cloneSource && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-900 text-[10px] font-bold text-white">2</span>
+                        <p className="text-sm font-semibold text-foreground">Choose settings to clone</p>
+                      </div>
+                      <p className="text-xs text-muted-foreground ml-7">Select which configuration sections to copy.</p>
+                      <div className="ml-7 space-y-1.5">
+                        {([
+                          { id: "communication_windows" as CloneSettingType, label: "Communication Windows", desc: "Send time and allowed days" },
+                          { id: "offer_follow_ups" as CloneSettingType, label: "Renewal Offer Follow-Ups", desc: "Follow-up schedule for pending offers" },
+                          { id: "lease_follow_ups" as CloneSettingType, label: "Renewal Lease Follow-Ups", desc: "Follow-up schedule for unsigned leases" },
+                        ]).map(s => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => toggleCloneSetting(s.id)}
+                            className={`w-full text-left px-3 py-2.5 rounded-lg border transition-all flex items-center gap-3 ${
+                              cloneSettings.has(s.id)
+                                ? "border-zinc-900 bg-zinc-50"
+                                : "border-border hover:border-zinc-400"
+                            }`}
+                          >
+                            <div className={`flex h-4 w-4 items-center justify-center rounded border transition-colors ${
+                              cloneSettings.has(s.id) ? "bg-zinc-900 border-zinc-900" : "border-zinc-300"
+                            }`}>
+                              {cloneSettings.has(s.id) && <CheckCircle2 className="h-3 w-3 text-white" />}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium">{s.label}</p>
+                              <p className="text-[11px] text-muted-foreground">{s.desc}</p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Step 3: Target properties */}
+                  {cloneSource && cloneSettings.size > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-900 text-[10px] font-bold text-white">3</span>
+                        <p className="text-sm font-semibold text-foreground">Select target properties</p>
+                      </div>
+                      <div className="ml-7 flex items-center justify-between">
+                        <p className="text-xs text-muted-foreground">Choose which properties will receive the cloned settings.</p>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={selectAllTargets} className="text-[11px] font-medium text-foreground hover:underline">Select all</button>
+                          <span className="text-zinc-300">|</span>
+                          <button type="button" onClick={deselectAllTargets} className="text-[11px] font-medium text-muted-foreground hover:underline">Clear</button>
+                        </div>
+                      </div>
+                      <div className="ml-7 grid grid-cols-2 gap-1.5">
+                        {activeProperties.filter(p => p.id !== cloneSource).map(p => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => toggleCloneTarget(p.id)}
+                            className={`text-left px-3 py-2 text-sm rounded-lg border transition-all flex items-center gap-2 ${
+                              cloneTargets.has(p.id)
+                                ? "border-zinc-900 bg-zinc-50 font-medium"
+                                : "border-border hover:border-zinc-400"
+                            }`}
+                          >
+                            <div className={`flex h-3.5 w-3.5 items-center justify-center rounded border transition-colors shrink-0 ${
+                              cloneTargets.has(p.id) ? "bg-zinc-900 border-zinc-900" : "border-zinc-300"
+                            }`}>
+                              {cloneTargets.has(p.id) && <CheckCircle2 className="h-2.5 w-2.5 text-white" />}
+                            </div>
+                            {p.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between px-6 py-4 border-t border-border">
+                  <p className="text-xs text-muted-foreground">
+                    {cloneSource && cloneSettings.size > 0 && cloneTargets.size > 0
+                      ? `${cloneSettings.size} setting${cloneSettings.size !== 1 ? "s" : ""} → ${cloneTargets.size} propert${cloneTargets.size !== 1 ? "ies" : "y"}`
+                      : "Complete all steps to clone"}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleClone}
+                    disabled={!cloneSource || cloneSettings.size === 0 || cloneTargets.size === 0}
+                    className="px-6 py-2 rounded-full bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Clone Settings
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
