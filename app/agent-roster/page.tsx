@@ -33,7 +33,7 @@ import { useTools } from "@/lib/tools-context";
 import { useGovernance } from "@/lib/governance-context";
 import { useAgentCompliance } from "@/lib/use-agent-compliance";
 import { useR1Release } from "@/lib/r1-release-context";
-import { Tag, X, Search, DollarSign, Megaphone, Users, Wrench, ShieldCheck, Power, Activity, AlertCircle, Play, Clock, CheckCircle, CheckCircle2, XCircle, Calendar, Lightbulb, Target, Database, BarChart3, Pencil, Save, ArrowLeft, ArrowRight, Sparkles, BookOpen, Cog, Bot, Box, MessageSquare, Shield, Zap, Eye, EyeOff, Globe, Mail, Phone, Volume2, History, RotateCcw, Lock, ExternalLink, CirclePlay, TrendingUp, TrendingDown, Minus, ArrowUpDown, ChevronDown, ChevronUp, Building2, Layers, Home, Plus, Info, Trash2 } from "lucide-react";
+import { Tag, X, Search, DollarSign, Megaphone, Users, Wrench, ShieldCheck, Power, Activity, AlertCircle, Play, Clock, CheckCircle, CheckCircle2, XCircle, Calendar, Lightbulb, Target, Database, BarChart3, Pencil, Save, ArrowLeft, ArrowRight, Sparkles, BookOpen, Cog, Bot, Box, MessageSquare, Shield, Zap, Eye, EyeOff, Globe, Mail, Phone, Volume2, History, RotateCcw, Lock, ExternalLink, CirclePlay, TrendingUp, TrendingDown, Minus, ArrowUpDown, ChevronDown, ChevronUp, Building2, Layers, Home, Plus, Info, Trash2, Copy } from "lucide-react";
 import {
   useVoice,
   NOVA2_VOICES,
@@ -61,6 +61,7 @@ import { MaintenanceFullPage } from "@/components/eli-plus-setup/pages/Maintenan
 import { RenewalsFullPage } from "@/components/eli-plus-setup/pages/RenewalsFullPage";
 import { LeasingAISettingsPanel } from "@/components/leasing-ai-settings-panel";
 import { MaintenanceAISettingsPanel } from "@/components/maintenance-ai-settings-panel";
+import { RenewalsAISettingsPanel } from "@/components/renewals-ai-settings-panel";
 import { InternalDemoPanel } from "@/components/internal-demo-panel";
 import { LeadToLeaseSettings } from "@/components/lead-to-lease-settings";
 import { L3AgentSheet, getL3AgentConfig } from "@/components/l3-agent-flyout";
@@ -3292,7 +3293,7 @@ const ELI_PLUS_SETTINGS_MAP: Record<string, React.ComponentType<FlyoutPageProps>
   "Renewal AI": RenewalsFullPage as React.ComponentType<FlyoutPageProps>,
 };
 
-type SettingItem = { name: string; description: string };
+type SettingItem = { name: string; description: string; link?: string };
 type TabDef = { id: string; label: string; settings: SettingItem[] };
 
 const AGENT_SETTINGS_TABS: Record<string, TabDef[]> = {
@@ -3397,14 +3398,12 @@ const AGENT_SETTINGS_TABS: Record<string, TabDef[]> = {
   "Renewal AI": [
     { id: "property", label: "Property Info", settings: [
       { name: "Primary Address", description: "The property's physical address used in renewal communications." },
-      { name: "Business Hours", description: "Set operating hours for renewal-related support at this property." },
-      { name: "Contact Points", description: "Configure renewal notification triggers — offer generated, accepted, lease approved, etc." },
+      { name: "Contact Points", description: "Renewal AI handles resident communication directly, but you may still want to configure renewal contact points in Entrata for deterministic notifications such as offer generated, accepted, or lease approved emails.", link: "https://DOMAIN.entrata.com/?module=properties_setupxxx&load_large_dialog=/%3Fmodule%3Dproperty_communication_contact_points_renewals_and_lease_modificationsxxx%26property%5Bid%5D%3DPROPERTYID%26" },
       { name: "ELI+ Dashboard Permissions", description: "Permission users who directly manage the ELI+ console for this property." },
     ]},
     { id: "marketing", label: "Marketing", settings: [
       { name: "Prospect Portal", description: "Configure the prospect-facing portal used for this property." },
-      { name: "Property Website", description: "Set the property website URL shared in renewal communications." },
-      { name: "Privacy Policy", description: "Link to the privacy policy displayed during renewal interactions." },
+      { name: "Property Policies", description: "Review and update the property policies displayed to residents during renewal interactions.", link: "https://DOMAIN.entrata.com/?module=properties_setupxxx&load_large_dialog=%3Fmodule%3Dproperty_details_general_policiesxxx%26property%5Bid%5D%3DPROPERTYID%26" },
     ]},
   ],
 };
@@ -5167,8 +5166,10 @@ function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: 
                     {section.settings.map(setting => (
                       <a
                         key={setting.name}
-                        href="#"
-                        onClick={e => e.preventDefault()}
+                        href={setting.link ?? "#"}
+                        target={setting.link ? "_blank" : undefined}
+                        rel={setting.link ? "noopener noreferrer" : undefined}
+                        onClick={setting.link ? undefined : (e => e.preventDefault())}
                         className="flex items-center gap-4 rounded-xl border border-border bg-white p-4 text-left transition-all hover:border-zinc-400 hover:shadow-md group"
                       >
                         <div className="flex-1 min-w-0">
@@ -5178,7 +5179,7 @@ function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: 
                           )}
                         </div>
                         <div className="h-8 w-8 rounded-full bg-zinc-900 flex items-center justify-center shrink-0 group-hover:bg-zinc-700 transition-colors">
-                          <ArrowRight className="h-4 w-4 text-white" />
+                          {setting.link ? <ExternalLink className="h-4 w-4 text-white" /> : <ArrowRight className="h-4 w-4 text-white" />}
                         </div>
                       </a>
                     ))}
@@ -5199,6 +5200,11 @@ function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: 
             </div>
           ) : agentName === "Maintenance AI" ? (
             <MaintenanceAISettingsPanel
+              propertyName={property.name}
+              agentDisplayLabel={`ELI+ ${agentName}`}
+            />
+          ) : agentName === "Renewal AI" ? (
+            <RenewalsAISettingsPanel
               propertyName={property.name}
               agentDisplayLabel={`ELI+ ${agentName}`}
             />
@@ -5239,6 +5245,8 @@ function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: 
   );
 }
 
+type CloneSettingType = "communication_windows" | "offer_follow_ups" | "lease_follow_ups";
+
 function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string; SettingsPage: React.ComponentType<FlyoutPageProps> }) {
   const [selectedProperty, setSelectedProperty] = useState<typeof AGENT_FLYOUT_PROPERTIES[0] | null>(null);
   const [visibleIds, setVisibleIds] = useState<Set<string>>(() => new Set(AGENT_FLYOUT_PROPERTIES.map(p => p.id)));
@@ -5248,6 +5256,48 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
   const [sortField, setSortField] = useState<"name" | "vertical" | "status">("name");
   const [sortAsc, setSortAsc] = useState(true);
   const [activatePopover, setActivatePopover] = useState<string | null>(null);
+
+  const [cloneOpen, setCloneOpen] = useState(false);
+  const [cloneSource, setCloneSource] = useState<string | null>(null);
+  const [cloneSettings, setCloneSettings] = useState<Set<CloneSettingType>>(new Set(["communication_windows", "offer_follow_ups", "lease_follow_ups"]));
+  const [cloneTargets, setCloneTargets] = useState<Set<string>>(new Set());
+  const [cloneSuccess, setCloneSuccess] = useState(false);
+
+  const activeProperties = AGENT_FLYOUT_PROPERTIES.filter(p => p.status === "Active");
+  const isRenewalAI = agentName === "Renewal AI";
+
+  const openCloneDialog = () => {
+    setCloneSource(null);
+    setCloneSettings(new Set(["communication_windows", "offer_follow_ups", "lease_follow_ups"]));
+    setCloneTargets(new Set());
+    setCloneSuccess(false);
+    setCloneOpen(true);
+  };
+
+  const toggleCloneSetting = (s: CloneSettingType) => {
+    setCloneSettings(prev => {
+      const next = new Set(prev);
+      if (next.has(s)) next.delete(s); else next.add(s);
+      return next;
+    });
+  };
+
+  const toggleCloneTarget = (id: string) => {
+    setCloneTargets(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllTargets = () => {
+    const eligible = activeProperties.filter(p => p.id !== cloneSource).map(p => p.id);
+    setCloneTargets(new Set(eligible));
+  };
+
+  const deselectAllTargets = () => setCloneTargets(new Set());
+
+  const handleClone = () => setCloneSuccess(true);
 
   const filtered = AGENT_FLYOUT_PROPERTIES
     .filter(p => visibleIds.has(p.id))
@@ -5308,6 +5358,16 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
           >
             {filterLabel} <ChevronDown className="h-3.5 w-3.5 text-muted-foreground ml-1" />
           </button>
+          {isRenewalAI && activeProperties.length > 1 && (
+            <button
+              type="button"
+              onClick={openCloneDialog}
+              className="h-9 flex items-center gap-2 rounded-lg border border-border bg-white pl-3 pr-3 text-sm text-foreground hover:border-zinc-400 transition-colors"
+            >
+              <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+              Clone Settings
+            </button>
+          )}
         </div>
 
         <table className="w-full text-sm">
@@ -5503,6 +5563,160 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
                 Apply Filter
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {cloneOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onClick={() => setCloneOpen(false)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 flex flex-col" style={{ maxHeight: "85vh" }} onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-border">
+              <div>
+                <h2 className="text-lg font-bold text-foreground">Clone Renewal AI Settings</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">Copy settings from one property to others.</p>
+              </div>
+              <button type="button" onClick={() => setCloneOpen(false)} className="p-1 rounded-md hover:bg-zinc-100 text-muted-foreground hover:text-foreground transition-colors">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {cloneSuccess ? (
+              <div className="flex flex-col items-center justify-center py-16 px-6">
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 mb-4">
+                  <CheckCircle className="h-7 w-7 text-emerald-600" />
+                </div>
+                <h3 className="text-base font-semibold text-foreground mb-1">Settings cloned successfully</h3>
+                <p className="text-sm text-muted-foreground text-center max-w-sm mb-6">
+                  {cloneSettings.size} setting{cloneSettings.size !== 1 ? "s" : ""} from <strong>{activeProperties.find(p => p.id === cloneSource)?.name}</strong> {cloneSettings.size !== 1 ? "have" : "has"} been applied to {cloneTargets.size} propert{cloneTargets.size !== 1 ? "ies" : "y"}.
+                </p>
+                <button type="button" onClick={() => setCloneOpen(false)} className="px-6 py-2 rounded-full bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-800 transition-colors">
+                  Done
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-6">
+                  {/* Step 1: Source property */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-900 text-[10px] font-bold text-white">1</span>
+                      <p className="text-sm font-semibold text-foreground">Select source property</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground ml-7">Choose the property whose settings you want to copy from.</p>
+                    <div className="ml-7 grid grid-cols-2 gap-1.5">
+                      {activeProperties.map(p => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => { setCloneSource(p.id); setCloneTargets(prev => { const n = new Set(prev); n.delete(p.id); return n; }); }}
+                          className={`text-left px-3 py-2 text-sm rounded-lg border transition-all ${
+                            cloneSource === p.id
+                              ? "border-zinc-900 bg-zinc-50 font-medium"
+                              : "border-border hover:border-zinc-400"
+                          }`}
+                        >
+                          {p.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Step 2: Which settings */}
+                  {cloneSource && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-900 text-[10px] font-bold text-white">2</span>
+                        <p className="text-sm font-semibold text-foreground">Choose settings to clone</p>
+                      </div>
+                      <p className="text-xs text-muted-foreground ml-7">Select which configuration sections to copy.</p>
+                      <div className="ml-7 space-y-1.5">
+                        {([
+                          { id: "communication_windows" as CloneSettingType, label: "Communication Windows", desc: "Send time and allowed days" },
+                          { id: "offer_follow_ups" as CloneSettingType, label: "Renewal Offer Follow-Ups", desc: "Follow-up schedule for pending offers" },
+                          { id: "lease_follow_ups" as CloneSettingType, label: "Renewal Lease Follow-Ups", desc: "Follow-up schedule for unsigned leases" },
+                        ]).map(s => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => toggleCloneSetting(s.id)}
+                            className={`w-full text-left px-3 py-2.5 rounded-lg border transition-all flex items-center gap-3 ${
+                              cloneSettings.has(s.id)
+                                ? "border-zinc-900 bg-zinc-50"
+                                : "border-border hover:border-zinc-400"
+                            }`}
+                          >
+                            <div className={`flex h-4 w-4 items-center justify-center rounded border transition-colors ${
+                              cloneSettings.has(s.id) ? "bg-zinc-900 border-zinc-900" : "border-zinc-300"
+                            }`}>
+                              {cloneSettings.has(s.id) && <CheckCircle2 className="h-3 w-3 text-white" />}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium">{s.label}</p>
+                              <p className="text-[11px] text-muted-foreground">{s.desc}</p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Step 3: Target properties */}
+                  {cloneSource && cloneSettings.size > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-900 text-[10px] font-bold text-white">3</span>
+                        <p className="text-sm font-semibold text-foreground">Select target properties</p>
+                      </div>
+                      <div className="ml-7 flex items-center justify-between">
+                        <p className="text-xs text-muted-foreground">Choose which properties will receive the cloned settings.</p>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={selectAllTargets} className="text-[11px] font-medium text-foreground hover:underline">Select all</button>
+                          <span className="text-zinc-300">|</span>
+                          <button type="button" onClick={deselectAllTargets} className="text-[11px] font-medium text-muted-foreground hover:underline">Clear</button>
+                        </div>
+                      </div>
+                      <div className="ml-7 grid grid-cols-2 gap-1.5">
+                        {activeProperties.filter(p => p.id !== cloneSource).map(p => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => toggleCloneTarget(p.id)}
+                            className={`text-left px-3 py-2 text-sm rounded-lg border transition-all flex items-center gap-2 ${
+                              cloneTargets.has(p.id)
+                                ? "border-zinc-900 bg-zinc-50 font-medium"
+                                : "border-border hover:border-zinc-400"
+                            }`}
+                          >
+                            <div className={`flex h-3.5 w-3.5 items-center justify-center rounded border transition-colors shrink-0 ${
+                              cloneTargets.has(p.id) ? "bg-zinc-900 border-zinc-900" : "border-zinc-300"
+                            }`}>
+                              {cloneTargets.has(p.id) && <CheckCircle2 className="h-2.5 w-2.5 text-white" />}
+                            </div>
+                            {p.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between px-6 py-4 border-t border-border">
+                  <p className="text-xs text-muted-foreground">
+                    {cloneSource && cloneSettings.size > 0 && cloneTargets.size > 0
+                      ? `${cloneSettings.size} setting${cloneSettings.size !== 1 ? "s" : ""} → ${cloneTargets.size} propert${cloneTargets.size !== 1 ? "ies" : "y"}`
+                      : "Complete all steps to clone"}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleClone}
+                    disabled={!cloneSource || cloneSettings.size === 0 || cloneTargets.size === 0}
+                    className="px-6 py-2 rounded-full bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Clone Settings
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
