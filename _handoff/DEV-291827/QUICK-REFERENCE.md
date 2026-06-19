@@ -2,7 +2,7 @@
 
 ## 1. What Is This?
 
-Per-property settings for Renewals AI that let operators control **when** the agent sends proactive messages (communication windows), **which days** to skip proactive outreach (blackout dates — bank holidays, property holidays, and custom dates), **how often** it follows up on undecided renewal offers, and **how often** it nudges residents to sign accepted-but-unsigned renewal leases. Includes a clone feature to copy settings across properties.
+Per-property settings for Renewals AI that let operators control **when** the agent sends proactive messages (communication windows), **which days** to skip proactive outreach (blackout dates — a unified list of bank holidays, property holidays, and custom dates with source pills), **how often** it follows up on undecided renewal offers, and **how often** it nudges residents to sign accepted-but-unsigned renewal leases. Follow-up steps using "before lease end date" show a warning that they won't trigger for month-to-month leases. Includes a clone feature to copy settings across properties.
 
 ## 2. Key Files
 
@@ -16,16 +16,17 @@ Per-property settings for Renewals AI that let operators control **when** the ag
 ## 3. How to Run
 
 ```bash
-git checkout rjones/renewals-ai-follow-up-cadence
+git checkout rjones/renewals-ai-property-holidays
 npm install && npm run dev
 # http://localhost:3000 → Agent Roster → Renewal AI → click any Active property → Renewal AI Settings
 ```
 
 ## 4. Three Things to Know
 
-1. **Four settings sections** — Communication Windows (send hour + days), Blackout Dates (bank holidays + property holidays + custom dates), Renewal Offer Follow-Ups (days + anchor for undecided offers), Renewal Lease Follow-Ups (days + anchor + target for unsigned leases)
-2. **Three-tier blackout dates** — Standard bank holidays (11 US federal, dynamically computed), property holidays from Entrata's Property Hours & Holidays config (with overlap badges when matching a bank holiday), and unlimited custom dates with labels
-3. **Clone settings** — "Clone Settings" button in the properties table lets operators copy any combination of the settings sections from one property to selected target properties
+1. **Four settings sections** — Communication Windows (send hour + days), Blackout Dates (unified holiday list + custom dates), Renewal Offer Follow-Ups (days + anchor for undecided offers), Renewal Lease Follow-Ups (days + anchor + target for unsigned leases)
+2. **Unified blackout dates** — Bank holidays and property holidays are merged into a single chronologically sorted list. Each row has one checkbox and pill badges ("Federal", "Property", or both) indicating the source. Custom dates are entered separately below.
+3. **Month-to-month warning** — Follow-up steps using "before lease end date" display an amber warning that they will not trigger for month-to-month leases (no lease end date)
+4. **Clone settings** — "Clone Settings" button in the properties table lets operators copy any combination of the settings sections from one property to selected target properties
 
 ## 5. Out of Scope
 

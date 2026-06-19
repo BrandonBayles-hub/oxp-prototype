@@ -4,7 +4,7 @@
 
 ## Context
 
-You are implementing per-property follow-up cadence settings for Renewals AI in the Entrata OXP platform. The prototype lives on branch `rjones/renewals-ai-follow-up-cadence` in `entrata-product/oxp-prototype-product`. The Jira epic is [DEV-291827](https://entrata.atlassian.net/browse/DEV-291827).
+You are implementing per-property follow-up cadence settings for Renewals AI in the Entrata OXP platform. The prototype lives on branch `rjones/renewals-ai-property-holidays` in `entrata-product/oxp-prototype-product`. The Jira epic is [DEV-291827](https://entrata.atlassian.net/browse/DEV-291827).
 
 Read `_handoff/DEV-291827/PROJECT-DETAILS.md` for full context including component inventory, data model suggestions, and test gaps.
 
@@ -24,21 +24,25 @@ Each property using Renewals AI can configure three settings areas:
 - Steps can be added, removed, and reordered (move up/down)
 - Goal: learn resident intent (renew or not) as early as possible
 - Default cadence: 3d after sent, 7d after sent, 14d after sent, 60d before end, 30d before end
+- **Month-to-month warning**: Steps using `before_lease_end` anchor display an amber info note: "Will not trigger for month-to-month leases (no lease end date)."
 
 ### 3. Renewal Lease Follow-Ups
 - A list of follow-up steps for residents who accepted renewal but haven't signed the lease
 - Each step has: `days`, `anchor` (either `after_lease_generated` or `before_lease_end`), and `target` (either `all_residents` or `unsigned_only`)
 - The `target` field allows differentiating between nudging all responsible parties vs. only those who haven't signed yet
 - Default cadence: 2d after generated (unsigned), 5d after generated (unsigned), 14d before end (unsigned), 7d before end (all)
+- **Month-to-month warning**: Same as offer follow-ups — steps using `before_lease_end` anchor display the amber warning about month-to-month leases
 
 ### 4. Blackout Dates
 - Properties can define dates when the agent should **not** send proactive outbound messages (the agent will still respond to residents who message on blackout days)
-- Three sources of blackout dates:
-  - **Standard bank holidays**: 11 US federal bank holidays with dynamic date computation (handles fixed dates, nth-weekday-of-month, and last-weekday-of-month rules). Shows dates for current year and next year. Pre-selects 6 most common holidays by default.
-  - **Property holidays**: Pulled from the property's Hours & Holidays configuration in Entrata (`?module=property_details_general_hoursxxx`). Displayed in a visually distinct section (blue-tinted background, blue checkboxes, building icon). When a property holiday falls on the same date as a bank holiday, an amber badge shows "Also a bank holiday (enabled)" or "Also a bank holiday" depending on whether the bank holiday is active.
+- Three sources of blackout dates displayed in a **single unified, chronologically sorted list**:
+  - **Standard bank holidays**: 11 US federal bank holidays with dynamic date computation (handles fixed dates, nth-weekday-of-month, and last-weekday-of-month rules). Shows dates for current year and next year. Pre-selects 6 most common holidays by default. Displayed with a gray "Federal" pill badge.
+  - **Property holidays**: Pulled from the property's Hours & Holidays configuration in Entrata (`?module=property_details_general_hoursxxx`). Displayed with a blue "Property" pill badge (with building icon).
+  - **Holidays from both sources**: When a property holiday matches a bank holiday (via `matchesBankHolidayKey`), the row shows both "Federal" and "Property" pills. Toggling the checkbox toggles both entries simultaneously.
   - **Custom blackout dates**: Unlimited custom date entries with a date picker and free-text label (e.g., "Annual Staff Training", "Office Closure")
-- Badge in the section header shows total count of enabled dates across all three sources
-- "Select all" / "Clear all" bulk toggles are provided separately for bank holidays and property holidays
+- Each holiday row has **one checkbox** — no nested parent/child structure
+- Badge in the section header shows total count of enabled dates across all sources
+- "Select all" / "Clear all" bulk toggles control all holiday types at once
 - A footer note directs users to Entrata's Setup > Property > Hours & Holidays to add/remove property holidays
 
 ### 5. Clone Settings (Agent Roster Level)
@@ -59,7 +63,8 @@ Each property using Renewals AI can configure three settings areas:
 4. **Clone overwrites, does not merge** — Cloning settings replaces the target property's settings entirely for the selected categories. No merge logic.
 5. **No channel selection** — The agent determines the best communication channel per follow-up. Channel selection was intentionally excluded.
 6. **Three-tier blackout dates** — Bank holidays are computed client-side from rules (not hardcoded dates), property holidays are read from the existing Entrata property hours/holidays configuration, and custom dates are user-entered. This avoids duplicating the property holidays data store — it's read from the existing source of truth.
-7. **Overlap detection for property + bank holidays** — When a property holiday falls on the same date as an enabled bank holiday, the UI badges it. This prevents confusion about whether a date is "doubly blocked" and gives operators visibility into coverage.
+7. **Flat holiday list with source pills** — All holidays (federal and property) are merged into one chronologically sorted list. Each row has a single checkbox and uses pill badges ("Federal", "Property", or both) to indicate the source. When a holiday exists in both sources, toggling the single checkbox toggles both the bank and property entries. This avoids confusing parent/child checkbox nesting.
+8. **Month-to-month lease warning** — Follow-up steps using `before_lease_end` anchor display an inline amber warning that the step will not trigger for month-to-month leases (which have no lease end date). This is a UX-only hint — the backend must also handle the edge case.
 
 ## Implementation Sequence
 
@@ -140,11 +145,14 @@ interface BlackoutDates {
 - [ ] Communication windows (send hour + days of week) are configurable per property and persisted
 - [ ] Renewal offer follow-up steps are configurable (add/remove/reorder, days + anchor) and persisted
 - [ ] Renewal lease follow-up steps are configurable (add/remove/reorder, days + anchor + target) and persisted
+- [ ] Blackout dates: unified holiday list merges bank and property holidays into a single chronologically sorted list with source pills
 - [ ] Blackout dates: bank holidays (11 US federal) are toggleable per property and persisted
 - [ ] Blackout dates: property holidays from Entrata Hours & Holidays config are displayed and toggleable
-- [ ] Blackout dates: overlap detection badges property holidays that coincide with enabled bank holidays
+- [ ] Blackout dates: holidays existing in both sources show both "Federal" and "Property" pills and toggle together
 - [ ] Blackout dates: custom dates can be added/removed with date picker and label
 - [ ] Agent runtime skips proactive outbound on enabled blackout dates but still responds to resident messages
+- [ ] Month-to-month warning displays on follow-up steps using `before_lease_end` anchor in both offer and lease sections
+- [ ] Agent runtime gracefully handles month-to-month leases (no lease end date) for `before_lease_end` follow-up steps
 - [ ] Clone settings dialog allows copying settings from one property to multiple target properties
 - [ ] Property Settings page shows updated Contact Points help text with deep link to Entrata
 - [ ] Property Settings page shows "Property Policies" (renamed from Privacy Policy) with deep link
