@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import {
@@ -29,8 +29,9 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import { ThumbsUp, ThumbsDown, MessageSquare, CheckCircle, XCircle, Pencil, FileText, ChevronDown, ArrowRight } from "lucide-react";
+import { ThumbsUp, ThumbsDown, MessageSquare, CheckCircle, XCircle, Pencil, FileText, ChevronDown, ArrowRight, Calendar, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { useAgents } from "@/lib/agents-context";
 import { useEscalations } from "@/lib/escalations-context";
 import { useWorkforce } from "@/lib/workforce-context";
@@ -107,19 +108,21 @@ function useTrendData(period: string, anchors: TrendAnchors) {
   }, [points, anchors.conversations, anchors.escalationRate, anchors.agentPct, anchors.humanPct]);
 }
 
-function usePerformanceMetrics(propertyFilter: string) {
+function usePerformanceMetrics(selectedKey: string, isAll: boolean) {
   const { agents } = useAgents();
   const { items } = useEscalations();
   const { members } = useWorkforce();
   const { items: feedbackItems } = useFeedback();
 
   return useMemo(() => {
-    const scopedAgents = propertyFilter === "All"
+    const selected = new Set(selectedKey ? selectedKey.split("|") : []);
+    const useAll = isAll || selected.size === 0;
+    const scopedAgents = useAll
       ? agents
-      : agents.filter((a) => a.scope === "All properties" || a.scope.includes(propertyFilter));
-    const scopedItems = propertyFilter === "All"
+      : agents.filter((a) => a.scope === "All properties" || Array.from(selected).some((p) => a.scope.includes(p)));
+    const scopedItems = useAll
       ? items
-      : items.filter((i) => i.property === propertyFilter || i.property === "Portfolio");
+      : items.filter((i) => i.property === "Portfolio" || selected.has(i.property));
 
     const activeAgents = scopedAgents.filter((a) => a.status === "Active");
     const autonomousAgents = scopedAgents.filter((a) => a.type === "autonomous");
@@ -430,7 +433,7 @@ function usePerformanceMetrics(propertyFilter: string) {
     ];
 
     return { efficiencyMetrics, assetMetrics, impactByType, topAgents, insights, outcomeNarratives, assetValueChain, totalConversations, escalationRate, agentPct, humanPct };
-  }, [agents, items, members, feedbackItems, propertyFilter]);
+  }, [agents, items, members, feedbackItems, selectedKey, isAll]);
 }
 
 const conversationsChartConfig = { conversations: { label: "Conversations", color: "hsl(var(--chart-1))" } } satisfies ChartConfig;
@@ -447,19 +450,163 @@ const AI_ONLY_EFFICIENCY_IDS = new Set([
   "units_without_ai",
 ]);
 
+function PeriodPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-sm",
+          open ? "border-primary/50 ring-1 ring-primary/20" : "border-border",
+        )}
+      >
+        <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="text-muted-foreground">Period:</span>
+        <span className="font-semibold text-foreground">{value}</span>
+        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 top-full z-20 mt-1 w-[14rem] rounded-md border border-border bg-popover p-1 shadow-lg">
+            {PERIODS.map((opt) => (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => {
+                  onChange(opt);
+                  setOpen(false);
+                }}
+                className={cn(
+                  "block w-full rounded px-3 py-1.5 text-left text-sm hover:bg-muted",
+                  value === opt && "bg-muted font-medium",
+                )}
+              >
+                {opt}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function PropertiesPicker({
+  options,
+  selected,
+  setSelected,
+}: {
+  options: string[];
+  selected: Set<string>;
+  setSelected: (s: Set<string>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const allSelected = options.length > 0 && selected.size === options.length;
+  const label =
+    allSelected || selected.size === 0
+      ? "All"
+      : `${selected.size} selected`;
+
+  const filtered = options.filter((p) =>
+    p.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  function toggle(p: string) {
+    const next = new Set(selected);
+    if (next.has(p)) next.delete(p);
+    else next.add(p);
+    setSelected(next);
+  }
+
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(options));
+  }
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-sm",
+          open ? "border-primary/50 ring-1 ring-primary/20" : "border-border",
+        )}
+      >
+        <span className="text-muted-foreground">Properties:</span>
+        <span className="font-semibold text-foreground">{label}</span>
+        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 top-full z-20 mt-1 w-[18rem] rounded-md border border-border bg-popover p-2 shadow-lg">
+            <div className="relative mb-2">
+              <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search properties..."
+                className="w-full rounded-md border border-border bg-background pl-7 pr-2 py-1.5 text-sm"
+              />
+            </div>
+            <div className="max-h-[16rem] overflow-y-auto">
+              <label className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleAll}
+                  className="h-4 w-4 rounded border-border"
+                />
+                <span className="text-sm font-medium">All Properties</span>
+              </label>
+              {filtered.map((p) => (
+                <label key={p} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(p)}
+                    onChange={() => toggle(p)}
+                    className="h-4 w-4 rounded border-border"
+                  />
+                  <span className="text-sm">{p}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function PerformancePage() {
   const { role } = useRole();
   const { filteredItems: conversations } = useConversations();
   const isPropertyRole = role === "property";
 
-  const properties = useMemo(() => {
+  const propertyOptions = useMemo(() => {
     const set = new Set(conversations.map((c) => c.property));
-    return ["All", ...Array.from(set).sort()];
+    return Array.from(set).sort();
   }, [conversations]);
 
   const [period, setPeriod] = useState("Last 7 days");
-  const [propertyFilter, setPropertyFilter] = useState("All");
-  const perf = usePerformanceMetrics(propertyFilter);
+  const [selectedProperties, setSelectedProperties] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    setSelectedProperties((prev) => (prev.size === 0 ? new Set(propertyOptions) : prev));
+  }, [propertyOptions]);
+
+  const allSelected = propertyOptions.length > 0 && selectedProperties.size === propertyOptions.length;
+  const selectedKey = useMemo(
+    () => Array.from(selectedProperties).sort().join("|"),
+    [selectedProperties],
+  );
+  const perf = usePerformanceMetrics(selectedKey, allSelected);
   const trendData = useTrendData(period, {
     conversations: perf.totalConversations,
     escalationRate: perf.escalationRate,
@@ -485,26 +632,13 @@ export default function PerformancePage() {
 
       {showValueBanner && !isPropertyRole && <ValueYoureMissingBanner />}
 
-      <div className="mb-6 flex flex-wrap items-center gap-3">
-        <select
-          value={period}
-          onChange={(e) => setPeriod(e.target.value)}
-          className="select-base w-auto min-w-[11rem]"
-        >
-          {PERIODS.map((p) => (
-            <option key={p} value={p}>{p}</option>
-          ))}
-        </select>
-        <select
-          value={propertyFilter}
-          onChange={(e) => setPropertyFilter(e.target.value)}
-          className="select-base w-auto min-w-[11rem]"
-          aria-label="Filter by property"
-        >
-          {properties.map((p) => (
-            <option key={p} value={p}>{p === "All" ? "All properties" : p}</option>
-          ))}
-        </select>
+      <div className="mb-6 flex flex-wrap items-center gap-2">
+        <PeriodPicker value={period} onChange={setPeriod} />
+        <PropertiesPicker
+          options={propertyOptions}
+          selected={selectedProperties}
+          setSelected={setSelectedProperties}
+        />
       </div>
 
       {showAssetImpact && !isPropertyRole && (
@@ -707,7 +841,7 @@ export default function PerformancePage() {
           <Card className="border-border/60">
             <CardHeader>
               <CardTitle className="text-base">Agent performance</CardTitle>
-              <CardDescription>By agent type — conversations, resolution, and revenue</CardDescription>
+              <CardDescription>By agent type — conversations and resolution</CardDescription>
             </CardHeader>
             <CardContent>
               {perf.topAgents.length > 0 ? (
@@ -718,7 +852,7 @@ export default function PerformancePage() {
                         <span className="text-xs font-medium text-muted-foreground">#{idx + 1}</span>
                         <span className="font-medium text-foreground">{agent.name}</span>
                       </div>
-                      <div className="mt-2 grid grid-cols-3 gap-2">
+                      <div className="mt-2 grid grid-cols-2 gap-2">
                         <div>
                           <p className="text-xs text-muted-foreground">Conversations</p>
                           <p className="text-sm font-semibold text-foreground">{agent.conversations}</p>
@@ -726,10 +860,6 @@ export default function PerformancePage() {
                         <div>
                           <p className="text-xs text-muted-foreground">Resolution</p>
                           <p className="text-sm font-semibold text-foreground">{agent.resolutionRate}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Revenue</p>
-                          <p className="text-sm font-semibold text-foreground">{agent.revenueImpact}</p>
                         </div>
                       </div>
                     </Link>
@@ -751,7 +881,6 @@ export default function PerformancePage() {
                       <th className="pb-2 text-left font-medium text-muted-foreground">Type</th>
                       <th className="pb-2 pl-6 text-left font-medium text-muted-foreground" colSpan={2}>Conversations</th>
                       <th className="pb-2 pl-6 text-left font-medium text-muted-foreground whitespace-nowrap" colSpan={2}>Resolution rate</th>
-                      <th className="pb-2 pl-6 text-right font-medium text-muted-foreground">Revenue impact</th>
                     </tr>
                     <tr className="border-b border-border/40">
                       <th className="pb-1.5" />
@@ -759,7 +888,6 @@ export default function PerformancePage() {
                       <th className="pb-1.5 pr-12 w-[3.5rem] text-left text-[10px] font-medium text-muted-foreground">Human</th>
                       <th className="pb-1.5 pl-6 pr-2 w-[3.5rem] text-left text-[10px] font-medium text-muted-foreground">AI</th>
                       <th className="pb-1.5 pr-12 w-[3.5rem] text-left text-[10px] font-medium text-muted-foreground">Human</th>
-                      <th className="pb-1.5 pl-6 text-right text-[10px] font-medium text-muted-foreground">AI</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -771,12 +899,11 @@ export default function PerformancePage() {
                           <td className="py-2 pr-12 text-left text-muted-foreground">{row.humanConversations}</td>
                           <td className="py-2 pl-6 pr-2 text-left text-foreground">{row.resolutionRate}</td>
                           <td className="py-2 pr-12 text-left text-muted-foreground">{row.humanResolutionRate}</td>
-                          <td className="py-2 pl-6 text-right text-foreground">{row.revenueImpact}</td>
                         </tr>
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={6} className="py-6 text-center text-sm text-muted-foreground">
+                        <td colSpan={5} className="py-6 text-center text-sm text-muted-foreground">
                           No agent performance data yet.
                         </td>
                       </tr>

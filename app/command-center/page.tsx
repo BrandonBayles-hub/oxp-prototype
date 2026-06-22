@@ -8,6 +8,7 @@ import {
   ArrowUp,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
   ClipboardCheck,
   Clock,
   CornerDownRight,
@@ -45,6 +46,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useEscalations } from "@/lib/escalations-context";
@@ -391,18 +399,108 @@ function AdminCommandCenter() {
       ? `/escalations?category=${encodeURIComponent(topCategory[0])}`
       : "/escalations";
 
-  const topKpis = [
-    { label: "Active Agents", value: agentsEnabledCount, trendText: "+1 since last week", trendVariant: "positive" as KpiTrend, icon: Users, href: "/agent-roster" },
-    { label: "Conversations Handled", value: "1,847", trendText: "+12% from last week", trendVariant: "positive" as KpiTrend, icon: MessageSquare, href: "/conversations" },
+  const dateRangeOptions = [
+    { id: "24h", label: "Last 24 hours" },
+    { id: "7d", label: "Last week" },
+    { id: "30d", label: "Last month" },
+  ] as const;
+  type OutcomeRangeId = (typeof dateRangeOptions)[number]["id"];
+  const [outcomeRange, setOutcomeRange] = useState<OutcomeRangeId>("7d");
+
+  const topKpiDefs: {
+    label: string;
+    icon: typeof Users;
+    href: string;
+    ranges: Record<OutcomeRangeId, { value: string; trendText: string; trendVariant: KpiTrend }>;
+  }[] = [
+    {
+      label: "Active Agents", icon: Users, href: "/agent-roster",
+      ranges: {
+        "24h": { value: String(agentsEnabledCount), trendText: "No change today", trendVariant: "neutral" },
+        "7d": { value: String(agentsEnabledCount), trendText: "+1 since last week", trendVariant: "positive" },
+        "30d": { value: String(agentsEnabledCount), trendText: "+3 since last month", trendVariant: "positive" },
+      },
+    },
+    {
+      label: "Conversations Handled", icon: MessageSquare, href: "/conversations",
+      ranges: {
+        "24h": { value: "263", trendText: "+8% from yesterday", trendVariant: "positive" },
+        "7d": { value: "1,847", trendText: "+12% from last week", trendVariant: "positive" },
+        "30d": { value: "7,902", trendText: "+15% from last month", trendVariant: "positive" },
+      },
+    },
   ];
 
-  const outcomeCards = [
-    { label: "Tours Scheduled", value: "124", trendText: "\u22126 from last week", trendVariant: "negative" as KpiTrend, icon: CalendarDays, agentName: "Leasing AI", href: "/performance", ctaText: "Clients with Leasing AI see 2x more tour bookings" },
-    { label: "Leases Signed", value: "37", trendText: "+5 from last week", trendVariant: "positive" as KpiTrend, icon: ClipboardCheck, agentName: "Leasing AI", href: "/performance", ctaText: "Clients with Leasing AI convert 30% more leads to signed leases" },
-    { label: "Renewals Generated", value: "28", trendText: "92% retention rate", trendVariant: "positive" as KpiTrend, icon: RefreshCw, agentName: "Renewal AI", href: "/performance", ctaText: "Clients with Renewal AI achieve 15% higher retention rates" },
-    { label: "Work Orders Closed", value: "156", trendText: "+8 from last week", trendVariant: "positive" as KpiTrend, icon: Wrench, agentName: "Maintenance AI", href: "/performance", ctaText: "Clients with Maintenance AI see a 15% faster work order resolution time" },
-    { label: "Rent Collected", value: "$218K", trendText: "90.6% collected \u00b7 Down 1.2% from last month", trendVariant: "negative" as KpiTrend, icon: DollarSign, agentName: "Payments AI", href: "/performance", ctaText: "Clients with Payments AI collect rent 20% faster" },
+  const topKpis = topKpiDefs.map((c) => ({
+    label: c.label,
+    icon: c.icon,
+    href: c.href,
+    ...c.ranges[outcomeRange],
+  }));
+
+  const outcomeCardDefs: {
+    label: string;
+    icon: typeof CalendarDays;
+    agentName: string;
+    href: string;
+    ctaText: string;
+    ranges: Record<OutcomeRangeId, { value: string; trendText: string; trendVariant: KpiTrend }>;
+  }[] = [
+    {
+      label: "Tours Scheduled", icon: CalendarDays, agentName: "Leasing AI", href: "/performance",
+      ctaText: "Clients with Leasing AI see 2x more tour bookings",
+      ranges: {
+        "24h": { value: "18", trendText: "\u22121 from yesterday", trendVariant: "negative" },
+        "7d": { value: "124", trendText: "\u22126 from last week", trendVariant: "negative" },
+        "30d": { value: "503", trendText: "+42 from last month", trendVariant: "positive" },
+      },
+    },
+    {
+      label: "Leases Signed", icon: ClipboardCheck, agentName: "Leasing AI", href: "/performance",
+      ctaText: "Clients with Leasing AI convert 30% more leads to signed leases",
+      ranges: {
+        "24h": { value: "6", trendText: "+2 from yesterday", trendVariant: "positive" },
+        "7d": { value: "37", trendText: "+5 from last week", trendVariant: "positive" },
+        "30d": { value: "148", trendText: "+19 from last month", trendVariant: "positive" },
+      },
+    },
+    {
+      label: "Renewals Generated", icon: RefreshCw, agentName: "Renewal AI", href: "/performance",
+      ctaText: "Clients with Renewal AI achieve 15% higher retention rates",
+      ranges: {
+        "24h": { value: "4", trendText: "94% retention rate", trendVariant: "positive" },
+        "7d": { value: "28", trendText: "92% retention rate", trendVariant: "positive" },
+        "30d": { value: "112", trendText: "91% retention rate", trendVariant: "positive" },
+      },
+    },
+    {
+      label: "Work Orders Closed", icon: Wrench, agentName: "Maintenance AI", href: "/performance",
+      ctaText: "Clients with Maintenance AI see a 15% faster work order resolution time",
+      ranges: {
+        "24h": { value: "23", trendText: "+3 from yesterday", trendVariant: "positive" },
+        "7d": { value: "156", trendText: "+8 from last week", trendVariant: "positive" },
+        "30d": { value: "631", trendText: "+57 from last month", trendVariant: "positive" },
+      },
+    },
+    {
+      label: "Rent Collected", icon: DollarSign, agentName: "Payments AI", href: "/performance",
+      ctaText: "Clients with Payments AI collect rent 20% faster",
+      ranges: {
+        "24h": { value: "$31K", trendText: "12.6% collected today", trendVariant: "neutral" },
+        "7d": { value: "$218K", trendText: "90.6% collected \u00b7 Down 1.2% from last month", trendVariant: "negative" },
+        "30d": { value: "$932K", trendText: "96.2% collected \u00b7 +2.1% from last period", trendVariant: "positive" },
+      },
+    },
   ];
+
+  const outcomeCards = outcomeCardDefs.map((c) => ({
+    label: c.label,
+    icon: c.icon,
+    agentName: c.agentName,
+    href: c.href,
+    ctaText: c.ctaText,
+    ...c.ranges[outcomeRange],
+  }));
 
   const [selectedEscalationId, setSelectedEscalationId] = useState<string | null>(null);
   const selectedEscalation = selectedEscalationId
@@ -1109,45 +1207,65 @@ function AdminCommandCenter() {
       />
       {!isManagerRole && <ValueYoureMissingBanner />}
 
-      {!isR1Release && !isManagerRole && (
-        <>
-        {/* Top KPI Cards */}
-        <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-2">
-          {topKpis.map(({ label, value, icon: Icon, trendText, trendVariant }) => (
-            <button key={label} type="button" className="text-left" onClick={() => setActiveMetric(label)}>
-              <Card className="h-full cursor-pointer transition-colors hover:border-primary/40 hover:bg-muted/30">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 px-4 pb-0 pt-4">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
-                  <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                </CardHeader>
-                <CardContent className="px-4 py-1.5">
-                  <p className={cn(
-                    "text-xl font-semibold",
-                    trendVariant === "positive" && "text-green-600 dark:text-green-400",
-                    trendVariant === "negative" && "text-amber-600 dark:text-amber-400",
-                    trendVariant === "neutral" && "text-muted-foreground"
-                  )}>
-                    {trendText}
-                  </p>
-                </CardContent>
-                <CardFooter className="px-4 pb-4 pt-0">
-                  <span className="text-sm font-semibold text-foreground">{value}</span>
-                </CardFooter>
-              </Card>
-            </button>
-          ))}
-        </div>
-        </>
-      )}
-
       {/* Outcomes Achieved by AI Agents */}
       {isManagerRole ? null : isR1Release ? (
         <R1OutcomesSection />
       ) : (
-        <div className="mb-8">
-          <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Outcomes Achieved by AI Agents
-          </p>
+        <div className="mb-8 rounded-xl border border-border bg-muted/30 p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Outcomes Achieved by AI Agents
+            </p>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
+                >
+                  <CalendarDays className="h-3.5 w-3.5" />
+                  {dateRangeOptions.find((o) => o.id === outcomeRange)?.label}
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuRadioGroup
+                  value={outcomeRange}
+                  onValueChange={(v) => setOutcomeRange(v as OutcomeRangeId)}
+                >
+                  {dateRangeOptions.map((o) => (
+                    <DropdownMenuRadioItem key={o.id} value={o.id}>
+                      {o.label}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+          <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-2">
+            {topKpis.map(({ label, value, icon: Icon, trendText, trendVariant }) => (
+              <button key={label} type="button" className="text-left" onClick={() => setActiveMetric(label)}>
+                <Card className="h-full cursor-pointer transition-colors hover:border-primary/40 hover:bg-muted/30">
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 px-4 pb-0 pt-4">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
+                    <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent className="px-4 py-1.5">
+                    <p className={cn(
+                      "text-xl font-semibold",
+                      trendVariant === "positive" && "text-green-600 dark:text-green-400",
+                      trendVariant === "negative" && "text-amber-600 dark:text-amber-400",
+                      trendVariant === "neutral" && "text-muted-foreground"
+                    )}>
+                      {trendText}
+                    </p>
+                  </CardContent>
+                  <CardFooter className="px-4 pb-4 pt-0">
+                    <span className="text-sm font-semibold text-foreground">{value}</span>
+                  </CardFooter>
+                </Card>
+              </button>
+            ))}
+          </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             {outcomeCards.map((card) => {
               const agent = card.agentName
