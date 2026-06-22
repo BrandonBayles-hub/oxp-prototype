@@ -4068,6 +4068,171 @@ function AgentTraceTimeline({ trace }: { trace: TraceStep[] }) {
   );
 }
 
+/* ─────────────────────────────────────────────────────────────────────
+   User-friendly trace — plain-language, grouped view for non-Entrata
+   users. No payloads, schemas, durations, status codes, or the term
+   "MCP". Just the phases of how the answer was built.
+   ───────────────────────────────────────────────────────────────────── */
+
+function sanitizeFriendly(text: string): string {
+  return text
+    .replace(/\bMCP\s+(tool\s+call|call|lease snapshot|ledger summary|response|request|tools?)/gi, (_m, g) => g)
+    .replace(/\b(via|over|through)\s+MCP\b/gi, "")
+    .replace(/\bduring\s+(the\s+)?MCP\s+cutover\b/gi, "")
+    .replace(/\bmirrored to REST(\s+for parity)?\b/gi, "logged for parity")
+    .replace(/\bMCP\b/gi, "the system")
+    .replace(/\bREST\b/gi, "the system")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([.,;])/g, "$1")
+    .trim();
+}
+
+function friendlyTraceSource(step: TraceStep): string {
+  if (step.type === "knowledge") return "Property knowledge base";
+  const key = `${step.mcpToolName ?? ""} ${step.label ?? ""}`.toLowerCase();
+  const map: { match: string; label: string }[] = [
+    { match: "getleasesnapshot", label: "Your lease & renewal terms" },
+    { match: "loyalty", label: "Loyalty pricing eligibility" },
+    { match: "getcomparables", label: "Market & comparable rents" },
+    { match: "market.", label: "Market data" },
+    { match: "renewals.", label: "Renewal records" },
+    { match: "knowledge.search", label: "Property knowledge base" },
+    { match: "createescalation", label: "Staff escalation" },
+    { match: "escalation", label: "Staff escalation" },
+    { match: "billing", label: "Billing & payment records" },
+    { match: "payment", label: "Payment records" },
+    { match: "screening", label: "Screening & qualification rules" },
+    { match: "tour", label: "Tour scheduling" },
+    { match: "amenit", label: "Amenity details" },
+    { match: "parking", label: "Parking availability" },
+    { match: "petpolicy", label: "Pet policy" },
+    { match: "policy", label: "Property policies" },
+    { match: "inventory", label: "Unit availability" },
+    { match: "furnished", label: "Unit availability" },
+    { match: "schooldistrict", label: "Local school district info" },
+    { match: "movein", label: "Move-in scheduling" },
+    { match: "pricing", label: "Pricing & term options" },
+    { match: "term", label: "Lease term options" },
+  ];
+  for (const m of map) if (key.includes(m.match)) return m.label;
+  const seg = (step.mcpToolName ?? "").split(".").pop() ?? "";
+  const humanized = seg
+    .replace(/^(get|create|evaluate|check|lookup|adjust|start|send|open|refund)/i, "")
+    .replace(/([A-Z])/g, " $1")
+    .trim();
+  return humanized ? humanized.charAt(0).toUpperCase() + humanized.slice(1) : "Information lookup";
+}
+
+function FriendlyTraceSection({
+  icon,
+  title,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-white">
+      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-100 text-zinc-600">{icon}</span>
+        <h5 className="text-xs font-semibold text-foreground">{title}</h5>
+      </div>
+      <div className="divide-y divide-border/60">{children}</div>
+    </div>
+  );
+}
+
+function FriendlyTraceView({ trace, agentName }: { trace: TraceStep[]; agentName: string }) {
+  const guidelines = trace.filter((s) => s.type === "instruction" || s.type === "prompt_citation");
+  // Exclude legacy/shadow REST parity calls — technical artifacts, not sources.
+  const lookups = trace.filter(
+    (s) =>
+      s.type === "mcp_tool" ||
+      s.type === "tool_call" ||
+      s.type === "knowledge" ||
+      (s.type === "http_api" && !/legacy|shadow/i.test(s.label))
+  );
+  const reasoning = trace.filter((s) => s.type === "reasoning");
+  const hasResponse = trace.some((s) => s.type === "response");
+
+  const seenSources = new Set<string>();
+  const friendlyLookups = lookups
+    .map((s) => ({ source: friendlyTraceSource(s), detail: s.detail ? sanitizeFriendly(s.detail) : undefined }))
+    .filter((l) => {
+      if (seenSources.has(l.source)) return false;
+      seenSources.add(l.source);
+      return true;
+    });
+
+  const firstSentence = (text: string) => {
+    const trimmed = sanitizeFriendly(text).trim();
+    const match = trimmed.match(/^.*?[.!?](\s|$)/);
+    const sentence = match ? match[0].trim() : trimmed;
+    const capped = sentence.replace(/^([a-z])/, (c) => c.toUpperCase());
+    return capped.length > 220 ? `${capped.slice(0, 217)}…` : capped;
+  };
+
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] leading-relaxed text-muted-foreground">
+        A plain-language summary of how {agentName} built this reply. Technical details are available in the
+        Entrata Internal view.
+      </p>
+
+      {guidelines.length > 0 && (
+        <FriendlyTraceSection icon={<BookOpen className="h-3 w-3" />} title="Guidelines it followed">
+          {guidelines.map((s, i) => (
+            <div key={i} className="px-3 py-2.5">
+              <p className="text-xs font-medium text-foreground">
+                {(s.promptSourceLabel ?? s.label).replace(/\s*·.*$/, "")}
+              </p>
+              {s.promptExcerpt && (
+                <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{firstSentence(s.promptExcerpt)}</p>
+              )}
+            </div>
+          ))}
+        </FriendlyTraceSection>
+      )}
+
+      {friendlyLookups.length > 0 && (
+        <FriendlyTraceSection icon={<Database className="h-3 w-3" />} title="Information it gathered">
+          {friendlyLookups.map((l, i) => (
+            <div key={i} className="px-3 py-2.5">
+              <p className="text-xs font-medium text-foreground">{l.source}</p>
+              {l.detail && <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{l.detail}</p>}
+            </div>
+          ))}
+        </FriendlyTraceSection>
+      )}
+
+      {reasoning.length > 0 && (
+        <FriendlyTraceSection icon={<Lightbulb className="h-3 w-3" />} title="How it decided what to say">
+          {reasoning.map((s, i) => (
+            <div key={i} className="px-3 py-2.5">
+              <p className="text-[11px] leading-relaxed text-foreground">
+                {s.thoughtProcess
+                  ? firstSentence(s.thoughtProcess)
+                  : "Weighed the information it gathered against the guidelines to compose an accurate, on-brand reply."}
+              </p>
+            </div>
+          ))}
+        </FriendlyTraceSection>
+      )}
+
+      {hasResponse && (
+        <FriendlyTraceSection icon={<MessageSquare className="h-3 w-3" />} title="Reply sent">
+          <div className="px-3 py-2.5">
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              Composed the reply and sent it to the resident.
+            </p>
+          </div>
+        </FriendlyTraceSection>
+      )}
+    </div>
+  );
+}
+
 function generateBaseConversationLogs(agentName: string, propertyName: string): ConversationLog[] {
   if (agentName === "Leasing AI") return [
     { id: "conv-l1", residentName: "Sarah Mitchell", channel: "Chat", topic: "Tour Scheduling", summary: "Prospect scheduled a Saturday tour for a 2BR unit.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 2:14 PM", daysAgo: 0, duration: "4m 22s", turns: 6,
@@ -4565,6 +4730,7 @@ function ConversationDetailView({
   onBack: () => void;
 }) {
   const [traceExpanded, setTraceExpanded] = useState(true);
+  const [traceMode, setTraceMode] = useState<"internal" | "user">("internal");
   const [replyTraceSheet, setReplyTraceSheet] = useState<{
     steps: TraceStep[];
     replyPreview: string;
@@ -4710,8 +4876,34 @@ function ConversationDetailView({
               <SheetTitle>Trace for this reply</SheetTitle>
               <SheetDescription>Steps and context that led to this {agentName} response.</SheetDescription>
             </SheetHeader>
+            <div className="mt-4">
+              <div className="inline-flex rounded-lg border border-border bg-muted/40 p-0.5 text-xs">
+                {([
+                  ["internal", "Entrata Internal"],
+                  ["user", "User View"],
+                ] as const).map(([val, label]) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setTraceMode(val)}
+                    className={`rounded-md px-3 py-1 font-medium transition-colors ${
+                      traceMode === val
+                        ? "bg-white text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                {traceMode === "internal"
+                  ? "Full technical trace — tools, schemas, and payloads."
+                  : "Plain-language summary of how the answer was built — what your users would see."}
+              </p>
+            </div>
             {replyTraceSheet ? (
-              <div className="mt-6 space-y-5">
+              <div className="mt-5 space-y-5">
                 {replyTraceSheet.precedingResident ? (
                   <div className="rounded-lg border border-border bg-muted/50 p-3">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Resident message (context)</p>
@@ -4727,8 +4919,14 @@ function ConversationDetailView({
                   <p className="text-xs text-foreground leading-relaxed whitespace-pre-line">{replyTraceSheet.replyPreview}</p>
                 </div>
                 <div>
-                  <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-3">Execution trace</h4>
-                  <AgentTraceTimeline trace={replyTraceSheet.steps} />
+                  <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-3">
+                    {traceMode === "internal" ? "Execution trace" : "How this answer was built"}
+                  </h4>
+                  {traceMode === "internal" ? (
+                    <AgentTraceTimeline trace={replyTraceSheet.steps} />
+                  ) : (
+                    <FriendlyTraceView trace={replyTraceSheet.steps} agentName={agentName} />
+                  )}
                 </div>
               </div>
             ) : null}

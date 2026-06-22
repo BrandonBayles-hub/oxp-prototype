@@ -49,7 +49,7 @@ import {
 import { PropertySelector } from "@/components/property-filter";
 import { PROPERTY_FILTER_DATA } from "@/lib/voice-properties";
 import {
-  generateConversationLogs,
+  generateGapConversationLogs,
   conversationChannelIcon,
   countLogTraceSteps,
   ConversationDetailView,
@@ -2540,8 +2540,14 @@ function GapConversationsDialog({
 }) {
   const rosterAgent = gap.agent === "Renewals AI" ? "Renewal AI" : gap.agent;
   const logs = useMemo(
-    () => generateConversationLogs(rosterAgent, propertyName).slice(0, gap.escalations),
-    [rosterAgent, propertyName, gap.escalations]
+    () =>
+      generateGapConversationLogs({
+        question: gap.question,
+        agentName: rosterAgent,
+        count: gap.escalations,
+        propertyName,
+      }),
+    [rosterAgent, propertyName, gap.escalations, gap.question]
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = logs.find((l) => l.id === selectedId) ?? null;
