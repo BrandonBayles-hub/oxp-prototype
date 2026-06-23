@@ -2,6 +2,7 @@
 
 import type React from "react";
 import Image from "next/image";
+import Link from "next/link";
 import {
   Area,
   AreaChart,
@@ -17,7 +18,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
+import { ArrowDownRight, ArrowLeft, ArrowUpRight, Minus } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import {
   Card,
@@ -484,11 +485,27 @@ function renderBlocks(blocks: DashboardBlock[]): React.ReactNode[] {
 
 export function LibraryDashboardView({
   dashboard: d,
+  backHref = "/performance/library",
+  backLabel = "Back to ELI+ 1.0 Library",
+  toolbar,
 }: {
   dashboard: EliDashboard;
+  backHref?: string;
+  backLabel?: string;
+  toolbar?: React.ReactNode;
 }) {
   return (
     <>
+      <Link
+        href={backHref}
+        className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        {backLabel}
+      </Link>
+
+      {toolbar}
+
       <PageHeader
         title={
           <span className="inline-flex items-center gap-2">
