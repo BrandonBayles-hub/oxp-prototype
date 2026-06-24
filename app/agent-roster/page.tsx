@@ -3473,7 +3473,6 @@ const AGENT_SETTINGS_TABS: Record<string, TabDef[]> = {
     { id: "marketing", label: "Marketing", settings: [
       { name: "Prospect Portal", description: "Configure the prospect-facing portal used for this property." },
       { name: "Property Website", description: "Set the property website URL shared in marketing communications." },
-      { name: "Privacy Policy", description: "Link to the privacy policy displayed to prospects during interactions." },
       { name: "Application Page", description: "Set the URL for the online application landing page." },
       { name: "Floor Plan Page", description: "Configure the floor plan gallery page shared with prospects." },
     ]},
