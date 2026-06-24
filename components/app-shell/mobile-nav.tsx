@@ -24,6 +24,7 @@ import {
   Wrench,
   Shield,
   Wand2,
+  Sparkles,
   BrainCircuit,
 } from "lucide-react";
 

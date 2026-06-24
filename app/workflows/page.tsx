@@ -1,637 +1,1362 @@
 "use client";
 
-import { useState, useRef, useEffect, useMemo } from "react";
-import Link from "next/link";
+import { useState, Suspense, lazy, useCallback, useMemo } from "react";
 import { PageHeader } from "@/components/page-header";
-import {
-  useAgentBuilder,
-  AGENT_LEVEL_OPTIONS,
-  type AgentDomain,
-  type AgentStatus,
-  type AgentLevel,
-  type SubmissionAttachment,
-  type AgentSubmission,
-} from "@/lib/agent-builder-context";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import {
   Sparkles,
-  Send,
-  ChevronDown,
-  ChevronRight,
-  Clock,
-  CheckCircle2,
-  Home,
-  Calculator,
-  Wrench,
-  RefreshCw,
-  Shield,
+  Workflow,
+  BrainCircuit,
+  Check,
+  Code2,
+  Loader2,
+  Cog,
+  FlaskConical,
+  Rocket,
+  TestTube,
+  Building2,
+  Zap,
   Layers,
-  BookOpen,
-  Paperclip,
-  Mic,
-  MicOff,
   X,
-  FileText,
-  Video,
-  Image as ImageIcon,
-  File,
-  Bot,
-  MessageSquare,
-  AlertCircle,
-  ChevronUp,
-  ArrowRight,
-  Lock,
-  UserCog,
-  Users,
+  Plus,
+  ArrowLeft,
+  GitBranch,
+  Pencil,
+  Trash2,
+  Search,
+  ToggleLeft,
+  ToggleRight,
+  ChevronRight,
+  Beaker,
+  ThumbsUp,
+  ThumbsDown,
+  History,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  User,
+  Activity,
 } from "lucide-react";
+import {
+  PMC_PROPERTY_RECORDS,
+  type PmcPropertyRecord,
+} from "@/components/custom-agent-builder/lib/pmc-identity";
+import { TodoListBanner } from "@/components/custom-agent-builder/components/TodoListBanner";
+import { useR1Release } from "@/lib/r1-release-context";
+import { useR2Release } from "@/lib/r2-release-context";
+import { generateWorkflow } from "@/lib/workflow-generator";
 
-const EXAMPLE_PROMPTS = [
-  "Monitor lease expirations and send renewal offers with market-rate pricing",
-  "Process incoming vendor invoices and flag exceptions over $5,000",
-  "Respond to after-hours maintenance requests and auto-dispatch vendors",
-  "Scan month-to-month leases weekly and recommend rent adjustments",
-];
+const CustomAgentBuilder = lazy(() => import("@/components/custom-agent-builder"));
+const WorkflowVisualizer = lazy(() => import("@/components/workflow-visualizer"));
+const LegacyAgentBuilder = lazy(() => import("@/components/legacy-agent-builder"));
 
-type BlueprintDomain = AgentDomain | "all";
+// ─── Types ───
 
-const DOMAIN_FILTERS: { value: BlueprintDomain; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { value: "all", label: "All", icon: Layers },
-  { value: "leasing", label: "Leasing", icon: Home },
-  { value: "accounting", label: "Accounting", icon: Calculator },
-  { value: "maintenance", label: "Maintenance", icon: Wrench },
-  { value: "renewals", label: "Renewals", icon: RefreshCw },
-  { value: "compliance", label: "Compliance", icon: Shield },
-];
+type AgentType = "deterministic" | "ai-powered";
+type AgentStatusValue = "draft" | "sandbox" | "live" | "paused";
 
-const BLUEPRINTS: {
+type AgentVersion = {
+  id: string;
+  versionNumber: number;
+  status: "draft" | "sandbox" | "live" | "retired";
+  createdAt: string;
+  description: string;
+};
+
+type SimpleEval = {
+  id: string;
+  input: string;
+  expected: string;
+  severity: "critical" | "major" | "minor";
+  tags: string[];
+  status?: "pass" | "fail" | "not_run";
+};
+
+type ObjectTrace = {
+  objectType: "resident" | "lead" | "lease" | "work_order" | "invoice" | "unit" | "property" | "renewal_offer" | "message";
+  objectId: string;
+  objectLabel: string;
+  action: "read" | "created" | "updated" | "deleted" | "sent";
+};
+
+type ExecutionLogEntry = {
+  id: string;
+  runAt: string;
+  version: number;
+  environment: "sandbox" | "production";
+  status: "success" | "failure" | "timeout" | "partial";
+  durationMs: number;
+  triggerSource: string;
+  propertyId?: string;
+  stepsExecuted: number;
+  stepsTotal: number;
+  objectsModified: ObjectTrace[];
+  errorMessage?: string;
+  llmTokensUsed?: number;
+  costUsd?: number;
+};
+
+type ChangeHistoryEntry = {
+  id: string;
+  timestamp: string;
+  userId: string;
+  userName: string;
+  action: "created" | "updated" | "version_added" | "status_changed" | "properties_changed" | "config_changed" | "evals_changed";
+  summary: string;
+  details?: string;
+  versionAffected?: number;
+  diff?: { field: string; from: string; to: string }[];
+};
+
+type UnifiedAgent = {
   id: string;
   name: string;
-  domain: AgentDomain;
+  type: AgentType;
   description: string;
-  impact: string;
-  connects: string;
-}[] = [
+  status: AgentStatusValue;
+  domain: string;
+  createdAt: string;
+  versions: AgentVersion[];
+  activeVersion: number;
+  propertyIds: string[];
+  propertyVersionMap: Record<string, number>;
+  triggers: string[];
+  evals: SimpleEval[];
+  lastRunAt?: string;
+  runsLast30d?: number;
+  executionLog: ExecutionLogEntry[];
+  changeHistory: ChangeHistoryEntry[];
+};
+
+// ─── Seed data ───
+
+const SAMPLE_AGENTS: UnifiedAgent[] = [
   {
-    id: "bp-lead",
-    name: "Lead Response",
-    domain: "leasing",
-    description: "When a new lead arrives in Entrata, create a task, notify the leasing team, and begin automated follow-up within 5 minutes.",
-    impact: "~2 hrs/day saved on lead routing",
-    connects: "Leads, Tasks, Notifications",
+    id: "ua-1",
+    name: "Lease Renewal Automation",
+    type: "deterministic",
+    description: "Scans expiring leases within 90 days, calculates renewal offers based on market rent and payment history, sends via email, escalates if no response in 7 days.",
+    status: "live",
+    domain: "Renewals",
+    createdAt: "2026-05-15T10:00:00Z",
+    versions: [
+      { id: "v1", versionNumber: 1, status: "retired", createdAt: "2026-05-15T10:00:00Z", description: "Initial version — basic renewal scan" },
+      { id: "v2", versionNumber: 2, status: "live", createdAt: "2026-06-01T14:30:00Z", description: "Added payment history weighting and escalation logic" },
+    ],
+    activeVersion: 2,
+    propertyIds: ["prop.hillside", "prop.jamison"],
+    propertyVersionMap: { "prop.hillside": 2, "prop.jamison": 1 },
+    triggers: ["Nightly at 2:00 AM", "On lease expiration (< 90 days)"],
+    evals: [],
+    lastRunAt: "2026-06-22T02:00:00Z",
+    runsLast30d: 62,
+    executionLog: [
+      { id: "run-1a", runAt: "2026-06-22T02:00:00Z", version: 2, environment: "production", status: "success", durationMs: 14200, triggerSource: "Nightly at 2:00 AM", propertyId: "prop.hillside", stepsExecuted: 8, stepsTotal: 8, objectsModified: [
+        { objectType: "lease", objectId: "L-4521", objectLabel: "Lease #4521 — Jane Smith, Unit 204B", action: "read" },
+        { objectType: "lease", objectId: "L-4533", objectLabel: "Lease #4533 — Mark Johnson, Unit 112A", action: "read" },
+        { objectType: "resident", objectId: "R-1102", objectLabel: "Jane Smith", action: "read" },
+        { objectType: "renewal_offer", objectId: "RO-8821", objectLabel: "Renewal offer $1,990/mo — Jane Smith", action: "created" },
+        { objectType: "message", objectId: "EM-3310", objectLabel: "Renewal offer email to jane.smith@email.com", action: "sent" },
+      ]},
+      { id: "run-1b", runAt: "2026-06-21T02:00:00Z", version: 2, environment: "production", status: "success", durationMs: 11800, triggerSource: "Nightly at 2:00 AM", propertyId: "prop.hillside", stepsExecuted: 8, stepsTotal: 8, objectsModified: [
+        { objectType: "lease", objectId: "L-4510", objectLabel: "Lease #4510 — Sarah Chen, Unit 305A", action: "read" },
+        { objectType: "resident", objectId: "R-1098", objectLabel: "Sarah Chen", action: "read" },
+        { objectType: "renewal_offer", objectId: "RO-8819", objectLabel: "Renewal offer $2,100/mo — Sarah Chen", action: "created" },
+        { objectType: "message", objectId: "EM-3308", objectLabel: "Renewal offer email to sarah.chen@email.com", action: "sent" },
+      ]},
+      { id: "run-1c", runAt: "2026-06-20T02:00:00Z", version: 2, environment: "production", status: "failure", durationMs: 3400, triggerSource: "Nightly at 2:00 AM", propertyId: "prop.jamison", stepsExecuted: 3, stepsTotal: 8, objectsModified: [
+        { objectType: "lease", objectId: "L-4498", objectLabel: "Lease #4498 — Tom Wilson, Unit 101", action: "read" },
+      ], errorMessage: "MCP timeout: renewals.get_market_rent failed after 30000ms" },
+      { id: "run-1d", runAt: "2026-06-19T02:00:00Z", version: 2, environment: "production", status: "success", durationMs: 18900, triggerSource: "Nightly at 2:00 AM", propertyId: "prop.hillside", stepsExecuted: 8, stepsTotal: 8, objectsModified: [
+        { objectType: "lease", objectId: "L-4488", objectLabel: "Lease #4488 — Mike Rivera, Unit 410", action: "read" },
+        { objectType: "resident", objectId: "R-1085", objectLabel: "Mike Rivera", action: "read" },
+        { objectType: "renewal_offer", objectId: "RO-8815", objectLabel: "Renewal offer $1,875/mo — Mike Rivera", action: "created" },
+        { objectType: "message", objectId: "EM-3301", objectLabel: "Renewal offer email to mike.r@email.com", action: "sent" },
+        { objectType: "resident", objectId: "R-1085", objectLabel: "Mike Rivera — escalation note added", action: "updated" },
+      ]},
+      { id: "run-1e", runAt: "2026-06-18T02:00:00Z", version: 1, environment: "production", status: "success", durationMs: 9200, triggerSource: "Nightly at 2:00 AM", propertyId: "prop.jamison", stepsExecuted: 6, stepsTotal: 6, objectsModified: [
+        { objectType: "lease", objectId: "L-4475", objectLabel: "Lease #4475 — Lisa Park, Unit 202", action: "read" },
+        { objectType: "renewal_offer", objectId: "RO-8810", objectLabel: "Renewal offer $1,650/mo — Lisa Park", action: "created" },
+      ]},
+    ],
+    changeHistory: [
+      { id: "ch-1a", timestamp: "2026-05-15T10:00:00Z", userId: "user-jdoe", userName: "John Doe", action: "created", summary: "Created agent with initial v1 configuration", versionAffected: 1 },
+      { id: "ch-1b", timestamp: "2026-05-22T14:30:00Z", userId: "user-jdoe", userName: "John Doe", action: "properties_changed", summary: "Added Hillside Apartments to the agent", diff: [{ field: "propertyIds", from: "[]", to: "[prop.hillside]" }] },
+      { id: "ch-1c", timestamp: "2026-06-01T14:30:00Z", userId: "user-asmith", userName: "Alice Smith", action: "version_added", summary: "Created v2 — added payment history weighting and escalation logic", versionAffected: 2 },
+      { id: "ch-1d", timestamp: "2026-06-01T16:00:00Z", userId: "user-asmith", userName: "Alice Smith", action: "status_changed", summary: "Promoted v2 from sandbox to live", versionAffected: 2, diff: [{ field: "status", from: "sandbox", to: "live" }] },
+      { id: "ch-1e", timestamp: "2026-06-10T09:15:00Z", userId: "user-jdoe", userName: "John Doe", action: "properties_changed", summary: "Added Jamison Park Residences, assigned to v1", diff: [{ field: "propertyIds", from: "[prop.hillside]", to: "[prop.hillside, prop.jamison]" }] },
+      { id: "ch-1f", timestamp: "2026-06-15T11:00:00Z", userId: "user-asmith", userName: "Alice Smith", action: "config_changed", summary: "Updated escalation timeout from 5 days to 7 days", versionAffected: 2, diff: [{ field: "escalation_timeout_days", from: "5", to: "7" }] },
+    ],
   },
   {
-    id: "bp-app-review",
-    name: "Application Review",
-    domain: "leasing",
-    description: "Automatically screen incoming applications against your criteria, flag exceptions for human review, and fast-track qualifying applicants.",
-    impact: "78% of applications auto-processed",
-    connects: "Applications, Screening, Approvals",
+    id: "ua-2",
+    name: "Invoice Anomaly Detector",
+    type: "deterministic",
+    description: "Monitors vendor invoices above $2,500, cross-references against historical pricing, flags anomalies for human review.",
+    status: "sandbox",
+    domain: "Accounting",
+    createdAt: "2026-06-10T09:00:00Z",
+    versions: [
+      { id: "v1", versionNumber: 1, status: "sandbox", createdAt: "2026-06-10T09:00:00Z", description: "Initial build — threshold-based detection" },
+    ],
+    activeVersion: 1,
+    propertyIds: [],
+    propertyVersionMap: {},
+    triggers: ["On new invoice received"],
+    evals: [],
+    runsLast30d: 0,
+    executionLog: [],
+    changeHistory: [
+      { id: "ch-2a", timestamp: "2026-06-10T09:00:00Z", userId: "user-bwong", userName: "Brian Wong", action: "created", summary: "Created Invoice Anomaly Detector agent", versionAffected: 1 },
+    ],
   },
   {
-    id: "bp-invoice",
-    name: "Invoice Processing",
-    domain: "accounting",
-    description: "Read incoming vendor invoices, map GL codes based on historical patterns, detect pricing anomalies, and route for approval.",
-    impact: "$5K+/mo in caught discrepancies",
-    connects: "AP, GL, Vendor Records",
+    id: "ua-3",
+    name: "Resident Inquiry Agent",
+    type: "ai-powered",
+    description: "Conversational AI that handles resident questions about leases, payments, maintenance requests, and community policies via chat and SMS.",
+    status: "live",
+    domain: "Communications",
+    createdAt: "2026-05-20T11:00:00Z",
+    versions: [
+      { id: "v1", versionNumber: 1, status: "retired", createdAt: "2026-05-20T11:00:00Z", description: "Initial — basic Q&A with lease and payment data" },
+      { id: "v2", versionNumber: 2, status: "retired", createdAt: "2026-06-05T09:00:00Z", description: "Added maintenance request creation via MCP" },
+      { id: "v3", versionNumber: 3, status: "live", createdAt: "2026-06-18T16:00:00Z", description: "Added community policy knowledge base and escalation rules" },
+    ],
+    activeVersion: 3,
+    propertyIds: ["prop.hillside", "prop.jamison", "prop.oakmont"],
+    propertyVersionMap: { "prop.hillside": 3, "prop.jamison": 3, "prop.oakmont": 2 },
+    triggers: ["Inbound SMS", "Inbound chat"],
+    evals: [],
+    lastRunAt: "2026-06-22T15:42:00Z",
+    runsLast30d: 1847,
+    executionLog: [
+      { id: "run-3a", runAt: "2026-06-22T15:42:00Z", version: 3, environment: "production", status: "success", durationMs: 2100, triggerSource: "Inbound SMS", propertyId: "prop.hillside", stepsExecuted: 4, stepsTotal: 4, llmTokensUsed: 1840, costUsd: 0.012, objectsModified: [
+        { objectType: "resident", objectId: "R-1102", objectLabel: "Jane Smith — identity verified", action: "read" },
+        { objectType: "lease", objectId: "L-4521", objectLabel: "Lease #4521 — balance lookup", action: "read" },
+        { objectType: "message", objectId: "SMS-9921", objectLabel: "Balance response to +1-555-0142", action: "sent" },
+      ]},
+      { id: "run-3b", runAt: "2026-06-22T14:18:00Z", version: 3, environment: "production", status: "success", durationMs: 3800, triggerSource: "Inbound chat", propertyId: "prop.jamison", stepsExecuted: 6, stepsTotal: 6, llmTokensUsed: 3200, costUsd: 0.022, objectsModified: [
+        { objectType: "resident", objectId: "R-2045", objectLabel: "David Kim — identity verified", action: "read" },
+        { objectType: "work_order", objectId: "WO-7892", objectLabel: "Work order — leaking faucet, Unit 311", action: "created" },
+        { objectType: "message", objectId: "CHAT-441", objectLabel: "Work order confirmation to David Kim", action: "sent" },
+      ]},
+      { id: "run-3c", runAt: "2026-06-22T11:05:00Z", version: 3, environment: "production", status: "success", durationMs: 1500, triggerSource: "Inbound SMS", propertyId: "prop.hillside", stepsExecuted: 3, stepsTotal: 3, llmTokensUsed: 980, costUsd: 0.006, objectsModified: [
+        { objectType: "resident", objectId: "R-1098", objectLabel: "Sarah Chen", action: "read" },
+        { objectType: "message", objectId: "SMS-9918", objectLabel: "Pet policy response to +1-555-0199", action: "sent" },
+      ]},
+      { id: "run-3d", runAt: "2026-06-22T09:30:00Z", version: 2, environment: "production", status: "failure", durationMs: 8200, triggerSource: "Inbound chat", propertyId: "prop.oakmont", stepsExecuted: 2, stepsTotal: 5, llmTokensUsed: 2400, costUsd: 0.016, objectsModified: [
+        { objectType: "resident", objectId: "R-3011", objectLabel: "Amy Torres", action: "read" },
+      ], errorMessage: "LLM response exceeded safety threshold — escalated to human agent" },
+      { id: "run-3e", runAt: "2026-06-21T19:10:00Z", version: 3, environment: "production", status: "success", durationMs: 2900, triggerSource: "Inbound SMS", propertyId: "prop.hillside", stepsExecuted: 5, stepsTotal: 5, llmTokensUsed: 2100, costUsd: 0.014, objectsModified: [
+        { objectType: "resident", objectId: "R-1085", objectLabel: "Mike Rivera", action: "read" },
+        { objectType: "lease", objectId: "L-4488", objectLabel: "Lease renewal status lookup", action: "read" },
+        { objectType: "message", objectId: "SMS-9910", objectLabel: "Renewal status response to +1-555-0177", action: "sent" },
+      ]},
+    ],
+    changeHistory: [
+      { id: "ch-3a", timestamp: "2026-05-20T11:00:00Z", userId: "user-jdoe", userName: "John Doe", action: "created", summary: "Created Resident Inquiry Agent with basic Q&A capabilities", versionAffected: 1 },
+      { id: "ch-3b", timestamp: "2026-05-28T10:00:00Z", userId: "user-jdoe", userName: "John Doe", action: "properties_changed", summary: "Added Hillside Apartments and Jamison Park", diff: [{ field: "propertyIds", from: "[]", to: "[prop.hillside, prop.jamison]" }] },
+      { id: "ch-3c", timestamp: "2026-06-05T09:00:00Z", userId: "user-asmith", userName: "Alice Smith", action: "version_added", summary: "Created v2 — added maintenance request creation via MCP", versionAffected: 2 },
+      { id: "ch-3d", timestamp: "2026-06-12T14:00:00Z", userId: "user-jdoe", userName: "John Doe", action: "properties_changed", summary: "Added Oakmont Towers on v2", diff: [{ field: "propertyIds", from: "[prop.hillside, prop.jamison]", to: "[prop.hillside, prop.jamison, prop.oakmont]" }] },
+      { id: "ch-3e", timestamp: "2026-06-18T16:00:00Z", userId: "user-asmith", userName: "Alice Smith", action: "version_added", summary: "Created v3 — added community policy knowledge base and escalation rules", versionAffected: 3 },
+      { id: "ch-3f", timestamp: "2026-06-18T17:30:00Z", userId: "user-asmith", userName: "Alice Smith", action: "status_changed", summary: "Promoted v3 to live for Hillside and Jamison", versionAffected: 3, diff: [{ field: "status", from: "sandbox", to: "live" }] },
+      { id: "ch-3g", timestamp: "2026-06-20T09:00:00Z", userId: "user-jdoe", userName: "John Doe", action: "evals_changed", summary: "Added 5 evaluation cases for edge-case testing" },
+    ],
   },
   {
-    id: "bp-delinquency",
-    name: "Delinquency Follow-Up",
-    domain: "accounting",
-    description: "Monitor outstanding balances, send graduated payment reminders, and escalate to collections workflow based on aging thresholds.",
-    impact: "40% improvement in collections",
-    connects: "Ledger, Payments, Notifications",
-  },
-  {
-    id: "bp-maint",
-    name: "Maintenance Triage",
-    domain: "maintenance",
-    description: "When a new work order arrives, classify urgency, auto-notify the resident of expected timeline, and route to the right vendor.",
-    impact: "15% faster resolution time",
-    connects: "Work Orders, Vendors, Notifications",
-  },
-  {
-    id: "bp-maint-predict",
-    name: "Preventive Maintenance",
-    domain: "maintenance",
-    description: "Analyze work order patterns across units to identify recurring issues and recommend preventive maintenance schedules before failures occur.",
-    impact: "Reduce emergency WOs by 20%",
-    connects: "Work Orders, Units, Vendor History",
-  },
-  {
-    id: "bp-renewal",
-    name: "Renewal Offer Generation",
-    domain: "renewals",
-    description: "Scan leases expiring in N days, generate renewal offers with market-rate adjustments, and send to residents with configurable escalation.",
-    impact: "92% retention rate on auto-renewals",
-    connects: "Leases, Rent Optimization, Notifications",
-  },
-  {
-    id: "bp-rent-opt",
-    name: "Rent Optimization Scanner",
-    domain: "renewals",
-    description: "Weekly scan of all month-to-month leases. Compare current rent to market, recommend adjustments within compliance constraints, and surface opportunities.",
-    impact: "$2,100/mo avg revenue uplift",
-    connects: "Leases, Market Data, Compliance",
-  },
-  {
-    id: "bp-hud",
-    name: "HUD Special Claims Review",
-    domain: "compliance",
-    description: "Review every document against HUD regulations, identify eligible special claims, and prepare submission packages with audit trail.",
-    impact: "$14K+ avg recoverable per quarter",
-    connects: "Documents, HUD Regulations, Claims",
-  },
-  {
-    id: "bp-fair-housing",
-    name: "Fair Housing Audit",
-    domain: "compliance",
-    description: "Monitor all outgoing communications and leasing interactions for fair housing compliance, flagging potential violations before they become issues.",
-    impact: "Continuous compliance monitoring",
-    connects: "Communications, Leasing, Policies",
-  },
-  {
-    id: "bp-deposit",
-    name: "Security Deposit Returns",
-    domain: "compliance",
-    description: "Track move-out dates, calculate deposit returns against state-specific timelines, and auto-generate itemized statements to meet regulatory deadlines.",
-    impact: "Zero missed deposit deadlines",
-    connects: "Move-outs, Ledger, State Regs",
+    id: "ua-4",
+    name: "After-Hours Maintenance Triage",
+    type: "ai-powered",
+    description: "Handles after-hours maintenance calls, classifies urgency, dispatches emergency vendors for critical issues, and logs non-urgent requests for next business day.",
+    status: "paused",
+    domain: "Maintenance",
+    createdAt: "2026-06-08T13:00:00Z",
+    versions: [
+      { id: "v1", versionNumber: 1, status: "live", createdAt: "2026-06-08T13:00:00Z", description: "Voice + SMS triage with vendor dispatch" },
+    ],
+    activeVersion: 1,
+    propertyIds: ["prop.hillside"],
+    propertyVersionMap: { "prop.hillside": 1 },
+    triggers: ["Inbound voice (after 6 PM)"],
+    evals: [],
+    lastRunAt: "2026-06-20T23:15:00Z",
+    runsLast30d: 34,
+    executionLog: [
+      { id: "run-4a", runAt: "2026-06-20T23:15:00Z", version: 1, environment: "production", status: "success", durationMs: 45000, triggerSource: "Inbound voice", propertyId: "prop.hillside", stepsExecuted: 7, stepsTotal: 7, llmTokensUsed: 4200, costUsd: 0.028, objectsModified: [
+        { objectType: "resident", objectId: "R-1102", objectLabel: "Jane Smith — identity verified via phone", action: "read" },
+        { objectType: "work_order", objectId: "WO-7901", objectLabel: "Emergency work order — water heater burst, Unit 204B", action: "created" },
+        { objectType: "work_order", objectId: "WO-7901", objectLabel: "Assigned to ABC Plumbing (emergency dispatch)", action: "updated" },
+        { objectType: "message", objectId: "SMS-9925", objectLabel: "Emergency confirmation to +1-555-0142", action: "sent" },
+        { objectType: "message", objectId: "SMS-9926", objectLabel: "Dispatch notice to ABC Plumbing", action: "sent" },
+      ]},
+      { id: "run-4b", runAt: "2026-06-19T21:45:00Z", version: 1, environment: "production", status: "success", durationMs: 22000, triggerSource: "Inbound voice", propertyId: "prop.hillside", stepsExecuted: 5, stepsTotal: 7, llmTokensUsed: 2800, costUsd: 0.019, objectsModified: [
+        { objectType: "resident", objectId: "R-1085", objectLabel: "Mike Rivera", action: "read" },
+        { objectType: "work_order", objectId: "WO-7898", objectLabel: "Non-urgent work order — A/C filter, Unit 410", action: "created" },
+        { objectType: "message", objectId: "SMS-9920", objectLabel: "Next-day confirmation to +1-555-0177", action: "sent" },
+      ]},
+    ],
+    changeHistory: [
+      { id: "ch-4a", timestamp: "2026-06-08T13:00:00Z", userId: "user-bwong", userName: "Brian Wong", action: "created", summary: "Created After-Hours Maintenance Triage agent", versionAffected: 1 },
+      { id: "ch-4b", timestamp: "2026-06-09T10:00:00Z", userId: "user-bwong", userName: "Brian Wong", action: "properties_changed", summary: "Added Hillside Apartments", diff: [{ field: "propertyIds", from: "[]", to: "[prop.hillside]" }] },
+      { id: "ch-4c", timestamp: "2026-06-09T15:00:00Z", userId: "user-bwong", userName: "Brian Wong", action: "status_changed", summary: "Promoted from sandbox to live", diff: [{ field: "status", from: "sandbox", to: "live" }] },
+      { id: "ch-4d", timestamp: "2026-06-21T08:00:00Z", userId: "user-jdoe", userName: "John Doe", action: "status_changed", summary: "Paused agent — reviewing emergency dispatch accuracy", diff: [{ field: "status", from: "live", to: "paused" }] },
+    ],
   },
 ];
 
-const STATUS_STYLES: Record<AgentStatus, { bg: string; text: string; label: string }> = {
-  draft: { bg: "bg-[hsl(var(--muted))]", text: "text-[hsl(var(--muted-foreground))]", label: "Draft" },
-  submitted: { bg: "bg-blue-50", text: "text-blue-700", label: "Submitted" },
-  in_review: { bg: "bg-amber-50", text: "text-amber-700", label: "In Review" },
-  live: { bg: "bg-emerald-50", text: "text-emerald-700", label: "Active" },
-  paused: { bg: "bg-[hsl(var(--muted))]", text: "text-[hsl(var(--muted-foreground))]", label: "Paused" },
+// ─── Style maps ───
+
+const STATUS_STYLE: Record<AgentStatusValue, { label: string; className: string }> = {
+  draft: { label: "Draft", className: "bg-slate-100 text-slate-700" },
+  sandbox: { label: "Sandbox", className: "bg-amber-100 text-amber-800" },
+  live: { label: "Live", className: "bg-emerald-100 text-emerald-800" },
+  paused: { label: "Paused", className: "bg-slate-200 text-slate-600" },
 };
 
-const SUBMISSION_STATUS_STYLES: Record<string, { bg: string; text: string; icon: React.ComponentType<{ className?: string }> }> = {
-  submitted: { bg: "bg-blue-50", text: "text-blue-700", icon: Send },
-  in_review: { bg: "bg-amber-50", text: "text-amber-700", icon: Clock },
-  needs_info: { bg: "bg-orange-50", text: "text-orange-700", icon: AlertCircle },
-  approved: { bg: "bg-emerald-50", text: "text-emerald-700", icon: CheckCircle2 },
-  live: { bg: "bg-emerald-50", text: "text-emerald-700", icon: CheckCircle2 },
+const TYPE_STYLE: Record<AgentType, { label: string; icon: typeof Workflow; className: string }> = {
+  deterministic: { label: "Workflow", icon: Workflow, className: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  "ai-powered": { label: "AI Agent", icon: BrainCircuit, className: "bg-indigo-50 text-indigo-700 border-indigo-200" },
 };
 
-const CREATED_FROM_LABELS: Record<string, string> = {
-  prompt: "From prompt",
-  blueprint: "Blueprint",
-  custom: "Custom build",
-};
-
-const DOMAIN_LABELS: Record<AgentDomain, string> = {
-  leasing: "Leasing",
-  accounting: "Accounting",
-  maintenance: "Maintenance",
-  renewals: "Renewals",
-  compliance: "Compliance",
-  general: "General",
-};
-
-const LEVEL_LABELS: Record<AgentLevel, string> = {
-  l1: "L1",
-  l2: "L2",
-  l3: "L3",
-  l4: "L4",
-  l5: "L5",
-};
-
-const ATTACHMENT_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  document: FileText,
-  video: Video,
-  image: ImageIcon,
-  other: File,
-};
-
-function getFileType(name: string): SubmissionAttachment["type"] {
-  const ext = name.split(".").pop()?.toLowerCase() ?? "";
-  if (["pdf", "doc", "docx", "txt", "rtf", "xls", "xlsx", "csv"].includes(ext)) return "document";
-  if (["mp4", "mov", "avi", "webm", "mkv"].includes(ext)) return "video";
-  if (["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(ext)) return "image";
-  return "other";
+function propertyName(id: string): string {
+  return PMC_PROPERTY_RECORDS.find((p) => p.id === id)?.name ?? id;
 }
 
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
+// ─── Build animation ───
 
-/**
- * Infer an agent level from the prompt text and agent name.
- * L4 = conversational / customer-facing / autonomous interaction
- * L3 = orchestration / coordination across multiple agents or workflows
- * L2 = task automation, scheduled jobs, monitors, scanners (default)
- * L1 = backend ops, data sync, reconciliation, ETL, posting
- * L5 = platform-level (very rare from user input)
- */
-function inferAgentLevel(prompt: string, name: string): AgentLevel {
-  const text = `${prompt} ${name}`.toLowerCase();
+const BUILD_PHASE_STEPS = [
+  { key: "analyzing", label: "Analyzing requirements", duration: 1200 },
+  { key: "mapping", label: "Identifying MCP connectors & data sources", duration: 1500 },
+  { key: "generating", label: "Generating workflow graph", duration: 2000 },
+  { key: "validating", label: "Validating against guardrails", duration: 1200 },
+  { key: "compiling", label: "Compiling deterministic logic", duration: 800 },
+] as const;
 
-  const l4Keywords = [
-    "chat", "conversation", "respond to", "answer", "talk to",
-    "interact", "assist resident", "assist prospect", "customer-facing",
-    "help resident", "help prospect", "greet", "guide",
-    "onboard", "offboard", "renewal conversation", "handle calls",
-    "voice agent", "virtual assistant", "concierge", "support agent",
-  ];
-  const l3Keywords = [
-    "coordinate", "orchestrat", "manage multiple", "cross-functional",
-    "oversee", "balance", "prioritize across", "multi-agent",
-    "end-to-end workflow", "pipeline",
-  ];
-  const l1Keywords = [
-    "sync", "reconcil", "ledger post", "data import", "data export",
-    "etl", "migration", "nightly batch", "archive", "backup",
-    "xml report", "file transfer", "database",
-  ];
-  // L2 is the default — automation keywords confirm it but aren't required
+type DeterministicPhase = "describing" | "building" | "built";
 
-  const score = (keywords: string[]) =>
-    keywords.reduce((n, kw) => n + (text.includes(kw) ? 1 : 0), 0);
+// Re-export workflow visualizer types for the built phase
+type BuiltWorkflowNode = {
+  id: string;
+  type: "trigger" | "condition" | "action" | "loop" | "delay" | "end";
+  label: string;
+  description: string;
+  mcpTool?: string;
+  mcpServer?: string;
+  config?: Record<string, string>;
+};
+type BuiltWorkflowEdge = {
+  id: string;
+  source: string;
+  target: string;
+  label?: string;
+  condition?: string;
+};
+type BuiltWorkflow = {
+  name: string;
+  description: string;
+  triggers: string[];
+  dataSources: string[];
+  nodes: BuiltWorkflowNode[];
+  edges: BuiltWorkflowEdge[];
+};
 
-  const l4Score = score(l4Keywords);
-  const l3Score = score(l3Keywords);
-  const l1Score = score(l1Keywords);
+// ─── Modal step types ───
 
-  const best = Math.max(l4Score, l3Score, l1Score);
-  if (best === 0) return "l2";
-  if (best === l4Score) return "l4";
-  if (best === l3Score) return "l3";
-  if (best === l1Score) return "l1";
-  return "l2";
-}
+type ModalStep =
+  | { kind: "type-select" }
+  | { kind: "deterministic"; forkFrom?: UnifiedAgent }
+  | { kind: "ai-powered"; forkFrom?: UnifiedAgent };
 
-/* ── Blueprint Request Modal ── */
-function BlueprintRequestModal({
-  blueprint,
-  open,
-  onClose,
-  onSubmit,
+// ─── Property Picker ───
+
+function PropertyPicker({
+  selected,
+  onChange,
 }: {
-  blueprint: (typeof BLUEPRINTS)[number] | null;
-  open: boolean;
-  onClose: () => void;
-  onSubmit: (details: string, attachments: SubmissionAttachment[]) => void;
+  selected: string[];
+  onChange: (ids: string[]) => void;
 }) {
-  const [details, setDetails] = useState("");
-  const [modalAttachments, setModalAttachments] = useState<SubmissionAttachment[]>([]);
-  const [isRecording, setIsRecording] = useState(false);
-  const modalFileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleModalFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-    const newAttachments: SubmissionAttachment[] = Array.from(files).map((f) => ({
-      id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      name: f.name,
-      type: getFileType(f.name),
-      size: formatFileSize(f.size),
-    }));
-    setModalAttachments((prev) => [...prev, ...newAttachments]);
-    e.target.value = "";
-  };
-
-  const removeModalAttachment = (id: string) => {
-    setModalAttachments((prev) => prev.filter((a) => a.id !== id));
-  };
-
-  const toggleModalRecording = () => {
-    setIsRecording((prev) => !prev);
-    if (!isRecording) {
-      setTimeout(() => {
-        setIsRecording(false);
-        setDetails((prev) =>
-          prev
-            ? prev + " [Voice input would be transcribed here]"
-            : "Apply this to all properties in the West region. Contact the property managers directly for any escalations."
-        );
-      }, 3000);
-    }
-  };
-
-  const handleSubmit = () => {
-    onSubmit(details.trim(), modalAttachments);
-    setDetails("");
-    setModalAttachments([]);
-    setIsRecording(false);
-  };
-
-  const handleCancel = () => {
-    setDetails("");
-    setModalAttachments([]);
-    setIsRecording(false);
-    onClose();
+  const [search, setSearch] = useState("");
+  const filtered = PMC_PROPERTY_RECORDS.filter((p) =>
+    `${p.name} ${p.city} ${p.state}`.toLowerCase().includes(search.toLowerCase())
+  );
+  const toggle = (id: string) => {
+    onChange(selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id]);
   };
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) handleCancel(); }}>
-      <DialogContent className="max-w-xl">
-        <DialogHeader>
-          <DialogTitle>Agent Request Details</DialogTitle>
-          <DialogDescription>
-            What should we know before setting this up? For example: which properties it should apply to, specific contacts to notify, or preferred messaging frequency. Provide as much detail as you&apos;d like, and attach any SOPs or recordings for additional context.
-          </DialogDescription>
-        </DialogHeader>
-
-        {blueprint && (
-          <div className="flex items-center gap-2 rounded-md bg-[hsl(var(--muted))]/40 px-3 py-2 text-sm">
-            <Bot className="h-4 w-4 text-[hsl(var(--muted-foreground))]" />
-            <span className="font-medium text-[hsl(var(--foreground))]">{blueprint.name}</span>
-          </div>
-        )}
-
-        <div className="relative">
-          <textarea
-            value={details}
-            onChange={(e) => setDetails(e.target.value)}
-            placeholder="e.g. Apply to Sunset Ridge and Parkview properties only. For renewal communications, CC the regional manager. Send offers on the first of each month..."
-            rows={5}
-            className="w-full resize-none overflow-y-auto rounded-lg border border-[hsl(var(--border))] bg-white px-4 py-3 pb-11 text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]/60 focus:border-[hsl(var(--primary))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary))]/20"
-          />
-
-          <div className="absolute bottom-2.5 left-3 right-3 flex items-center justify-between">
-            <div className="flex items-center gap-1">
-              <input
-                ref={modalFileInputRef}
-                type="file"
-                multiple
-                accept=".pdf,.doc,.docx,.txt,.rtf,.xls,.xlsx,.csv,.mp4,.mov,.avi,.webm,.png,.jpg,.jpeg,.gif,.webp"
-                onChange={handleModalFileSelect}
-                className="hidden"
-              />
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => modalFileInputRef.current?.click()}
-                title="Attach files (SOPs, documents, videos)"
-                className="h-auto gap-1 px-2 py-1.5 text-muted-foreground"
-              >
-                <Paperclip className="h-4 w-4" />
-                <span className="text-[11px] font-medium">Attach</span>
-              </Button>
-            </div>
-
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={toggleModalRecording}
-              title={isRecording ? "Stop recording" : "Describe with your voice"}
-              className={`h-8 w-8 ${
-                isRecording
-                  ? "animate-pulse bg-red-100 text-red-600 hover:bg-red-100 hover:text-red-600"
-                  : "text-muted-foreground"
+    <div className="space-y-2">
+      <div className="relative">
+        <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search properties..."
+          className="w-full rounded-md border border-border bg-white py-1.5 pl-8 pr-3 text-[12px] text-foreground placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20"
+        />
+      </div>
+      <div className="max-h-40 space-y-0.5 overflow-y-auto rounded-md border border-border p-1">
+        {filtered.map((p) => {
+          const isSelected = selected.includes(p.id);
+          return (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => toggle(p.id)}
+              className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors ${
+                isSelected ? "bg-primary/10 text-primary font-medium" : "text-foreground hover:bg-muted"
               }`}
             >
-              {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-            </Button>
+              <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                isSelected ? "border-primary bg-primary text-white" : "border-border"
+              }`}>
+                {isSelected && <Check className="h-3 w-3" />}
+              </div>
+              <span className="flex-1 truncate">{p.name}</span>
+              <span className="shrink-0 text-[10px] text-muted-foreground">{p.city}, {p.state}</span>
+            </button>
+          );
+        })}
+        {filtered.length === 0 && (
+          <p className="px-2 py-3 text-center text-[11px] text-muted-foreground">No properties match &quot;{search}&quot;</p>
+        )}
+      </div>
+      <p className="text-[10px] text-muted-foreground">{selected.length} of {PMC_PROPERTY_RECORDS.length} properties selected</p>
+    </div>
+  );
+}
+
+// ─── Agent Detail Panel (editable) ───
+
+function AgentDetailPanel({
+  agent,
+  onUpdate,
+  onClose,
+  onNewVersion,
+  onEditVersion,
+}: {
+  agent: UnifiedAgent;
+  onUpdate: (patch: Partial<UnifiedAgent>) => void;
+  onClose: () => void;
+  onNewVersion: () => void;
+  onEditVersion: (versionNumber: number) => void;
+}) {
+  const typeInfo = TYPE_STYLE[agent.type];
+  const TypeIcon = typeInfo.icon;
+  const statusInfo = STATUS_STYLE[agent.status];
+
+  const [editingField, setEditingField] = useState<"name" | "description" | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [showPropertyPicker, setShowPropertyPicker] = useState(false);
+
+  const latestVersion = Math.max(...agent.versions.map((v) => v.versionNumber));
+  const [newPropertyVersion, setNewPropertyVersion] = useState(latestVersion);
+
+  const startEdit = (field: "name" | "description") => {
+    setEditValue(field === "name" ? agent.name : agent.description);
+    setEditingField(field);
+  };
+  const saveEdit = () => {
+    if (!editingField) return;
+    const trimmed = editValue.trim();
+    if (!trimmed) { setEditingField(null); return; }
+    onUpdate({ [editingField]: trimmed });
+    setEditingField(null);
+  };
+
+  const toggleStatus = () => {
+    const next: AgentStatusValue = agent.status === "live" ? "paused" : "live";
+    onUpdate({ status: next });
+  };
+
+  return (
+    <div className="flex max-h-[85vh] flex-col">
+      {/* Header — fixed */}
+      <div className="flex items-start justify-between gap-3 px-6 pb-3 pt-6">
+        <div className="min-w-0 flex-1">
+          {editingField === "name" ? (
+            <div className="flex items-center gap-2">
+              <Input
+                autoFocus
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") saveEdit(); if (e.key === "Escape") setEditingField(null); }}
+                className="h-8 text-lg font-semibold"
+              />
+              <Button size="sm" variant="ghost" onClick={saveEdit} className="h-7 w-7 p-0"><Check className="h-4 w-4" /></Button>
+              <Button size="sm" variant="ghost" onClick={() => setEditingField(null)} className="h-7 w-7 p-0"><X className="h-4 w-4" /></Button>
+            </div>
+          ) : (
+            <button type="button" onClick={() => startEdit("name")} className="group flex items-center gap-2 text-left">
+              <h2 className="text-lg font-semibold text-foreground">{agent.name}</h2>
+              <Pencil className="h-3.5 w-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+            </button>
+          )}
+          <div className="mt-1.5 flex items-center gap-2">
+            <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${typeInfo.className}`}>
+              <TypeIcon className="h-3 w-3" /> {typeInfo.label}
+            </span>
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusInfo.className}`}>
+              {statusInfo.label}
+            </span>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+              v{agent.activeVersion}
+            </span>
           </div>
         </div>
+        <div className="flex items-center gap-1">
+          {(agent.status === "live" || agent.status === "paused") && (
+            <button
+              type="button"
+              onClick={toggleStatus}
+              title={agent.status === "live" ? "Pause agent" : "Resume agent"}
+              className="rounded-md p-1.5 text-muted-foreground hover:bg-muted"
+            >
+              {agent.status === "live" ? <ToggleRight className="h-5 w-5 text-emerald-600" /> : <ToggleLeft className="h-5 w-5" />}
+            </button>
+          )}
+          <button type="button" onClick={onClose} className="rounded-md p-1.5 text-muted-foreground hover:bg-muted">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
 
-        {isRecording && (
-          <div className="flex items-center gap-2 rounded-md bg-red-50 px-3 py-1.5 text-xs text-red-700">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-red-600" />
+      {/* Scrollable body */}
+      <div className="flex-1 space-y-4 overflow-y-auto px-6 pb-6">
+        {/* Description */}
+        {editingField === "description" ? (
+          <div className="space-y-2">
+            <textarea
+              autoFocus
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              rows={3}
+              className="w-full resize-none rounded-md border border-border px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20"
+            />
+            <div className="flex gap-2">
+              <Button size="sm" onClick={saveEdit} className="h-7 text-[11px]">Save</Button>
+              <Button size="sm" variant="ghost" onClick={() => setEditingField(null)} className="h-7 text-[11px]">Cancel</Button>
+            </div>
+          </div>
+        ) : (
+          <button type="button" onClick={() => startEdit("description")} className="group w-full text-left">
+            <p className="text-sm text-muted-foreground">{agent.description}</p>
+            <span className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground/60 opacity-0 transition-opacity group-hover:opacity-100">
+              <Pencil className="h-3 w-3" /> Click to edit
             </span>
-            Listening... describe your requirements and we&apos;ll transcribe them.
+          </button>
+        )}
+
+        {/* Triggers */}
+        {agent.triggers.length > 0 && (
+          <div className="rounded-lg border border-border bg-muted/30 p-3">
+            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Triggers</h4>
+            <div className="flex flex-wrap gap-1.5">
+              {agent.triggers.map((t) => (
+                <span key={t} className="inline-flex items-center gap-1 rounded-full border border-border bg-white px-2.5 py-1 text-[11px] font-medium text-foreground">
+                  <Zap className="h-3 w-3 text-amber-500" /> {t}
+                </span>
+              ))}
+            </div>
           </div>
         )}
 
-        {modalAttachments.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {modalAttachments.map((att) => {
-              const Icon = ATTACHMENT_ICONS[att.type] ?? File;
+        {/* Properties */}
+        <div className="rounded-lg border border-border bg-muted/30 p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Properties ({agent.propertyIds.length})
+            </h4>
+            <button
+              type="button"
+              onClick={() => setShowPropertyPicker(!showPropertyPicker)}
+              className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/10"
+            >
+              <Pencil className="h-3 w-3" /> {showPropertyPicker ? "Done" : "Edit"}
+            </button>
+          </div>
+          {showPropertyPicker ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-2">
+                <span className="text-[11px] font-medium text-muted-foreground">Assign new properties to:</span>
+                <select
+                  value={newPropertyVersion}
+                  onChange={(e) => setNewPropertyVersion(Number(e.target.value))}
+                  className="h-6 rounded border border-border bg-white px-1.5 text-[11px] font-medium text-foreground"
+                >
+                  {[...agent.versions].reverse().map((v) => (
+                    <option key={v.versionNumber} value={v.versionNumber}>
+                      v{v.versionNumber} — {v.description.slice(0, 40)}{v.description.length > 40 ? "..." : ""} ({v.status})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <PropertyPicker
+                selected={agent.propertyIds}
+                onChange={(ids) => {
+                  const newMap = { ...agent.propertyVersionMap };
+                  for (const pid of ids) {
+                    if (!newMap[pid]) newMap[pid] = newPropertyVersion;
+                  }
+                  for (const pid of Object.keys(newMap)) {
+                    if (!ids.includes(pid)) delete newMap[pid];
+                  }
+                  onUpdate({ propertyIds: ids, propertyVersionMap: newMap });
+                }}
+              />
+            </div>
+          ) : agent.propertyIds.length > 0 ? (
+            <ul className="space-y-1.5">
+              {agent.propertyIds.map((pid) => {
+                const assignedV = agent.propertyVersionMap[pid] ?? agent.activeVersion;
+                const liveVersions = agent.versions.filter((v) => v.status === "live" || v.status === "sandbox");
+                return (
+                  <li key={pid} className="flex items-center justify-between gap-2 text-[12px] text-foreground">
+                    <span className="flex items-center gap-1.5 min-w-0 truncate">
+                      <Building2 className="h-3 w-3 shrink-0 text-muted-foreground" /> {propertyName(pid)}
+                    </span>
+                    {liveVersions.length > 1 ? (
+                      <select
+                        value={assignedV}
+                        onChange={(e) => {
+                          const nextMap = { ...agent.propertyVersionMap, [pid]: Number(e.target.value) };
+                          onUpdate({ propertyVersionMap: nextMap });
+                        }}
+                        className="h-6 shrink-0 rounded border border-border bg-white px-1.5 text-[10px] font-medium text-muted-foreground"
+                      >
+                        {liveVersions.map((v) => (
+                          <option key={v.versionNumber} value={v.versionNumber}>v{v.versionNumber}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                        v{assignedV}
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="py-2 text-center text-[11px] text-muted-foreground">
+              No properties assigned.{" "}
+              <button type="button" onClick={() => setShowPropertyPicker(true)} className="text-primary underline">Add properties</button>
+            </p>
+          )}
+        </div>
+
+        {/* Versions */}
+        <div className="rounded-lg border border-border bg-white p-3">
+          <div className="mb-3 flex items-center justify-between">
+            <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <GitBranch className="mr-1 inline h-3 w-3" /> Versions
+            </h4>
+            <Button size="sm" variant="outline" onClick={onNewVersion} className="h-7 text-[11px]">
+              <Plus className="mr-1 h-3 w-3" /> New Version
+            </Button>
+          </div>
+          <div className="space-y-2">
+            {[...agent.versions].reverse().map((v) => {
+              const isActive = v.versionNumber === agent.activeVersion;
+              const propsOnVersion = agent.propertyIds.filter(
+                (pid) => (agent.propertyVersionMap[pid] ?? agent.activeVersion) === v.versionNumber
+              );
               return (
-                <span key={att.id} className="flex items-center gap-1.5 rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--muted))]/30 py-1 pl-2 pr-1 text-[11px] text-[hsl(var(--foreground))]">
-                  <Icon className="h-3 w-3 text-[hsl(var(--muted-foreground))]" />
-                  {att.name}
-                  <span className="text-[hsl(var(--muted-foreground))]">({att.size})</span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => removeModalAttachment(att.id)}
-                    className="ml-0.5 h-5 w-5 text-muted-foreground"
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
-                </span>
+                <div
+                  key={v.id}
+                  className={`rounded-lg border px-3 py-2 ${
+                    isActive ? "border-emerald-200 bg-emerald-50/50" : "border-border"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                      isActive ? "bg-emerald-600 text-white" : "bg-muted text-muted-foreground"
+                    }`}>
+                      v{v.versionNumber}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[12px] font-medium text-foreground">{v.description}</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {new Date(v.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onEditVersion(v.versionNumber); }}
+                      className="shrink-0 rounded border border-border px-2 py-1 text-[10px] font-medium text-primary hover:bg-primary/10"
+                    >
+                      <Pencil className="inline mr-0.5 h-3 w-3" /> Edit
+                    </button>
+                    <Badge variant="outline" className={`shrink-0 rounded-full text-[9px] ${
+                      v.status === "live" ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                      : v.status === "sandbox" ? "border-amber-300 bg-amber-50 text-amber-700"
+                      : v.status === "retired" ? "border-slate-200 bg-slate-50 text-slate-500"
+                      : "border-border"
+                    }`}>
+                      {v.status}
+                    </Badge>
+                  </div>
+                  {propsOnVersion.length > 0 && (
+                    <div className="ml-9 mt-1.5 flex flex-wrap items-center gap-1">
+                      <Building2 className="h-3 w-3 text-muted-foreground" />
+                      <span className="text-[10px] font-medium text-muted-foreground">
+                        {propsOnVersion.length} {propsOnVersion.length === 1 ? "property" : "properties"}:
+                      </span>
+                      {propsOnVersion.map((pid) => (
+                        <span key={pid} className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-700">
+                          {propertyName(pid)}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {propsOnVersion.length === 0 && v.status !== "retired" && v.status !== "draft" && (
+                    <p className="ml-9 mt-1 text-[10px] italic text-muted-foreground">No properties using this version</p>
+                  )}
+                </div>
               );
             })}
           </div>
-        )}
+        </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={handleCancel}>
-            Cancel
-          </Button>
-          <Button onClick={handleSubmit}>
-            <Send className="h-3.5 w-3.5" />
-            Submit
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        {/* Evals */}
+        <AgentEvalsSection agent={agent} onUpdate={onUpdate} />
+
+        {/* Execution Log */}
+        <AgentExecutionLog agent={agent} />
+
+        {/* Change History */}
+        <AgentChangeHistory agent={agent} />
+
+        {/* Run stats */}
+        {agent.runsLast30d !== undefined && (
+          <div className="flex items-center gap-4 rounded-lg border border-border bg-muted/30 p-3">
+            <div>
+              <p className="text-xl font-semibold text-foreground">{agent.runsLast30d.toLocaleString()}</p>
+              <p className="text-[10px] text-muted-foreground">Runs (last 30 days)</p>
+            </div>
+            {agent.lastRunAt && (
+              <div className="border-l border-border pl-4">
+                <p className="text-sm font-medium text-foreground">
+                  {new Date(agent.lastRunAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                </p>
+                <p className="text-[10px] text-muted-foreground">Last run</p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
-/* ── Submission Card with message thread ── */
-function SubmissionCard({ sub, onReply }: { sub: AgentSubmission; onReply: (id: string, text: string) => void }) {
-  const [expanded, setExpanded] = useState(false);
-  const [replyText, setReplyText] = useState("");
-  const style = SUBMISSION_STATUS_STYLES[sub.status] ?? SUBMISSION_STATUS_STYLES.submitted;
-  const StatusIcon = style.icon;
-  const hasMessages = (sub.messages?.length ?? 0) > 0;
-  const needsResponse = sub.status === "needs_info";
-  const lastEntrataMsg = sub.messages?.filter((m) => m.from === "entrata").pop();
+// ─── Execution Log section ───
 
-  const handleReply = () => {
-    if (!replyText.trim()) return;
-    onReply(sub.id, replyText.trim());
-    setReplyText("");
-  };
+const OBJECT_TYPE_STYLE: Record<ObjectTrace["objectType"], { label: string; color: string }> = {
+  resident: { label: "Resident", color: "bg-blue-100 text-blue-700" },
+  lead: { label: "Lead", color: "bg-cyan-100 text-cyan-700" },
+  lease: { label: "Lease", color: "bg-indigo-100 text-indigo-700" },
+  work_order: { label: "Work Order", color: "bg-amber-100 text-amber-700" },
+  invoice: { label: "Invoice", color: "bg-orange-100 text-orange-700" },
+  unit: { label: "Unit", color: "bg-emerald-100 text-emerald-700" },
+  property: { label: "Property", color: "bg-teal-100 text-teal-700" },
+  renewal_offer: { label: "Renewal", color: "bg-purple-100 text-purple-700" },
+  message: { label: "Message", color: "bg-pink-100 text-pink-700" },
+};
+
+const ACTION_STYLE: Record<ObjectTrace["action"], { label: string; color: string }> = {
+  read: { label: "Read", color: "text-gray-500" },
+  created: { label: "Created", color: "text-emerald-600" },
+  updated: { label: "Updated", color: "text-amber-600" },
+  deleted: { label: "Deleted", color: "text-red-600" },
+  sent: { label: "Sent", color: "text-indigo-600" },
+};
+
+function AgentExecutionLog({ agent }: { agent: UnifiedAgent }) {
+  const [expanded, setExpanded] = useState(false);
+  const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<"all" | ExecutionLogEntry["status"]>("all");
+
+  const logs = filterStatus === "all"
+    ? agent.executionLog
+    : agent.executionLog.filter((l) => l.status === filterStatus);
+
+  const stats = useMemo(() => {
+    const total = agent.executionLog.length;
+    const successes = agent.executionLog.filter((l) => l.status === "success").length;
+    const failures = agent.executionLog.filter((l) => l.status === "failure").length;
+    const totalObjects = agent.executionLog.reduce((sum, l) => sum + l.objectsModified.length, 0);
+    const writeOps = agent.executionLog.reduce((sum, l) => sum + l.objectsModified.filter((o) => o.action !== "read").length, 0);
+    const avgDuration = total > 0 ? Math.round(agent.executionLog.reduce((s, l) => s + l.durationMs, 0) / total) : 0;
+    const totalCost = agent.executionLog.reduce((s, l) => s + (l.costUsd ?? 0), 0);
+    return { total, successes, failures, totalObjects, writeOps, avgDuration, totalCost };
+  }, [agent.executionLog]);
 
   return (
-    <div className={`rounded-lg border bg-white transition-shadow ${needsResponse ? "border-orange-300 shadow-sm shadow-orange-100" : "border-[hsl(var(--border))]"}`}>
-      {/* Header row */}
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-start gap-3 p-3 text-left"
-      >
-        <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${style.bg}`}>
-          <StatusIcon className={`h-3.5 w-3.5 ${style.text}`} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            {sub.suggestedName && (
-              <span className="text-sm font-semibold text-[hsl(var(--foreground))]">{sub.suggestedName}</span>
-            )}
-            {sub.agentLevel && (
-              <Badge variant="secondary" className="text-[10px] px-1.5 py-0.5">
-                {LEVEL_LABELS[sub.agentLevel]}
-              </Badge>
-            )}
-          </div>
-          <p className="text-sm text-foreground line-clamp-2">
-            &ldquo;{sub.prompt}&rdquo;
-          </p>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <span className="text-[10px] text-muted-foreground">
-              {new Date(sub.submittedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-            </span>
-            {sub.attachments && sub.attachments.length > 0 && (
-              <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
-                <Paperclip className="h-3 w-3" />
-                {sub.attachments.length} file{sub.attachments.length > 1 ? "s" : ""}
-              </span>
-            )}
-            {hasMessages && (
-              <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
-                <MessageSquare className="h-3 w-3" />
-                {sub.messages!.length}
-              </span>
-            )}
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Badge variant="outline" className={`rounded-full border-transparent text-[10px] capitalize ${style.bg} ${style.text}`}>
-            {sub.status === "needs_info" ? "Needs Info" : sub.status.replace("_", " ")}
-          </Badge>
-          {expanded ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
-        </div>
+    <div className="rounded-lg border border-border bg-white p-3">
+      <button type="button" onClick={() => setExpanded(!expanded)} className="flex w-full items-center gap-1">
+        <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <Activity className="mr-1 inline h-3 w-3" /> Execution Log ({agent.executionLog.length})
+        </h4>
+        <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`} />
       </button>
 
-      {/* Expanded detail */}
       {expanded && (
-        <div className="border-t border-border/50 px-3 pb-3">
-          {/* Details row */}
-          {(sub.agentLevel || sub.deployLocation) && (
-            <div className="mt-3 flex flex-wrap gap-3 text-xs">
-              {sub.agentLevel && (
-                <div>
-                  <span className="text-[hsl(var(--muted-foreground))]">Level: </span>
-                  <span className="font-medium text-[hsl(var(--foreground))]">{AGENT_LEVEL_OPTIONS.find((o) => o.value === sub.agentLevel)?.label ?? sub.agentLevel}</span>
-                </div>
-              )}
-              {sub.deployLocation && (
-                <div>
-                  <span className="text-[hsl(var(--muted-foreground))]">Deploy at: </span>
-                  <span className="font-medium text-[hsl(var(--foreground))]">{sub.deployLocation}</span>
-                </div>
-              )}
+        <div className="mt-3 space-y-3">
+          {/* Stats summary */}
+          <div className="grid grid-cols-4 gap-2">
+            <div className="rounded-lg bg-slate-50 px-2.5 py-2 text-center">
+              <p className="text-base font-semibold text-foreground">{stats.total}</p>
+              <p className="text-[9px] text-muted-foreground">Total Runs</p>
+            </div>
+            <div className="rounded-lg bg-emerald-50 px-2.5 py-2 text-center">
+              <p className="text-base font-semibold text-emerald-700">{stats.successes}</p>
+              <p className="text-[9px] text-emerald-600">Success</p>
+            </div>
+            <div className="rounded-lg bg-red-50 px-2.5 py-2 text-center">
+              <p className="text-base font-semibold text-red-700">{stats.failures}</p>
+              <p className="text-[9px] text-red-600">Failed</p>
+            </div>
+            <div className="rounded-lg bg-indigo-50 px-2.5 py-2 text-center">
+              <p className="text-base font-semibold text-indigo-700">{stats.writeOps}</p>
+              <p className="text-[9px] text-indigo-600">Write Ops</p>
+            </div>
+          </div>
+
+          {stats.totalCost > 0 && (
+            <div className="flex items-center justify-between rounded-lg border border-border bg-slate-50 px-3 py-2 text-[11px]">
+              <span className="text-muted-foreground">Avg duration: <strong className="text-foreground">{(stats.avgDuration / 1000).toFixed(1)}s</strong></span>
+              <span className="text-muted-foreground">Total LLM cost: <strong className="text-foreground">${stats.totalCost.toFixed(3)}</strong></span>
             </div>
           )}
 
-          {/* Additional Details */}
-          {sub.additionalDetails && (
-            <div className="mt-3">
-              <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-[hsl(var(--muted-foreground))]">Additional Details</p>
-              <p className="whitespace-pre-wrap rounded-md bg-[hsl(var(--muted))]/30 px-3 py-2 text-sm text-[hsl(var(--foreground))]">
-                {sub.additionalDetails}
-              </p>
+          {/* Status filter */}
+          <div className="flex gap-1">
+            {(["all", "success", "failure", "timeout", "partial"] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setFilterStatus(s)}
+                className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                  filterStatus === s ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:bg-muted/80"
+                }`}
+              >
+                {s === "all" ? "All" : s.charAt(0).toUpperCase() + s.slice(1)}
+              </button>
+            ))}
+          </div>
+
+          {/* Log entries */}
+          {logs.length === 0 ? (
+            <p className="py-3 text-center text-[11px] text-muted-foreground">
+              {agent.executionLog.length === 0 ? "No executions yet." : "No runs match this filter."}
+            </p>
+          ) : (
+            <div className="max-h-72 space-y-1.5 overflow-y-auto">
+              {logs.map((run) => {
+                const isExpanded = expandedRunId === run.id;
+                return (
+                  <div key={run.id} className={`rounded-lg border transition-colors ${run.status === "failure" ? "border-red-200 bg-red-50/30" : "border-border"}`}>
+                    <button
+                      type="button"
+                      onClick={() => setExpandedRunId(isExpanded ? null : run.id)}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left"
+                    >
+                      {run.status === "success" ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                        : run.status === "failure" ? <XCircle className="h-3.5 w-3.5 shrink-0 text-red-500" />
+                        : <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-semibold text-foreground">
+                            {new Date(run.runAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                          </span>
+                          <span className="rounded bg-slate-100 px-1 py-px text-[9px] font-medium text-slate-600">v{run.version}</span>
+                          <span className={`rounded px-1 py-px text-[9px] font-bold uppercase ${
+                            run.environment === "production" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                          }`}>
+                            {run.environment}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 flex items-center gap-3 text-[10px] text-muted-foreground">
+                          <span>{run.triggerSource}</span>
+                          <span>{run.stepsExecuted}/{run.stepsTotal} steps</span>
+                          <span>{(run.durationMs / 1000).toFixed(1)}s</span>
+                          {run.objectsModified.length > 0 && (
+                            <span className="font-medium text-indigo-600">{run.objectsModified.length} objects</span>
+                          )}
+                          {run.costUsd != null && run.costUsd > 0 && (
+                            <span>${run.costUsd.toFixed(3)}</span>
+                          )}
+                        </div>
+                      </div>
+                      <ChevronRight className={`h-3.5 w-3.5 shrink-0 text-gray-400 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                    </button>
+
+                    {isExpanded && (
+                      <div className="border-t border-dashed border-gray-200 px-3 py-2.5">
+                        {run.errorMessage && (
+                          <div className="mb-2 rounded bg-red-100 px-2.5 py-1.5 text-[10px] font-medium text-red-700">
+                            {run.errorMessage}
+                          </div>
+                        )}
+                        {run.propertyId && (
+                          <p className="mb-2 text-[10px] text-muted-foreground">
+                            <Building2 className="mr-0.5 inline h-3 w-3" /> {propertyName(run.propertyId)}
+                          </p>
+                        )}
+                        {run.llmTokensUsed != null && (
+                          <p className="mb-2 text-[10px] text-muted-foreground">
+                            LLM tokens: {run.llmTokensUsed.toLocaleString()} &middot; Cost: ${(run.costUsd ?? 0).toFixed(4)}
+                          </p>
+                        )}
+                        <p className="mb-1.5 text-[9px] font-bold uppercase tracking-wider text-gray-400">Objects Accessed / Modified</p>
+                        <div className="space-y-1">
+                          {run.objectsModified.map((obj, i) => {
+                            const otStyle = OBJECT_TYPE_STYLE[obj.objectType];
+                            const aStyle = ACTION_STYLE[obj.action];
+                            return (
+                              <div key={i} className="flex items-center gap-2 rounded bg-white px-2 py-1.5">
+                                <span className={`shrink-0 rounded px-1.5 py-0.5 text-[8px] font-bold uppercase ${otStyle.color}`}>
+                                  {otStyle.label}
+                                </span>
+                                <span className="min-w-0 flex-1 truncate text-[10px] text-foreground">{obj.objectLabel}</span>
+                                <span className={`shrink-0 text-[9px] font-semibold ${aStyle.color}`}>{aStyle.label}</span>
+                              </div>
+                            );
+                          })}
+                          {run.objectsModified.length === 0 && (
+                            <p className="text-[10px] italic text-muted-foreground">No objects accessed</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
 
-          {/* Attachments */}
-          {sub.attachments && sub.attachments.length > 0 && (
-            <div className="mt-3">
-              <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-[hsl(var(--muted-foreground))]">Attachments</p>
-              <div className="flex flex-wrap gap-1.5">
-                {sub.attachments.map((att) => {
-                  const Icon = ATTACHMENT_ICONS[att.type] ?? File;
+// ─── Change History section ───
+
+const CHANGE_ACTION_STYLE: Record<ChangeHistoryEntry["action"], { label: string; icon: typeof History; color: string }> = {
+  created: { label: "Created", icon: Plus, color: "text-emerald-600 bg-emerald-100" },
+  updated: { label: "Updated", icon: Pencil, color: "text-blue-600 bg-blue-100" },
+  version_added: { label: "Version Added", icon: GitBranch, color: "text-indigo-600 bg-indigo-100" },
+  status_changed: { label: "Status Changed", icon: ToggleRight, color: "text-amber-600 bg-amber-100" },
+  properties_changed: { label: "Properties Changed", icon: Building2, color: "text-teal-600 bg-teal-100" },
+  config_changed: { label: "Config Changed", icon: Cog, color: "text-purple-600 bg-purple-100" },
+  evals_changed: { label: "Evals Changed", icon: FlaskConical, color: "text-pink-600 bg-pink-100" },
+};
+
+function AgentChangeHistory({ agent }: { agent: UnifiedAgent }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const sortedHistory = [...agent.changeHistory].sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+  );
+
+  return (
+    <div className="rounded-lg border border-border bg-white p-3">
+      <button type="button" onClick={() => setExpanded(!expanded)} className="flex w-full items-center gap-1">
+        <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <History className="mr-1 inline h-3 w-3" /> Change History ({agent.changeHistory.length})
+        </h4>
+        <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`} />
+      </button>
+
+      {expanded && (
+        <div className="mt-3">
+          {sortedHistory.length === 0 ? (
+            <p className="py-3 text-center text-[11px] text-muted-foreground">No changes recorded.</p>
+          ) : (
+            <div className="relative max-h-64 overflow-y-auto">
+              {/* Timeline line */}
+              <div className="absolute left-[13px] top-0 bottom-0 w-px bg-gray-200" />
+
+              <div className="space-y-0">
+                {sortedHistory.map((entry, idx) => {
+                  const style = CHANGE_ACTION_STYLE[entry.action];
+                  const ActionIcon = style.icon;
+                  const isLast = idx === sortedHistory.length - 1;
+
                   return (
-                    <span key={att.id} className="flex items-center gap-1.5 rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--muted))]/30 px-2 py-1 text-[11px] text-[hsl(var(--foreground))]">
-                      <Icon className="h-3 w-3 text-[hsl(var(--muted-foreground))]" />
-                      {att.name}
-                      <span className="text-[hsl(var(--muted-foreground))]">({att.size})</span>
-                    </span>
+                    <div key={entry.id} className="relative flex gap-3 pb-3">
+                      {/* Timeline dot */}
+                      <div className={`relative z-10 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full ${style.color}`}>
+                        <ActionIcon className="h-3 w-3" />
+                      </div>
+
+                      <div className="min-w-0 flex-1 pt-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-semibold text-foreground">{entry.summary}</span>
+                        </div>
+                        <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
+                          <span className="flex items-center gap-0.5">
+                            <User className="h-2.5 w-2.5" /> {entry.userName}
+                          </span>
+                          <span>&middot;</span>
+                          <span>
+                            {new Date(entry.timestamp).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
+                          </span>
+                          {entry.versionAffected != null && (
+                            <>
+                              <span>&middot;</span>
+                              <span className="rounded bg-slate-100 px-1 py-px text-[9px] font-medium text-slate-600">v{entry.versionAffected}</span>
+                            </>
+                          )}
+                        </div>
+
+                        {entry.diff && entry.diff.length > 0 && (
+                          <div className="mt-1.5 space-y-0.5">
+                            {entry.diff.map((d, di) => (
+                              <div key={di} className="flex items-center gap-1.5 text-[10px]">
+                                <span className="font-mono text-muted-foreground">{d.field}:</span>
+                                <span className="rounded bg-red-50 px-1 py-px font-mono text-red-600 line-through">{d.from}</span>
+                                <span className="text-gray-400">&rarr;</span>
+                                <span className="rounded bg-emerald-50 px-1 py-px font-mono text-emerald-600">{d.to}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   );
                 })}
               </div>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
 
-          {/* Message thread */}
-          {hasMessages && (
-            <div className="mt-3">
-              <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-[hsl(var(--muted-foreground))]">Conversation</p>
-              <div className="space-y-2">
-                {sub.messages!.map((msg) => (
-                  <div key={msg.id} className={`rounded-lg px-3 py-2 text-sm ${msg.from === "entrata" ? "bg-blue-50 text-blue-900" : "bg-[hsl(var(--muted))]/40 text-[hsl(var(--foreground))]"}`}>
-                    <div className="mb-0.5 flex items-center gap-1.5 text-[10px] font-semibold">
-                      {msg.from === "entrata" ? (
-                        <>
-                          <Bot className="h-3 w-3" />
-                          Entrata Team
-                        </>
-                      ) : (
-                        "You"
-                      )}
-                      <span className="font-normal text-[hsl(var(--muted-foreground))]">
-                        · {new Date(msg.sentAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })} at {new Date(msg.sentAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
-                      </span>
-                    </div>
-                    <p className="whitespace-pre-wrap">{msg.text}</p>
-                  </div>
-                ))}
+// ─── Evals section inside detail panel ───
+
+function AgentEvalsSection({
+  agent,
+  onUpdate,
+}: {
+  agent: UnifiedAgent;
+  onUpdate: (patch: Partial<UnifiedAgent>) => void;
+}) {
+  const [generating, setGenerating] = useState(false);
+  const [suggestions, setSuggestions] = useState<(SimpleEval & { _accepted?: boolean; _rejected?: boolean })[]>([]);
+  const [expanded, setExpanded] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formInput, setFormInput] = useState("");
+  const [formExpected, setFormExpected] = useState("");
+  const [formSeverity, setFormSeverity] = useState<"critical" | "major" | "minor">("major");
+  const [formTags, setFormTags] = useState("");
+
+  const [evalSource, setEvalSource] = useState<"llm" | "fallback" | null>(null);
+
+  const handleGenerate = async () => {
+    setGenerating(true);
+    try {
+      const { generateEvalsForAgent } = await import("@/lib/eval-generator");
+      const result = await generateEvalsForAgent({
+        name: agent.name,
+        description: agent.description,
+        type: agent.type,
+        triggers: agent.type === "deterministic" && agent.workflow
+          ? (agent.workflow as { triggers?: string[] }).triggers
+          : undefined,
+      });
+      setSuggestions(result.evals.map((e) => ({ ...e, _accepted: false, _rejected: false })));
+      setEvalSource(result.source);
+    } catch (err) {
+      console.error("Eval generation failed:", err);
+    } finally {
+      setGenerating(false);
+      setExpanded(true);
+    }
+  };
+
+  const acceptSuggestion = (id: string) =>
+    setSuggestions((prev) => prev.map((s) => s.id === id ? { ...s, _accepted: true, _rejected: false } : s));
+  const rejectSuggestion = (id: string) =>
+    setSuggestions((prev) => prev.map((s) => s.id === id ? { ...s, _rejected: true, _accepted: false } : s));
+  const acceptAll = () =>
+    setSuggestions((prev) => prev.map((s) => s._rejected ? s : { ...s, _accepted: true }));
+  const commitAccepted = () => {
+    const accepted = suggestions.filter((s) => s._accepted);
+    const cleaned: SimpleEval[] = accepted.map(({ _accepted, _rejected, ...rest }) => rest);
+    onUpdate({ evals: [...agent.evals, ...cleaned] });
+    setSuggestions([]);
+  };
+
+  const removeEval = (id: string) => {
+    onUpdate({ evals: agent.evals.filter((e) => e.id !== id) });
+  };
+
+  const resetForm = () => {
+    setFormInput(""); setFormExpected(""); setFormSeverity("major"); setFormTags("");
+    setEditingId(null); setShowForm(false);
+  };
+
+  const startAdd = () => {
+    resetForm();
+    setShowForm(true);
+  };
+
+  const startEdit = (ev: SimpleEval) => {
+    setFormInput(ev.input);
+    setFormExpected(ev.expected);
+    setFormSeverity(ev.severity);
+    setFormTags(ev.tags.join(", "));
+    setEditingId(ev.id);
+    setShowForm(true);
+  };
+
+  const saveForm = () => {
+    const trimmedInput = formInput.trim();
+    const trimmedExpected = formExpected.trim();
+    if (!trimmedInput || !trimmedExpected) return;
+
+    const tags = formTags.split(",").map((t) => t.trim()).filter(Boolean);
+    if (editingId) {
+      onUpdate({
+        evals: agent.evals.map((e) =>
+          e.id === editingId ? { ...e, input: trimmedInput, expected: trimmedExpected, severity: formSeverity, tags } : e
+        ),
+      });
+    } else {
+      const newEval: SimpleEval = {
+        id: `eval-manual-${Date.now()}`,
+        input: trimmedInput,
+        expected: trimmedExpected,
+        severity: formSeverity,
+        tags,
+        status: "not_run",
+      };
+      onUpdate({ evals: [...agent.evals, newEval] });
+    }
+    resetForm();
+  };
+
+  const acceptedCount = suggestions.filter((s) => s._accepted).length;
+  const pendingCount = suggestions.filter((s) => !s._accepted && !s._rejected).length;
+  const severityColor = (s: string) =>
+    s === "critical" ? "bg-red-100 text-red-700" : s === "major" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600";
+
+  return (
+    <div className="rounded-lg border border-border bg-white p-3">
+      <div className="flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="flex items-center gap-1"
+        >
+          <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <FlaskConical className="mr-1 inline h-3 w-3" /> Evals ({agent.evals.length})
+          </h4>
+          <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`} />
+        </button>
+        {expanded && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); startAdd(); }}
+            className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/10"
+          >
+            <Plus className="h-3 w-3" /> Add Eval
+          </button>
+        )}
+      </div>
+
+      {expanded && (
+        <div className="mt-3 space-y-3">
+          {/* Generate button */}
+          {suggestions.length === 0 && !generating && (
+            <div className="flex items-center gap-3 rounded-lg border border-indigo-200 bg-indigo-50/50 p-3">
+              <Sparkles className="h-5 w-5 shrink-0 text-indigo-500" />
+              <div className="min-w-0 flex-1">
+                <p className="text-[12px] font-medium text-indigo-900">Auto-generate evals from this agent&apos;s description</p>
+                <p className="text-[10px] text-indigo-600">An LLM will analyze the prompt and suggest test cases you can review.</p>
               </div>
+              <Button size="sm" onClick={handleGenerate} className="shrink-0 bg-indigo-600 text-[11px] hover:bg-indigo-700">
+                Generate
+              </Button>
             </div>
           )}
 
-          {/* Reply box for needs_info */}
-          {needsResponse && (
-            <div className="mt-3">
-              <div className="flex gap-2">
-                <Input
-                  value={replyText}
-                  onChange={(e) => setReplyText(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleReply()}
-                  placeholder="Type your reply..."
-                  className="flex-1 border-orange-200"
+          {/* Generating spinner */}
+          {generating && (
+            <div className="flex flex-col items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50/50 p-6">
+              <Loader2 className="h-6 w-6 animate-spin text-indigo-500" />
+              <p className="text-[12px] font-medium text-indigo-700">Analyzing agent configuration and generating eval cases...</p>
+            </div>
+          )}
+
+          {/* Suggestions */}
+          {suggestions.length > 0 && (
+            <div className="space-y-2 rounded-lg border-2 border-indigo-200 bg-indigo-50/30 p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] font-semibold text-indigo-800">
+                  {suggestions.length} suggested evals
+                  {evalSource && <span className="ml-1 font-normal text-indigo-500">({evalSource === "llm" ? "LLM-generated" : "template-based"})</span>}
+                  {acceptedCount > 0 && <span className="ml-1 font-normal text-emerald-700">({acceptedCount} accepted)</span>}
+                  {pendingCount > 0 && <span className="ml-1 font-normal text-muted-foreground">({pendingCount} pending)</span>}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={acceptAll} className="text-[10px] font-medium text-indigo-600 hover:underline">
+                    Accept all
+                  </button>
+                  {acceptedCount > 0 && (
+                    <Button size="sm" onClick={commitAccepted} className="h-6 bg-emerald-600 text-[10px] hover:bg-emerald-700">
+                      Add {acceptedCount} to evals
+                    </Button>
+                  )}
+                </div>
+              </div>
+              <ul className="space-y-1.5 max-h-48 overflow-y-auto">
+                {suggestions.map((s) => (
+                  <li
+                    key={s.id}
+                    className={`flex items-start gap-2 rounded-md border px-2.5 py-2 text-[11px] ${
+                      s._accepted ? "border-emerald-300 bg-emerald-50" : s._rejected ? "border-slate-200 bg-slate-50 opacity-50" : "border-border bg-white"
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-foreground">{s.input}</p>
+                      <p className="mt-0.5 text-muted-foreground">{s.expected}</p>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${severityColor(s.severity)}`}>
+                          {s.severity}
+                        </span>
+                        {s.tags.map((t) => (
+                          <span key={t} className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] text-slate-600">{t}</span>
+                        ))}
+                      </div>
+                    </div>
+                    {!s._accepted && !s._rejected && (
+                      <div className="flex shrink-0 gap-1">
+                        <button type="button" onClick={() => acceptSuggestion(s.id)} className="rounded p-1 text-emerald-600 hover:bg-emerald-100" title="Accept">
+                          <ThumbsUp className="h-3.5 w-3.5" />
+                        </button>
+                        <button type="button" onClick={() => rejectSuggestion(s.id)} className="rounded p-1 text-red-400 hover:bg-red-100" title="Reject">
+                          <ThumbsDown className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
+                    {s._accepted && <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Add / Edit form */}
+          {showForm && (
+            <div className="space-y-2 rounded-lg border-2 border-primary/30 bg-primary/5 p-3">
+              <p className="text-[11px] font-semibold text-foreground">
+                {editingId ? "Edit Eval" : "Add Eval"}
+              </p>
+              <div>
+                <label className="mb-0.5 block text-[10px] font-medium text-muted-foreground">Input / Scenario</label>
+                <textarea
+                  value={formInput}
+                  onChange={(e) => setFormInput(e.target.value)}
+                  rows={2}
+                  placeholder="Describe the input or scenario to test..."
+                  className="w-full resize-none rounded-md border border-border px-2.5 py-1.5 text-[12px] text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20"
                 />
+              </div>
+              <div>
+                <label className="mb-0.5 block text-[10px] font-medium text-muted-foreground">Expected Outcome</label>
+                <textarea
+                  value={formExpected}
+                  onChange={(e) => setFormExpected(e.target.value)}
+                  rows={2}
+                  placeholder="What should the agent do or respond with?"
+                  className="w-full resize-none rounded-md border border-border px-2.5 py-1.5 text-[12px] text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20"
+                />
+              </div>
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="mb-0.5 block text-[10px] font-medium text-muted-foreground">Severity</label>
+                  <select
+                    value={formSeverity}
+                    onChange={(e) => setFormSeverity(e.target.value as "critical" | "major" | "minor")}
+                    className="h-7 w-full rounded-md border border-border bg-white px-2 text-[11px] text-foreground focus:border-primary focus:outline-none"
+                  >
+                    <option value="critical">Critical</option>
+                    <option value="major">Major</option>
+                    <option value="minor">Minor</option>
+                  </select>
+                </div>
+                <div className="flex-1">
+                  <label className="mb-0.5 block text-[10px] font-medium text-muted-foreground">Tags (comma-separated)</label>
+                  <input
+                    value={formTags}
+                    onChange={(e) => setFormTags(e.target.value)}
+                    placeholder="e.g. renewal, edge-case"
+                    className="h-7 w-full rounded-md border border-border px-2 text-[11px] text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <Button size="sm" variant="ghost" onClick={resetForm} className="h-7 text-[11px]">Cancel</Button>
                 <Button
                   size="sm"
-                  onClick={handleReply}
-                  disabled={!replyText.trim()}
+                  onClick={saveForm}
+                  disabled={!formInput.trim() || !formExpected.trim()}
+                  className="h-7 text-[11px]"
                 >
-                  <Send className="h-3 w-3" />
-                  Reply
+                  {editingId ? "Save Changes" : "Add Eval"}
                 </Button>
               </div>
             </div>
           )}
 
-          {/* Roster link for approved/live */}
-          {(sub.status === "approved" || sub.status === "live") && sub.suggestedName && (
-            <div className="mt-3 flex items-center gap-2 rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-              <span>
-                {sub.status === "live" ? "Live" : "Approved"} — linked to Agent Roster
-                {sub.agentLevel && ` as ${LEVEL_LABELS[sub.agentLevel]}`}
-              </span>
-              <Link href="/agent-roster" className="ml-auto flex items-center gap-0.5 font-semibold hover:underline">
-                View in Roster <ArrowRight className="h-3 w-3" />
-              </Link>
+          {/* Existing evals */}
+          {agent.evals.length > 0 && (
+            <div className="space-y-1.5">
+              {agent.evals.map((ev) => (
+                <div key={ev.id} className="flex items-start gap-2 rounded-md border border-border px-2.5 py-2 text-[11px]">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-foreground">{ev.input}</p>
+                    <p className="mt-0.5 text-muted-foreground">{ev.expected}</p>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${severityColor(ev.severity)}`}>
+                        {ev.severity}
+                      </span>
+                      {ev.tags.map((t) => (
+                        <span key={t} className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] text-slate-600">{t}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 gap-0.5">
+                    <button type="button" onClick={() => startEdit(ev)} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" title="Edit">
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                    <button type="button" onClick={() => removeEval(ev.id)} className="rounded p-1 text-muted-foreground hover:bg-red-50 hover:text-red-500" title="Remove">
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
+          )}
+
+          {agent.evals.length === 0 && suggestions.length === 0 && !generating && !showForm && (
+            <p className="py-2 text-center text-[11px] text-muted-foreground">
+              No evals yet. Generate from agent description or{" "}
+              <button type="button" onClick={startAdd} className="text-primary underline">add manually</button>.
+            </p>
           )}
         </div>
       )}
@@ -639,1026 +1364,761 @@ function SubmissionCard({ sub, onReply }: { sub: AgentSubmission; onReply: (id: 
   );
 }
 
-/* ── Admin team member mock list ── */
-const TEAM_MEMBERS = ["Sarah Chen", "Marcus Rivera", "Jordan Park", "Alex Kim", "Taylor Brooks"];
+// ─── Deterministic Builder (inside modal) ───
 
-const SUBMISSION_STATUSES: { value: AgentSubmission["status"]; label: string }[] = [
-  { value: "submitted", label: "Submitted" },
-  { value: "in_review", label: "In Review" },
-  { value: "needs_info", label: "Needs Info" },
-  { value: "approved", label: "Approved" },
-  { value: "live", label: "Live" },
-];
-
-/* ── Admin Submission Card ── */
-function AdminSubmissionCard({
-  sub,
-  onSendMessage,
-  onStatusChange,
-  onMetaChange,
+function DeterministicBuilderModal({
+  onComplete,
+  onBack,
+  forkFrom,
 }: {
-  sub: AgentSubmission;
-  onSendMessage: (id: string, text: string) => void;
-  onStatusChange: (id: string, status: AgentSubmission["status"]) => void;
-  onMetaChange: (id: string, meta: Partial<Pick<AgentSubmission, "assignedTo" | "priority" | "estimatedCompletion" | "internalNotes">>) => void;
+  onComplete: (agent: Omit<UnifiedAgent, "id" | "createdAt" | "lastRunAt" | "runsLast30d" | "executionLog" | "changeHistory">) => void;
+  onBack: () => void;
+  forkFrom?: UnifiedAgent;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const [replyText, setReplyText] = useState("");
-  const [noteDraft, setNoteDraft] = useState(sub.internalNotes ?? "");
-  const style = SUBMISSION_STATUS_STYLES[sub.status] ?? SUBMISSION_STATUS_STYLES.submitted;
-  const StatusIcon = style.icon;
-  const hasMessages = (sub.messages?.length ?? 0) > 0;
-  const lastCustomerMsg = sub.messages?.filter((m) => m.from === "customer").pop();
-  const waitingOnCustomer = sub.status === "needs_info";
+  const isForking = !!forkFrom;
+  const nextVersion = forkFrom ? Math.max(...forkFrom.versions.map((v) => v.versionNumber)) + 1 : 1;
 
-  const handleSendMessage = () => {
-    if (!replyText.trim()) return;
-    onSendMessage(sub.id, replyText.trim());
-    setReplyText("");
+  const [phase, setPhase] = useState<DeterministicPhase>("describing");
+  const [agentName, setAgentName] = useState(forkFrom?.name ?? "");
+  const [prompt, setPrompt] = useState(forkFrom?.description ?? "");
+  const [versionNote, setVersionNote] = useState(isForking ? "" : "");
+  const [buildStep, setBuildStep] = useState(0);
+  const [builtWorkflow, setBuiltWorkflow] = useState<BuiltWorkflow | null>(null);
+  const [testStatus, setTestStatus] = useState<"idle" | "running" | "passed">("idle");
+  const [testEnv, setTestEnv] = useState<"sandbox" | "production">("sandbox");
+  const [selectedProperties, setSelectedProperties] = useState<string[]>(forkFrom?.propertyIds ?? []);
+  const [llmSource, setLlmSource] = useState<"llm" | "fallback" | null>(null);
+
+  const handleBuild = async () => {
+    if (!prompt.trim() || !agentName.trim()) return;
+    setPhase("building");
+    setBuildStep(0);
+
+    let step = 0;
+    const advanceUI = () => new Promise<void>((resolve) => {
+      const tick = () => {
+        step++;
+        if (step < BUILD_PHASE_STEPS.length) {
+          setBuildStep(step);
+          setTimeout(tick, BUILD_PHASE_STEPS[step].duration);
+        } else {
+          resolve();
+        }
+      };
+      setTimeout(tick, BUILD_PHASE_STEPS[0].duration);
+    });
+
+    const [genResult] = await Promise.all([
+      generateWorkflow(prompt.trim()),
+      advanceUI(),
+    ]);
+
+    setLlmSource(genResult.source);
+    setBuiltWorkflow({
+      name: agentName,
+      description: prompt,
+      triggers: genResult.workflow.triggers ?? [],
+      dataSources: genResult.workflow.dataSources ?? [],
+      nodes: genResult.workflow.nodes ?? [],
+      edges: genResult.workflow.edges ?? [],
+    });
+    setPhase("built");
   };
 
-  const handleSaveNotes = () => {
-    onMetaChange(sub.id, { internalNotes: noteDraft.trim() || undefined });
+  const handleWorkflowChange = useCallback((updated: BuiltWorkflow) => {
+    setBuiltWorkflow(updated);
+  }, []);
+
+  const handleSave = () => {
+    const newVersion: AgentVersion = {
+      id: `v${nextVersion}`,
+      versionNumber: nextVersion,
+      status: "sandbox",
+      createdAt: new Date().toISOString(),
+      description: versionNote.trim() || (isForking ? `Forked from v${forkFrom!.activeVersion}` : "Initial version"),
+    };
+
+    const versions = forkFrom
+      ? [...forkFrom.versions, newVersion]
+      : [newVersion];
+
+    const pvMap: Record<string, number> = {};
+    for (const pid of selectedProperties) {
+      pvMap[pid] = forkFrom?.propertyVersionMap?.[pid] ?? nextVersion;
+    }
+
+    onComplete({
+      name: agentName,
+      type: "deterministic",
+      description: prompt,
+      status: forkFrom?.status ?? "sandbox",
+      domain: forkFrom?.domain ?? "General",
+      versions,
+      activeVersion: nextVersion,
+      propertyIds: selectedProperties,
+      propertyVersionMap: pvMap,
+      triggers: builtWorkflow?.triggers ?? [],
+      evals: forkFrom?.evals ?? [],
+    });
   };
 
-  return (
-    <div className={`rounded-lg border bg-white transition-shadow ${waitingOnCustomer ? "border-orange-300 shadow-sm shadow-orange-100" : "border-[hsl(var(--border))]"}`}>
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-start gap-3 p-3 text-left"
-      >
-        <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${style.bg}`}>
-          <StatusIcon className={`h-3.5 w-3.5 ${style.text}`} />
-        </span>
-        <div className="min-w-0 flex-1">
+  if (phase === "describing") {
+    return (
+      <div className="flex h-full flex-col">
+        <div className="flex shrink-0 items-center gap-3 border-b border-border px-6 py-4">
+          <button type="button" onClick={onBack} className="rounded-md p-1 text-muted-foreground hover:text-foreground">
+            <ArrowLeft className="h-4 w-4" />
+          </button>
           <div className="flex items-center gap-2">
-            {sub.suggestedName && (
-              <span className="text-sm font-semibold text-[hsl(var(--foreground))]">{sub.suggestedName}</span>
-            )}
-            {sub.agentLevel && (
-              <Badge variant="secondary" className="text-[10px] px-1.5 py-0.5">
-                {LEVEL_LABELS[sub.agentLevel]}
-              </Badge>
-            )}
-            {sub.priority === "urgent" && (
-              <Badge variant="destructive" className="rounded-full text-[10px] px-1.5 py-0.5">Urgent</Badge>
-            )}
-            {sub.priority === "high" && (
-              <Badge variant="outline" className="rounded-full border-transparent bg-amber-100 text-amber-700 text-[10px] px-1.5 py-0.5">High</Badge>
-            )}
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600">
+              <Workflow className="h-4 w-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">
+                {isForking ? `New Version of "${forkFrom!.name}"` : "Build Deterministic Workflow"}
+              </h2>
+              <p className="text-[11px] text-muted-foreground">Version {nextVersion} &middot; Draft</p>
+            </div>
           </div>
-          <p className="text-sm text-[hsl(var(--foreground))] line-clamp-2">&ldquo;{sub.prompt}&rdquo;</p>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-[hsl(var(--muted-foreground))]">
-            {sub.customerOrg && <span className="font-medium text-[hsl(var(--foreground))]">{sub.customerOrg}</span>}
-            <span>{new Date(sub.submittedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
-            {sub.assignedTo && <span>Assigned: {sub.assignedTo}</span>}
-            {hasMessages && (
-              <span className="flex items-center gap-0.5">
-                <MessageSquare className="h-3 w-3" />
-                {sub.messages!.length}
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-6">
+          <div className="mx-auto max-w-xl space-y-5">
+            <div>
+              <label htmlFor="wf-name" className="mb-1.5 block text-sm font-medium text-foreground">Agent name</label>
+              <Input id="wf-name" value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="e.g. Renewal Offer Generator" />
+            </div>
+            <div>
+              <label htmlFor="wf-desc" className="mb-1.5 block text-sm font-medium text-foreground">Describe what this workflow should do</label>
+              <textarea
+                id="wf-desc"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                rows={5}
+                placeholder="e.g. Every night, scan for leases expiring within 90 days. For each one, calculate a renewal offer based on current market rent and the resident's payment history..."
+                className="w-full resize-none rounded-lg border border-border bg-white px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+            {isForking && (
+              <div>
+                <label htmlFor="wf-vnote" className="mb-1.5 block text-sm font-medium text-foreground">What changed in this version?</label>
+                <Input id="wf-vnote" value={versionNote} onChange={(e) => setVersionNote(e.target.value)} placeholder="e.g. Added payment history weighting" />
+              </div>
+            )}
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-foreground">Properties</label>
+              <PropertyPicker selected={selectedProperties} onChange={setSelectedProperties} />
+            </div>
+
+            <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/50 px-3 py-2 text-[12px] text-emerald-800">
+              <Code2 className="h-4 w-4 shrink-0" />
+              AI builds deterministic code from your description using MCP connectors. The workflow runs without an LLM — same input, same output, every time.
+            </div>
+          </div>
+        </div>
+
+        <div className="shrink-0 border-t border-border px-6 py-4">
+          <Button
+            onClick={handleBuild}
+            disabled={!prompt.trim() || !agentName.trim()}
+            className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
+          >
+            <Cog className="mr-2 h-4 w-4" /> {isForking ? "Rebuild Workflow" : "Build Workflow"}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === "building") {
+    return (
+      <div className="flex h-full flex-col items-center justify-center px-6">
+        <div className="mb-8 flex h-20 w-20 items-center justify-center rounded-2xl bg-emerald-50">
+          <Loader2 className="h-10 w-10 animate-spin text-emerald-600" />
+        </div>
+        <h2 className="mb-2 text-xl font-semibold text-foreground">
+          {isForking ? "Rebuilding workflow" : "Building your workflow"}
+        </h2>
+        <p className="mb-8 text-sm text-muted-foreground">Generating workflow graph from your description...</p>
+        <div className="w-full max-w-md space-y-3">
+          {BUILD_PHASE_STEPS.map((step, i) => (
+            <div
+              key={step.key}
+              className={`flex items-center gap-3 rounded-lg border px-4 py-3 transition-all ${
+                i < buildStep ? "border-emerald-200 bg-emerald-50"
+                : i === buildStep ? "border-emerald-300 bg-emerald-50 shadow-sm"
+                : "border-border bg-white opacity-40"
+              }`}
+            >
+              {i < buildStep ? <Check className="h-5 w-5 text-emerald-600" />
+                : i === buildStep ? <Loader2 className="h-5 w-5 animate-spin text-emerald-600" />
+                : <div className="h-5 w-5 rounded-full border-2 border-border" />}
+              <span className={`text-sm ${i <= buildStep ? "font-medium text-foreground" : "text-muted-foreground"}`}>
+                {step.label}
               </span>
-            )}
-          </div>
+            </div>
+          ))}
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Badge variant="outline" className={`rounded-full border-transparent text-[10px] capitalize ${style.bg} ${style.text}`}>
-            {sub.status === "needs_info" ? "Needs Info" : sub.status.replace("_", " ")}
-          </Badge>
-          {expanded ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
-        </div>
-      </button>
+      </div>
+    );
+  }
 
-      {expanded && (
-        <div className="border-t border-border/50 px-3 pb-3">
-          {/* Admin controls row */}
-          <div className="mt-3 grid gap-3 rounded-lg border border-[hsl(var(--border))]/50 bg-[hsl(var(--muted))]/20 p-3 sm:grid-cols-4">
-            <div>
-              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Status</label>
-              <Select value={sub.status} onValueChange={(v) => onStatusChange(sub.id, v as AgentSubmission["status"])}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SUBMISSION_STATUSES.map((s) => (
-                    <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+  if (phase === "built" && builtWorkflow) {
+    return (
+      <div className="flex h-full flex-col">
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600">
+              <Check className="h-3.5 w-3.5" />
             </div>
             <div>
-              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Assigned To</label>
-              <Select value={sub.assignedTo ?? "__unassigned"} onValueChange={(v) => onMetaChange(sub.id, { assignedTo: v === "__unassigned" ? undefined : v })}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__unassigned">Unassigned</SelectItem>
-                  {TEAM_MEMBERS.map((m) => (
-                    <SelectItem key={m} value={m}>{m}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Priority</label>
-              <Select value={sub.priority ?? "normal"} onValueChange={(v) => onMetaChange(sub.id, { priority: v as "normal" | "high" | "urgent" })}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="normal">Normal</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                  <SelectItem value="urgent">Urgent</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Est. Completion</label>
-              <Input
-                type="date"
-                value={sub.estimatedCompletion ? sub.estimatedCompletion.split("T")[0] : ""}
-                onChange={(e) => onMetaChange(sub.id, { estimatedCompletion: e.target.value ? `${e.target.value}T00:00:00Z` : undefined })}
-                className="h-8 text-xs"
-              />
+              <h2 className="text-sm font-semibold text-foreground">{builtWorkflow.name}</h2>
+              <p className="text-[10px] text-muted-foreground">
+                v{nextVersion} &middot; {builtWorkflow.nodes.length} nodes &middot; {builtWorkflow.edges.length} connections
+                {llmSource === "llm" && <span className="ml-1 text-indigo-500">&#x2022; LLM-generated</span>}
+                {llmSource === "fallback" && <span className="ml-1 text-amber-500">&#x2022; Template-based</span>}
+              </p>
             </div>
           </div>
-
-          {/* Details */}
-          {(sub.agentLevel || sub.deployLocation) && (
-            <div className="mt-3 flex flex-wrap gap-3 text-xs">
-              {sub.agentLevel && (
-                <div>
-                  <span className="text-[hsl(var(--muted-foreground))]">Level: </span>
-                  <span className="font-medium text-[hsl(var(--foreground))]">{AGENT_LEVEL_OPTIONS.find((o) => o.value === sub.agentLevel)?.label ?? sub.agentLevel}</span>
-                </div>
-              )}
-              {sub.deployLocation && (
-                <div>
-                  <span className="text-[hsl(var(--muted-foreground))]">Deploy at: </span>
-                  <span className="font-medium text-[hsl(var(--foreground))]">{sub.deployLocation}</span>
-                </div>
-              )}
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              {builtWorkflow.triggers.map((t) => (
+                <Badge key={t} variant="outline" className="rounded-full border-amber-200 bg-amber-50 text-[10px] text-amber-700">
+                  <Zap className="mr-0.5 h-2.5 w-2.5" /> {t}
+                </Badge>
+              ))}
             </div>
-          )}
-
-          {/* Attachments */}
-          {sub.attachments && sub.attachments.length > 0 && (
-            <div className="mt-3">
-              <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-[hsl(var(--muted-foreground))]">Attachments</p>
-              <div className="flex flex-wrap gap-1.5">
-                {sub.attachments.map((att) => {
-                  const Icon = ATTACHMENT_ICONS[att.type] ?? File;
-                  return (
-                    <span key={att.id} className="flex items-center gap-1.5 rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--muted))]/30 px-2 py-1 text-[11px] text-[hsl(var(--foreground))]">
-                      <Icon className="h-3 w-3 text-[hsl(var(--muted-foreground))]" />
-                      {att.name}
-                      <span className="text-[hsl(var(--muted-foreground))]">({att.size})</span>
-                    </span>
-                  );
-                })}
-              </div>
+            <div className="flex overflow-hidden rounded-md border border-border text-[10px]">
+              <button
+                type="button"
+                onClick={() => setTestEnv("sandbox")}
+                className={`flex items-center gap-1 px-2 py-1 font-medium ${
+                  testEnv === "sandbox" ? "bg-amber-50 text-amber-800" : "bg-white text-muted-foreground"
+                }`}
+              >
+                <FlaskConical className="h-2.5 w-2.5" /> Sandbox
+              </button>
+              <button
+                type="button"
+                onClick={() => setTestEnv("production")}
+                className={`flex items-center gap-1 border-l border-border px-2 py-1 font-medium ${
+                  testEnv === "production" ? "bg-emerald-50 text-emerald-800" : "bg-white text-muted-foreground"
+                }`}
+              >
+                <Rocket className="h-2.5 w-2.5" /> Production
+              </button>
             </div>
-          )}
-
-          {/* Message thread */}
-          {hasMessages && (
-            <div className="mt-3">
-              <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-[hsl(var(--muted-foreground))]">Conversation</p>
-              <div className="space-y-2">
-                {sub.messages!.map((msg) => (
-                  <div key={msg.id} className={`rounded-lg px-3 py-2 text-sm ${msg.from === "entrata" ? "bg-blue-50 text-blue-900" : "bg-[hsl(var(--muted))]/40 text-[hsl(var(--foreground))]"}`}>
-                    <div className="mb-0.5 flex items-center gap-1.5 text-[10px] font-semibold">
-                      {msg.from === "entrata" ? (
-                        <><Bot className="h-3 w-3" /> Entrata Team</>
-                      ) : (
-                        <>{sub.customerOrg ?? "Customer"}</>
-                      )}
-                      <span className="font-normal text-[hsl(var(--muted-foreground))]">
-                        · {new Date(msg.sentAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })} at {new Date(msg.sentAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
-                      </span>
-                    </div>
-                    <p className="whitespace-pre-wrap">{msg.text}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Send message to customer */}
-          <div className="mt-3">
-            <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
-              {waitingOnCustomer ? "Waiting for customer response" : "Message customer"}
-            </p>
-            <div className="flex gap-2">
-              <Input
-                value={replyText}
-                onChange={(e) => setReplyText(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
-                placeholder={waitingOnCustomer ? "Send a follow-up..." : "Ask for more details..."}
-                className="flex-1"
-              />
+            {testEnv === "sandbox" && (
               <Button
                 size="sm"
-                onClick={handleSendMessage}
-                disabled={!replyText.trim()}
+                variant="outline"
+                onClick={() => { setTestStatus("running"); setTimeout(() => setTestStatus("passed"), 3000); }}
+                disabled={testStatus === "running"}
+                className="h-6 border-amber-300 px-2 text-[10px] text-amber-800 hover:bg-amber-50"
               >
-                <Send className="h-3 w-3" />
-                Send
+                {testStatus === "running" ? <Loader2 className="mr-0.5 h-2.5 w-2.5 animate-spin" /> : <TestTube className="mr-0.5 h-2.5 w-2.5" />}
+                {testStatus === "running" ? "Testing..." : testStatus === "passed" ? "Re-test" : "Test"}
               </Button>
-            </div>
-            {waitingOnCustomer && (
-              <p className="mt-1 text-[10px] text-orange-600">
-                Customer was asked for more information on {lastCustomerMsg ? new Date(sub.messages![sub.messages!.length - 1].sentAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}.
-              </p>
             )}
-          </div>
-
-          {/* Internal notes */}
-          <div className="mt-3">
-            <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-[hsl(var(--muted-foreground))]">Internal Notes (not visible to customer)</p>
-            <div className="flex gap-2">
-              <textarea
-                value={noteDraft}
-                onChange={(e) => setNoteDraft(e.target.value)}
-                rows={2}
-                placeholder="Add internal notes about this request..."
-                className="flex-1 resize-none rounded-md border border-[hsl(var(--border))] bg-white px-3 py-1.5 text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]/60 focus:border-[hsl(var(--primary))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary))]/20"
-              />
-              <Button variant="outline" size="sm" onClick={handleSaveNotes} className="self-end">
-                Save
-              </Button>
-            </div>
+            {testStatus === "passed" && (
+              <Badge variant="outline" className="rounded-full border-emerald-300 bg-emerald-50 text-[9px] text-emerald-700">
+                <Check className="mr-0.5 h-2.5 w-2.5" /> Passed
+              </Badge>
+            )}
+            <Button size="sm" onClick={handleSave} className="h-7 px-3 text-[11px]">
+              <Check className="mr-1 h-3 w-3" /> Save Agent
+            </Button>
           </div>
         </div>
-      )}
-    </div>
-  );
+
+        <div className="flex-1">
+          <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading workflow visualizer...</div>}>
+            <WorkflowVisualizer
+              workflow={{
+                name: builtWorkflow.name,
+                description: builtWorkflow.description,
+                nodes: builtWorkflow.nodes,
+                edges: builtWorkflow.edges,
+                dataSources: builtWorkflow.dataSources,
+                triggers: builtWorkflow.triggers,
+              }}
+              onWorkflowChange={(updated) => handleWorkflowChange({
+                ...builtWorkflow,
+                ...updated,
+              })}
+              prompt={prompt}
+              showIteratePanel
+            />
+          </Suspense>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
 }
 
-type BuilderTab = "request" | "blueprints" | "your-agents" | "designer";
-
-const BUILDER_TABS: { value: BuilderTab; label: string }[] = [
-  { value: "request", label: "Agent Request" },
-  { value: "blueprints", label: "Agent Blueprints" },
-  { value: "your-agents", label: "Your Agents Status" },
-  { value: "designer", label: "Your Agents Workflows" },
-];
+// ─── Main Page ───
 
 export default function AgentBuilderPage() {
-  const { agents, submissions, toggleAgent, addAgentFromBlueprint, submitPrompt, addMessageToSubmission, updateSubmissionStatus, updateSubmissionMeta, atLeastOneActive } = useAgentBuilder();
-  const [promptText, setPromptText] = useState("");
-  const [promptSubmitted, setPromptSubmitted] = useState(false);
-  const [domainFilter, setDomainFilter] = useState<BlueprintDomain>("all");
-  const [adminMode, setAdminMode] = useState(false);
-  const [activeTab, setActiveTab] = useState<BuilderTab>("request");
+  const { isR1Release } = useR1Release();
+  const { isR2Release } = useR2Release();
+  const isFullVersion = !isR1Release && !isR2Release;
 
-  // New state for enhanced submission
-  const [attachments, setAttachments] = useState<SubmissionAttachment[]>([]);
-  const [suggestedName, setSuggestedName] = useState("");
-  const [agentLevel, setAgentLevel] = useState<AgentLevel | "">("");
-  const [levelOverridden, setLevelOverridden] = useState(false);
-  const [deployLocation, setDeployLocation] = useState("");
-  const [isRecording, setIsRecording] = useState(false);
-  const [triedSubmit, setTriedSubmit] = useState(false);
-  const [deployedBlueprints, setDeployedBlueprints] = useState<Set<string>>(new Set());
-  const [blueprintModalOpen, setBlueprintModalOpen] = useState(false);
-  const [selectedBlueprint, setSelectedBlueprint] = useState<(typeof BLUEPRINTS)[number] | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [agents, setAgents] = useState<UnifiedAgent[]>(SAMPLE_AGENTS);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalStep, setModalStep] = useState<ModalStep>({ kind: "type-select" });
+  const [typeFilter, setTypeFilter] = useState<"all" | AgentType>("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | AgentStatusValue>("all");
 
-  // Auto-infer agent level from prompt + name (debounced via useMemo)
-  const inferredLevel = useMemo(
-    () => (promptText.trim() || suggestedName.trim()) ? inferAgentLevel(promptText, suggestedName) : ("" as AgentLevel | ""),
-    [promptText, suggestedName]
+  const selectedAgent = useMemo(
+    () => agents.find((a) => a.id === selectedAgentId) ?? null,
+    [agents, selectedAgentId]
   );
 
-  // Auto-set the level when inference changes, unless user manually overrode
-  useEffect(() => {
-    if (!levelOverridden && inferredLevel) {
-      setAgentLevel(inferredLevel);
-    }
-  }, [inferredLevel, levelOverridden]);
+  const filteredAgents = useMemo(() =>
+    agents.filter((a) => {
+      if (typeFilter !== "all" && a.type !== typeFilter) return false;
+      if (statusFilter !== "all" && a.status !== statusFilter) return false;
+      return true;
+    }),
+    [agents, typeFilter, statusFilter]
+  );
 
-  const nameValid = suggestedName.trim().length > 0;
-  const promptValid = promptText.trim().length > 0;
-  const canSubmit = promptValid && nameValid;
+  const counts = useMemo(() => ({
+    total: agents.length,
+    live: agents.filter((a) => a.status === "live").length,
+    sandbox: agents.filter((a) => a.status === "sandbox").length,
+    paused: agents.filter((a) => a.status === "paused").length,
+    draft: agents.filter((a) => a.status === "draft").length,
+    deterministic: agents.filter((a) => a.type === "deterministic").length,
+    ai: agents.filter((a) => a.type === "ai-powered").length,
+  }), [agents]);
 
-  const filteredBlueprints = domainFilter === "all"
-    ? BLUEPRINTS
-    : BLUEPRINTS.filter((bp) => bp.domain === domainFilter);
-
-  const handleSubmitPrompt = () => {
-    setTriedSubmit(true);
-    if (!canSubmit) return;
-    submitPrompt({
-      prompt: promptText.trim(),
-      suggestedName: suggestedName.trim(),
-      agentLevel: (inferredLevel || "l2") as AgentLevel,
-      deployLocation: deployLocation.trim() || undefined,
-      attachments: attachments.length > 0 ? attachments : undefined,
-    });
-    setPromptText("");
-    setSuggestedName("");
-    setAgentLevel("");
-    setLevelOverridden(false);
-    setDeployLocation("");
-    setAttachments([]);
-    setTriedSubmit(false);
-    setPromptSubmitted(true);
-    setTimeout(() => setPromptSubmitted(false), 4000);
+  const openBuilder = () => {
+    setModalStep({ kind: "type-select" });
+    setModalOpen(true);
   };
 
-  const handleUseExample = (example: string) => {
-    setPromptText(example);
-  };
+  const closeModal = useCallback(() => {
+    setModalOpen(false);
+    setModalStep({ kind: "type-select" });
+  }, []);
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-    const newAttachments: SubmissionAttachment[] = Array.from(files).map((f) => ({
-      id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      name: f.name,
-      type: getFileType(f.name),
-      size: formatFileSize(f.size),
+  const updateAgent = useCallback((id: string, patch: Partial<UnifiedAgent>) => {
+    setAgents((prev) => prev.map((a) => {
+      if (a.id !== id) return a;
+      const changes: ChangeHistoryEntry[] = [];
+
+      if (patch.status && patch.status !== a.status) {
+        changes.push({
+          id: `ch-${Date.now()}-status`,
+          timestamp: new Date().toISOString(),
+          userId: "user-current",
+          userName: "Current User",
+          action: "status_changed",
+          summary: `Changed status from ${a.status} to ${patch.status}`,
+          diff: [{ field: "status", from: a.status, to: patch.status }],
+        });
+      }
+
+      if (patch.propertyIds && JSON.stringify(patch.propertyIds) !== JSON.stringify(a.propertyIds)) {
+        const added = patch.propertyIds.filter((p) => !a.propertyIds.includes(p));
+        const removed = a.propertyIds.filter((p) => !patch.propertyIds!.includes(p));
+        const parts: string[] = [];
+        if (added.length > 0) parts.push(`added ${added.map(propertyName).join(", ")}`);
+        if (removed.length > 0) parts.push(`removed ${removed.map(propertyName).join(", ")}`);
+        if (parts.length > 0) {
+          changes.push({
+            id: `ch-${Date.now()}-props`,
+            timestamp: new Date().toISOString(),
+            userId: "user-current",
+            userName: "Current User",
+            action: "properties_changed",
+            summary: `Properties: ${parts.join("; ")}`,
+            diff: [{ field: "propertyIds", from: `[${a.propertyIds.length}]`, to: `[${patch.propertyIds.length}]` }],
+          });
+        }
+      }
+
+      if (patch.name && patch.name !== a.name) {
+        changes.push({
+          id: `ch-${Date.now()}-name`,
+          timestamp: new Date().toISOString(),
+          userId: "user-current",
+          userName: "Current User",
+          action: "updated",
+          summary: `Renamed agent from "${a.name}" to "${patch.name}"`,
+          diff: [{ field: "name", from: a.name, to: patch.name }],
+        });
+      }
+
+      if (patch.description && patch.description !== a.description) {
+        changes.push({
+          id: `ch-${Date.now()}-desc`,
+          timestamp: new Date().toISOString(),
+          userId: "user-current",
+          userName: "Current User",
+          action: "updated",
+          summary: "Updated agent description",
+        });
+      }
+
+      return {
+        ...a,
+        ...patch,
+        changeHistory: changes.length > 0 ? [...a.changeHistory, ...changes] : a.changeHistory,
+      };
     }));
-    setAttachments((prev) => [...prev, ...newAttachments]);
-    e.target.value = "";
-  };
+  }, []);
 
-  const removeAttachment = (id: string) => {
-    setAttachments((prev) => prev.filter((a) => a.id !== id));
-  };
+  const handleNewVersion = useCallback((agent: UnifiedAgent) => {
+    setSelectedAgentId(null);
+    setModalStep({
+      kind: agent.type === "deterministic" ? "deterministic" : "ai-powered",
+      forkFrom: agent,
+    });
+    setModalOpen(true);
+  }, []);
 
-  const toggleRecording = () => {
-    setIsRecording((prev) => !prev);
-    if (!isRecording) {
-      setTimeout(() => {
-        setIsRecording(false);
-        setPromptText((prev) =>
-          prev
-            ? prev + " [Voice input would be transcribed here]"
-            : "I want an agent that helps with offboarding — handling move-out notices, scheduling final inspections, and calculating deposit returns automatically."
-        );
-      }, 3000);
+  const handleEditVersion = useCallback((agent: UnifiedAgent, _versionNumber: number) => {
+    setSelectedAgentId(null);
+    setModalStep({
+      kind: agent.type === "deterministic" ? "deterministic" : "ai-powered",
+      forkFrom: agent,
+    });
+    setModalOpen(true);
+  }, []);
+
+  const handleBuilderComplete = useCallback((result: Omit<UnifiedAgent, "id" | "createdAt" | "lastRunAt" | "runsLast30d" | "executionLog" | "changeHistory">) => {
+    const forkFrom = modalStep.kind !== "type-select" ? modalStep.forkFrom : undefined;
+
+    if (forkFrom) {
+      setAgents((prev) => prev.map((a) => {
+        if (a.id !== forkFrom.id) return a;
+        const changeEntry: ChangeHistoryEntry = {
+          id: `ch-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          userId: "user-current",
+          userName: "Current User",
+          action: "version_added",
+          summary: `Created v${result.activeVersion} — ${result.versions[result.versions.length - 1]?.description ?? "new version"}`,
+          versionAffected: result.activeVersion,
+        };
+        return {
+          ...a,
+          name: result.name,
+          description: result.description,
+          versions: result.versions,
+          activeVersion: result.activeVersion,
+          propertyIds: result.propertyIds,
+          propertyVersionMap: result.propertyVersionMap,
+          triggers: result.triggers,
+          evals: result.evals,
+          changeHistory: [...a.changeHistory, changeEntry],
+        };
+      }));
+    } else {
+      const newAgent: UnifiedAgent = {
+        ...result,
+        id: `ua-${Date.now()}`,
+        createdAt: new Date().toISOString(),
+        runsLast30d: 0,
+        executionLog: [],
+        changeHistory: [{
+          id: `ch-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          userId: "user-current",
+          userName: "Current User",
+          action: "created",
+          summary: `Created ${result.type === "deterministic" ? "deterministic workflow" : "AI-powered"} agent`,
+          versionAffected: 1,
+        }],
+      };
+      setAgents((prev) => [newAgent, ...prev]);
     }
-  };
 
-  const handleOpenBlueprintModal = (bp: (typeof BLUEPRINTS)[number]) => {
-    if (deployedBlueprints.has(bp.id)) return;
-    setSelectedBlueprint(bp);
-    setBlueprintModalOpen(true);
-  };
+    setModalOpen(false);
+    setModalStep({ kind: "type-select" });
+  }, [modalStep]);
 
-  const handleBlueprintModalSubmit = (details: string, modalAttachments: SubmissionAttachment[]) => {
-    if (!selectedBlueprint) return;
-    const bp = selectedBlueprint;
-    addAgentFromBlueprint({
-      name: bp.name,
-      status: "draft",
-      domain: bp.domain,
-      createdFrom: "blueprint",
-      blueprintName: bp.name,
-      description: bp.description,
-    });
-    submitPrompt({
-      prompt: bp.description,
-      suggestedName: bp.name,
-      agentLevel: "l2",
-      additionalDetails: details || undefined,
-      attachments: modalAttachments.length > 0 ? modalAttachments : undefined,
-    });
-    setDeployedBlueprints((prev) => new Set(prev).add(bp.id));
-    setBlueprintModalOpen(false);
-    setSelectedBlueprint(null);
-  };
-
-  const handleReply = (submissionId: string, text: string) => {
-    addMessageToSubmission(submissionId, text, "customer");
-  };
+  if (!isFullVersion) {
+    return (
+      <Suspense
+        fallback={
+          <div className="flex items-center justify-center py-20 text-sm text-muted-foreground">
+            Loading Agent Builder…
+          </div>
+        }
+      >
+        <LegacyAgentBuilder />
+      </Suspense>
+    );
+  }
 
   return (
     <>
-        <PageHeader
-          title={adminMode ? "Agent Requests — Internal Review" : "Agent Builder"}
-          description={adminMode ? "Review, triage, and respond to customer agent requests. Messages sent here go directly to the customer." : "Build agents that work across Entrata on your behalf — from a simple description to a fully custom design."}
-        />
-
-        {/* Admin mode toggle */}
-        <div className="mb-6 flex items-center justify-end">
-          <Button
-            variant={adminMode ? "secondary" : "outline"}
-            size="sm"
-            onClick={() => setAdminMode(!adminMode)}
-            className={`rounded-full ${adminMode ? "border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100" : ""}`}
-          >
-            <UserCog className="h-3.5 w-3.5" />
-            {adminMode ? "Switch to Customer View" : "Internal Team View"}
+      <PageHeader
+        title="Agent Builder"
+        description="Build and manage deterministic workflows and AI-powered agents — all from one place."
+        actions={
+          <Button onClick={openBuilder}>
+            <Plus className="mr-2 h-4 w-4" /> Build New Agent
           </Button>
+        }
+      />
+
+      <TodoListBanner />
+
+      {/* Filters & stats */}
+      <div className="mb-5 flex flex-wrap items-center gap-3">
+        {/* Quick stats */}
+        <div className="flex items-center gap-3 rounded-lg border border-border bg-white px-3 py-2">
+          <div className="text-center">
+            <p className="text-lg font-semibold text-foreground">{counts.total}</p>
+            <p className="text-[10px] text-muted-foreground">Total</p>
+          </div>
+          <div className="h-7 w-px bg-border" />
+          <div className="text-center">
+            <p className="text-lg font-semibold text-emerald-700">{counts.live}</p>
+            <p className="text-[10px] text-muted-foreground">Live</p>
+          </div>
+          <div className="h-7 w-px bg-border" />
+          <div className="text-center">
+            <p className="text-lg font-semibold text-amber-700">{counts.sandbox}</p>
+            <p className="text-[10px] text-muted-foreground">Sandbox</p>
+          </div>
         </div>
 
-        {adminMode ? (
-          /* ── Admin View: Request Management Dashboard ── */
-          <section className="section-block">
-            {/* Summary stats */}
-            <div className="mb-6 grid gap-3 sm:grid-cols-5">
-              {SUBMISSION_STATUSES.map((s) => {
-                const count = submissions.filter((sub) => sub.status === s.value).length;
-                const statusStyle = SUBMISSION_STATUS_STYLES[s.value] ?? SUBMISSION_STATUS_STYLES.submitted;
-                return (
-                  <Card key={s.value} className="p-3 text-center">
-                    <p className="text-xl font-semibold text-foreground">{count}</p>
-                    <p className={`text-[10px] font-semibold ${statusStyle.text}`}>{s.label}</p>
-                  </Card>
-                );
-              })}
-            </div>
+        <div className="flex-1" />
 
-            {/* Submissions list */}
-            <div className="mb-2 flex items-center justify-between">
-              <h2 className="section-title flex items-center gap-2">
-                <Users className="h-4 w-4 text-[hsl(var(--muted-foreground))]" />
-                All Customer Requests
-              </h2>
-              <span className="text-[length:var(--text-caption)] text-[hsl(var(--muted-foreground))]">
-                {submissions.length} total
-              </span>
-            </div>
-
-            {submissions.length === 0 ? (
-              <p className="py-8 text-center text-sm text-[hsl(var(--muted-foreground))]">No requests yet.</p>
-            ) : (
-              <div className="space-y-2">
-                {submissions.map((sub) => (
-                  <AdminSubmissionCard
-                    key={sub.id}
-                    sub={sub}
-                    onSendMessage={(id, text) => addMessageToSubmission(id, text, "entrata")}
-                    onStatusChange={updateSubmissionStatus}
-                    onMetaChange={updateSubmissionMeta}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-        ) : (
-        <>
-
-        {/* ── Tab bar ── */}
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as BuilderTab)} className="mb-6">
-          <TabsList className="h-auto rounded-full p-1">
-            {BUILDER_TABS.map((tab) => (
-              <TabsTrigger key={tab.value} value={tab.value} className="rounded-full px-4 py-2">
-                {tab.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-
-        {/* ── Tab: Agent Request ── */}
-        <TabsContent value="request">
-        <section className="section-block">
-          <div className="rounded-xl border border-[hsl(var(--border))] bg-gradient-to-b from-white to-[hsl(var(--muted))]/30 p-6 shadow-sm">
-            <div className="mb-4 flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]">
-                <Sparkles className="h-4 w-4" />
-              </span>
-              <div>
-                <h2 className="text-base font-semibold text-[hsl(var(--foreground))]">
-                  Describe the agent you&apos;d like to build
-                </h2>
-                <p className="text-[length:var(--text-caption)] text-[hsl(var(--muted-foreground))]">
-                  Tell us what you need in plain English. Attach SOPs or recordings to give us more context.
-                </p>
-              </div>
-            </div>
-
-            <div className="mb-4 flex items-center gap-2.5 rounded-lg border border-indigo-200 bg-indigo-50/80 px-4 py-2.5 text-sm text-indigo-800">
-              <Lock className="h-4 w-4 shrink-0 text-indigo-600" />
-              <span>
-                Agents you request here are built <strong>exclusively for your properties</strong>. They won&apos;t be visible to or shared with other Entrata customers.
-              </span>
-            </div>
-
-            {/* Textarea with attachment + mic helpers */}
-            <div className="relative">
-              <textarea
-                value={promptText}
-                onChange={(e) => setPromptText(e.target.value)}
-                placeholder="e.g. I want an agent that monitors lease expirations within 90 days, sends the resident a renewal offer based on market rent, and escalates to the property manager if no response in 7 days..."
-                rows={3}
-                className={`w-full resize-none rounded-lg border bg-white px-4 py-3 pb-11 text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]/60 focus:border-[hsl(var(--primary))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary))]/20 ${
-                  triedSubmit && !promptValid ? "border-red-400" : "border-[hsl(var(--border))]"
+        {/* Status filter */}
+        <div className="flex items-center gap-1">
+          <span className="mr-1 text-[11px] font-medium text-muted-foreground">Status:</span>
+          {(["all", "live", "sandbox", "paused", "draft"] as const).map((s) => {
+            const label = s === "all" ? "All" : STATUS_STYLE[s].label;
+            const count = s === "all" ? counts.total : counts[s];
+            return (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setStatusFilter(s)}
+                className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                  statusFilter === s ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:bg-muted/80"
                 }`}
-              />
+              >
+                {label}{count > 0 ? ` (${count})` : ""}
+              </button>
+            );
+          })}
+        </div>
 
-              {/* Bottom toolbar inside textarea — input helpers only */}
-              <div className="absolute bottom-2.5 left-3 right-3 flex items-center justify-between">
-                <div className="flex items-center gap-1">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    accept=".pdf,.doc,.docx,.txt,.rtf,.xls,.xlsx,.csv,.mp4,.mov,.avi,.webm,.png,.jpg,.jpeg,.gif,.webp"
-                    onChange={handleFileSelect}
-                    className="hidden"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => fileInputRef.current?.click()}
-                    title="Attach files (SOPs, documents, videos)"
-                    className="h-auto gap-1 px-2 py-1.5 text-muted-foreground"
-                  >
-                    <Paperclip className="h-4 w-4" />
-                    <span className="text-[11px] font-medium">Attach</span>
-                  </Button>
-                </div>
-
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={toggleRecording}
-                  title={isRecording ? "Stop recording" : "Describe with your voice"}
-                  className={`h-8 w-8 ${
-                    isRecording
-                      ? "animate-pulse bg-red-100 text-red-600 hover:bg-red-100 hover:text-red-600"
-                      : "text-muted-foreground"
-                  }`}
-                >
-                  {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                </Button>
-              </div>
-            </div>
-
-            {/* Recording indicator */}
-            {isRecording && (
-              <div className="mt-2 flex items-center gap-2 rounded-md bg-red-50 px-3 py-1.5 text-xs text-red-700">
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-red-600" />
-                </span>
-                Listening... describe your agent and we&apos;ll transcribe it.
-              </div>
-            )}
-
-            {/* Attached files chips */}
-            {attachments.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {attachments.map((att) => {
-                  const Icon = ATTACHMENT_ICONS[att.type] ?? File;
-                  return (
-                    <span key={att.id} className="flex items-center gap-1.5 rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--muted))]/30 py-1 pl-2 pr-1 text-[11px] text-[hsl(var(--foreground))]">
-                      <Icon className="h-3 w-3 text-[hsl(var(--muted-foreground))]" />
-                      {att.name}
-                      <span className="text-[hsl(var(--muted-foreground))]">({att.size})</span>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeAttachment(att.id)}
-                        className="ml-0.5 h-5 w-5 text-muted-foreground"
-                      >
-                        <X className="h-3 w-3" />
-                      </Button>
-                    </span>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Agent Name */}
-            <div className="mt-4">
-              <label className="mb-1 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
-                Agent Name <span className="text-red-500">*</span>
-              </label>
-              <div className="relative">
-                <Bot className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={suggestedName}
-                  onChange={(e) => setSuggestedName(e.target.value)}
-                  placeholder="e.g. Offboarding Assistant"
-                  className={`pl-8 ${triedSubmit && !nameValid ? "border-red-400" : ""}`}
-                />
-              </div>
-              {triedSubmit && !nameValid && (
-                <p className="mt-0.5 text-[10px] font-medium text-red-500">Agent name is required</p>
-              )}
-            </div>
-
-            {/* Deploy location — shown for L1 or L2 */}
-            {(agentLevel === "l1" || agentLevel === "l2") && (
-              <div className="mt-3">
-                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
-                  Where should &quot;Deploy Agent&quot; appear?
-                </label>
-                <Input
-                  value={deployLocation}
-                  onChange={(e) => setDeployLocation(e.target.value)}
-                  placeholder="e.g. Renewals workflow — after lease expiration scan"
-                />
-                <p className="mt-0.5 text-[10px] text-[hsl(var(--muted-foreground))]">
-                  Tell us where in the Entrata workflow this {LEVEL_LABELS[agentLevel]} agent&apos;s deploy action should be surfaced.
-                </p>
-              </div>
-            )}
-
-            {/* Roster linkage hint */}
-            {nameValid && (
-              <div className="mt-3 flex items-center gap-2 rounded-md bg-blue-50 px-3 py-2 text-[11px] text-blue-700">
-                <ArrowRight className="h-3.5 w-3.5 shrink-0" />
-                Once approved, <strong>{suggestedName}</strong> will be added to the{" "}
-                <Link href="/agent-roster" className="font-semibold underline hover:no-underline">Agent Roster</Link>
-                {" "}as a private agent for your properties.
-              </div>
-            )}
-
-            {/* Validation summary */}
-            {triedSubmit && !canSubmit && (
-              <div className="mt-3 flex items-center gap-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-                <AlertCircle className="h-4 w-4 shrink-0" />
-                Please fill in all required fields{!promptValid ? " — include a description" : ""}{!nameValid ? " — add an agent name" : ""}.
-              </div>
-            )}
-
-            {/* Submit button — at the bottom of the form */}
-            <Button
-              onClick={handleSubmitPrompt}
-              className="mt-4 w-full"
-              size="lg"
-              disabled={!canSubmit}
+        {/* Type filter */}
+        <div className="flex items-center gap-1">
+          <span className="mr-1 text-[11px] font-medium text-muted-foreground">Type:</span>
+          {(["all", "deterministic", "ai-powered"] as const).map((f) => (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setTypeFilter(f)}
+              className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                typeFilter === f ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:bg-muted/80"
+              }`}
             >
-              <Send className="h-4 w-4" />
-              Submit Agent Request
-            </Button>
+              {f === "all" ? "All" : f === "deterministic" ? `Workflows (${counts.deterministic})` : `AI Agents (${counts.ai})`}
+            </button>
+          ))}
+        </div>
+      </div>
 
-            {promptSubmitted && (
-              <div className="mt-3 flex items-center gap-2 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                <CheckCircle2 className="h-4 w-4 shrink-0" />
-                Thanks for submitting your request! Our team will review it and may reach out with follow-up questions. We appreciate every idea — keep them coming!
+      {/* Agent list */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        {filteredAgents.map((agent) => {
+          const status = STATUS_STYLE[agent.status];
+          const typeInfo = TYPE_STYLE[agent.type];
+          const TypeIcon = typeInfo.icon;
+
+          return (
+            <button
+              key={agent.id}
+              type="button"
+              onClick={() => setSelectedAgentId(agent.id)}
+              className="group flex flex-col rounded-xl border border-border bg-white p-4 text-left transition-all hover:border-indigo-200 hover:shadow-md"
+            >
+              <div className="mb-2 flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-foreground">{agent.name}</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${typeInfo.className}`}>
+                      <TypeIcon className="h-3 w-3" /> {typeInfo.label}
+                    </span>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${status.className}`}>
+                      {status.label}
+                    </span>
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                      v{agent.activeVersion}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">{agent.domain}</span>
+                  </div>
+                </div>
+                <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-foreground" />
               </div>
-            )}
-          </div>
-
-          {/* Submissions queue */}
-          {submissions.length > 0 && (
-            <div className="mt-4">
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
-                Your submissions
-              </h3>
-              <div className="space-y-2">
-                {submissions.map((sub) => (
-                  <SubmissionCard key={sub.id} sub={sub} onReply={handleReply} />
+              <p className="mb-3 line-clamp-2 text-[12px] text-muted-foreground">{agent.description}</p>
+              <div className="mt-auto flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
+                {agent.triggers.slice(0, 2).map((t) => (
+                  <span key={t} className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-foreground">
+                    <Zap className="h-3 w-3 text-amber-500" /> {t}
+                  </span>
                 ))}
+                {agent.propertyIds.length > 0 && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-foreground">
+                    <Building2 className="h-3 w-3 text-muted-foreground" /> {agent.propertyIds.length} {agent.propertyIds.length === 1 ? "property" : "properties"}
+                  </span>
+                )}
+                {agent.runsLast30d !== undefined && agent.runsLast30d > 0 && (
+                  <span className="ml-auto text-[10px] text-muted-foreground">
+                    {agent.runsLast30d.toLocaleString()} runs / 30d
+                  </span>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {filteredAgents.length === 0 && (
+        <div className="rounded-xl border border-dashed border-border bg-white p-12 text-center">
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-indigo-50">
+            <Sparkles className="h-6 w-6 text-indigo-600" />
+          </div>
+          <p className="text-sm font-medium text-foreground">No agents match your filter</p>
+          <p className="mt-1 text-[13px] text-muted-foreground">Try adjusting your filters or build a new agent.</p>
+        </div>
+      )}
+
+      {/* Agent Detail Dialog */}
+      <Dialog open={!!selectedAgent} onOpenChange={(v) => { if (!v) setSelectedAgentId(null); }}>
+        <DialogContent className="max-w-3xl gap-0 overflow-hidden p-0">
+          {selectedAgent && (
+            <AgentDetailPanel
+              agent={selectedAgent}
+              onUpdate={(patch) => updateAgent(selectedAgent.id, patch)}
+              onClose={() => setSelectedAgentId(null)}
+              onNewVersion={() => handleNewVersion(selectedAgent)}
+              onEditVersion={(vNum) => handleEditVersion(selectedAgent, vNum)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Builder Modal */}
+      <Dialog open={modalOpen} onOpenChange={(v) => { if (!v) { setModalOpen(false); setModalStep({ kind: "type-select" }); } }}>
+        <DialogContent className="flex h-[85vh] max-w-4xl flex-col gap-0 overflow-hidden p-0">
+          {modalStep.kind === "type-select" && (
+            <div className="flex h-full flex-col">
+              <div className="shrink-0 border-b border-border px-6 py-4">
+                <h2 className="text-lg font-semibold text-foreground">Build New Agent</h2>
+                <p className="text-sm text-muted-foreground">Choose the execution model that fits your use case.</p>
+              </div>
+              <div className="flex flex-1 items-center justify-center px-6">
+                <div className="grid max-w-2xl grid-cols-2 gap-5">
+                  <button
+                    type="button"
+                    onClick={() => setModalStep({ kind: "deterministic" })}
+                    className="group flex flex-col items-start rounded-xl border-2 border-border bg-white p-5 text-left transition-all hover:border-emerald-400 hover:shadow-lg"
+                  >
+                    <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100">
+                      <Workflow className="h-6 w-6" />
+                    </div>
+                    <h3 className="text-base font-semibold text-foreground">Deterministic Workflow</h3>
+                    <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+                      Predictable, rule-based automation. AI builds the logic once, then it runs the same way every time.
+                    </p>
+                    <ul className="mt-3 space-y-1.5 text-[12px] text-muted-foreground">
+                      <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-600" /> Same output every run</li>
+                      <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-600" /> No LLM cost per execution</li>
+                      <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-600" /> Ideal for regulated processes</li>
+                      <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-600" /> Test in sandbox, promote to live</li>
+                    </ul>
+                    <span className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-700">
+                      <Code2 className="h-3 w-3" /> Best for: automations, compliance, scheduled tasks
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setModalStep({ kind: "ai-powered" })}
+                    className="group flex flex-col items-start rounded-xl border-2 border-border bg-white p-5 text-left transition-all hover:border-indigo-400 hover:shadow-lg"
+                  >
+                    <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 group-hover:bg-indigo-100">
+                      <BrainCircuit className="h-6 w-6" />
+                    </div>
+                    <h3 className="text-base font-semibold text-foreground">AI-Powered Agent</h3>
+                    <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+                      Adaptive, LLM-driven intelligence. The agent reasons through each situation differently based on context.
+                    </p>
+                    <ul className="mt-3 space-y-1.5 text-[12px] text-muted-foreground">
+                      <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-600" /> Handles nuanced scenarios</li>
+                      <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-600" /> Natural language conversations</li>
+                      <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-600" /> Adapts to new situations</li>
+                      <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-600" /> Full guardrail protection</li>
+                    </ul>
+                    <span className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-3 py-1 text-[11px] font-semibold text-indigo-700">
+                      <BrainCircuit className="h-3 w-3" /> Best for: conversations, complex decisions, resident interactions
+                    </span>
+                  </button>
+                </div>
               </div>
             </div>
           )}
-        </section>
-        </TabsContent>
 
-        {/* ── Tab: Agent Blueprints ── */}
-        <TabsContent value="blueprints">
-          <section>
-            <div className="mb-1 flex items-center justify-between">
-              <h2 className="section-title">Agent Blueprints</h2>
-              <span className="text-[length:var(--text-caption)] text-[hsl(var(--muted-foreground))]">
-                {filteredBlueprints.length} available
-              </span>
-            </div>
-            <p className="mb-4 text-[length:var(--text-body)] text-[hsl(var(--muted-foreground))]">
-              Pre-built agent patterns organized by domain. Deploy one to get started quickly, or use it as a starting point.
-            </p>
+          {modalStep.kind === "deterministic" && (
+            <DeterministicBuilderModal
+              onComplete={handleBuilderComplete}
+              onBack={() => setModalStep({ kind: "type-select" })}
+              forkFrom={modalStep.forkFrom}
+            />
+          )}
 
-            {/* Domain filter tabs */}
-            <div className="mb-4 flex flex-wrap gap-1">
-              {DOMAIN_FILTERS.map((f) => {
-                const Icon = f.icon;
-                const isActive = domainFilter === f.value;
-                return (
-                  <Button
-                    key={f.value}
-                    variant={isActive ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setDomainFilter(f.value)}
-                    className="rounded-full"
-                  >
-                    <Icon className="h-3 w-3" />
-                    {f.label}
-                  </Button>
-                );
-              })}
-            </div>
-
-            {/* Blueprint cards — 2 columns */}
-            <div className="grid gap-3 sm:grid-cols-2">
-              {filteredBlueprints.map((bp) => {
-                const domainColor: Record<AgentDomain, string> = {
-                  leasing: "bg-blue-50 text-blue-700",
-                  accounting: "bg-purple-50 text-purple-700",
-                  maintenance: "bg-orange-50 text-orange-700",
-                  renewals: "bg-emerald-50 text-emerald-700",
-                  compliance: "bg-red-50 text-red-700",
-                  general: "bg-gray-50 text-gray-700",
-                };
-                return (
-                  <Card key={bp.id} className="flex flex-col transition-shadow hover:shadow-md">
-                    <CardHeader className="pb-2">
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-base">{bp.name}</CardTitle>
-                        <Badge variant="outline" className={`rounded-full border-transparent text-[10px] ${domainColor[bp.domain]}`}>
-                          {DOMAIN_LABELS[bp.domain]}
-                        </Badge>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="flex-1">
-                      <p className="text-[length:var(--text-caption)] leading-relaxed text-muted-foreground">
-                        {bp.description}
-                      </p>
-                      <div className="mt-3 space-y-1.5 border-t border-border/50 pt-3">
-                        <div className="flex items-center justify-between text-[10px]">
-                          <span className="text-muted-foreground">Impact</span>
-                          <span className="font-medium text-emerald-600">{bp.impact}</span>
-                        </div>
-                        <div className="flex items-center justify-between text-[10px]">
-                          <span className="text-muted-foreground">Connects to</span>
-                          <span className="font-medium text-foreground">{bp.connects}</span>
-                        </div>
-                      </div>
-                    </CardContent>
-                    <CardFooter>
-                      <Button
-                        variant={deployedBlueprints.has(bp.id) ? "outline" : "secondary"}
-                        onClick={() => handleOpenBlueprintModal(bp)}
-                        disabled={deployedBlueprints.has(bp.id)}
-                        className={`w-full ${
-                          deployedBlueprints.has(bp.id)
-                            ? "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-50"
-                            : ""
-                        }`}
-                      >
-                        {deployedBlueprints.has(bp.id) ? "Blueprint Requested" : "Request this Blueprint"}
-                      </Button>
-                    </CardFooter>
-                  </Card>
-                );
-              })}
-            </div>
-          </section>
-        </TabsContent>
-
-        {/* ── Tab: Your Agents ── */}
-        <TabsContent value="your-agents">
-          <section className="section-block">
-            <div>
-              <div className="mb-1 flex items-center justify-between">
-                <h2 className="section-title">Your Agents</h2>
-                <span className="text-[length:var(--text-caption)] text-[hsl(var(--muted-foreground))]">
-                  {agents.filter((a) => a.status === "live").length} active · {agents.length} total
-                </span>
+          {modalStep.kind === "ai-powered" && (
+            <div className="flex h-full flex-col">
+              <div className="flex shrink-0 items-center gap-3 border-b border-border px-6 py-4">
+                <button type="button" onClick={() => setModalStep({ kind: "type-select" })} className="rounded-md p-1 text-muted-foreground hover:text-foreground">
+                  <ArrowLeft className="h-4 w-4" />
+                </button>
+                <div className="flex items-center gap-2">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600">
+                    <BrainCircuit className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-semibold text-foreground">
+                      {modalStep.forkFrom ? `New Version of "${modalStep.forkFrom.name}"` : "Build AI-Powered Agent"}
+                    </h2>
+                    <p className="text-[11px] text-muted-foreground">
+                      {modalStep.forkFrom
+                        ? `Version ${Math.max(...modalStep.forkFrom.versions.map((v) => v.versionNumber)) + 1} · Forked from v${modalStep.forkFrom.activeVersion}`
+                        : "Version 1 · Full agent builder"
+                      }
+                    </p>
+                  </div>
+                </div>
               </div>
-              <p className="mb-4 text-[length:var(--text-body)] text-[hsl(var(--muted-foreground))]">
-                Agents you&apos;ve created or deployed. Activate or pause them as needed.
-              </p>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Agent</TableHead>
-                    <TableHead>Domain</TableHead>
-                    <TableHead>Created from</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {agents.map((a) => {
-                    const style = STATUS_STYLES[a.status] ?? STATUS_STYLES.draft;
-                    const actionLabel = a.status === "live" ? "Pause" : "Activate";
-                    return (
-                      <TableRow key={a.id}>
-                        <TableCell className="font-medium">{a.name}</TableCell>
-                        <TableCell className="text-muted-foreground">{DOMAIN_LABELS[a.domain] ?? a.domain ?? "—"}</TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {CREATED_FROM_LABELS[a.createdFrom] ?? a.createdFrom ?? "—"}
-                          {a.blueprintName && <span className="opacity-60"> · {a.blueprintName}</span>}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={`rounded-full border-transparent ${style.bg} ${style.text}`}>
-                            {style.label}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Button
-                            size="sm"
-                            variant={a.status === "live" ? "secondary" : "default"}
-                            onClick={() => toggleAgent(a.id)}
-                            className={a.status === "live"
-                              ? "bg-gray-600 text-white hover:bg-gray-700"
-                              : "bg-emerald-700 text-white hover:bg-emerald-800"
-                            }
-                          >
-                            {actionLabel}
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-
-            {/* SOP Callout */}
-            <div className="mt-6 flex items-start gap-3 rounded-lg border border-[hsl(var(--border))] bg-gradient-to-r from-[hsl(var(--muted))]/40 to-white p-4">
-              <BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(var(--muted-foreground))]" />
-              <div>
-                <p className="text-sm font-medium text-[hsl(var(--foreground))]">
-                  Your agents are only as good as the knowledge you give them
-                </p>
-                <p className="mt-0.5 text-[length:var(--text-caption)] text-[hsl(var(--muted-foreground))]">
-                  Upload your SOPs and training documents to make your agents smarter. When you upload SOPs, those train your humans AND your digital workforce.
-                </p>
-                <Link
-                  href="/trainings-sop"
-                  className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[hsl(var(--primary))] hover:underline"
+              <div className="flex-1 overflow-y-auto">
+                <Suspense
+                  fallback={
+                    <div className="flex items-center justify-center py-20 text-sm text-muted-foreground">
+                      Loading agent builder…
+                    </div>
+                  }
                 >
-                  Go to Training &amp; SOPs
-                  <ChevronRight className="h-3.5 w-3.5" />
-                </Link>
+                  <CustomAgentBuilder initialView="new" onClose={closeModal} />
+                </Suspense>
               </div>
             </div>
-          </section>
-        </TabsContent>
-
-        {/* ── Tab: Custom Agent Designer ── */}
-        <TabsContent value="designer" className="-mx-4 -mb-6 sm:-mx-6 lg:-mx-10">
-        <section>
-          <div className="flex min-h-[calc(100vh-12rem)] overflow-hidden border-t border-[hsl(var(--border))] bg-white">
-            {/* ── Left sidebar ── */}
-            <aside className="w-[200px] shrink-0 border-r border-[hsl(var(--border))] bg-[#fafafa]">
-              {/* Assets section */}
-              <div className="border-b border-[hsl(var(--border))]">
-                <div className="flex items-center justify-between px-3 py-2">
-                  <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                    <ChevronDown className="h-3 w-3" />
-                    Assets
-                  </span>
-                  <span className="flex h-5 w-5 items-center justify-center rounded text-gray-400">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-                  </span>
-                </div>
-                <nav className="space-y-0.5 px-2 pb-2">
-                  <div className="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-gray-700 hover:bg-gray-100">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14,2 14,8 20,8"/></svg>
-                    Recipes
-                    <span className="ml-auto rounded bg-gray-200 px-1.5 py-0.5 text-[9px] font-semibold text-gray-500">8</span>
-                  </div>
-                  <div className="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-gray-700 hover:bg-gray-100">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v6m0 8v6M4.93 4.93l4.24 4.24m5.66 5.66l4.24 4.24M2 12h6m8 0h6M4.93 19.07l4.24-4.24m5.66-5.66l4.24-4.24"/></svg>
-                    Connections
-                    <span className="ml-auto rounded bg-gray-200 px-1.5 py-0.5 text-[9px] font-semibold text-gray-500">5</span>
-                  </div>
-                  <div className="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-gray-700 hover:bg-gray-100">
-                    <Wrench className="h-3.5 w-3.5" />
-                    Tools
-                    <span className="ml-auto rounded bg-gray-200 px-1.5 py-0.5 text-[9px] font-semibold text-gray-500">3</span>
-                  </div>
-                </nav>
-              </div>
-
-              {/* Projects section */}
-              <div>
-                <div className="flex items-center justify-between bg-[#e8e3ff] px-3 py-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-[#5b47a5]">
-                    Projects
-                  </span>
-                  <X className="h-3 w-3 text-[#5b47a5]" />
-                </div>
-                <nav className="space-y-0.5 px-2 py-2">
-                  {["Application and Screening", "Drip Campaigns", "Installed Workflows", "Move In"].map((name) => (
-                    <div key={name} className="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-gray-700 hover:bg-gray-100">
-                      <ChevronRight className="h-3 w-3 text-gray-400" />
-                      <span className="truncate">{name}</span>
-                    </div>
-                  ))}
-                </nav>
-              </div>
-            </aside>
-
-            {/* ── Main content ── */}
-            <div className="flex-1 p-6">
-              {/* Header row */}
-              <div className="mb-4 flex items-start justify-between">
-                <h2 className="text-xl font-semibold text-gray-900">Projects</h2>
-                <span className="text-[10px] text-gray-400">
-                  Sort by: <span className="text-gray-600">Latest activity</span> ▾
-                </span>
-              </div>
-
-              {/* Search */}
-              <div className="mb-5 w-48">
-                <div className="flex items-center gap-2 rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-400">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-                  Search projects
-                </div>
-              </div>
-
-              {/* Project cards grid */}
-              <div className="grid gap-4 sm:grid-cols-3">
-                {/* Drip Campaigns */}
-                <div className="rounded-lg border border-gray-200 bg-white p-4">
-                  <div className="mb-1 flex items-start justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">Drip Campaigns</p>
-                      <p className="text-[10px] text-gray-400">
-                        Edit &middot; <span className="text-blue-500">description</span>
-                      </p>
-                    </div>
-                    <span className="text-gray-400">&middot;&middot;&middot;</span>
-                  </div>
-                  <div className="mt-4 flex items-center gap-1">
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#c8372d] text-[9px] font-bold text-white">E</span>
-                  </div>
-                  <p className="mt-3 text-[9px] text-gray-400">
-                    Last updated by <span className="text-gray-500">Danner Banks</span> on Feb 19, 2025, 5:44 PM
-                  </p>
-                </div>
-
-                {/* Installed Workflows */}
-                <div className="rounded-lg border border-gray-200 bg-white p-4">
-                  <div className="mb-1 flex items-start justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">Installed Workflows</p>
-                      <p className="text-[10px] text-gray-400">
-                        Edit &middot; <span className="text-blue-500">description</span>
-                      </p>
-                    </div>
-                    <span className="text-gray-400">&middot;&middot;&middot;</span>
-                  </div>
-                  <div className="mt-4 flex items-center gap-1">
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#6d3fc0] text-[9px] font-bold text-white">W</span>
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#c8372d] text-[9px] font-bold text-white">E</span>
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#2d7ff9] text-[9px] font-bold text-white">C</span>
-                  </div>
-                  <p className="mt-3 text-[9px] text-gray-400">
-                    Last exported to <span className="text-gray-500">Paul Danford</span> on Dec 3, 2025, 4:39 PM
-                  </p>
-                </div>
-
-                {/* Application and Screening */}
-                <div className="rounded-lg border border-gray-200 bg-white p-4">
-                  <div className="mb-1 flex items-start justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">Application and Screening</p>
-                      <p className="text-[10px] text-gray-400">
-                        Edit &middot; <span className="text-blue-500">description</span>
-                      </p>
-                    </div>
-                    <span className="text-gray-400">&middot;&middot;&middot;</span>
-                  </div>
-                  <div className="mt-4 flex items-center gap-1">
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#c8372d] text-[9px] font-bold text-white">E</span>
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#e8a317] text-[9px] font-bold text-white">S</span>
-                  </div>
-                  <p className="mt-3 text-[9px] text-gray-400">
-                    Last updated by <span className="text-gray-500">Paul Danford</span> on Nov 13, 2025, 2:28 PM
-                  </p>
-                </div>
-
-                {/* Move In */}
-                <div className="rounded-lg border border-gray-200 bg-white p-4">
-                  <div className="mb-1 flex items-start justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">Move In</p>
-                      <p className="text-[10px] text-gray-400">
-                        Edit &middot; <span className="text-blue-500">description</span>
-                      </p>
-                    </div>
-                    <span className="text-gray-400">&middot;&middot;&middot;</span>
-                  </div>
-                  <div className="mt-4 flex items-center gap-1">
-                    <span className="flex h-5 w-5 items-center justify-center rounded bg-gray-300 text-[8px] text-gray-500">→</span>
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#c8372d] text-[9px] font-bold text-white">E</span>
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#2d7ff9] text-[9px] font-bold text-white">C</span>
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#e8a317] text-[9px] font-bold text-white">S</span>
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#6d3fc0] text-[9px] font-bold text-white">W</span>
-                    <span className="flex h-5 w-5 items-center justify-center rounded bg-gray-300 text-[8px] text-gray-500">→</span>
-                  </div>
-                  <p className="mt-3 text-[9px] text-gray-400">
-                    Last updated by <span className="text-gray-500">Entrata_3582</span> on Aug 7, 2025, 9:36 AM
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-        </TabsContent>
-
-        </Tabs>
-        </>
-        )}
-
-        <BlueprintRequestModal
-          blueprint={selectedBlueprint}
-          open={blueprintModalOpen}
-          onClose={() => { setBlueprintModalOpen(false); setSelectedBlueprint(null); }}
-          onSubmit={handleBlueprintModalSubmit}
-        />
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
