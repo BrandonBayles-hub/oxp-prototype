@@ -20,14 +20,28 @@ const AdoptPage = lazy(() => import('./pages/AdoptPage'));
  * When `initialView` is passed (e.g. "new"), it skips the landing page and
  * renders that view directly — useful when embedded inside a modal.
  */
-export default function CustomAgentBuilder({ initialView, onClose }: { initialView?: string; onClose?: () => void }) {
+export type AgentCreatedPayload = {
+  name: string;
+  description: string;
+  status: string;
+};
+
+export default function CustomAgentBuilder({
+  initialView,
+  onClose,
+  onAgentCreated,
+}: {
+  initialView?: string;
+  onClose?: () => void;
+  onAgentCreated?: (payload: AgentCreatedPayload) => void;
+}) {
   const searchParams = useSearchParams();
   const view = initialView || searchParams.get('view') || '';
 
   const page = useMemo(() => {
     switch (view) {
       case 'new':
-        return <NewPage onClose={onClose} />;
+        return <NewPage onClose={onClose} onAgentCreated={onAgentCreated} />;
       case 'detail':
         return <DetailPage />;
       case 'system-detail':
@@ -37,7 +51,7 @@ export default function CustomAgentBuilder({ initialView, onClose }: { initialVi
       default:
         return <LandingPage />;
     }
-  }, [view, onClose]);
+  }, [view, onClose, onAgentCreated]);
 
   return (
     <CustomAgentBuilderErrorBoundary>

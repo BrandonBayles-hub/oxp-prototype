@@ -1841,6 +1841,44 @@ export default function AgentBuilderPage() {
     setModalStep({ kind: "type-select" });
   }, [modalStep]);
 
+  const handleAiAgentCreated = useCallback((payload: { name: string; description: string; status: string }) => {
+    const newAgent: UnifiedAgent = {
+      id: `ua-${Date.now()}`,
+      name: payload.name,
+      type: "ai-powered",
+      description: payload.description,
+      status: payload.status === "live" ? "live" : "sandbox",
+      domain: "General",
+      versions: [{
+        id: "v1",
+        versionNumber: 1,
+        status: payload.status === "live" ? "live" : "sandbox",
+        createdAt: new Date().toISOString(),
+        description: "Initial version",
+      }],
+      activeVersion: 1,
+      propertyIds: [],
+      propertyVersionMap: {},
+      triggers: [],
+      evals: [],
+      createdAt: new Date().toISOString(),
+      runsLast30d: 0,
+      executionLog: [],
+      changeHistory: [{
+        id: `ch-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        userId: "user-current",
+        userName: "Current User",
+        action: "created",
+        summary: "Created AI-powered agent",
+        versionAffected: 1,
+      }],
+    };
+    setAgents((prev) => [newAgent, ...prev]);
+    setModalOpen(false);
+    setModalStep({ kind: "type-select" });
+  }, []);
+
   if (!isFullVersion) {
     return (
       <Suspense
@@ -2110,7 +2148,7 @@ export default function AgentBuilderPage() {
                     </div>
                   }
                 >
-                  <CustomAgentBuilder initialView="new" onClose={closeModal} />
+                  <CustomAgentBuilder initialView="new" onClose={closeModal} onAgentCreated={handleAiAgentCreated} />
                 </Suspense>
               </div>
             </div>

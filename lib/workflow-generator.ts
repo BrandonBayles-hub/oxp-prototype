@@ -168,6 +168,71 @@ async function tryApiRoute(
   }
 }
 
+function applyFallbackIteration(
+  existing: GeneratedWorkflow,
+  changeRequest: string,
+): GeneratedWorkflow {
+  const lower = changeRequest.toLowerCase();
+  const nextNodeId = `action-${Date.now()}`;
+  const nextEdgeId = `e-${Date.now()}`;
+
+  const endNodes = existing.nodes.filter((n) => n.type === "end");
+  const nonEndNodes = existing.nodes.filter((n) => n.type !== "end");
+  const edgesToEnd = existing.edges.filter((e) =>
+    endNodes.some((en) => en.id === e.target),
+  );
+  const otherEdges = existing.edges.filter(
+    (e) => !edgesToEnd.some((ee) => ee.id === e.id),
+  );
+
+  let newNode: WorkflowNode;
+  if (lower.includes("sms") || lower.includes("text")) {
+    newNode = { id: nextNodeId, type: "action", label: "Send SMS", description: "Send a text notification", mcpTool: "comms.send_sms", mcpServer: "mcp.communications" };
+  } else if (lower.includes("email")) {
+    newNode = { id: nextNodeId, type: "action", label: "Send Email", description: "Send an email notification", mcpTool: "comms.send_email", mcpServer: "mcp.communications" };
+  } else if (lower.includes("delay") || lower.includes("wait")) {
+    newNode = { id: nextNodeId, type: "delay", label: "Wait", description: `Pause: ${changeRequest}` };
+  } else if (lower.includes("approval") || lower.includes("review") || lower.includes("human")) {
+    newNode = { id: nextNodeId, type: "action", label: "Require Approval", description: `Manual review: ${changeRequest}` };
+  } else if (lower.includes("condition") || lower.includes("check") || lower.includes("if ")) {
+    const condId = `cond-${Date.now()}`;
+    const skipId = `skip-${Date.now()}`;
+    const condNode: WorkflowNode = { id: condId, type: "condition", label: changeRequest.slice(0, 40), description: changeRequest };
+    const skipEnd: WorkflowNode = { id: skipId, type: "end", label: "Skipped", description: "Did not pass condition" };
+    const firstAction = existing.nodes.find((n) => n.type === "action");
+    const insertAfter = firstAction ?? existing.nodes[0];
+    const outEdges = existing.edges.filter((e) => e.source === insertAfter.id);
+    const remainingEdges = existing.edges.filter((e) => e.source !== insertAfter.id);
+    return {
+      ...existing,
+      description: `${existing.description} (+ condition)`,
+      nodes: [...existing.nodes, condNode, skipEnd],
+      edges: [
+        ...remainingEdges,
+        { id: `${nextEdgeId}-a`, source: insertAfter.id, target: condId },
+        ...outEdges.map((e) => ({ ...e, source: condId, label: "Yes" })),
+        { id: `${nextEdgeId}-b`, source: condId, target: skipId, label: "No" },
+      ],
+    };
+  } else {
+    newNode = { id: nextNodeId, type: "action", label: changeRequest.slice(0, 30), description: changeRequest };
+  }
+
+  const rewiredEdges = edgesToEnd.map((e) => ({ ...e, target: nextNodeId }));
+  const toEnd = endNodes.map((en, i) => ({
+    id: `${nextEdgeId}-${i}`,
+    source: nextNodeId,
+    target: en.id,
+  }));
+
+  return {
+    ...existing,
+    description: `${existing.description} (+ ${changeRequest.slice(0, 30)})`,
+    nodes: [...nonEndNodes, newNode!, ...endNodes],
+    edges: [...otherEdges, ...rewiredEdges, ...toEnd],
+  };
+}
+
 function buildFallbackWorkflow(prompt: string): GeneratedWorkflow {
   const lower = prompt.toLowerCase();
 
@@ -249,6 +314,14 @@ export async function generateWorkflow(
     } catch (err) {
       console.error("Client-side LLM call failed:", err);
     }
+  }
+
+  if (existingWorkflow && changeRequest) {
+    return {
+      ok: false,
+      workflow: applyFallbackIteration(existingWorkflow, changeRequest),
+      source: "fallback",
+    };
   }
 
   return { ok: false, workflow: buildFallbackWorkflow(prompt), source: "fallback" };

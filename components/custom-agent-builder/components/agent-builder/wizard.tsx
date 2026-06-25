@@ -126,12 +126,16 @@ import {
   Users,
 } from "lucide-react";
 
+type AgentCreatedPayload = { name: string; description: string; status: string };
+
 type WizardProps = {
   agentId: string;
   /** The specific version being edited. For drafts, this is v1; for edits it's the pending clone. */
   versionNumber: number;
   /** When provided, exit actions call this instead of router.push (modal mode). */
   onClose?: () => void;
+  /** Called after the agent is saved/deployed so the parent can update its own list. */
+  onAgentCreated?: (payload: AgentCreatedPayload) => void;
 };
 
 type StepDef = {
@@ -226,7 +230,7 @@ const STEPS: StepDef[] = [
   // { id: "review", label: "Review", icon: ClipboardCheck, show: () => true },
 ];
 
-export function AgentBuilderWizard({ agentId, versionNumber, onClose }: WizardProps) {
+export function AgentBuilderWizard({ agentId, versionNumber, onClose, onAgentCreated }: WizardProps) {
   const router = useRouter();
   const exit = onClose ?? (() => router.push("/agent-builder"));
   const {
@@ -329,10 +333,13 @@ export function AgentBuilderWizard({ agentId, versionNumber, onClose }: WizardPr
   // logging. The version stays as a draft — the user can resume from the detail
   // view (or landing page, for brand-new agents) whenever they're ready.
   const saveDraft = () => {
-    // Edits already persist on every keystroke via updateDraftVersion, so this
-    // is really just a framed exit. For brand-new agents, send the user to the
-    // landing page where the draft is visible in the Drafts section. Otherwise,
-    // return to the agent detail view where the draft shows up in Versions.
+    if (version && onAgentCreated) {
+      onAgentCreated({
+        name: version.name ?? agent?.name ?? "Untitled Agent",
+        description: version.prompt ?? agent?.description ?? "",
+        status: "draft",
+      });
+    }
     if (onClose) {
       onClose();
     } else if (isEditing) {
@@ -348,6 +355,13 @@ export function AgentBuilderWizard({ agentId, versionNumber, onClose }: WizardPr
         <SettingUpOverlay
           onDone={() => {
             setSettingUp(null);
+            if (version && onAgentCreated) {
+              onAgentCreated({
+                name: version.name ?? agent?.name ?? "Untitled Agent",
+                description: version.prompt ?? agent?.description ?? "",
+                status: settingUp === "live" ? "live" : "dry-run",
+              });
+            }
             if (onClose) { onClose(); } else { router.push(`/agent-builder?view=detail&id=${agentId}`); }
           }}
         />
@@ -2427,111 +2441,7 @@ function CommunicationStep({ version, patch }: { version: AgentVersion; patch: (
         It looks like this agent will send or receive messages. Confirm how it should reach people across each associated property.
       </p>
 
-      {/* ── Brand & Voice Source Toggle ── */}
-      <div className="mt-5 rounded-xl border border-border bg-muted/20 p-4">
-        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Brand &amp; voice source
-        </p>
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-          <button
-            type="button"
-            onClick={() => setField({ brandVoiceSource: "inherit" })}
-            className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
-              isInheriting
-                ? "border-indigo-300 bg-indigo-50 ring-1 ring-indigo-200"
-                : "border-border bg-white hover:bg-muted/40"
-            }`}
-          >
-            <Repeat className={`mt-0.5 h-4 w-4 shrink-0 ${isInheriting ? "text-indigo-600" : "text-muted-foreground"}`} />
-            <div>
-              <p className={`text-sm font-medium ${isInheriting ? "text-indigo-900" : "text-foreground"}`}>
-                Inherit from platform
-              </p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                Use the brand name, tone, voice preset, and opening lines already configured in another area of Entrata.
-              </p>
-            </div>
-          </button>
-          <button
-            type="button"
-            onClick={() => setField({ brandVoiceSource: "custom" })}
-            className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
-              !isInheriting
-                ? "border-indigo-300 bg-indigo-50 ring-1 ring-indigo-200"
-                : "border-border bg-white hover:bg-muted/40"
-            }`}
-          >
-            <Sliders className={`mt-0.5 h-4 w-4 shrink-0 ${!isInheriting ? "text-indigo-600" : "text-muted-foreground"}`} />
-            <div>
-              <p className={`text-sm font-medium ${!isInheriting ? "text-indigo-900" : "text-foreground"}`}>
-                Custom configuration
-              </p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                Define the agent&apos;s persona, tone, voice, and opening lines from scratch in this step.
-              </p>
-            </div>
-          </button>
-        </div>
-
-        {/* ── Inherit source selector ── */}
-        {isInheriting && (
-          <div className="mt-4">
-            <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Inherit from
-            </label>
-            <div className="space-y-2">
-              {BRAND_VOICE_INHERIT_OPTIONS.map((opt) => {
-                const active = comms.brandVoiceInheritFrom === opt.id;
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => setField({ brandVoiceInheritFrom: opt.id })}
-                    className={`flex w-full items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors ${
-                      active
-                        ? "border-emerald-300 bg-emerald-50 ring-1 ring-emerald-200"
-                        : "border-border bg-white hover:bg-muted/30"
-                    }`}
-                  >
-                    <div className={`mt-1 h-3 w-3 shrink-0 rounded-full border-2 ${
-                      active ? "border-emerald-500 bg-emerald-500" : "border-muted-foreground/40"
-                    }`} />
-                    <div className="min-w-0 flex-1">
-                      <p className={`text-[13px] font-medium ${active ? "text-emerald-900" : "text-foreground"}`}>
-                        {opt.label}
-                      </p>
-                      <p className="mt-0.5 text-[11px] text-muted-foreground">{opt.description}</p>
-                    </div>
-                    {opt.moduleKey && (
-                      <a
-                        href={`/?module=${opt.moduleKey}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="mt-1 text-[10px] text-indigo-600 hover:underline"
-                      >
-                        View source
-                      </a>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-            {selectedInherit && (
-              <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2">
-                <p className="text-[12px] text-emerald-800">
-                  <Check className="mr-1 inline h-3.5 w-3.5" />
-                  Inheriting brand &amp; voice from <strong>{selectedInherit.label}</strong>.
-                  The agent will use the same persona name, tone, and voice settings.
-                  You can switch to &ldquo;Custom configuration&rdquo; at any time to override individual settings.
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ── Channels (always visible) ── */}
+      {/* ── Channels ── */}
       <div className="mt-5 flex flex-wrap gap-2">
         {CHANNEL_TOGGLE_OPTIONS.map((opt) => {
           const selected = comms.channels.includes(opt.value);
@@ -2551,35 +2461,8 @@ function CommunicationStep({ version, patch }: { version: AgentVersion; patch: (
         })}
       </div>
 
-      {/* ── Custom config: persona name, voice, opening lines ── */}
-      {/* Hidden when inheriting — the inherited source provides these */}
-      {isInheriting && hasAnyChannel && (
-        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2.5">
-          <p className="text-[12px] text-amber-800">
-            <Info className="mr-1 inline h-3.5 w-3.5" />
-            Persona name, voice preset, tone, and opening lines are inherited from{" "}
-            <strong>{selectedInherit?.label ?? "the selected source"}</strong>.
-            Switch to &ldquo;Custom configuration&rdquo; above to override them.
-          </p>
-        </div>
-      )}
-
-      {!isInheriting && hasAnyChannel && (
-        <div className="mt-5 rounded-lg border border-border bg-muted/20 p-4">
-          <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Agent name (what customers see)
-          </label>
-          <Input
-            value={comms.personaName ?? ""}
-            onChange={(e) => setField({ personaName: e.target.value })}
-            placeholder={version.name ? `e.g. Riley — falls back to "${version.name}" when blank` : "e.g. Riley"}
-          />
-          <p className="mt-1.5 text-[11px] text-muted-foreground">
-            This is the name the agent signs off with across every channel. Leave blank to use the agent&apos;s internal name ({version.name || "untitled"}).
-            Referenced as <code className="rounded bg-muted px-1 text-[10px]">{"{{agent.persona}}"}</code> in opening lines and the prompt.
-          </p>
-        </div>
-      )}
+      {/* Agent persona name, brand source, and voice config are configured
+          at the platform level for AI-powered agents. */}
 
       {/*
         ────────────────────────────────────────────────────────────────────
@@ -2774,41 +2657,11 @@ function CommunicationStep({ version, patch }: { version: AgentVersion; patch: (
         </>
       )}
 
-      {/* ===== Voice (hidden when inheriting) ===== */}
-      {!isInheriting && comms.channels.includes("voice") && (
-        <div className="mt-5 space-y-4 rounded-lg border border-border bg-muted/20 p-4">
-          <VoicePickerWithPreview
-            selectedVoiceId={comms.voiceId ?? ""}
-            onSelect={(id) => setField({ voiceId: id })}
-          />
-          {/*
-            Transfer number previously lived here. Removed because warm-/
-            cold-transfer destinations are now a first-class part of the
-            Escalation step, which lets authors pick per-property resolution
-            (main line / manager / on-call) instead of typing one number.
-            The `transferNumber` field remains on CommunicationCfg so any
-            legacy agent data keeps loading cleanly.
-          */}
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Recording consent</label>
-            <textarea
-              value={comms.recordingConsent ?? ""}
-              onChange={(e) => setField({ recordingConsent: e.target.value })}
-              rows={2}
-              className="w-full rounded-md border border-border bg-white px-3 py-2 text-xs text-foreground"
-              placeholder="This call may be recorded for quality and training purposes."
-            />
-          </div>
+      {/* Voice selection, recording consent, and voice runtime config are
+          handled at the platform level — not per-agent. */}
 
-          <VoiceRuntimePanel
-            runtime={comms.voiceRuntime}
-            onChange={(next) => setField({ voiceRuntime: next })}
-          />
-        </div>
-      )}
-
-      {/* ===== Opening line (hidden when inheriting) ===== */}
-      {!isInheriting && hasAnyChannel && (
+      {/* ===== Opening line ===== */}
+      {hasAnyChannel && (
         <div className="mt-5 rounded-lg border border-border bg-muted/20 p-4">
           <div className="mb-2">
             <p className="text-[13px] font-semibold text-foreground">Opening line</p>
