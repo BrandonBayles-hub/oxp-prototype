@@ -110,6 +110,13 @@ export type ConversationMessage = {
   };
   /** Structured staff activity (resolve, assignment, read, etc.). */
   threadActivity?: ThreadActivity;
+  /**
+   * Super Agent 1.0 only: when a staff member sends a public reply with one or more escalation
+   * checkboxes selected, the chosen escalation labels are stamped on the message so the thread
+   * shows which escalation each staff reply was addressing. Purely a context tag — does not
+   * change resolution state or remove labels.
+   */
+  replyToEscalations?: string[];
   /** Populated when `type === "voicemail"` — inbound recording with transcript. */
   voicemail?: VoicemailRef;
   /** Populated when `type === "missed_call"` — inbound call that went unanswered. */

@@ -65,6 +65,8 @@ import {
   UserCheck,
   UserX,
   Zap,
+  PauseCircle,
+  PlayCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -210,6 +212,31 @@ const LIVE_AI_PROPERTY_FORBIDDEN = new Set([
   "Renewal AI Escalation",
   "Payments AI Escalation",
 ]);
+
+/**
+ * Maps a *Escalation label to the AI agent that gets paused while the escalation
+ * is open (and resumed when it's resolved). Returns null for non-AI-specific
+ * escalations (e.g. "Other Escalation") so the UI can suppress the indicator.
+ */
+const ESCALATION_LABEL_TO_AGENT: Record<string, string> = {
+  "Leasing AI Escalation": "Leasing AI",
+  "Maintenance AI Escalation": "Maintenance AI",
+  "Renewal AI Escalation": "Renewals AI",
+  "Renewals AI Escalation": "Renewals AI",
+  "Payments AI Escalation": "Payments AI",
+};
+function aiAgentFromEscalationLabel(label: string): string | null {
+  return ESCALATION_LABEL_TO_AGENT[label] ?? null;
+}
+/** Resolve a list of unique paused/resumed AI agents from a list of escalation labels. */
+function aiAgentsFromLabels(labels: string[]): string[] {
+  const out: string[] = [];
+  for (const l of labels) {
+    const a = aiAgentFromEscalationLabel(l);
+    if (a && !out.includes(a)) out.push(a);
+  }
+  return out;
+}
 
 /** Logged-in user for the My Inbox tab (human assignee name). */
 const MY_INBOX_ASSIGNEE = "Abe Kashiwagi";
@@ -925,24 +952,43 @@ function ConversationsContent() {
     });
   };
 
+  /**
+   * For Super Agent 1.0 threads: tracks which escalation labels a staff member has already
+   * replied to with a public message. Once the replied-set covers every `*Escalation` label
+   * on the conversation, the thread is added to `sa1HiddenConversationIds` and removed from
+   * the thread list on the left + the unread / needs-action / mentions badge counters.
+   * The escalation labels themselves stay on the conversation — this is purely a "staff is
+   * done responding" UI signal, NOT a resolution. Another staff who can answer a different
+   * escalation will still see the thread until they reply too.
+   */
+  const sa1RepliedEscalationsRef = useRef<Map<string, Set<string>>>(new Map());
+  const [sa1HiddenConversationIds, setSa1HiddenConversationIds] = useState<Set<string>>(new Set());
+
   /** Sum of unread resident messages across threads in “Open Threads” (mention/unattended-only threads contribute 0). */
   const allThreadsUnreadCount = useMemo(() => {
     let total = 0;
     for (const c of conversations) {
+      if (sa1HiddenConversationIds.has(c.id)) continue;
       if (!conversationMatchesAllThreadsInbox(c)) continue;
       total += countUnreadResidentMessagesInThread(c);
     }
     return total;
-  }, [conversations]);
+  }, [conversations, sa1HiddenConversationIds]);
 
   const mentionsInboxCount = useMemo(
-    () => conversations.filter((c) => conversationHasCurrentUserPrivateNoteMention(c)).length,
-    [conversations]
+    () =>
+      conversations.filter(
+        (c) => !sa1HiddenConversationIds.has(c.id) && conversationHasCurrentUserPrivateNoteMention(c)
+      ).length,
+    [conversations, sa1HiddenConversationIds]
   );
 
   const unattendedInboxCount = useMemo(
-    () => conversations.filter((c) => isConversationUnattended(c)).length,
-    [conversations]
+    () =>
+      conversations.filter(
+        (c) => !sa1HiddenConversationIds.has(c.id) && isConversationUnattended(c)
+      ).length,
+    [conversations, sa1HiddenConversationIds]
   );
 
   /** Sidebar badges: unread threads in that inbox’s conversation list (hasUnread). */
@@ -1021,13 +1067,14 @@ function ConversationsContent() {
   }, [sidebarFiltered, inboxTab]);
 
   const threadListConvoFiltered = useMemo(() => {
-    if (threadListConvoTypes.size === 0) return tabFiltered;
-    return tabFiltered.filter((c) => {
+    const baseFiltered = tabFiltered.filter((c) => !sa1HiddenConversationIds.has(c.id));
+    if (threadListConvoTypes.size === 0) return baseFiltered;
+    return baseFiltered.filter((c) => {
       if (threadListConvoTypes.has("escalated") && matchesThreadListEscalatedFilter(c)) return true;
       if (threadListConvoTypes.has("liveAi") && matchesThreadListLiveAiNonEscalatedFilter(c)) return true;
       return false;
     });
-  }, [tabFiltered, threadListConvoTypes]);
+  }, [tabFiltered, threadListConvoTypes, sa1HiddenConversationIds]);
 
   const threadListFiltered = useMemo(() => {
     if (threadListPropertyKeys === null) return threadListConvoFiltered;
@@ -1111,7 +1158,7 @@ function ConversationsContent() {
 
   useEffect(() => {
     setEscalationError(false);
-    if (selectedId && isSuperAgentDemoThread(selectedId)) {
+    if (selectedId && (isSuperAgentDemoThread(selectedId) || isSuperAgent1DemoThread(selectedId))) {
       const saved = superAgentSelectionsRef.current.get(selectedId);
       if (saved && saved.size > 0) {
         setSelectedEscalationTypes(saved);
@@ -1457,6 +1504,17 @@ function ConversationsContent() {
       setEscalationError(true);
       return;
     }
+    // SA 1.0 conversations with active escalations: staff must pick which escalation(s) they're
+    // replying to before the message can go out. This mirrors the SA 2.0 gate so it's consistent.
+    if (
+      isSuperAgent1DemoThread(selected.id) &&
+      inputMode === "message" &&
+      selected.labels.some((l) => l.includes("Escalation")) &&
+      selectedEscalationTypes.size === 0
+    ) {
+      setEscalationError(true);
+      return;
+    }
     setEscalationError(false);
     const now = new Date();
     const timestamp = now.toLocaleString("en-US", {
@@ -1472,6 +1530,12 @@ function ConversationsContent() {
       selected.channel === "Email" && inputMode === "message"
         ? staffEmailSignatureForConversation(selected, humanNameSet, humanMembers)
         : undefined;
+    const sa1ReplyToEscalations =
+      isSuperAgent1DemoThread(selected.id) &&
+      inputMode === "message" &&
+      selectedEscalationTypes.size > 0
+        ? Array.from(selectedEscalationTypes)
+        : undefined;
     addMessage(selected.id, {
       role: "staff",
       text: draft.trim(),
@@ -1479,10 +1543,46 @@ function ConversationsContent() {
       type: inputMode,
       ...(emailSignature ? { emailSignature } : {}),
       ...(inputMode === "private_note" ? { privateNoteAuthor: MY_INBOX_ASSIGNEE } : {}),
+      ...(sa1ReplyToEscalations ? { replyToEscalations: sa1ReplyToEscalations } : {}),
     });
 
-    if (isSuperAgentDemoThread(selected.id) && aiActivated && inputMode === "message" && selectedEscalationTypes.size > 0) {
-      const contextText = draft.trim();
+    // Super Agent 1.0: staff selected escalation(s) to reply to. This is purely a context
+    // affordance — the message itself is the public reply. We do NOT remove escalation labels
+    // or resolve the conversation. We just track which escalations have been replied to; once
+    // every escalation on the thread has at least one reply, the thread is hidden from the list.
+    if (
+      isSuperAgent1DemoThread(selected.id) &&
+      inputMode === "message" &&
+      selectedEscalationTypes.size > 0
+    ) {
+      const conversationId = selected.id;
+      const replied = new Set(sa1RepliedEscalationsRef.current.get(conversationId) ?? []);
+      for (const esc of selectedEscalationTypes) replied.add(esc);
+      sa1RepliedEscalationsRef.current.set(conversationId, replied);
+
+      const allEscalations = selected.labels.filter((l) => l.includes("Escalation"));
+      const allCovered = allEscalations.length > 0 && allEscalations.every((l) => replied.has(l));
+      if (allCovered) {
+        setSa1HiddenConversationIds((prev) => {
+          const next = new Set(prev);
+          next.add(conversationId);
+          return next;
+        });
+      }
+
+      setSelectedEscalationTypes(new Set());
+      superAgentSelectionsRef.current.set(conversationId, new Set());
+      setDraft("");
+      setPrivateNoteMention(null);
+      return;
+    }
+
+    if (
+      isSuperAgentDemoThread(selected.id) &&
+      aiActivated &&
+      inputMode === "message" &&
+      selectedEscalationTypes.size > 0
+    ) {
       const escalationsResolved = Array.from(selectedEscalationTypes);
 
       addMessage(selected.id, {
@@ -3029,16 +3129,81 @@ function ConversationsContent() {
                           const isEscalation = labelsAdded.some((l) => l.includes("Escalation"));
 
                           if (action === "resolved_escalation") {
+                            const resumedAgents = aiAgentsFromLabels(labelsAdded);
                             return (
-                              <div key={idx} className="flex items-center justify-center gap-2 rounded-md border border-emerald-200 bg-emerald-50/80 py-2.5 px-3 dark:border-emerald-900/50 dark:bg-emerald-950/20">
-                                <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden />
-                                <p className="text-center text-[11px] text-emerald-800 dark:text-emerald-200">
-                                  <span className="font-semibold text-emerald-900 dark:text-emerald-100">{actor}</span>
-                                  {" resolved "}
+                              <div key={idx} className="flex flex-col items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50/80 py-2.5 px-3 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+                                <div className="flex items-center gap-2">
+                                  <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden />
+                                  <p className="text-center text-[11px] text-emerald-800 dark:text-emerald-200">
+                                    <span className="font-semibold text-emerald-900 dark:text-emerald-100">{actor}</span>
+                                    {" resolved "}
+                                    {labelsAdded.map((label, i) => (
+                                      <span key={label}>
+                                        {i > 0 && <span className="text-emerald-600">{" & "}</span>}
+                                        <span className="inline-flex items-center rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+                                          {label}
+                                        </span>
+                                      </span>
+                                    ))}
+                                    {msg.timestamp && (
+                                      <>
+                                        <span className="opacity-60"> · </span>
+                                        <span>{msg.timestamp}</span>
+                                      </>
+                                    )}
+                                  </p>
+                                </div>
+                                {resumedAgents.length > 0 && (
+                                  <div className="flex items-center gap-1.5 text-[10px] text-emerald-700/80 dark:text-emerald-300/80">
+                                    <PlayCircle className="h-3 w-3 shrink-0 text-emerald-600" aria-hidden />
+                                    <span>
+                                      {resumedAgents.map((a, i) => (
+                                        <span key={a}>
+                                          {i > 0 && ", "}
+                                          <span className="font-semibold">{a}</span>
+                                        </span>
+                                      ))}
+                                      {" turned back on"}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          }
+
+                          const pausedAgents = isEscalation ? aiAgentsFromLabels(labelsAdded) : [];
+                          return (
+                            <div
+                              key={idx}
+                              data-escalation-label={isEscalation ? labelsAdded.find((l) => l.includes("Escalation")) : undefined}
+                              className={cn(
+                                "flex flex-col items-center gap-1 rounded-md border py-2.5 px-3",
+                                isEscalation
+                                  ? "border-orange-200 bg-orange-50/80 dark:border-orange-900/50 dark:bg-orange-950/20"
+                                  : "border-dashed border-border/70 bg-muted/25"
+                              )}
+                            >
+                              <div className="flex items-center gap-2">
+                                {isEscalation ? (
+                                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-orange-500" aria-hidden />
+                                ) : (
+                                  <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                                )}
+                                <p className={cn(
+                                  "text-center text-[11px] leading-relaxed",
+                                  isEscalation ? "text-orange-800 dark:text-orange-200" : "text-muted-foreground"
+                                )}>
+                                  <span className={cn("font-medium", isEscalation ? "text-orange-900 dark:text-orange-100" : "text-foreground")}>{actor}</span>
+                                  {" escalated → "}
                                   {labelsAdded.map((label, i) => (
                                     <span key={label}>
-                                      {i > 0 && <span className="text-emerald-600">{" & "}</span>}
-                                      <span className="inline-flex items-center rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+                                      {i > 0 && ", "}
+                                      <span className={cn(
+                                        "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold",
+                                        isEscalation
+                                          ? "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200"
+                                          : "font-medium text-foreground"
+                                      )}>
                                         {label}
                                       </span>
                                     </span>
@@ -3051,51 +3216,20 @@ function ConversationsContent() {
                                   )}
                                 </p>
                               </div>
-                            );
-                          }
-
-                          return (
-                            <div
-                              key={idx}
-                              data-escalation-label={isEscalation ? labelsAdded.find((l) => l.includes("Escalation")) : undefined}
-                              className={cn(
-                                "flex items-center justify-center gap-2 rounded-md border py-2.5 px-3",
-                                isEscalation
-                                  ? "border-orange-200 bg-orange-50/80 dark:border-orange-900/50 dark:bg-orange-950/20"
-                                  : "border-dashed border-border/70 bg-muted/25"
-                              )}
-                            >
-                              {isEscalation ? (
-                                <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-orange-500" aria-hidden />
-                              ) : (
-                                <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                              )}
-                              <p className={cn(
-                                "text-center text-[11px] leading-relaxed",
-                                isEscalation ? "text-orange-800 dark:text-orange-200" : "text-muted-foreground"
-                              )}>
-                                <span className={cn("font-medium", isEscalation ? "text-orange-900 dark:text-orange-100" : "text-foreground")}>{actor}</span>
-                                {" escalated → "}
-                                {labelsAdded.map((label, i) => (
-                                  <span key={label}>
-                                    {i > 0 && ", "}
-                                    <span className={cn(
-                                      "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold",
-                                      isEscalation
-                                        ? "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200"
-                                        : "font-medium text-foreground"
-                                    )}>
-                                      {label}
-                                    </span>
+                              {pausedAgents.length > 0 && (
+                                <div className="flex items-center gap-1.5 text-[10px] text-orange-700/80 dark:text-orange-300/80">
+                                  <PauseCircle className="h-3 w-3 shrink-0 text-orange-500" aria-hidden />
+                                  <span>
+                                    {pausedAgents.map((a, i) => (
+                                      <span key={a}>
+                                        {i > 0 && ", "}
+                                        <span className="font-semibold">{a}</span>
+                                      </span>
+                                    ))}
+                                    {" turned off until resolved"}
                                   </span>
-                                ))}
-                                {msg.timestamp && (
-                                  <>
-                                    <span className="opacity-60"> · </span>
-                                    <span>{msg.timestamp}</span>
-                                  </>
-                                )}
-                              </p>
+                                </div>
+                              )}
                             </div>
                           );
                         }
@@ -3165,6 +3299,18 @@ function ConversationsContent() {
                                 {msg.timestamp && <span className="text-[10px] text-muted-foreground">{msg.timestamp}</span>}
                               </div>
                             </div>
+                            {isStaff && msg.replyToEscalations && msg.replyToEscalations.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {msg.replyToEscalations.map((esc) => (
+                                  <span
+                                    key={esc}
+                                    className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
+                                  >
+                                    Replying to {esc.replace(" Escalation", "")}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                             <div className="rounded-md border border-border bg-muted/30 px-4 py-3 text-sm leading-relaxed text-foreground">
                               {msg.text.split("\n").map((line, li) => (
                                 <span key={li}>
@@ -3363,16 +3509,81 @@ function ConversationsContent() {
                     }
 
                     if (action === "resolved_escalation") {
+                      const resumedAgents = aiAgentsFromLabels(labelsAdded);
                       return (
-                        <div key={idx} className="flex items-center justify-center gap-2 rounded-md border border-emerald-200 bg-emerald-50/80 py-2.5 px-3 dark:border-emerald-900/50 dark:bg-emerald-950/20">
-                          <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden />
-                          <p className="text-center text-[11px] text-emerald-800 dark:text-emerald-200">
-                            <span className="font-semibold text-emerald-900 dark:text-emerald-100">{actor}</span>
-                            {" resolved "}
+                        <div key={idx} className="flex flex-col items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50/80 py-2.5 px-3 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+                          <div className="flex items-center gap-2">
+                            <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden />
+                            <p className="text-center text-[11px] text-emerald-800 dark:text-emerald-200">
+                              <span className="font-semibold text-emerald-900 dark:text-emerald-100">{actor}</span>
+                              {" resolved "}
+                              {labelsAdded.map((label, i) => (
+                                <span key={label}>
+                                  {i > 0 && <span className="text-emerald-600">{" & "}</span>}
+                                  <span className="inline-flex items-center rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+                                    {label}
+                                  </span>
+                                </span>
+                              ))}
+                              {msg.timestamp && (
+                                <>
+                                  <span className="opacity-60"> · </span>
+                                  <span>{msg.timestamp}</span>
+                                </>
+                              )}
+                            </p>
+                          </div>
+                          {resumedAgents.length > 0 && (
+                            <div className="flex items-center gap-1.5 text-[10px] text-emerald-700/80 dark:text-emerald-300/80">
+                              <PlayCircle className="h-3 w-3 shrink-0 text-emerald-600" aria-hidden />
+                              <span>
+                                {resumedAgents.map((a, i) => (
+                                  <span key={a}>
+                                    {i > 0 && ", "}
+                                    <span className="font-semibold">{a}</span>
+                                  </span>
+                                ))}
+                                {" turned back on"}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    const pausedAgents = isEscalation ? aiAgentsFromLabels(labelsAdded) : [];
+                    return (
+                      <div
+                        key={idx}
+                        data-escalation-label={isEscalation ? labelsAdded.find((l) => l.includes("Escalation")) : undefined}
+                        className={cn(
+                          "flex flex-col items-center gap-1 rounded-md border py-2.5 px-3",
+                          isEscalation
+                            ? "border-orange-200 bg-orange-50/80 dark:border-orange-900/50 dark:bg-orange-950/20"
+                            : "border-dashed border-border/70 bg-muted/25"
+                        )}
+                      >
+                        <div className="flex items-center gap-2">
+                          {isEscalation ? (
+                            <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-orange-500" aria-hidden />
+                          ) : (
+                            <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                          )}
+                          <p className={cn(
+                            "text-center text-[11px] leading-relaxed",
+                            isEscalation ? "text-orange-800 dark:text-orange-200" : "text-muted-foreground"
+                          )}>
+                            <span className={cn("font-medium", isEscalation ? "text-orange-900 dark:text-orange-100" : "text-foreground")}>{actor}</span>
+                            {" escalated → "}
                             {labelsAdded.map((label, i) => (
                               <span key={label}>
-                                {i > 0 && <span className="text-emerald-600">{" & "}</span>}
-                                <span className="inline-flex items-center rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+                                {i > 0 && ", "}
+                                <span className={cn(
+                                  "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold",
+                                  isEscalation
+                                    ? "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200"
+                                    : "font-medium text-foreground"
+                                )}>
                                   {label}
                                 </span>
                               </span>
@@ -3385,51 +3596,20 @@ function ConversationsContent() {
                             )}
                           </p>
                         </div>
-                      );
-                    }
-
-                    return (
-                      <div
-                        key={idx}
-                        data-escalation-label={isEscalation ? labelsAdded.find((l) => l.includes("Escalation")) : undefined}
-                        className={cn(
-                          "flex items-center justify-center gap-2 rounded-md border py-2.5 px-3",
-                          isEscalation
-                            ? "border-orange-200 bg-orange-50/80 dark:border-orange-900/50 dark:bg-orange-950/20"
-                            : "border-dashed border-border/70 bg-muted/25"
-                        )}
-                      >
-                        {isEscalation ? (
-                          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-orange-500" aria-hidden />
-                        ) : (
-                          <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                        )}
-                        <p className={cn(
-                          "text-center text-[11px] leading-relaxed",
-                          isEscalation ? "text-orange-800 dark:text-orange-200" : "text-muted-foreground"
-                        )}>
-                          <span className={cn("font-medium", isEscalation ? "text-orange-900 dark:text-orange-100" : "text-foreground")}>{actor}</span>
-                          {" escalated → "}
-                          {labelsAdded.map((label, i) => (
-                            <span key={label}>
-                              {i > 0 && ", "}
-                              <span className={cn(
-                                "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold",
-                                isEscalation
-                                  ? "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200"
-                                  : "font-medium text-foreground"
-                              )}>
-                                {label}
-                              </span>
+                        {pausedAgents.length > 0 && (
+                          <div className="flex items-center gap-1.5 text-[10px] text-orange-700/80 dark:text-orange-300/80">
+                            <PauseCircle className="h-3 w-3 shrink-0 text-orange-500" aria-hidden />
+                            <span>
+                              {pausedAgents.map((a, i) => (
+                                <span key={a}>
+                                  {i > 0 && ", "}
+                                  <span className="font-semibold">{a}</span>
+                                </span>
+                              ))}
+                              {" turned off until resolved"}
                             </span>
-                          ))}
-                          {msg.timestamp && (
-                            <>
-                              <span className="opacity-60"> · </span>
-                              <span>{msg.timestamp}</span>
-                            </>
-                          )}
-                        </p>
+                          </div>
+                        )}
                       </div>
                     );
                   }
@@ -3509,6 +3689,18 @@ function ConversationsContent() {
                           !isAgent && !isStaff && "border border-border bg-card text-card-foreground shadow-sm"
                         )}
                       >
+                        {isStaff && msg.replyToEscalations && msg.replyToEscalations.length > 0 && (
+                          <div className="mb-1.5 flex flex-wrap gap-1">
+                            {msg.replyToEscalations.map((esc) => (
+                              <span
+                                key={esc}
+                                className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-medium text-white ring-1 ring-inset ring-white/30"
+                              >
+                                Replying to {esc.replace(" Escalation", "")}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                         {msg.text.split("\n").map((line, li) => (
                           <span key={li}>
                             {line}
@@ -3563,6 +3755,117 @@ function ConversationsContent() {
                   )}
                 </div>
               )}
+
+              {/* SA 1.0: compact escalation-reply selector — instructive label + helper sub-line + pill checkboxes. */}
+              {selected &&
+                isSuperAgent1DemoThread(selected.id) &&
+                inputMode === "message" &&
+                selected.labels.some((l) => l.includes("Escalation")) && (() => {
+                  const sa1Escalations = selected.labels.filter((l) => l.includes("Escalation"));
+                  const selectedCount = selectedEscalationTypes.size;
+                  const isError = escalationError && selectedCount === 0;
+                  return (
+                    <div className="px-5 pb-2">
+                      <div
+                        className={cn(
+                          "rounded-md border px-2.5 py-1.5 transition-all",
+                          isError
+                            ? "border-red-400 bg-red-50 dark:border-red-600 dark:bg-red-950/20"
+                            : "border-orange-300 bg-orange-50/70 dark:border-orange-700/60 dark:bg-orange-950/20"
+                        )}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={cn(
+                              "flex items-center gap-1.5 text-[11px] font-semibold",
+                              isError ? "text-red-700 dark:text-red-300" : "text-orange-800 dark:text-orange-200"
+                            )}
+                          >
+                            {isError && <AlertTriangle className="h-3 w-3 animate-pulse" />}
+                            {isError
+                              ? "Pick an escalation before sending:"
+                              : `Which escalation(s) does this reply address? (${selectedCount}/${sa1Escalations.length})`}
+                            <TooltipProvider delayDuration={150}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    aria-label="What does this do?"
+                                    className={cn(
+                                      "flex h-3.5 w-3.5 items-center justify-center rounded-full transition-colors",
+                                      isError
+                                        ? "text-red-700 hover:bg-red-200/60 dark:text-red-300 dark:hover:bg-red-900/40"
+                                        : "text-orange-700 hover:bg-orange-200/60 dark:text-orange-300 dark:hover:bg-orange-900/40"
+                                    )}
+                                  >
+                                    <CircleHelp className="h-3.5 w-3.5" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-[280px] text-[11px] leading-relaxed">
+                                  Marks which escalation this reply is for. Escalations no one has answered stay in everyone&apos;s queue so a teammate can step in. The thread leaves your list only after every escalation has had at least one staff reply.
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </span>
+                          {sa1Escalations.map((label) => {
+                            const isSelected = selectedEscalationTypes.has(label);
+                            return (
+                              <button
+                                key={label}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedEscalationTypes((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(label)) next.delete(label);
+                                    else next.add(label);
+                                    if (selected) superAgentSelectionsRef.current.set(selected.id, next);
+                                    return next;
+                                  });
+                                  setEscalationError(false);
+                                  chatTextareaRef.current?.focus();
+                                }}
+                                className={cn(
+                                  "flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-all",
+                                  isSelected
+                                    ? "border-orange-500 bg-orange-500 text-white shadow-sm dark:border-orange-400 dark:bg-orange-500"
+                                    : isError
+                                      ? "border-red-400 bg-white text-red-700 animate-pulse dark:border-red-600 dark:bg-card dark:text-red-300"
+                                      : "border-orange-300 bg-white text-orange-800 hover:border-orange-500 hover:bg-orange-100/60 dark:border-orange-700 dark:bg-card dark:text-orange-200 dark:hover:bg-orange-950/40"
+                                )}
+                              >
+                                <span
+                                  className={cn(
+                                    "flex h-3 w-3 shrink-0 items-center justify-center rounded-sm border",
+                                    isSelected
+                                      ? "border-white bg-white text-orange-600"
+                                      : isError
+                                        ? "border-red-400"
+                                        : "border-orange-400"
+                                  )}
+                                >
+                                  {isSelected && <Check className="h-2.5 w-2.5 stroke-[3]" />}
+                                </span>
+                                {label.replace(" Escalation", "")}
+                              </button>
+                            );
+                          })}
+                          {selectedCount > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedEscalationTypes(new Set());
+                                if (selected) superAgentSelectionsRef.current.set(selected.id, new Set());
+                              }}
+                              className="ml-auto rounded px-1.5 py-0.5 text-[10px] font-medium text-orange-700 transition-colors hover:bg-orange-200/50 dark:text-orange-300 dark:hover:bg-orange-900/40"
+                            >
+                              Clear
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
               {/* Escalation selector + context summary for Super Agent */}
               {selected && isSuperAgentDemoThread(selected.id) && aiActivated && inputMode === "message" && (
