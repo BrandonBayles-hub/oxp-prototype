@@ -157,6 +157,12 @@ const AGENT_BUILDER_TODOS: ReadonlyArray<TodoItem> = Object.freeze([
     text:
       "Compliance layer architecture — legal suggested that system-level guardrails should be a shared compliance layer that supports not just Agent Builder but also ELI+, and any other GenAI tool. Evaluate building a centralized compliance service that all AI products consume, rather than implementing guardrails independently in each product. This would ensure consistent enforcement and reduce the risk of gaps between products.",
   },
+  {
+    id: "workflow-engine-decision",
+    kind: "scope",
+    text:
+      "Decide whether deterministic workflow agents should be powered by Workato (leveraging its existing integration ecosystem and iPaaS capabilities), our own in-house workflow builder (giving us full control over the UX, execution model, and pricing), or a hybrid approach where both are supported. Key considerations: (1) Workato provides 1,000+ pre-built connectors but adds per-recipe licensing costs and a dependency on a third-party vendor, (2) an in-house builder lets us deeply integrate with Entrata APIs and the MCP tool catalog but requires significant engineering investment to reach feature parity, (3) a hybrid model could let power users drop into Workato for complex cross-system orchestrations while keeping simple Entrata-native workflows in our builder — but doubles the maintenance surface.",
+  },
 ]);
 
 const KIND_STYLE: Record<TodoKind, string> = {
