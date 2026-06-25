@@ -1072,9 +1072,7 @@ function AgentEvalsSection({
         name: agent.name,
         description: agent.description,
         type: agent.type,
-        triggers: agent.type === "deterministic" && agent.workflow
-          ? (agent.workflow as { triggers?: string[] }).triggers
-          : undefined,
+        triggers: agent.triggers.length > 0 ? agent.triggers : undefined,
       });
       setSuggestions(result.evals.map((e) => ({ ...e, _accepted: false, _rejected: false })));
       setEvalSource(result.source);
