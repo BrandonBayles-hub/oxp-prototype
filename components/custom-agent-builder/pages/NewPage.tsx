@@ -6,7 +6,9 @@ import { useRouter } from "next/navigation";
 import { useCustomAgents } from "../lib/custom-agents-context";
 import { AgentBuilderWizard } from "../components/agent-builder/wizard";
 
-function WizardRoute({ onClose }: { onClose?: () => void }) {
+type AgentCreatedPayload = { name: string; description: string; status: string };
+
+function WizardRoute({ onClose, onAgentCreated }: { onClose?: () => void; onAgentCreated?: (p: AgentCreatedPayload) => void }) {
   const params = useSearchParams();
   const router = useRouter();
   const { agents, createDraft, createNewVersion } = useCustomAgents();
@@ -78,13 +80,13 @@ function WizardRoute({ onClose }: { onClose?: () => void }) {
     );
   }
 
-  return <AgentBuilderWizard agentId={id} versionNumber={versionNumber} onClose={onClose} />;
+  return <AgentBuilderWizard agentId={id} versionNumber={versionNumber} onClose={onClose} onAgentCreated={onAgentCreated} />;
 }
 
-export default function Page({ onClose }: { onClose?: () => void } = {}) {
+export default function Page({ onClose, onAgentCreated }: { onClose?: () => void; onAgentCreated?: (p: AgentCreatedPayload) => void } = {}) {
   return (
     <Suspense fallback={<div className="page-content"><p className="text-sm text-muted-foreground">Loading...</p></div>}>
-      <WizardRoute onClose={onClose} />
+      <WizardRoute onClose={onClose} onAgentCreated={onAgentCreated} />
     </Suspense>
   );
 }

@@ -198,12 +198,12 @@ const KIND_LABEL: Record<TodoKind, string> = {
 const COLLAPSE_STORAGE_KEY = "oxp-agent-builder-todo-collapsed";
 
 export function TodoListBanner() {
-  const [collapsed, setCollapsed] = useState<boolean>(false);
+  const [collapsed, setCollapsed] = useState<boolean>(true);
 
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(COLLAPSE_STORAGE_KEY);
-      if (raw === "1") setCollapsed(true);
+      if (raw === "0") setCollapsed(false);
     } catch {
       // ignore
     }

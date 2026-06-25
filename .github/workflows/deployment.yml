@@ -15,10 +15,8 @@ jobs:
       contents: read
       actions: read
     steps:
-      # Required before uses: ./.github/actions/... — the runner must have action.yml on disk.
       - uses: actions/checkout@v4
       - name: Deploy to Staging
-        # Local composite action: entrata/deploy-microfrontend@main cannot use secrets.* inside action.yml (GitHub limitation).
         uses: ./.github/actions/deploy-microfrontend
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -29,10 +27,12 @@ jobs:
           STACK: "staging"
           ROLE_ARN: "arn:aws:iam::388604198110:role/oxp-prototype-github-actions-role"
           MICROFRONTEND_NAME: "oxp-prototype"
-          # CUSTOM_VARS: |
-          #   {
-          #     "NODE_ENV": "development"
-          #   }
+          CUSTOM_VARS: |
+            {
+              "NEXT_PUBLIC_LITELLM_API_KEY": "${{ vars.NEXT_PUBLIC_LITELLM_API_KEY }}",
+              "NEXT_PUBLIC_LITELLM_BASE_URL": "${{ vars.NEXT_PUBLIC_LITELLM_BASE_URL }}",
+              "NEXT_PUBLIC_LITELLM_DEFAULT_MODEL": "${{ vars.NEXT_PUBLIC_LITELLM_DEFAULT_MODEL }}"
+            }
   
   # deploy-common:
   #   runs-on: ubuntu-latest
