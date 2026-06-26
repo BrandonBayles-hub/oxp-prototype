@@ -24,6 +24,12 @@ export type AgentCreatedPayload = {
   name: string;
   description: string;
   status: string;
+  prompt?: string;
+  guardrails?: string;
+  classification?: string;
+  skillIds?: string[];
+  structuredGuardrails?: Array<{ label: string; enabled: boolean }>;
+  triggers?: string[];
 };
 
 export default function CustomAgentBuilder({

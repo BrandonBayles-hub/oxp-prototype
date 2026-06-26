@@ -53,6 +53,7 @@ interface WorkflowVisualizerProps {
   onWorkflowChange?: (workflow: GeneratedWorkflow) => void;
   prompt?: string;
   showIteratePanel?: boolean;
+  onIterationRequest?: (changeRequest: string) => Promise<"proceed" | "convert">;
 }
 
 function WorkflowCanvas({
@@ -60,6 +61,7 @@ function WorkflowCanvas({
   onWorkflowChange,
   prompt,
   showIteratePanel = true,
+  onIterationRequest,
 }: WorkflowVisualizerProps) {
   const { fitView, screenToFlowPosition } = useReactFlow();
   const { nodes: layoutNodes, edges: layoutEdges } = useMemo(
@@ -235,6 +237,22 @@ function WorkflowCanvas({
 
   const handleIterate = useCallback(async () => {
     if (!changeRequest.trim() || !onWorkflowChange || !prompt) return;
+
+    if (onIterationRequest) {
+      setIsIterating(true);
+      setRebuildPhase("analyzing");
+      try {
+        const verdict = await onIterationRequest(changeRequest.trim());
+        if (verdict === "convert") {
+          setIsIterating(false);
+          setRebuildPhase("idle");
+          return;
+        }
+      } catch {
+        // If routing check fails, proceed with the iteration anyway
+      }
+    }
+
     setIsIterating(true);
     setRebuildPhase("analyzing");
     const rebuildTimer = setTimeout(() => setRebuildPhase("redesigning"), 1500);
@@ -256,7 +274,7 @@ function WorkflowCanvas({
     } finally {
       setIsIterating(false);
     }
-  }, [changeRequest, workflow, prompt, onWorkflowChange]);
+  }, [changeRequest, workflow, prompt, onWorkflowChange, onIterationRequest]);
 
   const selectedNodeData = selectedNodeId
     ? (nodes.find((n) => n.id === selectedNodeId)?.data as unknown as WorkflowNodeData | undefined)

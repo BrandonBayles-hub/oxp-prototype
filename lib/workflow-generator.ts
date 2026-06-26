@@ -15,6 +15,12 @@ import {
 } from "@/components/custom-agent-builder/lib/mcp-server-catalog";
 import { callClientLLM, isClientLLMConfigured } from "./llm-client";
 
+export interface OutputField {
+  name: string;
+  type: "string" | "number" | "boolean" | "object" | "array";
+  sample?: string;
+}
+
 export interface WorkflowNode {
   id: string;
   type: "trigger" | "condition" | "action" | "loop" | "delay" | "end";
@@ -23,6 +29,7 @@ export interface WorkflowNode {
   mcpTool?: string;
   mcpServer?: string;
   config?: Record<string, string>;
+  outputFields?: OutputField[];
 }
 
 export interface WorkflowEdge {
@@ -63,9 +70,21 @@ function buildToolCatalogSummary(): string {
 const SYSTEM_PROMPT = `You are a deterministic workflow builder for Entrata, a property management platform.
 
 Given a user's natural language description, generate a JSON workflow graph that can be visualized as a flowchart.
+Each step must declare what data it produces (outputFields) and how its inputs map from upstream steps (config values using {{step_id.field}} syntax).
 
 ## Available MCP Tools (use these as actions in the workflow)
 ${buildToolCatalogSummary()}
+
+## Available Trigger Event Types
+- lease_signed: Fires when a new lease is signed. Fields: lease_id, resident_id, unit_id, property_id, rent_amount, lease_start, lease_end, term_months, resident_name, resident_email
+- renewal_signed: Fires when a renewal lease is signed. Fields: lease_id, resident_id, unit_id, property_id, old_rent, new_rent, new_lease_start, new_lease_end, resident_name, resident_email
+- work_order_created: Fires when a maintenance work order is created. Fields: work_order_id, property_id, unit_id, resident_id, description, priority, category
+- payment_received: Fires when a payment is received. Fields: payment_id, resident_id, amount, payment_method, ledger_balance, property_id
+- lease_expiring: Fires when a lease is within a configurable window of expiration. Fields: lease_id, resident_id, unit_id, property_id, expiration_date, days_remaining, current_rent, resident_name, resident_email
+- move_in: Fires on a resident's move-in day. Fields: resident_id, lease_id, unit_id, property_id, move_in_date, resident_name, resident_email, resident_phone
+- move_out: Fires on a resident's move-out day. Fields: resident_id, lease_id, unit_id, property_id, move_out_date, balance_due
+- schedule: Fires on a cron/scheduled basis. Fields: run_time, schedule_name
+- manual: Manually triggered by a user. Fields: triggered_by, triggered_at
 
 ## Output Format
 Return a JSON object with this exact structure:
@@ -74,35 +93,56 @@ Return a JSON object with this exact structure:
   "description": "One sentence description",
   "nodes": [
     {
-      "id": "node-1",
+      "id": "trigger-1",
       "type": "trigger",
-      "label": "Short label",
-      "description": "What this step does",
-      "mcpTool": "leasing.search_leads",
-      "mcpServer": "mcp.leasing",
-      "config": { "key": "value" }
+      "label": "Renewal Lease Signed",
+      "description": "Fires when a resident signs their renewal",
+      "config": { "event_type": "renewal_signed" },
+      "outputFields": [
+        { "name": "lease_id", "type": "number", "sample": "4521" },
+        { "name": "resident_email", "type": "string", "sample": "jane@email.com" }
+      ]
+    },
+    {
+      "id": "action-1",
+      "type": "action",
+      "label": "Send Thank-You Email",
+      "description": "Email the resident thanking them for renewing",
+      "mcpTool": "comms.send_email",
+      "mcpServer": "mcp.communications",
+      "config": {
+        "to": "{{trigger-1.resident_email}}",
+        "subject": "Thank you for renewing!",
+        "body": "Dear resident, thank you for renewing your lease."
+      },
+      "outputFields": [
+        { "name": "message_id", "type": "string", "sample": "EM-3310" },
+        { "name": "status", "type": "string", "sample": "sent" }
+      ]
     }
   ],
   "edges": [
-    {
-      "id": "edge-1",
-      "source": "node-1",
-      "target": "node-2",
-      "label": "Optional edge label",
-      "condition": "Optional condition expression"
-    }
+    { "id": "e1", "source": "trigger-1", "target": "action-1" }
   ],
-  "dataSources": ["Leases", "Resident records"],
-  "triggers": ["Nightly at 2:00 AM"]
+  "dataSources": ["Leases"],
+  "triggers": ["Renewal lease signed"]
 }
 
+## Data Flow Rules (CRITICAL)
+1. Trigger nodes MUST have a "config.event_type" field matching one of the trigger event types above.
+2. Trigger nodes MUST have "outputFields" listing the fields from that event type.
+3. Action nodes MUST map their input parameters from upstream steps using {{step_id.field}} syntax in the config.
+   For example, if the trigger produces "resident_email", an email action's config should be: "to": "{{trigger-1.resident_email}}"
+4. Action nodes SHOULD have "outputFields" declaring what they return, so downstream steps can reference them.
+5. The data flow chain must be complete: every downstream input should trace back to an upstream output.
+
 ## Node Types
-- "trigger": Entry point — schedule, event, or manual invocation
-- "condition": Decision point with true/false branches
-- "action": An MCP tool call or data operation
-- "loop": Iterates over a collection
-- "delay": Waits for a time period or event
-- "end": Terminal node
+- "trigger": Entry point — schedule, event, or manual invocation. Must include config.event_type.
+- "condition": Decision point with true/false branches. config.expression uses {{step.field}} syntax.
+- "action": An MCP tool call or data operation. config maps inputs from upstream data pills.
+- "loop": Iterates over a collection. config.collection references an upstream array field.
+- "delay": Waits for a time period or event.
+- "end": Terminal node.
 
 ## Rules
 1. Every workflow starts with exactly one "trigger" node.
@@ -113,7 +153,8 @@ Return a JSON object with this exact structure:
 6. Keep workflows between 5–15 nodes for clarity.
 7. Use descriptive labels that a property manager would understand.
 8. Reference specific MCP tools by their exact id from the catalog.
-9. Return ONLY the JSON object — no markdown, no explanation.`;
+9. ALWAYS populate config fields with {{step_id.field}} references when the data comes from a previous step.
+10. Return ONLY the JSON object — no markdown, no explanation.`;
 
 function parseWorkflowJSON(raw: string): GeneratedWorkflow {
   try {
@@ -241,14 +282,14 @@ function buildFallbackWorkflow(prompt: string): GeneratedWorkflow {
       name: "Lease Renewal Automation",
       description: "Scans expiring leases, calculates renewal offers, and sends to residents.",
       nodes: [
-        { id: "trigger-1", type: "trigger", label: "Nightly Schedule", description: "Runs every night at 2:00 AM" },
-        { id: "action-1", type: "action", label: "Get Expiring Leases", description: "Query leases expiring within 90 days", mcpTool: "renewals.get_expiring_leases", mcpServer: "mcp.renewals" },
-        { id: "loop-1", type: "loop", label: "For Each Lease", description: "Process each expiring lease" },
-        { id: "action-2", type: "action", label: "Get Resident History", description: "Pull payment history and retention score", mcpTool: "renewals.get_resident_history", mcpServer: "mcp.renewals" },
-        { id: "condition-1", type: "condition", label: "Retention Score > 70?", description: "Check if resident qualifies for preferred rate" },
-        { id: "action-3", type: "action", label: "Create Premium Offer", description: "Renewal offer at 3% below market", mcpTool: "renewals.create_renewal_offer", mcpServer: "mcp.renewals" },
-        { id: "action-4", type: "action", label: "Create Standard Offer", description: "Renewal offer at market rate", mcpTool: "renewals.create_renewal_offer", mcpServer: "mcp.renewals" },
-        { id: "action-5", type: "action", label: "Send Email", description: "Email the renewal offer", mcpTool: "comms.send_email", mcpServer: "mcp.communications" },
+        { id: "trigger-1", type: "trigger", label: "Nightly Schedule", description: "Runs every night at 2:00 AM", config: { event_type: "schedule" }, outputFields: [{ name: "run_time", type: "string" as const, sample: "2026-06-26T02:00:00Z" }] },
+        { id: "action-1", type: "action", label: "Get Expiring Leases", description: "Query leases expiring within 90 days", mcpTool: "renewals.get_expiring_leases", mcpServer: "mcp.renewals", config: { property_id: "100", days_out: "90" }, outputFields: [{ name: "leases", type: "array" as const, sample: "[{lease_id, resident_id, ...}]" }, { name: "total_count", type: "number" as const, sample: "15" }] },
+        { id: "loop-1", type: "loop", label: "For Each Lease", description: "Process each expiring lease", config: { collection: "{{action-1.leases}}" } },
+        { id: "action-2", type: "action", label: "Get Resident History", description: "Pull payment history and retention score", mcpTool: "renewals.get_resident_history", mcpServer: "mcp.renewals", config: { resident_id: "{{loop-1.current_item.resident_id}}" }, outputFields: [{ name: "retention_score", type: "number" as const, sample: "87" }, { name: "tenure_months", type: "number" as const, sample: "24" }] },
+        { id: "condition-1", type: "condition", label: "Retention Score > 70?", description: "Check if resident qualifies for preferred rate", config: { expression: "{{action-2.retention_score}} > 70" } },
+        { id: "action-3", type: "action", label: "Create Premium Offer", description: "Renewal offer at 3% below market", mcpTool: "renewals.create_renewal_offer", mcpServer: "mcp.renewals", config: { lease_id: "{{loop-1.current_item.lease_id}}", new_rent: "{{loop-1.current_item.current_rent}}", term_months: "12" }, outputFields: [{ name: "offer_id", type: "number" as const, sample: "8821" }] },
+        { id: "action-4", type: "action", label: "Create Standard Offer", description: "Renewal offer at market rate", mcpTool: "renewals.create_renewal_offer", mcpServer: "mcp.renewals", config: { lease_id: "{{loop-1.current_item.lease_id}}", new_rent: "{{loop-1.current_item.current_rent}}", term_months: "12" }, outputFields: [{ name: "offer_id", type: "number" as const, sample: "8822" }] },
+        { id: "action-5", type: "action", label: "Send Email", description: "Email the renewal offer", mcpTool: "comms.send_email", mcpServer: "mcp.communications", config: { to: "{{loop-1.current_item.resident_email}}", subject: "Your Renewal Offer", body: "Dear resident, here is your renewal offer." }, outputFields: [{ name: "message_id", type: "string" as const, sample: "EM-3310" }] },
         { id: "end-1", type: "end", label: "Done", description: "Lease processed" },
       ],
       edges: [
@@ -267,15 +308,33 @@ function buildFallbackWorkflow(prompt: string): GeneratedWorkflow {
     };
   }
 
+  if (lower.includes("renewal") && lower.includes("sign")) {
+    return {
+      name: "Renewal Thank-You Workflow",
+      description: "When a renewal is signed, send a thank-you email to the resident.",
+      nodes: [
+        { id: "trigger-1", type: "trigger", label: "Renewal Signed", description: "Fires when a resident signs their renewal", config: { event_type: "renewal_signed" }, outputFields: [{ name: "lease_id", type: "number" as const, sample: "4521" }, { name: "resident_id", type: "number" as const, sample: "1102" }, { name: "resident_name", type: "string" as const, sample: "Jane Smith" }, { name: "resident_email", type: "string" as const, sample: "jane@email.com" }, { name: "new_rent", type: "number" as const, sample: "1850" }] },
+        { id: "action-1", type: "action", label: "Send Thank-You Email", description: "Send a personalized thank-you email", mcpTool: "comms.send_email", mcpServer: "mcp.communications", config: { to: "{{trigger-1.resident_email}}", subject: "Thank you for renewing your lease!", body: "Dear {{trigger-1.resident_name}}, thank you for renewing." }, outputFields: [{ name: "message_id", type: "string" as const, sample: "EM-3310" }, { name: "status", type: "string" as const, sample: "sent" }] },
+        { id: "end-1", type: "end", label: "Complete", description: "Workflow finished" },
+      ],
+      edges: [
+        { id: "e1", source: "trigger-1", target: "action-1" },
+        { id: "e2", source: "action-1", target: "end-1" },
+      ],
+      dataSources: ["Leases"],
+      triggers: ["Renewal lease signed"],
+    };
+  }
+
   return {
     name: "Custom Workflow",
     description: prompt.slice(0, 120),
     nodes: [
-      { id: "trigger-1", type: "trigger", label: "Trigger", description: "Workflow entry point" },
-      { id: "action-1", type: "action", label: "Fetch Data", description: "Retrieve needed data", mcpTool: "leasing.get_properties", mcpServer: "mcp.leasing" },
-      { id: "condition-1", type: "condition", label: "Check Criteria", description: "Evaluate business rules" },
+      { id: "trigger-1", type: "trigger", label: "Trigger", description: "Workflow entry point", config: { event_type: "manual" }, outputFields: [{ name: "triggered_by", type: "string" as const, sample: "user@entrata.com" }, { name: "triggered_at", type: "string" as const, sample: "2026-06-26T14:30:00Z" }] },
+      { id: "action-1", type: "action", label: "Fetch Data", description: "Retrieve needed data", mcpTool: "leasing.get_properties", mcpServer: "mcp.leasing", outputFields: [{ name: "properties", type: "array" as const, sample: "[{id, name, ...}]" }] },
+      { id: "condition-1", type: "condition", label: "Check Criteria", description: "Evaluate business rules", config: { expression: "{{action-1.properties}}.length > 0" } },
       { id: "action-2", type: "action", label: "Process Match", description: "Handle matching items" },
-      { id: "action-3", type: "action", label: "Send Notification", description: "Notify relevant parties", mcpTool: "comms.send_email", mcpServer: "mcp.communications" },
+      { id: "action-3", type: "action", label: "Send Notification", description: "Notify relevant parties", mcpTool: "comms.send_email", mcpServer: "mcp.communications", config: { to: "admin@property.com", subject: "Workflow completed", body: "The workflow has finished processing." }, outputFields: [{ name: "message_id", type: "string" as const, sample: "EM-3311" }] },
       { id: "end-1", type: "end", label: "Complete", description: "Workflow finished" },
     ],
     edges: [

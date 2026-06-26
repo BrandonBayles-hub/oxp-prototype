@@ -58,6 +58,10 @@ function WorkflowNode({ data, selected }: NodeProps & { data: Record<string, unk
   const isCondition = d.type === "condition";
   const hasError = d.errorPath === "branch";
   const hasRetry = d.retryPolicy && d.retryPolicy.maxRetries > 0;
+  const mappedInputCount = d.config
+    ? Object.values(d.config).filter((v) => typeof v === "string" && v.includes("{{")).length
+    : 0;
+  const outputFieldCount = d.outputFields?.length ?? 0;
 
   let execRing = "";
   if (d.execStatus === "running") execRing = "ring-2 ring-indigo-400 ring-offset-2";
@@ -118,6 +122,22 @@ function WorkflowNode({ data, selected }: NodeProps & { data: Record<string, unk
             </span>
           </div>
         )}
+        {/* Data flow indicators */}
+        {mappedInputCount > 0 || outputFieldCount > 0 ? (
+          <div className="mt-1.5 flex items-center gap-2">
+            {mappedInputCount > 0 && (
+              <span className="inline-flex items-center gap-0.5 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-700">
+                <Database className="h-2 w-2" />
+                {mappedInputCount} input{mappedInputCount > 1 ? "s" : ""} mapped
+              </span>
+            )}
+            {outputFieldCount > 0 && (
+              <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700">
+                {outputFieldCount} output{outputFieldCount > 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
+        ) : null}
       </div>
 
       {d.type !== "end" && (
