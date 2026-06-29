@@ -18,6 +18,9 @@ const badgeVariants = cva(
         gray: "border-transparent bg-zinc-100 text-zinc-600",
         yellow: "border-transparent bg-amber-100 text-amber-800",
         green: "border-transparent bg-emerald-100 text-emerald-800",
+        red: "border-transparent bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200",
+        ai: "border-eli-purple/30 bg-eli-warm-bg text-eli-purple dark:border-eli-purple/40 dark:text-eli-pink",
+        aiVibrant: "border-transparent bg-black text-white",
       },
     },
     defaultVariants: {
@@ -36,4 +39,21 @@ function Badge({ className, variant, ...props }: BadgeProps) {
   )
 }
 
-export { Badge, badgeVariants }
+/** AI/Eli provenance label. Mirrors prototype-sandbox AiStatusBadge. */
+type AiStatusType = "ELI Generated" | "ELI Suggested" | "AI Assisted" | "AI Draft"
+
+function AiStatusBadge({
+  status,
+  vibrant,
+  className,
+  ...props
+}: { status: AiStatusType; vibrant?: boolean } & React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <Badge variant={vibrant ? "aiVibrant" : "ai"} className={cn("gap-1 rounded-sm px-1.5 py-0 font-medium", className)} {...props}>
+      {status}
+    </Badge>
+  )
+}
+
+export { Badge, badgeVariants, AiStatusBadge }
+export type { AiStatusType }
