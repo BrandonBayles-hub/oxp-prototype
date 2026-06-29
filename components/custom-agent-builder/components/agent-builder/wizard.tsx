@@ -126,7 +126,17 @@ import {
   Users,
 } from "lucide-react";
 
-type AgentCreatedPayload = { name: string; description: string; status: string };
+type AgentCreatedPayload = {
+  name: string;
+  description: string;
+  status: string;
+  prompt?: string;
+  guardrails?: string;
+  classification?: string;
+  skillIds?: string[];
+  structuredGuardrails?: Array<{ label: string; enabled: boolean }>;
+  triggers?: string[];
+};
 
 type WizardProps = {
   agentId: string;
@@ -332,13 +342,28 @@ export function AgentBuilderWizard({ agentId, versionNumber, onClose, onAgentCre
   // "Save as draft" keeps all the edits in place but doesn't compile or start
   // logging. The version stays as a draft — the user can resume from the detail
   // view (or landing page, for brand-new agents) whenever they're ready.
+  const buildCreatedPayload = (status: string): AgentCreatedPayload => ({
+    name: version?.name ?? agent?.name ?? "Untitled Agent",
+    description: version?.prompt ?? agent?.description ?? "",
+    status,
+    prompt: version?.prompt ?? undefined,
+    guardrails: version?.guardrails ?? undefined,
+    classification: version?.classification ?? undefined,
+    skillIds: version?.skillIds?.length ? version.skillIds : undefined,
+    structuredGuardrails: version?.structuredGuardrails?.map((g) => ({
+      label: g.label,
+      enabled: g.enabled,
+    })),
+    triggers: version?.triggers?.map((t) => {
+      if (t.kind === "schedule") return `Schedule: ${formatScheduleTrigger(t)}`;
+      if (t.kind === "inbound_message") return `Inbound message (${t.channel ?? "all"})`;
+      return t.kind;
+    }),
+  });
+
   const saveDraft = () => {
     if (version && onAgentCreated) {
-      onAgentCreated({
-        name: version.name ?? agent?.name ?? "Untitled Agent",
-        description: version.prompt ?? agent?.description ?? "",
-        status: "draft",
-      });
+      onAgentCreated(buildCreatedPayload("draft"));
     }
     if (onClose) {
       onClose();
@@ -356,11 +381,7 @@ export function AgentBuilderWizard({ agentId, versionNumber, onClose, onAgentCre
           onDone={() => {
             setSettingUp(null);
             if (version && onAgentCreated) {
-              onAgentCreated({
-                name: version.name ?? agent?.name ?? "Untitled Agent",
-                description: version.prompt ?? agent?.description ?? "",
-                status: settingUp === "live" ? "live" : "dry-run",
-              });
+              onAgentCreated(buildCreatedPayload(settingUp === "live" ? "live" : "dry-run"));
             }
             if (onClose) { onClose(); } else { router.push(`/agent-builder?view=detail&id=${agentId}`); }
           }}

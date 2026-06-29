@@ -22,7 +22,6 @@ import {
   TestTube,
   Building2,
   Zap,
-  Layers,
   X,
   Plus,
   ArrowLeft,
@@ -42,6 +41,10 @@ import {
   AlertTriangle,
   User,
   Activity,
+  DollarSign,
+  Shield,
+  ExternalLink as ExternalLinkIcon,
+  Cpu,
 } from "lucide-react";
 import {
   PMC_PROPERTY_RECORDS,
@@ -51,6 +54,8 @@ import { TodoListBanner } from "@/components/custom-agent-builder/components/Tod
 import { useR1Release } from "@/lib/r1-release-context";
 import { useR2Release } from "@/lib/r2-release-context";
 import { generateWorkflow } from "@/lib/workflow-generator";
+import { analyzePrompt, analyzeChangeRequest, engineLabel, engineDescription, type RoutingDecision, type WorkflowEngine } from "@/lib/workflow-router";
+import { WorkflowEngineBadge, WorkflowEngineDot } from "@/components/workflow-engine-badge";
 
 const CustomAgentBuilder = lazy(() => import("@/components/custom-agent-builder"));
 const WorkflowVisualizer = lazy(() => import("@/components/workflow-visualizer"));
@@ -132,6 +137,14 @@ type UnifiedAgent = {
   runsLast30d?: number;
   executionLog: ExecutionLogEntry[];
   changeHistory: ChangeHistoryEntry[];
+  engineType?: WorkflowEngine;
+  aiContext?: {
+    prompt?: string;
+    guardrails?: string;
+    classification?: string;
+    skillIds?: string[];
+    structuredGuardrails?: Array<{ label: string; enabled: boolean }>;
+  };
 };
 
 // ─── Seed data ───
@@ -144,6 +157,7 @@ const SAMPLE_AGENTS: UnifiedAgent[] = [
     description: "Scans expiring leases within 90 days, calculates renewal offers based on market rent and payment history, sends via email, escalates if no response in 7 days.",
     status: "live",
     domain: "Renewals",
+    engineType: "entrata-native",
     createdAt: "2026-05-15T10:00:00Z",
     versions: [
       { id: "v1", versionNumber: 1, status: "retired", createdAt: "2026-05-15T10:00:00Z", description: "Initial version — basic renewal scan" },
@@ -201,6 +215,7 @@ const SAMPLE_AGENTS: UnifiedAgent[] = [
     description: "Monitors vendor invoices above $2,500, cross-references against historical pricing, flags anomalies for human review.",
     status: "sandbox",
     domain: "Accounting",
+    engineType: "entrata-native",
     createdAt: "2026-06-10T09:00:00Z",
     versions: [
       { id: "v1", versionNumber: 1, status: "sandbox", createdAt: "2026-06-10T09:00:00Z", description: "Initial build — threshold-based detection" },
@@ -224,6 +239,19 @@ const SAMPLE_AGENTS: UnifiedAgent[] = [
     status: "live",
     domain: "Communications",
     createdAt: "2026-05-20T11:00:00Z",
+    aiContext: {
+      prompt: "You are a helpful resident inquiry agent for Entrata-managed properties. You answer questions about leases, payments, maintenance requests, and community policies. When a resident asks about their balance, look up their ledger. When they report a maintenance issue, create a work order. Always verify resident identity before sharing account information. If you cannot answer a question or the situation seems urgent, escalate to a human agent.",
+      guardrails: "Never share other residents' information. Do not provide legal advice. Do not make promises about timelines. Always comply with Fair Housing Act. Escalate threats or legal language immediately.",
+      classification: "L4",
+      skillIds: ["residents.get_resident", "residents.get_balance", "accounting.get_resident_ledger", "maintenance.create_work_order", "comms.send_sms", "comms.send_email"],
+      structuredGuardrails: [
+        { label: "Fair Housing compliance", enabled: true },
+        { label: "PII protection", enabled: true },
+        { label: "No legal advice", enabled: true },
+        { label: "Escalate threats", enabled: true },
+        { label: "Verify identity before account access", enabled: true },
+      ],
+    },
     versions: [
       { id: "v1", versionNumber: 1, status: "retired", createdAt: "2026-05-20T11:00:00Z", description: "Initial — basic Q&A with lease and payment data" },
       { id: "v2", versionNumber: 2, status: "retired", createdAt: "2026-06-05T09:00:00Z", description: "Added maintenance request creation via MCP" },
@@ -278,6 +306,18 @@ const SAMPLE_AGENTS: UnifiedAgent[] = [
     status: "paused",
     domain: "Maintenance",
     createdAt: "2026-06-08T13:00:00Z",
+    aiContext: {
+      prompt: "You are an after-hours maintenance triage agent. When a resident calls or texts after 6 PM, you classify the urgency of their maintenance issue. For emergencies (water leaks, gas smells, no heat in winter, electrical hazards), immediately create an emergency work order and dispatch a vendor. For non-urgent issues (clogged drain, broken blinds, appliance issues), create a standard work order for next business day and confirm with the resident.",
+      guardrails: "Always treat gas smells and flooding as emergencies regardless of resident description. Never tell a resident to fix electrical issues themselves. If unsure about urgency, default to emergency classification. Always send confirmation SMS after creating a work order.",
+      classification: "L4",
+      skillIds: ["maintenance.create_work_order", "maintenance.dispatch_vendor", "maintenance.get_work_order", "residents.get_resident", "comms.send_sms"],
+      structuredGuardrails: [
+        { label: "Default to emergency when uncertain", enabled: true },
+        { label: "No DIY electrical advice", enabled: true },
+        { label: "Always confirm via SMS", enabled: true },
+        { label: "PII protection", enabled: true },
+      ],
+    },
     versions: [
       { id: "v1", versionNumber: 1, status: "live", createdAt: "2026-06-08T13:00:00Z", description: "Voice + SMS triage with vendor dispatch" },
     ],
@@ -339,7 +379,7 @@ const BUILD_PHASE_STEPS = [
   { key: "compiling", label: "Compiling deterministic logic", duration: 800 },
 ] as const;
 
-type DeterministicPhase = "describing" | "building" | "built";
+type DeterministicPhase = "describing" | "routing" | "building" | "built";
 
 // Re-export workflow visualizer types for the built phase
 type BuiltWorkflowNode = {
@@ -510,6 +550,9 @@ function AgentDetailPanel({
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
               v{agent.activeVersion}
             </span>
+            {agent.engineType && agent.type === "deterministic" && (
+              <WorkflowEngineBadge engine={agent.engineType} size="sm" />
+            )}
           </div>
         </div>
         <div className="flex items-center gap-1">
@@ -1073,6 +1116,11 @@ function AgentEvalsSection({
         description: agent.description,
         type: agent.type,
         triggers: agent.triggers.length > 0 ? agent.triggers : undefined,
+        prompt: agent.aiContext?.prompt,
+        guardrails: agent.aiContext?.guardrails,
+        classification: agent.aiContext?.classification,
+        skillIds: agent.aiContext?.skillIds,
+        structuredGuardrails: agent.aiContext?.structuredGuardrails,
       });
       setSuggestions(result.evals.map((e) => ({ ...e, _accepted: false, _rejected: false })));
       setEvalSource(result.source);
@@ -1386,6 +1434,39 @@ function DeterministicBuilderModal({
   const [testEnv, setTestEnv] = useState<"sandbox" | "production">("sandbox");
   const [selectedProperties, setSelectedProperties] = useState<string[]>(forkFrom?.propertyIds ?? []);
   const [llmSource, setLlmSource] = useState<"llm" | "fallback" | null>(null);
+  const [routingDecision, setRoutingDecision] = useState<RoutingDecision | null>(null);
+  const [routingAnimating, setRoutingAnimating] = useState(false);
+  const [routingThinkingStep, setRoutingThinkingStep] = useState(0);
+
+  const handleAnalyze = async () => {
+    if (!prompt.trim() || !agentName.trim()) return;
+    setRoutingAnimating(true);
+    setRoutingThinkingStep(0);
+
+    const thinkingSteps = [
+      "Reading your workflow description...",
+      "Analyzing against Entrata MCP capabilities...",
+      "Checking for external system requirements...",
+      "Determining optimal execution engine...",
+    ];
+    let stepIdx = 0;
+    const thinkingInterval = setInterval(() => {
+      stepIdx = Math.min(stepIdx + 1, thinkingSteps.length - 1);
+      setRoutingThinkingStep(stepIdx);
+    }, 1500);
+
+    try {
+      const decision = await analyzePrompt(prompt.trim());
+      clearInterval(thinkingInterval);
+      setRoutingDecision(decision);
+      setRoutingAnimating(false);
+      setPhase("routing");
+    } catch (err) {
+      console.error("Routing analysis failed:", err);
+      clearInterval(thinkingInterval);
+      setRoutingAnimating(false);
+    }
+  };
 
   const handleBuild = async () => {
     if (!prompt.trim() || !agentName.trim()) return;
@@ -1427,6 +1508,38 @@ function DeterministicBuilderModal({
     setBuiltWorkflow(updated);
   }, []);
 
+  const [conversionBanner, setConversionBanner] = useState<{
+    show: boolean;
+    changeRequest: string;
+    decision: RoutingDecision | null;
+  }>({ show: false, changeRequest: "", decision: null });
+
+  const handleIterationRequest = useCallback(async (changeRequest: string): Promise<"proceed" | "convert"> => {
+    if (!routingDecision || routingDecision.engine !== "entrata-native") return "proceed";
+
+    try {
+      const recheck = await analyzeChangeRequest(prompt, changeRequest);
+      if (recheck.engine !== "entrata-native") {
+        setConversionBanner({ show: true, changeRequest, decision: recheck });
+        return "convert";
+      }
+    } catch {
+      // If re-analysis fails, proceed normally
+    }
+    return "proceed";
+  }, [prompt, routingDecision]);
+
+  const handleAcceptConversion = () => {
+    if (conversionBanner.decision) {
+      setRoutingDecision(conversionBanner.decision);
+    }
+    setConversionBanner({ show: false, changeRequest: "", decision: null });
+  };
+
+  const handleDismissConversion = () => {
+    setConversionBanner({ show: false, changeRequest: "", decision: null });
+  };
+
   const handleSave = () => {
     const newVersion: AgentVersion = {
       id: `v${nextVersion}`,
@@ -1457,6 +1570,7 @@ function DeterministicBuilderModal({
       propertyVersionMap: pvMap,
       triggers: builtWorkflow?.triggers ?? [],
       evals: forkFrom?.evals ?? [],
+      engineType: routingDecision?.engine ?? "entrata-native",
     });
   };
 
@@ -1516,12 +1630,184 @@ function DeterministicBuilderModal({
         </div>
 
         <div className="shrink-0 border-t border-border px-6 py-4">
-          <Button
-            onClick={handleBuild}
-            disabled={!prompt.trim() || !agentName.trim()}
-            className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
-          >
-            <Cog className="mr-2 h-4 w-4" /> {isForking ? "Rebuild Workflow" : "Build Workflow"}
+          {routingAnimating ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 rounded-lg border border-indigo-200 bg-indigo-50/50 px-4 py-3">
+                <div className="relative flex h-8 w-8 shrink-0 items-center justify-center">
+                  <BrainCircuit className="h-5 w-5 text-indigo-600 animate-pulse" />
+                  <div className="absolute inset-0 rounded-full border-2 border-indigo-300 border-t-indigo-600 animate-spin" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[12px] font-semibold text-indigo-900">AI is analyzing your request...</p>
+                  <p className="text-[11px] text-indigo-600 transition-all duration-300">
+                    {[
+                      "Reading your workflow description...",
+                      "Analyzing against Entrata MCP capabilities...",
+                      "Checking for external system requirements...",
+                      "Determining optimal execution engine...",
+                    ][routingThinkingStep]}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <Button
+              onClick={handleAnalyze}
+              disabled={!prompt.trim() || !agentName.trim()}
+              className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
+            >
+              <Cog className="mr-2 h-4 w-4" /> {isForking ? "Rebuild Workflow" : "Build Workflow"}
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === "routing" && routingDecision) {
+    const rd = routingDecision;
+    const entrataMatches = rd.matches.filter((m) => m.source === "entrata");
+    const workatoMatches = rd.matches.filter((m) => m.source === "workato");
+    const extSystemNames = rd.externalSystems.length > 0
+      ? rd.externalSystems
+      : workatoMatches.map((m) => m.externalSystem ?? m.name);
+
+    if (rd.engine === "workato") {
+      return (
+        <div className="flex h-full flex-col">
+          <div className="flex shrink-0 items-center gap-3 border-b border-border px-6 py-4">
+            <button type="button" onClick={() => setPhase("describing")} className="rounded-md p-1 text-muted-foreground hover:text-foreground">
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-100 text-orange-600">
+                <ExternalLinkIcon className="h-4 w-4" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">This workflow requires Workato</h2>
+                <p className="text-[11px] text-muted-foreground">
+                  Your request involves {extSystemNames.length > 0 ? extSystemNames.join(", ") : "external systems"} — which {extSystemNames.length === 1 ? "is" : "are"} outside of Entrata.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-1 flex-col items-center justify-center px-6">
+            <div className="mx-auto w-full max-w-md space-y-5">
+              <div className="rounded-xl border-2 border-orange-200 bg-orange-50/40 p-6 text-center">
+                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-100">
+                  <ExternalLinkIcon className="h-7 w-7 text-orange-600" />
+                </div>
+                <WorkflowEngineBadge engine="workato" size="lg" />
+                <p className="mt-3 text-[13px] leading-relaxed text-muted-foreground">
+                  {rd.reasoning}
+                </p>
+
+                {extSystemNames.length > 0 && (
+                  <div className="mt-4 flex flex-wrap justify-center gap-1.5">
+                    {extSystemNames.map((name, i) => (
+                      <span key={i} className="rounded-full border border-orange-200 bg-white px-2.5 py-0.5 text-[10px] font-semibold text-orange-700">
+                        {name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-amber-200 bg-amber-50/50 px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <DollarSign className="h-4 w-4 text-amber-600" />
+                    <span className="text-[12px] font-semibold text-amber-800">Estimated cost</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-[12px]">
+                    <span className="font-bold text-amber-800">{rd.costImpact.monthlyEstimate}</span>
+                    <span className="text-amber-500">|</span>
+                    <span className="text-amber-700">{rd.costImpact.perTaskEstimate}/task</span>
+                  </div>
+                </div>
+                <p className="mt-1.5 text-[10px] text-amber-600">{rd.costImpact.explanation}</p>
+              </div>
+
+              {rd.source === "llm" && (
+                <p className="text-center text-[10px] text-muted-foreground">
+                  <span className="mr-1 inline-flex items-center gap-0.5 rounded bg-indigo-50 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-600">AI-analyzed</span>
+                  {Math.round(rd.confidence * 100)}% confidence
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="shrink-0 border-t border-border px-6 py-4">
+            <div className="flex gap-3">
+              <Button variant="outline" onClick={() => setPhase("describing")} className="flex-1">
+                <ArrowLeft className="mr-2 h-4 w-4" /> Adjust Description
+              </Button>
+              <Button onClick={handleBuild} className="flex-1 bg-orange-600 text-white hover:bg-orange-700">
+                <Cog className="mr-2 h-4 w-4" /> Build with Workato
+              </Button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex h-full flex-col">
+        <div className="flex shrink-0 items-center gap-3 border-b border-border px-6 py-4">
+          <button type="button" onClick={() => setPhase("describing")} className="rounded-md p-1 text-muted-foreground hover:text-foreground">
+            <ArrowLeft className="h-4 w-4" />
+          </button>
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600">
+              <Check className="h-4 w-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">Ready to build natively</h2>
+              <p className="text-[11px] text-muted-foreground">Everything in your request can be handled by Entrata.</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-1 flex-col items-center justify-center px-6">
+          <div className="mx-auto w-full max-w-md space-y-5">
+            <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50/40 p-6 text-center">
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100">
+                <Shield className="h-7 w-7 text-emerald-600" />
+              </div>
+              <WorkflowEngineBadge engine="entrata-native" size="lg" />
+              <p className="mt-3 text-[13px] leading-relaxed text-muted-foreground">
+                {rd.reasoning}
+              </p>
+
+              {entrataMatches.length > 0 && (
+                <div className="mt-4 flex flex-wrap justify-center gap-1.5">
+                  {entrataMatches.map((m, i) => (
+                    <span key={i} className="rounded-full border border-emerald-200 bg-white px-2.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                      {m.name}{m.mcpTool ? ` (${m.mcpTool})` : ""}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/50 px-4 py-2.5 text-[12px] text-emerald-800">
+              <Shield className="h-4 w-4 shrink-0 text-emerald-600" />
+              No additional costs — runs entirely on Entrata infrastructure with full data sovereignty.
+            </div>
+
+            {rd.source === "llm" && (
+              <p className="text-center text-[10px] text-muted-foreground">
+                <span className="mr-1 inline-flex items-center gap-0.5 rounded bg-indigo-50 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-600">AI-analyzed</span>
+                {Math.round(rd.confidence * 100)}% confidence
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="shrink-0 border-t border-border px-6 py-4">
+          <Button onClick={handleBuild} className="w-full bg-emerald-600 text-white hover:bg-emerald-700">
+            <Cog className="mr-2 h-4 w-4" /> Build Workflow
           </Button>
         </div>
       </div>
@@ -1570,7 +1856,10 @@ function DeterministicBuilderModal({
               <Check className="h-3.5 w-3.5" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-foreground">{builtWorkflow.name}</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-foreground">{builtWorkflow.name}</h2>
+                {routingDecision && <WorkflowEngineBadge engine={routingDecision.engine} size="sm" />}
+              </div>
               <p className="text-[10px] text-muted-foreground">
                 v{nextVersion} &middot; {builtWorkflow.nodes.length} nodes &middot; {builtWorkflow.edges.length} connections
                 {llmSource === "llm" && <span className="ml-1 text-indigo-500">&#x2022; LLM-generated</span>}
@@ -1623,11 +1912,77 @@ function DeterministicBuilderModal({
                 <Check className="mr-0.5 h-2.5 w-2.5" /> Passed
               </Badge>
             )}
+            {routingDecision?.engine === "entrata-native" && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setRoutingDecision({
+                    ...routingDecision,
+                    engine: "workato",
+                    reasoning: "Manually converted to Workato by user — the entire workflow will run on Workato's platform.",
+                    externalSystems: ["User-selected"],
+                    costImpact: {
+                      label: "Workato licensing required",
+                      monthlyEstimate: "~$325/mo",
+                      perTaskEstimate: "~$0.02–$0.05/task",
+                      explanation: "The entire workflow runs on Workato, which charges a platform fee plus per-connector costs.",
+                    },
+                  });
+                }}
+                className="h-6 border-orange-300 px-2 text-[10px] text-orange-700 hover:bg-orange-50"
+              >
+                <ExternalLinkIcon className="mr-0.5 h-2.5 w-2.5" /> Move to Workato
+              </Button>
+            )}
             <Button size="sm" onClick={handleSave} className="h-7 px-3 text-[11px]">
               <Check className="mr-1 h-3 w-3" /> Save Agent
             </Button>
           </div>
         </div>
+
+        {conversionBanner.show && conversionBanner.decision && (() => {
+          const extSystems = conversionBanner.decision.externalSystems;
+          const extLabel = extSystems.length > 0 ? extSystems.join(", ") : "external systems";
+          return (
+            <div className="shrink-0 border-b border-orange-200 bg-orange-50 px-4 py-3">
+              <div className="flex items-start gap-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-orange-100">
+                  <ExternalLinkIcon className="h-4 w-4 text-orange-600" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[12px] font-semibold text-orange-900">
+                    Entrata cannot fulfill this request natively
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-orange-700">
+                    Your requested change (&ldquo;{conversionBanner.changeRequest.slice(0, 80)}
+                    {conversionBanner.changeRequest.length > 80 ? "..." : ""}&rdquo;)
+                    requires <strong>{extLabel}</strong>, which is outside of Entrata. To proceed, the entire workflow
+                    will move to Workato ({conversionBanner.decision.costImpact.monthlyEstimate}/month estimated).
+                  </p>
+                  <div className="mt-2 flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={handleAcceptConversion}
+                      className="h-6 bg-orange-600 px-3 text-[10px] text-white hover:bg-orange-700"
+                    >
+                      Move to Workato
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleDismissConversion}
+                      className="h-6 border-orange-300 px-3 text-[10px] text-orange-700 hover:bg-orange-100"
+                      title={`The ${extLabel} step will not be added. The remaining workflow stays on Entrata Native.`}
+                    >
+                      Keep Native (without {extSystems.length === 1 ? extSystems[0] : "external"} step)
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         <div className="flex-1">
           <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading workflow visualizer...</div>}>
@@ -1646,6 +2001,7 @@ function DeterministicBuilderModal({
               })}
               prompt={prompt}
               showIteratePanel
+              onIterationRequest={routingDecision?.engine === "entrata-native" ? handleIterationRequest : undefined}
             />
           </Suspense>
         </div>
@@ -1814,6 +2170,7 @@ export default function AgentBuilderPage() {
           propertyVersionMap: result.propertyVersionMap,
           triggers: result.triggers,
           evals: result.evals,
+          engineType: result.engineType ?? a.engineType,
           changeHistory: [...a.changeHistory, changeEntry],
         };
       }));
@@ -1841,7 +2198,17 @@ export default function AgentBuilderPage() {
     setModalStep({ kind: "type-select" });
   }, [modalStep]);
 
-  const handleAiAgentCreated = useCallback((payload: { name: string; description: string; status: string }) => {
+  const handleAiAgentCreated = useCallback((payload: {
+    name: string;
+    description: string;
+    status: string;
+    prompt?: string;
+    guardrails?: string;
+    classification?: string;
+    skillIds?: string[];
+    structuredGuardrails?: Array<{ label: string; enabled: boolean }>;
+    triggers?: string[];
+  }) => {
     const newAgent: UnifiedAgent = {
       id: `ua-${Date.now()}`,
       name: payload.name,
@@ -1859,7 +2226,7 @@ export default function AgentBuilderPage() {
       activeVersion: 1,
       propertyIds: [],
       propertyVersionMap: {},
-      triggers: [],
+      triggers: payload.triggers ?? [],
       evals: [],
       createdAt: new Date().toISOString(),
       runsLast30d: 0,
@@ -1873,6 +2240,13 @@ export default function AgentBuilderPage() {
         summary: "Created AI-powered agent",
         versionAffected: 1,
       }],
+      aiContext: {
+        prompt: payload.prompt,
+        guardrails: payload.guardrails,
+        classification: payload.classification,
+        skillIds: payload.skillIds,
+        structuredGuardrails: payload.structuredGuardrails,
+      },
     };
     setAgents((prev) => [newAgent, ...prev]);
     setModalOpen(false);
@@ -1996,6 +2370,9 @@ export default function AgentBuilderPage() {
                       v{agent.activeVersion}
                     </span>
                     <span className="text-[10px] text-muted-foreground">{agent.domain}</span>
+                    {agent.engineType && agent.type === "deterministic" && (
+                      <WorkflowEngineDot engine={agent.engineType} />
+                    )}
                   </div>
                 </div>
                 <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-foreground" />
