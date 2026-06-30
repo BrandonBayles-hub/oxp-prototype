@@ -54,7 +54,7 @@ import { TodoListBanner } from "@/components/custom-agent-builder/components/Tod
 import { useR1Release } from "@/lib/r1-release-context";
 import { useR2Release } from "@/lib/r2-release-context";
 import { generateWorkflow } from "@/lib/workflow-generator";
-import { analyzePrompt, analyzeChangeRequest, engineLabel, engineDescription, type RoutingDecision, type WorkflowEngine } from "@/lib/workflow-router";
+import { analyzePrompt, analyzeChangeRequest, engineLabel, engineDescription, type RoutingDecision, type WorkflowEngine, type ConnectorGap } from "@/lib/workflow-router";
 import { WorkflowEngineBadge, WorkflowEngineDot } from "@/components/workflow-engine-badge";
 
 const CustomAgentBuilder = lazy(() => import("@/components/custom-agent-builder"));
@@ -143,6 +143,7 @@ type UnifiedAgent = {
     guardrails?: string;
     classification?: string;
     skillIds?: string[];
+    dataIds?: string[];
     structuredGuardrails?: Array<{ label: string; enabled: boolean }>;
   };
 };
@@ -244,6 +245,7 @@ const SAMPLE_AGENTS: UnifiedAgent[] = [
       guardrails: "Never share other residents' information. Do not provide legal advice. Do not make promises about timelines. Always comply with Fair Housing Act. Escalate threats or legal language immediately.",
       classification: "L4",
       skillIds: ["residents.get_resident", "residents.get_balance", "accounting.get_resident_ledger", "maintenance.create_work_order", "comms.send_sms", "comms.send_email"],
+      dataIds: ["data.resident_profile", "data.resident_accounts", "data.lease_docs", "data.comms_history", "data.property_knowledge", "data.policies"],
       structuredGuardrails: [
         { label: "Fair Housing compliance", enabled: true },
         { label: "PII protection", enabled: true },
@@ -311,6 +313,7 @@ const SAMPLE_AGENTS: UnifiedAgent[] = [
       guardrails: "Always treat gas smells and flooding as emergencies regardless of resident description. Never tell a resident to fix electrical issues themselves. If unsure about urgency, default to emergency classification. Always send confirmation SMS after creating a work order.",
       classification: "L4",
       skillIds: ["maintenance.create_work_order", "maintenance.dispatch_vendor", "maintenance.get_work_order", "residents.get_resident", "comms.send_sms"],
+      dataIds: ["data.resident_profile", "data.work_orders", "data.workorder_history", "data.problems_catalog", "data.property_info"],
       structuredGuardrails: [
         { label: "Default to emergency when uncertain", enabled: true },
         { label: "No DIY electrical advice", enabled: true },
@@ -349,6 +352,362 @@ const SAMPLE_AGENTS: UnifiedAgent[] = [
       { id: "ch-4d", timestamp: "2026-06-21T08:00:00Z", userId: "user-jdoe", userName: "John Doe", action: "status_changed", summary: "Paused agent — reviewing emergency dispatch accuracy", diff: [{ field: "status", from: "live", to: "paused" }] },
     ],
   },
+  // ─── Pre-seeded AI Agent Examples (10 diverse use cases from operator research) ───
+  {
+    id: "ua-5",
+    name: "Move-in Checklist Coordinator",
+    type: "ai-powered",
+    description: "Proactively reaches out to residents 14 days before their move-in date to walk them through the move-in checklist — collecting pet registration, parking assignments, renter's insurance, utility transfers, key pickup scheduling, and emergency contacts via conversational SMS.",
+    status: "live",
+    domain: "Leasing",
+    createdAt: "2026-05-28T09:00:00Z",
+    aiContext: {
+      prompt: "You are a Move-in Checklist Coordinator for Entrata-managed properties. You proactively contact incoming residents 14 days before their move-in date to help them complete all pre-move-in requirements.\n\n## Core Responsibilities\n- Send an initial welcome SMS introducing yourself and the checklist\n- Track completion of each checklist item: pet registration, vehicle/parking, renter's insurance, utility setup, emergency contacts, key pickup slot\n- Send gentle follow-up reminders every 3 days for incomplete items\n- Answer questions about the property, move-in process, and policies\n- Schedule key pickup appointments during office hours\n\n## Conversation Guidelines\n- Be warm, welcoming, and excited about their upcoming move\n- Keep messages concise — no more than 2-3 sentences per SMS\n- If a resident says they'll handle something later, acknowledge and follow up after 3 days\n- Reference specific property details (pet policies, parking rules, office hours) from the knowledge base\n\n## Escalation Rules\n- Escalate to leasing staff if: resident wants to cancel/change move-in date, renter's insurance deadline is 48hrs away and not submitted, resident reports accessibility needs requiring unit modifications\n- Never make promises about unit condition or specific amenity availability",
+      guardrails: "Never share other residents' move-in dates or unit assignments. Do not provide legal interpretations of the lease. Always verify resident identity before discussing their specific unit details. Escalate immediately if a resident mentions disability accommodations that may need ADA compliance review.",
+      classification: "L4",
+      skillIds: ["residents.get_resident", "residents.get_lease", "leasing.get_property", "leasing.property_policies", "leasing.property_hours", "comms.send_sms", "comms.get_thread"],
+      dataIds: ["data.resident_profile", "data.lease_docs", "data.property_knowledge", "data.policies", "data.amenities", "data.property_info"],
+      structuredGuardrails: [
+        { label: "PII protection", enabled: true },
+        { label: "Fair Housing compliance", enabled: true },
+        { label: "No lease interpretation", enabled: true },
+        { label: "Verify identity", enabled: true },
+      ],
+    },
+    versions: [
+      { id: "v1", versionNumber: 1, status: "live", createdAt: "2026-05-28T09:00:00Z", description: "SMS-based move-in checklist with 14-day lead time" },
+    ],
+    activeVersion: 1,
+    propertyIds: ["prop.hillside", "prop.jamison"],
+    propertyVersionMap: { "prop.hillside": 1, "prop.jamison": 1 },
+    triggers: ["On new lease signed (14 days before move-in)"],
+    evals: [],
+    lastRunAt: "2026-06-22T09:00:00Z",
+    runsLast30d: 23,
+    executionLog: [],
+    changeHistory: [
+      { id: "ch-5a", timestamp: "2026-05-28T09:00:00Z", userId: "user-asmith", userName: "Alice Smith", action: "created", summary: "Created Move-in Checklist Coordinator", versionAffected: 1 },
+    ],
+  },
+  {
+    id: "ua-6",
+    name: "Renewal Offer Optimizer",
+    type: "ai-powered",
+    description: "Analyzes resident payment history, lease tenure, market rent comparisons, and property occupancy to generate personalized renewal offers. Automatically adjusts offer terms based on resident retention risk and sends offers with personalized messaging.",
+    status: "live",
+    domain: "Renewals",
+    createdAt: "2026-05-18T14:00:00Z",
+    aiContext: {
+      prompt: "You are a Renewal Offer Optimizer for Entrata-managed properties. When a resident's lease expiration date falls within 90 days, you generate an optimized, personalized renewal offer.\n\n## Analysis Framework\n1. Pull the resident's full payment history — on-time rate, average days to pay, any NSF/late history\n2. Check lease tenure — residents with 2+ years get preferential pricing consideration\n3. Compare current rent to market rent for the same unit type\n4. Factor in current property occupancy — higher vacancy = more aggressive retention offers\n5. Score the resident's retention risk (0-100) based on these factors\n\n## Offer Generation Rules\n- High-value residents (on-time >95%, tenure >2yr): Offer at or below current rent, include loyalty perks\n- Standard residents (on-time 80-95%): Offer at market rent with 1-2% discount for early renewal\n- At-risk residents (on-time <80% or short tenure): Offer at market rent, no discount, shorter term options\n- Never offer below the property's floor rent set by management\n\n## Communication\n- Draft a personalized email highlighting their time at the property and the specific offer\n- Include a clear call-to-action with a deadline (21 days from offer date)\n- If no response within 7 days, send a follow-up SMS\n- If no response within 14 days, escalate to the renewals coordinator",
+      guardrails: "Never disclose the retention risk score to the resident. Do not share other residents' renewal terms. Always comply with local rent regulation laws where applicable. Offers must stay within the property's configured min/max rent boundaries. Escalate any resident mentioning legal representation.",
+      classification: "L3",
+      skillIds: ["renewals.get_expiring_leases", "renewals.create_renewal_offer", "renewals.get_market_rent", "renewals.get_resident_history", "residents.get_resident", "residents.get_lease", "comms.send_email", "comms.send_sms"],
+      dataIds: ["data.rent_roll", "data.resident_accounts", "data.resident_profile", "data.lease_docs", "data.pricing_availability"],
+      structuredGuardrails: [
+        { label: "Rent regulation compliance", enabled: true },
+        { label: "PII protection", enabled: true },
+        { label: "No score disclosure", enabled: true },
+        { label: "Respect rent floor/ceiling", enabled: true },
+      ],
+    },
+    versions: [
+      { id: "v1", versionNumber: 1, status: "retired", createdAt: "2026-05-18T14:00:00Z", description: "Basic renewal offer with payment history analysis" },
+      { id: "v2", versionNumber: 2, status: "live", createdAt: "2026-06-10T11:00:00Z", description: "Added occupancy-aware pricing and SMS follow-up" },
+    ],
+    activeVersion: 2,
+    propertyIds: ["prop.hillside", "prop.jamison", "prop.oakmont"],
+    propertyVersionMap: { "prop.hillside": 2, "prop.jamison": 2, "prop.oakmont": 2 },
+    triggers: ["Daily at 7:00 AM (lease expiration < 90 days)"],
+    evals: [],
+    lastRunAt: "2026-06-22T07:00:00Z",
+    runsLast30d: 89,
+    executionLog: [],
+    changeHistory: [
+      { id: "ch-6a", timestamp: "2026-05-18T14:00:00Z", userId: "user-jdoe", userName: "John Doe", action: "created", summary: "Created Renewal Offer Optimizer", versionAffected: 1 },
+    ],
+  },
+  {
+    id: "ua-7",
+    name: "Portfolio Performance Analyst",
+    type: "ai-powered",
+    description: "Runs weekly analysis across multiple property reports — occupancy rates, delinquency trends, renewal conversion, maintenance response times — and produces an executive summary with actionable recommendations for regional managers.",
+    status: "sandbox",
+    domain: "Operations",
+    createdAt: "2026-06-12T10:00:00Z",
+    aiContext: {
+      prompt: "You are a Portfolio Performance Analyst for Entrata-managed properties. Every week, you analyze key operational metrics across the assigned portfolio and produce an executive summary for regional managers.\n\n## Metrics to Analyze\n1. Occupancy rate — current vs. target, trend over past 4 weeks\n2. Delinquency — total past-due balance, number of delinquent residents, avg days past-due\n3. Renewal conversion — offers sent vs. accepted vs. declined, avg rent increase achieved\n4. Maintenance — open work orders, avg resolution time, emergency vs. standard ratio\n5. Leasing pipeline — new leads, tours scheduled, applications submitted, conversion rates\n\n## Analysis Approach\n- Compare each property to portfolio average and highlight outliers (>1 std deviation)\n- Identify week-over-week trends (improving, declining, stable)\n- Cross-reference metrics for root causes (e.g., high delinquency + low renewal conversion may indicate pricing issues)\n\n## Output\n- Send a structured email to the regional manager with: executive summary (3-5 bullet points), property-by-property scorecards, top 3 recommended actions with expected impact\n- Flag any property requiring immediate attention (e.g., occupancy below 90%, delinquency above 5%)",
+      guardrails: "Never include resident PII in the summary reports. Always present data in aggregate. Do not make staffing recommendations. Recommendations should focus on operational changes, not personnel actions. Flag but do not speculate on causes outside the data.",
+      classification: "L3",
+      skillIds: ["leasing.get_properties", "leasing.get_property", "renewals.get_expiring_leases", "accounting.get_resident_ledger", "maintenance.list_work_orders", "comms.send_email"],
+      dataIds: ["data.rent_roll", "data.resident_accounts", "data.work_orders", "data.lead_profile", "data.pricing_availability", "data.property_info"],
+      structuredGuardrails: [
+        { label: "Aggregate data only", enabled: true },
+        { label: "No staffing recommendations", enabled: true },
+        { label: "PII protection", enabled: true },
+      ],
+    },
+    versions: [
+      { id: "v1", versionNumber: 1, status: "sandbox", createdAt: "2026-06-12T10:00:00Z", description: "Weekly portfolio analysis with email reports" },
+    ],
+    activeVersion: 1,
+    propertyIds: ["prop.hillside", "prop.jamison", "prop.oakmont"],
+    propertyVersionMap: { "prop.hillside": 1, "prop.jamison": 1, "prop.oakmont": 1 },
+    triggers: ["Every Monday at 6:00 AM"],
+    evals: [],
+    runsLast30d: 0,
+    executionLog: [],
+    changeHistory: [
+      { id: "ch-7a", timestamp: "2026-06-12T10:00:00Z", userId: "user-jdoe", userName: "John Doe", action: "created", summary: "Created Portfolio Performance Analyst", versionAffected: 1 },
+    ],
+  },
+  {
+    id: "ua-8",
+    name: "Tour Prep Reminder",
+    type: "ai-powered",
+    description: "Messages leasing agents 1 hour before each scheduled tour with key lead details — preferred unit types, budget range, move-in timeline, previous tour history, and personalized talking points based on the lead's stated priorities.",
+    status: "live",
+    domain: "Leasing",
+    createdAt: "2026-06-01T08:00:00Z",
+    aiContext: {
+      prompt: "You are a Tour Prep Reminder agent for Entrata-managed properties. One hour before each scheduled tour, you send the assigned leasing agent a comprehensive briefing via SMS.\n\n## Briefing Contents\n1. Lead name and contact info\n2. Preferred unit type, bedroom/bath count, and budget\n3. Desired move-in date and lease term\n4. Number of occupants, pets, vehicles\n5. Previous interactions — past tours, emails, calls, and key notes\n6. Available units matching their criteria (top 3 with pricing)\n7. Current specials or promotions that apply\n8. 2-3 personalized talking points based on the lead's stated priorities\n\n## Communication Rules\n- Send exactly 1 hour before the tour start time\n- Keep the message scannable — use bullet points and short lines\n- Highlight any deal-breakers (e.g., lead has a large dog but property has breed restrictions)\n- If no leasing agent is assigned, send to the property's default leasing email\n\n## Tone\n- Quick, professional, internally focused (this goes to staff, not the prospect)\n- Lead with the most actionable information first",
+      guardrails: "This agent messages staff only, never prospects. Do not include screening results or credit information. Do not include discriminatory notes or preferences that violate Fair Housing. If lead notes contain problematic language, omit those notes and flag for manager review.",
+      classification: "L3",
+      skillIds: ["leasing.search_leads", "leasing.get_lead", "leasing.list_lead_activities", "leasing.get_tour", "leasing.available_units", "leasing.property_specials", "leasing.get_floorplans", "comms.send_sms"],
+      dataIds: ["data.lead_profile", "data.tour_schedule", "data.leasing_agent_directory", "data.floorplans", "data.pricing_availability", "data.property_info"],
+      structuredGuardrails: [
+        { label: "Staff-only communication", enabled: true },
+        { label: "Fair Housing compliance", enabled: true },
+        { label: "No screening data", enabled: true },
+        { label: "PII protection", enabled: true },
+      ],
+    },
+    versions: [
+      { id: "v1", versionNumber: 1, status: "live", createdAt: "2026-06-01T08:00:00Z", description: "SMS briefing with lead details and unit matches" },
+    ],
+    activeVersion: 1,
+    propertyIds: ["prop.hillside", "prop.jamison"],
+    propertyVersionMap: { "prop.hillside": 1, "prop.jamison": 1 },
+    triggers: ["1 hour before scheduled tour"],
+    evals: [],
+    lastRunAt: "2026-06-22T13:00:00Z",
+    runsLast30d: 156,
+    executionLog: [],
+    changeHistory: [
+      { id: "ch-8a", timestamp: "2026-06-01T08:00:00Z", userId: "user-asmith", userName: "Alice Smith", action: "created", summary: "Created Tour Prep Reminder agent", versionAffected: 1 },
+    ],
+  },
+  {
+    id: "ua-9",
+    name: "Vendor Spend Analyzer",
+    type: "ai-powered",
+    description: "Analyzes vendor invoice history across the portfolio to identify cost-saving opportunities — flags vendors with above-market pricing, highlights spend concentration risks, and recommends competitive bidding for high-volume service categories.",
+    status: "sandbox",
+    domain: "Accounting",
+    createdAt: "2026-06-15T11:00:00Z",
+    aiContext: {
+      prompt: "You are a Vendor Spend Analyzer for Entrata-managed properties. You analyze vendor invoicing patterns across the portfolio to identify cost-saving opportunities.\n\n## Analysis Framework\n1. Aggregate vendor spend by category (plumbing, HVAC, electrical, landscaping, cleaning, etc.)\n2. Compare vendor pricing for similar work across properties\n3. Identify vendors whose average invoice amount is >15% above the category median\n4. Flag properties with vendor concentration risk (>60% of category spend with one vendor)\n5. Highlight categories where competitive bidding could reduce costs\n\n## Reporting\n- Generate a monthly spend analysis report for the operations team\n- Rank top 5 cost-saving opportunities with estimated annual savings\n- Include vendor performance context (don't just flag high cost — note if the vendor also has fastest response times or highest satisfaction)\n\n## Recommendations\n- Suggest specific actions: renegotiate, add backup vendor, request competitive bids\n- Estimate savings as a range, not a single number\n- Never recommend removing a vendor without considering service quality metrics",
+      guardrails: "Do not share one vendor's pricing with another vendor. Analysis is for internal management only. Do not make recommendations on vendor contract terms — flag for procurement review instead. Consider seasonal patterns before flagging anomalies.",
+      classification: "L3",
+      skillIds: ["accounting.get_invoice", "maintenance.list_work_orders", "leasing.get_properties", "comms.send_email"],
+      dataIds: ["data.invoice_ledger", "data.work_orders", "data.property_info", "data.fee_schedule", "data.vcr_invoice"],
+      structuredGuardrails: [
+        { label: "Internal use only", enabled: true },
+        { label: "No vendor-to-vendor disclosure", enabled: true },
+        { label: "Seasonal adjustment", enabled: true },
+      ],
+    },
+    versions: [
+      { id: "v1", versionNumber: 1, status: "sandbox", createdAt: "2026-06-15T11:00:00Z", description: "Monthly spend analysis with savings recommendations" },
+    ],
+    activeVersion: 1,
+    propertyIds: ["prop.hillside", "prop.jamison", "prop.oakmont"],
+    propertyVersionMap: { "prop.hillside": 1, "prop.jamison": 1, "prop.oakmont": 1 },
+    triggers: ["Monthly on the 1st at 5:00 AM"],
+    evals: [],
+    runsLast30d: 0,
+    executionLog: [],
+    changeHistory: [
+      { id: "ch-9a", timestamp: "2026-06-15T11:00:00Z", userId: "user-bwong", userName: "Brian Wong", action: "created", summary: "Created Vendor Spend Analyzer", versionAffected: 1 },
+    ],
+  },
+  {
+    id: "ua-10",
+    name: "Technician Work Order Briefer",
+    type: "ai-powered",
+    description: "Sends maintenance technicians a detailed SMS briefing each morning with their assigned work orders — including unit access codes, resident contact info, issue history for the unit, required parts/tools, and priority sequencing for the day.",
+    status: "live",
+    domain: "Maintenance",
+    createdAt: "2026-06-05T07:00:00Z",
+    aiContext: {
+      prompt: "You are a Technician Work Order Briefer for Entrata-managed properties. Each morning at 7:00 AM, you compile and send each assigned maintenance technician a daily briefing via SMS.\n\n## Briefing Contents (per work order)\n1. Priority level and any SLA deadlines\n2. Unit number, building, and access instructions\n3. Resident name and preferred contact method\n4. Issue description and resident's own words about the problem\n5. Unit maintenance history — recent work orders for the same unit (last 6 months)\n6. Likely parts/tools needed based on the issue category\n7. Recommended sequence for the day (prioritized by urgency, then geographic proximity)\n\n## Communication Rules\n- Send one consolidated message per technician, not one per work order\n- Keep the format scannable with clear section breaks\n- For emergency work orders, send an immediate alert rather than waiting for the morning batch\n- If the resident has noted access restrictions (pets, security system), highlight prominently\n\n## Special Considerations\n- If a work order has been open >7 days, flag it as overdue\n- If the same unit has had 3+ work orders in 30 days, note the pattern for the technician",
+      guardrails: "Do not include resident financial information (balance, payment history). Only share the resident's name and contact info that is necessary for service access. Do not send briefings to off-duty or out-of-office technicians. If a work order involves a bed bug or pest issue, always include PPE reminder.",
+      classification: "L3",
+      skillIds: ["maintenance.list_work_orders", "maintenance.get_work_order", "residents.get_resident", "leasing.get_unit", "comms.send_sms"],
+      dataIds: ["data.work_orders", "data.workorder_history", "data.resident_profile", "data.problems_catalog", "data.locations_map", "data.property_info"],
+      structuredGuardrails: [
+        { label: "No financial data to techs", enabled: true },
+        { label: "Minimum necessary PII", enabled: true },
+        { label: "PPE reminders for pest issues", enabled: true },
+      ],
+    },
+    versions: [
+      { id: "v1", versionNumber: 1, status: "live", createdAt: "2026-06-05T07:00:00Z", description: "Daily morning SMS briefing with prioritized work orders" },
+    ],
+    activeVersion: 1,
+    propertyIds: ["prop.hillside"],
+    propertyVersionMap: { "prop.hillside": 1 },
+    triggers: ["Daily at 7:00 AM"],
+    evals: [],
+    lastRunAt: "2026-06-22T07:00:00Z",
+    runsLast30d: 30,
+    executionLog: [],
+    changeHistory: [
+      { id: "ch-10a", timestamp: "2026-06-05T07:00:00Z", userId: "user-bwong", userName: "Brian Wong", action: "created", summary: "Created Technician Work Order Briefer", versionAffected: 1 },
+    ],
+  },
+  {
+    id: "ua-11",
+    name: "Delinquency Outreach Agent",
+    type: "ai-powered",
+    description: "Proactively contacts residents with past-due balances via SMS to understand their situation, offer payment plan options, share payment portal links, and escalate to collections or property management based on configurable thresholds.",
+    status: "live",
+    domain: "Accounting",
+    createdAt: "2026-05-25T10:00:00Z",
+    aiContext: {
+      prompt: "You are a Delinquency Outreach Agent for Entrata-managed properties. You proactively contact residents who have past-due balances to help resolve their accounts.\n\n## Outreach Cadence\n- Day 3 past-due: Friendly reminder SMS with balance and payment link\n- Day 7: Follow-up offering to discuss payment plan options\n- Day 14: Formal notice with payment arrangement deadline\n- Day 21+: Escalate to collections coordinator\n\n## Conversation Approach\n- Always lead with empathy — residents may be experiencing hardship\n- Ask if there are circumstances affecting their ability to pay\n- Present available options: full payment, payment plan (2-3 installments), or connect with financial assistance resources\n- Provide the direct payment portal link in every message\n\n## Payment Plans\n- For balances under $500: Offer 2-installment plan\n- For balances $500-$2,000: Offer 3-installment plan over 60 days\n- For balances over $2,000: Escalate to property manager for custom arrangement\n\n## Escalation\n- If resident mentions legal action, SCRA/military status, or requests formal dispute, immediately escalate\n- If resident reports domestic violence or safety concerns, escalate to management with urgency flag\n- After 3 unreturned messages, stop automated outreach and escalate",
+      guardrails: "Comply with FDCPA guidelines at all times. Do not contact residents before 8 AM or after 9 PM local time. Never threaten eviction or legal action. Do not discuss another resident's account. If resident mentions bankruptcy, immediately stop collection activity and escalate to legal. Always identify yourself as an automated assistant, never impersonate a human staff member.",
+      classification: "L4",
+      skillIds: ["residents.get_resident", "residents.get_balance", "accounting.get_resident_ledger", "comms.send_sms", "comms.get_thread", "residents.post_note"],
+      dataIds: ["data.resident_profile", "data.resident_accounts", "data.comms_history", "data.lease_docs"],
+      structuredGuardrails: [
+        { label: "FDCPA compliance", enabled: true },
+        { label: "Contact hour restrictions", enabled: true },
+        { label: "No eviction threats", enabled: true },
+        { label: "PII protection", enabled: true },
+        { label: "Bot disclosure", enabled: true },
+      ],
+    },
+    versions: [
+      { id: "v1", versionNumber: 1, status: "live", createdAt: "2026-05-25T10:00:00Z", description: "SMS outreach with payment plan offers and escalation" },
+    ],
+    activeVersion: 1,
+    propertyIds: ["prop.hillside", "prop.jamison"],
+    propertyVersionMap: { "prop.hillside": 1, "prop.jamison": 1 },
+    triggers: ["Daily at 10:00 AM (residents with balance > 0 and > 3 days past-due)"],
+    evals: [],
+    lastRunAt: "2026-06-22T10:00:00Z",
+    runsLast30d: 112,
+    executionLog: [],
+    changeHistory: [
+      { id: "ch-11a", timestamp: "2026-05-25T10:00:00Z", userId: "user-jdoe", userName: "John Doe", action: "created", summary: "Created Delinquency Outreach Agent", versionAffected: 1 },
+    ],
+  },
+  {
+    id: "ua-12",
+    name: "Leasing Voice Agent",
+    type: "ai-powered",
+    description: "Handles inbound leasing calls — answers property questions, checks unit availability, schedules tours, captures lead information, and qualifies prospects based on income requirements and move-in timeline. Transfers to a human for application-stage questions.",
+    status: "draft",
+    domain: "Leasing",
+    createdAt: "2026-06-18T09:00:00Z",
+    aiContext: {
+      prompt: "You are a Leasing Voice Agent for Entrata-managed properties. You handle inbound calls from prospective residents interested in renting.\n\n## Core Capabilities\n1. Answer property questions — amenities, pet policies, parking, utilities, neighborhood, office hours\n2. Check real-time unit availability and pricing for the caller's preferred unit type and move-in date\n3. Schedule tours — offer available time slots and book directly\n4. Capture lead information — name, email, phone, move-in date, budget, unit preferences\n5. Pre-qualify — ask about household size and income range to check against the property's 2.5x rent requirement\n\n## Voice Guidelines\n- Speak naturally and conversationally — avoid sounding scripted\n- Keep responses brief on the phone — no more than 2-3 sentences before pausing\n- Use the prospect's name after they provide it\n- If they ask a question you don't know, say \"Let me connect you with a leasing specialist\" rather than guessing\n\n## Qualification\n- If income appears below 2.5x the target unit's rent, mention that income documentation will be required and avoid discouraging the prospect\n- Never deny someone based on voice, accent, or perceived demographics\n\n## Transfer Rules\n- Transfer to a human leasing agent for: application status questions, lease negotiation, roommate situations, requests for ADA accommodations, or any complex financial questions",
+      guardrails: "Strict Fair Housing Act compliance — never ask about race, religion, national origin, familial status, disability, sex, or sexual orientation. Do not quote exact pricing that might change — always say 'starting from' or 'currently listed at.' Never guarantee unit availability. Do not discuss other applicants or their status. Record a note of every call and its outcome.",
+      classification: "L4",
+      skillIds: ["leasing.search_leads", "leasing.capture_lead", "leasing.available_units", "leasing.get_tour_schedule", "leasing.schedule_tour", "leasing.get_floorplans", "leasing.property_amenities", "leasing.property_policies", "leasing.property_hours", "leasing.property_contact", "leasing.fee_catalog", "comms.warm_transfer"],
+      dataIds: ["data.lead_profile", "data.tour_schedule", "data.floorplans", "data.pricing_availability", "data.property_knowledge", "data.amenities", "data.policies", "data.fee_schedule"],
+      structuredGuardrails: [
+        { label: "Fair Housing compliance", enabled: true },
+        { label: "No guaranteed availability", enabled: true },
+        { label: "No discriminatory screening", enabled: true },
+        { label: "PII protection", enabled: true },
+        { label: "Call note logging", enabled: true },
+      ],
+    },
+    versions: [
+      { id: "v1", versionNumber: 1, status: "draft", createdAt: "2026-06-18T09:00:00Z", description: "Voice-first leasing with tour scheduling and lead capture" },
+    ],
+    activeVersion: 1,
+    propertyIds: [],
+    propertyVersionMap: {},
+    triggers: ["Inbound voice call (leasing line)"],
+    evals: [],
+    runsLast30d: 0,
+    executionLog: [],
+    changeHistory: [
+      { id: "ch-12a", timestamp: "2026-06-18T09:00:00Z", userId: "user-asmith", userName: "Alice Smith", action: "created", summary: "Created Leasing Voice Agent — draft for pilot", versionAffected: 1 },
+    ],
+  },
+  {
+    id: "ua-13",
+    name: "Move-Out Coordinator",
+    type: "ai-powered",
+    description: "Manages the end-to-end move-out process — confirms move-out date, schedules pre-move-out inspection, provides cleaning/repair expectations, tracks key return and forwarding address collection, and initiates deposit disposition calculation.",
+    status: "sandbox",
+    domain: "Residents",
+    createdAt: "2026-06-11T15:00:00Z",
+    aiContext: {
+      prompt: "You are a Move-Out Coordinator for Entrata-managed properties. When a resident submits a notice to vacate, you manage the entire move-out process through completion.\n\n## Process Steps\n1. Confirm receipt of notice and verify the move-out date\n2. Send the move-out guide with cleaning expectations and damage charges schedule\n3. Schedule the pre-move-out inspection (7 days before move-out) — offer available time slots\n4. Send reminders at 14 days, 7 days, and 3 days before move-out\n5. Collect forwarding address for deposit refund and final statement\n6. Confirm key/fob return instructions and deadline\n7. After move-out, trigger the deposit disposition workflow\n\n## Communication\n- Use SMS as the primary channel, email for document-heavy communications\n- Be empathetic — residents may be leaving due to difficult circumstances\n- Answer questions about the deposit return timeline (state-specific deadlines)\n- Provide a clear breakdown of what constitutes normal wear vs. chargeable damage\n\n## Escalation\n- If resident disputes the move-out date, escalate to property manager\n- If resident mentions early termination or lease break, escalate immediately\n- If resident threatens to withhold keys or refuses inspection, escalate to management",
+      guardrails: "Do not provide legal advice about breaking a lease or deposit disputes. Follow state-specific deposit return timelines. Do not make promises about deposit refund amounts before the inspection. If resident mentions they are military (SCRA) or a victim of domestic violence, escalate to management for proper handling.",
+      classification: "L4",
+      skillIds: ["residents.get_resident", "residents.get_lease", "leasing.get_property", "comms.send_sms", "comms.send_email", "comms.get_thread", "residents.post_note"],
+      dataIds: ["data.resident_profile", "data.lease_docs", "data.property_knowledge", "data.comms_history", "data.policies"],
+      structuredGuardrails: [
+        { label: "State deposit law compliance", enabled: true },
+        { label: "No deposit promises", enabled: true },
+        { label: "SCRA/DV escalation", enabled: true },
+        { label: "PII protection", enabled: true },
+      ],
+    },
+    versions: [
+      { id: "v1", versionNumber: 1, status: "sandbox", createdAt: "2026-06-11T15:00:00Z", description: "Full move-out lifecycle with SMS/email coordination" },
+    ],
+    activeVersion: 1,
+    propertyIds: ["prop.hillside"],
+    propertyVersionMap: { "prop.hillside": 1 },
+    triggers: ["On notice to vacate submitted"],
+    evals: [],
+    runsLast30d: 0,
+    executionLog: [],
+    changeHistory: [
+      { id: "ch-13a", timestamp: "2026-06-11T15:00:00Z", userId: "user-jdoe", userName: "John Doe", action: "created", summary: "Created Move-Out Coordinator", versionAffected: 1 },
+    ],
+  },
+  {
+    id: "ua-14",
+    name: "Resident Retention Watchdog",
+    type: "ai-powered",
+    description: "Monitors early warning signals that a resident may not renew — repeated maintenance complaints, late payments starting, negative survey responses, or reduced portal engagement — and alerts the property manager with a retention action plan.",
+    status: "draft",
+    domain: "Renewals",
+    createdAt: "2026-06-20T16:00:00Z",
+    aiContext: {
+      prompt: "You are a Resident Retention Watchdog for Entrata-managed properties. You continuously monitor resident behavior patterns to identify those at risk of not renewing their lease.\n\n## Risk Signals (weighted)\n1. Maintenance frustration — 3+ work orders in 30 days, or any WO open >14 days (weight: 30%)\n2. Payment pattern shift — resident who was consistently on-time starts paying late (weight: 25%)\n3. Communication sentiment — negative tone in recent messages or complaints (weight: 20%)\n4. Engagement drop — resident portal login frequency declined >50% month-over-month (weight: 15%)\n5. Market comparison — resident's current rent is >10% above market for similar units (weight: 10%)\n\n## Retention Score\n- Calculate a 0-100 retention risk score based on weighted signals\n- Score 0-30: Low risk — no action needed\n- Score 31-60: Moderate risk — send proactive check-in to property manager\n- Score 61-80: High risk — generate retention action plan\n- Score 81-100: Critical risk — immediate alert to property manager and renewals team\n\n## Action Plans\n- For maintenance-driven risk: Recommend priority service recovery, personal follow-up from PM\n- For payment-driven risk: Suggest early renewal conversation with concession options\n- For market-driven risk: Recommend pre-emptive renewal offer at competitive rate\n- Always include specific data points that triggered the alert",
+      guardrails: "Never share the retention risk score or signals directly with the resident. This is an internal management tool only. Do not make retention promises without management approval. Do not use engagement metrics to penalize residents. Focus recommendations on improving the resident experience, not pressuring renewal.",
+      classification: "L3",
+      skillIds: ["residents.get_resident", "residents.get_lease", "residents.get_balance", "renewals.get_resident_history", "renewals.get_market_rent", "maintenance.list_work_orders", "comms.send_email"],
+      dataIds: ["data.resident_profile", "data.resident_accounts", "data.rent_roll", "data.work_orders", "data.comms_history", "data.lease_docs"],
+      structuredGuardrails: [
+        { label: "Internal use only", enabled: true },
+        { label: "No score disclosure", enabled: true },
+        { label: "No retention pressure", enabled: true },
+        { label: "PII protection", enabled: true },
+      ],
+    },
+    versions: [
+      { id: "v1", versionNumber: 1, status: "draft", createdAt: "2026-06-20T16:00:00Z", description: "Multi-signal retention risk scoring with action plans" },
+    ],
+    activeVersion: 1,
+    propertyIds: [],
+    propertyVersionMap: {},
+    triggers: ["Weekly on Wednesday at 8:00 AM"],
+    evals: [],
+    runsLast30d: 0,
+    executionLog: [],
+    changeHistory: [
+      { id: "ch-14a", timestamp: "2026-06-20T16:00:00Z", userId: "user-asmith", userName: "Alice Smith", action: "created", summary: "Created Resident Retention Watchdog — draft for review", versionAffected: 1 },
+    ],
+  },
 ];
 
 // ─── Style maps ───
@@ -379,7 +738,7 @@ const BUILD_PHASE_STEPS = [
   { key: "compiling", label: "Compiling deterministic logic", duration: 800 },
 ] as const;
 
-type DeterministicPhase = "describing" | "routing" | "building" | "built";
+type DeterministicPhase = "describing" | "routing" | "connectors-unavailable" | "building" | "built";
 
 // Re-export workflow visualizer types for the built phase
 type BuiltWorkflowNode = {
@@ -1437,6 +1796,7 @@ function DeterministicBuilderModal({
   const [routingDecision, setRoutingDecision] = useState<RoutingDecision | null>(null);
   const [routingAnimating, setRoutingAnimating] = useState(false);
   const [routingThinkingStep, setRoutingThinkingStep] = useState(0);
+  const [featureRequestSubmitted, setFeatureRequestSubmitted] = useState(false);
 
   const handleAnalyze = async () => {
     if (!prompt.trim() || !agentName.trim()) return;
@@ -1460,7 +1820,12 @@ function DeterministicBuilderModal({
       clearInterval(thinkingInterval);
       setRoutingDecision(decision);
       setRoutingAnimating(false);
-      setPhase("routing");
+
+      if (decision.connectorGaps.length > 0) {
+        setPhase("connectors-unavailable");
+      } else {
+        setPhase("routing");
+      }
     } catch (err) {
       console.error("Routing analysis failed:", err);
       clearInterval(thinkingInterval);
@@ -1809,6 +2174,119 @@ function DeterministicBuilderModal({
           <Button onClick={handleBuild} className="w-full bg-emerald-600 text-white hover:bg-emerald-700">
             <Cog className="mr-2 h-4 w-4" /> Build Workflow
           </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === "connectors-unavailable" && routingDecision) {
+    const gaps = routingDecision.connectorGaps;
+    return (
+      <div className="flex h-full flex-col">
+        <div className="flex shrink-0 items-center gap-3 border-b border-border px-6 py-4">
+          <button type="button" onClick={() => setPhase("describing")} className="rounded-md p-1 text-muted-foreground hover:text-foreground">
+            <ArrowLeft className="h-4 w-4" />
+          </button>
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-amber-600">
+              <AlertTriangle className="h-4 w-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">Connectors Not Yet Available</h2>
+              <p className="text-[11px] text-muted-foreground">
+                Your workflow requires Entrata capabilities we haven&apos;t built connectors for yet.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-1 flex-col items-center justify-center px-6">
+          <div className="mx-auto w-full max-w-lg space-y-5">
+            {featureRequestSubmitted ? (
+              <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50/40 p-8 text-center">
+                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-100">
+                  <CheckCircle2 className="h-8 w-8 text-emerald-600" />
+                </div>
+                <h3 className="text-lg font-semibold text-emerald-900">Feature Request Submitted</h3>
+                <p className="mt-2 text-sm text-emerald-700">
+                  Thank you! Our engineering team has been notified of your request for the following connectors:
+                </p>
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
+                  {gaps.map((gap, i) => (
+                    <span key={i} className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-medium text-emerald-800">
+                      <Cpu className="h-3 w-3" />
+                      {gap.name}
+                    </span>
+                  ))}
+                </div>
+                <p className="mt-4 text-[12px] text-emerald-600">
+                  We&apos;ll notify you when these connectors become available. In the meantime, you can build other workflows with our existing connectors.
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="rounded-xl border-2 border-amber-200 bg-amber-50/40 p-6">
+                  <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-100">
+                    <Cpu className="h-7 w-7 text-amber-600" />
+                  </div>
+                  <h3 className="text-center text-base font-semibold text-amber-900">
+                    Missing Connectors
+                  </h3>
+                  <p className="mt-2 text-center text-[13px] leading-relaxed text-muted-foreground">
+                    {routingDecision.reasoning}
+                  </p>
+
+                  <div className="mt-5 space-y-2.5">
+                    {gaps.map((gap, i) => (
+                      <div key={i} className="flex items-start gap-3 rounded-lg border border-amber-200 bg-white px-4 py-3">
+                        <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-100">
+                          <XCircle className="h-3.5 w-3.5 text-amber-600" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-amber-900">{gap.name}</p>
+                          <p className="text-[11px] text-amber-700">{gap.description}</p>
+                          <Badge variant="outline" className="mt-1 border-amber-200 text-[9px] text-amber-600">{gap.category}</Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-slate-200 bg-slate-50/50 px-4 py-3">
+                  <p className="text-[12px] leading-relaxed text-slate-700">
+                    These are Entrata-internal capabilities that our team is planning to build.
+                    Submit a feature request to let us know this is important to you, and we&apos;ll
+                    prioritize it accordingly.
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="shrink-0 border-t border-border px-6 py-4">
+          {featureRequestSubmitted ? (
+            <div className="flex gap-3">
+              <Button variant="outline" onClick={() => { setPhase("describing"); setFeatureRequestSubmitted(false); }} className="flex-1">
+                <ArrowLeft className="mr-2 h-4 w-4" /> Build a Different Workflow
+              </Button>
+              <Button variant="outline" onClick={onBack} className="flex-1">
+                Close
+              </Button>
+            </div>
+          ) : (
+            <div className="flex gap-3">
+              <Button variant="outline" onClick={() => setPhase("describing")} className="flex-1">
+                <ArrowLeft className="mr-2 h-4 w-4" /> Adjust Description
+              </Button>
+              <Button
+                onClick={() => setFeatureRequestSubmitted(true)}
+                className="flex-1 bg-amber-600 text-white hover:bg-amber-700"
+              >
+                <Zap className="mr-2 h-4 w-4" /> Submit Feature Request
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -2525,7 +3003,22 @@ export default function AgentBuilderPage() {
                     </div>
                   }
                 >
-                  <CustomAgentBuilder initialView="new" onClose={closeModal} onAgentCreated={handleAiAgentCreated} />
+                  <CustomAgentBuilder
+                    initialView="new"
+                    onClose={closeModal}
+                    onAgentCreated={handleAiAgentCreated}
+                    seedData={modalStep.forkFrom ? {
+                      name: modalStep.forkFrom.name,
+                      description: modalStep.forkFrom.description,
+                      prompt: modalStep.forkFrom.aiContext?.prompt,
+                      guardrails: modalStep.forkFrom.aiContext?.guardrails,
+                      classification: modalStep.forkFrom.aiContext?.classification,
+                      skillIds: modalStep.forkFrom.aiContext?.skillIds,
+                      dataIds: modalStep.forkFrom.aiContext?.dataIds,
+                      structuredGuardrails: modalStep.forkFrom.aiContext?.structuredGuardrails,
+                      triggerDescriptions: modalStep.forkFrom.triggers,
+                    } : undefined}
+                  />
                 </Suspense>
               </div>
             </div>

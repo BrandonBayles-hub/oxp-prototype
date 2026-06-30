@@ -165,3 +165,42 @@ export function allMcpTools(): Array<McpTool & { serverId: string; serverName: s
     s.tools.map((t) => ({ ...t, serverId: s.id, serverName: s.name }))
   );
 }
+
+/**
+ * Given an array of tool IDs (e.g. from LLM generation), derive the
+ * corresponding McpServerConfig[] with each relevant server enabled
+ * and restrictedToolIds set to only the referenced tools.
+ */
+export function deriveMcpServersFromToolIds(
+  skillIds: string[],
+): Array<{
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  category: string;
+  enabled: boolean;
+  restrictedToolIds?: string[];
+}> {
+  const serverMap = new Map<string, string[]>();
+  for (const toolId of skillIds) {
+    const server = MCP_SERVER_CATALOG.find((s) => s.tools.some((t) => t.id === toolId));
+    if (!server) continue;
+    const existing = serverMap.get(server.id) ?? [];
+    existing.push(toolId);
+    serverMap.set(server.id, existing);
+  }
+  return Array.from(serverMap.entries()).map(([serverId, toolIds]) => {
+    const def = MCP_SERVER_CATALOG.find((s) => s.id === serverId)!;
+    const useAll = toolIds.length === def.tools.length;
+    return {
+      id: serverId,
+      name: def.name,
+      description: def.description,
+      icon: def.icon,
+      category: def.category,
+      enabled: true,
+      restrictedToolIds: useAll ? undefined : toolIds,
+    };
+  });
+}

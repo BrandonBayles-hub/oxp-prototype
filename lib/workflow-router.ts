@@ -5,10 +5,11 @@
  * the workflow can be handled entirely by Entrata's internal MCP servers
  * ("entrata-native") or requires external connectors via Workato ("workato").
  *
- * Binary decision: if ANY step requires software outside Entrata, the
- * entire workflow moves to Workato. Workato has an Entrata connector, so
- * it can handle both Entrata-internal and external steps in a single
- * execution pipeline.
+ * Three possible outcomes:
+ * 1. entrata-native — all steps handled by internal MCPs
+ * 2. workato — at least one step requires external software
+ * 3. connectors-unavailable — the user wants Entrata-internal functionality
+ *    that we have not yet built connectors for (e.g. Purchase Orders, GL Accounts)
  */
 
 import {
@@ -27,6 +28,12 @@ export interface CapabilityMatch {
   externalSystem?: string;
 }
 
+export interface ConnectorGap {
+  name: string;
+  description: string;
+  category: string;
+}
+
 export interface RoutingDecision {
   engine: WorkflowEngine;
   confidence: number;
@@ -37,6 +44,7 @@ export interface RoutingDecision {
   costImpact: CostImpact;
   externalSystems: string[];
   source: "llm" | "fallback";
+  connectorGaps: ConnectorGap[];
 }
 
 export interface CostImpact {
@@ -60,26 +68,38 @@ function buildMcpCatalogForPrompt(): string {
 
 const ROUTING_SYSTEM_PROMPT = `You are a workflow routing engine for Entrata, a property management software platform.
 
-Your job is to analyze a user's workflow request and determine whether Entrata can handle it ENTIRELY with its internal MCP (Model Context Protocol) servers, or whether ANY part of the request requires integration with external third-party software.
-
-This is a BINARY decision — there is no hybrid option. If ANY step requires external software, the ENTIRE workflow must move to Workato.
+Your job is to analyze a user's workflow request and determine whether Entrata can handle it ENTIRELY with its internal MCP (Model Context Protocol) servers, or whether ANY part of the request requires integration with external third-party software, or whether the user is requesting Entrata-internal functionality that we do NOT yet have connectors for.
 
 ## Entrata's Internal MCP Capabilities
-These are the ONLY things Entrata can do natively. If a capability is NOT listed here, it requires an external connector:
+These are the ONLY things Entrata can do natively. If a capability is NOT listed here, it either requires an external connector OR is a connector gap:
 
 ${buildMcpCatalogForPrompt()}
 
+## Connector Gaps — Entrata functionality that does NOT have connectors yet
+The following are Entrata-internal operations that we have NOT built connectors for. If a user requests ANY of these, they should be flagged as "connector gaps" — NOT routed to Workato (since these are internal Entrata operations, not third-party).
+
+IMPORTANT: ANY workflow involving accounting operations — invoices, purchase orders, GL accounts, budgets, financial reports, or similar — should be flagged as a connector gap. Even if the MCP catalog lists basic invoice or ledger read tools, those are limited to simple lookups for AI agents. Full accounting workflow automation (analyzing, creating, updating, flagging, routing, approving invoices or other accounting records) is NOT available as a deterministic workflow connector.
+
+Specific connector gaps:
+- **Invoices / AP**: Creating, analyzing, flagging, routing, approving, or managing vendor invoices or accounts payable workflows
+- **Purchase Orders**: Creating, updating, approving, or managing purchase orders
+- **GL Accounts / Chart of Accounts**: Creating, updating, or managing general ledger accounts or chart of accounts
+- **AP Payment Runs**: Initiating or managing bulk accounts payable payment runs
+- **Budget Management**: Creating, updating, or managing property budgets or budget vs actual reports
+- **Bank Reconciliation**: Performing or managing bank reconciliation processes
+- **Financial Statements**: Generating balance sheets, income statements, or cash flow statements
+- **Journal Entries**: Creating, posting, or reversing manual journal entries
+- **1099 Processing**: Generating or managing 1099 tax forms for vendors
+- **Utility Billing Setup**: Configuring utility billing ratios or RUBS allocations
+- **Accounts Receivable Write-offs**: Writing off uncollectable resident balances
+
 ## Routing Rules
 
-1. **entrata-native**: Use this ONLY when every single action in the workflow can be accomplished using the MCP tools listed above. This covers leasing, maintenance, accounting, renewals, communications (SMS/email within Entrata), and resident management.
+1. **entrata-native**: Use this ONLY when every single action in the workflow can be accomplished using the MCP tools listed above.
 
-2. **workato**: Use this if ANY part of the workflow requires action in, through, or involving an external third-party system that is NOT Entrata. When this happens, the ENTIRE workflow moves to Workato (Workato has an Entrata connector and can handle both internal and external steps). Examples:
-   - Posting to Slack, syncing with Salesforce, updating Jira
-   - Ordering or purchasing from Amazon, Walmart, Crumbl, DoorDash
-   - Sending data to Snowflake, BigQuery, Google Sheets
-   - Integrating with QuickBooks, NetSuite, Workday
-   - Any gift card, reward, or loyalty program from an external provider
-   - Any website, app, or SaaS product not listed in the MCP catalog above
+2. **workato**: Use this if ANY part of the workflow requires action in, through, or involving an external third-party system that is NOT Entrata. When this happens, the ENTIRE workflow moves to Workato.
+
+3. **Connector gaps**: If the workflow is entirely internal to Entrata but requires operations listed in the "Connector Gaps" section above, set engine to "entrata-native" but populate the "connectorGaps" array. This signals that we CANNOT build this workflow yet because the connectors don't exist — the user should be offered the option to request them.
 
 ## Key Signals for Workato
 The strongest signal is when the user mentions ANY software, service, platform, or company that is NOT Entrata. This includes but is not limited to:
@@ -106,6 +126,13 @@ Return a JSON object with this exact structure:
   "confidence": 0.0 to 1.0,
   "reasoning": "One paragraph explaining your decision",
   "externalSystems": ["Amazon", "Slack"],
+  "connectorGaps": [
+    {
+      "name": "Purchase Order Management",
+      "description": "Create and update purchase orders",
+      "category": "Accounting"
+    }
+  ],
   "capabilities": [
     {
       "name": "Short name of the capability",
@@ -118,6 +145,7 @@ Return a JSON object with this exact structure:
 }
 
 The "externalSystems" array should list every non-Entrata system detected. Empty array if entrata-native.
+The "connectorGaps" array should list every Entrata-internal capability that was requested but does NOT have a connector. Empty array if no gaps.
 
 Return ONLY the JSON object — no markdown, no explanation outside the JSON.`;
 
@@ -126,6 +154,7 @@ interface LLMRoutingResponse {
   confidence: number;
   reasoning: string;
   externalSystems?: string[];
+  connectorGaps?: ConnectorGap[];
   capabilities: CapabilityMatch[];
 }
 
@@ -196,6 +225,7 @@ export async function analyzePrompt(prompt: string): Promise<RoutingDecision> {
         costImpact: getCostImpact(engine, workatoCount),
         externalSystems,
         source: "llm",
+        connectorGaps: parsed.connectorGaps ?? [],
       };
     } catch (err) {
       console.error("LLM routing failed, falling back to heuristic:", err);
@@ -226,6 +256,7 @@ export async function analyzePrompt(prompt: string): Promise<RoutingDecision> {
             costImpact: getCostImpact(engine, workatoCount),
             externalSystems: data.externalSystems ?? [],
             source: "llm",
+            connectorGaps: data.connectorGaps ?? [],
           };
         }
       }
@@ -285,6 +316,19 @@ const ENTRATA_SIGNALS = [
   "move-in", "move-out", "amenities",
 ];
 
+const CONNECTOR_GAP_SIGNALS: Array<{ keywords: string[]; gap: ConnectorGap }> = [
+  { keywords: ["purchase order", "po ", "create po", "new po"], gap: { name: "Purchase Order Management", description: "Create, update, and approve purchase orders", category: "Accounting" } },
+  { keywords: ["invoice", "invoices", "analyze invoice", "review invoice", "flag invoice", "vendor invoice", "ap invoice", "post invoice", "create invoice"], gap: { name: "Invoice Management", description: "Create, analyze, flag, or manage vendor invoices and AP workflows", category: "Accounting" } },
+  { keywords: ["gl account", "general ledger", "chart of accounts", "coa"], gap: { name: "GL Account Management", description: "Create, update, and manage general ledger accounts and chart of accounts", category: "Accounting" } },
+  { keywords: ["ap payment run", "payment run", "bulk payment", "pay vendors"], gap: { name: "AP Payment Runs", description: "Initiate and manage bulk accounts payable payment runs", category: "Accounting" } },
+  { keywords: ["budget", "budget vs actual", "create budget"], gap: { name: "Budget Management", description: "Create, update, and manage property budgets", category: "Accounting" } },
+  { keywords: ["bank reconciliation", "reconcile bank", "bank rec"], gap: { name: "Bank Reconciliation", description: "Perform and manage bank reconciliation processes", category: "Accounting" } },
+  { keywords: ["financial statement", "balance sheet", "income statement", "cash flow statement", "p&l"], gap: { name: "Financial Statements", description: "Generate balance sheets, income statements, and cash flow reports", category: "Accounting" } },
+  { keywords: ["journal entry", "journal entries", "manual entry", "adjusting entry"], gap: { name: "Journal Entries", description: "Create, post, and reverse manual journal entries", category: "Accounting" } },
+  { keywords: ["1099", "tax form", "vendor tax"], gap: { name: "1099 Processing", description: "Generate and manage 1099 tax forms for vendors", category: "Accounting" } },
+  { keywords: ["write-off", "write off", "uncollectable", "bad debt"], gap: { name: "AR Write-offs", description: "Write off uncollectable resident balances", category: "Accounting" } },
+];
+
 function analyzePromptFallback(prompt: string): RoutingDecision {
   const lower = prompt.toLowerCase();
   const matches: CapabilityMatch[] = [];
@@ -312,6 +356,13 @@ function analyzePromptFallback(prompt: string): RoutingDecision {
     }
   }
 
+  const detectedGaps: ConnectorGap[] = [];
+  for (const gap of CONNECTOR_GAP_SIGNALS) {
+    if (gap.keywords.some((kw) => lower.includes(kw))) {
+      detectedGaps.push(gap.gap);
+    }
+  }
+
   const entrataCount = matches.filter((m) => m.source === "entrata").length;
   const workatoCount = matches.filter((m) => m.source === "workato").length;
 
@@ -325,11 +376,15 @@ function analyzePromptFallback(prompt: string): RoutingDecision {
     confidence = Math.min(0.85, 0.5 + workatoCount * 0.1);
   } else if (entrataCount > 0) {
     engine = "entrata-native";
-    reasoning = `All detected capabilities are available through Entrata's internal MCP servers. No external connectors required.`;
+    reasoning = detectedGaps.length > 0
+      ? `This workflow involves Entrata-internal operations, but some of the requested capabilities (${detectedGaps.map((g) => g.name).join(", ")}) do not have connectors built yet.`
+      : `All detected capabilities are available through Entrata's internal MCP servers. No external connectors required.`;
     confidence = Math.min(0.85, 0.5 + entrataCount * 0.1);
   } else {
     engine = "entrata-native";
-    reasoning = "No specific connectors detected — defaulting to Entrata's in-house builder. Note: analysis was performed without LLM assistance.";
+    reasoning = detectedGaps.length > 0
+      ? `The requested capabilities (${detectedGaps.map((g) => g.name).join(", ")}) are Entrata-internal operations but do not have connectors built yet.`
+      : "No specific connectors detected — defaulting to Entrata's in-house builder. Note: analysis was performed without LLM assistance.";
     confidence = 0.4;
   }
 
@@ -343,6 +398,7 @@ function analyzePromptFallback(prompt: string): RoutingDecision {
     costImpact: getCostImpact(engine, workatoCount),
     externalSystems: detectedExternal,
     source: "fallback",
+    connectorGaps: detectedGaps,
   };
 }
 

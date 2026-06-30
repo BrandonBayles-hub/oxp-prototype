@@ -70,7 +70,7 @@ import {
 import { inferFromPrompt, inferSuccessMetrics } from "../../lib/custom-agents-inference";
 import { formatCurrency } from "../../lib/custom-agents-cost";
 import { DEFAULT_GUARDRAILS } from "../../lib/default-guardrails";
-import { MCP_SERVER_CATALOG, type McpServerDefinition, type McpTool } from "../../lib/mcp-server-catalog";
+import { MCP_SERVER_CATALOG, type McpServerDefinition, type McpTool, deriveMcpServersFromToolIds } from "../../lib/mcp-server-catalog";
 import { formatMetricValue, computeTrend } from "../../lib/success-metrics";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -569,16 +569,74 @@ export function AgentBuilderWizard({ agentId, versionNumber, onClose, onAgentCre
   );
 }
 
-/* ─────────── Step 1: Name + classification + prompt + guardrails ─────────── */
+/* ─────────── Step 1: Name + description → LLM generates prompt + MCPs ─────────── */
+
+import { callClientLLM, isClientLLMConfigured } from "@/lib/llm-client";
+
+type NameStepPhase = "describe" | "generating" | "review";
+
+function buildAgentGenPrompt(): string {
+  const mcpList = [
+    "- Leasing MCP: leasing.search_leads, leasing.get_lead, leasing.capture_lead, leasing.update_guest_card, leasing.get_tour_schedule, leasing.schedule_tour, leasing.get_floorplans, leasing.available_units, leasing.get_properties, leasing.get_property, leasing.property_amenities, leasing.property_policies, leasing.fee_catalog",
+    "- Maintenance MCP: maintenance.create_work_order, maintenance.get_work_order, maintenance.update_work_order, maintenance.close_work_order, maintenance.list_work_orders, maintenance.get_problems_catalog, maintenance.dispatch_vendor",
+    "- Accounting MCP: accounting.get_resident_ledger, accounting.post_charge, accounting.waive_fee, accounting.approve_pre_bill, accounting.reject_pre_bill, accounting.get_pre_bill_batch, accounting.post_invoice, accounting.get_invoice",
+    "- Renewals MCP: renewals.get_expiring_leases, renewals.create_renewal_offer, renewals.get_renewal_offer, renewals.get_market_rent, renewals.get_resident_history",
+    "- Communications MCP: comms.send_sms, comms.send_email, comms.reply_message, comms.get_thread, comms.warm_transfer, comms.take_message",
+    "- Residents MCP: residents.get_resident, residents.verify_identity, residents.get_lease, residents.post_note, residents.get_balance",
+  ].join("\n");
+
+  return `You are an expert at creating AI agent configurations for Entrata, a property management software platform.
+
+Given an agent name and a short description of what the agent should do, you must generate:
+1. A comprehensive system prompt for the agent
+2. The appropriate classification level
+3. The MCP tools/skills the agent will need
+4. Relevant data sources
+5. Custom guardrails specific to the agent's function
+
+## Available MCP Tools
+${mcpList}
+
+## Classification Levels
+- L1: Human reviews every action before execution (most conservative)
+- L2: Human reviews high-risk actions; routine actions auto-execute
+- L3: Fully autonomous within guardrails; escalates edge cases
+- L4: Conversational AI that interacts directly with residents/staff via chat, SMS, or voice
+- L5: Multi-agent orchestration (not yet available)
+
+## Output Format
+Return a JSON object:
+{
+  "prompt": "The full system prompt for the agent...",
+  "classification": "L3 or L4 etc.",
+  "skillIds": ["tool.id", "tool.id"],
+  "dataIds": ["data-source-id"],
+  "guardrails": "Custom guardrails text, one rule per line",
+  "suggestedTriggers": ["trigger description"]
+}
+
+Write a thorough, production-quality system prompt that includes:
+- Agent identity and purpose
+- Core responsibilities and behavior rules
+- Decision framework / conversation guidelines
+- Escalation rules
+- Constraints and boundaries
+
+Return ONLY the JSON object.`;
+}
 
 function NameStep({ version, patch }: { version: AgentVersion; patch: (p: Partial<AgentVersion>) => void }) {
   const selectedClassification = AGENT_CLASSIFICATION_OPTIONS.find(
     (o) => o.value === version.classification
   );
-  const [aiHelperOpen, setAiHelperOpen] = useState(false);
-  const [aiSuggestion, setAiSuggestion] = useState("");
-  const [aiLoading, setAiLoading] = useState(false);
+  const [nameStepPhase, setNameStepPhase] = useState<NameStepPhase>(
+    version.prompt.trim().length > 0 ? "review" : "describe"
+  );
+  const [shortDescription, setShortDescription] = useState("");
+  const [generatingStep, setGeneratingStep] = useState(0);
   const [disableConfirmId, setDisableConfirmId] = useState<string | null>(null);
+  const [aiChangeRequest, setAiChangeRequest] = useState("");
+  const [aiChangeLoading, setAiChangeLoading] = useState(false);
 
   const guardrails = version.structuredGuardrails ?? DEFAULT_GUARDRAILS.map((g) => ({ ...g }));
   if (!version.structuredGuardrails) {
@@ -609,26 +667,121 @@ function NameStep({ version, patch }: { version: AgentVersion; patch: (p: Partia
     setDisableConfirmId(null);
   };
 
-  const generateAiSuggestion = () => {
-    setAiLoading(true);
-    setTimeout(() => {
-      const name = version.name || "your agent";
-      const cls = version.classification ?? "L3";
-      let suggestion = "";
-      if (cls === "L3") {
-        suggestion = `You are ${name}, a workflow automation agent for Entrata property management.\n\n## Core Behavior\n- Execute the assigned task autonomously when triggered\n- Follow the decision rules exactly as configured\n- Log every action taken for audit purposes\n\n## Decision Framework\n- [DESCRIBE: What data should the agent check?]\n- [DESCRIBE: What thresholds or conditions trigger action?]\n- [DESCRIBE: What should happen when conditions are met vs. not met?]\n\n## Escalation Rules\n- Escalate to a human reviewer when:\n  - The data falls outside expected ranges\n  - Multiple conflicting signals are present\n  - The task involves an amount exceeding [THRESHOLD]\n\n## Constraints\n- Never modify data outside the scope of this task\n- Always include the reason for each decision in the audit log\n- Process records in order of priority, not arrival time`;
+  const handleGenerateFromDescription = async () => {
+    if (!version.name.trim() || !shortDescription.trim()) return;
+    setNameStepPhase("generating");
+    setGeneratingStep(0);
+
+    const genSteps = [
+      "Understanding your agent's purpose...",
+      "Selecting relevant MCP tools and data sources...",
+      "Writing system prompt...",
+      "Configuring guardrails and escalation rules...",
+    ];
+    let stepIdx = 0;
+    const interval = setInterval(() => {
+      stepIdx = Math.min(stepIdx + 1, genSteps.length - 1);
+      setGeneratingStep(stepIdx);
+    }, 1500);
+
+    try {
+      if (isClientLLMConfigured()) {
+        const result = await callClientLLM(
+          [
+            { role: "system", content: buildAgentGenPrompt() },
+            { role: "user", content: `Agent name: ${version.name}\n\nDescription: ${shortDescription}` },
+          ],
+          { temperature: 0.3, maxTokens: 4000 },
+        );
+
+        const parsed = JSON.parse(result.content.match(/\{[\s\S]*\}/)?.[0] ?? result.content);
+        clearInterval(interval);
+
+        const generatedSkills: string[] = parsed.skillIds ?? [];
+        patch({
+          prompt: parsed.prompt ?? "",
+          classification: parsed.classification as AgentClassification | undefined,
+          skillIds: generatedSkills,
+          dataIds: parsed.dataIds ?? [],
+          guardrails: parsed.guardrails ?? "",
+          mcpServers: deriveMcpServersFromToolIds(generatedSkills),
+        });
       } else {
-        suggestion = `You are ${name}, a conversational AI assistant for Entrata property management.\n\n## Personality & Tone\n- Professional, helpful, and empathetic\n- Match the resident's communication style (formal/casual)\n- Keep responses concise but thorough\n\n## Core Responsibilities\n- [DESCRIBE: What topics should this agent handle?]\n- [DESCRIBE: What information can it access?]\n- [DESCRIBE: What actions can it take?]\n\n## Conversation Guidelines\n- Greet the resident and confirm their identity before sharing account details\n- Ask clarifying questions when the request is ambiguous\n- Summarize actions taken at the end of the conversation\n\n## Boundaries\n- Never provide legal advice or interpret lease terms as legal guidance\n- Do not share information about other residents\n- Escalate to a human when:\n  - The resident is upset or frustrated\n  - The request involves lease modifications\n  - You are unsure about the correct answer\n\n## Knowledge Sources\n- Property knowledge base for FAQs and policies\n- Resident ledger for account-specific questions\n- Work order system for maintenance requests`;
+        await new Promise((r) => setTimeout(r, 4000));
+        clearInterval(interval);
+
+        const isConversational = shortDescription.toLowerCase().match(/chat|convers|talk|message|respond|sms|voice|call|resident/);
+        const cls = isConversational ? "L4" : "L3";
+
+        const generatedPrompt = isConversational
+          ? `You are ${version.name}, a conversational AI assistant for Entrata property management.\n\n## Purpose\n${shortDescription}\n\n## Personality & Tone\n- Professional, helpful, and empathetic\n- Match the resident's communication style (formal/casual)\n- Keep responses concise but thorough\n\n## Core Responsibilities\n- Handle the specific task described above\n- Access relevant data through the connected MCP tools\n- Log all interactions for audit purposes\n\n## Conversation Guidelines\n- Greet the user and confirm their identity before sharing account details\n- Ask clarifying questions when the request is ambiguous\n- Summarize actions taken at the end of the conversation\n\n## Boundaries\n- Never provide legal advice or interpret lease terms as legal guidance\n- Do not share information about other residents\n- Escalate to a human when:\n  - The user is upset, frustrated, or threatening\n  - The request involves lease modifications or financial adjustments\n  - You are unsure about the correct answer`
+          : `You are ${version.name}, a workflow automation agent for Entrata property management.\n\n## Purpose\n${shortDescription}\n\n## Core Behavior\n- Execute the assigned task autonomously when triggered\n- Follow the decision rules exactly as configured\n- Log every action taken for audit purposes\n\n## Decision Framework\n- Evaluate each record against the configured criteria\n- Apply the appropriate action based on the evaluation result\n- Skip records that fall outside the scope of this agent\n\n## Escalation Rules\n- Escalate to a human reviewer when:\n  - Data falls outside expected ranges\n  - Multiple conflicting signals are present\n  - The task involves high-sensitivity operations\n\n## Constraints\n- Never modify data outside the scope of this task\n- Always include the reason for each decision in the audit log\n- Process records in order of priority, not arrival time`;
+
+        const skillGuess: string[] = [];
+        const desc = shortDescription.toLowerCase();
+        if (desc.includes("resident") || desc.includes("lease")) skillGuess.push("residents.get_resident", "residents.get_lease");
+        if (desc.includes("balance") || desc.includes("payment") || desc.includes("ledger")) skillGuess.push("accounting.get_resident_ledger", "residents.get_balance");
+        if (desc.includes("maintenance") || desc.includes("work order") || desc.includes("repair")) skillGuess.push("maintenance.create_work_order", "maintenance.list_work_orders");
+        if (desc.includes("renewal") || desc.includes("renew")) skillGuess.push("renewals.get_expiring_leases", "renewals.create_renewal_offer", "renewals.get_market_rent");
+        if (desc.includes("tour") || desc.includes("lead") || desc.includes("leasing")) skillGuess.push("leasing.search_leads", "leasing.get_tour_schedule");
+        if (desc.includes("sms") || desc.includes("email") || desc.includes("message") || desc.includes("notify") || desc.includes("send")) skillGuess.push("comms.send_sms", "comms.send_email");
+        if (desc.includes("vendor") || desc.includes("dispatch")) skillGuess.push("maintenance.dispatch_vendor");
+
+        const dedupedSkills = [...new Set(skillGuess)];
+        patch({
+          prompt: generatedPrompt,
+          classification: cls as AgentClassification,
+          skillIds: dedupedSkills,
+          mcpServers: deriveMcpServersFromToolIds(dedupedSkills),
+        });
       }
-      setAiSuggestion(suggestion);
-      setAiLoading(false);
-    }, 1200);
+
+      setNameStepPhase("review");
+    } catch (err) {
+      console.error("Agent generation failed:", err);
+      clearInterval(interval);
+      setNameStepPhase("describe");
+    }
   };
 
-  const applyAiSuggestion = () => {
-    patch({ prompt: aiSuggestion });
-    setAiHelperOpen(false);
-    setAiSuggestion("");
+  const handleAiChangeRequest = async () => {
+    if (!aiChangeRequest.trim()) return;
+    setAiChangeLoading(true);
+
+    try {
+      if (isClientLLMConfigured()) {
+        const result = await callClientLLM(
+          [
+            { role: "system", content: buildAgentGenPrompt() },
+            {
+              role: "user",
+              content: `Agent name: ${version.name}\n\nCurrent prompt:\n${version.prompt}\n\nCurrent skills: ${(version.skillIds ?? []).join(", ")}\nCurrent classification: ${version.classification ?? "not set"}\nCurrent guardrails: ${version.guardrails}\n\nRequested change: ${aiChangeRequest}`,
+            },
+          ],
+          { temperature: 0.3, maxTokens: 4000 },
+        );
+
+        const parsed = JSON.parse(result.content.match(/\{[\s\S]*\}/)?.[0] ?? result.content);
+        const updatedSkills: string[] = parsed.skillIds ?? version.skillIds ?? [];
+        patch({
+          prompt: parsed.prompt ?? version.prompt,
+          classification: parsed.classification as AgentClassification | undefined ?? version.classification,
+          skillIds: updatedSkills,
+          dataIds: parsed.dataIds ?? version.dataIds,
+          guardrails: parsed.guardrails ?? version.guardrails,
+          mcpServers: deriveMcpServersFromToolIds(updatedSkills),
+        });
+      } else {
+        await new Promise((r) => setTimeout(r, 2000));
+        const currentPrompt = version.prompt;
+        patch({ prompt: currentPrompt + `\n\n## Additional: ${aiChangeRequest}` });
+      }
+    } catch (err) {
+      console.error("AI change request failed:", err);
+    } finally {
+      setAiChangeLoading(false);
+      setAiChangeRequest("");
+    }
   };
 
   const inferredModel = useMemo(() => {
@@ -646,13 +799,122 @@ function NameStep({ version, patch }: { version: AgentVersion; patch: (p: Partia
 
   const confirmGuard = disableConfirmId ? guardrails.find((g) => g.id === disableConfirmId) : null;
 
+  const generatingSteps = [
+    "Understanding your agent's purpose...",
+    "Selecting relevant MCP tools and data sources...",
+    "Writing system prompt...",
+    "Configuring guardrails and escalation rules...",
+  ];
+
+  if (nameStepPhase === "describe") {
+    return (
+      <section className="max-w-3xl">
+        <h2 className="font-heading text-lg text-foreground">Create your agent</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Name your agent and describe what you want it to do. AI will generate the full configuration for you.
+        </p>
+
+        <div className="mt-6">
+          <label className="mb-1.5 block text-xs font-medium text-muted-foreground" htmlFor="agent-name">
+            Agent name
+          </label>
+          <Input
+            id="agent-name"
+            value={version.name}
+            onChange={(e) => patch({ name: e.target.value })}
+            placeholder="e.g. Move-in Checklist Coordinator"
+            autoFocus
+          />
+        </div>
+
+        <div className="mt-5">
+          <label className="mb-1.5 block text-xs font-medium text-muted-foreground" htmlFor="agent-desc">
+            What should this agent do?
+          </label>
+          <p className="mb-1.5 text-[11px] leading-snug text-muted-foreground">
+            Describe in a few sentences what this agent should accomplish. Be specific about who it interacts with, what actions it takes, and when it should run.
+          </p>
+          <textarea
+            id="agent-desc"
+            value={shortDescription}
+            onChange={(e) => setShortDescription(e.target.value)}
+            rows={4}
+            placeholder="e.g. When a resident's lease expiration is within 90 days, analyze their payment history and market rent data to generate an optimized renewal offer. Send the offer via email and follow up via SMS if no response within 5 days."
+            className="w-full rounded-md border border-border bg-white px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+        </div>
+
+        <div className="mt-6">
+          <Button
+            onClick={handleGenerateFromDescription}
+            disabled={!version.name.trim() || !shortDescription.trim()}
+            className="w-full bg-indigo-600 text-white hover:bg-indigo-700"
+          >
+            <Sparkles className="mr-2 h-4 w-4" />
+            Generate Agent Configuration
+          </Button>
+          <p className="mt-2 text-center text-[11px] text-muted-foreground">
+            AI will write the system prompt, select MCP tools, and configure guardrails based on your description.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  if (nameStepPhase === "generating") {
+    return (
+      <section className="max-w-3xl">
+        <div className="flex flex-col items-center py-12">
+          <div className="relative mb-6 flex h-16 w-16 items-center justify-center">
+            <Sparkles className="h-8 w-8 text-indigo-600 animate-pulse" />
+            <div className="absolute inset-0 rounded-full border-2 border-indigo-200 border-t-indigo-600 animate-spin" />
+          </div>
+          <h2 className="text-lg font-semibold text-foreground">Generating agent configuration</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Building &ldquo;{version.name}&rdquo; from your description...</p>
+          <div className="mt-8 w-full max-w-sm space-y-3">
+            {generatingSteps.map((step, i) => (
+              <div
+                key={i}
+                className={`flex items-center gap-3 rounded-lg border px-4 py-2.5 transition-all ${
+                  i < generatingStep ? "border-indigo-200 bg-indigo-50"
+                  : i === generatingStep ? "border-indigo-300 bg-indigo-50 shadow-sm"
+                  : "border-border bg-white opacity-40"
+                }`}
+              >
+                {i < generatingStep ? <Check className="h-4 w-4 text-indigo-600" />
+                  : i === generatingStep ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-300 border-t-indigo-600" />
+                  : <div className="h-4 w-4 rounded-full border-2 border-border" />}
+                <span className={`text-sm ${i <= generatingStep ? "font-medium text-foreground" : "text-muted-foreground"}`}>
+                  {step}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="max-w-3xl">
-      <h2 className="font-heading text-lg text-foreground">Name your agent</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Pick something short and descriptive, tell us what it should do, and set any hard rules.
-      </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-heading text-lg text-foreground">Review agent configuration</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            AI generated this configuration from your description. Edit anything manually or request changes below.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setNameStepPhase("describe")}
+          className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-200 transition-colors"
+        >
+          <ChevronLeft className="h-3 w-3" />
+          Start over
+        </button>
+      </div>
 
+      {/* Agent Name */}
       <div className="mt-6">
         <label className="mb-1.5 block text-xs font-medium text-muted-foreground" htmlFor="agent-name">
           Agent name
@@ -662,10 +924,10 @@ function NameStep({ version, patch }: { version: AgentVersion; patch: (p: Partia
           value={version.name}
           onChange={(e) => patch({ name: e.target.value })}
           placeholder="e.g. Auto-approve clean pre-bills"
-          autoFocus
         />
       </div>
 
+      {/* Classification */}
       <div className="mt-5">
         <label className="mb-1.5 block text-xs font-medium text-muted-foreground" htmlFor="agent-classification">
           Classification
@@ -690,64 +952,78 @@ function NameStep({ version, patch }: { version: AgentVersion; patch: (p: Partia
         )}
       </div>
 
-      {/* ── Prompt with AI Helper ── */}
+      {/* ── Generated Prompt ── */}
       <div className="mt-6">
         <div className="mb-1.5 flex items-center justify-between">
-          <label className="block text-xs font-medium text-muted-foreground" htmlFor="agent-prompt">Prompt</label>
-          <button
-            type="button"
-            onClick={() => { setAiHelperOpen(!aiHelperOpen); if (!aiHelperOpen && !aiSuggestion) generateAiSuggestion(); }}
-            className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100 transition-colors"
-          >
-            <Sparkles className="h-3 w-3" />
-            AI prompt helper
-          </button>
+          <label className="block text-xs font-medium text-muted-foreground" htmlFor="agent-prompt">System Prompt</label>
+          <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-600">
+            <Sparkles className="h-2.5 w-2.5" /> AI-generated
+          </span>
         </div>
-        <p className="mb-1.5 text-[11px] leading-snug text-muted-foreground">
-          The prompt is the instructions that tell the agent what it should do, what it shouldn&apos;t do, and when it should escalate to a human. Be specific about how you want it to behave in different scenarios.
-        </p>
-
-        {aiHelperOpen && (
-          <div className="mb-3 rounded-lg border border-indigo-200 bg-indigo-50/50 p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Sparkles className="h-4 w-4 text-indigo-600" />
-              <h4 className="text-sm font-semibold text-indigo-900">AI Prompt Helper</h4>
-            </div>
-            <p className="text-[11px] text-indigo-800/80 mb-3">
-              We generated a structured prompt template based on your agent&apos;s name and classification. Review it, customize the [DESCRIBE] sections, then apply it to your prompt.
-            </p>
-            {aiLoading ? (
-              <div className="flex items-center gap-2 py-4 text-sm text-indigo-600">
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-300 border-t-indigo-600" />
-                Generating prompt template...
-              </div>
-            ) : (
-              <>
-                <textarea
-                  value={aiSuggestion}
-                  onChange={(e) => setAiSuggestion(e.target.value)}
-                  rows={10}
-                  className="w-full rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm text-foreground font-mono text-[12px] focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                />
-                <div className="mt-2 flex items-center gap-2">
-                  <Button size="sm" onClick={applyAiSuggestion}>Apply to prompt</Button>
-                  <Button size="sm" variant="outline" onClick={generateAiSuggestion}>Regenerate</Button>
-                  <Button size="sm" variant="ghost" onClick={() => setAiHelperOpen(false)}>Cancel</Button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
         <textarea
           id="agent-prompt"
           value={version.prompt}
           onChange={(e) => patch({ prompt: e.target.value })}
-          rows={7}
-          placeholder="When a utility pre-bill is pending approval, check the gross recapture percentage. If gross recapture is above 95%, approve the pre-bill. Otherwise, leave it for a human to review."
-          className="w-full rounded-md border border-border bg-white px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          rows={10}
+          placeholder="System prompt will be generated..."
+          className="w-full rounded-md border border-border bg-white px-3 py-2 text-sm text-foreground font-mono text-[12px] placeholder:text-muted-foreground focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
         />
       </div>
+
+      {/* ── Request AI Changes ── */}
+      <div className="mt-4 rounded-lg border border-indigo-200 bg-indigo-50/50 p-4">
+        <div className="flex items-center gap-2 mb-2">
+          <Sparkles className="h-4 w-4 text-indigo-600" />
+          <h4 className="text-sm font-semibold text-indigo-900">Request changes via AI</h4>
+        </div>
+        <p className="text-[11px] text-indigo-800/70 mb-2">
+          Describe what you&apos;d like to change and AI will update the prompt, tools, and guardrails.
+        </p>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={aiChangeRequest}
+            onChange={(e) => setAiChangeRequest(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleAiChangeRequest(); } }}
+            placeholder="e.g. Add SMS follow-up after 3 days, include Fair Housing compliance..."
+            className="flex-1 rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+          />
+          <Button
+            size="sm"
+            onClick={handleAiChangeRequest}
+            disabled={!aiChangeRequest.trim() || aiChangeLoading}
+            className="shrink-0 bg-indigo-600 text-white hover:bg-indigo-700"
+          >
+            {aiChangeLoading ? <div className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : <Sparkles className="h-3 w-3" />}
+          </Button>
+        </div>
+      </div>
+
+      {/* ── Auto-wired MCP Tools summary ── */}
+      {(version.skillIds ?? []).length > 0 && (
+        <div className="mt-5 rounded-lg border border-emerald-200 bg-emerald-50/40 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Wrench className="h-4 w-4 text-emerald-600" />
+            <h4 className="text-sm font-semibold text-emerald-900">
+              Auto-wired Tools ({(version.skillIds ?? []).length})
+            </h4>
+          </div>
+          <p className="text-[11px] text-emerald-700 mb-3">
+            These MCP tools were selected based on your agent&apos;s description. You can modify them in the Data &amp; Skills step.
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {(version.skillIds ?? []).map((toolId) => {
+              const tool = MCP_SERVER_CATALOG.flatMap((s) => s.tools).find((t) => t.id === toolId);
+              return (
+                <span key={toolId} className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-white px-2.5 py-0.5 text-[10px] font-medium text-emerald-800">
+                  <Database className="h-2.5 w-2.5" />
+                  {tool?.name ?? toolId}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── Security Guardrails (locked — always on) ── */}
       <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50/50 p-5">
