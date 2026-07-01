@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useTools } from "@/lib/tools-context";
 import { useGovernance } from "@/lib/governance-context";
 import { useAgentCompliance } from "@/lib/use-agent-compliance";
@@ -62,6 +63,17 @@ import { RenewalsFullPage } from "@/components/eli-plus-setup/pages/RenewalsFull
 import { LeasingAISettingsPanel } from "@/components/leasing-ai-settings-panel";
 import { MaintenanceAISettingsPanel } from "@/components/maintenance-ai-settings-panel";
 import { RenewalsAISettingsPanel } from "@/components/renewals-ai-settings-panel";
+import { PaymentsAISettingsPanel } from "@/components/payments-ai-settings-panel";
+import { PaymentsAIBulkPropertySelector } from "@/components/payments-ai/bulk-property-selector";
+import {
+  buildPaymentsAIBulkCategories,
+  getSelectedGroupLabels,
+  type BulkSelectionScope,
+} from "@/lib/payments-ai-property-groups";
+import {
+  getSettingValueByName,
+  resolvePropertySettings,
+} from "@/lib/payments-ai-property-settings";
 import { InternalDemoPanel } from "@/components/internal-demo-panel";
 import { LeadToLeaseSettings } from "@/components/lead-to-lease-settings";
 import { L3AgentSheet, getL3AgentConfig } from "@/components/l3-agent-flyout";
@@ -3479,37 +3491,24 @@ const AGENT_SETTINGS_TABS: Record<string, TabDef[]> = {
     ]},
   ],
   "Payments AI": [
-    { id: "property", label: "Property Info", settings: [
-      { name: "Primary Address", description: "The property's physical address used in resident communications." },
-      { name: "Business Hours", description: "Set operating hours for payment-related support at this property." },
-      { name: "Contact Points", description: "Review contact points to ensure residents don't receive duplicate communication." },
-      { name: "ELI+ Dashboard Permissions", description: "Permission users who directly manage the ELI+ console for this property." },
-    ]},
     { id: "payment-info", label: "Payment Info", settings: [
       { name: "Rent Charge Date", description: "The day of the month when rent charges are posted to resident accounts." },
-      { name: "Rent Due Date", description: "The day of the month when rent payment is due." },
-      { name: "Payment Plans", description: "Configure whether the community accepts payment plan arrangements." },
-      { name: "Payment Block Day", description: "Set the date after which payments are blocked for the billing period." },
-      { name: "Payment Link", description: "Configure the online payment portal link shared with residents." },
-      { name: "Grace Period Date", description: "Define the number of grace days after the due date before late fees apply." },
-      { name: "Balance Reminder Date", description: "Set when automated balance reminders are sent to residents." },
-      { name: "Outstanding Balance Amount", description: "Configure the threshold amount that triggers collection notifications." },
-      { name: "Eviction Month", description: "Set the month in which eviction proceedings may begin for non-payment." },
-      { name: "Eviction Date", description: "Define the specific date when eviction filings are initiated." },
-    ]},
-    { id: "payment-options", label: "Payment Options", settings: [
-      { name: "Accepted Payment Methods", description: "Select which payment methods are accepted — online, cash, check, money order, etc." },
-      { name: "Installment Options", description: "Configure whether residents can pay in installments or full payments only." },
-      { name: "Address Recipient", description: "Set the payable-to name and address for mailed payments." },
+      { name: "Payment Block Days", description: "Set the date after which payments are blocked for the billing period." },
+      { name: "Accepted Payment Types", description: "Select which payment methods are accepted, including ACH, Card, MoneyGram, etc." },
+      { name: "Partial Payments", description: "Configure whether residents may pay less than their full balance and related partial payment rules." },
+      { name: "Lease Status Payment Allowances", description: "Define which lease statuses are permitted to make online payments." },
+      { name: "Auto Payments", description: "Configure autopay enrollment, scheduling, and related resident portal settings." },
+      { name: "Pre Payments", description: "Configure whether and how residents can pay before charges are posted for the billing period." },
+      { name: "Late Payments", description: "Configure rules for accepting and processing late payments." },
+      { name: "Repayment Agreement Policy", description: "Set repayment agreement terms, eligibility criteria, and agreement details." },
     ]},
     { id: "policies", label: "Policies", settings: [
+      { name: "Standard Rent Reminders", description: "Review Rent Reminder contact point settings to determine how standard rent reminders will be delivered." },
+      { name: "Delinquency Notices", description: "Review delinquency notice delivery settings to determine how delinquency notices will be delivered" },
+      { name: "Collections Policy", description: "Review collections notice settings to determine how collections notices will be delivered." },
+      { name: "Eviction Date", description: "The specific date when eviction filings are initiated." },
+      { name: "Past Resident Login Window", description: "The number of days a resident with the lease status of Past can login to make online payments." },
       { name: "Late Fee Policy", description: "Define late fee amounts, calculation methods, and escalation rules." },
-      { name: "Payment Plan Policy", description: "Set payment plan terms, eligibility criteria, and agreement details." },
-    ]},
-    { id: "marketing", label: "Marketing", settings: [
-      { name: "Prospect Portal", description: "Configure the prospect-facing portal used for this property." },
-      { name: "Property Website", description: "Set the property website URL shared in resident communications." },
-      { name: "Privacy Policy", description: "Link to the privacy policy displayed to residents during interactions." },
     ]},
   ],
   "Maintenance AI": [
@@ -6282,6 +6281,11 @@ function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: 
   const tabs = AGENT_SETTINGS_TABS[agentName] ?? [];
   const agentSubPages = useMemo(() => getAgentSubPages(agentName), [agentName]);
   const [activeNav, setActiveNav] = useState<SettingsNav>("property");
+  const isPaymentsAI = agentName === "Payments AI";
+  const resolvedPropertySettings = useMemo(
+    () => (isPaymentsAI ? resolvePropertySettings(property.id, property.name) : null),
+    [isPaymentsAI, property.id, property.name],
+  );
   // Count simulations the user has started in the Simulation tab for THIS property.
   // Component remounts per property, so the counter is automatically per-property.
   const [simulationCount, setSimulationCount] = useState(0);
@@ -6342,12 +6346,61 @@ function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: 
             <p className="text-sm text-muted-foreground mt-1.5">
               To help ELI+ perform to the next level, please review and configure these settings in the Entrata platform.
             </p>
+            {isPaymentsAI && (
+              <div className="mt-4 flex gap-3 rounded-lg border border-border bg-muted/40 px-4 py-3">
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  The settings listed below are a summarized view of this property&apos;s payment configuration. Navigate to{" "}
+                  <span className="font-medium text-foreground">Property Settings</span> in Entrata for a comprehensive view of all settings.
+                </p>
+              </div>
+            )}
             <div className="mt-8 space-y-10">
+              <TooltipProvider delayDuration={200}>
               {tabs.map(section => (
                 <div key={section.id}>
                   <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">{section.label}</h3>
                   <div className="space-y-3">
                     {section.settings.map(setting => (
+                      isPaymentsAI ? (
+                      <button
+                        key={setting.name}
+                        type="button"
+                        className="w-full flex items-center gap-4 rounded-xl border border-border bg-white p-4 text-left transition-all hover:border-zinc-400 hover:shadow-md group"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-sm font-semibold text-foreground">{setting.name}</p>
+                            {setting.description && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span
+                                    className="inline-flex rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    onClick={(e) => e.stopPropagation()}
+                                    onKeyDown={(e) => e.stopPropagation()}
+                                    aria-label={`About ${setting.name}`}
+                                  >
+                                    <Info className="h-3.5 w-3.5" aria-hidden />
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-xs text-left leading-snug">
+                                  {setting.description}
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                          </div>
+                          {resolvedPropertySettings && (() => {
+                            const resolvedValue = getSettingValueByName(resolvedPropertySettings, setting.name);
+                            return resolvedValue ? (
+                              <p className="text-xs font-medium text-foreground mt-1 leading-relaxed">{resolvedValue}</p>
+                            ) : null;
+                          })()}
+                        </div>
+                        <div className="h-8 w-8 rounded-full bg-zinc-900 flex items-center justify-center shrink-0 group-hover:bg-zinc-700 transition-colors">
+                          {setting.link ? <ExternalLink className="h-4 w-4 text-white" /> : <ArrowRight className="h-4 w-4 text-white" />}
+                        </div>
+                      </button>
+                      ) : (
                       <a
                         key={setting.name}
                         href={setting.link ?? "#"}
@@ -6366,10 +6419,12 @@ function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: 
                           {setting.link ? <ExternalLink className="h-4 w-4 text-white" /> : <ArrowRight className="h-4 w-4 text-white" />}
                         </div>
                       </a>
+                      )
                     ))}
                   </div>
                 </div>
               ))}
+              </TooltipProvider>
             </div>
           </div>
         ) : activeNav === "agent-settings" ? (
@@ -6380,6 +6435,14 @@ function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: 
                 agentDisplayLabel={`ELI+ ${agentName}`}
                 simulationCount={simulationCount}
                 onOpenSimulation={() => setActiveNav("internal-demo")}
+              />
+            </div>
+          ) : agentName === "Payments AI" ? (
+            <div className="relative h-full">
+              <PaymentsAISettingsPanel
+                propertyName={property.name}
+                propertyId={property.id}
+                agentDisplayLabel={`ELI+ ${agentName}`}
               />
             </div>
           ) : agentName === "Maintenance AI" ? (
@@ -6441,6 +6504,17 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
   const [sortField, setSortField] = useState<"name" | "vertical" | "status">("name");
   const [sortAsc, setSortAsc] = useState(true);
   const [activatePopover, setActivatePopover] = useState<string | null>(null);
+  const isPaymentsAI = agentName === "Payments AI";
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkApplied, setBulkApplied] = useState<{ sections: string[]; count: number } | null>(null);
+  const [bulkSelectMode, setBulkSelectMode] = useState(false);
+  const [bulkSelectionScope, setBulkSelectionScope] = useState<BulkSelectionScope>("property-groups");
+  const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(() => new Set());
+  const exitBulkSelect = () => {
+    setBulkSelectMode(false);
+    setBulkSelectionScope("property-groups");
+    setBulkSelectedIds(new Set());
+  };
 
   const [cloneOpen, setCloneOpen] = useState(false);
   const [cloneSource, setCloneSource] = useState<string | null>(null);
@@ -6498,6 +6572,12 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
     else { setSortField(field); setSortAsc(true); }
   };
 
+  const bulkSelectedInFiltered = AGENT_FLYOUT_PROPERTIES.filter((p) => bulkSelectedIds.has(p.id));
+  const bulkSelectedGroupLabels = getSelectedGroupLabels(
+    buildPaymentsAIBulkCategories(filtered.map((p) => p.id)),
+    bulkSelectedIds,
+  );
+
   const openPicker = () => { setPickerDraft(new Set(visibleIds)); setPickerSearch(""); setPickerOpen(true); };
   const applyPicker = () => { setVisibleIds(new Set(pickerDraft)); setPickerOpen(false); };
 
@@ -6526,8 +6606,40 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
     );
   }
 
+  if (bulkEditOpen && isPaymentsAI) {
+    return (
+      <div className="flex h-full flex-col">
+        <div className="flex items-center gap-2 border-b border-border bg-white px-6 py-3">
+          <button
+            type="button"
+            onClick={() => setBulkEditOpen(false)}
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-zinc-100 hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" /> Back to {agentName}
+          </button>
+        </div>
+        <div className="relative flex-1 min-h-0">
+          <PaymentsAISettingsPanel
+            propertyName=""
+            agentDisplayLabel={`ELI+ ${agentName}`}
+            bulkMode
+            bulkCount={bulkSelectedInFiltered.length}
+            bulkPropertyNames={bulkSelectedInFiltered.map(p => p.name)}
+            bulkSelectedGroupLabels={bulkSelectedGroupLabels}
+            onBulkApply={(sections) => {
+              setBulkApplied({ sections, count: bulkSelectedInFiltered.length });
+              setBulkEditOpen(false);
+              exitBulkSelect();
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="h-full overflow-y-auto px-8 py-8" onClick={() => activatePopover && setActivatePopover(null)}>
+    <div className="relative flex h-full flex-col">
+    <div className={`h-full overflow-y-auto px-8 py-8 ${bulkSelectMode ? "pb-28" : ""}`} onClick={() => activatePopover && setActivatePopover(null)}>
       <div className="flex items-center gap-2.5">
         <img src="/eli-cube.svg" alt="" width={28} height={28} />
         <h1 className="text-2xl font-bold text-foreground">{agentName}</h1>
@@ -6535,7 +6647,7 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
       <p className="text-sm text-muted-foreground mt-1.5 max-w-xl">{AGENT_FLYOUT_DESCRIPTIONS[agentName] ?? ""}</p>
 
       <div className="mt-8">
-        <div className="flex items-center gap-3 mb-5">
+        <div className="flex flex-wrap items-center gap-3 mb-5">
           <button
             type="button"
             onClick={openPicker}
@@ -6553,8 +6665,37 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
               Clone Settings
             </button>
           )}
+          {isPaymentsAI && (
+            bulkSelectMode ? (
+              <button
+                type="button"
+                onClick={exitBulkSelect}
+                className="h-9 flex items-center gap-2 rounded-lg border border-border bg-white px-4 text-sm font-medium text-foreground hover:border-zinc-400 transition-colors"
+              >
+                <X className="h-3.5 w-3.5" /> Cancel
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setBulkSelectMode(true)}
+                disabled={filtered.length === 0}
+                className="h-9 flex items-center gap-2 rounded-lg border border-border bg-white px-4 text-sm font-medium text-foreground hover:border-zinc-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Pencil className="h-3.5 w-3.5" /> Bulk edit settings
+              </button>
+            )
+          )}
         </div>
 
+        {bulkSelectMode && isPaymentsAI ? (
+          <PaymentsAIBulkPropertySelector
+            properties={filtered}
+            selectedIds={bulkSelectedIds}
+            onSelectedIdsChange={setBulkSelectedIds}
+            scope={bulkSelectionScope}
+            onScopeChange={setBulkSelectionScope}
+          />
+        ) : (
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left">
@@ -6648,7 +6789,41 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
             )}
           </tbody>
         </table>
+        )}
       </div>
+
+      {bulkApplied && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4" onClick={() => setBulkApplied(null)}>
+          <div className="w-full max-w-md rounded-xl bg-white shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start gap-3 px-6 pt-6">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100">
+                <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-base font-bold text-foreground">
+                  {bulkApplied.sections.length === 0
+                    ? "No changes to apply"
+                    : `Applied to ${bulkApplied.count} ${bulkApplied.count === 1 ? "property" : "properties"}`}
+                </h2>
+                <p className="mt-1.5 text-sm text-muted-foreground">
+                  {bulkApplied.sections.length === 0
+                    ? "You didn't change any settings, so nothing was applied."
+                    : <>These areas were applied to the {bulkApplied.count} selected {bulkApplied.count === 1 ? "property" : "properties"}: <strong className="text-foreground">{bulkApplied.sections.join(", ")}</strong>. Per-property settings you didn&apos;t change were left as-is.</>}
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end px-6 py-5">
+              <button
+                type="button"
+                onClick={() => setBulkApplied(null)}
+                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 transition-colors"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {pickerOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onClick={() => setPickerOpen(false)}>
@@ -6906,9 +7081,41 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
         </div>
       )}
     </div>
+
+    {/* Continue bar — slides up once at least one property is selected. */}
+    {isPaymentsAI && (
+      <div
+        className={`absolute inset-x-0 bottom-0 z-40 border-t border-border bg-white px-8 py-4 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] transition-transform duration-300 ease-out ${
+          bulkSelectMode && bulkSelectedInFiltered.length > 0 ? "translate-y-0" : "translate-y-full"
+        }`}
+      >
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-sm text-muted-foreground">
+            <span className="font-semibold text-foreground">{bulkSelectedInFiltered.length}</span>{" "}
+            {bulkSelectedInFiltered.length === 1 ? "property" : "properties"} selected
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={exitBulkSelect}
+              className="h-9 rounded-lg border border-border bg-white px-4 text-sm font-medium text-foreground hover:bg-zinc-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => setBulkEditOpen(true)}
+              className="h-9 flex items-center gap-2 rounded-lg bg-zinc-900 px-5 text-sm font-medium text-white hover:bg-zinc-800 transition-colors"
+            >
+              Continue <ArrowRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </div>
   );
 }
-
 /* ═══════════════════════════════════════════════════════════════════════
    Autonomous Agent Sheet (view/edit/chat with a deployed autonomous agent)
    ═══════════════════════════════════════════════════════════════════════ */
