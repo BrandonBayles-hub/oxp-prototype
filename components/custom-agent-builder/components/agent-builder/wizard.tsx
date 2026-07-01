@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, useRef } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   useCustomAgents,
@@ -124,6 +124,7 @@ import {
   ExternalLink,
   Repeat,
   Users,
+  Loader2,
 } from "lucide-react";
 
 type AgentCreatedPayload = {
@@ -136,6 +137,7 @@ type AgentCreatedPayload = {
   skillIds?: string[];
   structuredGuardrails?: Array<{ label: string; enabled: boolean }>;
   triggers?: string[];
+  versionDescription?: string;
 };
 
 type WizardProps = {
@@ -146,6 +148,10 @@ type WizardProps = {
   onClose?: () => void;
   /** Called after the agent is saved/deployed so the parent can update its own list. */
   onAgentCreated?: (payload: AgentCreatedPayload) => void;
+  /** When true, the agent name field is read-only (edit/new-version mode). */
+  nameReadOnly?: boolean;
+  /** Original agent data for comparison when generating version change summaries. */
+  seedData?: import("../../index").AgentSeedData;
 };
 
 type StepDef = {
@@ -240,7 +246,7 @@ const STEPS: StepDef[] = [
   // { id: "review", label: "Review", icon: ClipboardCheck, show: () => true },
 ];
 
-export function AgentBuilderWizard({ agentId, versionNumber, onClose, onAgentCreated }: WizardProps) {
+export function AgentBuilderWizard({ agentId, versionNumber, onClose, onAgentCreated, nameReadOnly, seedData }: WizardProps) {
   const router = useRouter();
   const exit = onClose ?? (() => router.push("/agent-builder"));
   const {
@@ -256,6 +262,9 @@ export function AgentBuilderWizard({ agentId, versionNumber, onClose, onAgentCre
   const [activeStep, setActiveStep] = useState(0);
   const [settingUp, setSettingUp] = useState<null | "dry" | "live">(null);
   const [pendingDeployMode, setPendingDeployMode] = useState<null | "dry" | "live">(null);
+  const [versionDescription, setVersionDescription] = useState("");
+  const [versionDescGenerated, setVersionDescGenerated] = useState(false);
+  const versionDescGeneratedRef = useRef(false);
 
   const version = useMemo<AgentVersion | undefined>(
     () => agent?.versions.find((v) => v.versionNumber === versionNumber),
@@ -359,7 +368,95 @@ export function AgentBuilderWizard({ agentId, versionNumber, onClose, onAgentCre
       if (t.kind === "inbound_message") return `Inbound message (${t.channel ?? "all"})`;
       return t.kind;
     }),
+    versionDescription: versionDescription.trim() || undefined,
   });
+
+  const [versionDescLoading, setVersionDescLoading] = useState(false);
+
+  const generateVersionSummary = useCallback(async () => {
+    if (!seedData || !version) return;
+    setVersionDescLoading(true);
+    setVersionDescGenerated(false);
+
+    const origPrompt = seedData.prompt ?? "";
+    const origSkills = (seedData.skillIds ?? []).join(", ");
+    const origGuardrails = seedData.guardrails ?? "";
+    const newPrompt = version.prompt ?? "";
+    const newSkills = (version.skillIds ?? []).join(", ");
+    const newGuardrails = version.guardrails ?? "";
+
+    if (!isClientLLMConfigured()) {
+      const diffs: string[] = [];
+      if (origPrompt !== newPrompt) diffs.push("prompt");
+      if (origSkills !== newSkills) diffs.push("skills/tools");
+      if (origGuardrails !== newGuardrails) diffs.push("guardrails");
+      setVersionDescription(diffs.length ? `Updated ${diffs.join(" and ")}` : "Configuration updated");
+      setVersionDescLoading(false);
+      setVersionDescGenerated(true);
+      versionDescGeneratedRef.current = true;
+      return;
+    }
+
+    try {
+      const result = await callClientLLM(
+        [
+          {
+            role: "system",
+            content: `You compare two versions of an AI agent and summarize the changes. Respond with JSON: {"summary":"<one sentence, under 15 words>"}. Be specific about what was added, removed, or changed. Never say "configuration updated" — describe the actual change. Examples: {"summary":"Added personalized pet greetings to resident conversations"}, {"summary":"Added maintenance request creation via MCP tools"}, {"summary":"Expanded escalation rules and updated knowledge base"}`,
+          },
+          {
+            role: "user",
+            content: `PREVIOUS VERSION PROMPT:\n${origPrompt.slice(0, 1500)}\n\nPREVIOUS SKILLS: ${origSkills || "(none)"}\nPREVIOUS GUARDRAILS: ${origGuardrails.slice(0, 400)}\n\n---\n\nUPDATED VERSION PROMPT:\n${newPrompt.slice(0, 1500)}\n\nUPDATED SKILLS: ${newSkills || "(none)"}\nUPDATED GUARDRAILS: ${newGuardrails.slice(0, 400)}`,
+          },
+        ],
+        { temperature: 0.3, maxTokens: 200 },
+      );
+
+      let summary = "";
+      try {
+        const parsed = JSON.parse(result.content);
+        summary = (parsed.summary ?? parsed.description ?? "").trim();
+      } catch {
+        summary = result.content.replace(/^["'{}\s]+|["'}\s]+$/g, "").trim();
+      }
+
+      if (summary && summary.toLowerCase() !== "configuration updated") {
+        setVersionDescription(summary);
+      } else {
+        const diffs: string[] = [];
+        if (origPrompt !== newPrompt) diffs.push("prompt");
+        if (origSkills !== newSkills) diffs.push("skills/tools");
+        if (origGuardrails !== newGuardrails) diffs.push("guardrails");
+        setVersionDescription(diffs.length ? `Updated ${diffs.join(" and ")}` : "Updated agent configuration");
+      }
+    } catch {
+      const diffs: string[] = [];
+      if (origPrompt !== newPrompt) diffs.push("prompt");
+      if (origSkills !== newSkills) diffs.push("skills/tools");
+      if (origGuardrails !== newGuardrails) diffs.push("guardrails");
+      setVersionDescription(diffs.length ? `Updated ${diffs.join(" and ")}` : "Updated agent configuration");
+    }
+    setVersionDescLoading(false);
+    setVersionDescGenerated(true);
+    versionDescGeneratedRef.current = true;
+  }, [seedData, version]);
+
+  const prevPromptRef = useRef(seedData?.prompt ?? "");
+  useEffect(() => {
+    if (!nameReadOnly || !seedData || !version) return;
+    const currentPrompt = version.prompt ?? "";
+    const seedPrompt = seedData.prompt ?? "";
+    const currentSkills = (version.skillIds ?? []).join(",");
+    const seedSkills = (seedData.skillIds ?? []).join(",");
+    const changed = currentPrompt !== seedPrompt || currentSkills !== seedSkills;
+    const promptJustChanged = currentPrompt !== prevPromptRef.current;
+    prevPromptRef.current = currentPrompt;
+
+    if (changed && promptJustChanged && !versionDescLoading) {
+      versionDescGeneratedRef.current = false;
+      void generateVersionSummary();
+    }
+  }, [nameReadOnly, seedData, version?.prompt, version?.skillIds, versionDescLoading, generateVersionSummary, version]);
 
   const saveDraft = () => {
     if (version && onAgentCreated) {
@@ -522,7 +619,7 @@ export function AgentBuilderWizard({ agentId, versionNumber, onClose, onAgentCre
 
         <main className="min-w-0 flex-1">
           <div className="rounded-xl border border-border bg-white p-6">
-            {current?.id === "name" && <NameStep version={version} patch={patch} />}
+            {current?.id === "name" && <NameStep version={version} patch={patch} nameReadOnly={nameReadOnly} />}
             {current?.id === "triggers" && <TriggersStep version={version} patch={patch} agentId={agentId} />}
             {/* {current?.id === "prompt" && <PromptStep version={version} patch={patch} />} */}
             {/* {current?.id === "success" && <SuccessStep version={version} patch={patch} />} */}
@@ -535,6 +632,50 @@ export function AgentBuilderWizard({ agentId, versionNumber, onClose, onAgentCre
             {current?.id === "cost" && <CostDryRunStep version={version} patch={patch} />}
             {/* {current?.id === "review" && <ReviewStep version={version} />} */}
           </div>
+
+          {nameReadOnly && seedData && (
+            <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50/40 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <FileEdit className="h-4 w-4 text-amber-600" />
+                <label htmlFor="version-desc" className="text-[13px] font-semibold text-amber-900">
+                  What changed in this version?
+                </label>
+                {versionDescLoading && (
+                  <span className="ml-auto flex items-center gap-1.5 text-[10px] text-amber-600">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Summarizing changes…
+                  </span>
+                )}
+                {versionDescGenerated && !versionDescLoading && (
+                  <span className="ml-auto rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700">
+                    AI-generated · editable
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  id="version-desc"
+                  type="text"
+                  value={versionDescription}
+                  onChange={(e) => { setVersionDescription(e.target.value); setVersionDescGenerated(false); }}
+                  placeholder="e.g. Added escalation rules and updated knowledge base"
+                  className="min-w-0 flex-1 rounded-md border border-amber-200 bg-white px-3 py-2 text-sm text-foreground placeholder:text-amber-400/60 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                />
+                <button
+                  type="button"
+                  onClick={() => { versionDescGeneratedRef.current = false; void generateVersionSummary(); }}
+                  disabled={versionDescLoading}
+                  className="flex shrink-0 items-center gap-1.5 rounded-md border border-amber-300 bg-white px-3 py-2 text-xs font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {versionDescGenerated ? "Re-summarize" : "Summarize"}
+                </button>
+              </div>
+              <p className="mt-1.5 text-[11px] text-amber-700/70">
+                Click Summarize to auto-generate from your changes, or type your own description.
+              </p>
+            </div>
+          )}
 
           <div className="mt-5 flex items-center justify-between">
             <Button variant="outline" onClick={prev} disabled={activeStep === 0} size="sm">
@@ -625,7 +766,7 @@ Write a thorough, production-quality system prompt that includes:
 Return ONLY the JSON object.`;
 }
 
-function NameStep({ version, patch }: { version: AgentVersion; patch: (p: Partial<AgentVersion>) => void }) {
+function NameStep({ version, patch, nameReadOnly }: { version: AgentVersion; patch: (p: Partial<AgentVersion>) => void; nameReadOnly?: boolean }) {
   const selectedClassification = AGENT_CLASSIFICATION_OPTIONS.find(
     (o) => o.value === version.classification
   );
@@ -818,13 +959,20 @@ function NameStep({ version, patch }: { version: AgentVersion; patch: (p: Partia
           <label className="mb-1.5 block text-xs font-medium text-muted-foreground" htmlFor="agent-name">
             Agent name
           </label>
-          <Input
-            id="agent-name"
-            value={version.name}
-            onChange={(e) => patch({ name: e.target.value })}
-            placeholder="e.g. Move-in Checklist Coordinator"
-            autoFocus
-          />
+          {nameReadOnly ? (
+            <div className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
+              <span className="text-sm text-foreground">{version.name}</span>
+              <span className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">Inherited</span>
+            </div>
+          ) : (
+            <Input
+              id="agent-name"
+              value={version.name}
+              onChange={(e) => patch({ name: e.target.value })}
+              placeholder="e.g. Move-in Checklist Coordinator"
+              autoFocus
+            />
+          )}
         </div>
 
         <div className="mt-5">
@@ -919,12 +1067,19 @@ function NameStep({ version, patch }: { version: AgentVersion; patch: (p: Partia
         <label className="mb-1.5 block text-xs font-medium text-muted-foreground" htmlFor="agent-name">
           Agent name
         </label>
-        <Input
-          id="agent-name"
-          value={version.name}
-          onChange={(e) => patch({ name: e.target.value })}
-          placeholder="e.g. Auto-approve clean pre-bills"
-        />
+        {nameReadOnly ? (
+          <div className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
+            <span className="text-sm text-foreground">{version.name}</span>
+            <span className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">Inherited</span>
+          </div>
+        ) : (
+          <Input
+            id="agent-name"
+            value={version.name}
+            onChange={(e) => patch({ name: e.target.value })}
+            placeholder="e.g. Auto-approve clean pre-bills"
+          />
+        )}
       </div>
 
       {/* Classification */}
@@ -2696,6 +2851,16 @@ function CommunicationStep({ version, patch }: { version: AgentVersion; patch: (
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [comms.channels.includes("voice")]);
 
+  useEffect(() => {
+    const shouldEnable = comms.channels.length > 0;
+    if (shouldEnable && !version.superAgentEnabled) {
+      patch({ superAgentEnabled: true });
+    } else if (!shouldEnable && version.superAgentEnabled) {
+      patch({ superAgentEnabled: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [comms.channels.length]);
+
   const setField = (p: Partial<CommunicationCfg>) => patch({ communication: { ...comms, ...p } });
   const toggleChannel = (ch: CommunicationChannel) => {
     const set = new Set<CommunicationChannel>(comms.channels);
@@ -2957,124 +3122,64 @@ function CommunicationStep({ version, patch }: { version: AgentVersion; patch: (
       {/* Voice selection, recording consent, and voice runtime config are
           handled at the platform level — not per-agent. */}
 
-      {/* ===== Opening line ===== */}
-      {hasAnyChannel && (
-        <div className="mt-5 rounded-lg border border-border bg-muted/20 p-4">
-          <div className="mb-2">
-            <p className="text-[13px] font-semibold text-foreground">Opening line</p>
-            <p className="text-[11px] text-muted-foreground">
-              The scripted start of a conversation — not the whole first turn. For channels where the agent reaches out first, or where brand voice and compliance language matter, pin the wording here. Merge fields like <code className="rounded bg-muted px-1 text-[10px]">{"{{property.name}}"}</code> keep it personalized across properties.
+      {/* ===== Voice opening line (voice only — SMS/email/chat handled by prompt) ===== */}
+      {comms.channels.includes("voice") && (
+        <div className="mt-5 rounded-lg border border-violet-200 bg-violet-50/30 p-4 space-y-3">
+          <div>
+            <p className="text-[13px] font-semibold text-foreground">Voice opening line</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              Plays immediately when the agent picks up — before the LLM starts generating.
+              This is where recording-consent and AI-disclosure language belongs so Legal can audit the exact wording.
             </p>
           </div>
 
-          <MergeFieldHelper />
+          <textarea
+            value={comms.firstMessageByChannel?.voice ?? comms.firstMessage ?? ""}
+            onChange={(e) =>
+              setField({
+                firstMessageByChannel: {
+                  ...(comms.firstMessageByChannel ?? {}),
+                  voice: e.target.value,
+                },
+              })
+            }
+            rows={2}
+            className="w-full rounded-md border border-violet-200 bg-white px-3 py-2 text-sm text-foreground placeholder:text-violet-400/60 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400"
+            placeholder={"Thanks for calling {{property.name}}, this is {{agent.persona}} — how can I help today?"}
+          />
 
-          <div className="mt-3 space-y-3">
-            {comms.channels.includes("email") && (
-              <FirstMessageField
-                channel="email"
-                label="Email — opening greeting"
-                subtext="Useful when the agent sends the first message (outbound campaigns, renewal offers, notifications). For inbound-only email agents you can let the LLM compose the reply from your prompt instead."
-                placeholder={"Hi {{customer.first_name}}, this is the leasing team at {{property.name}}. …"}
-                value={comms.firstMessageByChannel?.email ?? comms.firstMessage ?? ""}
-                onChange={(v) =>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] font-medium text-muted-foreground mr-1">Insert:</span>
+            {FIRST_MESSAGE_MERGE_FIELDS.slice(0, 4).map((f) => (
+              <button
+                key={f.token}
+                type="button"
+                onClick={() => {
+                  const el = document.querySelector<HTMLTextAreaElement>("textarea[placeholder*='property.name']");
+                  const current = comms.firstMessageByChannel?.voice ?? comms.firstMessage ?? "";
+                  const start = el?.selectionStart ?? current.length;
+                  const end = el?.selectionEnd ?? current.length;
+                  const next = current.slice(0, start) + f.token + current.slice(end);
                   setField({
                     firstMessageByChannel: {
                       ...(comms.firstMessageByChannel ?? {}),
-                      email: v,
+                      voice: next,
                     },
-                  })
-                }
-                allowSkipToPrompt
-                skipped={comms.letLlmComposeOpening?.email ?? false}
-                onSkipChange={(skipped) =>
-                  setField({
-                    letLlmComposeOpening: {
-                      ...(comms.letLlmComposeOpening ?? {}),
-                      email: skipped,
-                    },
-                  })
-                }
-              />
-            )}
-            {comms.channels.includes("sms") && (
-              <FirstMessageField
-                channel="sms"
-                label="SMS — first text message"
-                subtext="Required when the agent texts first (outbound). Optional when the agent only replies to resident-initiated texts — then the LLM can compose a natural reply from the prompt."
-                placeholder={"Hi! This is {{agent.persona}} from {{property.name}}. Quick question…"}
-                value={comms.firstMessageByChannel?.sms ?? comms.firstMessage ?? ""}
-                onChange={(v) =>
-                  setField({
-                    firstMessageByChannel: {
-                      ...(comms.firstMessageByChannel ?? {}),
-                      sms: v,
-                    },
-                  })
-                }
-                allowSkipToPrompt
-                skipped={comms.letLlmComposeOpening?.sms ?? false}
-                onSkipChange={(skipped) =>
-                  setField({
-                    letLlmComposeOpening: {
-                      ...(comms.letLlmComposeOpening ?? {}),
-                      sms: skipped,
-                    },
-                  })
-                }
-              />
-            )}
-            {comms.channels.includes("voice") && (
-              <FirstMessageField
-                channel="voice"
-                label="Voice — opening line on calls"
-                subtext="Required for voice. This plays before the LLM starts generating — silence on pickup feels like a dropped call — and is where recording-consent and identity-disclosure language belong so Legal can audit the exact wording."
-                placeholder={"Thanks for calling {{property.name}}, this is {{agent.persona}} — how can I help today?"}
-                value={comms.firstMessageByChannel?.voice ?? comms.firstMessage ?? ""}
-                onChange={(v) =>
-                  setField({
-                    firstMessageByChannel: {
-                      ...(comms.firstMessageByChannel ?? {}),
-                      voice: v,
-                    },
-                  })
-                }
-              />
-            )}
-            {comms.channels.includes("chat") && (
-              <FirstMessageField
-                channel="chat"
-                label="Chat — first message in the thread"
-                subtext="Shown the moment a resident opens a chat thread. Useful for announcing scope (what this agent can help with) and setting expectations. Optional — you can let the LLM compose a context-aware opener from your prompt instead."
-                placeholder={"Hi {{customer.first_name}}! This is {{agent.persona}} from {{property.name}} — how can I help today?"}
-                value={comms.firstMessageByChannel?.chat ?? comms.firstMessage ?? ""}
-                onChange={(v) =>
-                  setField({
-                    firstMessageByChannel: {
-                      ...(comms.firstMessageByChannel ?? {}),
-                      chat: v,
-                    },
-                  })
-                }
-                allowSkipToPrompt
-                skipped={comms.letLlmComposeOpening?.chat ?? false}
-                onSkipChange={(skipped) =>
-                  setField({
-                    letLlmComposeOpening: {
-                      ...(comms.letLlmComposeOpening ?? {}),
-                      chat: skipped,
-                    },
-                  })
-                }
-              />
-            )}
+                  });
+                }}
+                className="rounded border border-violet-200 bg-white px-1.5 py-0.5 font-mono text-[9px] text-foreground hover:bg-violet-100"
+                title={`Insert ${f.label} — e.g. ${f.example}`}
+              >
+                {f.token.replace(/[{}]/g, "")}
+              </button>
+            ))}
           </div>
         </div>
       )}
 
-      {/* ── Super Agent Delegation ── */}
-      <div className="mt-8 rounded-xl border border-purple-200 bg-purple-50/30 p-5">
-        <div className="flex items-start justify-between gap-3">
+      {/* ── Super Agent Delegation (auto-shown when any channel is active) ── */}
+      {hasAnyChannel && (
+        <div className="mt-8 rounded-xl border border-purple-200 bg-purple-50/30 p-5">
           <div className="flex items-center gap-2">
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-purple-100 text-purple-700">
               <Users className="h-4 w-4" />
@@ -3082,34 +3187,13 @@ function CommunicationStep({ version, patch }: { version: AgentVersion; patch: (
             <div>
               <h3 className="text-sm font-semibold text-purple-900">Super Agent Delegation</h3>
               <p className="text-[11px] text-purple-800/80">
-                Allow Entrata&apos;s Super Agent to route questions to this agent based on its capabilities.
+                Because this agent has conversational abilities, Entrata&apos;s Super Agent can route relevant questions to it automatically.
+                Describe what this agent does so Super Agent knows when to delegate.
               </p>
             </div>
           </div>
-          <label className="inline-flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              checked={version.superAgentEnabled ?? false}
-              onChange={(e) => patch({ superAgentEnabled: e.target.checked })}
-              className="h-4 w-4 rounded border-purple-300 accent-purple-600"
-            />
-            <span className="text-xs font-medium text-foreground">Enable</span>
-          </label>
-        </div>
 
-        {version.superAgentEnabled && (
           <div className="mt-4 space-y-4 border-t border-purple-200 pt-4">
-            <div className="rounded-lg border border-purple-100 bg-white/60 p-3">
-              <div className="flex items-start gap-2 text-[11px] text-purple-800">
-                <Brain className="mt-0.5 h-3.5 w-3.5 shrink-0 text-purple-600" />
-                <p>
-                  Super Agent is Entrata&apos;s unified conversational AI that handles a wide range of topics.
-                  When enabled, Super Agent can delegate specific questions to this agent based on the description
-                  and routing hints you provide below.
-                </p>
-              </div>
-            </div>
-
             <div>
               <label className="mb-1.5 block text-xs font-medium text-purple-900" htmlFor="super-agent-desc">
                 Agent capability description
@@ -3153,8 +3237,8 @@ function CommunicationStep({ version, patch }: { version: AgentVersion; patch: (
               </div>
             )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </section>
   );
 }

@@ -30,6 +30,7 @@ export type AgentCreatedPayload = {
   skillIds?: string[];
   structuredGuardrails?: Array<{ label: string; enabled: boolean }>;
   triggers?: string[];
+  versionDescription?: string;
 };
 
 export type AgentSeedData = {
@@ -49,11 +50,13 @@ export default function CustomAgentBuilder({
   onClose,
   onAgentCreated,
   seedData,
+  nameReadOnly,
 }: {
   initialView?: string;
   onClose?: () => void;
   onAgentCreated?: (payload: AgentCreatedPayload) => void;
   seedData?: AgentSeedData;
+  nameReadOnly?: boolean;
 }) {
   const searchParams = useSearchParams();
   const view = initialView || searchParams.get('view') || '';
@@ -61,7 +64,7 @@ export default function CustomAgentBuilder({
   const page = useMemo(() => {
     switch (view) {
       case 'new':
-        return <NewPage onClose={onClose} onAgentCreated={onAgentCreated} seedData={seedData} />;
+        return <NewPage onClose={onClose} onAgentCreated={onAgentCreated} seedData={seedData} nameReadOnly={nameReadOnly} />;
       case 'detail':
         return <DetailPage />;
       case 'system-detail':
@@ -71,7 +74,7 @@ export default function CustomAgentBuilder({
       default:
         return <LandingPage />;
     }
-  }, [view, onClose, onAgentCreated, seedData]);
+  }, [view, onClose, onAgentCreated, seedData, nameReadOnly]);
 
   return (
     <CustomAgentBuilderErrorBoundary>
