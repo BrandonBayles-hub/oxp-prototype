@@ -41,7 +41,7 @@ function inferTriggersFromDescriptions(descriptions: string[]): Trigger[] {
   });
 }
 
-function WizardRoute({ onClose, onAgentCreated, seedData }: { onClose?: () => void; onAgentCreated?: (p: AgentCreatedPayload) => void; seedData?: AgentSeedData }) {
+function WizardRoute({ onClose, onAgentCreated, seedData, nameReadOnly }: { onClose?: () => void; onAgentCreated?: (p: AgentCreatedPayload) => void; seedData?: AgentSeedData; nameReadOnly?: boolean }) {
   const params = useSearchParams();
   const router = useRouter();
   const { agents, createDraft, createNewVersion, updateDraftVersion } = useCustomAgents();
@@ -142,13 +142,13 @@ function WizardRoute({ onClose, onAgentCreated, seedData }: { onClose?: () => vo
     );
   }
 
-  return <AgentBuilderWizard agentId={id} versionNumber={versionNumber} onClose={onClose} onAgentCreated={onAgentCreated} />;
+  return <AgentBuilderWizard agentId={id} versionNumber={versionNumber} onClose={onClose} onAgentCreated={onAgentCreated} nameReadOnly={nameReadOnly} seedData={seedData} />;
 }
 
-export default function Page({ onClose, onAgentCreated, seedData }: { onClose?: () => void; onAgentCreated?: (p: AgentCreatedPayload) => void; seedData?: AgentSeedData } = {}) {
+export default function Page({ onClose, onAgentCreated, seedData, nameReadOnly }: { onClose?: () => void; onAgentCreated?: (p: AgentCreatedPayload) => void; seedData?: AgentSeedData; nameReadOnly?: boolean } = {}) {
   return (
     <Suspense fallback={<div className="page-content"><p className="text-sm text-muted-foreground">Loading...</p></div>}>
-      <WizardRoute onClose={onClose} onAgentCreated={onAgentCreated} seedData={seedData} />
+      <WizardRoute onClose={onClose} onAgentCreated={onAgentCreated} seedData={seedData} nameReadOnly={nameReadOnly} />
     </Suspense>
   );
 }

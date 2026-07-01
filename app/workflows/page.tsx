@@ -112,7 +112,7 @@ type ChangeHistoryEntry = {
   timestamp: string;
   userId: string;
   userName: string;
-  action: "created" | "updated" | "version_added" | "status_changed" | "properties_changed" | "config_changed" | "evals_changed";
+  action: "created" | "updated" | "version_added" | "version_edited" | "status_changed" | "properties_changed" | "config_changed" | "evals_changed";
   summary: string;
   details?: string;
   versionAffected?: number;
@@ -768,10 +768,12 @@ type BuiltWorkflow = {
 
 // ─── Modal step types ───
 
+type ForkMode = "new-version" | "edit";
+
 type ModalStep =
   | { kind: "type-select" }
-  | { kind: "deterministic"; forkFrom?: UnifiedAgent }
-  | { kind: "ai-powered"; forkFrom?: UnifiedAgent };
+  | { kind: "deterministic"; forkFrom?: UnifiedAgent; forkMode?: ForkMode }
+  | { kind: "ai-powered"; forkFrom?: UnifiedAgent; forkMode?: ForkMode };
 
 // ─── Property Picker ───
 
@@ -1356,6 +1358,7 @@ const CHANGE_ACTION_STYLE: Record<ChangeHistoryEntry["action"], { label: string;
   created: { label: "Created", icon: Plus, color: "text-emerald-600 bg-emerald-100" },
   updated: { label: "Updated", icon: Pencil, color: "text-blue-600 bg-blue-100" },
   version_added: { label: "Version Added", icon: GitBranch, color: "text-indigo-600 bg-indigo-100" },
+  version_edited: { label: "Version Edited", icon: Pencil, color: "text-orange-600 bg-orange-100" },
   status_changed: { label: "Status Changed", icon: ToggleRight, color: "text-amber-600 bg-amber-100" },
   properties_changed: { label: "Properties Changed", icon: Building2, color: "text-teal-600 bg-teal-100" },
   config_changed: { label: "Config Changed", icon: Cog, color: "text-purple-600 bg-purple-100" },
@@ -1775,13 +1778,18 @@ function DeterministicBuilderModal({
   onComplete,
   onBack,
   forkFrom,
+  forkMode,
 }: {
   onComplete: (agent: Omit<UnifiedAgent, "id" | "createdAt" | "lastRunAt" | "runsLast30d" | "executionLog" | "changeHistory">) => void;
   onBack: () => void;
   forkFrom?: UnifiedAgent;
+  forkMode?: ForkMode;
 }) {
   const isForking = !!forkFrom;
-  const nextVersion = forkFrom ? Math.max(...forkFrom.versions.map((v) => v.versionNumber)) + 1 : 1;
+  const isEditing = forkMode === "edit";
+  const nextVersion = isEditing
+    ? forkFrom!.activeVersion
+    : forkFrom ? Math.max(...forkFrom.versions.map((v) => v.versionNumber)) + 1 : 1;
 
   const [phase, setPhase] = useState<DeterministicPhase>("describing");
   const [agentName, setAgentName] = useState(forkFrom?.name ?? "");
@@ -1906,17 +1914,21 @@ function DeterministicBuilderModal({
   };
 
   const handleSave = () => {
-    const newVersion: AgentVersion = {
-      id: `v${nextVersion}`,
-      versionNumber: nextVersion,
-      status: "sandbox",
-      createdAt: new Date().toISOString(),
-      description: versionNote.trim() || (isForking ? `Forked from v${forkFrom!.activeVersion}` : "Initial version"),
-    };
-
-    const versions = forkFrom
-      ? [...forkFrom.versions, newVersion]
-      : [newVersion];
+    let versions: AgentVersion[];
+    if (isEditing && forkFrom) {
+      versions = forkFrom.versions;
+    } else {
+      const newVersion: AgentVersion = {
+        id: `v${nextVersion}`,
+        versionNumber: nextVersion,
+        status: "sandbox",
+        createdAt: new Date().toISOString(),
+        description: versionNote.trim() || (isForking ? `Forked from v${forkFrom!.activeVersion}` : "Initial version"),
+      };
+      versions = forkFrom
+        ? [...forkFrom.versions, newVersion]
+        : [newVersion];
+    }
 
     const pvMap: Record<string, number> = {};
     for (const pid of selectedProperties) {
@@ -1930,7 +1942,7 @@ function DeterministicBuilderModal({
       status: forkFrom?.status ?? "sandbox",
       domain: forkFrom?.domain ?? "General",
       versions,
-      activeVersion: nextVersion,
+      activeVersion: isEditing ? forkFrom!.activeVersion : nextVersion,
       propertyIds: selectedProperties,
       propertyVersionMap: pvMap,
       triggers: builtWorkflow?.triggers ?? [],
@@ -1952,9 +1964,17 @@ function DeterministicBuilderModal({
             </div>
             <div>
               <h2 className="text-sm font-semibold text-foreground">
-                {isForking ? `New Version of "${forkFrom!.name}"` : "Build Deterministic Workflow"}
+                {isEditing
+                  ? `Edit "${forkFrom!.name}" v${forkFrom!.activeVersion}`
+                  : isForking
+                    ? `New Version of "${forkFrom!.name}"`
+                    : "Build Deterministic Workflow"}
               </h2>
-              <p className="text-[11px] text-muted-foreground">Version {nextVersion} &middot; Draft</p>
+              <p className="text-[11px] text-muted-foreground">
+                {isEditing
+                  ? `Editing version ${forkFrom!.activeVersion}`
+                  : `Version ${nextVersion} · Draft`}
+              </p>
             </div>
           </div>
         </div>
@@ -1963,7 +1983,14 @@ function DeterministicBuilderModal({
           <div className="mx-auto max-w-xl space-y-5">
             <div>
               <label htmlFor="wf-name" className="mb-1.5 block text-sm font-medium text-foreground">Agent name</label>
-              <Input id="wf-name" value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="e.g. Renewal Offer Generator" />
+              {isForking ? (
+                <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-4 py-2.5">
+                  <span className="text-sm text-foreground">{agentName}</span>
+                  <span className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">Inherited</span>
+                </div>
+              ) : (
+                <Input id="wf-name" value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="e.g. Renewal Offer Generator" />
+              )}
             </div>
             <div>
               <label htmlFor="wf-desc" className="mb-1.5 block text-sm font-medium text-foreground">Describe what this workflow should do</label>
@@ -2610,6 +2637,7 @@ export default function AgentBuilderPage() {
     setModalStep({
       kind: agent.type === "deterministic" ? "deterministic" : "ai-powered",
       forkFrom: agent,
+      forkMode: "new-version",
     });
     setModalOpen(true);
   }, []);
@@ -2619,14 +2647,40 @@ export default function AgentBuilderPage() {
     setModalStep({
       kind: agent.type === "deterministic" ? "deterministic" : "ai-powered",
       forkFrom: agent,
+      forkMode: "edit",
     });
     setModalOpen(true);
   }, []);
 
   const handleBuilderComplete = useCallback((result: Omit<UnifiedAgent, "id" | "createdAt" | "lastRunAt" | "runsLast30d" | "executionLog" | "changeHistory">) => {
     const forkFrom = modalStep.kind !== "type-select" ? modalStep.forkFrom : undefined;
+    const forkMode = modalStep.kind !== "type-select" ? modalStep.forkMode : undefined;
 
-    if (forkFrom) {
+    if (forkFrom && forkMode === "edit") {
+      setAgents((prev) => prev.map((a) => {
+        if (a.id !== forkFrom.id) return a;
+        const changeEntry: ChangeHistoryEntry = {
+          id: `ch-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          userId: "user-current",
+          userName: "Current User",
+          action: "version_edited",
+          summary: `Edited v${a.activeVersion}`,
+          versionAffected: a.activeVersion,
+        };
+        return {
+          ...a,
+          name: result.name,
+          description: result.description,
+          propertyIds: result.propertyIds,
+          propertyVersionMap: result.propertyVersionMap,
+          triggers: result.triggers,
+          evals: result.evals,
+          engineType: result.engineType ?? a.engineType,
+          changeHistory: [...a.changeHistory, changeEntry],
+        };
+      }));
+    } else if (forkFrom) {
       setAgents((prev) => prev.map((a) => {
         if (a.id !== forkFrom.id) return a;
         const changeEntry: ChangeHistoryEntry = {
@@ -2686,50 +2740,123 @@ export default function AgentBuilderPage() {
     skillIds?: string[];
     structuredGuardrails?: Array<{ label: string; enabled: boolean }>;
     triggers?: string[];
+    versionDescription?: string;
   }) => {
-    const newAgent: UnifiedAgent = {
-      id: `ua-${Date.now()}`,
-      name: payload.name,
-      type: "ai-powered",
-      description: payload.description,
-      status: payload.status === "live" ? "live" : "sandbox",
-      domain: "General",
-      versions: [{
-        id: "v1",
-        versionNumber: 1,
+    const forkFrom = modalStep.kind === "ai-powered" ? modalStep.forkFrom : undefined;
+    const forkMode = modalStep.kind === "ai-powered" ? modalStep.forkMode : undefined;
+
+    if (forkFrom && forkMode === "edit") {
+      setAgents((prev) => prev.map((a) => {
+        if (a.id !== forkFrom.id) return a;
+        const changeEntry: ChangeHistoryEntry = {
+          id: `ch-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          userId: "user-current",
+          userName: "Current User",
+          action: "version_edited",
+          summary: `Edited v${a.activeVersion}`,
+          versionAffected: a.activeVersion,
+        };
+        return {
+          ...a,
+          name: payload.name,
+          description: payload.description,
+          triggers: payload.triggers ?? a.triggers,
+          aiContext: {
+            ...a.aiContext,
+            prompt: payload.prompt ?? a.aiContext?.prompt,
+            guardrails: payload.guardrails ?? a.aiContext?.guardrails,
+            classification: payload.classification ?? a.aiContext?.classification,
+            skillIds: payload.skillIds ?? a.aiContext?.skillIds,
+            structuredGuardrails: payload.structuredGuardrails ?? a.aiContext?.structuredGuardrails,
+          },
+          changeHistory: [...a.changeHistory, changeEntry],
+        };
+      }));
+    } else if (forkFrom && forkMode === "new-version") {
+      setAgents((prev) => prev.map((a) => {
+        if (a.id !== forkFrom.id) return a;
+        const nextVersion = Math.max(...a.versions.map((v) => v.versionNumber)) + 1;
+        const vDesc = payload.versionDescription?.trim() || `Version ${nextVersion}`;
+        const newVersion: AgentVersion = {
+          id: `v${nextVersion}`,
+          versionNumber: nextVersion,
+          status: payload.status === "live" ? "live" : "sandbox",
+          createdAt: new Date().toISOString(),
+          description: vDesc,
+        };
+        const changeEntry: ChangeHistoryEntry = {
+          id: `ch-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          userId: "user-current",
+          userName: "Current User",
+          action: "version_added",
+          summary: `Created v${nextVersion} — ${vDesc}`,
+          versionAffected: nextVersion,
+        };
+        return {
+          ...a,
+          name: payload.name,
+          description: payload.description,
+          versions: [...a.versions, newVersion],
+          activeVersion: nextVersion,
+          triggers: payload.triggers ?? a.triggers,
+          aiContext: {
+            ...a.aiContext,
+            prompt: payload.prompt ?? a.aiContext?.prompt,
+            guardrails: payload.guardrails ?? a.aiContext?.guardrails,
+            classification: payload.classification ?? a.aiContext?.classification,
+            skillIds: payload.skillIds ?? a.aiContext?.skillIds,
+            structuredGuardrails: payload.structuredGuardrails ?? a.aiContext?.structuredGuardrails,
+          },
+          changeHistory: [...a.changeHistory, changeEntry],
+        };
+      }));
+    } else {
+      const newAgent: UnifiedAgent = {
+        id: `ua-${Date.now()}`,
+        name: payload.name,
+        type: "ai-powered",
+        description: payload.description,
         status: payload.status === "live" ? "live" : "sandbox",
+        domain: "General",
+        versions: [{
+          id: "v1",
+          versionNumber: 1,
+          status: payload.status === "live" ? "live" : "sandbox",
+          createdAt: new Date().toISOString(),
+          description: "Initial version",
+        }],
+        activeVersion: 1,
+        propertyIds: [],
+        propertyVersionMap: {},
+        triggers: payload.triggers ?? [],
+        evals: [],
         createdAt: new Date().toISOString(),
-        description: "Initial version",
-      }],
-      activeVersion: 1,
-      propertyIds: [],
-      propertyVersionMap: {},
-      triggers: payload.triggers ?? [],
-      evals: [],
-      createdAt: new Date().toISOString(),
-      runsLast30d: 0,
-      executionLog: [],
-      changeHistory: [{
-        id: `ch-${Date.now()}`,
-        timestamp: new Date().toISOString(),
-        userId: "user-current",
-        userName: "Current User",
-        action: "created",
-        summary: "Created AI-powered agent",
-        versionAffected: 1,
-      }],
-      aiContext: {
-        prompt: payload.prompt,
-        guardrails: payload.guardrails,
-        classification: payload.classification,
-        skillIds: payload.skillIds,
-        structuredGuardrails: payload.structuredGuardrails,
-      },
-    };
-    setAgents((prev) => [newAgent, ...prev]);
+        runsLast30d: 0,
+        executionLog: [],
+        changeHistory: [{
+          id: `ch-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          userId: "user-current",
+          userName: "Current User",
+          action: "created",
+          summary: "Created AI-powered agent",
+          versionAffected: 1,
+        }],
+        aiContext: {
+          prompt: payload.prompt,
+          guardrails: payload.guardrails,
+          classification: payload.classification,
+          skillIds: payload.skillIds,
+          structuredGuardrails: payload.structuredGuardrails,
+        },
+      };
+      setAgents((prev) => [newAgent, ...prev]);
+    }
     setModalOpen(false);
     setModalStep({ kind: "type-select" });
-  }, []);
+  }, [modalStep]);
 
   if (!isFullVersion) {
     return (
@@ -2969,6 +3096,7 @@ export default function AgentBuilderPage() {
               onComplete={handleBuilderComplete}
               onBack={() => setModalStep({ kind: "type-select" })}
               forkFrom={modalStep.forkFrom}
+              forkMode={modalStep.forkMode}
             />
           )}
 
@@ -2984,11 +3112,17 @@ export default function AgentBuilderPage() {
                   </div>
                   <div>
                     <h2 className="text-sm font-semibold text-foreground">
-                      {modalStep.forkFrom ? `New Version of "${modalStep.forkFrom.name}"` : "Build AI-Powered Agent"}
+                      {modalStep.forkFrom
+                        ? modalStep.forkMode === "edit"
+                          ? `Edit "${modalStep.forkFrom.name}" v${modalStep.forkFrom.activeVersion}`
+                          : `New Version of "${modalStep.forkFrom.name}"`
+                        : "Build AI-Powered Agent"}
                     </h2>
                     <p className="text-[11px] text-muted-foreground">
                       {modalStep.forkFrom
-                        ? `Version ${Math.max(...modalStep.forkFrom.versions.map((v) => v.versionNumber)) + 1} · Forked from v${modalStep.forkFrom.activeVersion}`
+                        ? modalStep.forkMode === "edit"
+                          ? `Editing version ${modalStep.forkFrom.activeVersion}`
+                          : `Version ${Math.max(...modalStep.forkFrom.versions.map((v) => v.versionNumber)) + 1} · Forked from v${modalStep.forkFrom.activeVersion}`
                         : "Version 1 · Full agent builder"
                       }
                     </p>
@@ -3007,6 +3141,7 @@ export default function AgentBuilderPage() {
                     initialView="new"
                     onClose={closeModal}
                     onAgentCreated={handleAiAgentCreated}
+                    nameReadOnly={!!modalStep.forkFrom}
                     seedData={modalStep.forkFrom ? {
                       name: modalStep.forkFrom.name,
                       description: modalStep.forkFrom.description,
