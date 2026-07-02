@@ -19,6 +19,8 @@ import {
   Beaker,
   Map,
   Smartphone,
+  Shield,
+  Eye,
 } from "lucide-react";
 import { MobileAppPreview } from "@/components/mobile-app-preview";
 import { useRole, ROLES, type Role } from "@/lib/role-context";
@@ -31,6 +33,7 @@ import { useWorkforce } from "@/lib/workforce-context";
 import { useEscalations } from "@/lib/escalations-context";
 import { useConversations } from "@/lib/conversations-context";
 import { useAnalyticsHandoff } from "@/lib/analytics-handoff-context";
+import { useAgentBuilderViewerRole } from "@/lib/agent-builder-viewer-role-context";
 
 const NAV_ITEMS = [
   { label: "OXP", active: true },
@@ -57,6 +60,7 @@ export function EntrataTopNav() {
   const { items: escalations } = useEscalations();
   const { items: conversations } = useConversations();
   const { handoffEnabled, toggleHandoffEnabled } = useAnalyticsHandoff();
+  const { viewerRole, setViewerRole } = useAgentBuilderViewerRole();
   const { showRoadmap, setShowRoadmap } = useRoadmap();
 
   const currentUser = useMemo(() => getCurrentUser(role), [getCurrentUser, role]);
@@ -570,6 +574,50 @@ export function EntrataTopNav() {
                       </p>
                     </div>
                   </button>
+                </div>
+
+                {/* Agent Builder viewer role */}
+                <div style={{ borderTop: "1px solid #E8E8E8", padding: "10px 14px 4px" }}>
+                  <p style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.35)", letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: 6 }}>
+                    Agent Builder
+                  </p>
+                  <div className="flex flex-col gap-0.5">
+                    {([
+                      { role: "admin-with-flag" as const, label: "Admin", tagline: "Full access — create, edit, manage agents", Icon: Shield },
+                      { role: "read-only" as const, label: "Read-Only User", tagline: "View only — cannot create or edit", Icon: Eye },
+                    ] as const).map((r) => (
+                      <button
+                        key={r.role}
+                        type="button"
+                        role="radio"
+                        aria-checked={viewerRole === r.role}
+                        onClick={() => setViewerRole(r.role)}
+                        className="flex items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors"
+                        style={{ background: viewerRole === r.role ? "rgba(99,102,241,0.08)" : "transparent" }}
+                      >
+                        <span
+                          style={{
+                            width: 14, height: 14, borderRadius: "50%",
+                            border: viewerRole === r.role ? "none" : "2px solid #D4D4D4",
+                            background: viewerRole === r.role ? "#6366f1" : "transparent",
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            flexShrink: 0, marginTop: 2, transition: "all 150ms",
+                          }}
+                        >
+                          {viewerRole === r.role && <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#fff" }} />}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: viewerRole === r.role ? 600 : 500, color: viewerRole === r.role ? "#1a1a1a" : "rgba(0,0,0,0.7)" }}>
+                            <r.Icon style={{ width: 12, height: 12, flexShrink: 0 }} />
+                            {r.label}
+                          </span>
+                          <span style={{ display: "block", fontSize: 10, color: "rgba(0,0,0,0.45)", marginTop: 1, lineHeight: 1.35 }}>
+                            {r.tagline}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
               </div>

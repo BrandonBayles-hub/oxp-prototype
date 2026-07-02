@@ -173,22 +173,21 @@ function normalizeEngine(engine: string): WorkflowEngine {
   return "workato";
 }
 
-function getCostImpact(engine: WorkflowEngine, workatoConnectors: number): CostImpact {
+function getCostImpact(engine: WorkflowEngine, _premiumConnectors: number): CostImpact {
   if (engine === "entrata-native") {
     return {
-      label: "No additional cost",
-      monthlyEstimate: "$0",
-      perTaskEstimate: "$0",
-      explanation: "This workflow runs entirely on Entrata infrastructure with no per-execution fees.",
+      label: "Included in plan",
+      monthlyEstimate: "Free",
+      perTaskEstimate: "Free",
+      explanation: "Your first 5 deterministic agents are free. Additional agents and AI-powered agents require a premium plan.",
     };
   }
 
-  const baseCost = 250 + Math.max(workatoConnectors, 1) * 75;
   return {
-    label: "Workato licensing required",
-    monthlyEstimate: `~$${baseCost}/mo`,
-    perTaskEstimate: "~$0.02–$0.05/task",
-    explanation: `The entire workflow runs on Workato, which charges a platform fee plus per-connector costs. Workato's Entrata connector handles the internal steps alongside ${workatoConnectors} external integration${workatoConnectors !== 1 ? "s" : ""}.`,
+    label: "Premium plan required",
+    monthlyEstimate: "Premium",
+    perTaskEstimate: "Premium",
+    explanation: "Agents using external connectors require a Premium plan. Your first 5 deterministic agents are free — this one uses a Premium slot.",
   };
 }
 
@@ -372,7 +371,7 @@ function analyzePromptFallback(prompt: string): RoutingDecision {
 
   if (workatoCount > 0) {
     engine = "workato";
-    reasoning = `This workflow requires external systems (${detectedExternal.join(", ")}) that are not part of Entrata. The entire workflow will run on Workato, which can handle both Entrata operations and external integrations in a single pipeline.`;
+    reasoning = `This workflow requires external systems (${detectedExternal.join(", ")}) that are not part of Entrata. The entire workflow will use Premium, which can handle both Entrata operations and external integrations in a single pipeline.`;
     confidence = Math.min(0.85, 0.5 + workatoCount * 0.1);
   } else if (entrataCount > 0) {
     engine = "entrata-native";
@@ -404,8 +403,8 @@ function analyzePromptFallback(prompt: string): RoutingDecision {
 
 export function engineLabel(engine: WorkflowEngine): string {
   switch (engine) {
-    case "entrata-native": return "Entrata Native";
-    case "workato": return "Powered by Workato";
+    case "entrata-native": return "Basic";
+    case "workato": return "Premium";
   }
 }
 
@@ -414,6 +413,6 @@ export function engineDescription(engine: WorkflowEngine): string {
     case "entrata-native":
       return "Runs entirely on Entrata infrastructure using internal MCP servers. No external dependencies or additional costs.";
     case "workato":
-      return "This workflow requires external connectors not available in Entrata. The entire recipe runs on Workato, which handles both Entrata operations (via its Entrata connector) and external integrations in a single pipeline.";
+      return "This workflow requires external connectors for systems outside of Entrata. Premium handles both Entrata operations and external integrations in a single pipeline.";
   }
 }

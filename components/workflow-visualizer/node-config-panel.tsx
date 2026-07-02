@@ -26,6 +26,8 @@ import {
   Shield,
   ChevronDown,
   ArrowDown,
+  Filter,
+  Plus,
 } from "lucide-react";
 
 interface NodeConfigPanelProps {
@@ -327,8 +329,19 @@ function NodeIcon({ type }: { type: WorkflowNodeData["type"] }) {
 function getNodeOutputFields(node: { type: string; mcpTool?: string; config?: Record<string, string>; outputFields?: OutputField[] }): OutputField[] {
   if (node.outputFields && node.outputFields.length > 0) return node.outputFields;
   if (node.type === "trigger") {
-    const eventType = node.config?.["event_type"];
-    if (eventType && TRIGGER_EVENT_SCHEMAS[eventType]) return TRIGGER_EVENT_SCHEMAS[eventType];
+    let selectedEvts: string[] = [];
+    try { selectedEvts = JSON.parse(node.config?.["selected_events"] ?? "[]"); } catch { /* ignore */ }
+    if (selectedEvts.length === 0 && node.config?.["event_type"]) selectedEvts = [node.config["event_type"]];
+    if (selectedEvts.length > 0) {
+      const seen = new Set<string>();
+      const merged: OutputField[] = [];
+      for (const evtId of selectedEvts) {
+        for (const f of (TRIGGER_EVENT_SCHEMAS[evtId] ?? [])) {
+          if (!seen.has(f.name)) { seen.add(f.name); merged.push(f); }
+        }
+      }
+      if (merged.length > 0) return merged;
+    }
     return TRIGGER_EVENT_SCHEMAS["manual"];
   }
   if (node.mcpTool && TOOL_OUTPUTS[node.mcpTool]) return TOOL_OUTPUTS[node.mcpTool];
@@ -404,6 +417,339 @@ function DataPillPicker({
   );
 }
 
+// ─── Trigger Configuration ───
+
+function TriggerConfig({
+  nodeId,
+  data,
+  onUpdate,
+}: {
+  nodeId: string;
+  data: WorkflowNodeData;
+  onUpdate: (nodeId: string, data: Partial<WorkflowNodeData>) => void;
+}) {
+  const selectedEvents: string[] = (() => {
+    try {
+      const stored = data.config?.["selected_events"];
+      if (stored) return JSON.parse(stored);
+    } catch { /* ignore parse errors */ }
+    const legacy = data.config?.["event_type"];
+    if (legacy && TRIGGER_EVENT_SCHEMAS[legacy]) return [legacy];
+    return [];
+  })();
+
+  const hasExplicitModeFlags = data.config?.["trigger_event_enabled"] !== undefined || data.config?.["trigger_schedule_enabled"] !== undefined;
+  const hasScheduleConfig = !!(data.config?.["schedule_frequency"] || data.config?.["schedule_time"]);
+
+  const eventEnabled = hasExplicitModeFlags
+    ? data.config?.["trigger_event_enabled"] === "true"
+    : selectedEvents.length > 0 || !hasScheduleConfig;
+  const scheduleEnabled = hasExplicitModeFlags
+    ? data.config?.["trigger_schedule_enabled"] === "true"
+    : hasScheduleConfig;
+
+  const [eventSearch, setEventSearch] = useState("");
+  const [expandedPayload, setExpandedPayload] = useState<string | null>(null);
+
+  const filteredEvents = TRIGGER_EVENTS.filter(
+    (e) => !eventSearch || e.label.toLowerCase().includes(eventSearch.toLowerCase()) || e.id.toLowerCase().includes(eventSearch.toLowerCase()),
+  );
+
+  const buildDescription = (events: string[], schedOn: boolean, cfg: Record<string, string>) => {
+    const parts: string[] = [];
+    if (events.length > 0) {
+      const labels = events.map((id) => TRIGGER_EVENTS.find((e) => e.id === id)?.label ?? id);
+      parts.push(labels.length <= 2 ? labels.join(" or ") : `${labels[0]} + ${labels.length - 1} more`);
+    }
+    if (schedOn) {
+      const freq = cfg["schedule_frequency"] ?? "daily";
+      const time = cfg["schedule_time"] ?? "02:00";
+      const tz = cfg["timezone"] ?? "America/Chicago";
+      const tzAbbr = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "short" }).formatToParts().find((p) => p.type === "timeZoneName")?.value ?? tz;
+      const freqLabel: Record<string, string> = { every_15_min: "Every 15 min", hourly: "Hourly", daily: `Daily at ${time}`, weekly: `Weekly at ${time}`, monthly: `Monthly at ${time}`, cron: "Cron schedule" };
+      parts.push(`${freqLabel[freq] ?? freq} ${tzAbbr}`);
+    }
+    return parts.length > 0 ? `Trigger: ${parts.join(" + ")}` : "Trigger workflow";
+  };
+
+  const toggleEvent = (eventId: string) => {
+    const next = selectedEvents.includes(eventId)
+      ? selectedEvents.filter((id) => id !== eventId)
+      : [...selectedEvents, eventId];
+    const cfg = {
+      ...data.config,
+      selected_events: JSON.stringify(next),
+      event_type: next[0] ?? "",
+    };
+    onUpdate(nodeId, { config: cfg, description: buildDescription(next, scheduleEnabled, cfg) });
+  };
+
+  const toggleEventMode = () => {
+    const next = !eventEnabled;
+    if (!next && !scheduleEnabled) return;
+    const cfg = { ...data.config, trigger_event_enabled: String(next) };
+    const evts = next ? selectedEvents : [];
+    onUpdate(nodeId, { config: cfg, description: buildDescription(evts, scheduleEnabled, cfg) });
+  };
+
+  const toggleScheduleMode = () => {
+    const next = !scheduleEnabled;
+    if (!next && !eventEnabled) return;
+    const cfg = { ...data.config, trigger_schedule_enabled: String(next) };
+    onUpdate(nodeId, { config: cfg, description: buildDescription(selectedEvents, next, cfg) });
+  };
+
+  const updateScheduleField = (field: string, value: string) => {
+    const cfg = { ...data.config, [field]: value };
+    onUpdate(nodeId, { config: cfg, description: buildDescription(selectedEvents, scheduleEnabled, cfg) });
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* Mode selectors — both can be active */}
+      <div>
+        <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">Trigger Type</label>
+        <div className="space-y-1.5">
+          <button
+            type="button"
+            onClick={toggleEventMode}
+            className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-[11px] font-semibold transition-colors ${
+              eventEnabled
+                ? "border-amber-300 bg-amber-50 text-amber-800"
+                : "border-border bg-white text-muted-foreground hover:bg-slate-50"
+            }`}
+          >
+            <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+              eventEnabled ? "border-amber-500 bg-amber-500 text-white" : "border-gray-300 bg-white"
+            }`}>
+              {eventEnabled && <span className="text-[9px] font-bold">&#10003;</span>}
+            </div>
+            <Zap className="h-3 w-3" /> Event
+            <span className="ml-auto text-[9px] font-normal text-muted-foreground">Runs when an event fires</span>
+          </button>
+          <button
+            type="button"
+            onClick={toggleScheduleMode}
+            className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-[11px] font-semibold transition-colors ${
+              scheduleEnabled
+                ? "border-blue-300 bg-blue-50 text-blue-800"
+                : "border-border bg-white text-muted-foreground hover:bg-slate-50"
+            }`}
+          >
+            <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+              scheduleEnabled ? "border-blue-500 bg-blue-500 text-white" : "border-gray-300 bg-white"
+            }`}>
+              {scheduleEnabled && <span className="text-[9px] font-bold">&#10003;</span>}
+            </div>
+            <Clock className="h-3 w-3" /> Schedule
+            <span className="ml-auto text-[9px] font-normal text-muted-foreground">Runs on a time schedule</span>
+          </button>
+        </div>
+        {eventEnabled && scheduleEnabled && (
+          <p className="mt-1.5 text-[9px] text-blue-600">This trigger fires on any selected event OR on the schedule — whichever comes first.</p>
+        )}
+      </div>
+
+      {/* Event section */}
+      {eventEnabled && (
+        <div>
+          <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+            Events <span className="font-normal text-muted-foreground">(select one or more)</span>
+          </label>
+          <div className="rounded-lg border border-border bg-white">
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search events..."
+                value={eventSearch}
+                onChange={(e) => setEventSearch(e.target.value)}
+                className="w-full rounded-t-lg border-b border-border bg-slate-50 px-3 py-2 pl-8 text-xs focus:outline-none"
+              />
+              <Filter className="absolute left-2.5 top-2.5 h-3 w-3 text-muted-foreground" />
+            </div>
+            <div className="max-h-48 overflow-y-auto">
+              {filteredEvents.map((evt) => {
+                const isSelected = selectedEvents.includes(evt.id);
+                return (
+                  <div key={evt.id}>
+                    <button
+                      type="button"
+                      onClick={() => toggleEvent(evt.id)}
+                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] transition-colors ${
+                        isSelected ? "bg-amber-50" : "hover:bg-slate-50"
+                      }`}
+                    >
+                      <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                        isSelected ? "border-amber-500 bg-amber-500 text-white" : "border-gray-300 bg-white"
+                      }`}>
+                        {isSelected && <span className="text-[9px] font-bold">&#10003;</span>}
+                      </div>
+                      <span className={`flex-1 ${isSelected ? "font-semibold text-amber-900" : "text-foreground"}`}>{evt.label}</span>
+                      <span className="text-[9px] text-muted-foreground">{evt.fieldCount} fields</span>
+                      {isSelected && TRIGGER_EVENT_SCHEMAS[evt.id] && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedPayload(expandedPayload === evt.id ? null : evt.id);
+                          }}
+                          className="rounded p-0.5 text-amber-500 hover:bg-amber-100"
+                        >
+                          <ChevronDown className={`h-3 w-3 transition-transform ${expandedPayload === evt.id ? "rotate-180" : ""}`} />
+                        </button>
+                      )}
+                    </button>
+                    {expandedPayload === evt.id && TRIGGER_EVENT_SCHEMAS[evt.id] && (
+                      <div className="border-t border-amber-200 bg-amber-50/50 px-3 py-2">
+                        <p className="mb-1 text-[9px] font-bold uppercase tracking-wider text-amber-700">
+                          Payload ({TRIGGER_EVENT_SCHEMAS[evt.id].length} fields)
+                        </p>
+                        <div className="space-y-0.5">
+                          {TRIGGER_EVENT_SCHEMAS[evt.id].map((f) => (
+                            <div key={f.name} className="flex items-center gap-1.5 text-[10px]">
+                              <span className="shrink-0 rounded bg-amber-200/60 px-1 py-px font-mono text-[8px] font-bold text-amber-800">{f.type}</span>
+                              <span className="font-medium text-amber-900">{f.name}</span>
+                              {f.sample && <span className="ml-auto text-[9px] text-amber-600">{f.sample}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {filteredEvents.length === 0 && (
+                <p className="px-3 py-4 text-center text-[11px] text-muted-foreground">No events match &ldquo;{eventSearch}&rdquo;</p>
+              )}
+            </div>
+          </div>
+          {selectedEvents.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {selectedEvents.map((evtId) => {
+                const evt = TRIGGER_EVENTS.find((e) => e.id === evtId);
+                return (
+                  <span key={evtId} className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                    <Zap className="h-2.5 w-2.5" /> {evt?.label ?? evtId}
+                    <button
+                      type="button"
+                      onClick={() => toggleEvent(evtId)}
+                      className="ml-0.5 rounded-full p-0.5 text-amber-400 hover:bg-amber-200 hover:text-amber-700"
+                    >
+                      <X className="h-2 w-2" />
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+          <p className="mt-1.5 text-[9px] text-muted-foreground">
+            This workflow fires when any of the selected events occur. Payload fields from all selected events are available as data pills.
+          </p>
+        </div>
+      )}
+
+      {/* Schedule section */}
+      {scheduleEnabled && (
+        <div className="space-y-3">
+          <label className="block text-[11px] font-medium text-muted-foreground">
+            <Clock className="mr-1 inline h-3 w-3" /> Schedule Settings
+          </label>
+          <div>
+            <label className="mb-0.5 block text-[10px] text-muted-foreground">Frequency</label>
+            <select
+              className="w-full rounded-lg border border-border bg-slate-50 px-3 py-2 text-xs focus:border-indigo-300 focus:outline-none"
+              value={data.config?.["schedule_frequency"] ?? "daily"}
+              onChange={(e) => updateScheduleField("schedule_frequency", e.target.value)}
+            >
+              <option value="every_15_min">Every 15 minutes</option>
+              <option value="hourly">Hourly</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="cron">Custom (cron)</option>
+            </select>
+          </div>
+
+          {(data.config?.["schedule_frequency"] ?? "daily") === "weekly" && (
+            <div>
+              <label className="mb-0.5 block text-[10px] text-muted-foreground">Day of week</label>
+              <select
+                className="w-full rounded-lg border border-border bg-slate-50 px-3 py-2 text-xs focus:border-indigo-300 focus:outline-none"
+                value={data.config?.["schedule_day"] ?? "monday"}
+                onChange={(e) => updateScheduleField("schedule_day", e.target.value)}
+              >
+                {["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map((d) => (
+                  <option key={d} value={d.toLowerCase()}>{d}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {(data.config?.["schedule_frequency"] ?? "daily") === "monthly" && (
+            <div>
+              <label className="mb-0.5 block text-[10px] text-muted-foreground">Day of month</label>
+              <select
+                className="w-full rounded-lg border border-border bg-slate-50 px-3 py-2 text-xs focus:border-indigo-300 focus:outline-none"
+                value={data.config?.["schedule_day_of_month"] ?? "1"}
+                onChange={(e) => updateScheduleField("schedule_day_of_month", e.target.value)}
+              >
+                {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
+                  <option key={d} value={String(d)}>{d}{d === 1 ? "st" : d === 2 ? "nd" : d === 3 ? "rd" : "th"}</option>
+                ))}
+                <option value="last">Last day</option>
+              </select>
+            </div>
+          )}
+
+          {!["every_15_min", "hourly", "cron"].includes(data.config?.["schedule_frequency"] ?? "daily") && (
+            <div>
+              <label className="mb-0.5 block text-[10px] text-muted-foreground">Time</label>
+              <input
+                type="time"
+                className="w-full rounded-lg border border-border bg-slate-50 px-3 py-2 text-xs focus:border-indigo-300 focus:outline-none"
+                value={data.config?.["schedule_time"] ?? "02:00"}
+                onChange={(e) => updateScheduleField("schedule_time", e.target.value)}
+              />
+            </div>
+          )}
+
+          {(data.config?.["schedule_frequency"]) === "cron" && (
+            <div>
+              <label className="mb-0.5 block text-[10px] text-muted-foreground">Cron expression</label>
+              <input
+                type="text"
+                className="w-full rounded-lg border border-border bg-slate-50 px-3 py-2 font-mono text-xs focus:border-indigo-300 focus:outline-none"
+                placeholder="0 2 * * *"
+                value={data.config?.["schedule_cron"] ?? ""}
+                onChange={(e) => updateScheduleField("schedule_cron", e.target.value)}
+              />
+              <p className="mt-0.5 text-[9px] text-muted-foreground">minute hour day month weekday</p>
+            </div>
+          )}
+
+          <div>
+            <label className="mb-0.5 block text-[10px] text-muted-foreground">Time Zone</label>
+            <select
+              className="w-full rounded-lg border border-border bg-slate-50 px-3 py-2 text-xs focus:border-indigo-300 focus:outline-none"
+              value={data.config?.["timezone"] ?? "America/Chicago"}
+              onChange={(e) => updateScheduleField("timezone", e.target.value)}
+            >
+              <option value="America/New_York">Eastern Time (ET)</option>
+              <option value="America/Chicago">Central Time (CT)</option>
+              <option value="America/Denver">Mountain Time (MT)</option>
+              <option value="America/Los_Angeles">Pacific Time (PT)</option>
+              <option value="America/Anchorage">Alaska Time (AKT)</option>
+              <option value="Pacific/Honolulu">Hawaii Time (HT)</option>
+              <option value="America/Phoenix">Arizona (MST)</option>
+              <option value="UTC">UTC</option>
+            </select>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Panel ───
 
 export function NodeConfigPanel({
@@ -450,7 +796,7 @@ export function NodeConfigPanel({
   const retry = data.retryPolicy ?? DEFAULT_RETRY;
 
   return (
-    <div className="flex h-full w-[380px] flex-col border-l border-border bg-white">
+    <div className="flex h-full min-h-0 w-[380px] flex-col border-l border-border bg-white">
       {/* Header */}
       <div className="flex items-center gap-2 border-b border-border px-4 py-3">
         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
@@ -505,7 +851,7 @@ export function NodeConfigPanel({
       </div>
 
       {/* Tab Content */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {activeTab === "config" && (
           <div className="space-y-4">
             {/* Description */}
@@ -519,41 +865,8 @@ export function NodeConfigPanel({
               />
             </div>
 
-            {/* Trigger Event Type */}
-            {data.type === "trigger" && (
-              <div>
-                <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Trigger Event</label>
-                <select
-                  className="w-full rounded-lg border border-border bg-slate-50 px-3 py-2 text-xs focus:border-indigo-300 focus:outline-none"
-                  value={data.config?.["event_type"] ?? ""}
-                  onChange={(e) =>
-                    onUpdate(nodeId, { config: { ...data.config, event_type: e.target.value } })
-                  }
-                >
-                  <option value="">Select an event...</option>
-                  {TRIGGER_EVENTS.map((evt) => (
-                    <option key={evt.id} value={evt.id}>{evt.label} ({evt.fieldCount} fields)</option>
-                  ))}
-                </select>
-                {data.config?.["event_type"] && TRIGGER_EVENT_SCHEMAS[data.config["event_type"]] && (
-                  <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/50 p-2.5">
-                    <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-700">
-                      <Zap className="mr-0.5 inline h-2.5 w-2.5" /> Trigger payload ({TRIGGER_EVENT_SCHEMAS[data.config["event_type"]].length} fields)
-                    </p>
-                    <div className="space-y-0.5">
-                      {TRIGGER_EVENT_SCHEMAS[data.config["event_type"]].map((f) => (
-                        <div key={f.name} className="flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[10px]">
-                          <span className="shrink-0 rounded bg-amber-200/60 px-1 py-px font-mono text-[8px] font-bold text-amber-800">{f.type}</span>
-                          <span className="font-medium text-amber-900">{f.name}</span>
-                          {f.sample && <span className="ml-auto text-[9px] text-amber-600">{f.sample}</span>}
-                        </div>
-                      ))}
-                    </div>
-                    <p className="mt-2 text-[9px] text-amber-600">These fields are available as data pills in all downstream steps.</p>
-                  </div>
-                )}
-              </div>
-            )}
+            {/* Trigger Configuration */}
+            {data.type === "trigger" && <TriggerConfig nodeId={nodeId} data={data} onUpdate={onUpdate} />}
 
             {/* MCP Tool Selector */}
             {(data.type === "action" || (data.type === "trigger" && !data.config?.["event_type"])) && (
@@ -666,11 +979,11 @@ export function NodeConfigPanel({
                           type="text"
                           placeholder={`Value or {{step.field}}...`}
                           className={`flex-1 rounded border bg-white px-2 py-1 text-[11px] focus:border-indigo-300 focus:outline-none ${
-                            (data.config?.[param.name] ?? "").startsWith("{{")
+                            String(data.config?.[param.name] ?? "").startsWith("{{")
                               ? "border-indigo-200 bg-indigo-50/30 font-mono text-indigo-700"
                               : "border-gray-200"
                           }`}
-                          value={data.config?.[param.name] ?? ""}
+                          value={String(data.config?.[param.name] ?? "")}
                           onChange={(e) =>
                             onUpdate(nodeId, {
                               config: { ...data.config, [param.name]: e.target.value },
@@ -688,6 +1001,88 @@ export function NodeConfigPanel({
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* Pre-defined MCP Filters */}
+            {currentTool && data.type === "action" && (
+              <div>
+                <div className="mb-1.5 flex items-center justify-between">
+                  <label className="text-[11px] font-medium text-muted-foreground">
+                    <Filter className="mr-1 inline h-3 w-3" />
+                    Pre-defined Filters
+                  </label>
+                  <span className="text-[9px] text-muted-foreground">LLM-suggested · editable</span>
+                </div>
+                <p className="mb-2 text-[10px] text-muted-foreground">
+                  Filters restrict the data returned by this MCP call, reducing payload size and improving performance.
+                </p>
+                <div className="space-y-1.5">
+                  {(data.config?.["__filters"] ? JSON.parse(data.config["__filters"]) as Array<{ field: string; operator: string; value: string }> : []).map((f: { field: string; operator: string; value: string }, idx: number) => (
+                    <div key={idx} className="flex items-center gap-1 rounded border border-blue-200 bg-blue-50/50 px-2 py-1.5">
+                      <input
+                        type="text"
+                        className="w-28 rounded border border-blue-200 bg-white px-1.5 py-0.5 text-[10px] font-mono"
+                        placeholder="field"
+                        value={f.field}
+                        onChange={(e) => {
+                          const filters = JSON.parse(data.config?.["__filters"] ?? "[]") as Array<{ field: string; operator: string; value: string }>;
+                          filters[idx] = { ...filters[idx], field: e.target.value };
+                          onUpdate(nodeId, { config: { ...data.config, __filters: JSON.stringify(filters) } });
+                        }}
+                      />
+                      <select
+                        className="h-6 rounded border border-blue-200 bg-white px-1 text-[10px]"
+                        value={f.operator}
+                        onChange={(e) => {
+                          const filters = JSON.parse(data.config?.["__filters"] ?? "[]") as Array<{ field: string; operator: string; value: string }>;
+                          filters[idx] = { ...filters[idx], operator: e.target.value };
+                          onUpdate(nodeId, { config: { ...data.config, __filters: JSON.stringify(filters) } });
+                        }}
+                      >
+                        <option value="equals">equals</option>
+                        <option value="not_equals">not equals</option>
+                        <option value="greater_than">greater than</option>
+                        <option value="less_than">less than</option>
+                        <option value="contains">contains</option>
+                        <option value="in">in</option>
+                      </select>
+                      <input
+                        type="text"
+                        className="flex-1 rounded border border-blue-200 bg-white px-1.5 py-0.5 text-[10px]"
+                        placeholder="value or {{step.field}}"
+                        value={f.value}
+                        onChange={(e) => {
+                          const filters = JSON.parse(data.config?.["__filters"] ?? "[]") as Array<{ field: string; operator: string; value: string }>;
+                          filters[idx] = { ...filters[idx], value: e.target.value };
+                          onUpdate(nodeId, { config: { ...data.config, __filters: JSON.stringify(filters) } });
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const filters = JSON.parse(data.config?.["__filters"] ?? "[]") as Array<{ field: string; operator: string; value: string }>;
+                          filters.splice(idx, 1);
+                          onUpdate(nodeId, { config: { ...data.config, __filters: JSON.stringify(filters) } });
+                        }}
+                        className="shrink-0 text-muted-foreground hover:text-red-500"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const filters = JSON.parse(data.config?.["__filters"] ?? "[]") as Array<{ field: string; operator: string; value: string }>;
+                      filters.push({ field: "", operator: "equals", value: "" });
+                      onUpdate(nodeId, { config: { ...data.config, __filters: JSON.stringify(filters) } });
+                    }}
+                    className="flex w-full items-center justify-center gap-1 rounded border border-dashed border-blue-300 py-1.5 text-[10px] font-medium text-blue-600 hover:bg-blue-50"
+                  >
+                    <Plus className="h-3 w-3" /> Add Filter
+                  </button>
                 </div>
               </div>
             )}
@@ -862,7 +1257,7 @@ export function NodeConfigPanel({
                 </p>
                 <div className="space-y-1">
                   {toolParams.map((p) => {
-                    const value = data.config?.[p.name] ?? "";
+                    const value = String(data.config?.[p.name] ?? "");
                     const isMapped = value.startsWith("{{");
                     return (
                       <div key={p.name} className={`flex items-center gap-2 rounded px-2.5 py-1.5 ${isMapped ? "bg-indigo-50" : value ? "bg-slate-50" : "bg-white border border-dashed border-gray-200"}`}>
