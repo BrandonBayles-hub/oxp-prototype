@@ -1173,6 +1173,47 @@ function ConversationsContent() {
   // --- Chat input ---
   const [inputMode, setInputMode] = useState<"message" | "private_note">("message");
   const [draft, setDraft] = useState("");
+
+  /**
+   * Email composer body prefix: two blank lines + property/staff signature. Staff types their
+   * reply at the top of the textarea; the signature stays editable inline so they can tweak or
+   * remove it as needed. Cursor is parked at position 0 after the fill so typing lands above
+   * the signature block.
+   */
+  const buildEmailComposerSignatureDraft = useCallback(
+    (convo: ConversationItem | null): string => {
+      if (!convo || convo.channel !== "Email") return "";
+      const sig = staffEmailSignatureForConversation(convo, humanNameSet, humanMembers);
+      if (!sig) return "";
+      return `\n\n${sig}`;
+    },
+    [humanNameSet, humanMembers]
+  );
+
+  /** Parks the composer caret at position 0 so the next keystroke lands above the signature. */
+  const parkCaretAtStart = useCallback(() => {
+    requestAnimationFrame(() => {
+      const el = chatTextareaRef.current;
+      if (!el) return;
+      el.selectionStart = 0;
+      el.selectionEnd = 0;
+      el.scrollTop = 0;
+    });
+  }, []);
+
+  /**
+   * Called from handleSend after a message goes out. Clears the draft and, for Email + Message
+   * conversations, immediately re-seeds the signature so staff can start typing the next reply
+   * above it without having to reopen the thread.
+   */
+  const resetComposerAfterSend = useCallback(
+    (convo: ConversationItem | null, mode: "message" | "private_note") => {
+      const seed = mode === "message" ? buildEmailComposerSignatureDraft(convo) : "";
+      setDraft(seed);
+      if (seed) parkCaretAtStart();
+    },
+    [buildEmailComposerSignatureDraft, parkCaretAtStart]
+  );
   const [selectedEscalationTypes, setSelectedEscalationTypes] = useState<Set<string>>(new Set());
   const [superAgentNoteOpen, setSuperAgentNoteOpen] = useState(false);
   const [superAgentNoteDraft, setSuperAgentNoteDraft] = useState("");
@@ -1188,6 +1229,24 @@ function ConversationsContent() {
   const profilePanelInboxComposerRef = useRef<HTMLTextAreaElement>(null);
   const [privateNoteMention, setPrivateNoteMention] = useState<PrivateNoteMentionActive | null>(null);
   const [privateNoteMentionIndex, setPrivateNoteMentionIndex] = useState(0);
+
+  /**
+   * Seed the composer with an editable signature on conversation switch or mode switch when
+   * the target composer is Email + Message and the draft is currently empty. We intentionally
+   * do NOT re-seed when the user clears the draft mid-conversation — if they deleted the
+   * signature on purpose, it stays gone until they change threads or hit send.
+   */
+  useEffect(() => {
+    if (!selected) return;
+    if (selected.channel !== "Email") return;
+    if (inputMode !== "message") return;
+    if (draft.length > 0) return;
+    const seed = buildEmailComposerSignatureDraft(selected);
+    if (!seed) return;
+    setDraft(seed);
+    parkCaretAtStart();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run on conversation / mode switch
+  }, [selectedId, inputMode]);
 
   const privateNoteMentionFiltered = useMemo(() => {
     if (!privateNoteMention) return [];
@@ -1526,10 +1585,10 @@ function ConversationsContent() {
       hour12: true,
       timeZoneName: "short",
     });
-    const emailSignature =
-      selected.channel === "Email" && inputMode === "message"
-        ? staffEmailSignatureForConversation(selected, humanNameSet, humanMembers)
-        : undefined;
+    // Composer flow: the signature is edited inline in the draft body, so we no longer add it
+    // as a separate emailSignature field on the outbound message. Non-composer flows (bulk email,
+    // Entrata profile side panel) still populate this field explicitly where needed.
+    const emailSignature: string | undefined = undefined;
     const sa1ReplyToEscalations =
       isSuperAgent1DemoThread(selected.id) &&
       inputMode === "message" &&
@@ -1572,7 +1631,7 @@ function ConversationsContent() {
 
       setSelectedEscalationTypes(new Set());
       superAgentSelectionsRef.current.set(conversationId, new Set());
-      setDraft("");
+      resetComposerAfterSend(selected, inputMode);
       setPrivateNoteMention(null);
       return;
     }
@@ -1642,7 +1701,7 @@ function ConversationsContent() {
       }, 1500);
     }
 
-    setDraft("");
+    resetComposerAfterSend(selected, inputMode);
     setPrivateNoteMention(null);
   };
 
@@ -4415,7 +4474,7 @@ function ConversationsContent() {
                             : "Select an escalation above to respond…"
                           : "Write a message…"
                     }
-                    rows={2}
+                    rows={selected?.channel === "Email" && inputMode === "message" ? 4 : 2}
                     className="w-full resize-none bg-transparent px-4 pt-3 pb-1 text-sm placeholder:text-muted-foreground focus-visible:outline-none"
                     aria-label={inputMode === "private_note" ? "Private note" : "Message"}
                     aria-autocomplete={inputMode === "private_note" ? "list" : undefined}
