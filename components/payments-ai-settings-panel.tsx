@@ -40,6 +40,7 @@ import {
   ExternalLink,
   FileWarning,
   Gavel,
+  History,
   Info,
   Lock,
   MessageSquare,
@@ -49,8 +50,6 @@ import {
   Users,
 } from "lucide-react"
 import { BalanceThresholdInput } from "@/components/payments-ai/balance-threshold-input"
-import { LifecycleGlossary } from "@/components/payments-ai/lifecycle-glossary"
-import { ResolvedPropertySettingsStrip } from "@/components/payments-ai/resolved-property-settings-strip"
 import { ScoringPreviewCard } from "@/components/payments-ai/scoring-preview-card"
 import { FACTOR_SCOPE_HINTS } from "@/lib/payments-ai-eligibility"
 import {
@@ -885,7 +884,7 @@ const CONTEXT_OUTREACH_KEYS: (keyof PanelState)[] = [
   "onTimePayerGraceEnabled", "onTimePayerGraceDays", "onTimePayerMinRate",
 ]
 const GUARDRAIL_KEYS: (keyof PanelState)[] = [
-  "toolFailureCap", "loopGuardCount", "feeWaiverAutoApproveCap", "driftPercentThreshold",
+  "feeWaiverAutoApproveCap", "driftPercentThreshold",
   "shareFlexAvailability", "acceptOneTimePayments", "setupRecurringPayments",
 ]
 
@@ -974,7 +973,6 @@ interface Props {
   propertyName: string
   propertyId?: string
   agentDisplayLabel?: string
-  onOpenPropertySetting?: (settingName: string) => void
   /** When true, the panel edits a shared draft applied to many properties at
    *  once. The header, banner, and Save copy switch to bulk wording, and Save
    *  reports which sections changed so the host applies only those. */
@@ -989,14 +987,14 @@ interface Props {
   onBulkApply?: (changedSections: string[]) => void
 }
 
-type DetailTab = "cadence" | "escalation" | "messaging"
-type SettingsView = "scenarios" | "guardrails"
+type DetailTab = "cadence" | "escalation" | "messaging" | "guardrails" | "changelog"
+const SCENARIO_DETAIL_TABS: readonly DetailTab[] = ["cadence", "escalation", "messaging"] as const
+const PROPERTY_WIDE_DETAIL_TABS: readonly DetailTab[] = ["guardrails", "changelog"] as const
 
 export function PaymentsAISettingsPanel({
   propertyName,
   propertyId,
   agentDisplayLabel = "Payments AI",
-  onOpenPropertySetting,
   bulkMode = false,
   bulkCount = 0,
   bulkPropertyNames = [],
@@ -1014,7 +1012,7 @@ export function PaymentsAISettingsPanel({
   const [state, setState] = useState<PanelState>(() => makeInitialState())
   const [pristine, setPristine] = useState<PanelState>(() => makeInitialState())
   const [detailTab, setDetailTab] = useState<DetailTab>("cadence")
-  const [settingsView, setSettingsView] = useState<SettingsView>("scenarios")
+  const isPropertyWideTab = (PROPERTY_WIDE_DETAIL_TABS as readonly DetailTab[]).includes(detailTab)
 
   const dirty = useMemo(() => JSON.stringify(state) !== JSON.stringify(pristine), [state, pristine])
 
@@ -1150,17 +1148,6 @@ export function PaymentsAISettingsPanel({
           {/* Collection journey is a property-wide overview of where every
               scenario fires across the billing cycle, above the master-detail
               block and separated from the per-scenario rail. */}
-          {!bulkMode && (
-            <div className="mb-4">
-              <ResolvedPropertySettingsStrip
-                resolved={resolvedSettings}
-                onOpenSetting={onOpenPropertySetting}
-              />
-            </div>
-          )}
-          <div className="mb-4">
-            <LifecycleGlossary />
-          </div>
           <div className="mb-6">
             <JourneyTimeline
               store={state.scenarioStore}
@@ -1172,45 +1159,11 @@ export function PaymentsAISettingsPanel({
             />
           </div>
 
-          <div className="mb-4 inline-flex items-center gap-1 rounded-lg border border-border bg-zinc-100/70 p-1">
-            <button
-              type="button"
-              onClick={() => setSettingsView("scenarios")}
-              className={cn(
-                "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                settingsView === "scenarios"
-                  ? "bg-zinc-900 text-white shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              Scenarios
-            </button>
-            <button
-              type="button"
-              onClick={() => setSettingsView("guardrails")}
-              className={cn(
-                "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                settingsView === "guardrails"
-                  ? "bg-zinc-900 text-white shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              Guardrails
-            </button>
-          </div>
-
-          {settingsView === "guardrails" ? (
-            <WorkflowGuardrailsSection
-              state={state}
-              update={update}
-              propertyContext={propertyContext}
-              avgRent={resolvedSettings.avgRent}
-              activeScenario={state.scenario}
-            />
-          ) : (
           <div className="flex flex-row items-start gap-4">
             {/* Left sidebar: Agent identity (property-wide) sits directly above
-                the Editing Scenario rail. */}
+                the Editing Scenario rail. When a property-wide tab is active
+                (Guardrails, Change Log), the rail highlights all four scenarios
+                to signal the settings apply everywhere. */}
             <div className="w-56 shrink-0 space-y-4 self-start sm:sticky sm:top-0 sm:w-60">
               <AgentIdentitySection
                 state={state}
@@ -1222,23 +1175,26 @@ export function PaymentsAISettingsPanel({
                 store={state.scenarioStore}
                 current={state}
                 onChange={handleScenarioChange}
+                highlightAll={detailTab === "guardrails"}
               />
             </div>
 
             <div className="min-w-0 flex-1 space-y-8">
-              <ScenarioEnableBanner
-                scenario={state.scenario}
-                enabled={state.enabled}
-                onToggle={handleScenarioEnabledToggle}
-                propertyContext={propertyContext}
-              />
+              {!isPropertyWideTab && (
+                <ScenarioEnableBanner
+                  scenario={state.scenario}
+                  enabled={state.enabled}
+                  onToggle={handleScenarioEnabledToggle}
+                  propertyContext={propertyContext}
+                />
+              )}
 
               <div
                 className={cn(
                   "space-y-6 transition-opacity",
-                  !state.enabled && "pointer-events-none select-none opacity-50",
+                  !isPropertyWideTab && !state.enabled && "pointer-events-none select-none opacity-50",
                 )}
-                aria-disabled={!state.enabled}
+                aria-disabled={!isPropertyWideTab && !state.enabled}
               >
                 <DetailTabBar active={detailTab} onChange={setDetailTab} />
 
@@ -1258,10 +1214,21 @@ export function PaymentsAISettingsPanel({
                 {detailTab === "messaging" && (
                   <MessagesSection state={state} update={update} />
                 )}
+                {detailTab === "guardrails" && (
+                  <WorkflowGuardrailsSection
+                    state={state}
+                    update={update}
+                    propertyContext={propertyContext}
+                    avgRent={resolvedSettings.avgRent}
+                    activeScenario={state.scenario}
+                  />
+                )}
+                {detailTab === "changelog" && (
+                  <ChangeLogSection propertyName={propertyName} />
+                )}
               </div>
             </div>
           </div>
-          )}
         </div>
       </div>
 
@@ -1300,15 +1267,17 @@ function InfoHint({ label, className }: { label: string; className?: string }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   Detail tab bar — switches the scenario detail pane between Cadence,
-   Escalation, and Guardrails so only one tall section renders at a time
-   (less scrolling).
+   Detail tab bar — switches the settings pane between per-scenario tabs
+   (Cadence, Escalation, Custom Messaging) and property-wide tabs
+   (Guardrails, Change Log) so only one tall section renders at a time.
    ══════════════════════════════════════════════════════════════════════════ */
 
 const DETAIL_TABS: { id: DetailTab; label: string; icon: typeof Clock }[] = [
   { id: "cadence", label: "Cadence", icon: Clock },
   { id: "escalation", label: "Escalation", icon: Users },
   { id: "messaging", label: "Custom Messaging", icon: MessageSquare },
+  { id: "guardrails", label: "Guardrails", icon: ShieldCheck },
+  { id: "changelog", label: "Change Log", icon: History },
 ]
 
 function DetailTabBar({
@@ -1764,27 +1733,38 @@ function ScenarioRail({
   store,
   current,
   onChange,
+  highlightAll = false,
 }: {
   scenario: ScenarioId
   store: Record<ScenarioId, ScenarioSettings>
   current: PanelState
   onChange: (s: ScenarioId) => void
+  /** When true, every scenario renders with the active purple styling so it
+   *  reads as "applies to all". Used for property-wide tabs (Guardrails). */
+  highlightAll?: boolean
 }) {
   return (
     <div className="w-full">
       <div
         role="radiogroup"
         aria-label="Scenario"
-        className="space-y-2 rounded-xl border border-border bg-white p-2.5"
+        className={cn(
+          "space-y-2 rounded-xl border bg-white p-2.5 transition-colors",
+          highlightAll ? "border-purple-300 ring-1 ring-purple-200/60" : "border-border",
+        )}
       >
-        <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Editing scenario
+        <p className={cn(
+          "px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider",
+          highlightAll ? "text-purple-700" : "text-muted-foreground",
+        )}>
+          {highlightAll ? "Applies to all scenarios" : "Editing scenario"}
         </p>
         {SCENARIOS.map((s) => {
           const active = scenario === s.id
           const settings = active ? extractScenarioSettings(current) : store[s.id]
           const enabled = settings.enabled
           const outOfScope = s.outOfScope
+          const visualActive = highlightAll ? !outOfScope : active
           return (
             <button
               key={s.id}
@@ -1794,14 +1774,14 @@ function ScenarioRail({
               onClick={() => onChange(s.id)}
               className={cn(
                 "relative w-full rounded-lg border px-3 py-2.5 text-left transition-all",
-                active
+                visualActive
                   ? outOfScope
                     ? "border-rose-300 bg-rose-50 text-rose-950 shadow-sm ring-2 ring-rose-200/60"
                     : "border-purple-400 bg-purple-100 text-purple-950 shadow-sm ring-2 ring-purple-300/50"
                   : "border-border bg-white text-foreground hover:border-zinc-400 hover:bg-zinc-50",
               )}
             >
-              {active && (
+              {visualActive && (
                 <span
                   className={cn(
                     "absolute inset-y-0 left-0 w-1 rounded-l-lg",
@@ -1827,7 +1807,7 @@ function ScenarioRail({
                   <span className="shrink-0 rounded-full bg-rose-200 px-1.5 py-0.5 text-[8px] font-semibold uppercase leading-tight tracking-wide text-rose-800">
                     Out of scope
                   </span>
-                ) : active ? (
+                ) : highlightAll ? null : active ? (
                   <span className="shrink-0 rounded-full bg-purple-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-purple-700">
                     Editing
                   </span>
@@ -1837,10 +1817,10 @@ function ScenarioRail({
                   </span>
                 ) : null}
               </div>
-              <div className={cn("mt-0.5 text-[11px] leading-snug", active ? (outOfScope ? "text-rose-900/75" : "text-purple-900/75") : "text-muted-foreground", !enabled && !outOfScope && "opacity-70")}>
+              <div className={cn("mt-0.5 text-[11px] leading-snug", visualActive ? (outOfScope ? "text-rose-900/75" : "text-purple-900/75") : "text-muted-foreground", !enabled && !outOfScope && "opacity-70")}>
                 {s.helper}
               </div>
-              <div className={cn("mt-1.5 text-[10px] font-medium tabular-nums", active ? (outOfScope ? "text-rose-800/70" : "text-purple-800/70") : "text-zinc-500", !enabled && !outOfScope && "opacity-70")}>
+              <div className={cn("mt-1.5 text-[10px] font-medium tabular-nums", visualActive ? (outOfScope ? "text-rose-800/70" : "text-purple-800/70") : "text-zinc-500", !enabled && !outOfScope && "opacity-70")}>
                 {outOfScope ? "Pending legal review" : enabled ? scenarioCadenceSummary(settings) : "Disabled"}
               </div>
             </button>
@@ -3015,49 +2995,6 @@ function WorkflowGuardrailsSection({
         <ResidentEligibilitySection state={state} update={update} activeScenario={activeScenario} />
         <ContextAwareOutreachSection state={state} update={update} propertyContext={propertyContext} />
 
-        {/* ─── Reliability guards ─── */}
-        <GuardrailSubsection
-          title="Reliability guards"
-          description="Catch the agent before it loops or fails open."
-          scope="global"
-        >
-          <GuardrailRule
-            title="Tool-call failure cap"
-            description="Pause the conversation and escalate after this many consecutive ledger or payment tool-call failures."
-            hint="Stops the agent from talking to a resident when its underlying tools (ledger lookups, payment calls) keep failing; it escalates to a human instead of guessing."
-          >
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              <Input
-                type="number"
-                min={1}
-                max={20}
-                value={state.toolFailureCap}
-                onChange={(e) => update("toolFailureCap", Math.max(1, Number(e.target.value) || 1))}
-                className="h-8 w-16 text-sm"
-              />
-              <span className="text-muted-foreground">consecutive failures before pause</span>
-            </div>
-          </GuardrailRule>
-
-          <GuardrailRule
-            title="Loop / repetition guard"
-            description="Pause if the agent has sent this many near-identical outbound messages with no inbound engagement."
-            hint="Prevents the agent from repeatedly sending the same message into the void; after this many ignored, near-identical sends, it pauses outreach."
-          >
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              <Input
-                type="number"
-                min={1}
-                max={20}
-                value={state.loopGuardCount}
-                onChange={(e) => update("loopGuardCount", Math.max(1, Number(e.target.value) || 1))}
-                className="h-8 w-16 text-sm"
-              />
-              <span className="text-muted-foreground">identical messages with no engagement</span>
-            </div>
-          </GuardrailRule>
-        </GuardrailSubsection>
-
         {/* ─── Autonomy ceilings ─── */}
         <GuardrailSubsection
           title="Autonomy ceilings"
@@ -3103,6 +3040,174 @@ function WorkflowGuardrailsSection({
           </GuardrailRule>
         </GuardrailSubsection>
       </div>
+    </SectionShell>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Change log section — property-wide audit trail of Payments AI setting edits
+   ══════════════════════════════════════════════════════════════════════════ */
+
+type ChangeLogEntry = {
+  id: string
+  timestamp: string
+  user: { name: string; role: string }
+  scope: "Cadence" | "Escalation" | "Custom Messaging" | "Guardrails" | "Agent identity"
+  setting: string
+  oldValue: string
+  newValue: string
+}
+
+const CHANGE_LOG_ENTRIES: ChangeLogEntry[] = [
+  {
+    id: "cl-1",
+    timestamp: "2026-06-30T15:42:00-06:00",
+    user: { name: "Melissa Ortega", role: "Regional Manager" },
+    scope: "Guardrails",
+    setting: "Fee-waiver auto-approve cap",
+    oldValue: "$25",
+    newValue: "$50",
+  },
+  {
+    id: "cl-2",
+    timestamp: "2026-06-30T11:08:00-06:00",
+    user: { name: "James Kim", role: "Property Manager" },
+    scope: "Cadence",
+    setting: "Late scenario — first message offset",
+    oldValue: "3 days after rent due",
+    newValue: "5 days after rent due",
+  },
+  {
+    id: "cl-3",
+    timestamp: "2026-06-28T09:17:00-06:00",
+    user: { name: "Priya Shah", role: "AR Analyst" },
+    scope: "Escalation",
+    setting: "Legal scenario — routing target",
+    oldValue: "Property Manager",
+    newValue: "Collections Specialist",
+  },
+  {
+    id: "cl-4",
+    timestamp: "2026-06-27T16:55:00-06:00",
+    user: { name: "Melissa Ortega", role: "Regional Manager" },
+    scope: "Guardrails",
+    setting: "Tool-call failure cap",
+    oldValue: "5 consecutive failures",
+    newValue: "3 consecutive failures",
+  },
+  {
+    id: "cl-5",
+    timestamp: "2026-06-25T13:24:00-06:00",
+    user: { name: "James Kim", role: "Property Manager" },
+    scope: "Custom Messaging",
+    setting: "Initial scenario — intro message",
+    oldValue: "Hi {resident_first_name}, this is a friendly reminder your rent is due soon.",
+    newValue: "Hi {resident_first_name} — your rent for {month} is due on the {rent_due_day}. Let me know if you'd like help paying.",
+  },
+  {
+    id: "cl-6",
+    timestamp: "2026-06-24T10:03:00-06:00",
+    user: { name: "Priya Shah", role: "AR Analyst" },
+    scope: "Guardrails",
+    setting: "Repayment agreements — max months (automated)",
+    oldValue: "3 months",
+    newValue: "4 months",
+  },
+  {
+    id: "cl-7",
+    timestamp: "2026-06-22T14:41:00-06:00",
+    user: { name: "Devon Carter", role: "Suite Leader" },
+    scope: "Agent identity",
+    setting: "Agent display name",
+    oldValue: "Payments AI",
+    newValue: "ELI+ Payments",
+  },
+  {
+    id: "cl-8",
+    timestamp: "2026-06-20T08:12:00-06:00",
+    user: { name: "James Kim", role: "Property Manager" },
+    scope: "Cadence",
+    setting: "Late scenario — quiet hours",
+    oldValue: "8:00 PM – 8:00 AM",
+    newValue: "9:00 PM – 8:00 AM",
+  },
+]
+
+function formatChangeLogTimestamp(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  const dateStr = date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+  const timeStr = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+  return `${dateStr} · ${timeStr}`
+}
+
+const CHANGE_LOG_SCOPE_STYLES: Record<ChangeLogEntry["scope"], string> = {
+  "Cadence": "bg-sky-100 text-sky-800",
+  "Escalation": "bg-amber-100 text-amber-800",
+  "Custom Messaging": "bg-violet-100 text-violet-800",
+  "Guardrails": "bg-emerald-100 text-emerald-800",
+  "Agent identity": "bg-zinc-200 text-zinc-800",
+}
+
+function ChangeLogSection({ propertyName }: { propertyName: string }) {
+  return (
+    <SectionShell
+      icon={History}
+      title="Change log"
+      description={`Audit trail of Payments AI setting edits for ${propertyName}. Shows who changed what, when, and from what value.`}
+      hint="Property-wide history. Most recent changes appear first."
+      headerAction={
+        <Badge variant="gray" className="text-[10px]">
+          Property-wide
+        </Badge>
+      }
+    >
+      <div className="overflow-hidden rounded-lg border border-border">
+        <table className="w-full border-collapse text-sm">
+          <thead className="bg-muted/50 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="whitespace-nowrap px-3 py-2 font-semibold">When</th>
+              <th className="whitespace-nowrap px-3 py-2 font-semibold">Updated by</th>
+              <th className="whitespace-nowrap px-3 py-2 font-semibold">Setting</th>
+              <th className="px-3 py-2 font-semibold">Old value</th>
+              <th className="px-3 py-2 font-semibold">New value</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border bg-white">
+            {CHANGE_LOG_ENTRIES.map((entry) => (
+              <tr key={entry.id} className="align-top">
+                <td className="whitespace-nowrap px-3 py-3 text-xs text-muted-foreground tabular-nums">
+                  {formatChangeLogTimestamp(entry.timestamp)}
+                </td>
+                <td className="whitespace-nowrap px-3 py-3">
+                  <div className="text-sm font-medium text-foreground">{entry.user.name}</div>
+                  <div className="text-[11px] text-muted-foreground">{entry.user.role}</div>
+                </td>
+                <td className="px-3 py-3">
+                  <div className="text-sm font-medium text-foreground">{entry.setting}</div>
+                  <span
+                    className={cn(
+                      "mt-1 inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                      CHANGE_LOG_SCOPE_STYLES[entry.scope],
+                    )}
+                  >
+                    {entry.scope}
+                  </span>
+                </td>
+                <td className="px-3 py-3 text-xs leading-relaxed text-muted-foreground line-through decoration-rose-300/70">
+                  {entry.oldValue}
+                </td>
+                <td className="px-3 py-3 text-xs font-medium leading-relaxed text-foreground">
+                  {entry.newValue}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-3 text-[11px] text-muted-foreground">
+        Prototype data — a production change log will pull from the same audit stream that powers Entrata's other admin activity logs.
+      </p>
     </SectionShell>
   )
 }
