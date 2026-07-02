@@ -54,7 +54,21 @@ export type ResolvedPropertySettings = Record<PropertySettingKey, string> & {
   lateFeeDay: number;
   delinquencyBeginDays: number;
   prpLoginDays: number;
-  collectionsAgencyDaysAfterMoveOut: number;
+  /** First and last day of the prior month during which charges are auto-posted. */
+  chargesPostedStartDay: number;
+  chargesPostedEndDay: number;
+  /** Days between the first and second delinquency notice. */
+  secondDelinquencyDaysAfterFirst: number;
+  /** Days after the final delinquency notice before eviction filing begins. */
+  evictionDaysAfterFinalDelinquency: number;
+  /** Days between eviction start and the resident's financial move-out. */
+  financialMoveoutDaysAfterEviction: number;
+  /** Days after financial move-out before the first collections notice is sent.
+   *  Was previously named collectionsAgencyDaysAfterMoveOut. */
+  firstCollectionsNoticeDaysAfterFmo: number;
+  /** Days between the first collections notice and the balance being handed off
+   *  to a third-party collections agency. */
+  balanceToCollectionsDaysAfterFirstCollectionsNotice: number;
 };
 
 const DEFAULT_VALUES: Omit<ResolvedPropertySettings, "propertyId" | "propertyName"> = {
@@ -76,11 +90,17 @@ const DEFAULT_VALUES: Omit<ResolvedPropertySettings, "propertyId" | "propertyNam
   pastResidentLoginWindow: "Past residents are allowed to login for 40 days after move out.",
   lateFeePolicy: "Late fees begin posting on the 5th of the month.",
   avgRent: 1650,
-  rentDueDay: 3,
+  rentDueDay: 1,
   lateFeeDay: 5,
   delinquencyBeginDays: 3,
   prpLoginDays: 40,
-  collectionsAgencyDaysAfterMoveOut: 4,
+  chargesPostedStartDay: 25,
+  chargesPostedEndDay: 31,
+  secondDelinquencyDaysAfterFirst: 7,
+  evictionDaysAfterFinalDelinquency: 3,
+  financialMoveoutDaysAfterEviction: 30,
+  firstCollectionsNoticeDaysAfterFmo: 4,
+  balanceToCollectionsDaysAfterFirstCollectionsNotice: 30,
 };
 
 const PROPERTY_OVERRIDES: Partial<Record<string, Partial<Omit<ResolvedPropertySettings, "propertyId" | "propertyName">>>> = {
@@ -133,7 +153,7 @@ export function toPropertyContext(resolved: ResolvedPropertySettings) {
     companySettingsPath: "Setup > Company > Financial > Delinquency",
     pastResidentLoginDays: resolved.prpLoginDays,
     avgRent: resolved.avgRent,
-    collectionsAgencyDaysAfterMoveOut: resolved.collectionsAgencyDaysAfterMoveOut,
+    firstCollectionsNoticeDaysAfterFmo: resolved.firstCollectionsNoticeDaysAfterFmo,
   };
 }
 

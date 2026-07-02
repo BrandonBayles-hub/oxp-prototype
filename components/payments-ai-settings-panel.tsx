@@ -13,7 +13,7 @@
  * plan policy, reliability / loop / drift / per-resident ceilings).
  */
 
-import React, { useMemo, useState } from "react"
+import React, { useCallback, useMemo, useState } from "react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -66,7 +66,7 @@ import {
    Types
    ══════════════════════════════════════════════════════════════════════════ */
 
-type ScenarioId = "initial" | "late" | "legal" | "pastResident"
+type ScenarioId = "initial" | "late" | "legal"
 type PresetId = "minimum" | "standard" | "high-touch" | "compliance"
 type CategoryId =
   | "hostile"
@@ -178,12 +178,6 @@ const SCENARIOS: {
     shortLabel: "Pre-Collections",
     helper: "Severely delinquent; pay-or-quit / eviction imminent.",
   },
-  {
-    id: "pastResident",
-    title: "Past Resident Payment (PRP)",
-    shortLabel: "PRP",
-    helper: "Post move-out balance recovery — targets the window before collections agency handoff.",
-  },
 ]
 
 /** Default outreach copy per scenario. `{name}`, `{balance}`, and `{link}` are
@@ -200,10 +194,6 @@ const SCENARIO_MESSAGES: Record<ScenarioId, { intro: string; repeat: string }> =
   legal: {
     intro: "Hi {name}, your account ({balance}) has reached pre-collections. Please resolve this right away to avoid further action: {link}",
     repeat: "Hi {name}, your past-due balance of {balance} remains unresolved. Contact us or pay now to stop escalation: {link}",
-  },
-  pastResident: {
-    intro: "Hi {name}, our records show an outstanding balance of {balance} on your former residence. You can pay it here: {link}",
-    repeat: "Hi {name}, your remaining balance of {balance} is still due. Settle it anytime here to avoid collections: {link}",
   },
 }
 
@@ -263,31 +253,12 @@ const SCENARIO_CADENCE: Record<ScenarioId, CadenceConfig> = {
       "Repeats every 5 days. Lower frequency than late warnings; high contact at this stage looks like harassment in court.",
     pauseOnReply: true,
   },
-  pastResident: {
-    badge: { label: "Recurring · 7-day", cls: "bg-rose-100 text-rose-800" },
-    offsetValue: 5,
-    offsetDir: "after_moveout",
-    offsetAnchor: "move_out",
-    repeatOn: true,
-    repeatInterval: 7,
-    maxAttempts: 6,
-    channel: "sms_email",
-    recipients: "all_responsible",
-    minOutstandingBalance: fixedThreshold(100),
-    quietStart: 9,
-    quietEnd: 20,
-    days: ALL_DAYS_FALSE_SUN,
-    repeatHelp:
-      "Repeats every 7 days. Past residents disengage fast; multiple touches are needed before referral to collections.",
-    pauseOnReply: true,
-  },
 }
 
 const SCENARIO_TO_PRESET: Record<ScenarioId, PresetId> = {
   initial: "minimum",
   late: "standard",
   legal: "compliance",
-  pastResident: "high-touch",
 }
 
 const OFFSET_ANCHORS: Record<OffsetAnchor, { options: { value: OffsetDir; label: string }[]; help: string }> = {
@@ -350,72 +321,127 @@ const OFFSET_PHRASE: Record<OffsetDir, string> = {
    journey step — whichever comes first.
    ══════════════════════════════════════════════════════════════════════════ */
 
-const CYCLE_DAYS = 31
+/** Nine anchor events that define the collection lifecycle, from charge
+ *  posting in the prior month through the balance being handed to a
+ *  third-party collections agency. */
+type JourneyEventKey =
+  | "chargesPosted"
+  | "rentDue"
+  | "firstDelinquencyNotice"
+  | "lateFees"
+  | "secondDelinquencyNotice"
+  | "eviction"
+  | "financialMoveout"
+  | "firstCollectionsNotice"
+  | "balanceSentToCollections"
 
-/** Fixed anchor days on the billing cycle that scenarios are measured against.
- *  Charges post a few days before rent is actually due, so they are distinct
- *  events on the timeline. */
-const JOURNEY_ANCHORS = {
-  chargesPosted: 1,
-  rentDue: 3,
-  lateFees: 6,
-  notice: 16,
-  eviction: 31,
-} as const
+/** Numeric day (relative to rent-due = day 0) for each event. Charges Posted
+ *  is a range; `chargesPosted` returns the start of that range for cadence
+ *  anchor purposes. `chargesPostedStart` / `chargesPostedEnd` bound the pill
+ *  rendered on the visual track. */
+type JourneyAnchors = Record<JourneyEventKey, number> & {
+  chargesPostedStart: number
+  chargesPostedEnd: number
+}
 
-/** Ordered journey steps. `start` is where the scenario's outreach window opens;
- *  the next step's `start` is the hard ceiling its repeats may not cross. */
-const JOURNEY_STEPS: { id: ScenarioId; start: number; ceiling: number }[] = [
-  { id: "initial", start: JOURNEY_ANCHORS.rentDue, ceiling: JOURNEY_ANCHORS.lateFees },
-  { id: "late", start: JOURNEY_ANCHORS.lateFees, ceiling: JOURNEY_ANCHORS.notice },
-  { id: "legal", start: JOURNEY_ANCHORS.notice, ceiling: JOURNEY_ANCHORS.eviction },
-  // Past-resident lives on a separate post-move-out track, not the rent cycle.
-]
+/** Convert a day-of-prior-month (1..31) to a signed offset relative to rent
+ *  due (day 0). The 31st of the prior month = day -1 (the day before the 1st
+ *  of the current month). */
+function priorMonthDayToOffset(day: number, monthLen = 31): number {
+  return -(monthLen - day + 1)
+}
 
-/** Anchor day for a given offset direction. */
-function anchorDayForDir(dir: OffsetDir): number {
-  switch (dir) {
-    case "on_charges_posted":
-      return JOURNEY_ANCHORS.chargesPosted
-    case "before_due":
-    case "after_due":
-      return JOURNEY_ANCHORS.rentDue
-    case "before_fees":
-    case "after_fees":
-    case "on_late_fees":
-      return JOURNEY_ANCHORS.lateFees
-    case "before_eviction":
-    case "after_eviction":
-    case "on_notice":
-      return JOURNEY_ANCHORS.eviction
-    case "after_charges_due":
-    case "day_of_month":
-      return JOURNEY_ANCHORS.rentDue
-    case "after_moveout":
-    case "after_fmo":
-      return JOURNEY_ANCHORS.rentDue
-    default:
-      return JOURNEY_ANCHORS.rentDue
+/** Derive the 9 anchor event days for a property from its resolved settings. */
+function deriveJourneyAnchors(resolved: ResolvedPropertySettings): JourneyAnchors {
+  const chargesPostedStart = priorMonthDayToOffset(resolved.chargesPostedStartDay)
+  const chargesPostedEnd = priorMonthDayToOffset(resolved.chargesPostedEndDay)
+  const rentDue = 0
+  const firstDelinquencyNotice = rentDue + resolved.delinquencyBeginDays
+  const lateFees = rentDue + (resolved.lateFeeDay - resolved.rentDueDay)
+  const secondDelinquencyNotice = firstDelinquencyNotice + resolved.secondDelinquencyDaysAfterFirst
+  const eviction = secondDelinquencyNotice + resolved.evictionDaysAfterFinalDelinquency
+  const financialMoveout = eviction + resolved.financialMoveoutDaysAfterEviction
+  const firstCollectionsNotice = financialMoveout + resolved.firstCollectionsNoticeDaysAfterFmo
+  const balanceSentToCollections =
+    firstCollectionsNotice + resolved.balanceToCollectionsDaysAfterFirstCollectionsNotice
+  return {
+    chargesPosted: chargesPostedStart,
+    chargesPostedStart,
+    chargesPostedEnd,
+    rentDue,
+    firstDelinquencyNotice,
+    lateFees,
+    secondDelinquencyNotice,
+    eviction,
+    financialMoveout,
+    firstCollectionsNotice,
+    balanceSentToCollections,
   }
 }
 
-/** Day the first message fires, projected onto the 31-day cycle. */
-function firstMessageDay(s: Pick<ScenarioSettings, "offsetValue" | "offsetDir">): number {
-  const anchor = anchorDayForDir(s.offsetDir)
+/** Ordered journey steps on the shared axis. `start` is where the scenario's
+ *  outreach window opens; the next step's `start` is the hard ceiling its
+ *  repeats may not cross. */
+function makeJourneySteps(a: JourneyAnchors): { id: ScenarioId; start: number; ceiling: number }[] {
+  return [
+    { id: "initial", start: a.rentDue, ceiling: a.lateFees },
+    { id: "late", start: a.lateFees, ceiling: a.secondDelinquencyNotice },
+    { id: "legal", start: a.secondDelinquencyNotice, ceiling: a.financialMoveout },
+  ]
+}
+
+/** Which anchor event a given offset direction is measured against. */
+function anchorDayForDir(dir: OffsetDir, a: JourneyAnchors): number {
+  switch (dir) {
+    case "on_charges_posted":
+      return a.chargesPostedStart
+    case "before_due":
+    case "after_due":
+      return a.rentDue
+    case "before_fees":
+    case "after_fees":
+    case "on_late_fees":
+      return a.lateFees
+    case "before_eviction":
+    case "after_eviction":
+    case "on_notice":
+      return a.eviction
+    case "after_charges_due":
+    case "day_of_month":
+      return a.rentDue
+    case "after_moveout":
+    case "after_fmo":
+      return a.financialMoveout
+    default:
+      return a.rentDue
+  }
+}
+
+/** Day the first message fires on the signed axis. */
+function firstMessageDay(
+  s: Pick<ScenarioSettings, "offsetValue" | "offsetDir">,
+  a: JourneyAnchors,
+): number {
+  const anchor = anchorDayForDir(s.offsetDir, a)
+  const clamp = (d: number) => clampToAxis(d, a)
   switch (s.offsetDir) {
     case "before_due":
     case "before_fees":
     case "before_eviction":
-      return clampDay(anchor - s.offsetValue)
+      return clamp(anchor - s.offsetValue)
     case "after_due":
     case "after_fees":
     case "after_eviction":
     case "after_charges_due":
     case "after_moveout":
     case "after_fmo":
-      return clampDay(anchor + s.offsetValue)
+      return clamp(anchor + s.offsetValue)
     case "day_of_month":
-      return clampDay(s.offsetValue)
+      // "day_of_month" interprets offsetValue as day-of-cycle (1..31). On the
+      // signed axis, day-of-cycle N corresponds to (N - rentDueDay) relative
+      // to rent due. Property defaults have rentDue = 1st, so day N = day
+      // (N - 1) on the axis.
+      return clamp(s.offsetValue - 1)
     case "on_charges_posted":
     case "on_late_fees":
     case "on_notice":
@@ -425,28 +451,34 @@ function firstMessageDay(s: Pick<ScenarioSettings, "offsetValue" | "offsetDir">)
   }
 }
 
-function clampDay(d: number): number {
-  return Math.max(1, Math.min(CYCLE_DAYS, Math.round(d)))
+function clampToAxis(d: number, a: JourneyAnchors): number {
+  return Math.max(a.chargesPostedStart, Math.min(a.balanceSentToCollections, Math.round(d)))
 }
 
 /** The next journey step's start day — the ceiling this scenario can't repeat past. */
-function nextStepStart(scenario: ScenarioId): number | null {
-  const idx = JOURNEY_STEPS.findIndex((s) => s.id === scenario)
+function nextStepStart(scenario: ScenarioId, a: JourneyAnchors): number | null {
+  const steps = makeJourneySteps(a)
+  const idx = steps.findIndex((s) => s.id === scenario)
   if (idx === -1) return null
-  const next = JOURNEY_STEPS[idx + 1]
+  const next = steps[idx + 1]
   return next ? next.start : null
 }
 
 /**
- * Project a scenario's send days onto the cycle, capped by maxAttempts AND by
- * the next journey step's start day (repeats can't bleed into the next stage).
+ * Project a scenario's send days onto the shared axis, capped by maxAttempts
+ * AND by the next journey step's start day (repeats can't bleed into the next
+ * stage).
  */
-function projectSendDays(s: Pick<ScenarioSettings, "offsetValue" | "offsetDir" | "repeatOn" | "repeatInterval" | "maxAttempts">, scenario: ScenarioId): number[] {
-  const first = firstMessageDay(s)
+function projectSendDays(
+  s: Pick<ScenarioSettings, "offsetValue" | "offsetDir" | "repeatOn" | "repeatInterval" | "maxAttempts">,
+  scenario: ScenarioId,
+  a: JourneyAnchors,
+): number[] {
+  const first = firstMessageDay(s, a)
   const days = [first]
   if (s.repeatOn) {
-    const ceil = nextStepStart(scenario)
-    const hardCeil = ceil != null ? ceil - 1 : CYCLE_DAYS
+    const ceil = nextStepStart(scenario, a)
+    const hardCeil = ceil != null ? ceil - 1 : a.balanceSentToCollections
     let next = first + s.repeatInterval
     while (days.length < s.maxAttempts && next <= hardCeil) {
       days.push(next)
@@ -619,7 +651,7 @@ const QUIET_HOUR_OPTIONS: { value: number; label: string }[] = [
    ══════════════════════════════════════════════════════════════════════════ */
 
 /**
- * Settings owned by a single scenario. Each of the four scenarios keeps an
+ * Settings owned by a single scenario. Each of the three scenarios keeps an
  * independent copy in `PanelState.scenarioStore`. The flat fields on PanelState
  * mirror the *currently selected* scenario so the existing card components can
  * keep reading `state.<field>` unchanged.
@@ -648,9 +680,6 @@ interface ScenarioSettings {
   quietStart: number
   quietEnd: number
   days: DayFlags
-  // When false, this scenario inherits the property-wide delivery window
-  // (channel + quiet hours + days). When true, it uses its own values above.
-  deliveryOverride: boolean
   // Customizable outreach copy for this scenario.
   introMessage: string
   repeatMessage: string
@@ -687,7 +716,6 @@ const SCENARIO_SCOPED_KEYS: (keyof ScenarioSettings)[] = [
   "quietStart",
   "quietEnd",
   "days",
-  "deliveryOverride",
   "introMessage",
   "repeatMessage",
   "pauseOnReply",
@@ -706,14 +734,8 @@ interface PanelState extends ScenarioSettings {
   agentDisplayName: string
   // Per-scenario settings store — source of truth for each scenario.
   scenarioStore: Record<ScenarioId, ScenarioSettings>
-  // Property-wide delivery window defaults. Scenarios inherit these unless
-  // they turn on their own per-scenario override (deliveryOverride).
-  defaultChannel: ChannelPref
-  defaultQuietStart: number
-  defaultQuietEnd: number
-  defaultDays: DayFlags
-  // When false, messages that land on a holiday/blocked day are pushed to the
-  // next available business day instead of being sent on the holiday.
+  // Property-wide holiday send policy. Channel, quiet hours, and days of week
+  // are configured per scenario in Cadence.
   defaultSendOnHolidays: boolean
   // Repayment agreements — property-wide guardrails for agent-negotiated plans
   repaymentOfferEnabled: boolean
@@ -756,7 +778,6 @@ interface PanelState extends ScenarioSettings {
   loopGuardCount: number
   // Workflow guardrails — Autonomy ceilings (property-wide)
   feeWaiverAutoApproveCap: number
-  driftPercentThreshold: number
   shareFlexAvailability: boolean
   acceptOneTimePayments: boolean
   setupRecurringPayments: boolean
@@ -776,7 +797,6 @@ function makeEligibilityRulesDefault(): Record<ScenarioId, Record<ScoreBand, Eli
     initial: { good: "skip", moderate: "continue", poor: "skip" },
     late: { good: "continue", moderate: "continue", poor: "skip" },
     legal: { good: "skip", moderate: "skip", poor: "skip" },
-    pastResident: { good: "continue", moderate: "route_human", poor: "skip" },
   }
 }
 
@@ -805,9 +825,6 @@ function makeScenarioSettings(scenario: ScenarioId): ScenarioSettings {
     quietStart: c.quietStart,
     quietEnd: c.quietEnd,
     days: { ...c.days },
-    // Inherit the property-wide delivery window by default; scenarios opt into
-    // their own channel / quiet hours / days only when they truly differ.
-    deliveryOverride: false,
     introMessage: SCENARIO_MESSAGES[scenario].intro,
     repeatMessage: SCENARIO_MESSAGES[scenario].repeat,
     pauseOnReply: c.pauseOnReply,
@@ -850,7 +867,6 @@ function makeScenarioStore(): Record<ScenarioId, ScenarioSettings> {
     initial: makeScenarioSettings("initial"),
     late: makeScenarioSettings("late"),
     legal: makeScenarioSettings("legal"),
-    pastResident: makeScenarioSettings("pastResident"),
   }
 }
 
@@ -858,14 +874,14 @@ function makeScenarioStore(): Record<ScenarioId, ScenarioSettings> {
  *  which areas a bulk save should apply ("only the sections you touched"). */
 const CADENCE_KEYS: (keyof ScenarioSettings)[] = [
   "enabled", "offsetValue", "offsetDir", "offsetAnchor", "repeatOn", "repeatInterval",
-  "maxAttempts", "recipients", "minOutstandingBalance", "deliveryOverride",
+  "maxAttempts", "recipients", "minOutstandingBalance",
   "channel", "quietStart", "quietEnd", "days",
   "pauseOnExpectedPayDate", "pauseOnReply", "pauseOnEviction",
   "delinquencyMode", "smallBalanceReminderOn", "smallBalanceMax", "smallBalanceFloor",
 ]
 const ESCALATION_KEYS: (keyof ScenarioSettings)[] = ["preset", "categories", "confidence", "routing"]
 const MESSAGING_KEYS: (keyof ScenarioSettings)[] = ["introMessage", "repeatMessage"]
-const DELIVERY_DEFAULT_KEYS: (keyof PanelState)[] = ["defaultChannel", "defaultQuietStart", "defaultQuietEnd", "defaultDays", "defaultSendOnHolidays"]
+const DELIVERY_DEFAULT_KEYS: (keyof PanelState)[] = ["defaultSendOnHolidays"]
 const REPAYMENT_KEYS: (keyof PanelState)[] = [
   "repaymentOfferEnabled", "repaymentRequireGoodStanding", "repaymentMinBalance", "repaymentMaxBalance",
   "repaymentMinDownPercent", "planMaxMonthsAutomated", "planRequireApprovalAmount",
@@ -884,7 +900,7 @@ const CONTEXT_OUTREACH_KEYS: (keyof PanelState)[] = [
   "onTimePayerGraceEnabled", "onTimePayerGraceDays", "onTimePayerMinRate",
 ]
 const GUARDRAIL_KEYS: (keyof PanelState)[] = [
-  "feeWaiverAutoApproveCap", "driftPercentThreshold",
+  "feeWaiverAutoApproveCap",
   "shareFlexAvailability", "acceptOneTimePayments", "setupRecurringPayments",
 ]
 
@@ -915,11 +931,6 @@ function makeInitialState(): PanelState {
     agentDisplayName: "",
     scenarioStore: store,
     ...store.initial,
-    // Property-wide delivery window defaults (sensible cross-scenario baseline).
-    defaultChannel: "sms_email",
-    defaultQuietStart: 9,
-    defaultQuietEnd: 20,
-    defaultDays: { ...ALL_DAYS_FALSE_SUN },
     // Off by default: don't message on holidays; push to next business day.
     defaultSendOnHolidays: false,
     repaymentOfferEnabled: true,
@@ -958,7 +969,6 @@ function makeInitialState(): PanelState {
     toolFailureCap: 3,
     loopGuardCount: 4,
     feeWaiverAutoApproveCap: 50,
-    driftPercentThreshold: 25,
     shareFlexAvailability: true,
     acceptOneTimePayments: true,
     setupRecurringPayments: true,
@@ -1007,6 +1017,10 @@ export function PaymentsAISettingsPanel({
   )
   const propertyContext = useMemo(
     () => propertyContextFromResolved(resolvedSettings),
+    [resolvedSettings],
+  )
+  const journeyAnchors = useMemo(
+    () => deriveJourneyAnchors(resolvedSettings),
     [resolvedSettings],
   )
   const [state, setState] = useState<PanelState>(() => makeInitialState())
@@ -1156,13 +1170,14 @@ export function PaymentsAISettingsPanel({
               onChange={handleScenarioChange}
               propertyContext={propertyContext}
               resolvedSettings={resolvedSettings}
+              anchors={journeyAnchors}
             />
           </div>
 
           <div className="flex flex-row items-start gap-4">
             {/* Left sidebar: Agent identity (property-wide) sits directly above
                 the Editing Scenario rail. When a property-wide tab is active
-                (Guardrails, Change Log), the rail highlights all four scenarios
+                (Guardrails, Change Log), the rail highlights all three scenarios
                 to signal the settings apply everywhere. */}
             <div className="w-56 shrink-0 space-y-4 self-start sm:sticky sm:top-0 sm:w-60">
               <AgentIdentitySection
@@ -1199,7 +1214,7 @@ export function PaymentsAISettingsPanel({
                 <DetailTabBar active={detailTab} onChange={setDetailTab} />
 
                 {detailTab === "cadence" && (
-                  <CadenceSection state={state} update={update} propertyContext={propertyContext} avgRent={resolvedSettings.avgRent} />
+                  <CadenceSection state={state} update={update} propertyContext={propertyContext} avgRent={resolvedSettings.avgRent} anchors={journeyAnchors} />
                 )}
                 {detailTab === "escalation" && (
                   <EscalationSection
@@ -1401,18 +1416,7 @@ function ScenarioEnableBanner({
               </>
             ),
           }
-        : enabled && scenario === "pastResident"
-          ? {
-              icon: Info,
-              text: (
-                <>
-                  Past Residents will only be allowed to log in for{" "}
-                  <span className="font-semibold text-foreground">{propertyContext.pastResidentLoginDays} days</span>{" "}
-                  after move-out.
-                </>
-              ),
-            }
-          : null
+        : null
   return (
     <section
       className={cn(
@@ -1456,37 +1460,166 @@ function ScenarioEnableBanner({
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   Journey timeline — unified day 1–31 view of the whole rent-collection cycle.
-   Shows the fixed anchor events and every scenario's projected message days on
-   a single rail so PMs can see overlaps and sequencing at a glance.
+   Collection journey — event-based track with 9 lifecycle anchor events.
+   Each scenario band spans the days it can send outreach; dots inside the
+   band mark individual projected send days.
    ══════════════════════════════════════════════════════════════════════════ */
 
 /** Visual identity for each scenario's marks on the timeline. */
-const SCENARIO_TIMELINE_META: Record<ScenarioId, { dot: string; ring: string; text: string; soft: string }> = {
-  initial: { dot: "bg-sky-500", ring: "ring-sky-300", text: "text-sky-700", soft: "bg-sky-100" },
-  late: { dot: "bg-amber-500", ring: "ring-amber-300", text: "text-amber-700", soft: "bg-amber-100" },
-  legal: { dot: "bg-rose-500", ring: "ring-rose-300", text: "text-rose-700", soft: "bg-rose-100" },
-  pastResident: { dot: "bg-violet-500", ring: "ring-violet-300", text: "text-violet-700", soft: "bg-violet-100" },
+const SCENARIO_TIMELINE_META: Record<ScenarioId, { dot: string; ring: string; text: string; soft: string; band: string }> = {
+  initial: { dot: "bg-sky-500", ring: "ring-sky-300", text: "text-sky-700", soft: "bg-sky-100", band: "bg-sky-200" },
+  late: { dot: "bg-amber-500", ring: "ring-amber-300", text: "text-amber-700", soft: "bg-amber-100", band: "bg-amber-200" },
+  legal: { dot: "bg-rose-500", ring: "ring-rose-300", text: "text-rose-700", soft: "bg-rose-100", band: "bg-rose-200" },
 }
 
-const JOURNEY_EVENTS_STATIC: { key: keyof typeof JOURNEY_ANCHORS | "prpStart"; label: string; icon: typeof Calendar }[] = [
-  { key: "chargesPosted", label: "Charges posted", icon: Receipt },
-  { key: "rentDue", label: "Rent due", icon: Calendar },
-  { key: "lateFees", label: "Late fees post", icon: FileWarning },
-  { key: "notice", label: "Put on notice / pre-collections", icon: AlertTriangle },
-  { key: "eviction", label: "Collections / eviction begins", icon: Gavel },
+function ordinalSuffix(n: number): string {
+  const s = ["th", "st", "nd", "rd"]
+  const v = n % 100
+  return s[(v - 20) % 10] || s[v] || s[0]
+}
+
+/** Signed axis day → number of days past rent due, for hover labels. */
+function axisDayLabel(day: number): string {
+  if (day === 0) return "Day of rent due"
+  if (day > 0) return `Day +${day} (post rent due)`
+  return `Day ${day} (pre rent due)`
+}
+
+type JourneyEventDef = {
+  key: JourneyEventKey
+  label: string
+  icon: typeof Calendar
+  dateLabel: (r: ResolvedPropertySettings) => string
+  sourceSetting?: string
+  isRange?: boolean
+}
+
+const JOURNEY_EVENT_DEFS: JourneyEventDef[] = [
+  {
+    key: "chargesPosted",
+    label: "Charges Posted",
+    icon: Receipt,
+    dateLabel: (r) => `${r.chargesPostedStartDay}${ordinalSuffix(r.chargesPostedStartDay)}\u2013${r.chargesPostedEndDay}${ordinalSuffix(r.chargesPostedEndDay)} of prior month`,
+    sourceSetting: "Rent Charge Date",
+    isRange: true,
+  },
+  {
+    key: "rentDue",
+    label: "Rent Due",
+    icon: Calendar,
+    dateLabel: (r) => `${r.rentDueDay}${ordinalSuffix(r.rentDueDay)} of month`,
+  },
+  {
+    key: "firstDelinquencyNotice",
+    label: "1st Delinquency Notice",
+    icon: AlertTriangle,
+    dateLabel: (r) => `${r.delinquencyBeginDays} day${r.delinquencyBeginDays === 1 ? "" : "s"} after rent due`,
+    sourceSetting: "Delinquency Notices",
+  },
+  {
+    key: "lateFees",
+    label: "Daily Late Fees Begin",
+    icon: FileWarning,
+    dateLabel: (r) => `${r.lateFeeDay}${ordinalSuffix(r.lateFeeDay)} of month`,
+    sourceSetting: "Late Fee Policy",
+  },
+  {
+    key: "secondDelinquencyNotice",
+    label: "2nd Delinquency Notice",
+    icon: AlertTriangle,
+    dateLabel: (r) => `${r.secondDelinquencyDaysAfterFirst} days after 1st notice`,
+    sourceSetting: "Delinquency Notices",
+  },
+  {
+    key: "eviction",
+    label: "Eviction Begins",
+    icon: Gavel,
+    dateLabel: (r) => `${r.evictionDaysAfterFinalDelinquency} days after final delinquency notice`,
+    sourceSetting: "Eviction Date",
+  },
+  {
+    key: "financialMoveout",
+    label: "Financial Moveout",
+    icon: UserMinus,
+    dateLabel: (r) => `${r.financialMoveoutDaysAfterEviction} days after eviction begins`,
+  },
+  {
+    key: "firstCollectionsNotice",
+    label: "1st Collections Notice",
+    icon: AlertTriangle,
+    dateLabel: (r) => `${r.firstCollectionsNoticeDaysAfterFmo} days after financial moveout`,
+    sourceSetting: "Collections Policy",
+  },
+  {
+    key: "balanceSentToCollections",
+    label: "Balance Sent to Collections",
+    icon: Gavel,
+    dateLabel: (r) => `${r.balanceToCollectionsDaysAfterFirstCollectionsNotice} days after 1st collections notice`,
+  },
 ]
 
-function journeyAnchorsFromResolved(resolved: ResolvedPropertySettings) {
-  return {
-    chargesPosted: 1,
-    rentDue: resolved.rentDueDay,
-    lateFees: resolved.lateFeeDay,
-    notice: resolved.rentDueDay + resolved.delinquencyBeginDays + 10,
-    eviction: 31,
-    prpStart: 0,
-    prpAgency: resolved.collectionsAgencyDaysAfterMoveOut,
+/** Three phase-chunked sections on the journey track. Each phase gets its own
+ *  fixed slice of the horizontal width and a proportional day sub-axis inside
+ *  it. This solves the "linear day scaling wastes half the axis" problem: the
+ *  9 events fit into three named columns with breathing room, while scenario
+ *  bands still flow smoothly across phase boundaries via the global percent
+ *  function below. */
+type PhaseKey = "preRentDue" | "delinquency" | "postMoveout"
+type PhaseDef = {
+  key: PhaseKey
+  label: string
+  dayStart: number
+  dayEnd: number
+  widthPct: number
+  events: JourneyEventKey[]
+}
+
+function buildPhases(a: JourneyAnchors): PhaseDef[] {
+  return [
+    {
+      key: "preRentDue",
+      label: "Before rent due",
+      dayStart: a.chargesPostedStart - 2,
+      dayEnd: a.rentDue,
+      widthPct: 22,
+      events: ["chargesPosted", "rentDue"],
+    },
+    {
+      key: "delinquency",
+      label: "Delinquency & eviction cycle",
+      dayStart: a.rentDue,
+      dayEnd: a.eviction,
+      widthPct: 40,
+      events: ["firstDelinquencyNotice", "lateFees", "secondDelinquencyNotice", "eviction"],
+    },
+    {
+      key: "postMoveout",
+      label: "Post move-out & collections",
+      dayStart: a.eviction,
+      dayEnd: a.balanceSentToCollections + 4,
+      widthPct: 38,
+      events: ["financialMoveout", "firstCollectionsNotice", "balanceSentToCollections"],
+    },
+  ]
+}
+
+/** Map any signed day to a global percent across the phase-chunked axis.
+ *  Days outside the axis are clamped to the nearest phase edge, so scenario
+ *  bands that overshoot still render inside the visible track. */
+function dayToPhasePct(day: number, phases: PhaseDef[]): number {
+  let cumulative = 0
+  for (let i = 0; i < phases.length; i++) {
+    const phase = phases[i]
+    const isLast = i === phases.length - 1
+    if (day <= phase.dayEnd || isLast) {
+      const clamped = Math.max(phase.dayStart, Math.min(phase.dayEnd, day))
+      const span = phase.dayEnd - phase.dayStart
+      const within = span > 0 ? (clamped - phase.dayStart) / span : 0
+      return cumulative + within * phase.widthPct
+    }
+    cumulative += phase.widthPct
   }
+  return cumulative
 }
 
 function JourneyTimeline({
@@ -1496,6 +1629,7 @@ function JourneyTimeline({
   onChange,
   propertyContext,
   resolvedSettings,
+  anchors,
 }: {
   store: Record<ScenarioId, ScenarioSettings>
   current: PanelState
@@ -1503,192 +1637,271 @@ function JourneyTimeline({
   onChange: (s: ScenarioId) => void
   propertyContext: PropertyContextView
   resolvedSettings: ResolvedPropertySettings
+  anchors: JourneyAnchors
 }) {
-  const anchors = journeyAnchorsFromResolved(resolvedSettings)
-  const journeyEvents = JOURNEY_EVENTS_STATIC.map((e) => ({
-    day: anchors[e.key],
-    label: e.label,
-    icon: e.icon,
-  }))
-  // Resolve the live settings for each scenario (active one comes from working state).
+  void propertyContext
+  const steps = useMemo(() => makeJourneySteps(anchors), [anchors])
+  const phases = useMemo(() => buildPhases(anchors), [anchors])
+  const dayPct = useCallback((day: number) => dayToPhasePct(day, phases), [phases])
+
+  // Cumulative x-position (in %) at each internal phase boundary. Used to draw
+  // the dashed vertical dividers between phases in the axis row and in each
+  // scenario-band row.
+  const phaseBoundaries = useMemo(() => {
+    const out: number[] = []
+    let acc = 0
+    for (let i = 0; i < phases.length - 1; i++) {
+      acc += phases[i].widthPct
+      out.push(acc)
+    }
+    return out
+  }, [phases])
+
   const settingsFor = (id: ScenarioId): ScenarioSettings =>
     id === active ? extractScenarioSettings(current) : store[id]
 
-  const days = Array.from({ length: CYCLE_DAYS }, (_, i) => i + 1)
-
-  // Rows shown on the rent cycle (past-resident is on its own track below).
-  const cycleRows = JOURNEY_STEPS.map((step) => step.id)
+  const cycleRows: ScenarioId[] = ["initial", "late", "legal"]
 
   return (
     <SectionShell
       icon={CalendarRange}
       title="Collection journey"
-      description="One timeline for the whole billing cycle: see when every scenario reaches out, relative to the key ledger events."
-      hint="A unified day 1–31 view of the rent-collection cycle. Each row is a scenario; dots are projected message days. Repeats stop before the next stage begins. Past Resident Payment runs after move-out, on its own track."
+      description="The full lifecycle from charge posting through balance sent to collections. Nine anchor events, derived from Property Settings."
+      hint="The track is split into three phases (Before Rent Due / Delinquency & Eviction Cycle / Post Move-Out & Collections). Each phase has its own proportional day scale so tightly-clustered events get breathing room while scenario bands still flow smoothly across the whole journey."
     >
-      <div className="space-y-4">
-        {/* Anchor-event legend */}
-        <div className="flex flex-wrap gap-x-5 gap-y-2">
-          {journeyEvents.map((e) => {
-            const Icon = e.icon
-            return (
-              <div key={e.label} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                <Icon className="h-3.5 w-3.5 text-zinc-500" aria-hidden />
-                <span className="font-medium text-foreground">Day {e.day}</span>
-                <span>{e.label}</span>
-              </div>
-            )
-          })}
-        </div>
-
-        {/* Day axis */}
-        <div className="overflow-x-auto">
-          <div className="min-w-[640px]">
-            <div className="flex items-end gap-px pl-28">
-              {days.map((d) => {
-                const isAnchor = journeyEvents.some((e) => e.day === d)
-                return (
-                  <div key={d} className="flex-1 text-center">
-                    <span
-                      className={cn(
-                        "block text-[8px] tabular-nums",
-                        isAnchor ? "font-bold text-foreground" : d % 5 === 0 ? "text-muted-foreground" : "text-transparent",
-                      )}
-                    >
-                      {d}
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* Anchor-event tick row */}
-            <div className="relative mt-1 flex h-5 items-center gap-px pl-28">
-              {days.map((d) => {
-                const event = journeyEvents.find((e) => e.day === d)
-                return (
-                  <div key={d} className="flex flex-1 justify-center">
-                    {event ? (
-                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-zinc-900 text-white">
-                        <event.icon className="h-2.5 w-2.5" aria-hidden />
-                      </span>
-                    ) : (
-                      <span className="h-2 w-px bg-border" />
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* Scenario rows */}
-            <div className="mt-2 space-y-1.5">
-              {cycleRows.map((id) => {
-                const s = settingsFor(id)
-                const meta = SCENARIO_TIMELINE_META[id]
-                const scenarioMeta = SCENARIOS.find((x) => x.id === id)
-                const sendDays = s.enabled ? projectSendDays(s, id) : []
-                const isActive = id === active
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => onChange(id)}
-                    className={cn(
-                      "flex w-full items-center gap-px rounded-md py-1 text-left transition-colors",
-                      isActive ? "bg-purple-50 ring-1 ring-purple-200" : "hover:bg-zinc-50",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "flex w-28 shrink-0 items-center gap-1.5 pl-2 pr-1 text-[11px] font-semibold",
-                        s.enabled ? meta.text : "text-muted-foreground",
-                      )}
-                    >
-                      <span className={cn("inline-block h-2 w-2 shrink-0 rounded-full", s.enabled ? meta.dot : "bg-zinc-300")} aria-hidden />
-                      <span className="truncate">{scenarioMeta?.shortLabel}</span>
-                    </span>
-                    {days.map((d) => {
-                      const hit = sendDays.includes(d)
-                      const isFirst = hit && d === sendDays[0]
+      <TooltipProvider delayDuration={200}>
+        <div className="space-y-5">
+          <div className="overflow-x-auto">
+            <div className="relative min-w-[1080px] pb-2">
+              {/* Axis header block: wraps the phase-header row, event marker
+                 row, and marker-label row inside the same `w-32 spacer +
+                 flex-1 track` layout as each scenario-band row below. This
+                 keeps the % coordinate system identical across all rows so
+                 events and scenario dots line up vertically. */}
+              <div className="flex items-stretch gap-3 pl-2 pr-2">
+                <div className="w-32 shrink-0" aria-hidden />
+                <div className="flex-1">
+                  {/* Phase-header row: three equal-width phase cells with day-count subtitles. */}
+                  <div className="relative flex h-12 items-end text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    {phases.map((p, i) => {
+                      const dayCount = p.dayEnd - p.dayStart
                       return (
-                        <span key={d} className="flex flex-1 justify-center">
-                          {hit ? (
-                            <span
-                              className={cn(
-                                "inline-block rounded-full",
-                                isFirst ? "h-2.5 w-2.5" : "h-2 w-2",
-                                meta.dot,
-                                isActive && "ring-2",
-                                isActive && meta.ring,
-                              )}
-                              title={`${scenarioMeta?.shortLabel}: day ${d}${isFirst ? " (first message)" : " (repeat)"}`}
-                            />
-                          ) : (
-                            <span className="inline-block h-px w-full" />
+                        <div
+                          key={p.key}
+                          className={cn(
+                            "relative flex flex-col justify-end px-2 pb-1",
+                            i > 0 && "border-l border-dashed border-zinc-300",
                           )}
-                        </span>
+                          style={{ width: `${p.widthPct}%` }}
+                        >
+                          <span className="block leading-tight text-foreground">{p.label}</span>
+                          <span className="block text-[9px] font-normal normal-case tracking-normal text-muted-foreground/80">
+                            {dayCount} day{dayCount === 1 ? "" : "s"}
+                          </span>
+                        </div>
                       )
                     })}
-                  </button>
-                )
-              })}
+                  </div>
+
+                  {/* Axis line with markers, Charges Posted range pill, and phase dividers. */}
+                  <div className="relative mt-2 h-10">
+                    {/* baseline */}
+                    <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-zinc-200" aria-hidden />
+
+                    {/* Charges Posted range pill spans start..end within Phase 1. */}
+                    <div
+                      className="absolute top-1/2 h-3 -translate-y-1/2 rounded-full border border-zinc-300 bg-zinc-100"
+                      style={{
+                        left: `${dayPct(anchors.chargesPostedStart)}%`,
+                        width: `${Math.max(dayPct(anchors.chargesPostedEnd) - dayPct(anchors.chargesPostedStart), 0.5)}%`,
+                      }}
+                      aria-hidden
+                    />
+
+                    {/* Phase dividers. */}
+                    {phaseBoundaries.map((pct) => (
+                      <div
+                        key={pct}
+                        className="absolute inset-y-0 border-l border-dashed border-zinc-300"
+                        style={{ left: `${pct}%` }}
+                        aria-hidden
+                      />
+                    ))}
+
+                    {/* Event markers */}
+                    {JOURNEY_EVENT_DEFS.map((e) => {
+                      const day = anchors[e.key]
+                      const Icon = e.icon
+                      return (
+                        <Tooltip key={e.key}>
+                          <TooltipTrigger asChild>
+                            <span
+                              className="absolute top-1/2 z-10 inline-flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 cursor-help items-center justify-center rounded-full bg-zinc-900 text-white shadow-sm ring-2 ring-white"
+                              style={{ left: `${dayPct(day)}%` }}
+                              aria-label={e.label}
+                            >
+                              <Icon className="h-2.5 w-2.5" aria-hidden />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs text-xs">
+                            <div className="font-semibold">{e.label}</div>
+                            <div className="mt-0.5 text-muted-foreground">{e.dateLabel(resolvedSettings)}</div>
+                            <div className="mt-1 text-[10px] text-muted-foreground">{axisDayLabel(day)}</div>
+                            {e.sourceSetting && (
+                              <div className="mt-1 text-[10px] text-muted-foreground">
+                                Source: <span className="font-medium text-foreground">{e.sourceSetting}</span>
+                              </div>
+                            )}
+                          </TooltipContent>
+                        </Tooltip>
+                      )
+                    })}
+                  </div>
+
+                  {/* Marker labels — alternate above/below to avoid collision on
+                     tightly-clustered events (e.g., 1st delinquency + late fees).
+                     Labels wrap to 2 lines rather than truncate. */}
+                  <div className="relative h-24">
+                    {JOURNEY_EVENT_DEFS.map((e, i) => {
+                      const day = e.key === "chargesPosted" ? anchors.chargesPostedStart : anchors[e.key]
+                      const isTopRow = i % 2 === 0
+                      return (
+                        <div
+                          key={e.key}
+                          className={cn(
+                            "absolute w-24 -translate-x-1/2 text-center",
+                            isTopRow ? "top-0" : "top-12",
+                          )}
+                          style={{ left: `${dayPct(day)}%` }}
+                        >
+                          <div className="text-[10px] font-semibold leading-tight text-foreground" title={e.label}>
+                            {e.label}
+                          </div>
+                          <div className="mt-0.5 text-[9px] leading-tight text-muted-foreground">
+                            {e.dateLabel(resolvedSettings)}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Scenario bands */}
+              <div className="mt-4 space-y-2 border-t border-border pt-4">
+                {cycleRows.map((id) => {
+                  const s = settingsFor(id)
+                  const meta = SCENARIO_TIMELINE_META[id]
+                  const scenarioMeta = SCENARIOS.find((x) => x.id === id)
+                  const step = steps.find((x) => x.id === id)!
+                  const sendDays = s.enabled ? projectSendDays(s, id, anchors) : []
+                  const isActive = id === active
+                  const bandStart = sendDays.length > 0 ? sendDays[0] : step.start
+                  const bandEnd = sendDays.length > 0 ? Math.max(sendDays[sendDays.length - 1], bandStart) : step.ceiling
+                  const bandLeftPct = dayPct(bandStart)
+                  const bandWidthPct = Math.max(dayPct(bandEnd) - bandLeftPct, 0.6)
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => onChange(id)}
+                      className={cn(
+                        "flex w-full items-center gap-3 rounded-md py-1.5 pl-2 pr-2 text-left transition-colors",
+                        isActive ? "bg-purple-50 ring-1 ring-purple-200" : "hover:bg-zinc-50",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "flex w-32 shrink-0 items-center gap-1.5 text-[11px] font-semibold",
+                          s.enabled ? meta.text : "text-muted-foreground",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "inline-block h-2 w-2 shrink-0 rounded-full",
+                            s.enabled ? meta.dot : "bg-zinc-300",
+                          )}
+                          aria-hidden
+                        />
+                        <span className="truncate">{scenarioMeta?.shortLabel}</span>
+                      </span>
+                      <div className="relative h-5 flex-1">
+                        {/* Phase divider echoes. */}
+                        {phaseBoundaries.map((pct) => (
+                          <div
+                            key={pct}
+                            className="absolute inset-y-0 border-l border-dashed border-zinc-200"
+                            style={{ left: `${pct}%` }}
+                            aria-hidden
+                          />
+                        ))}
+                        {/* baseline */}
+                        <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-zinc-100" aria-hidden />
+                        {/* the band */}
+                        {s.enabled && (
+                          <div
+                            className={cn(
+                              "absolute top-1/2 h-2 -translate-y-1/2 rounded-full",
+                              meta.band,
+                              isActive && "ring-2",
+                              isActive && meta.ring,
+                            )}
+                            style={{ left: `${bandLeftPct}%`, width: `${bandWidthPct}%` }}
+                          />
+                        )}
+                        {/* per-message dots */}
+                        {sendDays.map((d, idx) => (
+                          <span
+                            key={idx}
+                            className={cn(
+                              "absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-white",
+                              idx === 0 ? "h-3 w-3" : "h-2 w-2",
+                              meta.dot,
+                            )}
+                            style={{ left: `${dayPct(d)}%` }}
+                            title={`${scenarioMeta?.shortLabel}: ${axisDayLabel(d)}${idx === 0 ? " (first message)" : " (repeat)"}`}
+                          />
+                        ))}
+                        {!s.enabled && (
+                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] italic text-muted-foreground">
+                            Disabled
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
           </div>
+
+          <JourneyOverlapWarning store={store} current={current} active={active} anchors={anchors} />
         </div>
-
-        {/* Past-resident note — separate post-move-out track */}
-        <PastResidentTrackNote settings={settingsFor("pastResident")} active={active === "pastResident"} onSelect={() => onChange("pastResident")} />
-
-        {/* Overlap warning (item 1) */}
-        <JourneyOverlapWarning store={store} current={current} active={active} />
-      </div>
+      </TooltipProvider>
     </SectionShell>
   )
 }
 
-/** Past Resident runs after move-out, off the rent cycle — show it as its own note. */
-function PastResidentTrackNote({ settings, active, onSelect }: { settings: ScenarioSettings; active: boolean; onSelect: () => void }) {
-  const meta = SCENARIO_TIMELINE_META.pastResident
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={cn(
-        "flex w-full items-center gap-2 rounded-md border border-dashed px-3 py-2 text-left text-[11px] transition-colors",
-        active ? "border-violet-300 bg-violet-50" : "border-border hover:bg-zinc-50",
-      )}
-    >
-      <UserMinus className={cn("h-3.5 w-3.5 shrink-0", meta.text)} aria-hidden />
-      <span className={cn("font-semibold", meta.text)}>Past Resident Payment</span>
-      <span className="text-muted-foreground">
-        {settings.enabled
-          ? `runs on its own track after move-out: ${scenarioCadenceSummary(settings)}.`
-          : "is disabled."}
-      </span>
-    </button>
-  )
-}
-
 /**
- * Detects scenarios whose projected message days collide on the same cycle day
- * (item 1: Rent Reminder & Delinquency must not go out on the same date).
+ * Detects scenarios whose projected message days collide on the same cycle day.
  */
 function JourneyOverlapWarning({
   store,
   current,
   active,
+  anchors,
 }: {
   store: Record<ScenarioId, ScenarioSettings>
   current: PanelState
   active: ScenarioId
+  anchors: JourneyAnchors
 }) {
   const settingsFor = (id: ScenarioId) => (id === active ? extractScenarioSettings(current) : store[id])
-  // Map cycle day -> scenarios that send on it (rent-cycle scenarios only).
   const byDay = new Map<number, ScenarioId[]>()
-  JOURNEY_STEPS.forEach((step) => {
+  makeJourneySteps(anchors).forEach((step) => {
     const s = settingsFor(step.id)
     if (!s.enabled) return
-    projectSendDays(s, step.id).forEach((d) => {
+    projectSendDays(s, step.id, anchors).forEach((d) => {
       byDay.set(d, [...(byDay.get(d) ?? []), step.id])
     })
   })
@@ -1704,7 +1917,7 @@ function JourneyOverlapWarning({
         <ul className="mt-1 space-y-0.5">
           {collisions.map(([day, ids]) => (
             <li key={day}>
-              Day {day}: {ids.map(label).join(" + ")} would both send. The agent sends only the later-stage message
+              {axisDayLabel(day)}: {ids.map(label).join(" + ")} would both send. The agent sends only the later-stage message
               that day to avoid double-contacting the resident. Adjust the offsets or repeat interval to separate them.
             </li>
           ))}
@@ -2236,123 +2449,134 @@ function RepaymentAgreementsSection({
 }) {
   return (
     <GuardrailSubsection
-      title="Repayment agreements & PRP"
-      description="Whether Payments AI can propose structured repayment plans on the property's behalf, and the balance and term limits for agent-negotiated offers."
-    >
-      <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-zinc-50/40 px-3 py-2">
-        <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
-          Allow agent to offer repayment agreements
-          <InfoHint label="When on, the agent can negotiate a repayment plan with eligible residents during delinquency conversations. When off, all plan requests route to a human." />
-        </span>
+      title="Allow agent to propose repayment agreements"
+      description="Whether Payments AI can propose structured repayment plans on the property's behalf, and the balance and term limits for agent-negotiated offers. Residents outside these rails are directed to pay in full or escalated to staff."
+      masterToggle={
         <ToggleSwitch
           checked={state.repaymentOfferEnabled}
           onChange={(v) => update("repaymentOfferEnabled", v)}
         />
-      </div>
-
-      {state.repaymentOfferEnabled && (
-        <>
-          <GuardrailRule
-            title="Eligibility"
-            description="Resident and balance thresholds before the agent may propose a plan."
-            hint="Residents outside these rails are directed to pay in full or escalated to staff."
-          >
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
-                <span className="flex min-w-0 items-center gap-1.5 text-sm text-foreground">
-                  Require good standing
-                  <InfoHint label="Only residents without chronic delinquency or recent violations are eligible for an agent-negotiated repayment agreement." />
-                </span>
+      }
+    >
+      {state.repaymentOfferEnabled ? (
+        <div className="grid gap-x-4 gap-y-1 md:grid-cols-2">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Eligibility
+            </p>
+            <div className="mt-1 divide-y divide-border/40">
+              <GuardrailRule
+                layout="row"
+                title="Require good standing"
+                description="Only residents without chronic delinquency or recent violations are eligible for an agent-negotiated repayment agreement."
+              >
                 <ToggleSwitch
                   checked={state.repaymentRequireGoodStanding}
                   onChange={(v) => update("repaymentRequireGoodStanding", v)}
                 />
-              </div>
-              <BalanceThresholdInput
-                label="Minimum outstanding balance"
-                value={state.repaymentMinBalance}
-                onChange={(v) => update("repaymentMinBalance", v)}
-                avgRent={avgRent}
-              />
-              <p className="text-xs text-muted-foreground">
-                Below this, the agent asks for payment in full instead of offering a plan.
-              </p>
-              <BalanceThresholdInput
-                label="Maximum balance for agent negotiation"
-                value={state.repaymentMaxBalance}
-                onChange={(v) => update("repaymentMaxBalance", v)}
-                avgRent={avgRent}
-              />
-              <p className="text-xs text-muted-foreground">
-                Above this, the agent escalates to a human before proposing terms.
-              </p>
+              </GuardrailRule>
+              <GuardrailRule
+                layout="row"
+                title="Minimum balance"
+                description="Below this, the agent asks for payment in full instead of offering a plan."
+              >
+                <BalanceThresholdInput
+                  value={state.repaymentMinBalance}
+                  onChange={(v) => update("repaymentMinBalance", v)}
+                  avgRent={avgRent}
+                  className="space-y-0.5"
+                />
+              </GuardrailRule>
+              <GuardrailRule
+                layout="row"
+                title="Maximum balance"
+                description="Above this, the agent escalates to a human before proposing terms."
+              >
+                <BalanceThresholdInput
+                  value={state.repaymentMaxBalance}
+                  onChange={(v) => update("repaymentMaxBalance", v)}
+                  avgRent={avgRent}
+                  className="space-y-0.5"
+                />
+              </GuardrailRule>
             </div>
-          </GuardrailRule>
+          </div>
 
-          <GuardrailRule
-            title="Offer terms"
-            description="Down payment, duration, and approval rules the agent must stay within when structuring a plan."
-            hint="These limits apply property-wide across delinquency and pre-collections conversations."
-          >
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2 text-sm">
-                <span className="text-muted-foreground">Minimum down payment</span>
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={state.repaymentMinDownPercent}
-                  onChange={(e) =>
-                    update("repaymentMinDownPercent", Math.max(0, Math.min(100, Number(e.target.value) || 0)))
-                  }
-                  className="h-8 w-16 text-sm"
-                />
-                <span className="text-muted-foreground">% of balance due at plan start</span>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-sm">
-                <span className="text-muted-foreground">Agent can negotiate up to</span>
-                <Input
-                  type="number"
-                  min={1}
-                  max={12}
-                  value={state.planMaxMonthsAutomated}
-                  onChange={(e) => update("planMaxMonthsAutomated", Math.max(1, Number(e.target.value) || 1))}
-                  className="h-8 w-16 text-sm"
-                />
-                <span className="text-muted-foreground">months without approval</span>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-sm">
-                <span className="text-muted-foreground">Require human approval when plan total exceeds $</span>
-                <Input
-                  type="number"
-                  min={0}
-                  step={100}
-                  value={state.planRequireApprovalAmount}
-                  onChange={(e) => update("planRequireApprovalAmount", Math.max(0, Number(e.target.value) || 0))}
-                  className="h-8 w-24 text-sm"
-                />
-              </div>
-              <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
-                <span className="flex min-w-0 items-center gap-1.5 text-sm text-foreground">
-                  Require approval for second plan within 12 months
-                  <InfoHint label="A resident who already completed or broke a plan this year usually needs a human conversation, not another agent-negotiated plan." />
-                </span>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Offer terms
+            </p>
+            <div className="mt-1 divide-y divide-border/40">
+              <GuardrailRule
+                layout="row"
+                title="Minimum down payment"
+                description="Percent of the balance the resident must pay up front when the plan starts."
+              >
+                <div className="flex items-center gap-1.5 text-sm">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={state.repaymentMinDownPercent}
+                    onChange={(e) =>
+                      update("repaymentMinDownPercent", Math.max(0, Math.min(100, Number(e.target.value) || 0)))
+                    }
+                    className="h-8 w-16 text-sm"
+                  />
+                  <span className="text-muted-foreground">%</span>
+                </div>
+              </GuardrailRule>
+              <GuardrailRule
+                layout="row"
+                title="Agent can negotiate up to"
+                description="Maximum plan duration the agent can commit to on its own. Longer plans require a human approver."
+              >
+                <div className="flex items-center gap-1.5 text-sm">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={12}
+                    value={state.planMaxMonthsAutomated}
+                    onChange={(e) => update("planMaxMonthsAutomated", Math.max(1, Number(e.target.value) || 1))}
+                    className="h-8 w-16 text-sm"
+                  />
+                  <span className="text-muted-foreground">months</span>
+                </div>
+              </GuardrailRule>
+              <GuardrailRule
+                layout="row"
+                title="Approval when plan total exceeds"
+                description="Dollar threshold above which the agent routes the plan to a human for sign-off."
+              >
+                <div className="flex items-center gap-1.5 text-sm">
+                  <span className="text-muted-foreground">$</span>
+                  <Input
+                    type="number"
+                    min={0}
+                    step={100}
+                    value={state.planRequireApprovalAmount}
+                    onChange={(e) => update("planRequireApprovalAmount", Math.max(0, Number(e.target.value) || 0))}
+                    className="h-8 w-24 text-sm"
+                  />
+                </div>
+              </GuardrailRule>
+              <GuardrailRule
+                layout="row"
+                title="Require approval for second plan within 12 months"
+                description="A resident who already completed or broke a plan this year usually needs a human conversation, not another agent-negotiated plan."
+              >
                 <ToggleSwitch
                   checked={state.planRequireApprovalSecondInYear}
                   onChange={(v) => update("planRequireApprovalSecondInYear", v)}
                 />
-              </div>
+              </GuardrailRule>
             </div>
-          </GuardrailRule>
-
-          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
-            <p>
-              Repayment agreement terms may be subject to state tenant law and company policy. Review balance
-              thresholds and plan limits with legal before enabling agent negotiation in production.
-            </p>
           </div>
-        </>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Off — all repayment plan requests route to a human.
+        </p>
       )}
     </GuardrailSubsection>
   )
@@ -2370,16 +2594,16 @@ function FlexAvailabilitySection({
       title="Flex"
       description="Control whether the agent can mention Flex flexible rent payment options during resident conversations."
     >
-      <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-zinc-50/40 px-3 py-2">
-        <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
-          Allow agent to share Flex availability?
-          <InfoHint label="When on, the agent may tell eligible residents that Flex is available at this property. When off, Flex is never mentioned unless a human takes over the conversation." />
-        </span>
+      <GuardrailRule
+        layout="row"
+        title="Share Flex availability with eligible residents"
+        description="When on, the agent may tell eligible residents that Flex is available at this property. When off, Flex is never mentioned unless a human takes over the conversation."
+      >
         <ToggleSwitch
           checked={state.shareFlexAvailability}
           onChange={(v) => update("shareFlexAvailability", v)}
         />
-      </div>
+      </GuardrailRule>
     </GuardrailSubsection>
   )
 }
@@ -2396,27 +2620,27 @@ function PaymentActionsSection({
       title="Payment actions"
       description="Control which payment flows the agent can complete on its own during resident conversations."
     >
-      <div className="space-y-2">
-        <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-zinc-50/40 px-3 py-2">
-          <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
-            Allow the agent to accept one time payments?
-            <InfoHint label="When on, the agent can walk a resident through making a single payment toward their balance. When off, the agent directs residents to the portal or escalates to staff." />
-          </span>
+      <div className="divide-y divide-border/40">
+        <GuardrailRule
+          layout="row"
+          title="Accept one-time payments"
+          description="When on, the agent can walk a resident through making a single payment toward their balance. When off, the agent directs residents to the portal or escalates to staff."
+        >
           <ToggleSwitch
             checked={state.acceptOneTimePayments}
             onChange={(v) => update("acceptOneTimePayments", v)}
           />
-        </div>
-        <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-zinc-50/40 px-3 py-2">
-          <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
-            Allow the agent to set up recurring payments?
-            <InfoHint label="When on, the agent can help residents enroll in or update autopay and recurring payment schedules. When off, recurring setup routes to the portal or a human." />
-          </span>
+        </GuardrailRule>
+        <GuardrailRule
+          layout="row"
+          title="Set up recurring payments"
+          description="When on, the agent can help residents enroll in or update autopay and recurring payment schedules. When off, recurring setup routes to the portal or a human."
+        >
           <ToggleSwitch
             checked={state.setupRecurringPayments}
             onChange={(v) => update("setupRecurringPayments", v)}
           />
-        </div>
+        </GuardrailRule>
       </div>
     </GuardrailSubsection>
   )
@@ -2431,11 +2655,13 @@ function CadenceSection({
   update,
   propertyContext,
   avgRent,
+  anchors,
 }: {
   state: PanelState
   update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
   propertyContext: PropertyContextView
   avgRent: number
+  anchors: JourneyAnchors
 }) {
   const anchor = OFFSET_ANCHORS[state.offsetAnchor]
   const scenarioCadence = SCENARIO_CADENCE[state.scenario]
@@ -2447,10 +2673,11 @@ function CadenceSection({
 
   // Constraint (item 3): a scenario's repeats can't bleed into the next journey
   // stage. Compute the ceiling day and how many sends actually fit before it.
-  const ceilingDay = nextStepStart(state.scenario)
+  const journeySteps = useMemo(() => makeJourneySteps(anchors), [anchors])
+  const ceilingDay = useMemo(() => nextStepStart(state.scenario, anchors), [state.scenario, anchors])
   const projectedDays = useMemo(
-    () => projectSendDays(state, state.scenario),
-    [state.offsetValue, state.offsetDir, state.repeatOn, state.repeatInterval, state.maxAttempts, state.scenario],
+    () => projectSendDays(state, state.scenario, anchors),
+    [state.offsetValue, state.offsetDir, state.repeatOn, state.repeatInterval, state.maxAttempts, state.scenario, anchors],
   )
   const firstDay = projectedDays[0]
   const lastDay = projectedDays[projectedDays.length - 1]
@@ -2462,14 +2689,11 @@ function CadenceSection({
     lastDay + state.repeatInterval >= ceilingDay
   const nextStepLabel =
     ceilingDay != null
-      ? SCENARIOS.find((s) => s.id === JOURNEY_STEPS[JOURNEY_STEPS.findIndex((x) => x.id === state.scenario) + 1]?.id)?.shortLabel
+      ? SCENARIOS.find((s) => s.id === journeySteps[journeySteps.findIndex((x) => x.id === state.scenario) + 1]?.id)?.shortLabel
       : null
 
-  // Effective delivery window: the scenario's own values when it overrides,
-  // otherwise the property-wide defaults it inherits.
-  const eff = state.deliveryOverride
-    ? { channel: state.channel, quietStart: state.quietStart, quietEnd: state.quietEnd, days: state.days }
-    : { channel: state.defaultChannel, quietStart: state.defaultQuietStart, quietEnd: state.defaultQuietEnd, days: state.defaultDays }
+  // Per-scenario delivery window for this cadence.
+  const eff = { channel: state.channel, quietStart: state.quietStart, quietEnd: state.quietEnd, days: state.days }
 
   const prediction = useMemo(() => {
     const phrase = OFFSET_PHRASE[state.offsetDir] ?? "days"
@@ -2589,7 +2813,7 @@ function CadenceSection({
                 label={
                   scenarioCadence.repeatHelp +
                   (ceilingDay != null
-                    ? ` Repeats stop before day ${ceilingDay}${nextStepLabel ? ` (when ${nextStepLabel} begins)` : ""}.`
+                    ? ` Repeats stop before ${axisDayLabel(ceilingDay).toLowerCase()}${nextStepLabel ? ` (when ${nextStepLabel} begins)` : ""}.`
                     : "")
                 }
               />
@@ -2613,8 +2837,8 @@ function CadenceSection({
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden />
                 <span>
                   Only {projectedDays.length} of {state.maxAttempts} messages fit before {nextStepLabel ?? "the next stage"}{" "}
-                  begins on day {ceilingDay}. Later repeats are dropped so this scenario doesn&apos;t overlap the next stage.
-                  Shorten the repeat interval or move the start earlier to fit more.
+                  begins on {axisDayLabel(ceilingDay!).toLowerCase()}. Later repeats are dropped so this scenario doesn&apos;t
+                  overlap the next stage. Shorten the repeat interval or move the start earlier to fit more.
                 </span>
               </div>
             )}
@@ -2737,8 +2961,17 @@ function CadenceSection({
                 {STOP_CHIPS_LOCKED.map((chip) => (
                   <LockedStopChip key={chip} label={chip} />
                 ))}
-                {state.scenario === "pastResident" && <LockedStopChip label="Move-out completed" />}
-                <InfoHint label="Locked stop conditions are mandatory; they fire regardless of cadence settings." />
+                {(state.scenario === "late" || state.scenario === "legal") && (
+                  <LockedStopChip label="Active repayment agreement" />
+                )}
+                <InfoHint
+                  label={
+                    "Locked stop conditions are mandatory; they fire regardless of cadence settings." +
+                    (state.scenario === "late" || state.scenario === "legal"
+                      ? " Delinquency and Pre-Collections notices are paused for residents with an active repayment agreement in good standing."
+                      : "")
+                  }
+                />
               </div>
             </div>
           </div>
@@ -2751,43 +2984,11 @@ function CadenceSection({
                 Delivery window
               </span>
             </div>
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-1.5">
-                <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Channel, quiet hours &amp; days
-                </label>
-                <InfoHint label="Channel, quiet hours, and days of week the agent uses to reach residents. These are set once at the property level and shared by every scenario. Turn on Override to give this scenario its own delivery window." />
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {state.deliveryOverride
-                  ? "This scenario uses its own channel, quiet hours, and days."
-                  : "Editing the shared property defaults. Changes apply to every scenario that inherits."}
-              </p>
-            </div>
-            <span className="flex shrink-0 items-center gap-2 text-xs font-medium text-muted-foreground">
-              Override
-              <ToggleSwitch
-                checked={state.deliveryOverride}
-                onChange={(v) => update("deliveryOverride", v)}
-              />
-            </span>
-          </div>
+            <p className="text-xs text-muted-foreground">
+              Channel, quiet hours, and days of week for this scenario&apos;s outreach. Each cadence has its own delivery window.
+            </p>
 
-          {/* Controls stay editable in both modes: inheriting edits the shared
-              property defaults; overriding edits this scenario's own values.
-              The amber banner below makes the property-wide effect explicit. */}
-          <div className="mt-4 space-y-5">
-            {!state.deliveryOverride && (
-              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-amber-800">
-                <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-                <span>
-                  Shared across all scenarios. Editing these changes the property
-                  default for every scenario that hasn&apos;t set its own override.
-                </span>
-              </div>
-            )}
-
+          <div className="space-y-5">
             {/* Channel preference */}
             <div>
               <div className="flex items-center gap-1.5">
@@ -2798,9 +2999,7 @@ function CadenceSection({
               </div>
               <Select
                 value={eff.channel}
-                onValueChange={(v) =>
-                  update(state.deliveryOverride ? "channel" : "defaultChannel", v as ChannelPref)
-                }
+                onValueChange={(v) => update("channel", v as ChannelPref)}
               >
                 <SelectTrigger className="mt-1.5 max-w-xs">
                   <SelectValue />
@@ -2825,9 +3024,7 @@ function CadenceSection({
                 <span className="text-muted-foreground">Allow between</span>
                 <Select
                   value={String(eff.quietStart)}
-                  onValueChange={(v) =>
-                    update(state.deliveryOverride ? "quietStart" : "defaultQuietStart", Number(v))
-                  }
+                  onValueChange={(v) => update("quietStart", Number(v))}
                 >
                   <SelectTrigger className="w-32">
                     <SelectValue />
@@ -2843,9 +3040,7 @@ function CadenceSection({
                 <span className="text-muted-foreground">and</span>
                 <Select
                   value={String(eff.quietEnd)}
-                  onValueChange={(v) =>
-                    update(state.deliveryOverride ? "quietEnd" : "defaultQuietEnd", Number(v))
-                  }
+                  onValueChange={(v) => update("quietEnd", Number(v))}
                 >
                   <SelectTrigger className="w-32">
                     <SelectValue />
@@ -2874,10 +3069,7 @@ function CadenceSection({
                       key={d.id}
                       type="button"
                       onClick={() =>
-                        update(
-                          state.deliveryOverride ? "days" : "defaultDays",
-                          { ...eff.days, [d.id]: !on },
-                        )
+                        update("days", { ...eff.days, [d.id]: !on })
                       }
                       className={cn(
                         "inline-flex h-9 flex-1 min-w-0 items-center justify-center rounded-md border text-xs font-medium transition-colors",
@@ -2923,15 +3115,15 @@ function CadenceSection({
             <p>
               Predicted next message: <span className="font-medium text-foreground">{prediction}</span>
             </p>
-            {state.scenario !== "pastResident" && (
-              <p>
-                On the cycle: sends on{" "}
-                <span className="font-medium text-foreground">
-                  {projectedDays.length === 1 ? `day ${firstDay}` : `days ${projectedDays.join(", ")}`}
-                </span>{" "}
-                ({projectedDays.length} {projectedDays.length === 1 ? "message" : "messages"}).
-              </p>
-            )}
+            <p>
+              On the journey: sends on{" "}
+              <span className="font-medium text-foreground">
+                {projectedDays.length === 1
+                  ? axisDayLabel(firstDay).toLowerCase()
+                  : projectedDays.map((d) => axisDayLabel(d).toLowerCase()).join(", ")}
+              </span>{" "}
+              ({projectedDays.length} {projectedDays.length === 1 ? "message" : "messages"}).
+            </p>
           </div>
         </div>
         )}
@@ -2980,34 +3172,40 @@ function WorkflowGuardrailsSection({
     <SectionShell
       icon={ShieldCheck}
       title="Workflow guardrails"
-      description="Rules that keep the agent inside its rails: what it can decide on its own, and when it must pause."
-      hint="One centralized guardrails page for this property. Global rules apply to every scenario; phase-specific rules apply only where labeled."
+      description="Rules that keep the agent inside its rails: what it can decide on its own, and when it must pause. Global rules apply to every scenario; phase-specific rules apply only where labeled."
       headerAction={
         <Badge variant="gray" className="text-[10px]">
           Property-wide
         </Badge>
       }
     >
-      <div className="space-y-7">
+      <div className="space-y-4">
+        <p className="rounded-md border border-amber-200 bg-amber-50/60 px-3 py-1.5 text-xs text-amber-900">
+          Compliance note: repayment terms and eligibility scoring may be subject to state tenant law, fair-housing rules, and company policy. Review with legal before enabling in production.
+        </p>
+
         <RepaymentAgreementsSection state={state} update={update} avgRent={avgRent} />
-        <FlexAvailabilitySection state={state} update={update} />
-        <PaymentActionsSection state={state} update={update} />
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <FlexAvailabilitySection state={state} update={update} />
+          <PaymentActionsSection state={state} update={update} />
+        </div>
+
         <ResidentEligibilitySection state={state} update={update} activeScenario={activeScenario} />
         <ContextAwareOutreachSection state={state} update={update} propertyContext={propertyContext} />
 
-        {/* ─── Autonomy ceilings ─── */}
         <GuardrailSubsection
           title="Autonomy ceilings"
-          description="Spend limits and portfolio-level drift detection."
+          description="Spend limits the agent can approve on its own without human sign-off."
           scope="global"
         >
           <GuardrailRule
-            title="Fee-waiver auto-approval ceiling"
-            description="The agent can waive late fees up to this amount on its own. Above the ceiling, a human must approve."
-            hint="The largest late-fee waiver the agent can grant without sign-off. Anything above this dollar amount routes to a human for approval."
+            layout="row"
+            title="Fee-waiver auto-approve"
+            description="The agent can waive late fees up to this amount on its own. Anything above routes to a human for approval."
           >
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="text-muted-foreground">Auto-approve up to $</span>
+            <div className="flex flex-wrap items-center gap-1.5 text-sm">
+              <span className="text-muted-foreground">Up to $</span>
               <Input
                 type="number"
                 min={0}
@@ -3016,26 +3214,7 @@ function WorkflowGuardrailsSection({
                 onChange={(e) => update("feeWaiverAutoApproveCap", Math.max(0, Number(e.target.value) || 0))}
                 className="h-8 w-24 text-sm"
               />
-              <span className="text-muted-foreground">per resident per cycle</span>
-            </div>
-          </GuardrailRule>
-
-          <GuardrailRule
-            title="Drift detection"
-            description="Alert ops and freeze new outreach if the agent escalates more than this share of conversations in the last 24 hours."
-            hint="A safety net for unusual behavior: if the agent is escalating an abnormally high share of conversations, ops gets alerted and new outreach freezes until reviewed."
-          >
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="text-muted-foreground">Alert when &gt;</span>
-              <Input
-                type="number"
-                min={1}
-                max={100}
-                value={state.driftPercentThreshold}
-                onChange={(e) => update("driftPercentThreshold", Math.max(1, Math.min(100, Number(e.target.value) || 1)))}
-                className="h-8 w-16 text-sm"
-              />
-              <span className="text-muted-foreground">% of conversations escalated in last 24h</span>
+              <span className="text-muted-foreground">/ resident / cycle</span>
             </div>
           </GuardrailRule>
         </GuardrailSubsection>
@@ -3053,6 +3232,8 @@ type ChangeLogEntry = {
   timestamp: string
   user: { name: string; role: string }
   scope: "Cadence" | "Escalation" | "Custom Messaging" | "Guardrails" | "Agent identity"
+  /** Present for scenario-scoped changes. Omitted for property-wide settings. */
+  scenario?: ScenarioId
   setting: string
   oldValue: string
   newValue: string
@@ -3073,7 +3254,8 @@ const CHANGE_LOG_ENTRIES: ChangeLogEntry[] = [
     timestamp: "2026-06-30T11:08:00-06:00",
     user: { name: "James Kim", role: "Property Manager" },
     scope: "Cadence",
-    setting: "Late scenario — first message offset",
+    scenario: "late",
+    setting: "First message offset",
     oldValue: "3 days after rent due",
     newValue: "5 days after rent due",
   },
@@ -3082,7 +3264,8 @@ const CHANGE_LOG_ENTRIES: ChangeLogEntry[] = [
     timestamp: "2026-06-28T09:17:00-06:00",
     user: { name: "Priya Shah", role: "AR Analyst" },
     scope: "Escalation",
-    setting: "Legal scenario — routing target",
+    scenario: "legal",
+    setting: "Routing target",
     oldValue: "Property Manager",
     newValue: "Collections Specialist",
   },
@@ -3100,7 +3283,8 @@ const CHANGE_LOG_ENTRIES: ChangeLogEntry[] = [
     timestamp: "2026-06-25T13:24:00-06:00",
     user: { name: "James Kim", role: "Property Manager" },
     scope: "Custom Messaging",
-    setting: "Initial scenario — intro message",
+    scenario: "initial",
+    setting: "Intro message",
     oldValue: "Hi {resident_first_name}, this is a friendly reminder your rent is due soon.",
     newValue: "Hi {resident_first_name} — your rent for {month} is due on the {rent_due_day}. Let me know if you'd like help paying.",
   },
@@ -3127,7 +3311,8 @@ const CHANGE_LOG_ENTRIES: ChangeLogEntry[] = [
     timestamp: "2026-06-20T08:12:00-06:00",
     user: { name: "James Kim", role: "Property Manager" },
     scope: "Cadence",
-    setting: "Late scenario — quiet hours",
+    scenario: "late",
+    setting: "Quiet hours",
     oldValue: "8:00 PM – 8:00 AM",
     newValue: "9:00 PM – 8:00 AM",
   },
@@ -3149,6 +3334,12 @@ const CHANGE_LOG_SCOPE_STYLES: Record<ChangeLogEntry["scope"], string> = {
   "Agent identity": "bg-zinc-200 text-zinc-800",
 }
 
+const CHANGE_LOG_SCENARIO_STYLES: Record<ScenarioId, string> = {
+  initial: "bg-sky-50 text-sky-700 ring-1 ring-sky-200",
+  late: "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
+  legal: "bg-rose-50 text-rose-700 ring-1 ring-rose-200",
+}
+
 function ChangeLogSection({ propertyName }: { propertyName: string }) {
   return (
     <SectionShell
@@ -3166,33 +3357,45 @@ function ChangeLogSection({ propertyName }: { propertyName: string }) {
         <table className="w-full border-collapse text-sm">
           <thead className="bg-muted/50 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             <tr>
-              <th className="whitespace-nowrap px-3 py-2 font-semibold">When</th>
-              <th className="whitespace-nowrap px-3 py-2 font-semibold">Updated by</th>
-              <th className="whitespace-nowrap px-3 py-2 font-semibold">Setting</th>
-              <th className="px-3 py-2 font-semibold">Old value</th>
-              <th className="px-3 py-2 font-semibold">New value</th>
+              <th className="px-3 py-2 font-semibold">Setting</th>
+              <th className="whitespace-nowrap px-3 py-2 font-semibold">Changed by</th>
+              <th className="whitespace-nowrap px-3 py-2 font-semibold">Changed on</th>
+              <th className="px-3 py-2 font-semibold">Changed from</th>
+              <th className="px-3 py-2 font-semibold">Changed to</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border bg-white">
             {CHANGE_LOG_ENTRIES.map((entry) => (
               <tr key={entry.id} className="align-top">
-                <td className="whitespace-nowrap px-3 py-3 text-xs text-muted-foreground tabular-nums">
-                  {formatChangeLogTimestamp(entry.timestamp)}
+                <td className="px-3 py-3">
+                  <div className="text-sm font-medium text-foreground">{entry.setting}</div>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    <span
+                      className={cn(
+                        "inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                        CHANGE_LOG_SCOPE_STYLES[entry.scope],
+                      )}
+                    >
+                      {entry.scope}
+                    </span>
+                    {entry.scenario && entry.scope !== "Guardrails" && (
+                      <span
+                        className={cn(
+                          "inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                          CHANGE_LOG_SCENARIO_STYLES[entry.scenario],
+                        )}
+                      >
+                        {SCENARIOS.find((s) => s.id === entry.scenario)?.shortLabel ?? entry.scenario}
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td className="whitespace-nowrap px-3 py-3">
                   <div className="text-sm font-medium text-foreground">{entry.user.name}</div>
                   <div className="text-[11px] text-muted-foreground">{entry.user.role}</div>
                 </td>
-                <td className="px-3 py-3">
-                  <div className="text-sm font-medium text-foreground">{entry.setting}</div>
-                  <span
-                    className={cn(
-                      "mt-1 inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                      CHANGE_LOG_SCOPE_STYLES[entry.scope],
-                    )}
-                  >
-                    {entry.scope}
-                  </span>
+                <td className="whitespace-nowrap px-3 py-3 text-xs text-muted-foreground tabular-nums">
+                  {formatChangeLogTimestamp(entry.timestamp)}
                 </td>
                 <td className="px-3 py-3 text-xs leading-relaxed text-muted-foreground line-through decoration-rose-300/70">
                   {entry.oldValue}
@@ -3221,168 +3424,89 @@ function ContextAwareOutreachSection({
   update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
   propertyContext: PropertyContextView
 }) {
+  const conversationHistoryAvailable = state.useStaffManagerThreads || state.usePaymentsAIThreads
+  const showCommittedPayDateInputs = state.deferOnCommittedPayDate && conversationHistoryAvailable
   return (
     <GuardrailSubsection
       title="Context-aware outreach"
-      description="Use each resident's payment history and prior conversations so follow-ups respect what they already told you."
+      description="Use each resident's payment history and prior conversations so follow-ups respect what they already told you. When on, the agent analyzes ledger and conversation history before each send and adjusts cadence so repeats do not contradict what the resident already committed to or their usual pay pattern."
       scope="global"
-    >
-      <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-zinc-50/40 px-3 py-2">
-        <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
-          Enable context-aware outreach
-          <InfoHint label="When on, the agent analyzes ledger and conversation history before each send and adjusts cadence so repeats do not contradict what the resident already committed to or their usual pay pattern." />
-        </span>
+      masterToggle={
         <ToggleSwitch
           checked={state.contextAwareOutreachEnabled}
           onChange={(v) => update("contextAwareOutreachEnabled", v)}
         />
-      </div>
+      }
+    >
+      {state.contextAwareOutreachEnabled ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-3">
+            <GuardrailRule
+              layout="stack"
+              title="Signals to analyze"
+              description="Which resident history the agent reads before deciding whether to send."
+              hint="Payment history infers typical pay-day patterns from past ledger activity. Staff threads capture manager-resident agreements logged in Communications (Office, SMS). Payments AI threads capture prior agent outreach and resident replies."
+            >
+              <div className="divide-y divide-border/40">
+                <GuardrailRule
+                  layout="row"
+                  title="Payment history"
+                  description="Looks at when the resident has historically paid rent and fees each cycle to infer their typical pay day."
+                >
+                  <ToggleSwitch
+                    checked={state.usePaymentHistoryContext}
+                    onChange={(v) => update("usePaymentHistoryContext", v)}
+                  />
+                </GuardrailRule>
+                <GuardrailRule
+                  layout="row"
+                  title="Staff & manager threads"
+                  description="Reads Communications threads where property staff logged pay dates, payment plans, or fee adjustments — e.g. manager agreed resident pays Friday in an Office thread, so the agent defers Friday's reminder."
+                >
+                  <ToggleSwitch
+                    checked={state.useStaffManagerThreads}
+                    onChange={(v) => {
+                      update("useStaffManagerThreads", v)
+                      update("useConversationContext", v || state.usePaymentsAIThreads)
+                    }}
+                  />
+                </GuardrailRule>
+                <GuardrailRule
+                  layout="row"
+                  title="Payments AI threads"
+                  description={"Reads prior SMS, email, and portal messages between the resident and Payments AI for commitments like \u201cI'll pay Friday.\u201d"}
+                >
+                  <ToggleSwitch
+                    checked={state.usePaymentsAIThreads}
+                    onChange={(v) => {
+                      update("usePaymentsAIThreads", v)
+                      update("useConversationContext", v || state.useStaffManagerThreads)
+                    }}
+                  />
+                </GuardrailRule>
+              </div>
+            </GuardrailRule>
 
-      {state.contextAwareOutreachEnabled && (
-        <>
-          <GuardrailRule
-            title="Signals to analyze"
-            description="Which resident history the agent reads before deciding whether to send."
-            hint="Payment history infers typical pay-day patterns from past ledger activity. Staff threads capture manager-resident agreements logged in Communications (Office, SMS). Payments AI threads capture prior agent outreach and resident replies."
-          >
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
-                <span className="flex min-w-0 items-center gap-1.5 text-sm text-foreground">
-                  Payment history
-                  <InfoHint label="Looks at when the resident has historically paid rent and fees each cycle to infer their typical pay day." />
-                </span>
-                <ToggleSwitch
-                  checked={state.usePaymentHistoryContext}
-                  onChange={(v) => update("usePaymentHistoryContext", v)}
-                />
-              </div>
-              <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
-                <span className="flex min-w-0 items-center gap-1.5 text-sm text-foreground">
-                  Staff &amp; manager threads
-                  <InfoHint label="Reads Communications threads where property staff logged pay dates, payment plans, or fee adjustments — e.g. manager agreed resident pays Friday in an Office thread, so the agent defers Friday's reminder." />
-                </span>
-                <ToggleSwitch
-                  checked={state.useStaffManagerThreads}
-                  onChange={(v) => {
-                    update("useStaffManagerThreads", v)
-                    update(
-                      "useConversationContext",
-                      v || state.usePaymentsAIThreads,
-                    )
-                  }}
-                />
-              </div>
-              <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
-                <span className="flex min-w-0 items-center gap-1.5 text-sm text-foreground">
-                  Payments AI threads
-                  <InfoHint label="Reads prior SMS, email, and portal messages between the resident and Payments AI for commitments like “I'll pay Friday.”" />
-                </span>
-                <ToggleSwitch
-                  checked={state.usePaymentsAIThreads}
-                  onChange={(v) => {
-                    update("usePaymentsAIThreads", v)
-                    update(
-                      "useConversationContext",
-                      v || state.useStaffManagerThreads,
-                    )
-                  }}
-                />
-              </div>
-            </div>
-          </GuardrailRule>
-
-          <GuardrailRule
-            title="Committed pay date"
-            description="Skip outreach on a date the resident or manager already committed to pay; follow up only if payment still has not posted."
-            hint="Example: manager logged “pay $825 by Friday the 14th” in an Office thread — the agent holds Friday's reminder and checks again the next business day if the balance is still open."
-          >
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
-                  Defer on committed pay date
-                  <InfoHint label="Requires staff or Payments AI conversation history. Applies across all scenarios that would otherwise send that day." />
-                </span>
-                <ToggleSwitch
-                  checked={state.deferOnCommittedPayDate}
-                  onChange={(v) => update("deferOnCommittedPayDate", v)}
-                  disabled={!state.useStaffManagerThreads && !state.usePaymentsAIThreads}
-                />
-              </div>
-              {state.deferOnCommittedPayDate && (state.useStaffManagerThreads || state.usePaymentsAIThreads) && (
-                <>
-                  <div className="flex flex-wrap items-center gap-2 text-sm">
-                    <span className="text-muted-foreground">Accept deferrals up to</span>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={60}
-                      value={state.committedPayDateMaxDeferDays}
-                      onChange={(e) =>
-                        update("committedPayDateMaxDeferDays", Math.max(1, Math.min(60, Number(e.target.value) || 7)))
-                      }
-                      className="h-8 w-16 text-sm"
-                    />
-                    <span className="text-muted-foreground">
-                      {state.committedPayDateMaxDeferDays === 1 ? "day" : "days"} past due date
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
-                    <span className="flex min-w-0 items-center gap-1.5 text-sm text-foreground">
-                      Escalate unrealistic commitment dates
-                      <InfoHint label="If a resident commits to pay beyond the near-term window (e.g. “in three months”), route to a property manager instead of deferring all outreach." />
-                    </span>
-                    <ToggleSwitch
-                      checked={state.committedPayDateEscalateBeyondMax}
-                      onChange={(v) => update("committedPayDateEscalateBeyondMax", v)}
-                    />
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 text-sm">
-                    <span className="text-muted-foreground">If still unpaid, follow up</span>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={7}
-                      value={state.committedPayDateFollowUpDays}
-                      onChange={(e) =>
-                        update("committedPayDateFollowUpDays", Math.max(1, Math.min(7, Number(e.target.value) || 1)))
-                      }
-                      className="h-8 w-16 text-sm"
-                    />
-                    <span className="text-muted-foreground">
-                      {state.committedPayDateFollowUpDays === 1 ? "day" : "days"} after the committed date
-                    </span>
-                  </div>
-                  <p className="text-[11px] leading-relaxed text-muted-foreground">
-                    Example: Jamie committing to pay on the 20th is accepted; “I&apos;ll pay in three months” triggers escalation
-                    when enabled. Works with per-scenario{" "}
-                    <span className="font-medium text-foreground">Pause sequence when resident shares an expected payment date</span>{" "}
-                    in Cadence.
-                  </p>
-                </>
-              )}
-            </div>
-          </GuardrailRule>
-
-          <GuardrailRule
-            title="Typical pay day"
-            description="Do not nudge until the resident's usual pay day in the cycle has passed without payment."
-            hint="Example: if the resident usually pays on the 2nd, the agent waits until the 3rd (or later) before sending a reminder, unless they already committed to a different date."
-          >
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
-                  Respect typical pay day
-                  <InfoHint label="Requires payment history. Nudges are suppressed until after the inferred pay day when the balance is still open." />
-                </span>
+            <GuardrailRule
+              layout="stack"
+              title="Typical pay day"
+              description="Do not nudge until the resident's usual pay day in the cycle has passed without payment."
+              hint="Requires payment history. Example: if the resident usually pays on the 2nd, the agent waits until the 3rd (or later) before sending a reminder, unless they already committed to a different date."
+            >
+              <GuardrailRule
+                layout="row"
+                title="Respect typical pay day"
+                description="Suppresses nudges until after the inferred pay day when the balance is still open."
+              >
                 <ToggleSwitch
                   checked={state.respectTypicalPayDay}
                   onChange={(v) => update("respectTypicalPayDay", v)}
                   disabled={!state.usePaymentHistoryContext}
                 />
-              </div>
+              </GuardrailRule>
               {state.respectTypicalPayDay && state.usePaymentHistoryContext && (
-                <div className="flex flex-wrap items-center gap-2 text-sm">
-                  <span className="text-muted-foreground">Require at least</span>
+                <div className="flex flex-wrap items-center gap-1.5 pl-2 text-xs">
+                  <span className="text-muted-foreground">Require ≥</span>
                   <Input
                     type="number"
                     min={1}
@@ -3391,34 +3515,100 @@ function ContextAwareOutreachSection({
                     onChange={(e) =>
                       update("typicalPayDayMinHistoryMonths", Math.max(1, Math.min(24, Number(e.target.value) || 1)))
                     }
-                    className="h-8 w-16 text-sm"
+                    className="h-7 w-14 text-xs"
                   />
-                  <span className="text-muted-foreground">months of payment history before inferring a pattern</span>
+                  <span className="text-muted-foreground">months of history</span>
                 </div>
               )}
-            </div>
-          </GuardrailRule>
+            </GuardrailRule>
+          </div>
 
-          <GuardrailRule
-            title="On-time payer grace"
-            description="Give residents with strong payment history extra days before the first nudge when they are only slightly late."
-            hint="Addresses feedback from operators: on-time payers should not be bothered for minor delays. When on-time rate meets the threshold, the agent waits N days after typical pay day before sending the first reminder."
-          >
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
-                  Enable on-time payer grace
-                  <InfoHint label="Requires payment history. Residents at or above the on-time rate threshold get additional grace days before early-cycle reminders." />
-                </span>
+          <div className="space-y-3">
+            <GuardrailRule
+              layout="stack"
+              title="Committed pay date"
+              description="Skip outreach on a date the resident or manager already committed to pay; follow up only if payment still has not posted."
+              hint="Requires staff or Payments AI conversation history. Example: manager logs 'pay $825 by Friday the 14th' — the agent holds Friday's reminder and checks the next business day if the balance is still open."
+            >
+              <GuardrailRule
+                layout="row"
+                title="Defer on committed pay date"
+                description="Applies across all scenarios that would otherwise send that day."
+              >
+                <ToggleSwitch
+                  checked={state.deferOnCommittedPayDate}
+                  onChange={(v) => update("deferOnCommittedPayDate", v)}
+                  disabled={!conversationHistoryAvailable}
+                />
+              </GuardrailRule>
+              {showCommittedPayDateInputs && (
+                <div className="space-y-1.5 pl-2">
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                    <span className="text-muted-foreground">Accept up to</span>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={60}
+                      value={state.committedPayDateMaxDeferDays}
+                      onChange={(e) =>
+                        update("committedPayDateMaxDeferDays", Math.max(1, Math.min(60, Number(e.target.value) || 7)))
+                      }
+                      className="h-7 w-14 text-xs"
+                    />
+                    <span className="text-muted-foreground">
+                      {state.committedPayDateMaxDeferDays === 1 ? "day" : "days"} past due
+                    </span>
+                  </div>
+                  <GuardrailRule
+                    layout="row"
+                    title="Escalate unrealistic dates"
+                    description="If a resident commits to pay beyond the near-term window (e.g. 'in three months'), route to a property manager instead of deferring all outreach."
+                  >
+                    <ToggleSwitch
+                      checked={state.committedPayDateEscalateBeyondMax}
+                      onChange={(v) => update("committedPayDateEscalateBeyondMax", v)}
+                    />
+                  </GuardrailRule>
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                    <span className="text-muted-foreground">If unpaid, follow up</span>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={7}
+                      value={state.committedPayDateFollowUpDays}
+                      onChange={(e) =>
+                        update("committedPayDateFollowUpDays", Math.max(1, Math.min(7, Number(e.target.value) || 1)))
+                      }
+                      className="h-7 w-14 text-xs"
+                    />
+                    <span className="text-muted-foreground">
+                      {state.committedPayDateFollowUpDays === 1 ? "day" : "days"} after
+                    </span>
+                  </div>
+                </div>
+              )}
+            </GuardrailRule>
+
+            <GuardrailRule
+              layout="stack"
+              title="On-time payer grace"
+              description="Give residents with strong payment history extra days before the first nudge when they are only slightly late. Requires payment history."
+              hint="When on-time rate meets the threshold, the agent waits N days after typical pay day before sending the first reminder."
+            >
+              <GuardrailRule
+                layout="row"
+                title="Enable on-time payer grace"
+                description="Residents at or above the on-time rate threshold get additional grace days before early-cycle reminders."
+              >
                 <ToggleSwitch
                   checked={state.onTimePayerGraceEnabled}
                   onChange={(v) => update("onTimePayerGraceEnabled", v)}
                   disabled={!state.usePaymentHistoryContext}
                 />
-              </div>
+              </GuardrailRule>
               {state.onTimePayerGraceEnabled && state.usePaymentHistoryContext && (
-                <div className="flex flex-wrap items-center gap-2 text-sm">
-                  <span className="text-muted-foreground">When on-time rate is at least</span>
+                <div className="flex flex-wrap items-center gap-1.5 pl-2 text-xs">
+                  <span className="text-muted-foreground">Rate ≥</span>
                   <Input
                     type="number"
                     min={50}
@@ -3427,7 +3617,7 @@ function ContextAwareOutreachSection({
                     onChange={(e) =>
                       update("onTimePayerMinRate", Math.max(50, Math.min(100, Number(e.target.value) || 90)))
                     }
-                    className="h-8 w-16 text-sm"
+                    className="h-7 w-14 text-xs"
                   />
                   <span className="text-muted-foreground">%, wait</span>
                   <Input
@@ -3438,27 +3628,20 @@ function ContextAwareOutreachSection({
                     onChange={(e) =>
                       update("onTimePayerGraceDays", Math.max(1, Math.min(14, Number(e.target.value) || 3)))
                     }
-                    className="h-8 w-16 text-sm"
+                    className="h-7 w-14 text-xs"
                   />
                   <span className="text-muted-foreground">
-                    {state.onTimePayerGraceDays === 1 ? "day" : "days"} after typical pay day before first nudge
+                    {state.onTimePayerGraceDays === 1 ? "day" : "days"}
                   </span>
                 </div>
               )}
-            </div>
-          </GuardrailRule>
-
-          <div className="rounded-lg border border-dashed border-border bg-zinc-50/50 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
-            <p className="font-medium text-foreground">How this affects cadence</p>
-            <p className="mt-1">
-              Scheduled repeats still appear on the Collection journey, but the agent skips sends that would conflict
-              with a committed pay date (including agreements logged by staff), a resident who has not yet reached their
-              typical pay day, or an on-time payer still within the grace window. Per-scenario{" "}
-              <span className="font-medium text-foreground">Pause sequence when resident shares an expected payment date</span>{" "}
-              in Cadence complements this guardrail for scenarios where conversation parsing is unavailable.
-            </p>
+            </GuardrailRule>
           </div>
-        </>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Off — scheduled repeats send without a context check on payment history or prior conversations.
+        </p>
       )}
     </GuardrailSubsection>
   )
@@ -3501,84 +3684,90 @@ function ResidentEligibilitySection({
   return (
     <GuardrailSubsection
       title="Resident eligibility"
-      description="Score residents from payment history and route outreach by scenario based on risk band."
+      description="Score residents from payment history and route outreach by scenario based on risk band. When on, the agent computes a score from the factors below and applies per-scenario rules before sending outreach."
       scope="phase"
-    >
-      <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-zinc-50/40 px-3 py-2">
-        <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
-          Enable resident scoring
-          <InfoHint label="When on, the agent computes a resident score from the factors below and applies per-scenario rules before sending outreach." />
-        </span>
+      masterToggle={
         <ToggleSwitch checked={state.eligibilityEnabled} onChange={(v) => update("eligibilityEnabled", v)} />
-      </div>
-
-      {state.eligibilityEnabled && (
-        <>
-          <GuardrailRule
-            title="Score factors"
-            description="Property-wide signals that contribute to a resident risk score."
-            hint="Toggle each factor on or off and set its weight. Higher combined scores push residents into moderate or poor bands."
-          >
-            <div className="space-y-2">
-              {factorEntries.map((f) => {
-                const factor = state.eligibilityFactors[f.key]
-                return (
-                  <div key={f.key} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <ToggleSwitch checked={factor.enabled} onChange={(v) => setFactor(f.key, { enabled: v })} />
-                      <span className="text-sm text-foreground">{f.label}</span>
-                      <InfoHint label={FACTOR_SCOPE_HINTS[f.key]} />
+      }
+    >
+      {state.eligibilityEnabled ? (
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+          <div className="space-y-3">
+            <GuardrailRule
+              layout="stack"
+              title="Score factors"
+              description="Property-wide signals that contribute to a resident risk score."
+              hint="Toggle each factor on or off and set its weight. Higher combined scores push residents into moderate or poor bands."
+            >
+              <div className="divide-y divide-border/40">
+                {factorEntries.map((f) => {
+                  const factor = state.eligibilityFactors[f.key]
+                  return (
+                    <div key={f.key} className="flex items-center justify-between gap-2 py-1.5">
+                      <div className="flex items-center gap-2">
+                        <ToggleSwitch checked={factor.enabled} onChange={(v) => setFactor(f.key, { enabled: v })} />
+                        <span className="text-sm text-foreground">{f.label}</span>
+                        <InfoHint label={FACTOR_SCOPE_HINTS[f.key]} />
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <span>Weight</span>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={100}
+                          disabled={!factor.enabled}
+                          value={factor.weight}
+                          onChange={(e) => setFactor(f.key, { weight: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })}
+                          className="h-7 w-14 text-xs"
+                        />
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>Weight</span>
-                      <Input
-                        type="number"
-                        min={0}
-                        max={100}
-                        disabled={!factor.enabled}
-                        value={factor.weight}
-                        onChange={(e) => setFactor(f.key, { weight: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })}
-                        className="h-7 w-14 text-xs"
-                      />
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-            <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
-              <span className="text-muted-foreground">Moderate band starts at score</span>
-              <Input
-                type="number"
-                min={0}
-                max={100}
-                value={state.eligibilityThresholdModerate}
-                onChange={(e) => update("eligibilityThresholdModerate", Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
-                className="h-8 w-16 text-sm"
-              />
-              <span className="text-muted-foreground">Poor band starts at</span>
-              <Input
-                type="number"
-                min={0}
-                max={100}
-                value={state.eligibilityThresholdPoor}
-                onChange={(e) => update("eligibilityThresholdPoor", Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
-                className="h-8 w-16 text-sm"
-              />
-            </div>
-          </GuardrailRule>
+                  )
+                })}
+              </div>
+            </GuardrailRule>
 
-          <GuardrailRule
-            title="Per-scenario rules by score band"
-            description="What the agent does for each scenario when a resident falls in a score band."
-            hint="Example: skip Delinquency nudges for chronic repeat-offenders and let the legal notice path run; route borderline Past Resident cases to a human."
-          >
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[520px] text-left text-xs">
+            <GuardrailRule
+              layout="row"
+              title="Band thresholds"
+              description="Score at which a resident enters the Moderate and Poor bands. Everything below Moderate is Good."
+            >
+              <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                <span className="text-muted-foreground">Moderate ≥</span>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={state.eligibilityThresholdModerate}
+                  onChange={(e) => update("eligibilityThresholdModerate", Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                  className="h-7 w-14 text-xs"
+                />
+                <span className="text-muted-foreground">· Poor ≥</span>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={state.eligibilityThresholdPoor}
+                  onChange={(e) => update("eligibilityThresholdPoor", Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                  className="h-7 w-14 text-xs"
+                />
+              </div>
+            </GuardrailRule>
+          </div>
+
+          <div className="space-y-3">
+            <GuardrailRule
+              layout="stack"
+              title="Per-scenario rules by score band"
+              description="What the agent does for each scenario when a resident falls in a score band."
+              hint="Example: skip Delinquency nudges for chronic repeat-offenders and let the legal notice path run; route borderline Pre-Collections cases to a human."
+            >
+              <table className="w-full text-left text-xs">
                 <thead>
-                  <tr className="border-b border-border text-muted-foreground">
-                    <th className="py-2 pr-3 font-semibold">Scenario</th>
+                  <tr className="border-b border-border/60 text-muted-foreground">
+                    <th className="py-1.5 pr-2 font-semibold">Scenario</th>
                     {SCORE_BANDS.map((b) => (
-                      <th key={b.id} className="px-2 py-2 font-semibold">
+                      <th key={b.id} className="px-1 py-1.5 font-semibold">
                         <span className="flex items-center gap-1">
                           {b.label}
                           <InfoHint label={b.description} />
@@ -3589,15 +3778,15 @@ function ResidentEligibilitySection({
                 </thead>
                 <tbody>
                   {SCENARIOS.filter((s) => !s.outOfScope).map((s) => (
-                    <tr key={s.id} className="border-b border-border/60">
-                      <td className="py-2 pr-3 font-medium text-foreground">{s.shortLabel}</td>
+                    <tr key={s.id} className="border-b border-border/40 last:border-none">
+                      <td className="py-1.5 pr-2 font-medium text-foreground">{s.shortLabel}</td>
                       {SCORE_BANDS.map((b) => (
-                        <td key={b.id} className="px-2 py-2">
+                        <td key={b.id} className="px-1 py-1.5">
                           <Select
                             value={state.eligibilityRules[s.id][b.id]}
                             onValueChange={(v) => setRule(s.id, b.id, v as EligibilityAction)}
                           >
-                            <SelectTrigger className="h-8 text-xs">
+                            <SelectTrigger className="h-7 text-xs">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -3614,26 +3803,21 @@ function ResidentEligibilitySection({
                   ))}
                 </tbody>
               </table>
-            </div>
-          </GuardrailRule>
+            </GuardrailRule>
 
-          <ScoringPreviewCard
-            factors={state.eligibilityFactors}
-            thresholdModerate={state.eligibilityThresholdModerate}
-            thresholdPoor={state.eligibilityThresholdPoor}
-            scenarioLabel={SCENARIOS.find((s) => s.id === activeScenario)?.shortLabel ?? "Scenario"}
-            scenarioAction={state.eligibilityRules[activeScenario].moderate}
-          />
-
-          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
-            <p>
-              Eligibility rules must comply with fair-housing requirements. Review scoring factors and band
-              thresholds with legal before enabling in production. Weights are property-configurable; the scoring
-              algorithm is platform-defined.
-            </p>
+            <ScoringPreviewCard
+              factors={state.eligibilityFactors}
+              thresholdModerate={state.eligibilityThresholdModerate}
+              thresholdPoor={state.eligibilityThresholdPoor}
+              scenarioLabel={SCENARIOS.find((s) => s.id === activeScenario)?.shortLabel ?? "Scenario"}
+              scenarioAction={state.eligibilityRules[activeScenario].moderate}
+            />
           </div>
-        </>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Off — outreach runs for every resident without a scoring check.
+        </p>
       )}
     </GuardrailSubsection>
   )
@@ -3643,17 +3827,21 @@ function GuardrailSubsection({
   title,
   description,
   scope,
+  masterToggle,
   children,
 }: {
   title: string
   description: string
   scope?: "global" | "phase"
+  /** Optional control rendered at the far right of the header row (typically
+   *  a ToggleSwitch that gates the subsection body). */
+  masterToggle?: React.ReactNode
   children: React.ReactNode
 }) {
   return (
-    <div>
-      <div className="flex flex-wrap items-center gap-2 border-b border-border pb-2">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
+    <div className="rounded-lg border border-border bg-white">
+      <div className="flex items-center gap-2 px-3 py-2.5">
+        <p className="text-sm font-semibold text-foreground">{title}</p>
         {description && <InfoHint label={description} />}
         {scope === "global" && (
           <Badge variant="gray" className="ml-auto text-[9px]">
@@ -3665,32 +3853,58 @@ function GuardrailSubsection({
             Phase-specific
           </Badge>
         )}
+        {masterToggle && (
+          <div className={cn("shrink-0", !scope && "ml-auto")}>{masterToggle}</div>
+        )}
       </div>
-      <div className="mt-3 space-y-3">{children}</div>
+      <div className="border-t border-border/60 px-3 py-2.5">{children}</div>
     </div>
   )
 }
 
+/**
+ * A single rule inside a `GuardrailSubsection`. Two visual layouts:
+ *
+ * - `row` (default): flat label + (i) hint on the left, control on the right.
+ *   No border, no card. For single-line settings.
+ * - `stack`: bordered mini-card with a header row of label + (i) hint and a
+ *   grouped body. For grouped settings (nested toggle + inputs, small tables).
+ */
 function GuardrailRule({
   title,
   description,
   hint,
+  layout = "row",
+  className,
   children,
 }: {
   title: string
   /** Folded into the on-hover (i) tooltip together with `hint`. */
   description: string
   hint?: string
+  layout?: "row" | "stack"
+  className?: string
   children: React.ReactNode
 }) {
   const tip = [description, hint].filter(Boolean).join(" ")
+  if (layout === "row") {
+    return (
+      <div className={cn("flex flex-wrap items-center justify-between gap-3 py-1", className)}>
+        <span className="flex min-w-0 items-center gap-1.5 text-sm text-foreground">
+          {title}
+          {tip && <InfoHint label={tip} />}
+        </span>
+        <div className="shrink-0">{children}</div>
+      </div>
+    )
+  }
   return (
-    <div className="rounded-md border border-border bg-white p-3">
+    <div className={cn("rounded-md border border-border/60 p-2", className)}>
       <div className="flex items-center gap-1.5">
-        <p className="text-sm font-medium text-foreground">{title}</p>
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
         {tip && <InfoHint label={tip} />}
       </div>
-      <div className="mt-2">{children}</div>
+      <div className="mt-2 space-y-2">{children}</div>
     </div>
   )
 }
