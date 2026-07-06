@@ -61,6 +61,13 @@ import {
   Ban,
   MoreVertical,
   Power,
+  FileText,
+  ClipboardCheck,
+  PenLine,
+  PartyPopper,
+  CircleCheck,
+  CircleDot,
+  Info,
 } from "lucide-react";
 import {
   PMC_PROPERTY_RECORDS,
@@ -113,6 +120,35 @@ type StructuredTrigger = {
 type AgentTier = "free" | "premium";
 
 const FREE_AGENT_LIMIT = 5;
+
+/* ─── Contracting flow types ─── */
+
+type ContractStep = "properties" | "pricing" | "sign" | "complete";
+
+type ContractState = {
+  selectedPropertyIds: string[];
+  agreedToPricing: boolean;
+  signerName: string;
+  signerTitle: string;
+  signatureDate: string;
+  signed: boolean;
+};
+
+const INITIAL_CONTRACT_STATE: ContractState = {
+  selectedPropertyIds: [],
+  agreedToPricing: false,
+  signerName: "",
+  signerTitle: "",
+  signatureDate: "",
+  signed: false,
+};
+
+const PRICING_TABLE = [
+  { tier: "Workflow (Basic)", unit: "per task executed", price: "$0.001", description: "Rule-based deterministic workflows using Entrata-native connectors." },
+  { tier: "Workflow (Premium)", unit: "per task executed", price: "$0.005", description: "Workflows using external connectors (e.g., Workato-powered integrations)." },
+  { tier: "AI Agent — Frontier Model", unit: "per million tokens", price: "LLM Model Cost + $0.25", description: "GPT-4, Claude, Gemini, etc. API prices passed through at the published rate plus Entrata platform fee." },
+  { tier: "AI Agent — Entrata LLM or Auto", unit: "per million tokens (input / output)", price: "$0.10 / $0.25", description: "Entrata's proprietary model or auto-selected model. Input tokens at $0.10/M, output tokens at $0.25/M." },
+] as const;
 
 type AgentVersion = {
   id: string;
@@ -3182,6 +3218,9 @@ export default function AgentBuilderPage() {
   const [budgetConfig, setBudgetConfig] = useState<BudgetConfig>(DEFAULT_BUDGET);
   const [showBudgetSettings, setShowBudgetSettings] = useState(false);
   const [showSpendAnalytics, setShowSpendAnalytics] = useState(false);
+  const [showContractFlow, setShowContractFlow] = useState(false);
+  const [contractState, setContractState] = useState<ContractState>(INITIAL_CONTRACT_STATE);
+  const [contractStep, setContractStep] = useState<ContractStep>("properties");
   const [spendTimeframe, setSpendTimeframe] = useState<SpendTimeframe>("mtd");
   const [spendView, setSpendView] = useState<SpendView>("by-agent");
   const [drilldownAgentId, setDrilldownAgentId] = useState<string | null>(null);
@@ -3192,15 +3231,16 @@ export default function AgentBuilderPage() {
   const [modalStep, setModalStep] = useState<ModalStep>({ kind: "type-select" });
   const [typeFilter, setTypeFilter] = useState<"all" | AgentType>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | AgentStatusValue>("all");
-  const { viewerRole, canCreate, canEdit } = useAgentBuilderViewerRole();
+  const { viewerRole, canCreate, canEdit, isContracted, contractedPropertyIds, addContractedProperties, clearContract } = useAgentBuilderViewerRole();
 
   const freeAgents = useMemo(() => agents.filter((a) => a.agentTier === "free" && a.type === "deterministic"), [agents]);
   const freeAgentsUsed = freeAgents.filter((a) => a.status !== "draft").length;
 
-  const totalProperties = PMC_PROPERTY_RECORDS.length;
+  const contractedProperties = useMemo(() => PMC_PROPERTY_RECORDS.filter((p) => contractedPropertyIds.includes(p.id)), [contractedPropertyIds]);
+  const totalProperties = contractedProperties.length;
   const totalMonthlyBudget = budgetConfig.budgetMode === "uniform"
     ? budgetConfig.monthlyBudgetPerProperty * totalProperties
-    : PMC_PROPERTY_RECORDS.reduce((sum, p) => sum + (budgetConfig.propertyBudgets[p.id] ?? budgetConfig.monthlyBudgetPerProperty), 0);
+    : contractedProperties.reduce((sum, p) => sum + (budgetConfig.propertyBudgets[p.id] ?? budgetConfig.monthlyBudgetPerProperty), 0);
   const totalCurrentSpend = agents.reduce((sum, a) => sum + (a.costSummary?.currentMonthSpend ?? 0), 0);
   const totalProjectedSpend = agents.reduce((sum, a) => sum + (a.costSummary?.projectedMonthlySpend ?? 0), 0);
   const budgetUsedPercent = totalMonthlyBudget > 0 ? (totalCurrentSpend / totalMonthlyBudget) * 100 : 0;
@@ -3688,7 +3728,7 @@ export default function AgentBuilderPage() {
                   <Plus className="mr-1 h-3 w-3" /> Build New Agent
                 </Button>
               ) : (
-                <Button size="sm" variant="outline" onClick={() => setShowBudgetSettings(true)} className="h-7 border-violet-300 text-[11px] text-violet-700 hover:bg-violet-50">
+                <Button size="sm" variant="outline" onClick={() => { if (isContracted) { setShowBudgetSettings(true); } else { setContractStep("properties"); setContractState({ ...INITIAL_CONTRACT_STATE, selectedPropertyIds: [...contractedPropertyIds] }); setShowContractFlow(true); } }} className="h-7 border-violet-300 text-[11px] text-violet-700 hover:bg-violet-50">
                   <Crown className="mr-1 h-3 w-3" /> Upgrade
                 </Button>
               )}
@@ -3698,15 +3738,49 @@ export default function AgentBuilderPage() {
             <Sparkles className="mt-0.5 h-3 w-3 shrink-0" />
             <span>
               <strong>How free agents work:</strong> Every client can build up to {FREE_AGENT_LIMIT} deterministic (rule-based) agents at no cost — configure triggers, actions, and conditions to automate any workflow you need.
-              AI-powered agents and additional deterministic agents beyond {FREE_AGENT_LIMIT} require a premium plan.
-              Non-contracted properties can only use free deterministic agents.
-              Contracted properties have unlimited access to both deterministic and AI-powered agents.
+              {isContracted
+                ? "Your properties are contracted for unlimited deterministic and AI-powered agents with usage-based billing."
+                : `AI-powered agents and additional deterministic agents beyond ${FREE_AGENT_LIMIT} require upgrading to a usage-based plan. Upgrade is self-service — no sales call needed.`}
             </span>
           </div>
         </div>
 
-      {/* Budget & Billing banner — hidden for read-only users */}
-      {canEdit && <div className={`mb-4 rounded-lg border px-4 py-3 ${budgetAtRisk ? "border-orange-200 bg-gradient-to-r from-orange-50 to-amber-50" : "border-emerald-200 bg-gradient-to-r from-emerald-50 to-green-50"}`}>
+      {/* Non-contracted spend summary — show $0 spend but highlight savings */}
+      {canEdit && !isContracted && (
+        <div className="mb-4 rounded-lg border border-slate-200 bg-gradient-to-r from-slate-50 to-gray-50 px-4 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100">
+                <DollarSign className="h-5 w-5 text-slate-500" />
+              </div>
+              <div>
+                <p className="text-[13px] font-semibold text-slate-900">Total Spend: $0.00</p>
+                <p className="text-[11px] text-slate-500">Free tier — no usage charges</p>
+              </div>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => { setContractStep("properties"); setContractState({ ...INITIAL_CONTRACT_STATE, selectedPropertyIds: [...contractedPropertyIds] }); setShowContractFlow(true); }} className="h-7 border-indigo-300 text-[11px] text-indigo-700 hover:bg-indigo-50">
+              <Crown className="mr-1 h-3 w-3" /> Upgrade for AI Agents & More
+            </Button>
+          </div>
+          <div className="mt-2 grid grid-cols-3 gap-3">
+            <div className="rounded-md border border-white/50 bg-white/60 px-3 py-1.5 text-center">
+              <p className="text-[15px] font-bold text-foreground">$0.00</p>
+              <p className="text-[9px] text-muted-foreground">Spent this month</p>
+            </div>
+            <div className="rounded-md border border-white/50 bg-white/60 px-3 py-1.5 text-center">
+              <p className="text-[15px] font-bold text-foreground">{freeAgentRuns}</p>
+              <p className="text-[9px] text-muted-foreground">Free agent runs</p>
+            </div>
+            <div className="rounded-md border border-emerald-200/60 bg-emerald-50/60 px-3 py-1.5 text-center">
+              <p className="text-[15px] font-bold text-emerald-700">${freeAgentSavings.toFixed(2)}</p>
+              <p className="text-[9px] text-emerald-600">Saved with free agents</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Budget & Billing banner — hidden for read-only users and non-contracted */}
+      {canEdit && isContracted && <div className={`mb-4 rounded-lg border px-4 py-3 ${budgetAtRisk ? "border-orange-200 bg-gradient-to-r from-orange-50 to-amber-50" : "border-emerald-200 bg-gradient-to-r from-emerald-50 to-green-50"}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${budgetAtRisk ? "bg-orange-100" : "bg-emerald-100"}`}>
@@ -3742,7 +3816,12 @@ export default function AgentBuilderPage() {
           </div>
           <div className="rounded-md border border-white/50 bg-white/60 px-3 py-1.5 text-center">
             <p className="text-[15px] font-bold text-foreground">{totalProperties}</p>
-            <p className="text-[9px] text-muted-foreground">Properties</p>
+            <p className="text-[9px] text-muted-foreground">Contracted Properties</p>
+            {totalProperties < PMC_PROPERTY_RECORDS.length && (
+              <button type="button" onClick={() => { setContractStep("properties"); setContractState({ ...INITIAL_CONTRACT_STATE, selectedPropertyIds: [...contractedPropertyIds] }); setShowContractFlow(true); }} className="mt-0.5 text-[8px] text-indigo-600 underline hover:text-indigo-800">
+                + Add more
+              </button>
+            )}
           </div>
           <div className="rounded-md border border-emerald-200/60 bg-emerald-50/60 px-3 py-1.5 text-center">
             <p className="text-[15px] font-bold text-emerald-700">${freeAgentSavings.toFixed(2)}</p>
@@ -3751,8 +3830,8 @@ export default function AgentBuilderPage() {
         </div>
       </div>}
 
-      {/* Spend Analytics Panel */}
-      {canEdit && showSpendAnalytics && (
+      {/* Spend Analytics Panel — only for contracted clients */}
+      {canEdit && isContracted && showSpendAnalytics && (
         <div className="mb-4 rounded-lg border border-border bg-white p-4">
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -4555,53 +4634,91 @@ export default function AgentBuilderPage() {
                 <p className="text-sm text-muted-foreground">Choose the execution model that fits your use case.</p>
               </div>
               <div className="flex flex-1 items-center justify-center px-6">
-                <div className="grid max-w-2xl grid-cols-2 gap-5">
-                  <button
-                    type="button"
-                    onClick={() => setModalStep({ kind: "deterministic" })}
-                    className="group flex flex-col items-start rounded-xl border-2 border-border bg-white p-5 text-left transition-all hover:border-emerald-400 hover:shadow-lg"
-                  >
-                    <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100">
-                      <Workflow className="h-6 w-6" />
-                    </div>
-                    <h3 className="text-base font-semibold text-foreground">Deterministic Workflow</h3>
-                    <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-                      Predictable, rule-based automation. AI builds the logic once, then it runs the same way every time.
-                    </p>
-                    <ul className="mt-3 space-y-1.5 text-[12px] text-muted-foreground">
-                      <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-600" /> Same output every run</li>
-                      <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-600" /> No LLM cost per execution</li>
-                      <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-600" /> Ideal for regulated processes</li>
-                      <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-600" /> Test in sandbox, promote to live</li>
-                    </ul>
-                    <span className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-700">
-                      <Code2 className="h-3 w-3" /> Best for: automations, compliance, scheduled tasks
-                    </span>
-                  </button>
+                {(() => {
+                  const freeRemaining = FREE_AGENT_LIMIT - freeAgentsUsed;
+                  const deterministicNeedsUpgrade = !isContracted && freeRemaining <= 0;
+                  const launchUpgrade = () => {
+                    setModalOpen(false);
+                    setContractStep("properties");
+                    setContractState({ ...INITIAL_CONTRACT_STATE, selectedPropertyIds: [...contractedPropertyIds] });
+                    setShowContractFlow(true);
+                  };
+                  return (
+                    <div className="grid max-w-2xl grid-cols-2 gap-5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (deterministicNeedsUpgrade) {
+                            launchUpgrade();
+                          } else {
+                            setModalStep({ kind: "deterministic" });
+                          }
+                        }}
+                        className={`group flex flex-col items-start rounded-xl border-2 border-border bg-white p-5 text-left transition-all ${deterministicNeedsUpgrade ? "opacity-80" : "hover:border-emerald-400 hover:shadow-lg"}`}
+                      >
+                        <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100">
+                          <Workflow className="h-6 w-6" />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-base font-semibold text-foreground">Deterministic Workflow</h3>
+                          {deterministicNeedsUpgrade && <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-[9px]"><Crown className="mr-0.5 h-2.5 w-2.5" /> Requires upgrade</Badge>}
+                        </div>
+                        <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+                          Predictable, rule-based automation. AI builds the logic once, then it runs the same way every time.
+                        </p>
+                        {!isContracted && (
+                          <div className={`mt-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ${freeRemaining > 0 ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+                            <Gift className="h-3 w-3" />
+                            {freeRemaining > 0
+                              ? `${freeRemaining} of ${FREE_AGENT_LIMIT} free agents remaining`
+                              : `${FREE_AGENT_LIMIT} of ${FREE_AGENT_LIMIT} free agents used — upgrade for more`}
+                          </div>
+                        )}
+                        <ul className="mt-3 space-y-1.5 text-[12px] text-muted-foreground">
+                          <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-600" /> Same output every run</li>
+                          <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-600" /> No LLM cost per execution</li>
+                          <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-600" /> Ideal for regulated processes</li>
+                          <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-600" /> Test in sandbox, promote to live</li>
+                        </ul>
+                        <span className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-700">
+                          <Code2 className="h-3 w-3" /> Best for: automations, compliance, scheduled tasks
+                        </span>
+                      </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setModalStep({ kind: "ai-powered" })}
-                    className="group flex flex-col items-start rounded-xl border-2 border-border bg-white p-5 text-left transition-all hover:border-indigo-400 hover:shadow-lg"
-                  >
-                    <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 group-hover:bg-indigo-100">
-                      <BrainCircuit className="h-6 w-6" />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isContracted) {
+                            setModalStep({ kind: "ai-powered" });
+                          } else {
+                            launchUpgrade();
+                          }
+                        }}
+                        className={`group flex flex-col items-start rounded-xl border-2 border-border bg-white p-5 text-left transition-all ${isContracted ? "hover:border-indigo-400 hover:shadow-lg" : "opacity-80"}`}
+                      >
+                        <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 group-hover:bg-indigo-100">
+                          <BrainCircuit className="h-6 w-6" />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-base font-semibold text-foreground">AI-Powered Agent</h3>
+                          {!isContracted && <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-[9px]"><Crown className="mr-0.5 h-2.5 w-2.5" /> Requires upgrade</Badge>}
+                        </div>
+                        <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+                          Adaptive, LLM-driven intelligence. The agent reasons through each situation differently based on context.
+                        </p>
+                        <ul className="mt-3 space-y-1.5 text-[12px] text-muted-foreground">
+                          <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-600" /> Handles nuanced scenarios</li>
+                          <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-600" /> Natural language conversations</li>
+                          <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-600" /> Adapts to new situations</li>
+                          <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-600" /> Full guardrail protection</li>
+                        </ul>
+                        <span className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-3 py-1 text-[11px] font-semibold text-indigo-700">
+                          <BrainCircuit className="h-3 w-3" /> Best for: conversations, complex decisions, resident interactions
+                        </span>
+                      </button>
                     </div>
-                    <h3 className="text-base font-semibold text-foreground">AI-Powered Agent</h3>
-                    <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-                      Adaptive, LLM-driven intelligence. The agent reasons through each situation differently based on context.
-                    </p>
-                    <ul className="mt-3 space-y-1.5 text-[12px] text-muted-foreground">
-                      <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-600" /> Handles nuanced scenarios</li>
-                      <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-600" /> Natural language conversations</li>
-                      <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-600" /> Adapts to new situations</li>
-                      <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-600" /> Full guardrail protection</li>
-                    </ul>
-                    <span className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-3 py-1 text-[11px] font-semibold text-indigo-700">
-                      <BrainCircuit className="h-3 w-3" /> Best for: conversations, complex decisions, resident interactions
-                    </span>
-                  </button>
-                </div>
+                  );
+                })()}
               </div>
             </div>
           )}
@@ -4699,69 +4816,84 @@ export default function AgentBuilderPage() {
               </div>
             </div>
 
-            {budgetConfig.budgetMode === "uniform" ? (
-              <div>
-                <label className="mb-1 block text-[12px] font-semibold text-foreground">Monthly Budget per Property</label>
-                <div className="flex items-center gap-2">
-                  <DollarSign className="h-4 w-4 text-muted-foreground" />
-                  <Input type="number" min={0} step={10} value={budgetConfig.monthlyBudgetPerProperty} onChange={(e) => setBudgetConfig((c) => ({ ...c, monthlyBudgetPerProperty: Number(e.target.value) }))} className="w-28 text-sm" />
-                  <span className="text-[12px] text-muted-foreground">/ property / month</span>
-                </div>
-                <p className="mt-1 text-[10px] text-muted-foreground">
-                  Total: ${(budgetConfig.monthlyBudgetPerProperty * totalProperties).toFixed(2)}/mo across {totalProperties} properties. Unused budget does not roll over.
-                </p>
-              </div>
-            ) : (
-              <div>
-                <div className="mb-2 flex items-center justify-between">
-                  <label className="text-[12px] font-semibold text-foreground">Per-Property Budgets</label>
+            {(() => {
+              const budgetProperties = PMC_PROPERTY_RECORDS.filter((p) => contractedPropertyIds.includes(p.id));
+              const contractedCount = budgetProperties.length;
+              const nonContractedCount = PMC_PROPERTY_RECORDS.length - contractedCount;
+              return budgetConfig.budgetMode === "uniform" ? (
+                <div>
+                  <label className="mb-1 block text-[12px] font-semibold text-foreground">Monthly Budget per Property</label>
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-muted-foreground">Default: ${budgetConfig.monthlyBudgetPerProperty}</span>
-                    <Input type="number" min={0} step={10} value={budgetConfig.monthlyBudgetPerProperty} onChange={(e) => setBudgetConfig((c) => ({ ...c, monthlyBudgetPerProperty: Number(e.target.value) }))} className="h-7 w-20 text-[11px]" />
+                    <DollarSign className="h-4 w-4 text-muted-foreground" />
+                    <Input type="number" min={0} step={10} value={budgetConfig.monthlyBudgetPerProperty} onChange={(e) => setBudgetConfig((c) => ({ ...c, monthlyBudgetPerProperty: Number(e.target.value) }))} className="w-28 text-sm" />
+                    <span className="text-[12px] text-muted-foreground">/ property / month</span>
                   </div>
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    Total: ${(budgetConfig.monthlyBudgetPerProperty * contractedCount).toFixed(2)}/mo across {contractedCount} contracted properties. Unused budget does not roll over.
+                  </p>
+                  {nonContractedCount > 0 && (
+                    <p className="mt-1 text-[10px] text-indigo-600 flex items-center gap-1">
+                      <Info className="h-3 w-3" /> {nonContractedCount} properties not yet contracted — <button type="button" className="underline font-medium" onClick={() => { setShowBudgetSettings(false); setContractStep("properties"); setContractState((s) => ({ ...s, selectedPropertyIds: [...contractedPropertyIds] })); setShowContractFlow(true); }}>add properties</button>
+                    </p>
+                  )}
                 </div>
-                <div className="mb-2">
-                  <Input placeholder="Search properties..." value={budgetPropertySearch} onChange={(e) => setBudgetPropertySearch(e.target.value)} className="h-8 text-[11px]" />
-                </div>
-                <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
-                  {PMC_PROPERTY_RECORDS
-                    .filter((p) => !budgetPropertySearch || p.name.toLowerCase().includes(budgetPropertySearch.toLowerCase()))
-                    .map((p) => {
-                      const customBudget = budgetConfig.propertyBudgets[p.id];
-                      const isCustom = customBudget !== undefined;
-                      return (
-                        <div key={p.id} className="flex items-center gap-2 rounded px-2 py-1 hover:bg-slate-50">
-                          <Building2 className="h-3 w-3 shrink-0 text-muted-foreground" />
-                          <span className="flex-1 truncate text-[11px] font-medium text-foreground">{p.name}</span>
-                          <span className="shrink-0 text-[9px] text-muted-foreground">{p.city}, {p.state}</span>
-                          <div className="flex items-center gap-1">
-                            <span className="text-[10px] text-muted-foreground">$</span>
-                            <Input
-                              type="number"
-                              min={0}
-                              step={10}
-                              value={isCustom ? customBudget : budgetConfig.monthlyBudgetPerProperty}
-                              onChange={(e) => {
-                                const val = Number(e.target.value);
-                                setBudgetConfig((c) => ({ ...c, propertyBudgets: { ...c.propertyBudgets, [p.id]: val } }));
-                              }}
-                              className={`h-6 w-16 text-right text-[10px] ${isCustom ? "border-indigo-300 bg-indigo-50 font-semibold" : ""}`}
-                            />
+              ) : (
+                <div>
+                  <div className="mb-2 flex items-center justify-between">
+                    <label className="text-[12px] font-semibold text-foreground">Per-Property Budgets</label>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-muted-foreground">Default: ${budgetConfig.monthlyBudgetPerProperty}</span>
+                      <Input type="number" min={0} step={10} value={budgetConfig.monthlyBudgetPerProperty} onChange={(e) => setBudgetConfig((c) => ({ ...c, monthlyBudgetPerProperty: Number(e.target.value) }))} className="h-7 w-20 text-[11px]" />
+                    </div>
+                  </div>
+                  <div className="mb-2">
+                    <Input placeholder="Search properties..." value={budgetPropertySearch} onChange={(e) => setBudgetPropertySearch(e.target.value)} className="h-8 text-[11px]" />
+                  </div>
+                  <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
+                    {budgetProperties
+                      .filter((p) => !budgetPropertySearch || p.name.toLowerCase().includes(budgetPropertySearch.toLowerCase()))
+                      .map((p) => {
+                        const customBudget = budgetConfig.propertyBudgets[p.id];
+                        const isCustom = customBudget !== undefined;
+                        return (
+                          <div key={p.id} className="flex items-center gap-2 rounded px-2 py-1 hover:bg-slate-50">
+                            <Building2 className="h-3 w-3 shrink-0 text-muted-foreground" />
+                            <span className="flex-1 truncate text-[11px] font-medium text-foreground">{p.name}</span>
+                            <span className="shrink-0 text-[9px] text-muted-foreground">{p.city}, {p.state}</span>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] text-muted-foreground">$</span>
+                              <Input
+                                type="number"
+                                min={0}
+                                step={10}
+                                value={isCustom ? customBudget : budgetConfig.monthlyBudgetPerProperty}
+                                onChange={(e) => {
+                                  const val = Number(e.target.value);
+                                  setBudgetConfig((c) => ({ ...c, propertyBudgets: { ...c.propertyBudgets, [p.id]: val } }));
+                                }}
+                                className={`h-6 w-16 text-right text-[10px] ${isCustom ? "border-indigo-300 bg-indigo-50 font-semibold" : ""}`}
+                              />
+                            </div>
+                            {isCustom && (
+                              <button type="button" onClick={() => setBudgetConfig((c) => { const next = { ...c.propertyBudgets }; delete next[p.id]; return { ...c, propertyBudgets: next }; })} className="text-muted-foreground hover:text-foreground" title="Reset to default">
+                                <X className="h-3 w-3" />
+                              </button>
+                            )}
                           </div>
-                          {isCustom && (
-                            <button type="button" onClick={() => setBudgetConfig((c) => { const next = { ...c.propertyBudgets }; delete next[p.id]; return { ...c, propertyBudgets: next }; })} className="text-muted-foreground hover:text-foreground" title="Reset to default">
-                              <X className="h-3 w-3" />
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                  </div>
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    Total: ${budgetProperties.reduce((sum, p) => sum + (budgetConfig.propertyBudgets[p.id] ?? budgetConfig.monthlyBudgetPerProperty), 0).toFixed(2)}/mo across {contractedCount} contracted properties.
+                  </p>
+                  {nonContractedCount > 0 && (
+                    <p className="mt-1 text-[10px] text-indigo-600 flex items-center gap-1">
+                      <Info className="h-3 w-3" /> {nonContractedCount} properties not yet contracted — <button type="button" className="underline font-medium" onClick={() => { setShowBudgetSettings(false); setContractStep("properties"); setContractState((s) => ({ ...s, selectedPropertyIds: [...contractedPropertyIds] })); setShowContractFlow(true); }}>add properties</button>
+                    </p>
+                  )}
                 </div>
-                <p className="mt-1 text-[10px] text-muted-foreground">
-                  Total: ${totalMonthlyBudget.toFixed(2)}/mo. {Object.keys(budgetConfig.propertyBudgets).length} custom, {totalProperties - Object.keys(budgetConfig.propertyBudgets).length} using default.
-                </p>
-              </div>
-            )}
+              );
+            })()}
 
             <div>
               <label className="mb-1 block text-[12px] font-semibold text-foreground">Alert Threshold</label>
@@ -4858,6 +4990,342 @@ export default function AgentBuilderPage() {
           <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-6 py-3">
             <Button variant="outline" size="sm" onClick={() => setShowBudgetSettings(false)}>Cancel</Button>
             <Button size="sm" onClick={() => setShowBudgetSettings(false)} className="bg-indigo-600 text-white hover:bg-indigo-700">Save Settings</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Self-Service Contracting Flow */}
+      <Dialog open={showContractFlow} onOpenChange={setShowContractFlow}>
+        <DialogContent className="max-w-2xl p-0 gap-0 max-h-[90vh] flex flex-col">
+          {/* Stepper header */}
+          <div className="border-b border-border px-6 py-4">
+            <h2 className="text-lg font-semibold text-foreground">Upgrade to AI Agent Builder</h2>
+            <p className="mt-0.5 text-[12px] text-muted-foreground">Self-service activation — no sales call required</p>
+            <div className="mt-3 flex items-center gap-1">
+              {(["properties", "pricing", "sign", "complete"] as ContractStep[]).map((step, i) => {
+                const labels = ["Select Properties", "Review Pricing", "Sign Agreement", "Activated"];
+                const icons = [Building2, DollarSign, PenLine, PartyPopper];
+                const Icon = icons[i];
+                const isCurrent = contractStep === step;
+                const stepOrder = ["properties", "pricing", "sign", "complete"];
+                const isPast = stepOrder.indexOf(contractStep) > i;
+                return (
+                  <div key={step} className="flex items-center gap-1 flex-1">
+                    <div className={`flex items-center gap-1.5 rounded-full px-2 py-1 text-[10px] font-medium ${isCurrent ? "bg-indigo-100 text-indigo-700" : isPast ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground"}`}>
+                      {isPast ? <CircleCheck className="h-3 w-3" /> : <Icon className="h-3 w-3" />}
+                      {labels[i]}
+                    </div>
+                    {i < 3 && <div className={`h-px flex-1 ${isPast ? "bg-green-300" : "bg-border"}`} />}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-6 py-5">
+            {/* Step 1: Property Selection */}
+            {contractStep === "properties" && (
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Select properties to activate</h3>
+                <p className="mt-1 text-[12px] text-muted-foreground">
+                  Choose which properties will have access to AI agents and unlimited workflows. These properties will be listed on your usage agreement.
+                  {contractedPropertyIds.length > 0 && ` (${contractedPropertyIds.length} already contracted)`}
+                </p>
+                {(() => {
+                  const uncontractedProperties = PMC_PROPERTY_RECORDS.filter((p) => !contractedPropertyIds.includes(p.id));
+                  const uncontractedIds = uncontractedProperties.map((p) => p.id);
+                  const newSelections = contractState.selectedPropertyIds.filter((id) => !contractedPropertyIds.includes(id));
+                  return (
+                    <>
+                      <div className="mt-3 flex items-center gap-2">
+                        <Button size="sm" variant="outline" onClick={() => setContractState((s) => ({ ...s, selectedPropertyIds: [...contractedPropertyIds, ...uncontractedIds] }))} className="h-7 text-[11px]">Select All</Button>
+                        <Button size="sm" variant="outline" onClick={() => setContractState((s) => ({ ...s, selectedPropertyIds: [...contractedPropertyIds] }))} className="h-7 text-[11px]">Clear New</Button>
+                        <span className="text-[11px] text-muted-foreground ml-auto">
+                          {newSelections.length} new {newSelections.length === 1 ? "property" : "properties"} selected
+                          {contractedPropertyIds.length > 0 && ` · ${contractedPropertyIds.length} already contracted`}
+                        </span>
+                      </div>
+                      <div className="mt-3 space-y-1 max-h-[300px] overflow-y-auto rounded-lg border border-border p-2">
+                        {PMC_PROPERTY_RECORDS.map((p) => {
+                          const alreadyContracted = contractedPropertyIds.includes(p.id);
+                          const selected = contractState.selectedPropertyIds.includes(p.id);
+                          return (
+                            <label key={p.id} className={`flex items-center gap-3 rounded-md px-3 py-2 text-[12px] transition-colors ${alreadyContracted ? "bg-green-50/50 border border-green-200 cursor-default" : selected ? "bg-indigo-50 border border-indigo-200 cursor-pointer" : "hover:bg-muted/50 border border-transparent cursor-pointer"}`}>
+                              <input
+                                type="checkbox"
+                                checked={selected || alreadyContracted}
+                                disabled={alreadyContracted}
+                                onChange={() => {
+                                  if (alreadyContracted) return;
+                                  setContractState((s) => ({
+                                    ...s,
+                                    selectedPropertyIds: selected ? s.selectedPropertyIds.filter((id) => id !== p.id) : [...s.selectedPropertyIds, p.id],
+                                  }));
+                                }}
+                                className="h-4 w-4 rounded accent-indigo-600 disabled:opacity-50"
+                              />
+                              <div className="flex-1">
+                                <span className="font-medium text-foreground">{p.name}</span>
+                                <span className="ml-2 text-muted-foreground">{p.unitCount} units</span>
+                              </div>
+                              {alreadyContracted ? (
+                                <Badge className="bg-green-100 text-green-700 border-green-200 text-[9px]">Contracted</Badge>
+                              ) : selected ? (
+                                <CircleCheck className="h-4 w-4 text-indigo-600" />
+                              ) : null}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()}
+                <div className="mt-3 rounded-md border border-blue-100 bg-blue-50/50 p-2.5 flex items-start gap-2 text-[11px] text-blue-800">
+                  <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500" />
+                  <span>Non-selected properties will still have access to the {FREE_AGENT_LIMIT} free deterministic agents. You can add more properties to your agreement at any time.</span>
+                </div>
+                <div className="mt-2 rounded-md border border-indigo-100 bg-indigo-50/50 p-2.5 flex items-start gap-2 text-[11px] text-indigo-800">
+                  <Cog className="mt-0.5 h-3.5 w-3.5 shrink-0 text-indigo-500" />
+                  <span><strong>After contracting:</strong> You&apos;ll configure per-property monthly budgets to control agent spending. Each contracted property gets its own budget limit that you can customize based on property size and needs.</span>
+                </div>
+              </div>
+            )}
+
+            {/* Step 2: Pricing Review */}
+            {contractStep === "pricing" && (
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Usage-Based Pricing</h3>
+                <p className="mt-1 text-[12px] text-muted-foreground">
+                  All pricing is usage-based with no minimum commitment. You only pay for what your agents consume. Pricing is non-negotiable and applies uniformly to all clients.
+                </p>
+                <div className="mt-4 space-y-3">
+                  {PRICING_TABLE.map((row) => (
+                    <div key={row.tier} className="rounded-lg border border-border p-3">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="text-[13px] font-semibold text-foreground">{row.tier}</p>
+                          <p className="mt-0.5 text-[11px] text-muted-foreground">{row.description}</p>
+                        </div>
+                        <div className="text-right shrink-0 ml-4">
+                          <p className="text-[14px] font-bold text-indigo-700">{row.price}</p>
+                          <p className="text-[10px] text-muted-foreground">{row.unit}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-4 rounded-lg border border-amber-100 bg-amber-50/50 p-3">
+                  <div className="flex items-start gap-2 text-[11px] text-amber-900">
+                    <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+                    <div>
+                      <p className="font-semibold">Frontier Model Pass-Through Pricing</p>
+                      <p className="mt-0.5 text-amber-800/80">
+                        When using OpenAI, Anthropic, Google, or other third-party LLMs, the then-current published API price is passed through plus a $0.25/million token Entrata platform fee. Prices may change as providers update their API pricing.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 rounded-lg border border-border bg-slate-50 p-3">
+                  <p className="text-[12px] font-semibold text-foreground">Summary for {contractState.selectedPropertyIds.filter((id) => !contractedPropertyIds.includes(id)).length} new properties{contractedPropertyIds.length > 0 ? ` (${contractedPropertyIds.length} already contracted)` : ""}</p>
+                  <ul className="mt-2 space-y-1 text-[11px] text-muted-foreground">
+                    <li className="flex items-center gap-1.5"><CircleDot className="h-3 w-3 text-indigo-500" /> Unlimited deterministic workflows on selected properties</li>
+                    <li className="flex items-center gap-1.5"><CircleDot className="h-3 w-3 text-indigo-500" /> Full access to AI-powered agents</li>
+                    <li className="flex items-center gap-1.5"><CircleDot className="h-3 w-3 text-indigo-500" /> Budget controls and spend analytics</li>
+                    <li className="flex items-center gap-1.5"><CircleDot className="h-3 w-3 text-indigo-500" /> No minimum commitment — cancel anytime</li>
+                    <li className="flex items-center gap-1.5"><CircleDot className="h-3 w-3 text-green-500" /> Free agents continue at no charge</li>
+                  </ul>
+                </div>
+
+                <label className="mt-4 flex cursor-pointer items-start gap-2 rounded-lg border border-border bg-white p-3">
+                  <input
+                    type="checkbox"
+                    checked={contractState.agreedToPricing}
+                    onChange={(e) => setContractState((s) => ({ ...s, agreedToPricing: e.target.checked }))}
+                    className="mt-0.5 h-4 w-4 rounded accent-indigo-600"
+                  />
+                  <span className="text-[12px] text-foreground">I acknowledge the usage-based pricing listed above and understand that charges will be based on actual consumption.</span>
+                </label>
+              </div>
+            )}
+
+            {/* Step 3: E-Sign */}
+            {contractStep === "sign" && (
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Electronic Signature</h3>
+                <p className="mt-1 text-[12px] text-muted-foreground">
+                  Review and sign the AI Agent Builder Usage Agreement below to activate the service on your selected properties.
+                </p>
+
+                {/* Contract document */}
+                <div className="mt-4 rounded-lg border border-border bg-white max-h-[280px] overflow-y-auto p-4">
+                  <div className="text-center border-b border-border pb-3 mb-3">
+                    <p className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground">Entrata, Inc.</p>
+                    <p className="text-[14px] font-bold text-foreground mt-1">AI Agent Builder Usage Agreement</p>
+                  </div>
+                  <div className="space-y-3 text-[11px] text-foreground leading-relaxed">
+                    <p><strong>1. Service Activation.</strong> By executing this Agreement, Client activates the Entrata AI Agent Builder (&ldquo;Service&rdquo;) on the Properties identified in Exhibit A. The Service enables Client to create, configure, and deploy automated workflow agents and AI-powered agents within the Entrata platform.</p>
+
+                    <p><strong>2. Usage-Based Fees.</strong> Client shall pay usage-based fees as follows, calculated and invoiced monthly in arrears:</p>
+                    <ul className="ml-4 space-y-1">
+                      <li>&bull; <strong>Workflow (Basic):</strong> $0.001 per task executed</li>
+                      <li>&bull; <strong>Workflow (Premium):</strong> $0.005 per task executed</li>
+                      <li>&bull; <strong>AI Agent — Frontier Model:</strong> Then-current published API price of the selected LLM provider, plus $0.25 per million tokens (Entrata platform fee)</li>
+                      <li>&bull; <strong>AI Agent — Entrata LLM / Auto:</strong> $0.10 per million input tokens; $0.25 per million output tokens</li>
+                    </ul>
+
+                    <p><strong>3. No Minimum Commitment.</strong> There is no minimum usage requirement or spend floor. Client pays only for actual usage. Client may deactivate the Service at any time through the Entrata platform.</p>
+
+                    <p><strong>4. Budget Controls.</strong> Client may configure per-property budget limits through the Agent Builder interface. When a property&apos;s budget is exhausted, non-essential agents pause automatically. Essential agents continue operating and overages are billed at the rates above.</p>
+
+                    <p><strong>5. Pricing Changes.</strong> Entrata may update Entrata LLM / Auto pricing upon contract renewal. Frontier model pass-through pricing reflects then-current published API prices and may change as providers adjust their rates.</p>
+
+                    <p><strong>6. Term.</strong> This Agreement is co-terminus with Client&apos;s existing Entrata Master Services Agreement. Upon renewal, the Service continues at then-current pricing unless either party provides written notice of termination at least 30 days prior to the renewal date.</p>
+
+                    <p><strong>7. Data and Privacy.</strong> All data processed by AI agents is governed by the existing Data Processing Addendum to Client&apos;s Master Services Agreement. Entrata does not use Client data to train models.</p>
+
+                    <p><strong>8. Properties.</strong> This Agreement applies to the properties listed in Exhibit A ({contractState.selectedPropertyIds.filter((id) => !contractedPropertyIds.includes(id)).length} new properties{contractedPropertyIds.length > 0 ? `, plus ${contractedPropertyIds.length} previously contracted` : ""}). Client may add properties to the Service at any time through the Agent Builder interface; added properties are subject to the same pricing terms.</p>
+
+                    <p className="mt-2 font-semibold">Exhibit A — Properties Being Activated:</p>
+                    <ul className="ml-4">
+                      {contractState.selectedPropertyIds.filter((id) => !contractedPropertyIds.includes(id)).map((pid) => {
+                        const p = PMC_PROPERTY_RECORDS.find((pr) => pr.id === pid);
+                        return <li key={pid}>&bull; {p?.name ?? pid} ({p?.unitCount ?? 0} units)</li>;
+                      })}
+                    </ul>
+                  </div>
+                </div>
+
+                {/* Signature fields */}
+                <div className="mt-4 rounded-lg border border-border bg-slate-50 p-4 space-y-3">
+                  <p className="text-[11px] font-semibold text-foreground">Authorized Signatory</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] font-medium text-muted-foreground">Full Name</label>
+                      <Input
+                        placeholder="John Doe"
+                        value={contractState.signerName}
+                        onChange={(e) => setContractState((s) => ({ ...s, signerName: e.target.value }))}
+                        className="mt-1 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-medium text-muted-foreground">Title</label>
+                      <Input
+                        placeholder="Property Manager"
+                        value={contractState.signerTitle}
+                        onChange={(e) => setContractState((s) => ({ ...s, signerTitle: e.target.value }))}
+                        className="mt-1 text-sm"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-medium text-muted-foreground">Date</label>
+                    <Input
+                      type="date"
+                      value={contractState.signatureDate || new Date().toISOString().slice(0, 10)}
+                      onChange={(e) => setContractState((s) => ({ ...s, signatureDate: e.target.value }))}
+                      className="mt-1 w-48 text-sm"
+                    />
+                  </div>
+
+                  {/* Signature pad area */}
+                  <div className="rounded-lg border-2 border-dashed border-indigo-200 bg-white p-4">
+                    {contractState.signed ? (
+                      <div className="flex items-center gap-3">
+                        <CircleCheck className="h-5 w-5 text-green-600" />
+                        <div>
+                          <p className="text-[20px] font-serif italic text-indigo-800">{contractState.signerName}</p>
+                          <p className="text-[10px] text-muted-foreground">{contractState.signerTitle} &middot; Signed electronically {contractState.signatureDate || new Date().toISOString().slice(0, 10)}</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        type="button"
+                        disabled={!contractState.signerName.trim() || !contractState.signerTitle.trim()}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setContractState((s) => ({ ...s, signed: true, signatureDate: s.signatureDate || new Date().toISOString().slice(0, 10) }));
+                        }}
+                        className="w-full h-auto flex-col py-4 text-[13px] text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50/50 disabled:text-muted-foreground disabled:cursor-not-allowed"
+                      >
+                        <PenLine className="h-5 w-5 mb-1" />
+                        Click to apply electronic signature
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Step 4: Complete */}
+            {contractStep === "complete" && (
+              <div className="flex flex-col items-center justify-center py-8">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
+                  <PartyPopper className="h-8 w-8 text-green-600" />
+                </div>
+                <h3 className="mt-4 text-lg font-bold text-foreground">You&apos;re all set!</h3>
+                <p className="mt-2 text-[13px] text-muted-foreground text-center max-w-sm">
+                  AI Agent Builder has been activated on {contractState.selectedPropertyIds.filter((id) => !contractedPropertyIds.includes(id)).length} {contractState.selectedPropertyIds.filter((id) => !contractedPropertyIds.includes(id)).length > 1 ? "new properties" : "new property"}. You can now build AI agents, create unlimited workflows, and configure per-property budgets.
+                </p>
+                <div className="mt-4 rounded-lg border border-green-200 bg-green-50 p-3 w-full max-w-sm">
+                  <p className="text-[12px] font-semibold text-green-900 text-center">What&apos;s unlocked</p>
+                  <ul className="mt-2 space-y-1.5 text-[11px] text-green-800">
+                    <li className="flex items-center gap-2"><CircleCheck className="h-3.5 w-3.5 text-green-600" /> Unlimited deterministic workflows</li>
+                    <li className="flex items-center gap-2"><CircleCheck className="h-3.5 w-3.5 text-green-600" /> AI-powered agent creation</li>
+                    <li className="flex items-center gap-2"><CircleCheck className="h-3.5 w-3.5 text-green-600" /> Per-property budget controls</li>
+                    <li className="flex items-center gap-2"><CircleCheck className="h-3.5 w-3.5 text-green-600" /> Spend analytics dashboard</li>
+                    <li className="flex items-center gap-2"><CircleCheck className="h-3.5 w-3.5 text-green-600" /> Essential agent overrun protection</li>
+                  </ul>
+                </div>
+                <p className="mt-3 text-[10px] text-muted-foreground">
+                  Agreement #{`AGR-${Date.now().toString(36).toUpperCase()}`} &middot; Signed by {contractState.signerName} &middot; {contractState.signatureDate || new Date().toISOString().slice(0, 10)}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="flex shrink-0 items-center justify-between border-t border-border px-6 py-3">
+            <div>
+              {contractStep !== "properties" && contractStep !== "complete" && (
+                <Button variant="outline" size="sm" onClick={() => {
+                  const steps: ContractStep[] = ["properties", "pricing", "sign", "complete"];
+                  const idx = steps.indexOf(contractStep);
+                  if (idx > 0) setContractStep(steps[idx - 1]);
+                }}>
+                  Back
+                </Button>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {contractStep !== "complete" && (
+                <Button variant="outline" size="sm" onClick={() => setShowContractFlow(false)}>Cancel</Button>
+              )}
+              {contractStep === "properties" && (
+                <Button size="sm" disabled={contractState.selectedPropertyIds.filter((id) => !contractedPropertyIds.includes(id)).length === 0} onClick={() => setContractStep("pricing")} className="bg-indigo-600 text-white hover:bg-indigo-700">
+                  Continue <ChevronRight className="ml-1 h-3 w-3" />
+                </Button>
+              )}
+              {contractStep === "pricing" && (
+                <Button size="sm" disabled={!contractState.agreedToPricing} onClick={() => setContractStep("sign")} className="bg-indigo-600 text-white hover:bg-indigo-700">
+                  Continue to Sign <ChevronRight className="ml-1 h-3 w-3" />
+                </Button>
+              )}
+              {contractStep === "sign" && (
+                <Button size="sm" disabled={!contractState.signed} onClick={() => { setContractStep("complete"); addContractedProperties(contractState.selectedPropertyIds); }} className="bg-green-600 text-white hover:bg-green-700">
+                  <ClipboardCheck className="mr-1 h-3 w-3" /> Activate Service
+                </Button>
+              )}
+              {contractStep === "complete" && (
+                <Button size="sm" onClick={() => { setShowContractFlow(false); setShowBudgetSettings(true); }} className="bg-indigo-600 text-white hover:bg-indigo-700">
+                  Configure Budget <ChevronRight className="ml-1 h-3 w-3" />
+                </Button>
+              )}
+            </div>
           </div>
         </DialogContent>
       </Dialog>
