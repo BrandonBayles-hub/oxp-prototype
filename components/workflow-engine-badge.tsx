@@ -15,20 +15,20 @@ const ENGINE_CONFIG: Record<
   }
 > = {
   "entrata-native": {
-    label: "Entrata Native",
-    shortLabel: "Native",
+    label: "Basic",
+    shortLabel: "Basic",
     icon: Cpu,
     className: "border-emerald-300 bg-emerald-50 text-emerald-800",
     dotColor: "bg-emerald-500",
     bgColor: "bg-emerald-100",
   },
   workato: {
-    label: "Powered by Workato",
-    shortLabel: "Workato",
+    label: "Premium",
+    shortLabel: "Premium",
     icon: ExternalLink,
-    className: "border-orange-300 bg-orange-50 text-orange-800",
-    dotColor: "bg-orange-500",
-    bgColor: "bg-orange-100",
+    className: "border-violet-300 bg-violet-50 text-violet-800",
+    dotColor: "bg-violet-500",
+    bgColor: "bg-violet-100",
   },
 };
 

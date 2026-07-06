@@ -159,6 +159,98 @@ export const MCP_SERVER_CATALOG: McpServerDefinition[] = [
   },
 ];
 
+/**
+ * Capabilities we know users will ask for but don't yet have MCPs/tools to support.
+ * Used by the capability-validation step to clearly communicate gaps.
+ */
+export type UnsupportedCapability = {
+  id: string;
+  label: string;
+  description: string;
+  category: string;
+  reason: string;
+};
+
+export const UNSUPPORTED_CAPABILITIES: UnsupportedCapability[] = [
+  {
+    id: "unsupported.weather",
+    label: "Weather data",
+    description: "Check current or forecasted weather conditions.",
+    category: "External",
+    reason: "No weather API integration exists. Entrata does not have a weather data MCP.",
+  },
+  {
+    id: "unsupported.credit_check",
+    label: "Credit check / screening",
+    description: "Run credit checks or background screenings on applicants.",
+    category: "External",
+    reason: "Credit bureau integrations (Experian, TransUnion, Equifax) are not available as MCP tools.",
+  },
+  {
+    id: "unsupported.package_tracking",
+    label: "Package tracking",
+    description: "Track inbound packages via USPS, FedEx, UPS, or Amazon.",
+    category: "External",
+    reason: "No package carrier tracking API integration exists.",
+  },
+  {
+    id: "unsupported.social_media",
+    label: "Social media posting",
+    description: "Post to social media platforms (Facebook, Instagram, X/Twitter).",
+    category: "External",
+    reason: "Social media platform integrations are not available.",
+  },
+  {
+    id: "unsupported.smart_lock",
+    label: "Smart lock / access control",
+    description: "Lock or unlock doors, generate access codes, or manage smart home devices.",
+    category: "IoT",
+    reason: "Smart lock and IoT device integrations are not yet available as MCP tools.",
+  },
+  {
+    id: "unsupported.utility_provider",
+    label: "Utility provider API",
+    description: "Connect to utility companies (electric, gas, water) to read meters or transfer service.",
+    category: "External",
+    reason: "Direct utility provider integrations are not available.",
+  },
+  {
+    id: "unsupported.insurance_verify",
+    label: "Insurance verification",
+    description: "Verify renters insurance policies with insurance carriers.",
+    category: "External",
+    reason: "Insurance carrier API integrations are not available.",
+  },
+  {
+    id: "unsupported.payment_processing",
+    label: "External payment processing",
+    description: "Process payments through Venmo, Zelle, CashApp, or PayPal.",
+    category: "External",
+    reason: "Third-party payment processor integrations are not available. Payments must go through Entrata's built-in payment system.",
+  },
+  {
+    id: "unsupported.translation",
+    label: "Real-time translation",
+    description: "Translate text or speech between languages in real-time.",
+    category: "External",
+    reason: "Real-time translation service integrations (Google Translate, DeepL) are not available.",
+  },
+  {
+    id: "unsupported.calendar_sync",
+    label: "External calendar sync",
+    description: "Sync with Google Calendar, Outlook, or iCal.",
+    category: "External",
+    reason: "External calendar service integrations are not available.",
+  },
+  {
+    id: "unsupported.market_research",
+    label: "Market rent comparisons (external)",
+    description: "Pull competitive rent data from external sources like Zillow, Apartments.com, or CoStar.",
+    category: "External",
+    reason: "External market data provider integrations are not available. Internal market rent data is available via the Renewals MCP.",
+  },
+];
+
 /** Flat list of all tools across all MCP servers for search/filter. */
 export function allMcpTools(): Array<McpTool & { serverId: string; serverName: string }> {
   return MCP_SERVER_CATALOG.flatMap((s) =>
@@ -203,4 +295,197 @@ export function deriveMcpServersFromToolIds(
       restrictedToolIds: useAll ? undefined : toolIds,
     };
   });
+}
+
+/**
+ * Represents one discrete capability the agent needs, mapped to the
+ * MCP tool (or gap) that would fulfill it.
+ */
+export type CapabilityMapping = {
+  id: string;
+  capability: string;
+  status: "supported" | "no_access" | "unavailable";
+  toolId?: string;
+  toolLabel?: string;
+  serverName?: string;
+  reason?: string;
+};
+
+export type CapabilityAnalysis = {
+  capabilities: CapabilityMapping[];
+  supported: CapabilityMapping[];
+  unsupported: CapabilityMapping[];
+};
+
+/**
+ * Build the system prompt for capability analysis.
+ */
+export function buildCapabilityAnalysisPrompt(): string {
+  const allTools = allMcpTools();
+  const toolList = allTools
+    .map((t) => `  - ${t.id}: ${t.name} — ${t.description} [Server: ${t.serverName}]`)
+    .join("\n");
+
+  const unsupportedList = UNSUPPORTED_CAPABILITIES
+    .map((u) => `  - ${u.id}: ${u.label} — ${u.description}`)
+    .join("\n");
+
+  return `You are an expert at analyzing AI agent prompts for a property management platform (Entrata).
+
+Given an agent's system prompt, extract every distinct capability or action the agent needs to perform. Then map each capability to either an available MCP tool or mark it as unsupported.
+
+## Available MCP Tools
+${toolList}
+
+## Known Unsupported Capabilities
+${unsupportedList}
+
+## Rules
+1. Extract EVERY distinct action/capability from the prompt — be thorough
+2. Group related sub-actions under one capability when they clearly belong together
+3. For each capability, determine if an available MCP tool can fulfill it
+4. If the capability matches a known unsupported item, mark status as "unavailable"
+5. If a tool exists but is not in the agent's enabled servers, mark status as "no_access"
+6. If no tool exists at all, mark status as "unavailable"
+7. Be specific — "Send email to residents" maps to comms.send_email, not just "Communications MCP"
+8. Include internal prompt capabilities like "analyze data" or "make decisions" as "supported" with toolId "llm.reasoning"
+
+## Output Format
+Return a JSON object:
+{
+  "capabilities": [
+    {
+      "id": "cap_1",
+      "capability": "Short description of what the agent needs to do",
+      "status": "supported" | "no_access" | "unavailable",
+      "toolId": "the.tool.id or null",
+      "toolLabel": "Human-readable tool name",
+      "serverName": "Name of the MCP server",
+      "reason": "Why this is unsupported (only for no_access/unavailable)"
+    }
+  ]
+}
+
+Return ONLY the JSON object.`;
+}
+
+/**
+ * Analyze the agent's prompt against available and enabled MCP tools.
+ * Returns a structured mapping of capabilities to tools/gaps.
+ */
+export function analyzeCapabilitiesLocally(
+  prompt: string,
+  enabledServers: Array<{ id: string; enabled: boolean; restrictedToolIds?: string[] }>,
+): CapabilityAnalysis {
+  const capabilities: CapabilityMapping[] = [];
+  const p = prompt.toLowerCase();
+  let capId = 1;
+
+  const enabledToolIds = new Set<string>();
+  for (const server of enabledServers) {
+    if (!server.enabled) continue;
+    const def = MCP_SERVER_CATALOG.find((s) => s.id === server.id);
+    if (!def) continue;
+    const toolIds = server.restrictedToolIds ?? def.tools.map((t) => t.id);
+    for (const tid of toolIds) enabledToolIds.add(tid);
+  }
+
+  const allTools = allMcpTools();
+  const findTool = (id: string) => allTools.find((t) => t.id === id);
+
+  const matchAndAdd = (
+    keywords: string[],
+    capLabel: string,
+    toolId: string,
+  ) => {
+    if (!keywords.some((kw) => p.includes(kw))) return;
+    const tool = findTool(toolId);
+    if (!tool) return;
+
+    if (enabledToolIds.has(toolId)) {
+      capabilities.push({
+        id: `cap_${capId++}`,
+        capability: capLabel,
+        status: "supported",
+        toolId,
+        toolLabel: tool.name,
+        serverName: tool.serverName,
+      });
+    } else {
+      capabilities.push({
+        id: `cap_${capId++}`,
+        capability: capLabel,
+        status: "no_access",
+        toolId,
+        toolLabel: tool.name,
+        serverName: tool.serverName,
+        reason: `Tool exists in ${tool.serverName} but the agent does not have access. Enable the server or grant access to this tool.`,
+      });
+    }
+  };
+
+  matchAndAdd(["send email", "email notification", "email the", "send an email", "email to"], "Send email notifications", "comms.send_email");
+  matchAndAdd(["send sms", "text message", "sms notification", "send a text", "send text"], "Send SMS / text messages", "comms.send_sms");
+  matchAndAdd(["work order", "maintenance request", "repair request"], "Create or manage work orders", "maintenance.create_work_order");
+  matchAndAdd(["resident profile", "resident info", "resident data", "resident record"], "Access resident profiles", "residents.get_resident");
+  matchAndAdd(["verify identity", "confirm identity", "identity verification"], "Verify resident identity", "residents.verify_identity");
+  matchAndAdd(["lease detail", "lease term", "lease info", "lease data"], "Access lease details", "residents.get_lease");
+  matchAndAdd(["balance", "outstanding balance", "amount owed", "amount due"], "Check resident balances", "residents.get_balance");
+  matchAndAdd(["ledger", "charges", "credits", "financial history"], "Access resident ledger", "accounting.get_resident_ledger");
+  matchAndAdd(["post charge", "add charge", "apply fee", "late fee"], "Post charges to ledger", "accounting.post_charge");
+  matchAndAdd(["waive fee", "waive charge", "remove fee", "credit"], "Waive fees", "accounting.waive_fee");
+  matchAndAdd(["renewal offer", "renew lease", "renewal", "retention"], "Create renewal offers", "renewals.create_renewal_offer");
+  matchAndAdd(["expiring lease", "lease expir"], "Find expiring leases", "renewals.get_expiring_leases");
+  matchAndAdd(["market rent", "market rate", "comparable rent", "comp rent"], "Look up market rent", "renewals.get_market_rent");
+  matchAndAdd(["tour", "schedule tour", "book tour", "tour appointment"], "Schedule property tours", "leasing.schedule_tour");
+  matchAndAdd(["lead", "prospect", "guest card", "new lead"], "Manage leads / prospects", "leasing.search_leads");
+  matchAndAdd(["available unit", "availability", "vacant unit"], "Check unit availability", "leasing.available_units");
+  matchAndAdd(["floorplan", "floor plan", "unit layout"], "Access floorplan information", "leasing.get_floorplans");
+  matchAndAdd(["amenity", "amenities", "community feature"], "List property amenities", "leasing.property_amenities");
+  matchAndAdd(["warm transfer", "transfer call", "connect to agent", "transfer to"], "Warm-transfer calls to humans", "comms.warm_transfer");
+  matchAndAdd(["vendor", "dispatch vendor", "assign vendor"], "Dispatch maintenance vendors", "maintenance.dispatch_vendor");
+  matchAndAdd(["invoice", "post invoice"], "Post AP invoices", "accounting.post_invoice");
+  matchAndAdd(["pre-bill", "prebill", "utility bill"], "Manage utility pre-bills", "accounting.approve_pre_bill");
+  matchAndAdd(["resident history", "payment history", "tenant history"], "Access resident payment history", "renewals.get_resident_history");
+  matchAndAdd(["property polic", "pet policy", "smoking policy", "parking policy"], "Access property policies", "leasing.property_policies");
+  matchAndAdd(["note", "add note", "post note", "resident note"], "Post notes to resident records", "residents.post_note");
+  matchAndAdd(["conversation thread", "message history", "chat history"], "Access conversation history", "comms.get_thread");
+
+  for (const unsup of UNSUPPORTED_CAPABILITIES) {
+    const kw = unsup.label.toLowerCase().split(/\s+/);
+    const matchesDesc = unsup.description.toLowerCase().split(/\s+/);
+    const combined = [...kw, ...matchesDesc];
+    const uniqueWords = combined.filter((w) => w.length > 3);
+
+    if (uniqueWords.some((w) => p.includes(w))) {
+      const alreadyMapped = capabilities.some(
+        (c) => c.capability.toLowerCase().includes(unsup.label.toLowerCase()),
+      );
+      if (!alreadyMapped) {
+        capabilities.push({
+          id: `cap_${capId++}`,
+          capability: unsup.label,
+          status: "unavailable",
+          reason: unsup.reason,
+        });
+      }
+    }
+  }
+
+  if (p.includes("weather") || p.includes("forecast") || p.includes("temperature")) {
+    const alreadyAdded = capabilities.some((c) => c.capability.toLowerCase().includes("weather"));
+    if (!alreadyAdded) {
+      capabilities.push({
+        id: `cap_${capId++}`,
+        capability: "Check weather conditions",
+        status: "unavailable",
+        reason: "No weather API integration exists. Entrata does not have a weather data MCP.",
+      });
+    }
+  }
+
+  const supportedCaps = capabilities.filter((c) => c.status === "supported");
+  const unsupportedCaps = capabilities.filter((c) => c.status !== "supported");
+
+  return { capabilities, supported: supportedCaps, unsupported: unsupportedCaps };
 }

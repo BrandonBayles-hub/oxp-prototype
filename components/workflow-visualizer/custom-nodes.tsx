@@ -114,6 +114,27 @@ function WorkflowNode({ data, selected }: NodeProps & { data: Record<string, unk
         <p className="line-clamp-2 text-[11px] leading-relaxed text-gray-600">
           {d.description}
         </p>
+        {d.type === "trigger" && (() => {
+          let evts: string[] = [];
+          try { evts = JSON.parse(d.config?.["selected_events"] ?? "[]"); } catch { /* ignore */ }
+          if (evts.length === 0 && d.config?.["event_type"]) evts = [d.config["event_type"]];
+          const schedOn = d.config?.["trigger_schedule_enabled"] === "true";
+          if (evts.length === 0 && !schedOn) return null;
+          return (
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {evts.map((e) => (
+                <span key={e} className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[8px] font-semibold text-amber-700">
+                  <Zap className="h-2 w-2" /> {e.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                </span>
+              ))}
+              {schedOn && (
+                <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-100 px-1.5 py-0.5 text-[8px] font-semibold text-blue-700">
+                  <Clock className="h-2 w-2" /> Schedule
+                </span>
+              )}
+            </div>
+          );
+        })()}
         {d.mcpTool && (
           <div className="mt-1.5 flex items-center gap-1 rounded bg-white/70 px-1.5 py-0.5">
             <Database className="h-3 w-3 text-gray-400" />

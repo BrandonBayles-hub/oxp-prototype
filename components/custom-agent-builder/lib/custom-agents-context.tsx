@@ -56,6 +56,8 @@ export type Trigger =
       id: string;
       kind: "event";
       eventId: string;
+      /** Multiple event IDs — when set, any of these events will trigger the agent. */
+      eventIds?: string[];
     }
   | {
       id: string;

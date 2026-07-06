@@ -70,7 +70,17 @@ import {
 import { inferFromPrompt, inferSuccessMetrics } from "../../lib/custom-agents-inference";
 import { formatCurrency } from "../../lib/custom-agents-cost";
 import { DEFAULT_GUARDRAILS } from "../../lib/default-guardrails";
-import { MCP_SERVER_CATALOG, type McpServerDefinition, type McpTool, deriveMcpServersFromToolIds } from "../../lib/mcp-server-catalog";
+import {
+  MCP_SERVER_CATALOG,
+  type McpServerDefinition,
+  type McpTool,
+  deriveMcpServersFromToolIds,
+  type CapabilityMapping,
+  type CapabilityAnalysis,
+  analyzeCapabilitiesLocally,
+  buildCapabilityAnalysisPrompt,
+  UNSUPPORTED_CAPABILITIES,
+} from "../../lib/mcp-server-catalog";
 import { formatMetricValue, computeTrend } from "../../lib/success-metrics";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -125,6 +135,10 @@ import {
   Repeat,
   Users,
   Loader2,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  Send,
 } from "lucide-react";
 
 type AgentCreatedPayload = {
@@ -1922,6 +1936,93 @@ function DataSkillsStep({ version, patch }: { version: AgentVersion; patch: (p: 
   const [expandedServer, setExpandedServer] = useState<string | null>(null);
   const [toolQuery, setToolQuery] = useState("");
 
+  /* ── capability validation state ── */
+  const [capAnalysis, setCapAnalysis] = useState<CapabilityAnalysis | null>(null);
+  const [capLoading, setCapLoading] = useState(false);
+  const [capError, setCapError] = useState<string | null>(null);
+  const [featureRequestSent, setFeatureRequestSent] = useState<Set<string>>(new Set());
+  const [removedFromPrompt, setRemovedFromPrompt] = useState<Set<string>>(new Set());
+  const [showCapDetails, setShowCapDetails] = useState(true);
+  const prevPromptRef = useRef(version.prompt);
+
+  const runCapabilityAnalysis = useCallback(async () => {
+    if (!version.prompt.trim()) return;
+    setCapLoading(true);
+    setCapError(null);
+
+    try {
+      if (isClientLLMConfigured()) {
+        const result = await callClientLLM(
+          [
+            { role: "system", content: buildCapabilityAnalysisPrompt() },
+            {
+              role: "user",
+              content: `Analyze this agent prompt and map each capability to the available MCP tools.\n\nAgent prompt:\n${version.prompt}\n\nEnabled MCP servers: ${JSON.stringify(
+                mcpServers.filter((s) => s.enabled).map((s) => ({
+                  id: s.id,
+                  restrictedToolIds: s.restrictedToolIds,
+                })),
+              )}`,
+            },
+          ],
+          { temperature: 0.1, maxTokens: 4000 },
+        );
+
+        const parsed = JSON.parse(result.content.match(/\{[\s\S]*\}/)?.[0] ?? result.content);
+        const caps: CapabilityMapping[] = (parsed.capabilities ?? []).map(
+          (c: CapabilityMapping, i: number) => ({ ...c, id: c.id ?? `cap_${i + 1}` }),
+        );
+        setCapAnalysis({
+          capabilities: caps,
+          supported: caps.filter((c) => c.status === "supported"),
+          unsupported: caps.filter((c) => c.status !== "supported"),
+        });
+      } else {
+        await new Promise((r) => setTimeout(r, 1200));
+        const analysis = analyzeCapabilitiesLocally(version.prompt, mcpServers);
+        setCapAnalysis(analysis);
+      }
+    } catch (err) {
+      console.error("Capability analysis failed:", err);
+      setCapError("Failed to analyze capabilities. Using local analysis instead.");
+      const analysis = analyzeCapabilitiesLocally(version.prompt, mcpServers);
+      setCapAnalysis(analysis);
+    } finally {
+      setCapLoading(false);
+    }
+  }, [version.prompt, mcpServers]);
+
+  useEffect(() => {
+    if (version.prompt.trim() && !capAnalysis && !capLoading) {
+      runCapabilityAnalysis();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (prevPromptRef.current !== version.prompt && version.prompt.trim()) {
+      prevPromptRef.current = version.prompt;
+      const timer = setTimeout(() => runCapabilityAnalysis(), 600);
+      return () => clearTimeout(timer);
+    }
+  }, [version.prompt, runCapabilityAnalysis]);
+
+  const handleRemoveFromPrompt = (cap: CapabilityMapping) => {
+    const capLabel = cap.capability.toLowerCase();
+    const lines = version.prompt.split("\n");
+    const filtered = lines.filter((line) => {
+      const l = line.toLowerCase();
+      const words = capLabel.split(/\s+/).filter((w) => w.length > 3);
+      const matchCount = words.filter((w) => l.includes(w)).length;
+      return matchCount < words.length * 0.6;
+    });
+    patch({ prompt: filtered.join("\n") });
+    setRemovedFromPrompt((prev) => new Set([...prev, cap.id]));
+  };
+
+  const handleSendFeatureRequest = (cap: CapabilityMapping) => {
+    setFeatureRequestSent((prev) => new Set([...prev, cap.id]));
+  };
+
   const toggleServer = (serverId: string) => {
     const existing = mcpServers.find((s) => s.id === serverId);
     const serverDef = MCP_SERVER_CATALOG.find((s) => s.id === serverId);
@@ -1948,6 +2049,7 @@ function DataSkillsStep({ version, patch }: { version: AgentVersion; patch: (p: 
         ],
       });
     }
+    setTimeout(() => runCapabilityAnalysis(), 300);
   };
 
   const isServerEnabled = (serverId: string) => mcpServers.find((s) => s.id === serverId)?.enabled ?? false;
@@ -1974,6 +2076,7 @@ function DataSkillsStep({ version, patch }: { version: AgentVersion; patch: (p: 
         s.id === serverId ? { ...s, restrictedToolIds: isAll ? undefined : next } : s
       ),
     });
+    setTimeout(() => runCapabilityAnalysis(), 300);
   };
 
   const isToolEnabled = (serverId: string, toolId: string) => {
@@ -1984,12 +2087,204 @@ function DataSkillsStep({ version, patch }: { version: AgentVersion; patch: (p: 
 
   const enabledCount = mcpServers.filter((s) => s.enabled).length;
 
+  const activeUnsupported = capAnalysis?.unsupported.filter((c) => !removedFromPrompt.has(c.id)) ?? [];
+
   return (
     <section>
       <h2 className="font-heading text-lg text-foreground">Data &amp; Skills</h2>
       <p className="mt-1 text-sm text-muted-foreground">
         Connect MCP servers to give your agent access to Entrata data and capabilities. You can restrict access to specific tools within each server.
       </p>
+
+      {/* ── Capability Validation Panel ── */}
+      {(capLoading || capAnalysis) && (
+        <div className="mt-4 rounded-xl border border-border bg-white overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowCapDetails(!showCapDetails)}
+            className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-muted/30 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <Brain className="h-4 w-4 text-indigo-600" />
+              <span className="text-sm font-semibold text-foreground">Capability Analysis</span>
+              {capLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-500" />}
+              {!capLoading && capAnalysis && (
+                <>
+                  <Badge className="bg-green-50 text-green-700 border-green-200 text-[10px]">
+                    {capAnalysis.supported.length} supported
+                  </Badge>
+                  {activeUnsupported.length > 0 && (
+                    <Badge className="bg-red-50 text-red-700 border-red-200 text-[10px]">
+                      {activeUnsupported.length} unsupported
+                    </Badge>
+                  )}
+                </>
+              )}
+            </div>
+            {showCapDetails ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+          </button>
+
+          {showCapDetails && !capLoading && capAnalysis && (
+            <div className="border-t border-border px-4 py-4">
+              {/* Unsupported capabilities warning */}
+              {activeUnsupported.length > 0 && (
+                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50/80 p-3">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] font-semibold text-amber-900">
+                        {activeUnsupported.length} capabilit{activeUnsupported.length === 1 ? "y" : "ies"} cannot be fulfilled
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-amber-800/80">
+                        Your agent&apos;s prompt references capabilities that don&apos;t have matching MCP tools. Without these tools, the agent may hallucinate or fail to complete parts of its task. You can remove unsupported items from the prompt and/or request that Entrata build the missing tools.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Supported capabilities */}
+              {capAnalysis.supported.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1">
+                    <CheckCircle2 className="h-3 w-3 text-green-600" /> Supported capabilities ({capAnalysis.supported.length})
+                  </p>
+                  <div className="space-y-1">
+                    {capAnalysis.supported.map((cap) => (
+                      <div key={cap.id} className="flex items-center gap-2 rounded-md bg-green-50/40 px-2.5 py-1.5 text-[12px]">
+                        <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-600" />
+                        <span className="font-medium text-foreground flex-1">{cap.capability}</span>
+                        {cap.toolLabel && cap.toolId !== "llm.reasoning" && (
+                          <span className="text-[10px] text-muted-foreground shrink-0">
+                            via <span className="font-mono">{cap.toolLabel}</span>
+                            {cap.serverName && <span className="text-muted-foreground/60"> ({cap.serverName})</span>}
+                          </span>
+                        )}
+                        {cap.toolId === "llm.reasoning" && (
+                          <Badge variant="outline" className="text-[9px] border-indigo-200 text-indigo-600 shrink-0">LLM Built-in</Badge>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Unsupported capabilities */}
+              {activeUnsupported.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1">
+                    <XCircle className="h-3 w-3 text-red-500" /> Unsupported capabilities ({activeUnsupported.length})
+                  </p>
+                  <div className="space-y-2">
+                    {activeUnsupported.map((cap) => (
+                      <div key={cap.id} className="rounded-lg border border-red-100 bg-red-50/30 px-3 py-2.5">
+                        <div className="flex items-start gap-2">
+                          {cap.status === "unavailable" ? (
+                            <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-500" />
+                          ) : (
+                            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[12px] font-medium text-foreground">{cap.capability}</p>
+                            <p className="mt-0.5 text-[11px] text-muted-foreground">{cap.reason}</p>
+                            {cap.status === "no_access" && cap.serverName && (
+                              <p className="mt-1 text-[10px] text-amber-700">
+                                Tip: Enable <span className="font-semibold">{cap.serverName}</span> above to grant access.
+                              </p>
+                            )}
+                            <div className="mt-2 flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveFromPrompt(cap)}
+                                className="flex items-center gap-1 rounded-md border border-border bg-white px-2 py-1 text-[11px] font-medium text-foreground hover:bg-muted transition-colors"
+                              >
+                                <X className="h-3 w-3" /> Remove from prompt
+                              </button>
+                              {cap.status === "unavailable" && !featureRequestSent.has(cap.id) && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSendFeatureRequest(cap)}
+                                  className="flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100 transition-colors"
+                                >
+                                  <Send className="h-3 w-3" /> Request from Entrata
+                                </button>
+                              )}
+                              {featureRequestSent.has(cap.id) && (
+                                <span className="flex items-center gap-1 text-[11px] text-green-700">
+                                  <Check className="h-3 w-3" /> Feature request sent
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Bulk actions */}
+                  <div className="mt-3 flex items-center gap-2 border-t border-border pt-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        for (const cap of activeUnsupported) handleRemoveFromPrompt(cap);
+                      }}
+                      className="flex items-center gap-1 rounded-md border border-border bg-white px-2.5 py-1.5 text-[11px] font-medium text-foreground hover:bg-muted transition-colors"
+                    >
+                      <X className="h-3 w-3" /> Remove all unsupported from prompt
+                    </button>
+                    {activeUnsupported.some((c) => c.status === "unavailable" && !featureRequestSent.has(c.id)) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          for (const cap of activeUnsupported.filter((c) => c.status === "unavailable")) {
+                            handleSendFeatureRequest(cap);
+                          }
+                        }}
+                        className="flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100 transition-colors"
+                      >
+                        <Send className="h-3 w-3" /> Request all missing tools from Entrata
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* All supported state */}
+              {activeUnsupported.length === 0 && capAnalysis.supported.length > 0 && (
+                <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50/50 px-3 py-2.5">
+                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  <p className="text-[12px] font-medium text-green-800">
+                    All capabilities in your agent&apos;s prompt are supported by the connected MCP tools.
+                  </p>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={runCapabilityAnalysis}
+                className="mt-3 flex items-center gap-1 text-[11px] text-indigo-600 hover:underline"
+              >
+                <Sparkles className="h-3 w-3" /> Re-analyze capabilities
+              </button>
+            </div>
+          )}
+
+          {showCapDetails && capLoading && (
+            <div className="border-t border-border px-4 py-6 flex flex-col items-center gap-2">
+              <Loader2 className="h-5 w-5 animate-spin text-indigo-500" />
+              <p className="text-[12px] text-muted-foreground">Analyzing agent capabilities against available MCP tools...</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Feature Request Confirmation Modal ── */}
+      {featureRequestSent.size > 0 && (
+        <FeatureRequestConfirmation
+          capabilities={capAnalysis?.unsupported.filter((c) => featureRequestSent.has(c.id)) ?? []}
+          onDismiss={() => setFeatureRequestSent(new Set())}
+        />
+      )}
 
       <div className="mt-4 rounded-lg border border-indigo-100 bg-indigo-50/50 p-3">
         <div className="flex items-start gap-2 text-[12px] text-indigo-900">
@@ -2029,7 +2324,6 @@ function DataSkillsStep({ version, patch }: { version: AgentVersion; patch: (p: 
           const activeToolCount = restrictedTools ? restrictedTools.length : serverDef.tools.length;
           const readTools = serverDef.tools.filter((t) => !t.mutates);
           const writeTools = serverDef.tools.filter((t) => t.mutates);
-          const toolCategories = Array.from(new Set(serverDef.tools.map((t) => t.category)));
 
           const filteredTools = toolQuery.trim()
             ? serverDef.tools.filter((t) =>
@@ -2101,7 +2395,6 @@ function DataSkillsStep({ version, patch }: { version: AgentVersion; patch: (p: 
                   )}
 
                   <div className="space-y-3">
-                    {/* Read-only tools */}
                     {readTools.length > 0 && (
                       <div>
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5 flex items-center gap-1">
@@ -2129,7 +2422,6 @@ function DataSkillsStep({ version, patch }: { version: AgentVersion; patch: (p: 
                       </div>
                     )}
 
-                    {/* Write/action tools */}
                     {writeTools.length > 0 && (
                       <div>
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5 flex items-center gap-1">
@@ -2172,6 +2464,48 @@ function DataSkillsStep({ version, patch }: { version: AgentVersion; patch: (p: 
 
       <AudienceBuilderSection version={version} patch={patch} />
     </section>
+  );
+}
+
+/* ─────────── Feature Request Confirmation ─────────── */
+
+function FeatureRequestConfirmation({
+  capabilities,
+  onDismiss,
+}: {
+  capabilities: CapabilityMapping[];
+  onDismiss: () => void;
+}) {
+  if (capabilities.length === 0) return null;
+
+  return (
+    <div className="mt-3 rounded-xl border border-green-200 bg-green-50/60 p-4">
+      <div className="flex items-start gap-2">
+        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
+        <div className="flex-1 min-w-0">
+          <p className="text-[13px] font-semibold text-green-900">Feature request{capabilities.length > 1 ? "s" : ""} sent to Entrata</p>
+          <p className="mt-1 text-[11px] text-green-800/80">
+            The Entrata product team will receive your request to build the following MCP tools. You&apos;ll be notified when they become available.
+          </p>
+          <ul className="mt-2 space-y-1">
+            {capabilities.map((cap) => (
+              <li key={cap.id} className="flex items-center gap-2 text-[12px] text-green-900">
+                <Send className="h-3 w-3 shrink-0 text-green-600" />
+                <span className="font-medium">{cap.capability}</span>
+                {cap.reason && <span className="text-green-700/70">— {cap.reason}</span>}
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="mt-3 text-[11px] text-green-700 hover:underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

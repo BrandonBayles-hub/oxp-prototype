@@ -75,6 +75,7 @@ function WorkflowCanvas({
   const [rightPanel, setRightPanel] = useState<"none" | "config" | "execution">("none");
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
 
+  const internalEditRef = useRef(false);
   const [changeRequest, setChangeRequest] = useState("");
   const [isIterating, setIsIterating] = useState(false);
   const [rebuildPhase, setRebuildPhase] = useState<"idle" | "analyzing" | "redesigning" | "done">("idle");
@@ -83,11 +84,15 @@ function WorkflowCanvas({
   const prevWorkflowRef = useRef(workflow);
   useEffect(() => {
     if (prevWorkflowRef.current !== workflow) {
+      const isInternalEdit = internalEditRef.current;
+      internalEditRef.current = false;
       prevWorkflowRef.current = workflow;
       setNodes(layoutNodes);
       setEdges(layoutEdges);
-      setSelectedNodeId(null);
-      setTimeout(() => fitView({ padding: 0.3, maxZoom: 1, duration: 600 }), 50);
+      if (!isInternalEdit) {
+        setSelectedNodeId(null);
+        setTimeout(() => fitView({ padding: 0.3, maxZoom: 1, duration: 600 }), 50);
+      }
     }
   }, [workflow, layoutNodes, layoutEdges, setNodes, setEdges, fitView]);
 
@@ -171,6 +176,7 @@ function WorkflowCanvas({
 
   const handleNodeUpdate = useCallback(
     (nodeId: string, patch: Partial<WorkflowNodeData>) => {
+      internalEditRef.current = true;
       setNodes((nds) => {
         const updated = nds.map((n) =>
           n.id === nodeId ? { ...n, data: { ...n.data, ...patch } } : n,
@@ -314,7 +320,7 @@ function WorkflowCanvas({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Node Palette Sidebar */}
         <div className="flex w-[52px] shrink-0 flex-col items-center gap-1 border-r border-border bg-slate-50/80 py-2">
           <p className="mb-1 text-[8px] font-bold uppercase tracking-widest text-gray-400">Nodes</p>
