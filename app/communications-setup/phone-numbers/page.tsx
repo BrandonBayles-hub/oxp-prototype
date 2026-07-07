@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft, Users, CreditCard, Wrench, RefreshCw,
   CheckCircle2, Phone, Plus, Pencil, Trash2, CirclePlus,
-  Loader2, AlertTriangle, Zap, ChevronRight, X, Calendar, HelpCircle,
+  Loader2, AlertTriangle, Zap, ChevronRight, ChevronDown, Search, X, Calendar, HelpCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -196,16 +196,38 @@ export default function PhoneNumbersPage() {
   const [addUseSms] = useState(true);
   const [addOutboundDefault, setAddOutboundDefault] = useState(false);
   const [addExpiration, setAddExpiration] = useState("");
+  const [addAreaCode, setAddAreaCode] = useState("");
+  const [addForwardPref, setAddForwardPref] = useState<string>("Specific Number");
   const [callerIdRegistering, setCallerIdRegistering] = useState<string | null>(null);
+  const [propertySearch, setPropertySearch] = useState("");
+  const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(() => new Set(PROPERTIES.map((p) => p.id)));
+  const [propertyPickerOpen, setPropertyPickerOpen] = useState(false);
+  const propertyPickerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!propertyPickerOpen) return;
+    function handler(e: MouseEvent) {
+      if (propertyPickerRef.current && !propertyPickerRef.current.contains(e.target as Node)) {
+        setPropertyPickerOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [propertyPickerOpen]);
+
+  const filteredConfigProperties = PROPERTIES.filter((p) => {
+    if (!selectedPropertyIds.has(p.id)) return false;
+    const q = propertySearch.trim().toLowerCase();
+    if (!q) return true;
+    const hay = `${p.name} ${p.city} ${p.state} ${AREA_CODES[p.city] ?? ""}`.toLowerCase();
+    return hay.includes(q);
+  });
 
   const PROPERTY_MAP = Object.fromEntries(PROPERTIES.map((p) => [p.id, p.name]));
   const filteredVanityNumbers = vanityPropertyFilter === "all"
     ? vanityNumbers
     : vanityNumbers.filter((v) => v.propertyId === vanityPropertyFilter);
-  const vanityPropertyIds = [...new Set(vanityNumbers.map((v) => v.propertyId))];
-
-  type StatusFilter = "all" | "active" | "review" | "awaiting";
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
+  const vanityPropertyIds = [...new Set(vanityNumbers.map((v) => v.propertyId).filter(Boolean))];
 
   function vanityOptionsForProperty(propId: string, currentValue: string) {
     const unique = [...new Map(vanityNumbers.map((v) => [v.phoneNumber, v])).values()];
@@ -219,7 +241,43 @@ export default function PhoneNumbersPage() {
     setAddTollFree(false);
     setAddOutboundDefault(false);
     setAddExpiration("");
+    setAddAreaCode("");
+    setAddForwardPref("Specific Number");
     setAddVanityOpen(true);
+  }
+
+  function buildNewVanityPhoneNumber(): string {
+    if (addTollFree) {
+      const tollFreePrefixes = ["800", "833", "844", "855", "866", "877", "888"];
+      const prefix = tollFreePrefixes[Math.floor(Math.random() * tollFreePrefixes.length)];
+      const mid = String(Math.floor(200 + Math.random() * 800));
+      const tail = String(Math.floor(1000 + Math.random() * 9000));
+      return `(${prefix}) ${mid}-${tail}`;
+    }
+    const area = addAreaCode && /^[2-9][0-8][0-9]$/.test(addAreaCode) ? addAreaCode : "555";
+    const exchange = String(Math.floor(200 + Math.random() * 800));
+    const tail = String(Math.floor(1000 + Math.random() * 9000));
+    return `(${area}) ${exchange}-${tail}`;
+  }
+
+  function submitAddVanityNumber() {
+    const newRow = {
+      id: `v_new_${Date.now()}`,
+      propertyId: "",
+      phoneNumber: buildNewVanityPhoneNumber(),
+      type: "Lead",
+      leadSource: "",
+      forwardPreference: addForwardPref,
+      routeCalls: "—",
+      smsRegistrationStatus: "In Review",
+      smsEnabled: addUseSms,
+      outboundDefault: addOutboundDefault,
+      expirationDate: addExpiration ? addExpiration.split("-").reverse().join("/").replace(/\//g, "/") : "",
+      callerIdRegistered: false,
+    };
+    setVanityNumbers((prev) => [newRow, ...prev]);
+    setVanityPropertyFilter("all");
+    setAddVanityOpen(false);
   }
 
   function simulateApproval() {
@@ -234,7 +292,6 @@ export default function PhoneNumbersPage() {
   const awaitingIds = new Set(
     PROPERTIES.filter((p) => !activeIds.has(p.id) && !inReviewIds.has(p.id)).map((p) => p.id)
   );
-  const numbersReady = activeIds.size === PROPERTIES.length;
 
   type RowStatus = "active" | "review" | "awaiting";
   function statusOf(propId: string): RowStatus {
@@ -243,10 +300,32 @@ export default function PhoneNumbersPage() {
     return "awaiting";
   }
 
-  const visibleProperties = PROPERTIES.filter((p) => {
-    if (statusFilter === "all") return true;
-    return statusOf(p.id) === statusFilter;
-  });
+  function collectAssignedNumbersForProperty(propId: string): string[] {
+    const out: string[] = [];
+    const sa = DEFAULT_SUPER_AGENT[propId];
+    const ctc = DEFAULT_CLICK_TO_CALL[propId];
+    const outbound = DEFAULT_OUTBOUND[propId];
+    const nums = DEFAULT_NUMBERS[propId];
+    const extras = DEFAULT_LEASING_EXTRAS[propId];
+    const maint = DEFAULT_MAINTENANCE_VOICE[propId];
+    if (sa) out.push(sa);
+    if (ctc && !CLICK_TO_CALL_NOT_CONTRACTED.has(propId)) out.push(ctc);
+    if (outbound) out.push(outbound);
+    if (nums) out.push(nums.leasing, nums.payments, nums.maintenance, nums.renewals);
+    if (extras) out.push(extras.voice, extras.other);
+    if (maint) out.push(maint);
+    return out;
+  }
+
+  const uniquePendingVanityNumberCount = (() => {
+    const set = new Set<string>();
+    inReviewIds.forEach((propId) => {
+      collectAssignedNumbersForProperty(propId).forEach((n) => set.add(n));
+    });
+    return set.size;
+  })();
+
+  const companyVanityNumberOptions = [...new Set(vanityNumbers.map((v) => v.phoneNumber))].sort();
 
   return (
     <div className="mx-auto max-w-[72rem] px-4 pb-12 pt-8 sm:px-6">
@@ -275,21 +354,16 @@ export default function PhoneNumbersPage() {
 
       {/* Summary row */}
       <div className="mb-6 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-border bg-white px-4 py-3">
-        <div className="flex items-center gap-2">
-          <CheckCircle2 className="h-4 w-4 text-teal-500" aria-hidden />
-          <span className="text-sm text-foreground">
-            <span className="font-semibold">{activeIds.size}</span>
-            <span className="text-muted-foreground"> Done</span>
-          </span>
-        </div>
-        <span className="text-zinc-300">&middot;</span>
-        <div className="flex items-center gap-2">
-          {inReviewIds.size > 0
+        <div
+          className="flex items-center gap-2"
+          title={`Unique vanity numbers awaiting carrier registration across ${inReviewIds.size} ${inReviewIds.size === 1 ? "property" : "properties"} currently in review.`}
+        >
+          {uniquePendingVanityNumberCount > 0
             ? <Loader2 className="h-4 w-4 text-amber-500 animate-spin" aria-hidden />
             : <span className="inline-block h-4 w-4 rounded-full border-2 border-amber-400" aria-hidden />}
           <span className="text-sm text-foreground">
-            <span className="font-semibold">{inReviewIds.size}</span>
-            <span className="text-muted-foreground"> Pending</span>
+            <span className="font-semibold">{uniquePendingVanityNumberCount}</span>
+            <span className="text-muted-foreground"> Pending Vanity Numbers</span>
           </span>
         </div>
         <span className="text-zinc-300">&middot;</span>
@@ -297,14 +371,9 @@ export default function PhoneNumbersPage() {
           <span className="inline-block h-4 w-4 rounded-full bg-zinc-200" aria-hidden />
           <span className="text-sm text-foreground">
             <span className="font-semibold">{awaitingIds.size}</span>
-            <span className="text-muted-foreground"> Not started</span>
+            <span className="text-muted-foreground"> Properties Not Started</span>
           </span>
         </div>
-        {numbersReady && (
-          <span className="ml-auto inline-flex items-center gap-1 rounded-full border border-teal-200 bg-teal-50 px-2.5 py-0.5 text-xs font-medium text-teal-700">
-            <CheckCircle2 className="h-3 w-3" />All properties Done
-          </span>
-        )}
       </div>
 
       {/* Property Numbers table */}
@@ -317,37 +386,107 @@ export default function PhoneNumbersPage() {
           </p>
         </div>
 
-        {/* Toolbar */}
+        {/* Filter bar */}
         <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex items-center rounded-lg border border-border bg-white p-0.5">
-            {([
-              { id: "active", label: "Done", count: activeIds.size },
-              { id: "review", label: "Pending", count: inReviewIds.size },
-              { id: "awaiting", label: "Not started", count: awaitingIds.size },
-              { id: "all", label: "All", count: PROPERTIES.length },
-            ] as const).map((chip) => (
+          <div className="relative max-w-sm flex-1 min-w-[240px]">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <input
+              type="text"
+              value={propertySearch}
+              onChange={(e) => setPropertySearch(e.target.value)}
+              placeholder="Search properties by name, city, or area code…"
+              className="w-full rounded-md border border-border bg-white py-1.5 pl-8 pr-7 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              aria-label="Search properties"
+            />
+            {propertySearch && (
               <button
-                key={chip.id}
                 type="button"
-                onClick={() => setStatusFilter(chip.id)}
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-                  statusFilter === chip.id
-                    ? "bg-foreground text-background"
-                    : "text-muted-foreground hover:text-foreground hover:bg-zinc-50"
-                )}
+                onClick={() => setPropertySearch("")}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground transition-colors hover:bg-zinc-100 hover:text-foreground"
+                aria-label="Clear search"
               >
-                {chip.label}
-                <span className={cn(
-                  "inline-flex items-center justify-center rounded px-1.5 py-0 text-[10px] font-semibold",
-                  statusFilter === chip.id ? "bg-white/15 text-background" : "bg-zinc-100 text-zinc-600"
-                )}>
-                  {chip.count}
-                </span>
+                <X className="h-3 w-3" />
               </button>
-            ))}
+            )}
           </div>
 
+          <div ref={propertyPickerRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setPropertyPickerOpen((o) => !o)}
+              className="inline-flex items-center gap-2 rounded-md border border-border bg-white px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-zinc-50"
+              aria-haspopup="listbox"
+              aria-expanded={propertyPickerOpen}
+            >
+              <span>
+                {selectedPropertyIds.size === PROPERTIES.length
+                  ? `All properties (${PROPERTIES.length})`
+                  : `${selectedPropertyIds.size} of ${PROPERTIES.length} selected`}
+              </span>
+              <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", propertyPickerOpen && "rotate-180")} />
+            </button>
+            {propertyPickerOpen && (
+              <div
+                role="listbox"
+                aria-multiselectable="true"
+                className="absolute right-0 top-full z-30 mt-1 w-72 overflow-hidden rounded-md border border-border bg-white shadow-lg"
+              >
+                <div className="flex items-center justify-between border-b border-border bg-zinc-50 px-3 py-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Show properties</span>
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPropertyIds(new Set(PROPERTIES.map((p) => p.id)))}
+                      className="font-medium text-blue-600 transition-colors hover:text-blue-700"
+                    >
+                      All
+                    </button>
+                    <span className="text-zinc-300">|</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPropertyIds(new Set())}
+                      className="font-medium text-blue-600 transition-colors hover:text-blue-700"
+                    >
+                      None
+                    </button>
+                  </div>
+                </div>
+                <div className="max-h-72 overflow-y-auto py-1">
+                  {PROPERTIES.map((p) => {
+                    const checked = selectedPropertyIds.has(p.id);
+                    return (
+                      <label
+                        key={p.id}
+                        className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-zinc-50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {
+                            setSelectedPropertyIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(p.id)) next.delete(p.id);
+                              else next.add(p.id);
+                              return next;
+                            });
+                          }}
+                          className="h-3.5 w-3.5 rounded border-border accent-blue-600"
+                        />
+                        <span className="flex-1 truncate">{p.name}</span>
+                        <span className="text-[10px] text-muted-foreground">{p.city}, {p.state}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {(propertySearch || selectedPropertyIds.size !== PROPERTIES.length) && (
+            <span className="text-[11px] text-muted-foreground">
+              Showing {filteredConfigProperties.length} of {PROPERTIES.length}
+            </span>
+          )}
         </div>
 
         {/* Table */}
@@ -418,60 +557,91 @@ export default function PhoneNumbersPage() {
                 </tr>
               </thead>
               <tbody>
-                {visibleProperties.length === 0 ? (
+                {filteredConfigProperties.length === 0 && (
                   <tr>
-                    <td colSpan={11} className="px-5 py-10 text-center text-sm text-muted-foreground">No properties in this state.</td>
+                    <td colSpan={11} className="px-6 py-12 text-center text-xs text-muted-foreground">
+                      No properties match your filters.
+                      {(propertySearch || selectedPropertyIds.size !== PROPERTIES.length) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPropertySearch("");
+                            setSelectedPropertyIds(new Set(PROPERTIES.map((p) => p.id)));
+                          }}
+                          className="ml-2 font-medium text-blue-600 transition-colors hover:text-blue-700"
+                        >
+                          Clear filters
+                        </button>
+                      )}
+                    </td>
                   </tr>
-                ) : (
-                  visibleProperties.map((prop) => {
-                    const status = statusOf(prop.id);
-                    const rowBg =
-                      status === "active" ? "bg-white"
-                      : status === "review" ? "bg-amber-50/40"
-                      : "bg-zinc-50";
-                    const stickyBg =
-                      status === "active" ? "bg-white"
-                      : status === "review" ? "bg-[#fffbeb]"
-                      : "bg-zinc-50";
-                    const nums = DEFAULT_NUMBERS[prop.id];
-                    const extras = DEFAULT_LEASING_EXTRAS[prop.id];
-                    const maint = DEFAULT_MAINTENANCE_VOICE[prop.id];
-                    const sa = DEFAULT_SUPER_AGENT[prop.id];
-                    const ctc = DEFAULT_CLICK_TO_CALL[prop.id];
-                    const outbound = DEFAULT_OUTBOUND[prop.id];
+                )}
+                {filteredConfigProperties.map((prop) => {
+                  const status = statusOf(prop.id);
+                  const rowBg =
+                    status === "active" ? "bg-white"
+                    : status === "review" ? "bg-amber-50/40"
+                    : "bg-zinc-50/60";
+                  const stickyBg =
+                    status === "active" ? "bg-white"
+                    : status === "review" ? "bg-[#fffbeb]"
+                    : "bg-zinc-50";
+                  const nums = DEFAULT_NUMBERS[prop.id];
+                  const extras = DEFAULT_LEASING_EXTRAS[prop.id];
+                  const maint = DEFAULT_MAINTENANCE_VOICE[prop.id];
+                  const sa = DEFAULT_SUPER_AGENT[prop.id];
+                  const ctc = DEFAULT_CLICK_TO_CALL[prop.id];
+                  const outbound = DEFAULT_OUTBOUND[prop.id];
 
+                  const renderCell = (content: ReactNode) => {
                     if (status === "awaiting") {
                       return (
-                        <tr key={prop.id} className={rowBg}>
-                          <td className={cn("sticky left-0 z-10 px-4 py-2.5 align-middle border-b border-border", stickyBg)}>
-                            <p className="font-medium leading-tight text-foreground truncate max-w-[220px]">{prop.name}</p>
-                            <p className="text-[11px] text-muted-foreground mt-0.5">{prop.city}, {prop.state}</p>
-                          </td>
-                          <td colSpan={10} className="px-4 py-2.5 align-middle border-b border-l border-border">
-                            <div className="flex items-center gap-3">
-                              <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] font-medium text-zinc-600 shrink-0">
-                                <span className="inline-block h-2.5 w-2.5 rounded-full bg-zinc-300" aria-hidden />
-                                Not started
-                              </span>
-                              <span className="text-[11px] text-muted-foreground truncate">
-                                Submit this property&apos;s privacy policy to start registering numbers.
-                              </span>
-                            </div>
-                          </td>
-                        </tr>
+                        <select
+                          value=""
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (!v) return;
+                            if (v === "__new__") {
+                              openAddVanityModal();
+                            } else {
+                              setInReviewIds((prev) => {
+                                const out = new Set(prev);
+                                out.add(prop.id);
+                                return out;
+                              });
+                            }
+                            e.target.value = "";
+                          }}
+                          className="font-mono text-xs text-muted-foreground/70 bg-transparent border-none outline-none cursor-pointer p-0 text-center"
+                          aria-label={`Assign vanity number for ${prop.name}`}
+                        >
+                          <option value="" disabled hidden>—</option>
+                          <option value="__new__" className="font-sans text-blue-600">+ New Vanity Number</option>
+                          {companyVanityNumberOptions.length > 0 && (
+                            <optgroup label="— Company Vanity Numbers —">
+                              {companyVanityNumberOptions.map((n) => (
+                                <option key={n} value={n}>{n}</option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </select>
                       );
                     }
-
-                    const renderCell = (content: ReactNode) => {
-                      if (status === "active") return content;
+                    if (status === "review") {
                       return (
-                        <div className="h-8 rounded-md border border-amber-200 bg-white px-2.5 flex items-center">
-                          <span className="text-xs font-mono text-amber-600">Pending</span>
+                        <div className="inline-flex flex-col items-center gap-1">
+                          {content}
+                          <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-700">
+                            <Loader2 className="h-2 w-2 animate-spin" />
+                            Pending
+                          </span>
                         </div>
                       );
-                    };
+                    }
+                    return content;
+                  };
 
-                    return (
+                  return (
                       <tr key={prop.id} className={rowBg}>
                         <td className={cn("sticky left-0 z-10 px-4 py-2.5 align-top border-b border-border", stickyBg)}>
                           <p className="font-medium leading-tight text-foreground truncate max-w-[220px]">{prop.name}</p>
@@ -590,8 +760,7 @@ export default function PhoneNumbersPage() {
                         </td>
                       </tr>
                     );
-                  })
-                )}
+                  })}
               </tbody>
             </table>
           </div>
@@ -1128,8 +1297,10 @@ export default function PhoneNumbersPage() {
                       <input
                         type="text"
                         maxLength={3}
-                        placeholder=""
-                        className="w-16 rounded-md border border-border bg-white px-3 py-2 text-xs text-foreground"
+                        placeholder="e.g. 512"
+                        value={addAreaCode}
+                        onChange={(e) => setAddAreaCode(e.target.value.replace(/\D/g, "").slice(0, 3))}
+                        className="w-20 rounded-md border border-border bg-white px-3 py-2 text-xs text-foreground"
                       />
                     </div>
                   )}
@@ -1137,10 +1308,14 @@ export default function PhoneNumbersPage() {
                   {/* Forward Preference */}
                   <div className="flex items-center gap-4">
                     <label className="w-40 text-right text-xs font-medium text-foreground shrink-0">Forward Preference:</label>
-                    <select className="flex-1 rounded-md border border-border bg-white px-3 py-2 text-xs text-foreground">
-                      <option>Office Contacts</option>
-                      <option>IVR</option>
-                      <option>Specific Number</option>
+                    <select
+                      value={addForwardPref}
+                      onChange={(e) => setAddForwardPref(e.target.value)}
+                      className="flex-1 rounded-md border border-border bg-white px-3 py-2 text-xs text-foreground"
+                    >
+                      <option value="Office Contacts">Office Contacts</option>
+                      <option value="IVR">IVR</option>
+                      <option value="Specific Number">Specific Number</option>
                     </select>
                   </div>
 
@@ -1248,8 +1423,9 @@ export default function PhoneNumbersPage() {
             <div className="flex items-center justify-end border-t border-border px-6 py-4 gap-3">
               <button
                 type="button"
-                onClick={() => setAddVanityOpen(false)}
-                className="rounded-md bg-emerald-600 px-5 py-2 text-xs font-medium text-white shadow-sm hover:bg-emerald-700 transition-colors"
+                onClick={submitAddVanityNumber}
+                disabled={!addTollFree && !/^[2-9][0-8][0-9]$/.test(addAreaCode)}
+                className="rounded-md bg-emerald-600 px-5 py-2 text-xs font-medium text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-600/50"
               >
                 Submit Request
               </button>

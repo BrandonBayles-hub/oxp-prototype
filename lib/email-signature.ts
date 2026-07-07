@@ -1,14 +1,19 @@
 /**
  * Default outbound email signature (communications-setup template).
  * Missing merge values are replaced with empty strings.
+ *
+ * Format:
+ *   --
+ *   Best regards,
+ *   {{StaffName}}
+ *   {{PropertyName}}   ← merges the property this conversation is for
+ *   {{PropertyPhone}}  ← property main line under the property name
  */
-export const EMAIL_SIGNATURE_TEMPLATE_DEFAULT = `Best regards,
+export const EMAIL_SIGNATURE_TEMPLATE_DEFAULT = `--
+Best regards,
 {{StaffName}}
-{{StaffTitle}}
-
 {{PropertyName}}
-{{PropertyPhone}}
-{{PropertyAddress}}`;
+{{PropertyPhone}}`;
 
 export type EmailSignatureMergeFields = {
   staffName: string;

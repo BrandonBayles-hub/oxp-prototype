@@ -1,5 +1,18 @@
 import { clsx, type ClassValue } from "clsx"
-import { twMerge } from "tailwind-merge"
+import { extendTailwindMerge } from "tailwind-merge"
+
+// Register our custom `text-xxs` font-size token with tailwind-merge. Without
+// this, twMerge doesn't recognize `text-xxs` as a font-size and treats it as
+// conflicting with `text-{color}` classes — silently dropping the color when
+// the two are combined via cn(). Declaring it under the font-size group keeps
+// text-xxs conflicting only with other sizes, never with colors.
+const twMerge = extendTailwindMerge({
+  extend: {
+    classGroups: {
+      "font-size": [{ text: ["xxs"] }],
+    },
+  },
+})
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))

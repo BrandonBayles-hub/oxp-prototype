@@ -33,6 +33,7 @@ import { EliEmailsProvider } from "@/lib/eli-emails-context";
 import { EliPlusSetupProvider } from "@/lib/eli-plus-setup-context";
 import { RoadmapProvider } from "@/lib/roadmap-context";
 import { AnalyticsHandoffProvider } from "@/lib/analytics-handoff-context";
+import { AgentBuilderViewerRoleProvider } from "@/lib/agent-builder-viewer-role-context";
 import { GlobalInboundCallHandler } from "@/components/global-inbound-call-handler";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -119,6 +120,7 @@ export default function RootLayout({
               <ModelPreferenceProvider>
               <WorkforceProvider>
                 <WorkflowsProvider>
+                <AgentBuilderViewerRoleProvider>
                 <AgentBuilderProvider>
                   <VoiceProvider>
                     <EscalationsProvider>
@@ -146,6 +148,7 @@ export default function RootLayout({
                     </EscalationsProvider>
                   </VoiceProvider>
                 </AgentBuilderProvider>
+                </AgentBuilderViewerRoleProvider>
                 </WorkflowsProvider>
               </WorkforceProvider>
               </ModelPreferenceProvider>
