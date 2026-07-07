@@ -54,7 +54,7 @@ export type ResolvedPropertySettings = Record<PropertySettingKey, string> & {
   lateFeeDay: number;
   delinquencyBeginDays: number;
   prpLoginDays: number;
-  /** First and last day of the prior month during which charges are auto-posted. */
+  /** Day(s) of the prior month when charges are auto-posted. When start and end match, charges post on a single day. */
   chargesPostedStartDay: number;
   chargesPostedEndDay: number;
   /** Days between the first and second delinquency notice. */
@@ -72,7 +72,7 @@ export type ResolvedPropertySettings = Record<PropertySettingKey, string> & {
 };
 
 const DEFAULT_VALUES: Omit<ResolvedPropertySettings, "propertyId" | "propertyName"> = {
-  rentChargeDate: "Charges automatically posted on the 25th through the 31st of the following month",
+  rentChargeDate: "Charges automatically posted on the 25th of the prior month",
   paymentBlockDays: "Online payments accepted between the 1st and 10th of the month.",
   acceptedPaymentTypes:
     "Electronic payments type: ACH, Cards, and Cash App Pay, and MoneyGram. Non-Electronic payment types: Cash and Money Order.",
@@ -95,7 +95,7 @@ const DEFAULT_VALUES: Omit<ResolvedPropertySettings, "propertyId" | "propertyNam
   delinquencyBeginDays: 3,
   prpLoginDays: 40,
   chargesPostedStartDay: 25,
-  chargesPostedEndDay: 31,
+  chargesPostedEndDay: 25,
   secondDelinquencyDaysAfterFirst: 7,
   evictionDaysAfterFinalDelinquency: 3,
   financialMoveoutDaysAfterEviction: 30,

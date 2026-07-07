@@ -99,6 +99,28 @@ const SERIES_COLORS = [
   "hsl(25 75% 55%)",
 ];
 
+function NewChip({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center rounded-full border border-eli-purple/30 bg-eli-warm-bg px-1.5 py-0.5 text-xxs font-medium uppercase tracking-wider text-eli-warm-bg-foreground",
+        className,
+      )}
+    >
+      New
+    </span>
+  );
+}
+
+function BlockTitle({ block }: { block: DashboardBlock }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span>{block.title}</span>
+      {block.isNew && <NewChip />}
+    </span>
+  );
+}
+
 function KpiTile({
   block,
   standalone = false,
@@ -113,8 +135,9 @@ function KpiTile({
         standalone && "flex h-full flex-col justify-center",
       )}
     >
-      <p className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {block.title}
+      <p className="flex items-center gap-1.5 truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <span className="truncate">{block.title}</span>
+        {block.isNew && <NewChip />}
       </p>
       <div className="mt-0.5 flex items-baseline gap-2">
         <p
@@ -160,8 +183,9 @@ function KpiHeroBlock({ block }: { block: DashboardBlock }) {
   return (
     <Card className={cn(WIDTH_CLASS[block.width])}>
       <CardContent className="py-4">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          {block.title}
+        <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <span>{block.title}</span>
+          {block.isNew && <NewChip />}
         </p>
         <div className="mt-1 flex items-baseline gap-3">
           <p className="text-3xl font-bold tracking-tight">
@@ -178,10 +202,12 @@ function KpiHeroBlock({ block }: { block: DashboardBlock }) {
 }
 
 function SectionHeaderBlock({ block }: { block: DashboardBlock }) {
+  const isNew = block.isNew || block.config.isNew;
   return (
     <div className="col-span-12 -mx-1 mt-3 mb-1 rounded bg-neutral-200/60 px-3 py-2">
-      <h3 className="text-lg font-semibold tracking-tight text-neutral-800">
-        {block.config.title}
+      <h3 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-neutral-800">
+        <span>{block.config.title}</span>
+        {isNew && <NewChip />}
       </h3>
       {block.config.subtitle && (
         <p className="text-xs text-muted-foreground">{block.config.subtitle}</p>
@@ -203,7 +229,9 @@ function LineChartBlock({ block }: { block: DashboardBlock }) {
   return (
     <Card className={cn(WIDTH_CLASS[block.width])}>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm">{block.title}</CardTitle>
+        <CardTitle className="text-sm">
+          <BlockTitle block={block} />
+        </CardTitle>
       </CardHeader>
       <CardContent>
         <ChartContainer config={chartConfig} className="h-full min-h-[180px] w-full">
@@ -261,7 +289,9 @@ function BarChartBlock({ block }: { block: DashboardBlock }) {
   return (
     <Card className={cn(WIDTH_CLASS[block.width])}>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm">{block.title}</CardTitle>
+        <CardTitle className="text-sm">
+          <BlockTitle block={block} />
+        </CardTitle>
       </CardHeader>
       <CardContent>
         <ChartContainer config={chartConfig} className="h-full min-h-[180px] w-full">
@@ -309,7 +339,9 @@ function DonutChartBlock({ block }: { block: DashboardBlock }) {
   return (
     <Card className={cn(WIDTH_CLASS[block.width])}>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm">{block.title}</CardTitle>
+        <CardTitle className="text-sm">
+          <BlockTitle block={block} />
+        </CardTitle>
       </CardHeader>
       <CardContent className="flex items-center gap-4">
         <ChartContainer config={chartConfig} className="h-[160px] w-[160px] shrink-0">
@@ -362,7 +394,9 @@ function FunnelBlock({ block }: { block: DashboardBlock }) {
   return (
     <Card className={cn(WIDTH_CLASS[block.width])}>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm">{block.title}</CardTitle>
+        <CardTitle className="text-sm">
+          <BlockTitle block={block} />
+        </CardTitle>
       </CardHeader>
       <CardContent>
         <div className="space-y-2">
@@ -399,7 +433,9 @@ function DataTableBlock({ block }: { block: DashboardBlock }) {
   return (
     <Card className={cn(WIDTH_CLASS[block.width])}>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm">{block.title}</CardTitle>
+        <CardTitle className="text-sm">
+          <BlockTitle block={block} />
+        </CardTitle>
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">

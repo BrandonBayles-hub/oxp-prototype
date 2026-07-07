@@ -1,18 +1,1588 @@
-import { notFound } from "next/navigation";
-import { getDashboard } from "@/lib/eli-library";
-import { FilteredEliDashboard } from "../filtered-eli-dashboard";
+"use client";
 
-export default function PaymentsAiDashboardPage() {
-  const dashboard = getDashboard("bi-eli-payments-ai");
-  if (!dashboard) {
-    notFound();
+import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  ArrowLeft,
+  ArrowUpRight,
+  ArrowDownRight,
+  Calendar,
+  ChevronDown,
+  Loader2,
+  Search,
+  X,
+} from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
+import { cn } from "@/lib/utils";
+
+// -----------------------------------------------------------------------------
+// Static config (illustrative prototype data)
+// -----------------------------------------------------------------------------
+
+const PROPERTIES = [
+  "Cedar Hills",
+  "Hillside Living",
+  "Jamison Apartments",
+  "Lakewood",
+  "Maple Court",
+  "Oak Terrace",
+  "Parkview Flats",
+  "Pine Valley",
+  "Summit Ridge",
+  "The Beacon",
+] as const;
+
+type Property = (typeof PROPERTIES)[number];
+
+const PROPERTY_COLORS: Record<Property, string> = {
+  "Cedar Hills": "#3b82f6",
+  "Hillside Living": "#10b981",
+  "Jamison Apartments": "#f59e0b",
+  Lakewood: "#ef4444",
+  "Maple Court": "#8b5cf6",
+  "Oak Terrace": "#ec4899",
+  "Parkview Flats": "#06b6d4",
+  "Pine Valley": "#84cc16",
+  "Summit Ridge": "#f97316",
+  "The Beacon": "#a855f7",
+};
+
+const PERIOD_OPTIONS = [
+  { id: "3m", label: "Last 3 Months", months: 3 },
+  { id: "6m", label: "Last 6 Months", months: 6 },
+  { id: "12m", label: "Last 12 Months", months: 12 },
+  { id: "2y", label: "Last 2 Years", months: 24 },
+  { id: "3y", label: "Last 3 Years", months: 36 },
+  { id: "all", label: "All Time", months: 36 },
+] as const;
+
+type PeriodId = (typeof PERIOD_OPTIONS)[number]["id"] | "custom";
+
+// -----------------------------------------------------------------------------
+// Trend data helpers
+// -----------------------------------------------------------------------------
+
+const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function seedRand(seed: number) {
+  let s = seed;
+  return () => {
+    s = (s * 16807) % 2147483647;
+    return (s - 1) / 2147483646;
+  };
+}
+
+interface MonthlyPoint {
+  month: string;
+  monthIdx: number;
+  current: number;
+  baseline: number;
+  perProperty: Record<Property, number>;
+}
+
+function buildMonthlyTrend(
+  seed: number,
+  baseStart: number,
+  baseEnd: number,
+  currentStart: number,
+  currentEnd: number,
+  perPropertySpread = 30,
+): MonthlyPoint[] {
+  const rand = seedRand(seed);
+  const data: MonthlyPoint[] = [];
+  for (let i = 0; i < 12; i++) {
+    const t = i / 11;
+    const baseline = baseStart + (baseEnd - baseStart) * t + (rand() - 0.5) * 0.8;
+    const current = currentStart + (currentEnd - currentStart) * t + (rand() - 0.5) * 0.8;
+    const perProperty = {} as Record<Property, number>;
+    PROPERTIES.forEach((p, idx) => {
+      const offset = (idx - PROPERTIES.length / 2) * (perPropertySpread / PROPERTIES.length);
+      perProperty[p] = +(current + offset + (rand() - 0.5) * (perPropertySpread / 6)).toFixed(2);
+    });
+    data.push({
+      month: MONTH_LABELS[i],
+      monthIdx: i,
+      current: +current.toFixed(2),
+      baseline: +baseline.toFixed(2),
+      perProperty,
+    });
+  }
+  return data;
+}
+
+// Section 1 — Overall Collection Performance
+const pctRentCollectedTrend = buildMonthlyTrend(701, 89.4, 90.1, 92.1, 94.6, 6);
+const totalCollectedTrend = buildMonthlyTrend(702, 1800, 1900, 2100, 2450, 250);
+const latePayersTrend = buildMonthlyTrend(703, 210, 200, 172, 138, 60);
+
+// Section 2 — On-Time Collections Efficacy (NEW)
+const onTimeRateTrend = buildMonthlyTrend(710, 88.8, 89.3, 91.6, 94.6, 5);
+
+// Section 3 — Automation & Staff Time Freed (NEW)
+const deflectionRateTrend = buildMonthlyTrend(720, 52.1, 54.0, 64.2, 70.1, 15);
+const staffHoursSavedTrend = buildMonthlyTrend(721, 900, 950, 1600, 1900, 300);
+
+// Section 5 — Escalations
+const escalationResolutionTrend = buildMonthlyTrend(730, 4.6, 4.4, 3.6, 3.1, 1.2);
+
+// Bar / donut static data ----------------------------------------------------
+
+const topTenCollected: { label: string; value: number }[] = [
+  { label: "Summit Ridge", value: 98.4 },
+  { label: "Hillside Living", value: 97.2 },
+  { label: "The Beacon", value: 96.8 },
+  { label: "Parkview Flats", value: 96.1 },
+  { label: "Jamison Apts", value: 95.8 },
+];
+
+const bottomTenCollected: { label: string; value: number }[] = [
+  { label: "Lakewood", value: 88.2 },
+  { label: "Maple Court", value: 89.1 },
+  { label: "Cedar Hills", value: 90.4 },
+  { label: "Pine Valley", value: 91.2 },
+  { label: "Oak Terrace", value: 91.8 },
+];
+
+const daysToPayDistribution = [
+  { bucket: "0–3 days", count: 18420 },
+  { bucket: "4–7 days", count: 8640 },
+  { bucket: "8–14 days", count: 3120 },
+  { bucket: "15–30 days", count: 1420 },
+  { bucket: "30+ days", count: 520 },
+];
+
+const firstPaymentRecoveryFunnel = [
+  { stage: "Charges posted (delinquent day 1)", value: 3820 },
+  { stage: "Reminder sent by AI", value: 3746 },
+  { stage: "Opened / engaged", value: 2418 },
+  { stage: "Paid within 7 days", value: 1984 },
+];
+
+const agingBucketRecovery = [
+  { bucket: "0–30 days", amount: 486000 },
+  { bucket: "31–60 days", amount: 214000 },
+  { bucket: "61–90 days", amount: 96000 },
+  { bucket: "90+ days", amount: 42000 },
+];
+
+const autoResolvedVsEscalated = [
+  { name: "Auto-resolved", value: 8640, color: "#1f2937" },
+  { name: "Escalated to office", value: 3980, color: "#9ca3af" },
+];
+
+const scenarioLoad = [
+  { name: "Initial reminders", value: 24180, color: "#1f2937" },
+  { name: "Delinquency (late)", value: 12420, color: "#4b5563" },
+  { name: "Pre-collections (legal)", value: 3260, color: "#9ca3af" },
+];
+
+const autonomousActionsTaken = [
+  { label: "Reminders sent", value: 42180 },
+  { label: "Fees auto-waived (under cap)", value: 1284 },
+  { label: "Repayment plans proposed", value: 1240 },
+  { label: "One-time payments accepted", value: 3620 },
+  { label: "Recurring payments set up", value: 1124 },
+];
+
+const handoffsByScenario = [
+  { label: "Initial reminders", value: 486 },
+  { label: "Delinquency (late)", value: 2418 },
+  { label: "Pre-collections (legal)", value: 1076 },
+];
+
+const languagePreference = [
+  { name: "English", value: 84, count: 35476, color: "#1f2937" },
+  { name: "Spanish", value: 14, count: 5911, color: "#4b5563" },
+  { name: "Other", value: 2, count: 793, color: "#9ca3af" },
+];
+
+const escalationReasons = [
+  { reason: "Payment Settlement", count: 286 },
+  { reason: "Balance Breakdown", count: 198 },
+  { reason: "Ask to Contact", count: 142 },
+  { reason: "Other", count: 98 },
+  { reason: "General Info", count: 86 },
+  { reason: "Payment Assistance", count: 72 },
+  { reason: "Maintenance", count: 48 },
+  { reason: "Technical Problems", count: 32 },
+];
+
+const savingsFromOfficeHoursDetails = [
+  { property: "Hillside Living", amount: "$32,180" },
+  { property: "Jamison Apartments", amount: "$28,420" },
+  { property: "The Beacon", amount: "$24,120" },
+  { property: "Parkview Flats", amount: "$21,840" },
+  { property: "Summit Ridge", amount: "$21,280" },
+];
+
+const latePayersMonthlyBar = latePayersTrend.map((d) => ({
+  month: d.month,
+  count: Math.round(d.current),
+}));
+
+const perPropertyCollectionTable = [
+  { property: "Hillside Living", collected: "97.2%", chargedM: "$486K", collectedM: "$472K" },
+  { property: "Jamison Apartments", collected: "95.8%", chargedM: "$418K", collectedM: "$400K" },
+  { property: "The Beacon", collected: "96.8%", chargedM: "$392K", collectedM: "$379K" },
+  { property: "Parkview Flats", collected: "94.1%", chargedM: "$358K", collectedM: "$337K" },
+  { property: "Summit Ridge", collected: "98.4%", chargedM: "$342K", collectedM: "$337K" },
+  { property: "Cedar Hills", collected: "90.4%", chargedM: "$298K", collectedM: "$269K" },
+  { property: "Oak Terrace", collected: "91.8%", chargedM: "$276K", collectedM: "$253K" },
+  { property: "Pine Valley", collected: "91.2%", chargedM: "$254K", collectedM: "$232K" },
+  { property: "Maple Court", collected: "89.1%", chargedM: "$228K", collectedM: "$203K" },
+  { property: "Lakewood", collected: "88.2%", chargedM: "$216K", collectedM: "$191K" },
+];
+
+// -----------------------------------------------------------------------------
+// Period slicing
+// -----------------------------------------------------------------------------
+
+function sliceTrend<T extends { monthIdx: number }>(data: T[], months: number): T[] {
+  return data.slice(Math.max(0, data.length - months));
+}
+
+// -----------------------------------------------------------------------------
+// Atomic UI primitives
+// -----------------------------------------------------------------------------
+
+type Tone = "positive" | "negative" | "neutral";
+
+function DeltaPill({ value, tone }: { value: string; tone: Tone }) {
+  const Icon = tone === "negative" ? ArrowDownRight : ArrowUpRight;
+  const cls =
+    tone === "positive"
+      ? "text-emerald-600"
+      : tone === "negative"
+        ? "text-rose-600"
+        : "text-muted-foreground";
+  return (
+    <span className={cn("inline-flex items-center gap-0.5 text-xs font-medium", cls)}>
+      <Icon className="h-3 w-3" />
+      {value}
+    </span>
+  );
+}
+
+function NewChip() {
+  return (
+    <span className="inline-flex shrink-0 items-center rounded-full border border-eli-purple/30 bg-eli-warm-bg px-1.5 py-0.5 text-xxs font-medium uppercase tracking-wider text-eli-warm-bg-foreground">
+      New
+    </span>
+  );
+}
+
+function KpiCard({
+  label,
+  value,
+  delta,
+  deltaTone = "positive",
+  sub,
+  subItalic,
+  isNew,
+}: {
+  label: string;
+  value: string;
+  delta?: string;
+  deltaTone?: Tone;
+  sub?: string;
+  subItalic?: string;
+  isNew?: boolean;
+}) {
+  return (
+    <Card className="border-border/60">
+      <CardContent className="px-4 py-3.5">
+        <div className="flex items-center gap-2">
+          <p className="flex-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            {label}
+          </p>
+          {isNew && <NewChip />}
+        </div>
+        <div className="mt-1 flex items-baseline gap-2">
+          <p className="text-2xl font-bold tracking-tight text-foreground">{value}</p>
+          {delta && <DeltaPill value={delta} tone={deltaTone} />}
+        </div>
+        {sub && <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p>}
+        {subItalic && (
+          <p className="mt-0.5 text-[11px] italic text-muted-foreground/80">{subItalic}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function SectionBanner({
+  title,
+  description,
+  isNew,
+}: {
+  title: string;
+  description: string;
+  isNew?: boolean;
+}) {
+  return (
+    <div className="mb-3 rounded-md bg-muted/60 px-4 py-3">
+      <div className="flex items-center gap-2">
+        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+        {isNew && <NewChip />}
+      </div>
+      <p className="text-xs text-muted-foreground">{description}</p>
+    </div>
+  );
+}
+
+function CardTitleRow({ title, isNew }: { title: string; isNew?: boolean }) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span>{title}</span>
+      {isNew && <NewChip />}
+    </span>
+  );
+}
+
+function LoadingBanner() {
+  return (
+    <div className="mb-4 inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground">
+      <Loader2 className="h-3.5 w-3.5 animate-spin text-foreground" />
+      Refreshing data based on your filter selection…
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Filters
+// -----------------------------------------------------------------------------
+
+type ViewMode = "global" | "perProperty";
+
+interface FiltersState {
+  periodId: PeriodId;
+  customFrom: string;
+  customTo: string;
+  selected: Set<Property>;
+  view: ViewMode;
+}
+
+function PeriodPicker({
+  state,
+  setState,
+}: {
+  state: FiltersState;
+  setState: (s: FiltersState) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const label =
+    state.periodId === "custom"
+      ? "Custom Range"
+      : (PERIOD_OPTIONS.find((p) => p.id === state.periodId)?.label ?? "Last 12 Months");
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-sm",
+          open ? "border-amber-400 ring-1 ring-amber-200" : "border-border",
+        )}
+      >
+        <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="text-muted-foreground">Period:</span>
+        <span className="font-semibold text-foreground">{label}</span>
+        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 top-full z-20 mt-1 w-[16rem] rounded-md border border-border bg-popover p-1 shadow-lg">
+            {PERIOD_OPTIONS.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => {
+                  setState({ ...state, periodId: opt.id });
+                  setOpen(false);
+                }}
+                className={cn(
+                  "block w-full rounded px-3 py-1.5 text-left text-sm hover:bg-muted",
+                  state.periodId === opt.id && "bg-muted font-medium",
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
+            <div className="mt-1 border-t border-border pt-2">
+              <label className="flex items-center gap-2 px-3 py-1.5 text-sm">
+                <input
+                  type="checkbox"
+                  checked={state.periodId === "custom"}
+                  onChange={(e) =>
+                    setState({ ...state, periodId: e.target.checked ? "custom" : "12m" })
+                  }
+                  className="h-4 w-4 rounded border-border"
+                />
+                Custom Range
+              </label>
+              {state.periodId === "custom" && (
+                <div className="space-y-2 px-3 pb-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="month"
+                      value={state.customFrom}
+                      onChange={(e) => setState({ ...state, customFrom: e.target.value })}
+                      className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
+                    />
+                    <span className="text-xs text-muted-foreground">to</span>
+                    <input
+                      type="month"
+                      value={state.customTo}
+                      onChange={(e) => setState({ ...state, customTo: e.target.value })}
+                      className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setOpen(false)}
+                    className="w-full rounded-md bg-foreground py-1.5 text-xs font-medium text-background hover:bg-foreground/90"
+                  >
+                    Apply Custom Range
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function PropertiesPicker({
+  state,
+  setState,
+}: {
+  state: FiltersState;
+  setState: (s: FiltersState) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const allSelected = state.selected.size === PROPERTIES.length;
+  const label = allSelected
+    ? "All"
+    : state.selected.size === 0
+      ? "None"
+      : `${state.selected.size} selected`;
+
+  const filtered = PROPERTIES.filter((p) => p.toLowerCase().includes(search.toLowerCase()));
+
+  function toggle(p: Property) {
+    const next = new Set(state.selected);
+    if (next.has(p)) next.delete(p);
+    else next.add(p);
+    setState({ ...state, selected: next });
+  }
+
+  function toggleAll() {
+    setState({
+      ...state,
+      selected: allSelected ? new Set() : new Set(PROPERTIES),
+    });
   }
 
   return (
-    <FilteredEliDashboard
-      dashboard={dashboard}
-      backHref="/performance"
-      backLabel="Back to Performance"
-    />
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+      >
+        <span className="text-muted-foreground">Properties:</span>
+        <span className="font-semibold text-foreground">{label}</span>
+        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 top-full z-20 mt-1 w-[18rem] rounded-md border border-border bg-popover p-2 shadow-lg">
+            <div className="relative mb-2">
+              <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search properties..."
+                className="w-full rounded-md border border-border bg-background pl-7 pr-2 py-1.5 text-sm"
+              />
+            </div>
+            <div className="max-h-[16rem] overflow-y-auto">
+              <label className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleAll}
+                  className="h-4 w-4 rounded border-border"
+                />
+                <span className="text-sm font-medium">All Properties</span>
+              </label>
+              {filtered.map((p) => (
+                <label key={p} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted">
+                  <input
+                    type="checkbox"
+                    checked={state.selected.has(p)}
+                    onChange={() => toggle(p)}
+                    className="h-4 w-4 rounded border-border"
+                  />
+                  <span className="text-sm">{p}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ViewToggle({
+  state,
+  setState,
+}: {
+  state: FiltersState;
+  setState: (s: FiltersState) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-md border border-border bg-background p-0.5">
+      {(["global", "perProperty"] as const).map((v) => (
+        <button
+          key={v}
+          type="button"
+          onClick={() => setState({ ...state, view: v })}
+          className={cn(
+            "rounded px-3 py-1 text-xs font-medium transition-colors",
+            state.view === v
+              ? "bg-foreground text-background"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {v === "global" ? "Global View" : "Per-Property"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function PropertyChips({
+  state,
+  setState,
+}: {
+  state: FiltersState;
+  setState: (s: FiltersState) => void;
+}) {
+  if (state.view !== "perProperty") return null;
+  const list = PROPERTIES.filter((p) => state.selected.has(p));
+  return (
+    <div className="mt-3 flex flex-wrap gap-1.5">
+      {list.map((p) => (
+        <span
+          key={p}
+          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-0.5 text-xs"
+        >
+          <span
+            className="h-2 w-2 rounded-full"
+            style={{ backgroundColor: PROPERTY_COLORS[p] }}
+          />
+          {p}
+          <button
+            type="button"
+            onClick={() => {
+              const next = new Set(state.selected);
+              next.delete(p);
+              setState({ ...state, selected: next });
+            }}
+            className="text-muted-foreground hover:text-foreground"
+            aria-label={`Remove ${p}`}
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Trend chart — switches between baseline+current vs per-property lines
+// -----------------------------------------------------------------------------
+
+function TrendChart({
+  data,
+  view,
+  selected,
+  yDomain,
+  yTickFormatter,
+  height = 240,
+}: {
+  data: MonthlyPoint[];
+  view: ViewMode;
+  selected: Set<Property>;
+  yDomain?: [number, number];
+  yTickFormatter?: (v: number) => string;
+  height?: number;
+}) {
+  if (view === "global") {
+    const config = {
+      baseline: { label: "Pre-AI Baseline", color: "#94a3b8" },
+      current: { label: "Current", color: "#0f172a" },
+    } satisfies ChartConfig;
+    return (
+      <div>
+        <ChartContainer config={config} className="!aspect-auto w-full" style={{ height }}>
+          <LineChart data={data} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+            <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
+            <YAxis
+              tickLine={false}
+              axisLine={false}
+              tickMargin={8}
+              width={44}
+              domain={yDomain ?? [0, "auto"]}
+              tickFormatter={yTickFormatter}
+            />
+            <ChartTooltip content={<ChartTooltipContent className="min-w-[12rem]" />} />
+            <Line
+              type="monotone"
+              dataKey="baseline"
+              stroke="#94a3b8"
+              strokeWidth={1.5}
+              strokeDasharray="4 4"
+              dot={false}
+            />
+            <Line
+              type="monotone"
+              dataKey="current"
+              stroke="#0f172a"
+              strokeWidth={2}
+              dot={false}
+            />
+          </LineChart>
+        </ChartContainer>
+        <div className="mt-1 flex items-center justify-center gap-4 text-[11px]">
+          <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+            <span className="h-px w-4 border-t border-dashed border-slate-400" />
+            Pre-AI Baseline
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-0.5 w-4 bg-slate-900" />
+            <span className="font-medium text-foreground">Current</span>
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  const visibleProps = PROPERTIES.filter((p) => selected.has(p));
+  const flat = data.map((d) => {
+    const row: Record<string, number | string> = { month: d.month };
+    for (const p of visibleProps) row[p] = d.perProperty[p];
+    return row;
+  });
+  const config = Object.fromEntries(
+    visibleProps.map((p) => [p, { label: p, color: PROPERTY_COLORS[p] }]),
+  ) satisfies ChartConfig;
+
+  return (
+    <ChartContainer config={config} className="!aspect-auto w-full" style={{ height }}>
+      <LineChart data={flat} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+        <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
+        <YAxis
+          tickLine={false}
+          axisLine={false}
+          tickMargin={8}
+          width={44}
+          domain={yDomain ?? [0, "auto"]}
+          tickFormatter={yTickFormatter}
+        />
+        <ChartTooltip content={<ChartTooltipContent className="min-w-[14rem]" />} />
+        {visibleProps.map((p) => (
+          <Line
+            key={p}
+            type="monotone"
+            dataKey={p}
+            stroke={PROPERTY_COLORS[p]}
+            strokeWidth={2}
+            dot={false}
+          />
+        ))}
+      </LineChart>
+    </ChartContainer>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Donut with legend
+// -----------------------------------------------------------------------------
+
+function DonutWithLegend({
+  data,
+  formatRow,
+}: {
+  data: { name: string; value: number; count?: number; color: string }[];
+  formatRow?: (d: { name: string; value: number; count?: number }) => string;
+}) {
+  const total = data.reduce((s, d) => s + (d.count ?? d.value), 0);
+  return (
+    <div className="flex flex-wrap items-center gap-6">
+      <div className="h-[180px] w-[180px] shrink-0">
+        <ChartContainer config={{}} className="!aspect-auto h-full w-full">
+          <PieChart>
+            <Pie
+              data={data}
+              dataKey={data[0]?.count !== undefined ? "count" : "value"}
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              innerRadius={45}
+              outerRadius={75}
+              paddingAngle={1}
+            >
+              {data.map((d, i) => (
+                <Cell key={i} fill={d.color} />
+              ))}
+            </Pie>
+          </PieChart>
+        </ChartContainer>
+      </div>
+      <div className="min-w-0 flex-1 space-y-1.5">
+        {data.map((d) => {
+          const showPct =
+            d.count !== undefined && total > 0
+              ? `${Math.round((d.count / total) * 100)}%`
+              : `${d.value}%`;
+          return (
+            <div key={d.name} className="flex items-center gap-3 text-sm">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: d.color }}
+              />
+              <span className="flex-1 text-foreground">{d.name}</span>
+              <span className="font-semibold text-foreground tabular-nums">
+                {formatRow ? formatRow(d) : showPct}
+              </span>
+              {d.count !== undefined && (
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  ({d.count.toLocaleString()})
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Simple funnel — horizontal bars, each shrinking
+// -----------------------------------------------------------------------------
+
+function FunnelChart({ stages }: { stages: { stage: string; value: number }[] }) {
+  const max = stages[0]?.value ?? 1;
+  return (
+    <div className="space-y-2">
+      {stages.map((s) => {
+        const pct = (s.value / max) * 100;
+        return (
+          <div key={s.stage}>
+            <div className="mb-0.5 flex items-center justify-between text-sm">
+              <span className="font-medium">{s.stage}</span>
+              <span className="tabular-nums text-muted-foreground">
+                {s.value.toLocaleString()}
+                <span className="ml-1 text-xs">{pct < 100 ? `${pct.toFixed(0)}%` : ""}</span>
+              </span>
+            </div>
+            <div className="h-2 rounded-full bg-muted">
+              <div
+                className="h-2 rounded-full bg-foreground/70"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Compact number formatting
+// -----------------------------------------------------------------------------
+
+function compactCurrency(n: number): string {
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `$${Math.round(n / 1_000)}K`;
+  return `$${n}`;
+}
+
+// -----------------------------------------------------------------------------
+// Page
+// -----------------------------------------------------------------------------
+
+function serializeFilters(f: FiltersState) {
+  return {
+    periodId: f.periodId,
+    customFrom: f.customFrom,
+    customTo: f.customTo,
+    selected: Array.from(f.selected).sort(),
+    view: f.view,
+  };
+}
+
+export default function PaymentsAiDashboardPage() {
+  const [filters, setFilters] = useState<FiltersState>({
+    periodId: "12m",
+    customFrom: "2025-06",
+    customTo: "2026-05",
+    selected: new Set(PROPERTIES),
+    view: "global",
+  });
+  const [loading, setLoading] = useState(false);
+  const isFirstRender = useRef(true);
+  const filtersKey = useMemo(() => JSON.stringify(serializeFilters(filters)), [filters]);
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    setLoading(true);
+    const t = setTimeout(() => setLoading(false), 450);
+    return () => clearTimeout(t);
+  }, [filtersKey]);
+
+  const months = useMemo(() => {
+    if (filters.periodId === "custom") return 12;
+    return PERIOD_OPTIONS.find((p) => p.id === filters.periodId)?.months ?? 12;
+  }, [filters.periodId]);
+
+  const pctCollectedData = useMemo(() => sliceTrend(pctRentCollectedTrend, months), [months]);
+  const totalCollectedData = useMemo(() => sliceTrend(totalCollectedTrend, months), [months]);
+  const latePayersData = useMemo(() => sliceTrend(latePayersTrend, months), [months]);
+  const onTimeRateData = useMemo(() => sliceTrend(onTimeRateTrend, months), [months]);
+  const deflectionData = useMemo(() => sliceTrend(deflectionRateTrend, months), [months]);
+  const staffHoursData = useMemo(() => sliceTrend(staffHoursSavedTrend, months), [months]);
+  const escalationResolutionData = useMemo(
+    () => sliceTrend(escalationResolutionTrend, months),
+    [months],
+  );
+
+  return (
+    <div className="-mt-2">
+      <Link
+        href="/performance"
+        className="mb-4 inline-flex items-center gap-1.5 rounded-md border border-border bg-white px-3 py-1.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back to Performance
+      </Link>
+
+      <header className="mb-4">
+        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-foreground">
+          <img src="/eli-cube.svg" alt="" width={22} height={22} />
+          ELI+ Payments AI — Performance & Impact
+        </h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Collection performance across all properties plus AI-driven time savings, on-time
+          collection lift, and outreach analytics
+        </p>
+      </header>
+
+      <div className="sticky top-0 z-30 -mx-6 mb-5 border-b border-border bg-background/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <div className="flex flex-wrap items-center gap-2">
+          <PeriodPicker state={filters} setState={setFilters} />
+          <PropertiesPicker state={filters} setState={setFilters} />
+          <ViewToggle state={filters} setState={setFilters} />
+        </div>
+      </div>
+
+      {loading && <LoadingBanner />}
+
+      {/* ============================================================ */}
+      {/* ELI+ Metrics Dashboard                                        */}
+      {/* ============================================================ */}
+      <section className="mb-6">
+        <SectionBanner
+          title="ELI+ Metrics Dashboard"
+          description="Activation, collections, and savings headline"
+        />
+
+        <Card className="mb-3 border-border/60">
+          <CardContent className="px-4 py-3.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              On-time payment rate
+            </p>
+            <div className="mt-1 flex items-baseline gap-2">
+              <p className="text-2xl font-bold tracking-tight text-foreground">94.2%</p>
+              <DeltaPill value="+2.1 pts vs prior" tone="positive" />
+            </div>
+            <p className="mt-0.5 text-xs text-muted-foreground">last 30 days</p>
+          </CardContent>
+        </Card>
+
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <KpiCard label="Total organizations" value="98" delta="+8" sub="activated" />
+          <KpiCard label="Total properties" value="842" delta="+62" sub="properties" />
+          <KpiCard label="Total active units" value="34,120" delta="+1,840" sub="units" />
+          <KpiCard label="% of rent collected" value="94.2%" delta="+2.1 pts" sub="collection rate" />
+        </div>
+
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Late Payers (After Grace Period)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ChartContainer config={{}} className="!aspect-auto h-[240px] w-full">
+                <BarChart data={latePayersMonthlyBar} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} fontSize={11} />
+                  <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} domain={[0, 260]} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="count" fill="#0f172a" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+          <KpiCard
+            label="Rent payments / charges / % collected"
+            value="$2.4M / $2.54M"
+            sub="payments vs charges"
+          />
+        </div>
+      </section>
+
+      {/* ============================================================ */}
+      {/* Savings from Office Hours                                       */}
+      {/* ============================================================ */}
+      <section className="mb-6">
+        <KpiCard
+          label="Savings from office hours"
+          value="$127,840"
+          delta="+$18K"
+          sub="estimated savings · last 30 days"
+        />
+
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Top 10 — % Collected</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ChartContainer config={{}} className="!aspect-auto h-[200px] w-full">
+                <BarChart data={topTenCollected} margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={4} fontSize={10} angle={-20} textAnchor="end" height={30} interval={0} />
+                  <YAxis tickLine={false} axisLine={false} tickMargin={4} width={36} domain={[0, 100]} tickFormatter={(v) => `${v}%`} fontSize={10} />
+                  <ChartTooltip content={<ChartTooltipContent formatter={(v) => `${v}%`} />} />
+                  <Bar dataKey="value" fill="#0f172a" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Bottom 10 — % Collected</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ChartContainer config={{}} className="!aspect-auto h-[200px] w-full">
+                <BarChart data={bottomTenCollected} margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={4} fontSize={10} angle={-20} textAnchor="end" height={30} interval={0} />
+                  <YAxis tickLine={false} axisLine={false} tickMargin={4} width={36} domain={[0, 100]} tickFormatter={(v) => `${v}%`} fontSize={10} />
+                  <ChartTooltip content={<ChartTooltipContent formatter={(v) => `${v}%`} />} />
+                  <Bar dataKey="value" fill="#0f172a" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card className="mt-3 border-border/60">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Savings from Office Hours — Details</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="divide-y divide-border">
+              {savingsFromOfficeHoursDetails.map((row) => (
+                <div key={row.property} className="flex items-center justify-between py-2 text-sm first:pt-0 last:pb-0">
+                  <span className="text-foreground">{row.property}</span>
+                  <span className="tabular-nums font-medium text-foreground">{row.amount}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </section>
+
+      {/* ============================================================ */}
+      {/* Section 1 — Overall Collection Performance                    */}
+      {/* ============================================================ */}
+      <section className="mb-6">
+        <SectionBanner
+          title="Overall Collection Performance"
+          description="Key collection metrics across all properties — independent of AI usage"
+          isNew
+        />
+
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <KpiCard
+            label="% Rent collected"
+            value="94.2%"
+            delta="+2.1 pts"
+            sub="of billed rent collected · selected period"
+          />
+          <KpiCard
+            label="Total rent collected"
+            value="$2.4M"
+            delta="+8%"
+            sub="collected this period"
+            isNew
+          />
+          <KpiCard
+            label="Total rent charged"
+            value="$2.54M"
+            delta="+7%"
+            sub="billed this period"
+            isNew
+          />
+          <KpiCard
+            label="Late payers (after grace)"
+            value="142"
+            delta="-9"
+            deltaTone="positive"
+            sub="avg per property"
+          />
+        </div>
+
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">
+                <CardTitleRow title="% Rent Collected — Monthly Trend" isNew />
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <TrendChart
+                data={pctCollectedData}
+                view={filters.view}
+                selected={filters.selected}
+                yDomain={filters.view === "global" ? [80, 100] : [80, 100]}
+                yTickFormatter={(v) => `${v}%`}
+              />
+              <PropertyChips state={filters} setState={setFilters} />
+            </CardContent>
+          </Card>
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">
+                <CardTitleRow title="Total Rent Collected — Monthly Trend" isNew />
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <TrendChart
+                data={totalCollectedData}
+                view={filters.view}
+                selected={filters.selected}
+                yDomain={filters.view === "global" ? [1500, 2700] : [1500, 2800]}
+                yTickFormatter={(v) => `$${v}K`}
+              />
+              <PropertyChips state={filters} setState={setFilters} />
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">
+                <CardTitleRow title="Late Payers (After Grace) — Monthly Trend" isNew />
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <TrendChart
+                data={latePayersData}
+                view={filters.view}
+                selected={filters.selected}
+                yDomain={filters.view === "global" ? [0, 260] : [0, 320]}
+              />
+              <PropertyChips state={filters} setState={setFilters} />
+            </CardContent>
+          </Card>
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">
+                <CardTitleRow title="Collection Rate Comparison" isNew />
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">Current vs. baseline (pre-AI) for selected period</p>
+            </CardHeader>
+            <CardContent>
+              <TrendChart
+                data={pctCollectedData}
+                view={filters.view}
+                selected={filters.selected}
+                yDomain={[80, 100]}
+                yTickFormatter={(v) => `${v}%`}
+              />
+              <PropertyChips state={filters} setState={setFilters} />
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
+      {/* ============================================================ */}
+      {/* Section 2 — On-Time Collections Efficacy                      */}
+      {/* ============================================================ */}
+      <section className="mb-6">
+        <SectionBanner
+          title="On-Time Collections Efficacy"
+          description="Is the AI actually shifting residents to pay on time?"
+          isNew
+        />
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <KpiCard
+            label="On-time payment rate"
+            value="94.2%"
+            delta="+2.1 pts"
+            sub="of billed rent paid before late fees posted"
+            isNew
+          />
+          <KpiCard
+            label="Expected payment date kept rate"
+            value="82.4%"
+            delta="+6.8 pts"
+            sub="of AI-captured pay-date commitments honored"
+            isNew
+          />
+        </div>
+
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">
+                <CardTitleRow title="On-Time Payment Rate — Monthly Trend" isNew />
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <TrendChart
+                data={onTimeRateData}
+                view={filters.view}
+                selected={filters.selected}
+                yDomain={filters.view === "global" ? [80, 100] : [80, 100]}
+                yTickFormatter={(v) => `${v}%`}
+              />
+              <PropertyChips state={filters} setState={setFilters} />
+            </CardContent>
+          </Card>
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">
+                <CardTitleRow title="Days-to-Pay Distribution" isNew />
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">Days after rent due date until payment posted</p>
+            </CardHeader>
+            <CardContent>
+              <ChartContainer config={{}} className="!aspect-auto h-[240px] w-full">
+                <BarChart data={daysToPayDistribution} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <XAxis dataKey="bucket" tickLine={false} axisLine={false} tickMargin={8} angle={-20} textAnchor="end" height={40} interval={0} />
+                  <YAxis tickLine={false} axisLine={false} tickMargin={8} width={44} tickFormatter={(v) => v.toLocaleString()} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="count" fill="#0f172a" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="mt-3">
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">
+                <CardTitleRow title="First-Payment Recovery Funnel" isNew />
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Charges posted → AI reminder → engagement → paid within 7 days
+              </p>
+            </CardHeader>
+            <CardContent>
+              <FunnelChart stages={firstPaymentRecoveryFunnel} />
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="mt-3">
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">
+                <CardTitleRow title="Aging Bucket Recovery ($ recovered)" isNew />
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Delinquent balances the AI helped bring current, by aging bucket
+              </p>
+            </CardHeader>
+            <CardContent>
+              <ChartContainer config={{}} className="!aspect-auto h-[220px] w-full">
+                <BarChart data={agingBucketRecovery} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <XAxis dataKey="bucket" tickLine={false} axisLine={false} tickMargin={8} />
+                  <YAxis tickLine={false} axisLine={false} tickMargin={8} width={48} tickFormatter={compactCurrency} />
+                  <ChartTooltip content={<ChartTooltipContent formatter={(v) => compactCurrency(Number(v))} />} />
+                  <Bar dataKey="amount" fill="#0f172a" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
+      {/* ============================================================ */}
+      {/* Section 3 — Automation & Staff Time Freed                     */}
+      {/* ============================================================ */}
+      <section className="mb-6">
+        <SectionBanner
+          title="Automation & Staff Time Freed"
+          description="What did the AI actually do without a human?"
+          isNew
+        />
+
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,0.4fr)_minmax(0,1fr)]">
+          <Card className="border-border/60 bg-gradient-to-br from-emerald-50 to-background">
+            <CardContent className="px-5 py-4">
+              <div className="flex items-center gap-2">
+                <p className="flex-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Staff hours saved
+                </p>
+                <NewChip />
+              </div>
+              <p className="mt-1 text-4xl font-bold tracking-tight text-foreground">
+                {loading ? "…" : "1,842"}
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                hours saved · +240 vs prior period
+              </p>
+              <p className="mt-0.5 text-[11px] italic text-muted-foreground/80">
+                18,420 messages × 6 min avg manual handling ÷ 60
+              </p>
+            </CardContent>
+          </Card>
+
+          <div className="grid grid-cols-2 gap-3">
+            <KpiCard
+              label="Deflection rate"
+              value="68.4%"
+              delta="+4.2 pts"
+              sub="of resident payment conversations fully AI-resolved"
+              isNew
+            />
+            <KpiCard
+              label="After-hours coverage"
+              value="38.6%"
+              delta="+2.4 pts"
+              sub="of AI interactions handled outside office hours"
+              isNew
+            />
+          </div>
+        </div>
+
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">
+                <CardTitleRow title="Deflection Rate — Monthly Trend" isNew />
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <TrendChart
+                data={deflectionData}
+                view={filters.view}
+                selected={filters.selected}
+                yDomain={filters.view === "global" ? [40, 80] : [40, 90]}
+                yTickFormatter={(v) => `${v}%`}
+              />
+              <PropertyChips state={filters} setState={setFilters} />
+            </CardContent>
+          </Card>
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">
+                <CardTitleRow title="Staff Hours Saved — Monthly Trend" isNew />
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <TrendChart
+                data={staffHoursData}
+                view={filters.view}
+                selected={filters.selected}
+                yDomain={filters.view === "global" ? [700, 2200] : [700, 2400]}
+              />
+              <PropertyChips state={filters} setState={setFilters} />
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">
+                <CardTitleRow title="Auto-Resolved vs. Escalated" isNew />
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DonutWithLegend
+                data={autoResolvedVsEscalated.map((d) => ({ ...d, count: d.value }))}
+              />
+            </CardContent>
+          </Card>
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">
+                <CardTitleRow title="Scenario Load Distribution" isNew />
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Where the AI is spending its time across initial / late / legal cadences
+              </p>
+            </CardHeader>
+            <CardContent>
+              <DonutWithLegend
+                data={scenarioLoad.map((d) => ({ ...d, count: d.value }))}
+              />
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="mt-3">
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">
+                <CardTitleRow title="Autonomous Actions Taken by Type" isNew />
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Actions the AI executed without a human — maps to the guardrails in Payments AI Settings
+              </p>
+            </CardHeader>
+            <CardContent>
+              <ChartContainer config={{}} className="!aspect-auto h-[240px] w-full">
+                <BarChart data={autonomousActionsTaken} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} angle={-15} textAnchor="end" height={40} interval={0} fontSize={11} />
+                  <YAxis tickLine={false} axisLine={false} tickMargin={8} width={48} tickFormatter={(v) => v.toLocaleString()} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="value" fill="#0f172a" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="mt-3">
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">
+                <CardTitleRow title="Handoffs to Office by Scenario" isNew />
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ChartContainer config={{}} className="!aspect-auto h-[220px] w-full">
+                <BarChart data={handoffsByScenario} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} />
+                  <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="value" fill="#0f172a" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
+      {/* ============================================================ */}
+      {/* Section 4 — Messaging                                          */}
+      {/* ============================================================ */}
+      <section className="mb-6">
+        <SectionBanner
+          title="Messaging"
+          description="Reminder volume, response rates, and opt-outs"
+        />
+
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <KpiCard
+            label="Residents with no phone"
+            value="1,842"
+            sub="no phone on file"
+          />
+          <KpiCard label="Phone opt-outs" value="3.2%" sub="opt-out rate" />
+          <KpiCard label="Email opt-outs" value="1.8%" sub="opt-out rate" />
+          <KpiCard
+            label="Total reminders sent"
+            value="42,180"
+            delta="+12%"
+            sub="SMS + email"
+          />
+        </div>
+
+        <div className="mt-3">
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Office Escalation Reasons</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ChartContainer config={{}} className="!aspect-auto h-[260px] w-full">
+                <BarChart data={escalationReasons} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <XAxis dataKey="reason" tickLine={false} axisLine={false} tickMargin={8} angle={-25} textAnchor="end" height={60} interval={0} fontSize={10} />
+                  <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="count" fill="#0f172a" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="mt-3">
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Language Preference</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DonutWithLegend data={languagePreference} />
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
+      {/* ============================================================ */}
+      {/* Section 5 — Escalations                                       */}
+      {/* ============================================================ */}
+      <section className="mb-6">
+        <SectionBanner
+          title="Escalations"
+          description="Escalation rate, volume, resolution status, and reasons"
+        />
+
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <KpiCard
+            label="Escalation rate"
+            value="12.4%"
+            delta="-1.8 pts"
+            deltaTone="positive"
+            sub="of AI conversations escalated"
+            isNew
+          />
+          <KpiCard label="Total escalations" value="406" sub="escalated to staff" isNew />
+          <KpiCard label="Open escalations" value="42" sub="pending resolution" isNew />
+          <KpiCard
+            label="Resolved"
+            value="364"
+            delta="89% resolution"
+            deltaTone="positive"
+            sub="resolved by staff"
+            isNew
+          />
+        </div>
+
+        <div className="mt-3">
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">
+                <CardTitleRow title="Avg Escalation Resolution Time — Trend" isNew />
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">Days from escalation created to resolved</p>
+            </CardHeader>
+            <CardContent>
+              <TrendChart
+                data={escalationResolutionData}
+                view={filters.view}
+                selected={filters.selected}
+                yDomain={filters.view === "global" ? [0, 6] : [0, 7]}
+              />
+              <PropertyChips state={filters} setState={setFilters} />
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
+      {/* ============================================================ */}
+      {/* Section 6 — Appendix                                          */}
+      {/* ============================================================ */}
+      <section className="mb-6">
+        <SectionBanner
+          title="Appendix"
+          description="Detailed property-level and daily breakdowns"
+        />
+
+        <div className="mb-3 max-w-xs">
+          <KpiCard label="Avg late payers" value="142" sub="per property avg" />
+        </div>
+
+        <Card className="border-border/60">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Rent Payments / Charges / % Collected</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[560px] text-sm">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="px-2 py-2 text-left font-medium text-muted-foreground">Property</th>
+                    <th className="px-2 py-2 text-right font-medium text-muted-foreground">Charged</th>
+                    <th className="px-2 py-2 text-right font-medium text-muted-foreground">Collected</th>
+                    <th className="px-2 py-2 text-right font-medium text-muted-foreground">% Collected</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {perPropertyCollectionTable.map((r) => (
+                    <tr key={r.property} className="border-b border-muted last:border-0">
+                      <td className="px-2 py-1.5 text-foreground">{r.property}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">{r.chargedM}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">{r.collectedM}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums font-medium text-foreground">{r.collected}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      </section>
+
+      <p className="mb-4 mt-2 border-t border-border pt-3 text-xs text-muted-foreground">
+        This is a prototype dashboard. Data is illustrative and does not reflect live property
+        metrics. Baseline represents pre-AI performance for comparison. All metrics reflect the
+        selected time period.
+      </p>
+    </div>
   );
 }

@@ -7,10 +7,11 @@
  * left-nav tab (replaces the PaymentsPage flyout for the agent-settings tab).
  *
  * Scope: property-level. This view is tuned for an L4 autonomous agent —
- * scenario selection lives inside each settings card, Escalation only owns
- * the categories that genuinely require a human, and Workflow guardrails
- * own the rules that keep the agent inside its rails (auto-progression,
- * plan policy, reliability / loop / drift / per-resident ceilings).
+ * scenario selection lives inside each settings card, and Workflow guardrails
+ * own the rules that keep the agent inside its rails (repayment policy,
+ * eligibility scoring, context-aware timing, stop conditions, autonomy
+ * ceilings). Escalation categories are hardcoded and described in the system
+ * prompt (§11); they are not PM-editable settings.
  */
 
 import React, { useCallback, useMemo, useState } from "react"
@@ -18,6 +19,13 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   Select,
   SelectContent,
@@ -33,25 +41,25 @@ import {
 } from "@/components/ui/tooltip"
 import {
   AlertTriangle,
+  Ban,
   Bot,
   Calendar,
   CalendarRange,
+  ChevronDown,
   Clock,
-  ExternalLink,
   FileWarning,
   Gavel,
   History,
   Info,
   Lock,
-  MessageSquare,
   Receipt,
   ShieldCheck,
+  UserCheck,
   UserMinus,
-  Users,
 } from "lucide-react"
 import { BalanceThresholdInput } from "@/components/payments-ai/balance-threshold-input"
 import { ScoringPreviewCard } from "@/components/payments-ai/scoring-preview-card"
-import { FACTOR_SCOPE_HINTS } from "@/lib/payments-ai-eligibility"
+import { FACTOR_SCOPE_HINTS, SEVERITY_BREAKPOINT_LABELS } from "@/lib/payments-ai-eligibility"
 import {
   resolvePropertySettings,
   toPropertyContext,
@@ -59,6 +67,7 @@ import {
 } from "@/lib/payments-ai-property-settings"
 import {
   fixedThreshold,
+  formatBalanceThreshold,
   type BalanceThreshold,
 } from "@/lib/payments-ai-thresholds"
 
@@ -67,15 +76,6 @@ import {
    ══════════════════════════════════════════════════════════════════════════ */
 
 type ScenarioId = "initial" | "late" | "legal"
-type PresetId = "minimum" | "standard" | "high-touch" | "compliance"
-type CategoryId =
-  | "hostile"
-  | "askHuman"
-  | "unanswered"
-  | "hardship"
-  | "legal"
-  | "disputes"
-  | "operational"
 type OffsetAnchor = "rent_due" | "late_fees" | "eviction" | "move_out"
 type OffsetDir =
   | "before_due"
@@ -94,10 +94,8 @@ type OffsetDir =
 type ChannelPref = "sms_only" | "email_only" | "sms_email"
 type Recipients = "primary" | "primary_guarantors" | "guarantors" | "all_responsible"
 type DayKey = "sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat"
-type RouteTargetType = "person" | "speciality" | "group"
 type ToneId = "friendly" | "professional" | "student-casual"
-type DelinquencyMode = "defer" | "nudge"
-type EligibilityAction = "continue" | "skip" | "route_human"
+type EligibilityAction = "continue" | "skip"
 type ScoreBand = "good" | "moderate" | "poor"
 
 type PropertyContextView = ReturnType<typeof toPropertyContext>
@@ -115,10 +113,8 @@ const SCORE_BANDS: { id: ScoreBand; label: string; description: string }[] = [
 const ELIGIBILITY_ACTIONS: { value: EligibilityAction; label: string }[] = [
   { value: "continue", label: "Continue outreach" },
   { value: "skip", label: "Skip outreach" },
-  { value: "route_human", label: "Route to human" },
 ]
 
-type CategoryFlags = Record<CategoryId, boolean>
 type DayFlags = Record<DayKey, boolean>
 
 interface CadenceConfig {
@@ -137,14 +133,6 @@ interface CadenceConfig {
   days: DayFlags
   repeatHelp: string
   pauseOnReply: boolean
-}
-
-interface EscalationPreset {
-  label: string
-  badgeCls: string
-  categories: CategoryFlags
-  confidence: number
-  help: string
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -255,12 +243,6 @@ const SCENARIO_CADENCE: Record<ScenarioId, CadenceConfig> = {
   },
 }
 
-const SCENARIO_TO_PRESET: Record<ScenarioId, PresetId> = {
-  initial: "minimum",
-  late: "standard",
-  legal: "compliance",
-}
-
 const OFFSET_ANCHORS: Record<OffsetAnchor, { options: { value: OffsetDir; label: string }[]; help: string }> = {
   rent_due: {
     options: [
@@ -336,9 +318,8 @@ type JourneyEventKey =
   | "balanceSentToCollections"
 
 /** Numeric day (relative to rent-due = day 0) for each event. Charges Posted
- *  is a range; `chargesPosted` returns the start of that range for cadence
- *  anchor purposes. `chargesPostedStart` / `chargesPostedEnd` bound the pill
- *  rendered on the visual track. */
+ *  uses `chargesPostedStart` / `chargesPostedEnd` for the track pill when the
+ *  posting window spans multiple days; a single posting day shows a marker only. */
 type JourneyAnchors = Record<JourneyEventKey, number> & {
   chargesPostedStart: number
   chargesPostedEnd: number
@@ -495,143 +476,15 @@ const RECIPIENTS_HELP: Record<Recipients, string> = {
   all_responsible: "Sent to every party on the lease: primary residents and guarantors.",
 }
 
-const CATEGORIES: { id: CategoryId; label: string; description: string }[] = [
-  {
-    id: "hostile",
-    label: "Hostile sentiment",
-    description: "Hand off if the resident is profane, escalated, or repeatedly frustrated.",
-  },
-  {
-    id: "askHuman",
-    label: "Asks for a human",
-    description: "Hand off the moment the resident explicitly asks to speak with a person.",
-  },
-  {
-    id: "unanswered",
-    label: "Agent can't answer the question",
-    description: "Hand off when the agent's confidence in its draft reply falls below this threshold.",
-  },
-  {
-    id: "hardship",
-    label: "Hardship & safety signals",
-    description: "Job loss, illness, abuse, military deployment, habitability claims.",
-  },
-  {
-    id: "legal",
-    label: "Legal & compliance mentions",
-    description: "Attorney, court, bankruptcy, SCRA, VAWA, fair-housing accommodation.",
-  },
-  {
-    id: "disputes",
-    label: "Complex payment disputes",
-    description:
-      "Contested balances, structural disputes, or claims the agent can't resolve from the ledger. Simple payment lookups stay in-agent.",
-  },
-  {
-    id: "operational",
-    label: "Operational issues",
-    description: "Wrong contact, moved out, lease ended, multiple ledger matches.",
-  },
-]
-
 /**
- * Routing targets. A trigger can route to one of three target types:
- *   - person: a named individual on the property or org chart
- *   - speciality: a role / skill (anyone with that title)
- *   - group: a team or pool of people
+ * Escalation categories are hardcoded as always-on. ELI+ hands off to a
+ * property manager whenever any of these fire — hostile sentiment,
+ * ask-for-human, hardship/safety signals, legal & compliance mentions,
+ * complex payment disputes, and operational issues. Low-confidence
+ * replies also escalate, but there is no configurable confidence floor.
+ * These categories are described in the system prompt (§11), not exposed
+ * as PM-editable settings.
  */
-const ROUTING_PERSONS: { id: string; label: string }[] = [
-  { id: "jane-smith", label: "Jane Smith, Property Manager" },
-  { id: "alex-chen", label: "Alex Chen, Regional Manager" },
-  { id: "maria-lopez", label: "Maria Lopez, Resident Services Lead" },
-  { id: "david-park", label: "David Park, Accounting Lead" },
-  { id: "sarah-johnson", label: "Sarah Johnson, Legal Counsel" },
-  { id: "michael-torres", label: "Michael Torres, Tier-2 Support Lead" },
-]
-
-const ROUTING_SPECIALITIES: { id: string; label: string }[] = [
-  { id: "property-manager", label: "Property Manager" },
-  { id: "regional-manager", label: "Regional Manager" },
-  { id: "legal-counsel", label: "Legal Counsel" },
-  { id: "accountant", label: "Accountant" },
-  { id: "leasing-specialist", label: "Leasing Specialist" },
-  { id: "compliance-officer", label: "Compliance Officer" },
-]
-
-const ROUTING_GROUPS: { id: string; label: string }[] = [
-  { id: "property-team", label: "Property Team" },
-  { id: "resident-services", label: "Resident Services" },
-  { id: "collections-team", label: "Collections Team" },
-  { id: "accounting-team", label: "Accounting Team" },
-  { id: "tier-2-support", label: "Tier-2 Support" },
-  { id: "legal-team", label: "Legal Team" },
-  { id: "leasing-team", label: "Leasing Team" },
-]
-
-const ROUTING_OPTIONS: Record<RouteTargetType, { id: string; label: string }[]> = {
-  person: ROUTING_PERSONS,
-  speciality: ROUTING_SPECIALITIES,
-  group: ROUTING_GROUPS,
-}
-
-const ROUTING_TYPE_LABEL: Record<RouteTargetType, string> = {
-  person: "Person",
-  speciality: "Speciality",
-  group: "Group",
-}
-
-const CAT_ROUTING_DEFAULTS: Record<CategoryId, { targetType: RouteTargetType; targetId: string; slaHours: number }> = {
-  hostile: { targetType: "speciality", targetId: "property-manager", slaHours: 1 },
-  askHuman: { targetType: "group", targetId: "property-team", slaHours: 1 },
-  unanswered: { targetType: "group", targetId: "tier-2-support", slaHours: 2 },
-  hardship: { targetType: "group", targetId: "resident-services", slaHours: 4 },
-  legal: { targetType: "speciality", targetId: "legal-counsel", slaHours: 1 },
-  disputes: { targetType: "group", targetId: "accounting-team", slaHours: 8 },
-  operational: { targetType: "speciality", targetId: "property-manager", slaHours: 8 },
-}
-
-const ESCALATION_PRESETS: Record<PresetId, EscalationPreset> = {
-  minimum: {
-    label: "Minimum floor",
-    badgeCls: "bg-zinc-100 text-zinc-700",
-    categories: {
-      hostile: true, askHuman: true, unanswered: false,
-      hardship: true, legal: true, disputes: false, operational: false,
-    },
-    confidence: 70,
-    help: "Only the legally and ethically required hand-offs; the lowest setting an autonomous agent should ever run with.",
-  },
-  standard: {
-    label: "Standard collections",
-    badgeCls: "bg-sky-100 text-sky-800",
-    categories: {
-      hostile: true, askHuman: true, unanswered: true,
-      hardship: false, legal: false, disputes: false, operational: true,
-    },
-    confidence: 70,
-    help: "Hostility, hand-off requests, low-confidence replies, and operational ambiguity escalate to the property team.",
-  },
-  "high-touch": {
-    label: "High-touch / hardship-aware",
-    badgeCls: "bg-amber-100 text-amber-800",
-    categories: {
-      hostile: true, askHuman: true, unanswered: true,
-      hardship: true, legal: true, disputes: true, operational: true,
-    },
-    confidence: 60,
-    help: "Lower thresholds across all categories; best for hardship-prone portfolios.",
-  },
-  compliance: {
-    label: "Compliance-heavy",
-    badgeCls: "bg-emerald-100 text-emerald-800",
-    categories: {
-      hostile: true, askHuman: true, unanswered: true,
-      hardship: true, legal: true, disputes: true, operational: true,
-    },
-    confidence: 75,
-    help: "All triggers on with stricter legal routing; best for risk-sensitive operators.",
-  },
-}
 
 const DAY_LABELS: { id: DayKey; label: string }[] = [
   { id: "sun", label: "Sun" }, { id: "mon", label: "Mon" }, { id: "tue", label: "Tue" },
@@ -657,16 +510,11 @@ const QUIET_HOUR_OPTIONS: { value: number; label: string }[] = [
  * keep reading `state.<field>` unchanged.
  */
 interface ScenarioSettings {
-  // Whether this scenario is active. When off, the agent runs no outreach,
-  // escalation, or cadence for this scenario at all.
+  // Whether this scenario is active. When off, the agent runs no outreach
+  // or cadence for this scenario at all.
   enabled: boolean
   // Agent identity — per-scenario tone
   agentPersonaTone: ToneId
-  // Escalation
-  preset: PresetId | "custom"
-  categories: CategoryFlags
-  confidence: number
-  routing: Record<CategoryId, { targetType: RouteTargetType; targetId: string; slaHours: number }>
   // Cadence
   offsetValue: number
   offsetDir: OffsetDir
@@ -683,13 +531,6 @@ interface ScenarioSettings {
   // Customizable outreach copy for this scenario.
   introMessage: string
   repeatMessage: string
-  pauseOnReply: boolean
-  pauseOnPreCollections: boolean
-  pauseOnEviction: boolean
-  // Stop outreach once the resident commits to an expected payment date.
-  pauseOnExpectedPayDate: boolean
-  // Delinquency-only: defer to property legal notices vs run a Payments AI nudge.
-  delinquencyMode: DelinquencyMode
   // Delinquency-only: small-balance reminder (balances under max, above floor).
   smallBalanceReminderOn: boolean
   smallBalanceMax: BalanceThreshold
@@ -700,10 +541,6 @@ interface ScenarioSettings {
 const SCENARIO_SCOPED_KEYS: (keyof ScenarioSettings)[] = [
   "enabled",
   "agentPersonaTone",
-  "preset",
-  "categories",
-  "confidence",
-  "routing",
   "offsetValue",
   "offsetDir",
   "offsetAnchor",
@@ -718,11 +555,6 @@ const SCENARIO_SCOPED_KEYS: (keyof ScenarioSettings)[] = [
   "days",
   "introMessage",
   "repeatMessage",
-  "pauseOnReply",
-  "pauseOnPreCollections",
-  "pauseOnEviction",
-  "pauseOnExpectedPayDate",
-  "delinquencyMode",
   "smallBalanceReminderOn",
   "smallBalanceMax",
   "smallBalanceFloor",
@@ -737,7 +569,8 @@ interface PanelState extends ScenarioSettings {
   // Property-wide holiday send policy. Channel, quiet hours, and days of week
   // are configured per scenario in Cadence.
   defaultSendOnHolidays: boolean
-  // Repayment agreements — property-wide guardrails for agent-negotiated plans
+  // Repayment agreements — property-wide guardrails for agent-created plans
+  repaymentOfferAllowed: boolean
   repaymentOfferEnabled: boolean
   repaymentRequireGoodStanding: boolean
   repaymentMinBalance: BalanceThreshold
@@ -746,50 +579,46 @@ interface PanelState extends ScenarioSettings {
   planMaxMonthsAutomated: number
   planRequireApprovalAmount: number
   planRequireApprovalSecondInYear: boolean
+  // When on, ELI+ may create a new repayment agreement even if the resident
+  // already has one on file. When off (default), any repayment request from
+  // a resident with an existing plan escalates to a human.
+  planAllowWithActiveAgreement: boolean
   // Resident eligibility scoring — property-wide factors + per-scenario rules
   eligibilityEnabled: boolean
   eligibilityFactors: {
-    latePayments: { enabled: boolean; weight: number }
-    returnedPayments: { enabled: boolean; weight: number }
-    chargebacks: { enabled: boolean; weight: number }
-    violations: { enabled: boolean; weight: number }
-    complaints: { enabled: boolean; weight: number }
+    latePayments: { enabled: boolean; weight: number; severity: [number, number, number, number] }
+    paymentFailures: { enabled: boolean; weight: number; severity: [number, number, number, number] }
+    violations: { enabled: boolean; weight: number; severity: [number, number, number, number] }
   }
   eligibilityThresholdModerate: number
   eligibilityThresholdPoor: number
   eligibilityRules: Record<ScenarioId, Record<ScoreBand, EligibilityAction>>
-  // Context-aware outreach — payment history + conversation signals (property-wide)
-  contextAwareOutreachEnabled: boolean
-  usePaymentHistoryContext: boolean
-  useConversationContext: boolean
-  useStaffManagerThreads: boolean
-  usePaymentsAIThreads: boolean
-  deferOnCommittedPayDate: boolean
-  committedPayDateFollowUpDays: number
-  committedPayDateMaxDeferDays: number
-  committedPayDateEscalateBeyondMax: boolean
+  // Context-aware timing rules — ELI+ always reads payment history and prior
+  // staff / Payments AI conversations; these rules tune what to do with them.
+  escalateExpectedPayDate: boolean
+  escalateExpectedPayDateThresholdDays: number
   respectTypicalPayDay: boolean
   typicalPayDayMinHistoryMonths: number
   onTimePayerGraceEnabled: boolean
   onTimePayerGraceDays: number
   onTimePayerMinRate: number
+  // Stop conditions — property-wide, applies to every scenario. Exceptions:
+  // `pauseOnMoveOut` only applies to Rent Reminder + Delinquency (Pre-Collections
+  // is post-move-out by definition and has its own move-out handling);
+  // `pauseOnActiveRepaymentAgreement` only applies to Delinquency +
+  // Pre-Collections (Rent Reminder is upstream of any plan).
+  pauseOnExpectedPayDate: boolean
+  pauseOnMoveOut: boolean
+  pauseOnReply: boolean
+  pauseOnEviction: boolean
+  pauseOnActiveRepaymentAgreement: boolean
   // Workflow guardrails — Reliability guards (property-wide)
   toolFailureCap: number
   loopGuardCount: number
   // Workflow guardrails — Autonomy ceilings (property-wide)
-  feeWaiverAutoApproveCap: number
   shareFlexAvailability: boolean
   acceptOneTimePayments: boolean
   setupRecurringPayments: boolean
-}
-
-function makeRoutingDefaults(): PanelState["routing"] {
-  const out = {} as PanelState["routing"]
-  ;(Object.keys(CAT_ROUTING_DEFAULTS) as CategoryId[]).forEach((cat) => {
-    const d = CAT_ROUTING_DEFAULTS[cat]
-    out[cat] = { targetType: d.targetType, targetId: d.targetId, slaHours: d.slaHours }
-  })
-  return out
 }
 
 function makeEligibilityRulesDefault(): Record<ScenarioId, Record<ScoreBand, EligibilityAction>> {
@@ -803,16 +632,10 @@ function makeEligibilityRulesDefault(): Record<ScenarioId, Record<ScoreBand, Eli
 /** Build the default scenario-scoped settings for a single scenario. */
 function makeScenarioSettings(scenario: ScenarioId): ScenarioSettings {
   const c = SCENARIO_CADENCE[scenario]
-  const presetId = SCENARIO_TO_PRESET[scenario]
-  const p = ESCALATION_PRESETS[presetId]
   const meta = SCENARIOS.find((s) => s.id === scenario)
   return {
     enabled: !meta?.outOfScope,
     agentPersonaTone: "professional",
-    preset: presetId,
-    categories: { ...p.categories },
-    confidence: p.confidence,
-    routing: makeRoutingDefaults(),
     offsetValue: c.offsetValue,
     offsetDir: c.offsetDir,
     offsetAnchor: c.offsetAnchor,
@@ -827,14 +650,6 @@ function makeScenarioSettings(scenario: ScenarioId): ScenarioSettings {
     days: { ...c.days },
     introMessage: SCENARIO_MESSAGES[scenario].intro,
     repeatMessage: SCENARIO_MESSAGES[scenario].repeat,
-    pauseOnReply: c.pauseOnReply,
-    // Default: a scenario pauses once the resident progresses to a later stage.
-    // Pre-Collections itself is already at that stage, so it only pauses on eviction.
-    pauseOnPreCollections: scenario === "initial" || scenario === "late",
-    pauseOnEviction: scenario === "initial" || scenario === "late" || scenario === "legal",
-    // On by default: if a resident commits to a pay date, hold further outreach.
-    pauseOnExpectedPayDate: true,
-    delinquencyMode: "nudge",
     smallBalanceReminderOn: scenario === "late",
     smallBalanceMax: fixedThreshold(100),
     smallBalanceFloor: fixedThreshold(10),
@@ -876,31 +691,29 @@ const CADENCE_KEYS: (keyof ScenarioSettings)[] = [
   "enabled", "offsetValue", "offsetDir", "offsetAnchor", "repeatOn", "repeatInterval",
   "maxAttempts", "recipients", "minOutstandingBalance",
   "channel", "quietStart", "quietEnd", "days",
-  "pauseOnExpectedPayDate", "pauseOnReply", "pauseOnEviction",
-  "delinquencyMode", "smallBalanceReminderOn", "smallBalanceMax", "smallBalanceFloor",
+  "smallBalanceReminderOn", "smallBalanceMax", "smallBalanceFloor",
 ]
-const ESCALATION_KEYS: (keyof ScenarioSettings)[] = ["preset", "categories", "confidence", "routing"]
 const MESSAGING_KEYS: (keyof ScenarioSettings)[] = ["introMessage", "repeatMessage"]
 const DELIVERY_DEFAULT_KEYS: (keyof PanelState)[] = ["defaultSendOnHolidays"]
 const REPAYMENT_KEYS: (keyof PanelState)[] = [
-  "repaymentOfferEnabled", "repaymentRequireGoodStanding", "repaymentMinBalance", "repaymentMaxBalance",
+  "repaymentOfferAllowed", "repaymentOfferEnabled", "repaymentRequireGoodStanding", "repaymentMinBalance", "repaymentMaxBalance",
   "repaymentMinDownPercent", "planMaxMonthsAutomated", "planRequireApprovalAmount",
-  "planRequireApprovalSecondInYear",
+  "planRequireApprovalSecondInYear", "planAllowWithActiveAgreement",
 ]
 const ELIGIBILITY_KEYS: (keyof PanelState)[] = [
   "eligibilityEnabled", "eligibilityFactors", "eligibilityThresholdModerate",
   "eligibilityThresholdPoor", "eligibilityRules",
 ]
 const CONTEXT_OUTREACH_KEYS: (keyof PanelState)[] = [
-  "contextAwareOutreachEnabled", "usePaymentHistoryContext", "useConversationContext",
-  "useStaffManagerThreads", "usePaymentsAIThreads",
-  "deferOnCommittedPayDate", "committedPayDateFollowUpDays",
-  "committedPayDateMaxDeferDays", "committedPayDateEscalateBeyondMax",
+  "escalateExpectedPayDate", "escalateExpectedPayDateThresholdDays",
   "respectTypicalPayDay", "typicalPayDayMinHistoryMonths",
   "onTimePayerGraceEnabled", "onTimePayerGraceDays", "onTimePayerMinRate",
 ]
+const STOP_CONDITION_KEYS: (keyof PanelState)[] = [
+  "pauseOnExpectedPayDate", "pauseOnMoveOut", "pauseOnReply", "pauseOnEviction",
+  "pauseOnActiveRepaymentAgreement",
+]
 const GUARDRAIL_KEYS: (keyof PanelState)[] = [
-  "feeWaiverAutoApproveCap",
   "shareFlexAvailability", "acceptOneTimePayments", "setupRecurringPayments",
 ]
 
@@ -915,24 +728,297 @@ function computeChangedSections(a: PanelState, b: PanelState): string[] {
     keys.some((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]))
 
   if (scenarioKeysDiffer(CADENCE_KEYS) || panelKeysDiffer(DELIVERY_DEFAULT_KEYS)) out.push("Cadence")
-  if (scenarioKeysDiffer(ESCALATION_KEYS)) out.push("Escalation")
   if (scenarioKeysDiffer(MESSAGING_KEYS)) out.push("Custom Messaging")
   if (panelKeysDiffer(REPAYMENT_KEYS)) out.push("Repayment agreements")
   if (panelKeysDiffer(ELIGIBILITY_KEYS)) out.push("Resident eligibility")
   if (panelKeysDiffer(CONTEXT_OUTREACH_KEYS)) out.push("Context-aware outreach")
-  if (panelKeysDiffer(GUARDRAIL_KEYS)) out.push("Guardrails")
+  if (panelKeysDiffer(STOP_CONDITION_KEYS) || panelKeysDiffer(GUARDRAIL_KEYS)) out.push("Guardrails")
   return out
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Bulk-edit change diff (granular)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/** A single setting-level change for the bulk confirmation summary. */
+type ChangeRow = {
+  scope: string
+  scenario?: ScenarioId
+  setting: string
+  oldValue: string
+  newValue: string
+}
+
+const yesNo = (v: boolean) => (v ? "On" : "Off")
+const enabledLabel = (v: boolean) => (v ? "Enabled" : "Disabled")
+const scenarioTitle = (sid: ScenarioId) =>
+  SCENARIOS.find((s) => s.id === sid)?.title ?? sid
+
+const DAY_LOOKUP: Record<DayKey, string> = {
+  sun: "Sun", mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat",
+}
+
+function formatDays(d: DayFlags): string {
+  const on = (["sun","mon","tue","wed","thu","fri","sat"] as DayKey[]).filter((k) => d[k])
+  if (on.length === 7) return "Every day"
+  if (on.length === 0) return "No days"
+  return on.map((k) => DAY_LOOKUP[k]).join(", ")
+}
+
+const OFFSET_ANCHOR_LABELS: Record<OffsetAnchor, string> = {
+  rent_due: "Rent due date",
+  late_fees: "Late fees post",
+  eviction: "Charges due (Pre-Collections)",
+  move_out: "Move-out",
+}
+const CHANNEL_LABELS: Record<ChannelPref, string> = {
+  sms_only: "SMS only",
+  email_only: "Email only",
+  sms_email: "SMS + Email",
+}
+const RECIPIENT_LABELS: Record<Recipients, string> = {
+  primary: "Primary lease holder",
+  primary_guarantors: "Primary + guarantors",
+  guarantors: "Guarantors only",
+  all_responsible: "All responsible parties",
+}
+const ELIGIBILITY_ACTION_LABELS: Record<EligibilityAction, string> = {
+  continue: "Continue outreach",
+  skip: "Skip outreach",
+}
+const SCORE_BAND_LABELS: Record<ScoreBand, string> = {
+  good: "Good",
+  moderate: "Moderate",
+  poor: "Poor",
+}
+const ELIGIBILITY_FACTOR_LABELS: Record<keyof PanelState["eligibilityFactors"], string> = {
+  latePayments: "Late payments",
+  paymentFailures: "Payment failures",
+  violations: "Lease violations",
+}
+
+const formatThreshold = (t: BalanceThreshold) => formatBalanceThreshold(t)
+
+/** Per-key label + formatter for scenario-scoped fields.  Keys not listed here
+ *  are skipped from the diff summary. */
+const SCENARIO_FIELD_META: {
+  [K in keyof ScenarioSettings]?: {
+    scope: "Cadence" | "Custom text"
+    label: string
+    format: (v: ScenarioSettings[K]) => string
+  }
+} = {
+  enabled:              { scope: "Cadence",     label: "Scenario",                       format: enabledLabel },
+  offsetValue:          { scope: "Cadence",     label: "First message offset",           format: (v) => `${v} day${v === 1 ? "" : "s"}` },
+  offsetDir:            { scope: "Cadence",     label: "First message timing",           format: (v) => OFFSET_PHRASE[v] ?? String(v) },
+  offsetAnchor:         { scope: "Cadence",     label: "First message anchor",           format: (v) => OFFSET_ANCHOR_LABELS[v] ?? String(v) },
+  repeatOn:             { scope: "Cadence",     label: "Repeat messages",                format: yesNo },
+  repeatInterval:       { scope: "Cadence",     label: "Repeat every",                   format: (v) => `${v} day${v === 1 ? "" : "s"}` },
+  maxAttempts:          { scope: "Cadence",     label: "Max messages",                   format: (v) => `${v}` },
+  channel:              { scope: "Cadence",     label: "Channel",                        format: (v) => CHANNEL_LABELS[v] ?? String(v) },
+  recipients:           { scope: "Cadence",     label: "Recipients",                     format: (v) => RECIPIENT_LABELS[v] ?? String(v) },
+  minOutstandingBalance:{ scope: "Cadence",     label: "Only reach out when balance due is at least", format: formatThreshold },
+  quietStart:           { scope: "Cadence",     label: "Quiet hours start",              format: formatHour },
+  quietEnd:             { scope: "Cadence",     label: "Quiet hours end",                format: formatHour },
+  days:                 { scope: "Cadence",     label: "Send days",                      format: formatDays },
+  smallBalanceReminderOn:{ scope: "Cadence",    label: "Small-balance reminder",         format: yesNo },
+  smallBalanceMax:      { scope: "Cadence",     label: "Small-balance ceiling",          format: formatThreshold },
+  smallBalanceFloor:    { scope: "Cadence",     label: "Small-balance floor",            format: formatThreshold },
+  introMessage:         { scope: "Custom text", label: "Intro message",                  format: (v) => (v ? `"${v}"` : "(empty)") },
+  repeatMessage:        { scope: "Custom text", label: "Repeat message",                 format: (v) => (v ? `"${v}"` : "(empty)") },
+}
+
+/** Per-key label + formatter for property-wide fields.  Keys not listed here
+ *  are skipped from the diff summary. */
+const PANEL_FIELD_META: {
+  [K in keyof PanelState]?: {
+    scope: string
+    label: string
+    format: (v: PanelState[K]) => string
+  }
+} = {
+  agentDisplayName:               { scope: "Agent identity",     label: "Display name",                                          format: (v) => (v ? `"${v}"` : "(default: Eli)") },
+  defaultSendOnHolidays:          { scope: "Cadence",            label: "Send on federal holidays",                              format: yesNo },
+  // Payment actions — repayment agreements
+  repaymentOfferAllowed:          { scope: "Payment actions",    label: "Allow ELI+ to offer repayment agreements",              format: yesNo },
+  repaymentOfferEnabled:          { scope: "Payment actions",    label: "Allow ELI+ to create repayment agreements",             format: yesNo },
+  repaymentRequireGoodStanding:   { scope: "Payment actions",    label: "Require good standing",                                 format: yesNo },
+  repaymentMinBalance:            { scope: "Payment actions",    label: "Minimum balance for repayment agreement",               format: formatThreshold },
+  repaymentMaxBalance:            { scope: "Payment actions",    label: "Maximum balance for repayment agreement",               format: formatThreshold },
+  repaymentMinDownPercent:        { scope: "Payment actions",    label: "Minimum down payment",                                  format: (v) => `${v}%` },
+  planMaxMonthsAutomated:         { scope: "Payment actions",    label: "ELI+ can create plans up to",                           format: (v) => `${v} month${v === 1 ? "" : "s"}` },
+  planRequireApprovalAmount:      { scope: "Payment actions",    label: "Require approval above",                                format: (v) => `$${v.toLocaleString()}` },
+  planRequireApprovalSecondInYear:{ scope: "Payment actions",    label: "Require approval for second plan within 12 months",     format: yesNo },
+  planAllowWithActiveAgreement:   { scope: "Payment actions",    label: "Allow ELI+ to create plans when an active plan is on file", format: yesNo },
+  // Payment actions — payments
+  shareFlexAvailability:          { scope: "Payment actions",    label: "Allow ELI+ to share Flex availability",                 format: yesNo },
+  acceptOneTimePayments:          { scope: "Payment actions",    label: "Allow ELI+ to accept one-time payments",                format: yesNo },
+  setupRecurringPayments:         { scope: "Payment actions",    label: "Allow ELI+ to set up recurring payments",               format: yesNo },
+  // Resident eligibility
+  eligibilityEnabled:             { scope: "Resident eligibility", label: "Score model",                                         format: enabledLabel },
+  eligibilityThresholdModerate:   { scope: "Resident eligibility", label: "Moderate score threshold",                            format: (v) => `${v}` },
+  eligibilityThresholdPoor:       { scope: "Resident eligibility", label: "Poor score threshold",                                format: (v) => `${v}` },
+  // Context awareness
+  escalateExpectedPayDate:        { scope: "Context awareness",  label: "Escalate near expected pay date",                       format: yesNo },
+  escalateExpectedPayDateThresholdDays: { scope: "Context awareness", label: "Expected pay date window",                         format: (v) => `${v} day${v === 1 ? "" : "s"}` },
+  respectTypicalPayDay:           { scope: "Context awareness",  label: "Respect typical pay day",                               format: yesNo },
+  typicalPayDayMinHistoryMonths:  { scope: "Context awareness",  label: "Typical pay day — minimum history",                     format: (v) => `${v} month${v === 1 ? "" : "s"}` },
+  onTimePayerGraceEnabled:        { scope: "Context awareness",  label: "On-time payer grace",                                   format: yesNo },
+  onTimePayerGraceDays:           { scope: "Context awareness",  label: "On-time payer grace window",                            format: (v) => `${v} day${v === 1 ? "" : "s"}` },
+  onTimePayerMinRate:             { scope: "Context awareness",  label: "On-time payer minimum on-time rate",                    format: (v) => `${v}%` },
+  // Stop conditions
+  pauseOnExpectedPayDate:         { scope: "Stop conditions",    label: "Pause when resident supplies an expected pay date",     format: yesNo },
+  pauseOnMoveOut:                 { scope: "Stop conditions",    label: "Pause on move-out",                                     format: yesNo },
+  pauseOnReply:                   { scope: "Stop conditions",    label: "Pause after any resident reply",                        format: yesNo },
+  pauseOnEviction:                { scope: "Stop conditions",    label: "Pause on eviction filed",                               format: yesNo },
+  pauseOnActiveRepaymentAgreement:{ scope: "Stop conditions",    label: "Pause when an active repayment agreement is on file",   format: yesNo },
+}
+
+/** Order of scopes in the confirmation dialog. Any scope not listed appears
+ *  after these, in first-seen order. */
+const SCOPE_ORDER: string[] = [
+  "Agent identity",
+  "Cadence",
+  "Custom text",
+  "Payment actions",
+  "Resident eligibility",
+  "Context awareness",
+  "Stop conditions",
+]
+
+function pushRow<K extends keyof ScenarioSettings>(
+  out: ChangeRow[],
+  scenario: ScenarioId,
+  key: K,
+  oldVal: ScenarioSettings[K],
+  newVal: ScenarioSettings[K],
+) {
+  const meta = SCENARIO_FIELD_META[key]
+  if (!meta) return
+  if (JSON.stringify(oldVal) === JSON.stringify(newVal)) return
+  out.push({
+    scope: meta.scope,
+    scenario,
+    setting: meta.label,
+    oldValue: meta.format(oldVal),
+    newValue: meta.format(newVal),
+  })
+}
+
+function pushPanelRow<K extends keyof PanelState>(
+  out: ChangeRow[],
+  key: K,
+  oldVal: PanelState[K],
+  newVal: PanelState[K],
+) {
+  const meta = PANEL_FIELD_META[key]
+  if (!meta) return
+  if (JSON.stringify(oldVal) === JSON.stringify(newVal)) return
+  out.push({
+    scope: meta.scope,
+    setting: meta.label,
+    oldValue: meta.format(oldVal),
+    newValue: meta.format(newVal),
+  })
+}
+
+/** Build the granular per-setting diff between two panel snapshots.  Consumed
+ *  by the bulk-edit confirmation dialog so PMs can review each change (with
+ *  scenario context, old value, and new value) before applying to N
+ *  properties. */
+function computeChangeRows(current: PanelState, pristine: PanelState): ChangeRow[] {
+  const rows: ChangeRow[] = []
+  const scenarioIds: ScenarioId[] = Object.keys(current.scenarioStore) as ScenarioId[]
+
+  // Per-scenario cadence + custom text
+  for (const sid of scenarioIds) {
+    const a = current.scenarioStore[sid]
+    const b = pristine.scenarioStore[sid]
+    if (!a || !b) continue
+    for (const key of Object.keys(SCENARIO_FIELD_META) as (keyof ScenarioSettings)[]) {
+      pushRow(rows, sid, key, b[key], a[key])
+    }
+  }
+
+  // Property-wide fields
+  for (const key of Object.keys(PANEL_FIELD_META) as (keyof PanelState)[]) {
+    pushPanelRow(rows, key, pristine[key], current[key])
+  }
+
+  // Resident eligibility — factor weights + enablement (flattened)
+  for (const factorKey of Object.keys(current.eligibilityFactors) as (keyof PanelState["eligibilityFactors"])[]) {
+    const a = current.eligibilityFactors[factorKey]
+    const b = pristine.eligibilityFactors[factorKey]
+    if (a.enabled !== b.enabled) {
+      rows.push({
+        scope: "Resident eligibility",
+        setting: `${ELIGIBILITY_FACTOR_LABELS[factorKey]} — factor`,
+        oldValue: enabledLabel(b.enabled),
+        newValue: enabledLabel(a.enabled),
+      })
+    }
+    if (a.weight !== b.weight) {
+      rows.push({
+        scope: "Resident eligibility",
+        setting: `${ELIGIBILITY_FACTOR_LABELS[factorKey]} — weight`,
+        oldValue: `${b.weight}%`,
+        newValue: `${a.weight}%`,
+      })
+    }
+  }
+
+  // Resident eligibility — per-scenario per-band actions
+  for (const sid of scenarioIds) {
+    const scenarioRulesA = current.eligibilityRules[sid]
+    const scenarioRulesB = pristine.eligibilityRules[sid]
+    if (!scenarioRulesA || !scenarioRulesB) continue
+    for (const band of Object.keys(scenarioRulesA) as ScoreBand[]) {
+      if (scenarioRulesA[band] !== scenarioRulesB[band]) {
+        rows.push({
+          scope: "Resident eligibility",
+          scenario: sid,
+          setting: `${SCORE_BAND_LABELS[band]} score → action`,
+          oldValue: ELIGIBILITY_ACTION_LABELS[scenarioRulesB[band]] ?? scenarioRulesB[band],
+          newValue: ELIGIBILITY_ACTION_LABELS[scenarioRulesA[band]] ?? scenarioRulesA[band],
+        })
+      }
+    }
+  }
+
+  return rows
+}
+
+/** Group change rows by scope, preserving SCOPE_ORDER first. */
+function groupChangeRows(rows: ChangeRow[]): { scope: string; rows: ChangeRow[] }[] {
+  const byScope = new Map<string, ChangeRow[]>()
+  for (const r of rows) {
+    if (!byScope.has(r.scope)) byScope.set(r.scope, [])
+    byScope.get(r.scope)!.push(r)
+  }
+  const ordered: { scope: string; rows: ChangeRow[] }[] = []
+  for (const scope of SCOPE_ORDER) {
+    const rs = byScope.get(scope)
+    if (rs && rs.length) {
+      ordered.push({ scope, rows: rs })
+      byScope.delete(scope)
+    }
+  }
+  for (const [scope, rs] of byScope.entries()) {
+    ordered.push({ scope, rows: rs })
+  }
+  return ordered
 }
 
 function makeInitialState(): PanelState {
   const store = makeScenarioStore()
   return {
     scenario: "initial",
-    agentDisplayName: "",
+    agentDisplayName: "Eli",
     scenarioStore: store,
     ...store.initial,
     // Off by default: don't message on holidays; push to next business day.
     defaultSendOnHolidays: false,
+    repaymentOfferAllowed: true,
     repaymentOfferEnabled: true,
     repaymentRequireGoodStanding: true,
     repaymentMinBalance: fixedThreshold(50),
@@ -941,34 +1027,36 @@ function makeInitialState(): PanelState {
     planMaxMonthsAutomated: 3,
     planRequireApprovalAmount: 2000,
     planRequireApprovalSecondInYear: true,
+    // Default off: escalate any plan request from a resident with an active
+    // plan on file. Property may opt in.
+    planAllowWithActiveAgreement: false,
     eligibilityEnabled: true,
     eligibilityFactors: {
-      latePayments: { enabled: true, weight: 30 },
-      returnedPayments: { enabled: true, weight: 25 },
-      chargebacks: { enabled: true, weight: 20 },
-      violations: { enabled: true, weight: 15 },
-      complaints: { enabled: false, weight: 10 },
+      latePayments: { enabled: true, weight: 40, severity: [30, 55, 75, 100] },
+      paymentFailures: { enabled: true, weight: 35, severity: [40, 65, 85, 100] },
+      violations: { enabled: true, weight: 25, severity: [50, 80, 100, 100] },
     },
     eligibilityThresholdModerate: 35,
     eligibilityThresholdPoor: 65,
     eligibilityRules: makeEligibilityRulesDefault(),
-    contextAwareOutreachEnabled: true,
-    usePaymentHistoryContext: true,
-    useConversationContext: true,
-    useStaffManagerThreads: true,
-    usePaymentsAIThreads: true,
-    deferOnCommittedPayDate: true,
-    committedPayDateFollowUpDays: 1,
-    committedPayDateMaxDeferDays: 7,
-    committedPayDateEscalateBeyondMax: true,
+    escalateExpectedPayDate: true,
+    escalateExpectedPayDateThresholdDays: 7,
     respectTypicalPayDay: true,
     typicalPayDayMinHistoryMonths: 3,
     onTimePayerGraceEnabled: true,
     onTimePayerGraceDays: 3,
     onTimePayerMinRate: 90,
+    // Stop conditions — property-wide. `pauseOnMoveOut` is scoped in-code to
+    // Rent Reminder + Delinquency (Pre-Collections handles move-out separately);
+    // `pauseOnActiveRepaymentAgreement` is scoped in-code to Delinquency +
+    // Pre-Collections.
+    pauseOnExpectedPayDate: true,
+    pauseOnMoveOut: true,
+    pauseOnReply: true,
+    pauseOnEviction: true,
+    pauseOnActiveRepaymentAgreement: true,
     toolFailureCap: 3,
     loopGuardCount: 4,
-    feeWaiverAutoApproveCap: 50,
     shareFlexAvailability: true,
     acceptOneTimePayments: true,
     setupRecurringPayments: true,
@@ -997,9 +1085,7 @@ interface Props {
   onBulkApply?: (changedSections: string[]) => void
 }
 
-type DetailTab = "cadence" | "escalation" | "messaging" | "guardrails" | "changelog"
-const SCENARIO_DETAIL_TABS: readonly DetailTab[] = ["cadence", "escalation", "messaging"] as const
-const PROPERTY_WIDE_DETAIL_TABS: readonly DetailTab[] = ["guardrails", "changelog"] as const
+type DetailTab = "guardrails" | "changelog"
 
 export function PaymentsAISettingsPanel({
   propertyName,
@@ -1025,31 +1111,50 @@ export function PaymentsAISettingsPanel({
   )
   const [state, setState] = useState<PanelState>(() => makeInitialState())
   const [pristine, setPristine] = useState<PanelState>(() => makeInitialState())
-  const [detailTab, setDetailTab] = useState<DetailTab>("cadence")
-  const isPropertyWideTab = (PROPERTY_WIDE_DETAIL_TABS as readonly DetailTab[]).includes(detailTab)
+  const [detailTab, setDetailTab] = useState<DetailTab>("guardrails")
+  // Bulk-edit confirmation dialog: opens on "Apply to N properties" so the PM
+  // can review each changed setting (with scenario, old value, new value)
+  // before we notify the host to apply.
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   const dirty = useMemo(() => JSON.stringify(state) !== JSON.stringify(pristine), [state, pristine])
 
   const update = <K extends keyof PanelState>(key: K, value: PanelState[K]) =>
     setState((s) => ({ ...s, [key]: value }))
 
+  // Fold the in-flight scenario edits into the store so change detection sees
+  // the current selection's edits.
+  const syncedState = useMemo(
+    () => ({ ...state, scenarioStore: { ...state.scenarioStore, [state.scenario]: extractScenarioSettings(state) } }),
+    [state],
+  )
+
   // Which of the four editable areas changed vs the opening snapshot. Drives
   // the "only the sections you touched" bulk apply.
-  const changedSections = useMemo(() => {
-    const synced = { ...state, scenarioStore: { ...state.scenarioStore, [state.scenario]: extractScenarioSettings(state) } }
-    return computeChangedSections(synced, pristine)
-  }, [state, pristine])
+  const changedSections = useMemo(
+    () => computeChangedSections(syncedState, pristine),
+    [syncedState, pristine],
+  )
+
+  // Granular per-setting diff used by the bulk confirmation dialog.
+  const changeRows = useMemo(
+    () => computeChangeRows(syncedState, pristine),
+    [syncedState, pristine],
+  )
 
   const handleSave = () => {
-    // Fold the in-flight scenario edits into the store before snapshotting.
-    const synced = { ...state, scenarioStore: { ...state.scenarioStore, [state.scenario]: extractScenarioSettings(state) } }
     if (bulkMode) {
-      onBulkApply?.(changedSections)
+      setConfirmOpen(true)
       return
     }
-    setState(synced)
-    setPristine(synced)
+    setState(syncedState)
+    setPristine(syncedState)
   }
+  const handleConfirmBulkApply = () => {
+    onBulkApply?.(changedSections)
+    setConfirmOpen(false)
+  }
+  const handleCancelBulkApply = () => setConfirmOpen(false)
   const handleDiscard = () => setState(pristine)
 
   const handleScenarioChange = (scenario: ScenarioId) =>
@@ -1061,46 +1166,22 @@ export function PaymentsAISettingsPanel({
     setState((s) => ({ ...s, enabled }))
   }
 
-  const handlePresetChange = (preset: PresetId) => {
-    const p = ESCALATION_PRESETS[preset]
-    setState((s) => ({
-      ...s,
-      preset,
-      categories: { ...p.categories },
-      confidence: p.confidence,
-    }))
-  }
-
-  const handleCategoryToggle = (cat: CategoryId, on: boolean) =>
-    setState((s) => ({
-      ...s,
-      categories: { ...s.categories, [cat]: on },
-      preset: "custom",
-    }))
-
-  const handleConfidenceChange = (value: number) =>
-    setState((s) => ({ ...s, confidence: value, preset: "custom" }))
-
-  const handleRoutingChange = (
-    cat: CategoryId,
-    patch: Partial<{ targetType: RouteTargetType; targetId: string; slaHours: number }>,
-  ) =>
-    setState((s) => {
-      const current = s.routing[cat]
-      const next = { ...current, ...patch }
-      // When the type changes, snap targetId to the first option of the new
-      // type so we don't render an empty select with a stale id.
-      if (patch.targetType && patch.targetType !== current.targetType) {
-        const opts = ROUTING_OPTIONS[patch.targetType]
-        if (!opts.some((o) => o.id === next.targetId)) {
-          next.targetId = opts[0]?.id ?? ""
-        }
+  const handleScenarioMessageChange = (
+    scenarioId: ScenarioId,
+    field: "introMessage" | "repeatMessage",
+    value: string,
+  ) => {
+    setState((prev) => {
+      const stored =
+        scenarioId === prev.scenario ? extractScenarioSettings(prev) : prev.scenarioStore[scenarioId]
+      const nextScenarioSettings = { ...stored, [field]: value }
+      const scenarioStore = { ...prev.scenarioStore, [scenarioId]: nextScenarioSettings }
+      if (scenarioId === prev.scenario) {
+        return { ...prev, [field]: value, scenarioStore }
       }
-      return {
-        ...s,
-        routing: { ...s.routing, [cat]: next },
-      }
+      return { ...prev, scenarioStore }
     })
+  }
 
   return (
     <TooltipProvider delayDuration={150}>
@@ -1119,8 +1200,8 @@ export function PaymentsAISettingsPanel({
                   sections you change are applied; everything else stays as each property has it.</>
               ) : (
                 <>Configure how {agentDisplayLabel} reaches out, when it hands off, and where its autonomy ends at{" "}
-                  <strong>{propertyName}</strong>. Pick a scenario on the left; it stays pinned while you tune that
-                  scenario&apos;s cadence and escalation.</>
+                  <strong>{propertyName}</strong>. Pick a scenario in the tab bar; it stays pinned while you tune that
+                  scenario&apos;s cadence and messaging.</>
               )}
             </p>
           </div>
@@ -1154,94 +1235,120 @@ export function PaymentsAISettingsPanel({
                 <p className="mt-0.5 text-amber-800">
                   {changedSections.length > 0
                     ? `On save, these areas will be applied to every selected property: ${changedSections.join(", ")}.`
-                    : "Change Cadence, Escalation, Custom Messaging, or Guardrails below. Only the areas you change will be applied."}
+                    : "Change any Guardrails setting below. Only the areas you change will be applied."}
                 </p>
               </div>
             </div>
           )}
-          {/* Collection journey is a property-wide overview of where every
-              scenario fires across the billing cycle, above the master-detail
-              block and separated from the per-scenario rail. */}
-          <div className="mb-6">
-            <JourneyTimeline
-              store={state.scenarioStore}
-              current={state}
-              active={state.scenario}
-              onChange={handleScenarioChange}
-              propertyContext={propertyContext}
-              resolvedSettings={resolvedSettings}
-              anchors={journeyAnchors}
-            />
-          </div>
+          {/* Single-column layout: two primary tabs — Guardrails (which hosts
+              Agent identity, per-scenario Cadence (which itself contains, top
+              to bottom: the scenario selector, the per-scenario enable toggle,
+              the cadence controls, and per-scenario Custom Text), the
+              property-wide Collection journey, and property-wide guardrails)
+              and Change Log (property-wide audit trail). Per-scenario blocks
+              inside Cadence dim when the active scenario is disabled;
+              property-wide blocks never dim. */}
+          <div className="min-w-0 flex-1 space-y-4">
+            <DetailTabBar active={detailTab} onChange={setDetailTab} />
 
-          <div className="flex flex-row items-start gap-4">
-            {/* Left sidebar: Agent identity (property-wide) sits directly above
-                the Editing Scenario rail. When a property-wide tab is active
-                (Guardrails, Change Log), the rail highlights all three scenarios
-                to signal the settings apply everywhere. */}
-            <div className="w-56 shrink-0 space-y-4 self-start sm:sticky sm:top-0 sm:w-60">
-              <AgentIdentitySection
-                state={state}
-                update={update}
-                agentDisplayLabel={agentDisplayLabel}
-              />
-              <ScenarioRail
-                scenario={state.scenario}
-                store={state.scenarioStore}
-                current={state}
-                onChange={handleScenarioChange}
-                highlightAll={detailTab === "guardrails"}
-              />
-            </div>
-
-            <div className="min-w-0 flex-1 space-y-8">
-              {!isPropertyWideTab && (
-                <ScenarioEnableBanner
-                  scenario={state.scenario}
-                  enabled={state.enabled}
-                  onToggle={handleScenarioEnabledToggle}
-                  propertyContext={propertyContext}
-                />
-              )}
-
-              <div
-                className={cn(
-                  "space-y-6 transition-opacity",
-                  !isPropertyWideTab && !state.enabled && "pointer-events-none select-none opacity-50",
-                )}
-                aria-disabled={!isPropertyWideTab && !state.enabled}
-              >
-                <DetailTabBar active={detailTab} onChange={setDetailTab} />
-
-                {detailTab === "cadence" && (
-                  <CadenceSection state={state} update={update} propertyContext={propertyContext} avgRent={resolvedSettings.avgRent} anchors={journeyAnchors} />
-                )}
-                {detailTab === "escalation" && (
-                  <EscalationSection
+            <div className="space-y-6">
+              {detailTab === "guardrails" && (
+                <>
+                  <AgentIdentitySection
                     state={state}
-                    onPresetChange={handlePresetChange}
-                    onCategoryToggle={handleCategoryToggle}
-                    onConfidenceChange={handleConfidenceChange}
-                    onRoutingChange={handleRoutingChange}
-                    propertyContext={propertyContext}
+                    update={update}
                   />
-                )}
-                {detailTab === "messaging" && (
-                  <MessagesSection state={state} update={update} />
-                )}
-                {detailTab === "guardrails" && (
-                  <WorkflowGuardrailsSection
+
+                  <CadenceSection
                     state={state}
                     update={update}
                     propertyContext={propertyContext}
                     avgRent={resolvedSettings.avgRent}
-                    activeScenario={state.scenario}
+                    anchors={journeyAnchors}
+                    scenarioStore={state.scenarioStore}
+                    onScenarioChange={handleScenarioChange}
+                    onScenarioEnabledToggle={handleScenarioEnabledToggle}
+                    onScenarioMessageChange={handleScenarioMessageChange}
                   />
-                )}
-                {detailTab === "changelog" && (
-                  <ChangeLogSection propertyName={propertyName} />
-                )}
-              </div>
+
+                  <JourneyTimeline
+                    store={state.scenarioStore}
+                    current={state}
+                    active={state.scenario}
+                    onChange={handleScenarioChange}
+                    propertyContext={propertyContext}
+                    resolvedSettings={resolvedSettings}
+                    anchors={journeyAnchors}
+                  />
+
+                  <SectionShell
+                    icon={Receipt}
+                    title="Payment actions"
+                    description="What actions ELI+ can take on the resident's balance during a conversation — creating repayment agreements, running one-time full-balance payments, enrolling recurring payments, and sharing Flex availability."
+                    headerAction={
+                      <Badge variant="gray" className="text-[10px]">
+                        Property-wide
+                      </Badge>
+                    }
+                  >
+                    <div className="space-y-4">
+                      <p className="rounded-md border border-amber-200 bg-amber-50/60 px-3 py-1.5 text-xs text-amber-900">
+                        Compliance note: repayment terms may be subject to state tenant law, fair-housing rules, and company policy. Review with legal before enabling in production.
+                      </p>
+                      <RepaymentAgreementsSection state={state} update={update} avgRent={resolvedSettings.avgRent} />
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <PaymentActionsSection state={state} update={update} />
+                        <FlexAvailabilitySection state={state} update={update} />
+                      </div>
+                    </div>
+                  </SectionShell>
+
+                  <SectionShell
+                    icon={UserCheck}
+                    title="Resident eligibility"
+                    description="Score residents from payment history and route outreach by scenario based on risk band. When on, ELI+ computes a score from the factors below and applies per-scenario rules before sending outreach."
+                    headerAction={
+                      <Badge variant="gray" className="text-[10px]">
+                        Property-wide
+                      </Badge>
+                    }
+                  >
+                    <p className="mb-4 rounded-md border border-amber-200 bg-amber-50/60 px-3 py-1.5 text-xs text-amber-900">
+                      Compliance note: eligibility scoring may be subject to fair-housing rules and company policy. Review with legal before enabling in production.
+                    </p>
+                    <ResidentEligibilitySection state={state} update={update} activeScenario={state.scenario} />
+                  </SectionShell>
+
+                  <SectionShell
+                    icon={History}
+                    title="Context awareness"
+                    description="How ELI+ uses payment history and prior conversation context (staff, manager, and Payments AI threads) when deciding to reach out or escalate."
+                    headerAction={
+                      <Badge variant="gray" className="text-[10px]">
+                        Property-wide
+                      </Badge>
+                    }
+                  >
+                    <ContextAwareOutreachSection state={state} update={update} propertyContext={propertyContext} />
+                  </SectionShell>
+
+                  <SectionShell
+                    icon={Ban}
+                    title="Stop conditions"
+                    description="When ELI+ should stop the cadence and hold further outreach. Property-wide — these apply to every scenario unless noted otherwise."
+                    headerAction={
+                      <Badge variant="gray" className="text-[10px]">
+                        Property-wide
+                      </Badge>
+                    }
+                  >
+                    <StopConditionsSection state={state} update={update} />
+                  </SectionShell>
+                </>
+              )}
+              {detailTab === "changelog" && (
+                <ChangeLogSection propertyName={propertyName} />
+              )}
             </div>
           </div>
         </div>
@@ -1249,6 +1356,19 @@ export function PaymentsAISettingsPanel({
 
       {/* Sticky footer */}
       <FooterActionBar dirty={dirty} onSave={handleSave} onDiscard={handleDiscard} bulkMode={bulkMode} bulkCount={bulkCount} />
+
+      {/* Bulk-edit confirmation dialog — appears when the PM clicks
+          "Apply to N properties" so they can review each change before
+          committing. */}
+      {bulkMode && (
+        <BulkApplyConfirmDialog
+          open={confirmOpen}
+          onCancel={handleCancelBulkApply}
+          onConfirm={handleConfirmBulkApply}
+          bulkCount={bulkCount}
+          rows={changeRows}
+        />
+      )}
     </div>
     </TooltipProvider>
   )
@@ -1282,15 +1402,13 @@ function InfoHint({ label, className }: { label: string; className?: string }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   Detail tab bar — switches the settings pane between per-scenario tabs
-   (Cadence, Escalation, Custom Messaging) and property-wide tabs
-   (Guardrails, Change Log) so only one tall section renders at a time.
+   Detail tab bar — switches the settings pane between Cadence (per-scenario),
+   Guardrails (property-wide guardrails + per-scenario custom messaging at the
+   bottom), and Change Log (property-wide audit trail). Only one tall section
+   renders at a time.
    ══════════════════════════════════════════════════════════════════════════ */
 
 const DETAIL_TABS: { id: DetailTab; label: string; icon: typeof Clock }[] = [
-  { id: "cadence", label: "Cadence", icon: Clock },
-  { id: "escalation", label: "Escalation", icon: Users },
-  { id: "messaging", label: "Custom Messaging", icon: MessageSquare },
   { id: "guardrails", label: "Guardrails", icon: ShieldCheck },
   { id: "changelog", label: "Change Log", icon: History },
 ]
@@ -1344,6 +1462,8 @@ function SectionShell({
   description,
   hint,
   headerAction,
+  collapsible = false,
+  defaultOpen = true,
   children,
 }: {
   icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>
@@ -1353,13 +1473,36 @@ function SectionShell({
   description: string
   hint?: string
   headerAction?: React.ReactNode
+  /** When true, the header includes a chevron toggle and the body can be hidden. */
+  collapsible?: boolean
+  /** Initial open state when `collapsible` is true. Defaults to open. */
+  defaultOpen?: boolean
   children: React.ReactNode
 }) {
   // Fold description + hint into a single tooltip so the header stays clean.
   const tip = [description, hint].filter(Boolean).join(" ")
+  const [open, setOpen] = useState(defaultOpen)
+  const isOpen = collapsible ? open : true
+  const bodyId = collapsible ? `${title.toLowerCase().replace(/\s+/g, "-")}-body` : undefined
+  const HeaderTag: "button" | "div" = collapsible ? "button" : "div"
+  const headerProps = collapsible
+    ? {
+        type: "button" as const,
+        onClick: () => setOpen((v) => !v),
+        "aria-expanded": isOpen,
+        "aria-controls": bodyId,
+      }
+    : {}
   return (
     <section className="rounded-xl border border-border bg-white">
-      <div className="flex items-center gap-3 border-b border-border px-5 py-4">
+      <HeaderTag
+        {...headerProps}
+        className={cn(
+          "flex w-full items-center gap-3 px-5 py-4 text-left",
+          isOpen && "border-b border-border",
+          collapsible && "cursor-pointer select-none hover:bg-muted/40",
+        )}
+      >
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-900 text-white">
           <Icon className="h-4 w-4" aria-hidden />
         </div>
@@ -1369,9 +1512,26 @@ function SectionShell({
             {tip && <InfoHint label={tip} />}
           </div>
         </div>
-        {headerAction && <div className="shrink-0 self-center">{headerAction}</div>}
-      </div>
-      <div className="px-5 py-5">{children}</div>
+        {headerAction && (
+          <div className="shrink-0 self-center" onClick={(e) => e.stopPropagation()}>
+            {headerAction}
+          </div>
+        )}
+        {collapsible && (
+          <ChevronDown
+            aria-hidden
+            className={cn(
+              "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+              isOpen ? "rotate-0" : "-rotate-90",
+            )}
+          />
+        )}
+      </HeaderTag>
+      {isOpen && (
+        <div id={bodyId} className="px-5 py-5">
+          {children}
+        </div>
+      )}
     </section>
   )
 }
@@ -1405,14 +1565,14 @@ function ScenarioEnableBanner({
             </>
           ),
         }
-      : enabled && scenario === "late"
+      : enabled && (scenario === "late" || scenario === "legal")
         ? {
             icon: Info,
             text: (
               <>
                 Payments AI will not change your legal notices. This scenario controls a separate
-                collections nudge with a different tone from the formal delinquency notices in Company
-                Settings.
+                collections nudge. Standard delinquency and collections notices will continue to be
+                sent per your Delinquency and Collections policies.
               </>
             ),
           }
@@ -1440,8 +1600,8 @@ function ScenarioEnableBanner({
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
             {enabled
-              ? "The agent runs this scenario's identity, cadence, and escalation as configured below."
-              : "The agent will not run any outreach, cadence, or escalation for this scenario. Its settings are saved but inactive."}
+              ? "The agent runs this scenario's identity, cadence, and messaging as configured below."
+              : "The agent will not run any outreach or cadence for this scenario. Its settings are saved but inactive."}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2 self-center">
@@ -1499,9 +1659,8 @@ const JOURNEY_EVENT_DEFS: JourneyEventDef[] = [
     key: "chargesPosted",
     label: "Charges Posted",
     icon: Receipt,
-    dateLabel: (r) => `${r.chargesPostedStartDay}${ordinalSuffix(r.chargesPostedStartDay)}\u2013${r.chargesPostedEndDay}${ordinalSuffix(r.chargesPostedEndDay)} of prior month`,
+    dateLabel: (r) => `${r.chargesPostedStartDay}${ordinalSuffix(r.chargesPostedStartDay)} of the prior month`,
     sourceSetting: "Rent Charge Date",
-    isRange: true,
   },
   {
     key: "rentDue",
@@ -1581,7 +1740,7 @@ function buildPhases(a: JourneyAnchors): PhaseDef[] {
       label: "Before rent due",
       dayStart: a.chargesPostedStart - 2,
       dayEnd: a.rentDue,
-      widthPct: 22,
+      widthPct: 16,
       events: ["chargesPosted", "rentDue"],
     },
     {
@@ -1589,7 +1748,7 @@ function buildPhases(a: JourneyAnchors): PhaseDef[] {
       label: "Delinquency & eviction cycle",
       dayStart: a.rentDue,
       dayEnd: a.eviction,
-      widthPct: 40,
+      widthPct: 42,
       events: ["firstDelinquencyNotice", "lateFees", "secondDelinquencyNotice", "eviction"],
     },
     {
@@ -1597,7 +1756,7 @@ function buildPhases(a: JourneyAnchors): PhaseDef[] {
       label: "Post move-out & collections",
       dayStart: a.eviction,
       dayEnd: a.balanceSentToCollections + 4,
-      widthPct: 38,
+      widthPct: 42,
       events: ["financialMoveout", "firstCollectionsNotice", "balanceSentToCollections"],
     },
   ]
@@ -1667,212 +1826,205 @@ function JourneyTimeline({
       icon={CalendarRange}
       title="Collection journey"
       description="The full lifecycle from charge posting through balance sent to collections. Nine anchor events, derived from Property Settings."
-      hint="The track is split into three phases (Before Rent Due / Delinquency & Eviction Cycle / Post Move-Out & Collections). Each phase has its own proportional day scale so tightly-clustered events get breathing room while scenario bands still flow smoothly across the whole journey."
+      hint="Numbered ①–⑨ markers plot each event on the axis; the legend below matches those numbers to the event, its date, and its source setting. The axis is split into three phases (Before Rent Due / Delinquency & Eviction Cycle / Post Move-Out & Collections) with proportional day scales so tightly-clustered events get breathing room. Scenario bands flow smoothly across the whole track."
+      collapsible
     >
       <TooltipProvider delayDuration={200}>
-        <div className="space-y-5">
-          <div className="overflow-x-auto">
-            <div className="relative min-w-[1080px] pb-2">
-              {/* Axis header block: wraps the phase-header row, event marker
-                 row, and marker-label row inside the same `w-32 spacer +
-                 flex-1 track` layout as each scenario-band row below. This
-                 keeps the % coordinate system identical across all rows so
-                 events and scenario dots line up vertically. */}
-              <div className="flex items-stretch gap-3 pl-2 pr-2">
-                <div className="w-32 shrink-0" aria-hidden />
-                <div className="flex-1">
-                  {/* Phase-header row: three equal-width phase cells with day-count subtitles. */}
-                  <div className="relative flex h-12 items-end text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    {phases.map((p, i) => {
-                      const dayCount = p.dayEnd - p.dayStart
-                      return (
-                        <div
-                          key={p.key}
-                          className={cn(
-                            "relative flex flex-col justify-end px-2 pb-1",
-                            i > 0 && "border-l border-dashed border-zinc-300",
-                          )}
-                          style={{ width: `${p.widthPct}%` }}
-                        >
-                          <span className="block leading-tight text-foreground">{p.label}</span>
-                          <span className="block text-[9px] font-normal normal-case tracking-normal text-muted-foreground/80">
-                            {dayCount} day{dayCount === 1 ? "" : "s"}
-                          </span>
-                        </div>
-                      )
-                    })}
-                  </div>
-
-                  {/* Axis line with markers, Charges Posted range pill, and phase dividers. */}
-                  <div className="relative mt-2 h-10">
-                    {/* baseline */}
-                    <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-zinc-200" aria-hidden />
-
-                    {/* Charges Posted range pill spans start..end within Phase 1. */}
+        <div className="space-y-4">
+          {/* Axis block — the label column (w-24) is empty here; it stays in
+             sync with each scenario band's label column below so the axis
+             ticks and the band tracks line up horizontally without needing
+             a hard-coded minimum width. */}
+          <div className="flex w-full items-stretch gap-3 px-2">
+            <div className="w-24 shrink-0" aria-hidden />
+            <div className="relative flex-1">
+              {/* Phase-header row */}
+              <div className="relative flex h-12 items-end text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {phases.map((p, i) => {
+                  const dayCount = p.dayEnd - p.dayStart
+                  return (
                     <div
-                      className="absolute top-1/2 h-3 -translate-y-1/2 rounded-full border border-zinc-300 bg-zinc-100"
-                      style={{
-                        left: `${dayPct(anchors.chargesPostedStart)}%`,
-                        width: `${Math.max(dayPct(anchors.chargesPostedEnd) - dayPct(anchors.chargesPostedStart), 0.5)}%`,
-                      }}
-                      aria-hidden
-                    />
-
-                    {/* Phase dividers. */}
-                    {phaseBoundaries.map((pct) => (
-                      <div
-                        key={pct}
-                        className="absolute inset-y-0 border-l border-dashed border-zinc-300"
-                        style={{ left: `${pct}%` }}
-                        aria-hidden
-                      />
-                    ))}
-
-                    {/* Event markers */}
-                    {JOURNEY_EVENT_DEFS.map((e) => {
-                      const day = anchors[e.key]
-                      const Icon = e.icon
-                      return (
-                        <Tooltip key={e.key}>
-                          <TooltipTrigger asChild>
-                            <span
-                              className="absolute top-1/2 z-10 inline-flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 cursor-help items-center justify-center rounded-full bg-zinc-900 text-white shadow-sm ring-2 ring-white"
-                              style={{ left: `${dayPct(day)}%` }}
-                              aria-label={e.label}
-                            >
-                              <Icon className="h-2.5 w-2.5" aria-hidden />
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="max-w-xs text-xs">
-                            <div className="font-semibold">{e.label}</div>
-                            <div className="mt-0.5 text-muted-foreground">{e.dateLabel(resolvedSettings)}</div>
-                            <div className="mt-1 text-[10px] text-muted-foreground">{axisDayLabel(day)}</div>
-                            {e.sourceSetting && (
-                              <div className="mt-1 text-[10px] text-muted-foreground">
-                                Source: <span className="font-medium text-foreground">{e.sourceSetting}</span>
-                              </div>
-                            )}
-                          </TooltipContent>
-                        </Tooltip>
-                      )
-                    })}
-                  </div>
-
-                  {/* Marker labels — alternate above/below to avoid collision on
-                     tightly-clustered events (e.g., 1st delinquency + late fees).
-                     Labels wrap to 2 lines rather than truncate. */}
-                  <div className="relative h-24">
-                    {JOURNEY_EVENT_DEFS.map((e, i) => {
-                      const day = e.key === "chargesPosted" ? anchors.chargesPostedStart : anchors[e.key]
-                      const isTopRow = i % 2 === 0
-                      return (
-                        <div
-                          key={e.key}
-                          className={cn(
-                            "absolute w-24 -translate-x-1/2 text-center",
-                            isTopRow ? "top-0" : "top-12",
-                          )}
-                          style={{ left: `${dayPct(day)}%` }}
-                        >
-                          <div className="text-[10px] font-semibold leading-tight text-foreground" title={e.label}>
-                            {e.label}
-                          </div>
-                          <div className="mt-0.5 text-[9px] leading-tight text-muted-foreground">
-                            {e.dateLabel(resolvedSettings)}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
+                      key={p.key}
+                      className={cn(
+                        "relative flex flex-col justify-end px-2 pb-1",
+                        i > 0 && "border-l border-dashed border-zinc-300",
+                      )}
+                      style={{ width: `${p.widthPct}%` }}
+                    >
+                      <span className="block leading-tight text-foreground">{p.label}</span>
+                      <span className="block text-[9px] font-normal normal-case tracking-normal text-muted-foreground/80">
+                        {dayCount} day{dayCount === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                  )
+                })}
               </div>
 
-              {/* Scenario bands */}
-              <div className="mt-4 space-y-2 border-t border-border pt-4">
-                {cycleRows.map((id) => {
-                  const s = settingsFor(id)
-                  const meta = SCENARIO_TIMELINE_META[id]
-                  const scenarioMeta = SCENARIOS.find((x) => x.id === id)
-                  const step = steps.find((x) => x.id === id)!
-                  const sendDays = s.enabled ? projectSendDays(s, id, anchors) : []
-                  const isActive = id === active
-                  const bandStart = sendDays.length > 0 ? sendDays[0] : step.start
-                  const bandEnd = sendDays.length > 0 ? Math.max(sendDays[sendDays.length - 1], bandStart) : step.ceiling
-                  const bandLeftPct = dayPct(bandStart)
-                  const bandWidthPct = Math.max(dayPct(bandEnd) - bandLeftPct, 0.6)
+              {/* Axis line with numbered markers (①–⑨), Charges Posted range
+                 pill, and phase dividers. Numbers replace the icon-in-dot
+                 because 3 events share AlertTriangle and 2 share Gavel — the
+                 icon alone can't disambiguate. The full label + icon + date
+                 live in the legend directly below. */}
+              <div className="relative mt-2 h-10">
+                <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-zinc-200" aria-hidden />
+
+                {anchors.chargesPostedEnd > anchors.chargesPostedStart && (
+                  <div
+                    className="absolute top-1/2 h-3 -translate-y-1/2 rounded-full border border-zinc-300 bg-zinc-100"
+                    style={{
+                      left: `${dayPct(anchors.chargesPostedStart)}%`,
+                      width: `${Math.max(dayPct(anchors.chargesPostedEnd) - dayPct(anchors.chargesPostedStart), 0.5)}%`,
+                    }}
+                    aria-hidden
+                  />
+                )}
+
+                {phaseBoundaries.map((pct) => (
+                  <div
+                    key={pct}
+                    className="absolute inset-y-0 border-l border-dashed border-zinc-300"
+                    style={{ left: `${pct}%` }}
+                    aria-hidden
+                  />
+                ))}
+
+                {JOURNEY_EVENT_DEFS.map((e, i) => {
+                  const day = anchors[e.key]
                   return (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => onChange(id)}
-                      className={cn(
-                        "flex w-full items-center gap-3 rounded-md py-1.5 pl-2 pr-2 text-left transition-colors",
-                        isActive ? "bg-purple-50 ring-1 ring-purple-200" : "hover:bg-zinc-50",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "flex w-32 shrink-0 items-center gap-1.5 text-[11px] font-semibold",
-                          s.enabled ? meta.text : "text-muted-foreground",
-                        )}
-                      >
+                    <Tooltip key={e.key}>
+                      <TooltipTrigger asChild>
                         <span
-                          className={cn(
-                            "inline-block h-2 w-2 shrink-0 rounded-full",
-                            s.enabled ? meta.dot : "bg-zinc-300",
-                          )}
-                          aria-hidden
-                        />
-                        <span className="truncate">{scenarioMeta?.shortLabel}</span>
+                          className="absolute top-1/2 z-10 inline-flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 cursor-help items-center justify-center rounded-full bg-zinc-900 text-[10px] font-bold leading-none text-white shadow-sm ring-2 ring-white"
+                          style={{ left: `${dayPct(day)}%` }}
+                          aria-label={`${i + 1}. ${e.label}`}
+                        >
+                          {i + 1}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-xs text-xs">
+                        <div className="font-semibold">
+                          {i + 1}. {e.label}
+                        </div>
+                        <div className="mt-0.5 text-muted-foreground">{e.dateLabel(resolvedSettings)}</div>
+                        <div className="mt-1 text-[10px] text-muted-foreground">{axisDayLabel(day)}</div>
+                        {e.sourceSetting && (
+                          <div className="mt-1 text-[10px] text-muted-foreground">
+                            Source: <span className="font-medium text-foreground">{e.sourceSetting}</span>
+                          </div>
+                        )}
+                      </TooltipContent>
+                    </Tooltip>
+                  )
+                })}
+              </div>
+
+              {/* Legend — one entry per numbered axis marker. `auto-fill` +
+                 `minmax(180px, 1fr)` makes the grid wrap into as few or as
+                 many columns as the panel width allows, so the journey
+                 never triggers horizontal overflow. */}
+              <div className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-x-3 gap-y-1.5 text-[10px] leading-tight">
+                {JOURNEY_EVENT_DEFS.map((e, i) => {
+                  const Icon = e.icon
+                  return (
+                    <div key={e.key} className="flex items-start gap-1.5">
+                      <span className="mt-px inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-[9px] font-bold leading-none text-white">
+                        {i + 1}
                       </span>
-                      <div className="relative h-5 flex-1">
-                        {/* Phase divider echoes. */}
-                        {phaseBoundaries.map((pct) => (
-                          <div
-                            key={pct}
-                            className="absolute inset-y-0 border-l border-dashed border-zinc-200"
-                            style={{ left: `${pct}%` }}
-                            aria-hidden
-                          />
-                        ))}
-                        {/* baseline */}
-                        <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-zinc-100" aria-hidden />
-                        {/* the band */}
-                        {s.enabled && (
-                          <div
-                            className={cn(
-                              "absolute top-1/2 h-2 -translate-y-1/2 rounded-full",
-                              meta.band,
-                              isActive && "ring-2",
-                              isActive && meta.ring,
-                            )}
-                            style={{ left: `${bandLeftPct}%`, width: `${bandWidthPct}%` }}
-                          />
-                        )}
-                        {/* per-message dots */}
-                        {sendDays.map((d, idx) => (
-                          <span
-                            key={idx}
-                            className={cn(
-                              "absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-white",
-                              idx === 0 ? "h-3 w-3" : "h-2 w-2",
-                              meta.dot,
-                            )}
-                            style={{ left: `${dayPct(d)}%` }}
-                            title={`${scenarioMeta?.shortLabel}: ${axisDayLabel(d)}${idx === 0 ? " (first message)" : " (repeat)"}`}
-                          />
-                        ))}
-                        {!s.enabled && (
-                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] italic text-muted-foreground">
-                            Disabled
-                          </span>
-                        )}
+                      <Icon className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold text-foreground">{e.label}</div>
+                        <div className="text-muted-foreground">{e.dateLabel(resolvedSettings)}</div>
                       </div>
-                    </button>
+                    </div>
                   )
                 })}
               </div>
             </div>
+          </div>
+
+          {/* Scenario bands — each row is a two-column flex: fixed label
+             column (w-24, matches the axis spacer above so ticks and bands
+             line up) plus a fluid track. Nothing here has a minimum width;
+             it flexes down to whatever the panel gives us. */}
+          <div className="mt-2 space-y-2 border-t border-border pt-4">
+            {cycleRows.map((id) => {
+              const s = settingsFor(id)
+              const meta = SCENARIO_TIMELINE_META[id]
+              const scenarioMeta = SCENARIOS.find((x) => x.id === id)
+              const step = steps.find((x) => x.id === id)!
+              const sendDays = s.enabled ? projectSendDays(s, id, anchors) : []
+              const isActive = id === active
+              const bandStart = sendDays.length > 0 ? sendDays[0] : step.start
+              const bandEnd = sendDays.length > 0 ? Math.max(sendDays[sendDays.length - 1], bandStart) : step.ceiling
+              const bandLeftPct = dayPct(bandStart)
+              const bandWidthPct = Math.max(dayPct(bandEnd) - bandLeftPct, 0.6)
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => onChange(id)}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left transition-colors",
+                    isActive ? "bg-purple-50 ring-1 ring-purple-200" : "hover:bg-zinc-50",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex w-24 shrink-0 items-center gap-1.5 text-[11px] font-semibold",
+                      s.enabled ? meta.text : "text-muted-foreground",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "inline-block h-2 w-2 shrink-0 rounded-full",
+                        s.enabled ? meta.dot : "bg-zinc-300",
+                      )}
+                      aria-hidden
+                    />
+                    <span className="truncate">{scenarioMeta?.shortLabel}</span>
+                  </span>
+                  <div className="relative h-5 flex-1">
+                    {phaseBoundaries.map((pct) => (
+                      <div
+                        key={pct}
+                        className="absolute inset-y-0 border-l border-dashed border-zinc-200"
+                        style={{ left: `${pct}%` }}
+                        aria-hidden
+                      />
+                    ))}
+                    <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-zinc-100" aria-hidden />
+                    {s.enabled && (
+                      <div
+                        className={cn(
+                          "absolute top-1/2 h-2 -translate-y-1/2 rounded-full",
+                          meta.band,
+                          isActive && "ring-2",
+                          isActive && meta.ring,
+                        )}
+                        style={{ left: `${bandLeftPct}%`, width: `${bandWidthPct}%` }}
+                      />
+                    )}
+                    {sendDays.map((d, idx) => (
+                      <span
+                        key={idx}
+                        className={cn(
+                          "absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-white",
+                          idx === 0 ? "h-3 w-3" : "h-2 w-2",
+                          meta.dot,
+                        )}
+                        style={{ left: `${dayPct(d)}%` }}
+                        title={`${scenarioMeta?.shortLabel}: ${axisDayLabel(d)}${idx === 0 ? " (first message)" : " (repeat)"}`}
+                      />
+                    ))}
+                    {!s.enabled && (
+                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] italic text-muted-foreground">
+                        Disabled
+                      </span>
+                    )}
+                  </div>
+                </button>
+              )
+            })}
           </div>
 
           <JourneyOverlapWarning store={store} current={current} active={active} anchors={anchors} />
@@ -1929,7 +2081,7 @@ function JourneyOverlapWarning({
 
 /* ══════════════════════════════════════════════════════════════════════════
    Scenario rail — single persistent selector (item 6).
-   Sticky so it stays visible while the Identity / Cadence / Escalation blocks
+   Sticky so it stays visible while the Identity / Cadence / Messaging blocks
    scroll. The active scenario is clearly highlighted.
    ══════════════════════════════════════════════════════════════════════════ */
 
@@ -1941,70 +2093,57 @@ function scenarioCadenceSummary(s: ScenarioSettings): string {
   return `${opener} · every ${s.repeatInterval}d`
 }
 
-function ScenarioRail({
+/* ══════════════════════════════════════════════════════════════════════════
+   Scenario tab bar — horizontal, sits at the top of the Cadence card inside
+   the Guardrails tab, immediately followed by the per-scenario enable banner.
+   It drives the active scenario for every per-scenario block inside Cadence
+   (cadence controls + Custom Text). Not rendered on Change Log.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function ScenarioTabBar({
   scenario,
   store,
   current,
   onChange,
-  highlightAll = false,
 }: {
   scenario: ScenarioId
   store: Record<ScenarioId, ScenarioSettings>
   current: PanelState
   onChange: (s: ScenarioId) => void
-  /** When true, every scenario renders with the active purple styling so it
-   *  reads as "applies to all". Used for property-wide tabs (Guardrails). */
-  highlightAll?: boolean
 }) {
   return (
     <div className="w-full">
       <div
-        role="radiogroup"
+        role="tablist"
         aria-label="Scenario"
-        className={cn(
-          "space-y-2 rounded-xl border bg-white p-2.5 transition-colors",
-          highlightAll ? "border-purple-300 ring-1 ring-purple-200/60" : "border-border",
-        )}
+        className="flex flex-wrap items-stretch gap-2 rounded-xl border border-border bg-white p-2 transition-colors"
       >
-        <p className={cn(
-          "px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider",
-          highlightAll ? "text-purple-700" : "text-muted-foreground",
-        )}>
-          {highlightAll ? "Applies to all scenarios" : "Editing scenario"}
-        </p>
+        <div className="flex items-center px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Editing scenario
+        </div>
         {SCENARIOS.map((s) => {
           const active = scenario === s.id
           const settings = active ? extractScenarioSettings(current) : store[s.id]
           const enabled = settings.enabled
           const outOfScope = s.outOfScope
-          const visualActive = highlightAll ? !outOfScope : active
           return (
             <button
               key={s.id}
               type="button"
-              role="radio"
-              aria-checked={active}
+              role="tab"
+              aria-selected={active}
               onClick={() => onChange(s.id)}
               className={cn(
-                "relative w-full rounded-lg border px-3 py-2.5 text-left transition-all",
-                visualActive
+                "flex-1 min-w-[160px] rounded-lg border px-3 py-1.5 text-left transition-all",
+                active
                   ? outOfScope
-                    ? "border-rose-300 bg-rose-50 text-rose-950 shadow-sm ring-2 ring-rose-200/60"
-                    : "border-purple-400 bg-purple-100 text-purple-950 shadow-sm ring-2 ring-purple-300/50"
+                    ? "border-rose-300 bg-rose-50 text-rose-950 ring-1 ring-rose-200/60"
+                    : "border-purple-400 bg-purple-100 text-purple-950 ring-1 ring-purple-300/50"
                   : "border-border bg-white text-foreground hover:border-zinc-400 hover:bg-zinc-50",
               )}
             >
-              {visualActive && (
-                <span
-                  className={cn(
-                    "absolute inset-y-0 left-0 w-1 rounded-l-lg",
-                    outOfScope ? "bg-rose-500" : "bg-purple-500",
-                  )}
-                  aria-hidden
-                />
-              )}
-              <div className="flex items-center justify-between gap-1.5">
-                <span className="flex items-center gap-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex min-w-0 items-center gap-1.5">
                   <span
                     className={cn(
                       "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
@@ -2012,7 +2151,12 @@ function ScenarioRail({
                     )}
                     aria-hidden
                   />
-                  <span className={cn("whitespace-nowrap text-sm font-semibold leading-tight", !enabled && !outOfScope && "opacity-60")}>
+                  <span
+                    className={cn(
+                      "truncate whitespace-nowrap text-sm font-semibold leading-tight",
+                      !enabled && !outOfScope && "opacity-60",
+                    )}
+                  >
                     {s.title}
                   </span>
                 </span>
@@ -2020,7 +2164,7 @@ function ScenarioRail({
                   <span className="shrink-0 rounded-full bg-rose-200 px-1.5 py-0.5 text-[8px] font-semibold uppercase leading-tight tracking-wide text-rose-800">
                     Out of scope
                   </span>
-                ) : highlightAll ? null : active ? (
+                ) : active ? (
                   <span className="shrink-0 rounded-full bg-purple-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-purple-700">
                     Editing
                   </span>
@@ -2030,10 +2174,17 @@ function ScenarioRail({
                   </span>
                 ) : null}
               </div>
-              <div className={cn("mt-0.5 text-[11px] leading-snug", visualActive ? (outOfScope ? "text-rose-900/75" : "text-purple-900/75") : "text-muted-foreground", !enabled && !outOfScope && "opacity-70")}>
-                {s.helper}
-              </div>
-              <div className={cn("mt-1.5 text-[10px] font-medium tabular-nums", visualActive ? (outOfScope ? "text-rose-800/70" : "text-purple-800/70") : "text-zinc-500", !enabled && !outOfScope && "opacity-70")}>
+              <div
+                className={cn(
+                  "mt-0.5 truncate text-[10px] font-medium tabular-nums",
+                  active
+                    ? outOfScope
+                      ? "text-rose-800/70"
+                      : "text-purple-800/70"
+                    : "text-zinc-500",
+                  !enabled && !outOfScope && "opacity-70",
+                )}
+              >
                 {outOfScope ? "Pending legal review" : enabled ? scenarioCadenceSummary(settings) : "Disabled"}
               </div>
             </button>
@@ -2051,14 +2202,10 @@ function ScenarioRail({
 function AgentIdentitySection({
   state,
   update,
-  agentDisplayLabel,
 }: {
   state: PanelState
   update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
-  agentDisplayLabel: string
 }) {
-  const placeholder = `your ${agentDisplayLabel.toLowerCase().replace(/^eli\+\s*/i, "")} assistant`
-
   return (
     <SectionShell
       icon={Bot}
@@ -2070,12 +2217,12 @@ function AgentIdentitySection({
         <div>
           <div className="flex items-center gap-1.5">
             <label className="text-xs font-medium text-foreground">Display name</label>
-            <InfoHint label="The name the agent uses to refer to itself in messages. Leave blank to use the generic assistant name." />
+            <InfoHint label="The name the agent uses to refer to itself in messages. Default is Eli." />
           </div>
           <Input
             value={state.agentDisplayName}
             onChange={(e) => update("agentDisplayName", e.target.value)}
-            placeholder={placeholder}
+            placeholder="Eli"
             maxLength={40}
             className="mt-1.5"
           />
@@ -2086,357 +2233,101 @@ function AgentIdentitySection({
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   Escalation section
+   Custom Text grid — intro + repeat copy for every scenario (2 cols × 3 rows)
    ══════════════════════════════════════════════════════════════════════════ */
 
-const PRESET_BUTTONS: { id: PresetId; label: string }[] = [
-  { id: "minimum", label: "Minimum" },
-  { id: "standard", label: "Standard" },
-  { id: "high-touch", label: "High-touch" },
-  { id: "compliance", label: "Compliance" },
-]
-
-function EscalationSection({
-  state,
-  onPresetChange,
-  onCategoryToggle,
-  onConfidenceChange,
-  onRoutingChange,
-  propertyContext,
+function ScenarioCustomTextGrid({
+  activeScenario,
+  scenarioStore,
+  current,
+  onMessageChange,
 }: {
-  state: PanelState
-  onPresetChange: (p: PresetId) => void
-  onCategoryToggle: (c: CategoryId, on: boolean) => void
-  onConfidenceChange: (v: number) => void
-  onRoutingChange: (
-    c: CategoryId,
-    patch: Partial<{ targetType: RouteTargetType; targetId: string; slaHours: number }>,
-  ) => void
-  propertyContext: PropertyContextView
+  activeScenario: ScenarioId
+  scenarioStore: Record<ScenarioId, ScenarioSettings>
+  current: PanelState
+  onMessageChange: (scenarioId: ScenarioId, field: "introMessage" | "repeatMessage", value: string) => void
 }) {
-  const presetMeta =
-    state.preset === "custom"
-      ? { label: "Custom", badgeCls: "bg-zinc-100 text-zinc-800", help: "You've tuned this manually; the bundled presets no longer apply." }
-      : { label: ESCALATION_PRESETS[state.preset].label, badgeCls: ESCALATION_PRESETS[state.preset].badgeCls, help: ESCALATION_PRESETS[state.preset].help }
+  const settingsFor = (id: ScenarioId) =>
+    id === activeScenario ? extractScenarioSettings(current) : scenarioStore[id]
 
-  const activeCats = (Object.keys(state.categories) as CategoryId[]).filter((c) => state.categories[c])
-  const hasActive = activeCats.length > 0
+  const textareaClass =
+    "w-full resize-y rounded-md border border-border bg-white px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/20"
 
   return (
-    <SectionShell
-      icon={Users}
-      title="Escalation"
-      description="When the agent should hand a conversation to a human."
-      hint="Defines the situations that pull a human in: which categories the agent escalates, its confidence threshold, and where each escalation routes."
-    >
-      <div className="space-y-5">
-        {/* Policy preset */}
-        <div>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Policy preset
-              </label>
-              <InfoHint label={presetMeta.help} />
-            </div>
-            <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium", presetMeta.badgeCls)}>
-              {presetMeta.label}
-            </span>
-          </div>
-          <div className="mt-1.5 inline-flex flex-wrap items-center gap-1 rounded-md border border-border bg-white p-1 shadow-sm">
-            {PRESET_BUTTONS.map((btn) => {
-              const active = state.preset === btn.id
-              return (
-                <button
-                  key={btn.id}
-                  type="button"
-                  onClick={() => onPresetChange(btn.id)}
-                  className={cn(
-                    "rounded px-2.5 py-1 text-xs font-medium transition-colors",
-                    active
-                      ? "bg-zinc-900 text-white shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {btn.label}
-                </button>
-              )
-            })}
-          </div>
-        </div>
+    <div className="rounded-lg border border-border bg-zinc-50/40 p-4">
+      <div className="flex items-center gap-1.5">
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-foreground">Custom Text</h4>
+        <InfoHint label="Customize the first message the agent sends and the follow-up it repeats for each scenario. Merge tags {name}, {balance}, and {link} are replaced at send time." />
+      </div>
 
-        {/* Category toggles */}
-        <div>
-          <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Trigger categories
-          </label>
-          <div className="mt-1.5 divide-y divide-border rounded-md border border-border bg-white">
-            {CATEGORIES.map((cat) => {
-              const on = state.categories[cat.id]
-              return (
-                <div key={cat.id} className="flex items-start justify-between gap-3 p-3">
-                  <div className="min-w-0 flex flex-col gap-1">
-                    <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                      {cat.label}
-                      <InfoHint label={cat.description} />
-                    </span>
+      <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Intro message</p>
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Repeat message</p>
+      </div>
 
-                    {cat.id === "unanswered" && (
-                      <div
-                        className={cn(
-                          "mt-2 flex flex-col gap-1.5 rounded-md border border-border bg-zinc-50/40 p-2.5 transition-opacity",
-                          on ? "opacity-100" : "opacity-60",
-                        )}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-medium text-foreground">Confidence floor</span>
-                          <span className="text-xs tabular-nums text-foreground">{state.confidence}%</span>
-                        </div>
-                        <input
-                          type="range"
-                          min={0}
-                          max={100}
-                          value={state.confidence}
-                          disabled={!on}
-                          onChange={(e) => onConfidenceChange(Number(e.target.value))}
-                          className="w-full accent-zinc-900"
-                        />
-                      </div>
-                    )}
-                  </div>
-                  <ToggleSwitch checked={on} onChange={(next) => onCategoryToggle(cat.id, next)} />
-                </div>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* Routing matrix */}
-        <div>
-          <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Routing
-          </label>
-          <div className="mt-1.5 overflow-hidden rounded-md border border-border bg-white">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="bg-zinc-50/60 text-left">
-                  <th className="px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Trigger</th>
-                  <th className="px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Routes to</th>
-                  <th className="px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">SLA</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {hasActive ? (
-                  activeCats.map((cat) => {
-                    const route = state.routing[cat]
-                    const label = CATEGORIES.find((c) => c.id === cat)?.label ?? cat
-                    const targetOptions = ROUTING_OPTIONS[route.targetType]
-                    return (
-                      <tr key={cat}>
-                        <td className="whitespace-nowrap px-3 py-2 align-top text-foreground">{label}</td>
-                        <td className="px-3 py-2">
-                          <div className="flex gap-1.5">
-                            <Select
-                              value={route.targetType}
-                              onValueChange={(v) => onRoutingChange(cat, { targetType: v as RouteTargetType })}
-                            >
-                              <SelectTrigger className="h-7 w-[110px] text-xs">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {(Object.keys(ROUTING_TYPE_LABEL) as RouteTargetType[]).map((t) => (
-                                  <SelectItem key={t} value={t}>
-                                    {ROUTING_TYPE_LABEL[t]}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <Select
-                              value={route.targetId}
-                              onValueChange={(v) => onRoutingChange(cat, { targetId: v })}
-                            >
-                              <SelectTrigger className="h-7 flex-1 text-xs">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {targetOptions.map((opt) => (
-                                  <SelectItem key={opt.id} value={opt.id}>
-                                    {opt.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </td>
-                        <td className="px-3 py-2 align-top">
-                          <div className="flex items-center gap-1">
-                            <Input
-                              type="number"
-                              min={0}
-                              value={route.slaHours}
-                              onChange={(e) => onRoutingChange(cat, { slaHours: Math.max(0, Number(e.target.value) || 0) })}
-                              className="h-7 w-14 text-center text-xs"
-                            />
-                            <span className="text-muted-foreground">h</span>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })
-                ) : (
-                  <tr>
-                    <td colSpan={3} className="px-3 py-4 text-center text-xs text-muted-foreground">
-                      No active triggers. Turn on a category above to configure routing.
-                    </td>
-                  </tr>
+      <div className="mt-2 space-y-4">
+        {SCENARIOS.map((s) => {
+          const settings = settingsFor(s.id)
+          const isActive = activeScenario === s.id
+          return (
+            <div
+              key={s.id}
+              className={cn(
+                "grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border p-3 transition-colors",
+                isActive ? "border-purple-300 bg-purple-50/40" : "border-border/60 bg-white",
+              )}
+            >
+              <p
+                className={cn(
+                  "col-span-2 flex items-center gap-2 text-xs font-semibold",
+                  isActive ? "text-purple-900" : "text-foreground",
                 )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+              >
+                <span
+                  className={cn(
+                    "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
+                    settings.enabled ? "bg-emerald-500" : "bg-zinc-400",
+                  )}
+                  aria-hidden
+                />
+                {s.title}
+                {isActive && (
+                  <span className="rounded-full bg-purple-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-purple-700">
+                    Editing cadence
+                  </span>
+                )}
+              </p>
+              <textarea
+                value={settings.introMessage}
+                onChange={(e) => onMessageChange(s.id, "introMessage", e.target.value)}
+                rows={3}
+                aria-label={`${s.title} intro message`}
+                className={textareaClass}
+              />
+              <textarea
+                value={settings.repeatMessage}
+                onChange={(e) => onMessageChange(s.id, "repeatMessage", e.target.value)}
+                rows={3}
+                aria-label={`${s.title} repeat message`}
+                className={textareaClass}
+              />
+            </div>
+          )
+        })}
       </div>
-    </SectionShell>
-  )
-}
 
-/* ══════════════════════════════════════════════════════════════════════════
-   Messages section — customizable intro + repeat outreach copy per scenario
-   ══════════════════════════════════════════════════════════════════════════ */
-
-function MessagesSection({
-  state,
-  update,
-}: {
-  state: PanelState
-  update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
-}) {
-  return (
-    <SectionShell
-      icon={MessageSquare}
-      title="Messages"
-      description="The copy the agent sends for this scenario."
-      hint="Customize the first message the agent sends and the follow-up it repeats. Use {name}, {balance}, and {link} as merge tags that fill in at send time."
-    >
-      <div className="space-y-5">
-        <div>
-          <div className="flex items-center gap-1.5">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Intro message
-            </label>
-            <InfoHint label="The first message the agent sends when this scenario fires. Merge tags {name}, {balance}, and {link} are replaced at send time." />
-          </div>
-          <textarea
-            value={state.introMessage}
-            onChange={(e) => update("introMessage", e.target.value)}
-            rows={3}
-            className="mt-1.5 w-full resize-y rounded-md border border-border bg-white px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/20"
-          />
-        </div>
-
-        <div>
-          <div className="flex items-center gap-1.5">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Repeat message
-            </label>
-            <InfoHint label="The follow-up message sent on each repeat after the intro. Merge tags {name}, {balance}, and {link} are replaced at send time." />
-          </div>
-          <textarea
-            value={state.repeatMessage}
-            onChange={(e) => update("repeatMessage", e.target.value)}
-            rows={3}
-            className="mt-1.5 w-full resize-y rounded-md border border-border bg-white px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/20"
-          />
-        </div>
-
-        <p className="text-[11px] text-muted-foreground">
-          Merge tags: <code className="rounded bg-zinc-100 px-1 py-0.5">{"{name}"}</code>{" "}
-          <code className="rounded bg-zinc-100 px-1 py-0.5">{"{balance}"}</code>{" "}
-          <code className="rounded bg-zinc-100 px-1 py-0.5">{"{link}"}</code>
-        </p>
-      </div>
-    </SectionShell>
-  )
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
-   Delinquency — legal notice display + outreach mode
-   ══════════════════════════════════════════════════════════════════════════ */
-
-function LegalNoticeScheduleCard({ propertyContext }: { propertyContext: PropertyContextView }) {
-  return (
-    <div className="rounded-lg border border-border bg-zinc-50/60 px-4 py-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5">
-            <p className="text-xs font-semibold text-foreground">Legal notice schedule (Company Settings)</p>
-            <InfoHint
-              label={`Formal delinquency notices are configured in ${propertyContext.companySettingsPath}. SMS is not offered for legal notices; delivery is email and/or hand-deliver depending on jurisdiction.`}
-            />
-          </div>
-          <p className="mt-1.5 text-sm text-foreground">{propertyContext.legalNoticeSchedule}</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Delivery method: <span className="font-medium text-foreground">{propertyContext.legalNoticeDelivery}</span>
-            {" · "}
-            Delinquency begins: <span className="font-medium text-foreground">{propertyContext.delinquencyPolicy}</span>
-          </p>
-        </div>
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-white px-2 py-1 text-[10px] font-medium text-muted-foreground">
-          <ExternalLink className="h-3 w-3" aria-hidden />
-          {propertyContext.companySettingsPath}
-        </span>
-      </div>
-      <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-        Payments AI does not replace these legal notices. It can run a separate, lighter-tone collections nudge
-        alongside them when enabled below.
+      <p className="mt-3 text-[11px] text-muted-foreground">
+        Merge tags: <code className="rounded bg-zinc-100 px-1 py-0.5">{"{name}"}</code>{" "}
+        <code className="rounded bg-zinc-100 px-1 py-0.5">{"{balance}"}</code>{" "}
+        <code className="rounded bg-zinc-100 px-1 py-0.5">{"{link}"}</code>
       </p>
     </div>
   )
 }
 
-function DelinquencyOutreachMode({
-  mode,
-  onChange,
-}: {
-  mode: DelinquencyMode
-  onChange: (m: DelinquencyMode) => void
-}) {
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-1.5">
-        <label className="text-xs font-semibold uppercase tracking-wider text-foreground">Payments AI outreach</label>
-        <InfoHint label="Choose whether Payments AI sends its own collections nudge or defers entirely to the legal notice schedule in Company Settings." />
-      </div>
-      <div className="inline-flex flex-wrap items-center gap-1 rounded-md border border-border bg-white p-1 shadow-sm">
-        {(
-          [
-            { id: "defer" as const, label: "Defaults to property settings" },
-            { id: "nudge" as const, label: "Payments AI nudges" },
-          ] as const
-        ).map((opt) => {
-          const active = mode === opt.id
-          return (
-            <button
-              key={opt.id}
-              type="button"
-              onClick={() => onChange(opt.id)}
-              className={cn(
-                "rounded px-2.5 py-1.5 text-xs font-medium transition-colors",
-                active ? "bg-zinc-900 text-white shadow-sm" : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {opt.label}
-            </button>
-          )
-        })}
-      </div>
-      {mode === "defer" && (
-        <p className="text-xs text-muted-foreground">
-          Payments AI will not send nudges. Legal notices follow your Company Settings schedule only.
-        </p>
-      )}
-    </div>
-  )
-}
+/* ══════════════════════════════════════════════════════════════════════════
+   Repayment agreements
+   ══════════════════════════════════════════════════════════════════════════ */
 
 function RepaymentAgreementsSection({
   state,
@@ -2449,135 +2340,156 @@ function RepaymentAgreementsSection({
 }) {
   return (
     <GuardrailSubsection
-      title="Allow agent to propose repayment agreements"
-      description="Whether Payments AI can propose structured repayment plans on the property's behalf, and the balance and term limits for agent-negotiated offers. Residents outside these rails are directed to pay in full or escalated to staff."
+      title="Allow ELI+ to offer repayment agreements"
+      description="Whether Payments AI may present repayment plans as an option during resident conversations. When off, ELI+ does not mention repayment agreements as an option."
       masterToggle={
         <ToggleSwitch
-          checked={state.repaymentOfferEnabled}
-          onChange={(v) => update("repaymentOfferEnabled", v)}
+          checked={state.repaymentOfferAllowed}
+          onChange={(v) => update("repaymentOfferAllowed", v)}
         />
       }
     >
-      {state.repaymentOfferEnabled ? (
-        <div className="grid gap-x-4 gap-y-1 md:grid-cols-2">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Eligibility
-            </p>
-            <div className="mt-1 divide-y divide-border/40">
-              <GuardrailRule
-                layout="row"
-                title="Require good standing"
-                description="Only residents without chronic delinquency or recent violations are eligible for an agent-negotiated repayment agreement."
-              >
-                <ToggleSwitch
-                  checked={state.repaymentRequireGoodStanding}
-                  onChange={(v) => update("repaymentRequireGoodStanding", v)}
-                />
-              </GuardrailRule>
-              <GuardrailRule
-                layout="row"
-                title="Minimum balance"
-                description="Below this, the agent asks for payment in full instead of offering a plan."
-              >
-                <BalanceThresholdInput
-                  value={state.repaymentMinBalance}
-                  onChange={(v) => update("repaymentMinBalance", v)}
-                  avgRent={avgRent}
-                  className="space-y-0.5"
-                />
-              </GuardrailRule>
-              <GuardrailRule
-                layout="row"
-                title="Maximum balance"
-                description="Above this, the agent escalates to a human before proposing terms."
-              >
-                <BalanceThresholdInput
-                  value={state.repaymentMaxBalance}
-                  onChange={(v) => update("repaymentMaxBalance", v)}
-                  avgRent={avgRent}
-                  className="space-y-0.5"
-                />
-              </GuardrailRule>
-            </div>
-          </div>
+      {state.repaymentOfferAllowed ? (
+        <div className="space-y-4">
+          <GuardrailRule
+            layout="row"
+            title="Allow ELI+ to create repayment agreements"
+            description="When on, ELI+ can create structured repayment plans on the property's behalf within the balance and term limits below. Residents outside these rails are directed to pay in full or escalated to staff."
+          >
+            <ToggleSwitch
+              checked={state.repaymentOfferEnabled}
+              onChange={(v) => update("repaymentOfferEnabled", v)}
+            />
+          </GuardrailRule>
 
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Offer terms
-            </p>
-            <div className="mt-1 divide-y divide-border/40">
-              <GuardrailRule
-                layout="row"
-                title="Minimum down payment"
-                description="Percent of the balance the resident must pay up front when the plan starts."
-              >
-                <div className="flex items-center gap-1.5 text-sm">
-                  <Input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={state.repaymentMinDownPercent}
-                    onChange={(e) =>
-                      update("repaymentMinDownPercent", Math.max(0, Math.min(100, Number(e.target.value) || 0)))
-                    }
-                    className="h-8 w-16 text-sm"
-                  />
-                  <span className="text-muted-foreground">%</span>
+          {state.repaymentOfferEnabled ? (
+            <div className="grid gap-x-4 gap-y-1 md:grid-cols-2">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Eligibility
+                </p>
+                <div className="mt-1 divide-y divide-border/40">
+                  <GuardrailRule
+                    layout="row"
+                    title="Minimum balance"
+                    description="Below this, ELI+ asks for payment in full instead of offering a plan."
+                  >
+                    <BalanceThresholdInput
+                      value={state.repaymentMinBalance}
+                      onChange={(v) => update("repaymentMinBalance", v)}
+                      avgRent={avgRent}
+                      className="space-y-0.5"
+                    />
+                  </GuardrailRule>
+                  <GuardrailRule
+                    layout="row"
+                    title="Maximum balance"
+                    description="Above this, ELI+ escalates to a human before proposing terms."
+                  >
+                    <BalanceThresholdInput
+                      value={state.repaymentMaxBalance}
+                      onChange={(v) => update("repaymentMaxBalance", v)}
+                      avgRent={avgRent}
+                      className="space-y-0.5"
+                    />
+                  </GuardrailRule>
+                  <GuardrailRule
+                    layout="row"
+                    title="Require good standing"
+                    description="Only residents without chronic delinquency or recent violations are eligible for an ELI+-created repayment agreement."
+                  >
+                    <ToggleSwitch
+                      checked={state.repaymentRequireGoodStanding}
+                      onChange={(v) => update("repaymentRequireGoodStanding", v)}
+                    />
+                  </GuardrailRule>
                 </div>
-              </GuardrailRule>
-              <GuardrailRule
-                layout="row"
-                title="Agent can negotiate up to"
-                description="Maximum plan duration the agent can commit to on its own. Longer plans require a human approver."
-              >
-                <div className="flex items-center gap-1.5 text-sm">
-                  <Input
-                    type="number"
-                    min={1}
-                    max={12}
-                    value={state.planMaxMonthsAutomated}
-                    onChange={(e) => update("planMaxMonthsAutomated", Math.max(1, Number(e.target.value) || 1))}
-                    className="h-8 w-16 text-sm"
-                  />
-                  <span className="text-muted-foreground">months</span>
+              </div>
+
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Offer terms
+                </p>
+                <div className="mt-1 divide-y divide-border/40">
+                  <GuardrailRule
+                    layout="row"
+                    title="Minimum down payment"
+                    description="Percent of the balance the resident must pay up front when the plan starts."
+                  >
+                    <div className="flex items-center gap-1.5 text-sm">
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={state.repaymentMinDownPercent}
+                        onChange={(e) =>
+                          update("repaymentMinDownPercent", Math.max(0, Math.min(100, Number(e.target.value) || 0)))
+                        }
+                        className="h-8 w-16 text-sm"
+                      />
+                      <span className="text-muted-foreground">%</span>
+                    </div>
+                  </GuardrailRule>
+                  <GuardrailRule
+                    layout="row"
+                    title="ELI+ can create plans up to"
+                    description="Maximum plan duration ELI+ can commit to on its own. Longer plans require a human approver."
+                  >
+                    <div className="flex items-center gap-1.5 text-sm">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={12}
+                        value={state.planMaxMonthsAutomated}
+                        onChange={(e) => update("planMaxMonthsAutomated", Math.max(1, Number(e.target.value) || 1))}
+                        className="h-8 w-16 text-sm"
+                      />
+                      <span className="text-muted-foreground">months</span>
+                    </div>
+                  </GuardrailRule>
+                  <GuardrailRule
+                    layout="row"
+                    title="Approval when plan total exceeds"
+                    description="Dollar threshold above which ELI+ routes the plan to a human for sign-off."
+                  >
+                    <div className="flex items-center gap-1.5 text-sm">
+                      <span className="text-muted-foreground">$</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        step={100}
+                        value={state.planRequireApprovalAmount}
+                        onChange={(e) => update("planRequireApprovalAmount", Math.max(0, Number(e.target.value) || 0))}
+                        className="h-8 w-24 text-sm"
+                      />
+                    </div>
+                  </GuardrailRule>
+                  <GuardrailRule
+                    layout="row"
+                    title="Require approval for second plan within 12 months"
+                    description="A resident who already completed or broke a plan this year usually needs a human conversation, not another ELI+-created plan."
+                  >
+                    <ToggleSwitch
+                      checked={state.planRequireApprovalSecondInYear}
+                      onChange={(v) => update("planRequireApprovalSecondInYear", v)}
+                    />
+                  </GuardrailRule>
+                  <GuardrailRule
+                    layout="row"
+                    title="Allow ELI+ to create repayment agreements when active repayment agreement is already on file"
+                    description="When on, ELI+ may create a new plan for a resident who already has one on file, as long as every other guardrail passes. When off (default), any plan request from a resident with an existing agreement escalates to a human instead."
+                  >
+                    <ToggleSwitch
+                      checked={state.planAllowWithActiveAgreement}
+                      onChange={(v) => update("planAllowWithActiveAgreement", v)}
+                    />
+                  </GuardrailRule>
                 </div>
-              </GuardrailRule>
-              <GuardrailRule
-                layout="row"
-                title="Approval when plan total exceeds"
-                description="Dollar threshold above which the agent routes the plan to a human for sign-off."
-              >
-                <div className="flex items-center gap-1.5 text-sm">
-                  <span className="text-muted-foreground">$</span>
-                  <Input
-                    type="number"
-                    min={0}
-                    step={100}
-                    value={state.planRequireApprovalAmount}
-                    onChange={(e) => update("planRequireApprovalAmount", Math.max(0, Number(e.target.value) || 0))}
-                    className="h-8 w-24 text-sm"
-                  />
-                </div>
-              </GuardrailRule>
-              <GuardrailRule
-                layout="row"
-                title="Require approval for second plan within 12 months"
-                description="A resident who already completed or broke a plan this year usually needs a human conversation, not another agent-negotiated plan."
-              >
-                <ToggleSwitch
-                  checked={state.planRequireApprovalSecondInYear}
-                  onChange={(v) => update("planRequireApprovalSecondInYear", v)}
-                />
-              </GuardrailRule>
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
-      ) : (
-        <p className="text-xs text-muted-foreground">
-          Off — all repayment plan requests route to a human.
-        </p>
-      )}
+      ) : null}
     </GuardrailSubsection>
   )
 }
@@ -2592,12 +2504,12 @@ function FlexAvailabilitySection({
   return (
     <GuardrailSubsection
       title="Flex"
-      description="Control whether the agent can mention Flex flexible rent payment options during resident conversations."
+      description="Control whether ELI+ can mention Flex flexible rent payment options during resident conversations."
     >
       <GuardrailRule
         layout="row"
-        title="Share Flex availability with eligible residents"
-        description="When on, the agent may tell eligible residents that Flex is available at this property. When off, Flex is never mentioned unless a human takes over the conversation."
+        title="Allow ELI+ to share Flex availability"
+        description="When on, ELI+ may tell eligible residents that Flex is available at this property. When off, Flex is never mentioned unless a human takes over the conversation."
       >
         <ToggleSwitch
           checked={state.shareFlexAvailability}
@@ -2617,14 +2529,14 @@ function PaymentActionsSection({
 }) {
   return (
     <GuardrailSubsection
-      title="Payment actions"
-      description="Control which payment flows the agent can complete on its own during resident conversations."
+      title="Automated payments"
+      description="Control which payment flows ELI+ can complete on its own during resident conversations. Both flows use a pre-selected payment method on file (priority: saved credit card, then saved debit card, then saved eCheck). The resident authorizes the action in-conversation by supplying their last name and unit number; if no payment method is on file, ELI+ routes the resident to the portal or a human."
     >
       <div className="divide-y divide-border/40">
         <GuardrailRule
           layout="row"
-          title="Accept one-time payments"
-          description="When on, the agent can walk a resident through making a single payment toward their balance. When off, the agent directs residents to the portal or escalates to staff."
+          title="Allow ELI+ to accept one-time payments"
+          description="When on, ELI+ can prompt the resident to submit a one-time payment for the total outstanding balance using the pre-selected payment method on file. The resident authorizes by replying with their last name and unit number, and the charge runs immediately for the full balance."
         >
           <ToggleSwitch
             checked={state.acceptOneTimePayments}
@@ -2633,8 +2545,8 @@ function PaymentActionsSection({
         </GuardrailRule>
         <GuardrailRule
           layout="row"
-          title="Set up recurring payments"
-          description="When on, the agent can help residents enroll in or update autopay and recurring payment schedules. When off, recurring setup routes to the portal or a human."
+          title="Allow ELI+ to set up recurring payments"
+          description="When on, ELI+ can prompt the resident to enroll in a recurring auto-payment for the total balance due on the 1st of each month, drawn from the pre-selected payment method on file. The resident authorizes by replying with their last name and unit number; the schedule continues until the resident cancels it or moves out. ELI+ never proactively pitches auto-pay; it only offers this flow when the resident explicitly asks to set up auto-pay, or as a one-line follow-up immediately after the resident successfully completes a one-time payment through 'Allow ELI+ to accept one-time payments' in the same conversation."
         >
           <ToggleSwitch
             checked={state.setupRecurringPayments}
@@ -2656,12 +2568,20 @@ function CadenceSection({
   propertyContext,
   avgRent,
   anchors,
+  scenarioStore,
+  onScenarioChange,
+  onScenarioEnabledToggle,
+  onScenarioMessageChange,
 }: {
   state: PanelState
   update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
   propertyContext: PropertyContextView
   avgRent: number
   anchors: JourneyAnchors
+  scenarioStore: Record<ScenarioId, ScenarioSettings>
+  onScenarioChange: (s: ScenarioId) => void
+  onScenarioEnabledToggle: (enabled: boolean) => void
+  onScenarioMessageChange: (scenarioId: ScenarioId, field: "introMessage" | "repeatMessage", value: string) => void
 }) {
   const anchor = OFFSET_ANCHORS[state.offsetAnchor]
   const scenarioCadence = SCENARIO_CADENCE[state.scenario]
@@ -2679,7 +2599,6 @@ function CadenceSection({
     () => projectSendDays(state, state.scenario, anchors),
     [state.offsetValue, state.offsetDir, state.repeatOn, state.repeatInterval, state.maxAttempts, state.scenario, anchors],
   )
-  const firstDay = projectedDays[0]
   const lastDay = projectedDays[projectedDays.length - 1]
   // The user asked for more repeats than fit before the next stage.
   const repeatsClamped =
@@ -2695,18 +2614,7 @@ function CadenceSection({
   // Per-scenario delivery window for this cadence.
   const eff = { channel: state.channel, quietStart: state.quietStart, quietEnd: state.quietEnd, days: state.days }
 
-  const prediction = useMemo(() => {
-    const phrase = OFFSET_PHRASE[state.offsetDir] ?? "days"
-    const start = formatHour(eff.quietStart)
-    const end = formatHour(eff.quietEnd)
-    const opener = isEventTrigger ? phrase : `${state.offsetValue} ${phrase}`
-    if (!state.repeatOn) return `${opener}, between ${start} and ${end}`
-    return `${opener}, then every ${state.repeatInterval} days, between ${start} and ${end}`
-  }, [state.offsetValue, state.offsetDir, eff.quietStart, eff.quietEnd, state.repeatOn, state.repeatInterval, isEventTrigger])
-
   const isDelinquency = state.scenario === "late"
-  const deferToProperty = isDelinquency && state.delinquencyMode === "defer"
-  const showNudgeCadence = !isDelinquency || state.delinquencyMode === "nudge"
 
   const initialContactHint =
     state.scenario === "initial"
@@ -2723,29 +2631,26 @@ function CadenceSection({
       hint="Controls outreach timing for this scenario: when the first message goes out, how often it repeats, who receives it, quiet hours, and the minimum outstanding balance before the agent reaches out."
     >
       <div className="space-y-5">
-        {isDelinquency && (
-          <div className="space-y-4">
-            <LegalNoticeScheduleCard propertyContext={propertyContext} />
-            <DelinquencyOutreachMode
-              mode={state.delinquencyMode}
-              onChange={(m) => update("delinquencyMode", m)}
-            />
-          </div>
-        )}
-
-        {deferToProperty && (
-          <div className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-xs text-sky-900">
-            <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" aria-hidden />
-            <p>
-              Payments AI is deferring to your property&apos;s legal notice schedule. Enable &quot;Payments AI
-              nudges&quot; above to configure a separate collections nudge cadence and channel preference.
-            </p>
-          </div>
-        )}
-
-        <div className="space-y-5">
-        <div className={cn("grid items-start gap-6", showNudgeCadence ? "lg:grid-cols-2" : "lg:grid-cols-1")}>
-          {showNudgeCadence && (
+        <ScenarioTabBar
+          scenario={state.scenario}
+          store={scenarioStore}
+          current={state}
+          onChange={onScenarioChange}
+        />
+        <ScenarioEnableBanner
+          scenario={state.scenario}
+          enabled={state.enabled}
+          onToggle={onScenarioEnabledToggle}
+          propertyContext={propertyContext}
+        />
+        <div
+          className={cn(
+            "space-y-5 transition-opacity",
+            !state.enabled && "pointer-events-none select-none opacity-50",
+          )}
+          aria-disabled={!state.enabled}
+        >
+        <div className="grid items-start gap-6 lg:grid-cols-2">
           <div className="space-y-4">
             <div className="flex items-center justify-between border-b border-border pb-2">
               <span className="text-xs font-semibold uppercase tracking-wider text-foreground">
@@ -2893,11 +2798,11 @@ function CadenceSection({
                 value={state.minOutstandingBalance}
                 onChange={(v) => update("minOutstandingBalance", v)}
                 avgRent={avgRent}
-                label="Outstanding balance amount — only reach out when balance due is at least:"
+                label="Only reach out when balance due is at least:"
               />
             </div>
 
-            {isDelinquency && showNudgeCadence && (
+            {isDelinquency && (
               <div className="rounded-md border border-border bg-zinc-50/40 p-3">
                 <div className="flex items-center justify-between gap-3">
                   <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
@@ -2928,54 +2833,7 @@ function CadenceSection({
               </div>
             )}
 
-            {/* Stop conditions live in the Cadence Shape column. */}
-            <div className="border-t border-border pt-4">
-              <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Stop conditions
-              </label>
-              <div className="mt-1.5 divide-y divide-border rounded-md border border-border bg-white">
-                <div className="flex items-center justify-between gap-3 p-3">
-                  <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
-                    Pause sequence when resident shares an expected payment date
-                    <InfoHint label="If the resident commits to a date they'll pay by, hold further outreach for this scenario until that date passes (then resume if still unpaid)." />
-                  </span>
-                  <ToggleSwitch checked={state.pauseOnExpectedPayDate} onChange={(v) => update("pauseOnExpectedPayDate", v)} />
-                </div>
-                <div className="flex items-center justify-between gap-3 p-3">
-                  <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
-                    Pause sequence on any inbound reply
-                    <InfoHint label="If the resident replies, even just to ask a question, pause this cadence until a human resumes it." />
-                  </span>
-                  <ToggleSwitch checked={state.pauseOnReply} onChange={(v) => update("pauseOnReply", v)} />
-                </div>
-                <div className="flex items-center justify-between gap-3 p-3">
-                  <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
-                    Pause sequence once resident enters eviction proceedings
-                    <InfoHint label="Stop this scenario's outreach once formal eviction proceedings begin, so automated messaging doesn't conflict with the legal process." />
-                  </span>
-                  <ToggleSwitch checked={state.pauseOnEviction} onChange={(v) => update("pauseOnEviction", v)} />
-                </div>
-              </div>
-
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                {STOP_CHIPS_LOCKED.map((chip) => (
-                  <LockedStopChip key={chip} label={chip} />
-                ))}
-                {(state.scenario === "late" || state.scenario === "legal") && (
-                  <LockedStopChip label="Active repayment agreement" />
-                )}
-                <InfoHint
-                  label={
-                    "Locked stop conditions are mandatory; they fire regardless of cadence settings." +
-                    (state.scenario === "late" || state.scenario === "legal"
-                      ? " Delinquency and Pre-Collections notices are paused for residents with an active repayment agreement in good standing."
-                      : "")
-                  }
-                />
-              </div>
-            </div>
           </div>
-          )}
 
           {/* ─── Column 2: Delivery Window ─── */}
           <div className="space-y-4">
@@ -3106,28 +2964,14 @@ function CadenceSection({
           </div>
           </div>
         </div>
+        </div>
 
-        {/* Prediction */}
-        {showNudgeCadence && (
-        <div className="flex items-start gap-2 rounded-md border border-dashed border-border bg-zinc-50/40 px-3 py-2 text-xs text-muted-foreground">
-          <Calendar className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-          <div className="space-y-0.5">
-            <p>
-              Predicted next message: <span className="font-medium text-foreground">{prediction}</span>
-            </p>
-            <p>
-              On the journey: sends on{" "}
-              <span className="font-medium text-foreground">
-                {projectedDays.length === 1
-                  ? axisDayLabel(firstDay).toLowerCase()
-                  : projectedDays.map((d) => axisDayLabel(d).toLowerCase()).join(", ")}
-              </span>{" "}
-              ({projectedDays.length} {projectedDays.length === 1 ? "message" : "messages"}).
-            </p>
-          </div>
-        </div>
-        )}
-        </div>
+        <ScenarioCustomTextGrid
+          activeScenario={state.scenario}
+          scenarioStore={scenarioStore}
+          current={state}
+          onMessageChange={onScenarioMessageChange}
+        />
 
       </div>
     </SectionShell>
@@ -3155,74 +2999,6 @@ function LockedStopChip({ label }: { label: string }) {
    Workflow guardrails section — L4 autonomy controls
    ══════════════════════════════════════════════════════════════════════════ */
 
-function WorkflowGuardrailsSection({
-  state,
-  update,
-  propertyContext,
-  avgRent,
-  activeScenario,
-}: {
-  state: PanelState
-  update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
-  propertyContext: PropertyContextView
-  avgRent: number
-  activeScenario: ScenarioId
-}) {
-  return (
-    <SectionShell
-      icon={ShieldCheck}
-      title="Workflow guardrails"
-      description="Rules that keep the agent inside its rails: what it can decide on its own, and when it must pause. Global rules apply to every scenario; phase-specific rules apply only where labeled."
-      headerAction={
-        <Badge variant="gray" className="text-[10px]">
-          Property-wide
-        </Badge>
-      }
-    >
-      <div className="space-y-4">
-        <p className="rounded-md border border-amber-200 bg-amber-50/60 px-3 py-1.5 text-xs text-amber-900">
-          Compliance note: repayment terms and eligibility scoring may be subject to state tenant law, fair-housing rules, and company policy. Review with legal before enabling in production.
-        </p>
-
-        <RepaymentAgreementsSection state={state} update={update} avgRent={avgRent} />
-
-        <div className="grid gap-4 md:grid-cols-2">
-          <FlexAvailabilitySection state={state} update={update} />
-          <PaymentActionsSection state={state} update={update} />
-        </div>
-
-        <ResidentEligibilitySection state={state} update={update} activeScenario={activeScenario} />
-        <ContextAwareOutreachSection state={state} update={update} propertyContext={propertyContext} />
-
-        <GuardrailSubsection
-          title="Autonomy ceilings"
-          description="Spend limits the agent can approve on its own without human sign-off."
-          scope="global"
-        >
-          <GuardrailRule
-            layout="row"
-            title="Fee-waiver auto-approve"
-            description="The agent can waive late fees up to this amount on its own. Anything above routes to a human for approval."
-          >
-            <div className="flex flex-wrap items-center gap-1.5 text-sm">
-              <span className="text-muted-foreground">Up to $</span>
-              <Input
-                type="number"
-                min={0}
-                step={5}
-                value={state.feeWaiverAutoApproveCap}
-                onChange={(e) => update("feeWaiverAutoApproveCap", Math.max(0, Number(e.target.value) || 0))}
-                className="h-8 w-24 text-sm"
-              />
-              <span className="text-muted-foreground">/ resident / cycle</span>
-            </div>
-          </GuardrailRule>
-        </GuardrailSubsection>
-      </div>
-    </SectionShell>
-  )
-}
-
 /* ══════════════════════════════════════════════════════════════════════════
    Change log section — property-wide audit trail of Payments AI setting edits
    ══════════════════════════════════════════════════════════════════════════ */
@@ -3231,7 +3007,7 @@ type ChangeLogEntry = {
   id: string
   timestamp: string
   user: { name: string; role: string }
-  scope: "Cadence" | "Escalation" | "Custom Messaging" | "Guardrails" | "Agent identity"
+  scope: "Cadence" | "Custom Messaging" | "Guardrails" | "Agent identity"
   /** Present for scenario-scoped changes. Omitted for property-wide settings. */
   scenario?: ScenarioId
   setting: string
@@ -3240,15 +3016,6 @@ type ChangeLogEntry = {
 }
 
 const CHANGE_LOG_ENTRIES: ChangeLogEntry[] = [
-  {
-    id: "cl-1",
-    timestamp: "2026-06-30T15:42:00-06:00",
-    user: { name: "Melissa Ortega", role: "Regional Manager" },
-    scope: "Guardrails",
-    setting: "Fee-waiver auto-approve cap",
-    oldValue: "$25",
-    newValue: "$50",
-  },
   {
     id: "cl-2",
     timestamp: "2026-06-30T11:08:00-06:00",
@@ -3263,11 +3030,10 @@ const CHANGE_LOG_ENTRIES: ChangeLogEntry[] = [
     id: "cl-3",
     timestamp: "2026-06-28T09:17:00-06:00",
     user: { name: "Priya Shah", role: "AR Analyst" },
-    scope: "Escalation",
-    scenario: "legal",
-    setting: "Routing target",
-    oldValue: "Property Manager",
-    newValue: "Collections Specialist",
+    scope: "Guardrails",
+    setting: "Escalate expected payment date threshold",
+    oldValue: "10 or more days after rent is due",
+    newValue: "7 or more days after rent is due",
   },
   {
     id: "cl-4",
@@ -3328,7 +3094,6 @@ function formatChangeLogTimestamp(iso: string): string {
 
 const CHANGE_LOG_SCOPE_STYLES: Record<ChangeLogEntry["scope"], string> = {
   "Cadence": "bg-sky-100 text-sky-800",
-  "Escalation": "bg-amber-100 text-amber-800",
   "Custom Messaging": "bg-violet-100 text-violet-800",
   "Guardrails": "bg-emerald-100 text-emerald-800",
   "Agent identity": "bg-zinc-200 text-zinc-800",
@@ -3418,231 +3183,218 @@ function ChangeLogSection({ propertyName }: { propertyName: string }) {
 function ContextAwareOutreachSection({
   state,
   update,
-  propertyContext,
 }: {
   state: PanelState
   update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
   propertyContext: PropertyContextView
 }) {
-  const conversationHistoryAvailable = state.useStaffManagerThreads || state.usePaymentsAIThreads
-  const showCommittedPayDateInputs = state.deferOnCommittedPayDate && conversationHistoryAvailable
   return (
     <GuardrailSubsection
       title="Context-aware outreach"
-      description="Use each resident's payment history and prior conversations so follow-ups respect what they already told you. When on, the agent analyzes ledger and conversation history before each send and adjusts cadence so repeats do not contradict what the resident already committed to or their usual pay pattern."
+      description="Payments AI always reads the resident's payment history and prior conversations (staff, manager, and Payments AI threads) before each send. These rules tune what to do with that context — when to suppress a nudge, when to escalate, and how much grace to give reliable payers."
       scope="global"
-      masterToggle={
-        <ToggleSwitch
-          checked={state.contextAwareOutreachEnabled}
-          onChange={(v) => update("contextAwareOutreachEnabled", v)}
-        />
-      }
     >
-      {state.contextAwareOutreachEnabled ? (
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-3">
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-3">
+          <GuardrailRule
+            layout="stack"
+            title="Typical pay day"
+            description="Do not nudge until the resident's usual pay day in the cycle has passed without payment."
+            hint="Example: if the resident usually pays on the 2nd, ELI+ waits until the 3rd (or later) before sending a reminder, unless they already committed to a different date."
+          >
             <GuardrailRule
-              layout="stack"
-              title="Signals to analyze"
-              description="Which resident history the agent reads before deciding whether to send."
-              hint="Payment history infers typical pay-day patterns from past ledger activity. Staff threads capture manager-resident agreements logged in Communications (Office, SMS). Payments AI threads capture prior agent outreach and resident replies."
+              layout="row"
+              title="Respect typical pay day"
+              description="Suppresses nudges until after the inferred pay day when the balance is still open."
             >
-              <div className="divide-y divide-border/40">
-                <GuardrailRule
-                  layout="row"
-                  title="Payment history"
-                  description="Looks at when the resident has historically paid rent and fees each cycle to infer their typical pay day."
-                >
-                  <ToggleSwitch
-                    checked={state.usePaymentHistoryContext}
-                    onChange={(v) => update("usePaymentHistoryContext", v)}
-                  />
-                </GuardrailRule>
-                <GuardrailRule
-                  layout="row"
-                  title="Staff & manager threads"
-                  description="Reads Communications threads where property staff logged pay dates, payment plans, or fee adjustments — e.g. manager agreed resident pays Friday in an Office thread, so the agent defers Friday's reminder."
-                >
-                  <ToggleSwitch
-                    checked={state.useStaffManagerThreads}
-                    onChange={(v) => {
-                      update("useStaffManagerThreads", v)
-                      update("useConversationContext", v || state.usePaymentsAIThreads)
-                    }}
-                  />
-                </GuardrailRule>
-                <GuardrailRule
-                  layout="row"
-                  title="Payments AI threads"
-                  description={"Reads prior SMS, email, and portal messages between the resident and Payments AI for commitments like \u201cI'll pay Friday.\u201d"}
-                >
-                  <ToggleSwitch
-                    checked={state.usePaymentsAIThreads}
-                    onChange={(v) => {
-                      update("usePaymentsAIThreads", v)
-                      update("useConversationContext", v || state.useStaffManagerThreads)
-                    }}
-                  />
-                </GuardrailRule>
+              <ToggleSwitch
+                checked={state.respectTypicalPayDay}
+                onChange={(v) => update("respectTypicalPayDay", v)}
+              />
+            </GuardrailRule>
+            {state.respectTypicalPayDay && (
+              <div className="flex flex-wrap items-center gap-1.5 pl-2 text-xs">
+                <span className="text-muted-foreground">Require ≥</span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={24}
+                  value={state.typicalPayDayMinHistoryMonths}
+                  onChange={(e) =>
+                    update("typicalPayDayMinHistoryMonths", Math.max(1, Math.min(24, Number(e.target.value) || 1)))
+                  }
+                  className="h-7 w-14 text-xs"
+                />
+                <span className="text-muted-foreground">months of history</span>
               </div>
-            </GuardrailRule>
+            )}
+          </GuardrailRule>
 
+          <GuardrailRule
+            layout="stack"
+            title="On-time payer grace"
+            description="Give residents with strong payment history extra days before the first nudge when they are only slightly late."
+            hint="When on-time rate meets the threshold, ELI+ waits N days after typical pay day before sending the first reminder."
+          >
             <GuardrailRule
-              layout="stack"
-              title="Typical pay day"
-              description="Do not nudge until the resident's usual pay day in the cycle has passed without payment."
-              hint="Requires payment history. Example: if the resident usually pays on the 2nd, the agent waits until the 3rd (or later) before sending a reminder, unless they already committed to a different date."
+              layout="row"
+              title="Enable on-time payer grace"
+              description="Residents at or above the on-time rate threshold get additional grace days before early-cycle reminders."
             >
-              <GuardrailRule
-                layout="row"
-                title="Respect typical pay day"
-                description="Suppresses nudges until after the inferred pay day when the balance is still open."
-              >
-                <ToggleSwitch
-                  checked={state.respectTypicalPayDay}
-                  onChange={(v) => update("respectTypicalPayDay", v)}
-                  disabled={!state.usePaymentHistoryContext}
-                />
-              </GuardrailRule>
-              {state.respectTypicalPayDay && state.usePaymentHistoryContext && (
-                <div className="flex flex-wrap items-center gap-1.5 pl-2 text-xs">
-                  <span className="text-muted-foreground">Require ≥</span>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={24}
-                    value={state.typicalPayDayMinHistoryMonths}
-                    onChange={(e) =>
-                      update("typicalPayDayMinHistoryMonths", Math.max(1, Math.min(24, Number(e.target.value) || 1)))
-                    }
-                    className="h-7 w-14 text-xs"
-                  />
-                  <span className="text-muted-foreground">months of history</span>
-                </div>
-              )}
+              <ToggleSwitch
+                checked={state.onTimePayerGraceEnabled}
+                onChange={(v) => update("onTimePayerGraceEnabled", v)}
+              />
             </GuardrailRule>
-          </div>
-
-          <div className="space-y-3">
-            <GuardrailRule
-              layout="stack"
-              title="Committed pay date"
-              description="Skip outreach on a date the resident or manager already committed to pay; follow up only if payment still has not posted."
-              hint="Requires staff or Payments AI conversation history. Example: manager logs 'pay $825 by Friday the 14th' — the agent holds Friday's reminder and checks the next business day if the balance is still open."
-            >
-              <GuardrailRule
-                layout="row"
-                title="Defer on committed pay date"
-                description="Applies across all scenarios that would otherwise send that day."
-              >
-                <ToggleSwitch
-                  checked={state.deferOnCommittedPayDate}
-                  onChange={(v) => update("deferOnCommittedPayDate", v)}
-                  disabled={!conversationHistoryAvailable}
+            {state.onTimePayerGraceEnabled && (
+              <div className="flex flex-wrap items-center gap-1.5 pl-2 text-xs">
+                <span className="text-muted-foreground">Rate ≥</span>
+                <Input
+                  type="number"
+                  min={50}
+                  max={100}
+                  value={state.onTimePayerMinRate}
+                  onChange={(e) =>
+                    update("onTimePayerMinRate", Math.max(50, Math.min(100, Number(e.target.value) || 90)))
+                  }
+                  className="h-7 w-14 text-xs"
                 />
-              </GuardrailRule>
-              {showCommittedPayDateInputs && (
-                <div className="space-y-1.5 pl-2">
-                  <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                    <span className="text-muted-foreground">Accept up to</span>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={60}
-                      value={state.committedPayDateMaxDeferDays}
-                      onChange={(e) =>
-                        update("committedPayDateMaxDeferDays", Math.max(1, Math.min(60, Number(e.target.value) || 7)))
-                      }
-                      className="h-7 w-14 text-xs"
-                    />
-                    <span className="text-muted-foreground">
-                      {state.committedPayDateMaxDeferDays === 1 ? "day" : "days"} past due
-                    </span>
-                  </div>
-                  <GuardrailRule
-                    layout="row"
-                    title="Escalate unrealistic dates"
-                    description="If a resident commits to pay beyond the near-term window (e.g. 'in three months'), route to a property manager instead of deferring all outreach."
-                  >
-                    <ToggleSwitch
-                      checked={state.committedPayDateEscalateBeyondMax}
-                      onChange={(v) => update("committedPayDateEscalateBeyondMax", v)}
-                    />
-                  </GuardrailRule>
-                  <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                    <span className="text-muted-foreground">If unpaid, follow up</span>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={7}
-                      value={state.committedPayDateFollowUpDays}
-                      onChange={(e) =>
-                        update("committedPayDateFollowUpDays", Math.max(1, Math.min(7, Number(e.target.value) || 1)))
-                      }
-                      className="h-7 w-14 text-xs"
-                    />
-                    <span className="text-muted-foreground">
-                      {state.committedPayDateFollowUpDays === 1 ? "day" : "days"} after
-                    </span>
-                  </div>
-                </div>
-              )}
-            </GuardrailRule>
-
-            <GuardrailRule
-              layout="stack"
-              title="On-time payer grace"
-              description="Give residents with strong payment history extra days before the first nudge when they are only slightly late. Requires payment history."
-              hint="When on-time rate meets the threshold, the agent waits N days after typical pay day before sending the first reminder."
-            >
-              <GuardrailRule
-                layout="row"
-                title="Enable on-time payer grace"
-                description="Residents at or above the on-time rate threshold get additional grace days before early-cycle reminders."
-              >
-                <ToggleSwitch
-                  checked={state.onTimePayerGraceEnabled}
-                  onChange={(v) => update("onTimePayerGraceEnabled", v)}
-                  disabled={!state.usePaymentHistoryContext}
+                <span className="text-muted-foreground">%, wait</span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={14}
+                  value={state.onTimePayerGraceDays}
+                  onChange={(e) =>
+                    update("onTimePayerGraceDays", Math.max(1, Math.min(14, Number(e.target.value) || 3)))
+                  }
+                  className="h-7 w-14 text-xs"
                 />
-              </GuardrailRule>
-              {state.onTimePayerGraceEnabled && state.usePaymentHistoryContext && (
-                <div className="flex flex-wrap items-center gap-1.5 pl-2 text-xs">
-                  <span className="text-muted-foreground">Rate ≥</span>
-                  <Input
-                    type="number"
-                    min={50}
-                    max={100}
-                    value={state.onTimePayerMinRate}
-                    onChange={(e) =>
-                      update("onTimePayerMinRate", Math.max(50, Math.min(100, Number(e.target.value) || 90)))
-                    }
-                    className="h-7 w-14 text-xs"
-                  />
-                  <span className="text-muted-foreground">%, wait</span>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={14}
-                    value={state.onTimePayerGraceDays}
-                    onChange={(e) =>
-                      update("onTimePayerGraceDays", Math.max(1, Math.min(14, Number(e.target.value) || 3)))
-                    }
-                    className="h-7 w-14 text-xs"
-                  />
-                  <span className="text-muted-foreground">
-                    {state.onTimePayerGraceDays === 1 ? "day" : "days"}
-                  </span>
-                </div>
-              )}
-            </GuardrailRule>
-          </div>
+                <span className="text-muted-foreground">
+                  {state.onTimePayerGraceDays === 1 ? "day" : "days"}
+                </span>
+              </div>
+            )}
+          </GuardrailRule>
         </div>
-      ) : (
-        <p className="text-xs text-muted-foreground">
-          Off — scheduled repeats send without a context check on payment history or prior conversations.
-        </p>
-      )}
+
+        <div className="space-y-3">
+          <GuardrailRule
+            layout="stack"
+            title="Escalate expected payment date"
+            description="If a resident signals they will pay too far in the future, route to a property manager instead of continuing automated outreach."
+            hint="Example: resident replies 'I can pay on the 25th' — if that exceeds the threshold, ELI+ hands off to a manager rather than deferring outreach."
+          >
+            <GuardrailRule
+              layout="row"
+              title="Escalate expected payment date"
+              description="Applies across all scenarios that captured a committed pay date."
+            >
+              <ToggleSwitch
+                checked={state.escalateExpectedPayDate}
+                onChange={(v) => update("escalateExpectedPayDate", v)}
+              />
+            </GuardrailRule>
+            {state.escalateExpectedPayDate && (
+              <div className="flex flex-wrap items-center gap-1.5 pl-2 text-xs">
+                <span className="text-muted-foreground">Escalate when resident signals they will pay</span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={60}
+                  value={state.escalateExpectedPayDateThresholdDays}
+                  onChange={(e) =>
+                    update(
+                      "escalateExpectedPayDateThresholdDays",
+                      Math.max(1, Math.min(60, Number(e.target.value) || 7)),
+                    )
+                  }
+                  className="h-7 w-14 text-xs"
+                />
+                <span className="text-muted-foreground">
+                  or more {state.escalateExpectedPayDateThresholdDays === 1 ? "day" : "days"} after rent is due
+                </span>
+              </div>
+            )}
+          </GuardrailRule>
+        </div>
+      </div>
+    </GuardrailSubsection>
+  )
+}
+
+function StopConditionsSection({
+  state,
+  update,
+}: {
+  state: PanelState
+  update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
+}) {
+  return (
+    <GuardrailSubsection
+      title="Cadence stops"
+      description="When ELI+ should stop the cadence and hold further outreach. Property-wide — these apply to every scenario unless noted otherwise."
+      scope="global"
+    >
+      <div className="space-y-3">
+        <GuardrailRule
+          layout="row"
+          title="Pause sequence when resident shares an expected payment date"
+          description="If the resident commits to a date they'll pay by, hold further outreach until that date passes (then resume if still unpaid)."
+        >
+          <ToggleSwitch
+            checked={state.pauseOnExpectedPayDate}
+            onChange={(v) => update("pauseOnExpectedPayDate", v)}
+          />
+        </GuardrailRule>
+        <GuardrailRule
+          layout="row"
+          title="Pause sequence once resident moves out"
+          description="Only applies to Rent Reminder and Delinquency cadences. Once the resident's move-out date has passed on the lease, those scenarios stop; any remaining balance is handled through move-out charge workflows, and Pre-Collections continues under its own eviction / legal-notice logic."
+        >
+          <ToggleSwitch
+            checked={state.pauseOnMoveOut}
+            onChange={(v) => update("pauseOnMoveOut", v)}
+          />
+        </GuardrailRule>
+        <GuardrailRule
+          layout="row"
+          title="Pause sequence on any inbound reply"
+          description="If the resident replies — even just to ask a question — pause the cadence until a human resumes it."
+        >
+          <ToggleSwitch
+            checked={state.pauseOnReply}
+            onChange={(v) => update("pauseOnReply", v)}
+          />
+        </GuardrailRule>
+        <GuardrailRule
+          layout="row"
+          title="Pause sequence once resident enters eviction proceedings"
+          description="Once formal eviction proceedings begin, stop automated messaging so it doesn't conflict with the legal process."
+        >
+          <ToggleSwitch
+            checked={state.pauseOnEviction}
+            onChange={(v) => update("pauseOnEviction", v)}
+          />
+        </GuardrailRule>
+        <GuardrailRule
+          layout="row"
+          title="Pause sequence for residents with an active repayment agreement in good standing"
+          description="Only applies to Delinquency and Pre-Collections cadences. When on, ELI+ will not send Delinquency or Pre-Collections notices to residents who are current on a repayment plan; the cadence resumes if the plan lapses."
+        >
+          <ToggleSwitch
+            checked={state.pauseOnActiveRepaymentAgreement}
+            onChange={(v) => update("pauseOnActiveRepaymentAgreement", v)}
+          />
+        </GuardrailRule>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        {STOP_CHIPS_LOCKED.map((chip) => (
+          <LockedStopChip key={chip} label={chip} />
+        ))}
+        <InfoHint label="Locked stop conditions are mandatory; they fire regardless of cadence settings." />
+      </div>
     </GuardrailSubsection>
   )
 }
@@ -3658,21 +3410,38 @@ function ResidentEligibilitySection({
 }) {
   const factorEntries = [
     { key: "latePayments" as const, label: "Late payment history" },
-    { key: "returnedPayments" as const, label: "Returned payments" },
-    { key: "chargebacks" as const, label: "Chargebacks" },
+    { key: "paymentFailures" as const, label: "Returned payments & chargebacks" },
     { key: "violations" as const, label: "Lease violations" },
-    { key: "complaints" as const, label: "Resident complaints" },
   ]
 
   const setFactor = (
     key: keyof PanelState["eligibilityFactors"],
-    patch: Partial<{ enabled: boolean; weight: number }>,
+    patch: Partial<{ enabled: boolean; weight: number; severity: [number, number, number, number] }>,
   ) => {
     update("eligibilityFactors", {
       ...state.eligibilityFactors,
       [key]: { ...state.eligibilityFactors[key], ...patch },
     })
   }
+
+  const setSeverityAt = (
+    key: keyof PanelState["eligibilityFactors"],
+    idx: 0 | 1 | 2 | 3,
+    value: number,
+  ) => {
+    const clamped = Math.max(0, Math.min(100, Math.round(value) || 0))
+    const current = state.eligibilityFactors[key].severity
+    const next: [number, number, number, number] = [
+      current[0],
+      current[1],
+      current[2],
+      current[3],
+    ]
+    next[idx] = clamped
+    setFactor(key, { severity: next })
+  }
+
+  const [severityOpen, setSeverityOpen] = useState(false)
 
   const setRule = (scenario: ScenarioId, band: ScoreBand, action: EligibilityAction) => {
     update("eligibilityRules", {
@@ -3683,8 +3452,8 @@ function ResidentEligibilitySection({
 
   return (
     <GuardrailSubsection
-      title="Resident eligibility"
-      description="Score residents from payment history and route outreach by scenario based on risk band. When on, the agent computes a score from the factors below and applies per-scenario rules before sending outreach."
+      title="Score model & per-scenario rules"
+      description="Score residents from payment history and route outreach by scenario based on risk band. When on, ELI+ computes a score from the factors below and applies per-scenario rules before sending outreach."
       scope="phase"
       masterToggle={
         <ToggleSwitch checked={state.eligibilityEnabled} onChange={(v) => update("eligibilityEnabled", v)} />
@@ -3753,56 +3522,131 @@ function ResidentEligibilitySection({
                 />
               </div>
             </GuardrailRule>
+
+            <div className="rounded-md border border-border/60">
+              <button
+                type="button"
+                onClick={() => setSeverityOpen((v) => !v)}
+                aria-expanded={severityOpen}
+                aria-controls="severity-editor-body"
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted/40"
+              >
+                <ChevronDown
+                  aria-hidden
+                  className={cn(
+                    "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+                    severityOpen ? "rotate-0" : "-rotate-90",
+                  )}
+                />
+                <span className="flex flex-1 items-center gap-1.5">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Score factor severity
+                  </span>
+                  <InfoHint
+                    label="Sub-score (0–100) contributed at each event count. Saturates at 4+ events. Sub-scores combine into the composite via factor weights above."
+                  />
+                </span>
+                {!severityOpen && (
+                  <span className="text-[10px] text-muted-foreground">Customize</span>
+                )}
+              </button>
+              {severityOpen && (
+                <div id="severity-editor-body" className="border-t border-border/60 px-2 py-2">
+                  <div className="-mx-2 overflow-x-auto px-2">
+                    <table className="w-full min-w-[380px] text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-border/60 text-muted-foreground">
+                          <th className="w-40 py-1.5 pr-2 font-semibold">Factor</th>
+                          {SEVERITY_BREAKPOINT_LABELS.map((label) => (
+                            <th key={label} className="px-1 py-1.5 text-center font-semibold">
+                              {label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {factorEntries.map((f) => {
+                          const factor = state.eligibilityFactors[f.key]
+                          return (
+                            <tr key={f.key} className="border-b border-border/40 last:border-none">
+                              <td className="w-40 py-1.5 pr-2 text-foreground">{f.label}</td>
+                              {([0, 1, 2, 3] as const).map((idx) => (
+                                <td key={idx} className="px-1 py-1.5 text-center">
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    disabled={!factor.enabled}
+                                    value={factor.severity[idx]}
+                                    onChange={(e) => setSeverityAt(f.key, idx, Number(e.target.value))}
+                                    className="mx-auto h-7 w-14 text-center text-xs"
+                                  />
+                                </td>
+                              ))}
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="mt-1.5 px-1 text-[11px] text-muted-foreground">
+                    Higher values push residents toward the Moderate and Poor bands faster. Between count breakpoints the ramp interpolates linearly.
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="space-y-3">
+          <div className="min-w-0 space-y-3">
             <GuardrailRule
               layout="stack"
               title="Per-scenario rules by score band"
-              description="What the agent does for each scenario when a resident falls in a score band."
-              hint="Example: skip Delinquency nudges for chronic repeat-offenders and let the legal notice path run; route borderline Pre-Collections cases to a human."
+              description="What ELI+ does for each scenario when a resident falls in a score band."
+              hint="Example: skip Delinquency nudges for chronic repeat-offenders and let the legal notice path run; skip Pre-Collections outreach for residents already in good standing."
             >
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-border/60 text-muted-foreground">
-                    <th className="py-1.5 pr-2 font-semibold">Scenario</th>
-                    {SCORE_BANDS.map((b) => (
-                      <th key={b.id} className="px-1 py-1.5 font-semibold">
-                        <span className="flex items-center gap-1">
-                          {b.label}
-                          <InfoHint label={b.description} />
-                        </span>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {SCENARIOS.filter((s) => !s.outOfScope).map((s) => (
-                    <tr key={s.id} className="border-b border-border/40 last:border-none">
-                      <td className="py-1.5 pr-2 font-medium text-foreground">{s.shortLabel}</td>
+              <div className="-mx-2 overflow-x-auto px-2">
+                <table className="w-full min-w-[440px] text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-border/60 text-muted-foreground">
+                      <th className="w-24 py-1.5 pr-2 font-semibold">Scenario</th>
                       {SCORE_BANDS.map((b) => (
-                        <td key={b.id} className="px-1 py-1.5">
-                          <Select
-                            value={state.eligibilityRules[s.id][b.id]}
-                            onValueChange={(v) => setRule(s.id, b.id, v as EligibilityAction)}
-                          >
-                            <SelectTrigger className="h-7 text-xs">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {ELIGIBILITY_ACTIONS.map((a) => (
-                                <SelectItem key={a.value} value={a.value}>
-                                  {a.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </td>
+                        <th key={b.id} className="px-1 py-1.5 font-semibold">
+                          <span className="flex items-center gap-1">
+                            {b.label}
+                            <InfoHint label={b.description} />
+                          </span>
+                        </th>
                       ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {SCENARIOS.filter((s) => !s.outOfScope).map((s) => (
+                      <tr key={s.id} className="border-b border-border/40 last:border-none">
+                        <td className="w-24 py-1.5 pr-2 font-medium text-foreground">{s.shortLabel}</td>
+                        {SCORE_BANDS.map((b) => (
+                          <td key={b.id} className="px-1 py-1.5">
+                            <Select
+                              value={state.eligibilityRules[s.id][b.id]}
+                              onValueChange={(v) => setRule(s.id, b.id, v as EligibilityAction)}
+                            >
+                              <SelectTrigger className="h-7 min-w-0 px-2 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {ELIGIBILITY_ACTIONS.map((a) => (
+                                  <SelectItem key={a.value} value={a.value}>
+                                    {a.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </GuardrailRule>
 
             <ScoringPreviewCard
@@ -3810,7 +3654,7 @@ function ResidentEligibilitySection({
               thresholdModerate={state.eligibilityThresholdModerate}
               thresholdPoor={state.eligibilityThresholdPoor}
               scenarioLabel={SCENARIOS.find((s) => s.id === activeScenario)?.shortLabel ?? "Scenario"}
-              scenarioAction={state.eligibilityRules[activeScenario].moderate}
+              scenarioRules={state.eligibilityRules[activeScenario]}
             />
           </div>
         </div>
@@ -3988,6 +3832,102 @@ function FooterActionBar({
         </div>
       </div>
     </footer>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Bulk-edit confirmation dialog
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function BulkApplyConfirmDialog({
+  open,
+  onCancel,
+  onConfirm,
+  bulkCount,
+  rows,
+}: {
+  open: boolean
+  onCancel: () => void
+  onConfirm: () => void
+  bulkCount: number
+  rows: ChangeRow[]
+}) {
+  const grouped = useMemo(() => groupChangeRows(rows), [rows])
+  const totalChanges = rows.length
+  const propertyLabel = `${bulkCount} ${bulkCount === 1 ? "property" : "properties"}`
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onCancel()
+      }}
+    >
+      <DialogContent className="max-w-2xl gap-0 p-0">
+        <DialogHeader className="border-b border-border px-6 py-4">
+          <DialogTitle className="text-base">Confirm bulk edit</DialogTitle>
+          <p className="text-xs text-muted-foreground">
+            Review the {totalChanges} {totalChanges === 1 ? "change" : "changes"} before applying to {propertyLabel}.
+            Per-property settings you didn&apos;t change will be left as-is.
+          </p>
+        </DialogHeader>
+
+        <div className="max-h-[60vh] overflow-y-auto px-6 py-4">
+          {totalChanges === 0 ? (
+            <div className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+              No changes to apply.
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {grouped.map((group) => (
+                <div key={group.scope}>
+                  <div className="mb-2 flex items-center gap-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {group.scope}
+                    </h3>
+                    <span className="text-xs text-muted-foreground">
+                      · {group.rows.length} {group.rows.length === 1 ? "change" : "changes"}
+                    </span>
+                  </div>
+                  <ul className="divide-y divide-border rounded-md border border-border">
+                    {group.rows.map((r, idx) => (
+                      <li key={`${group.scope}-${idx}`} className="px-3 py-2.5 text-xs">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium text-foreground">{r.setting}</span>
+                          {r.scenario && (
+                            <Badge variant="gray" className="shrink-0">
+                              {scenarioTitle(r.scenario)}
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-muted-foreground">
+                          <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground line-through decoration-muted-foreground/60">
+                            {r.oldValue}
+                          </span>
+                          <span aria-hidden="true">→</span>
+                          <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] font-medium text-foreground">
+                            {r.newValue}
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="border-t border-border px-6 py-3">
+          <Button variant="ghost" size="sm" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={onConfirm} disabled={totalChanges === 0}>
+            Apply to {propertyLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
