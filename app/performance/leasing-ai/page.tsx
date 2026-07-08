@@ -1430,19 +1430,13 @@ const DOMO_LEADS_FUNNEL_AFTER_TOUR = [
 function DomoReplicaSection() {
   return (
     <section className="mb-6">
-      <SectionBanner
-        title="Domo Replica"
-        description="Prototype replica of the production Domo Leasing AI dashboard — all figures are illustrative and will be wired to live data sources."
-      />
-
       {/* ---- Overview / Top-Level KPIs ---- */}
       <div className="mb-3 flex items-center gap-2">
         <Building2 className="h-3.5 w-3.5 text-blue-500" />
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Overview / Top-Level KPIs</p>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Customers with Leasing AI Activated" value={String(DOMO_OVERVIEW.customersActivated)} sub="organizations" />
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <KpiCard label="Total Properties with Leasing AI" value={String(DOMO_OVERVIEW.totalProperties)} sub="activated properties" />
         <KpiCard label="Total Active Units" value={DOMO_OVERVIEW.totalActiveUnits.toLocaleString()} sub="across all activated properties" />
         <KpiCard label="Conversion Rate Guest Card to Tour" value={`${DOMO_OVERVIEW.gcToTourRate}%`} sub="guest cards that scheduled a tour" />
@@ -1747,9 +1741,6 @@ function DomoReplicaSection() {
         </Card>
       </div>
 
-      <p className="mt-3 text-[11px] italic text-muted-foreground/80">
-        All Domo Replica metrics are illustrative prototype data and will be replaced with live Domo data sources.
-      </p>
     </section>
   );
 }
