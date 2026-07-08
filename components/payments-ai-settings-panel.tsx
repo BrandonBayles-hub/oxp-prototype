@@ -1826,18 +1826,58 @@ function JourneyTimeline({
       icon={CalendarRange}
       title="Collection journey"
       description="The full lifecycle from charge posting through balance sent to collections. Nine anchor events, derived from Property Settings."
-      hint="Numbered ①–⑨ markers plot each event on the axis; the legend below matches those numbers to the event, its date, and its source setting. The axis is split into three phases (Before Rent Due / Delinquency & Eviction Cycle / Post Move-Out & Collections) with proportional day scales so tightly-clustered events get breathing room. Scenario bands flow smoothly across the whole track."
+      hint="Numbered ①–⑨ markers plot each event on the axis; the legend below matches those numbers to the event, its date, and its source setting. The axis is split into three phases (Before Rent Due / Delinquency & Eviction Cycle / Post Move-Out & Collections) with proportional day scales so tightly-clustered events get breathing room. Attached beneath the axis, three thin scenario ribbons show when Rent Reminder, Delinquency, and Pre-Collections messages fire — dots mark each projected send day, and the active scenario is emphasized."
       collapsible
     >
       <TooltipProvider delayDuration={200}>
         <div className="space-y-4">
           {/* Axis block — the label column (w-24) is empty here; it stays in
-             sync with each scenario band's label column below so the axis
-             ticks and the band tracks line up horizontally without needing
-             a hard-coded minimum width. */}
+             sync with a matching label column that used to live on separate
+             scenario band rows. Even now that the scenario tracks are
+             attached to the axis as ribbons, the spacer keeps room for a
+             future left-hand annotation column and preserves the alignment
+             of the phase columns. */}
           <div className="flex w-full items-stretch gap-3 px-2">
             <div className="w-24 shrink-0" aria-hidden />
             <div className="relative flex-1">
+              {/* Scenario legend chips — the timeline itself is
+                 visualization-only; scenario switching lives in the
+                 ScenarioTabBar above the Cadence card. These chips just
+                 map each ribbon color to its scenario name and flag any
+                 scenario that is currently disabled. */}
+              <div className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px]">
+                {cycleRows.map((id) => {
+                  const s = settingsFor(id)
+                  const meta = SCENARIO_TIMELINE_META[id]
+                  const scenarioMeta = SCENARIOS.find((x) => x.id === id)
+                  const isActive = id === active
+                  return (
+                    <span key={id} className="inline-flex items-center gap-1">
+                      <span
+                        className={cn(
+                          "inline-block h-2 w-2 shrink-0 rounded-full",
+                          s.enabled ? meta.dot : "bg-zinc-300",
+                        )}
+                        aria-hidden
+                      />
+                      <span
+                        className={cn(
+                          "font-medium",
+                          s.enabled
+                            ? isActive
+                              ? meta.text
+                              : "text-foreground"
+                            : "text-muted-foreground",
+                        )}
+                      >
+                        {scenarioMeta?.shortLabel}
+                        {!s.enabled && " (off)"}
+                      </span>
+                    </span>
+                  )
+                })}
+              </div>
+
               {/* Phase-header row */}
               <div className="relative flex h-12 items-end text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 {phases.map((p, i) => {
@@ -1918,6 +1958,77 @@ function JourneyTimeline({
                 })}
               </div>
 
+              {/* Attached scenario ribbons — one thin colored bar per
+                 scenario stacked directly under the axis line so scenario
+                 message events read as part of the same timeline as the
+                 numbered ①–⑨ lifecycle events. Not clickable; scenario
+                 switching is handled by ScenarioTabBar above the Cadence
+                 card. Positioning uses the same dayPct() as the axis
+                 markers, so ribbons and numbered dots line up exactly. */}
+              <div className="relative mt-1 flex flex-col gap-0.5">
+                {cycleRows.map((id) => {
+                  const s = settingsFor(id)
+                  const meta = SCENARIO_TIMELINE_META[id]
+                  const scenarioMeta = SCENARIOS.find((x) => x.id === id)
+                  const step = steps.find((x) => x.id === id)!
+                  const sendDays = s.enabled ? projectSendDays(s, id, anchors) : []
+                  const isActive = id === active
+                  const bandStart = sendDays.length > 0 ? sendDays[0] : step.start
+                  const bandEnd =
+                    sendDays.length > 0
+                      ? Math.max(sendDays[sendDays.length - 1], bandStart)
+                      : step.ceiling
+                  const bandLeftPct = dayPct(bandStart)
+                  const bandWidthPct = Math.max(dayPct(bandEnd) - bandLeftPct, 0.6)
+                  return (
+                    <div
+                      key={id}
+                      className={cn("relative h-1.5", !isActive && "opacity-80")}
+                      aria-label={`${scenarioMeta?.shortLabel} scenario track`}
+                    >
+                      <div
+                        className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-zinc-100"
+                        aria-hidden
+                      />
+                      {phaseBoundaries.map((pct) => (
+                        <div
+                          key={pct}
+                          className="absolute inset-y-0 border-l border-dashed border-zinc-200"
+                          style={{ left: `${pct}%` }}
+                          aria-hidden
+                        />
+                      ))}
+                      {s.enabled && sendDays.length > 0 && (
+                        <>
+                          <div
+                            className={cn(
+                              "absolute inset-y-0 rounded-full",
+                              meta.band,
+                              isActive && "ring-1 ring-inset",
+                              isActive && meta.ring,
+                            )}
+                            style={{ left: `${bandLeftPct}%`, width: `${bandWidthPct}%` }}
+                            aria-hidden
+                          />
+                          {sendDays.map((d, idx) => (
+                            <span
+                              key={idx}
+                              className={cn(
+                                "absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-white",
+                                idx === 0 ? "h-2.5 w-2.5" : "h-1.5 w-1.5",
+                                meta.dot,
+                              )}
+                              style={{ left: `${dayPct(d)}%` }}
+                              title={`${scenarioMeta?.shortLabel}: ${axisDayLabel(d)}${idx === 0 ? " (first message)" : " (repeat)"}`}
+                            />
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
               {/* Legend — one entry per numbered axis marker. `auto-fill` +
                  `minmax(180px, 1fr)` makes the grid wrap into as few or as
                  many columns as the panel width allows, so the journey
@@ -1940,91 +2051,6 @@ function JourneyTimeline({
                 })}
               </div>
             </div>
-          </div>
-
-          {/* Scenario bands — each row is a two-column flex: fixed label
-             column (w-24, matches the axis spacer above so ticks and bands
-             line up) plus a fluid track. Nothing here has a minimum width;
-             it flexes down to whatever the panel gives us. */}
-          <div className="mt-2 space-y-2 border-t border-border pt-4">
-            {cycleRows.map((id) => {
-              const s = settingsFor(id)
-              const meta = SCENARIO_TIMELINE_META[id]
-              const scenarioMeta = SCENARIOS.find((x) => x.id === id)
-              const step = steps.find((x) => x.id === id)!
-              const sendDays = s.enabled ? projectSendDays(s, id, anchors) : []
-              const isActive = id === active
-              const bandStart = sendDays.length > 0 ? sendDays[0] : step.start
-              const bandEnd = sendDays.length > 0 ? Math.max(sendDays[sendDays.length - 1], bandStart) : step.ceiling
-              const bandLeftPct = dayPct(bandStart)
-              const bandWidthPct = Math.max(dayPct(bandEnd) - bandLeftPct, 0.6)
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => onChange(id)}
-                  className={cn(
-                    "flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left transition-colors",
-                    isActive ? "bg-purple-50 ring-1 ring-purple-200" : "hover:bg-zinc-50",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "flex w-24 shrink-0 items-center gap-1.5 text-[11px] font-semibold",
-                      s.enabled ? meta.text : "text-muted-foreground",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "inline-block h-2 w-2 shrink-0 rounded-full",
-                        s.enabled ? meta.dot : "bg-zinc-300",
-                      )}
-                      aria-hidden
-                    />
-                    <span className="truncate">{scenarioMeta?.shortLabel}</span>
-                  </span>
-                  <div className="relative h-5 flex-1">
-                    {phaseBoundaries.map((pct) => (
-                      <div
-                        key={pct}
-                        className="absolute inset-y-0 border-l border-dashed border-zinc-200"
-                        style={{ left: `${pct}%` }}
-                        aria-hidden
-                      />
-                    ))}
-                    <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-zinc-100" aria-hidden />
-                    {s.enabled && (
-                      <div
-                        className={cn(
-                          "absolute top-1/2 h-2 -translate-y-1/2 rounded-full",
-                          meta.band,
-                          isActive && "ring-2",
-                          isActive && meta.ring,
-                        )}
-                        style={{ left: `${bandLeftPct}%`, width: `${bandWidthPct}%` }}
-                      />
-                    )}
-                    {sendDays.map((d, idx) => (
-                      <span
-                        key={idx}
-                        className={cn(
-                          "absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-white",
-                          idx === 0 ? "h-3 w-3" : "h-2 w-2",
-                          meta.dot,
-                        )}
-                        style={{ left: `${dayPct(d)}%` }}
-                        title={`${scenarioMeta?.shortLabel}: ${axisDayLabel(d)}${idx === 0 ? " (first message)" : " (repeat)"}`}
-                      />
-                    ))}
-                    {!s.enabled && (
-                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] italic text-muted-foreground">
-                        Disabled
-                      </span>
-                    )}
-                  </div>
-                </button>
-              )
-            })}
           </div>
 
           <JourneyOverlapWarning store={store} current={current} active={active} anchors={anchors} />
