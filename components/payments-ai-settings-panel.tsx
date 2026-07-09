@@ -42,7 +42,6 @@ import {
 import {
   AlertTriangle,
   Ban,
-  Bot,
   Calendar,
   CalendarRange,
   ChevronDown,
@@ -52,6 +51,7 @@ import {
   History,
   Info,
   Lock,
+  MessageSquareText,
   Receipt,
   ShieldCheck,
   UserCheck,
@@ -529,12 +529,9 @@ interface ScenarioSettings {
   quietEnd: number
   days: DayFlags
   // Customizable outreach copy for this scenario.
+  customTextEnabled: boolean
   introMessage: string
   repeatMessage: string
-  // Delinquency-only: small-balance reminder (balances under max, above floor).
-  smallBalanceReminderOn: boolean
-  smallBalanceMax: BalanceThreshold
-  smallBalanceFloor: BalanceThreshold
 }
 
 /** Keys on PanelState that are scenario-scoped (mirrored to/from the store). */
@@ -553,11 +550,9 @@ const SCENARIO_SCOPED_KEYS: (keyof ScenarioSettings)[] = [
   "quietStart",
   "quietEnd",
   "days",
+  "customTextEnabled",
   "introMessage",
   "repeatMessage",
-  "smallBalanceReminderOn",
-  "smallBalanceMax",
-  "smallBalanceFloor",
 ]
 
 interface PanelState extends ScenarioSettings {
@@ -575,10 +570,13 @@ interface PanelState extends ScenarioSettings {
   repaymentRequireGoodStanding: boolean
   repaymentMinBalance: BalanceThreshold
   repaymentMaxBalance: BalanceThreshold
-  repaymentMinDownPercent: number
+  /** When the first installment of an ELI+-created plan may begin. */
+  repaymentStartMonth: "current" | "next"
   planMaxMonthsAutomated: number
   planRequireApprovalAmount: number
-  planRequireApprovalSecondInYear: boolean
+  // When on, ELI+ may create a plan whose final installment falls after the
+  // resident's lease end date. When off (default), such plans escalate.
+  planAllowExceedLeaseEnd: boolean
   // When on, ELI+ may create a new repayment agreement even if the resident
   // already has one on file. When off (default), any repayment request from
   // a resident with an existing plan escalates to a human.
@@ -648,11 +646,9 @@ function makeScenarioSettings(scenario: ScenarioId): ScenarioSettings {
     quietStart: c.quietStart,
     quietEnd: c.quietEnd,
     days: { ...c.days },
+    customTextEnabled: true,
     introMessage: SCENARIO_MESSAGES[scenario].intro,
     repeatMessage: SCENARIO_MESSAGES[scenario].repeat,
-    smallBalanceReminderOn: scenario === "late",
-    smallBalanceMax: fixedThreshold(100),
-    smallBalanceFloor: fixedThreshold(10),
   }
 }
 
@@ -691,14 +687,13 @@ const CADENCE_KEYS: (keyof ScenarioSettings)[] = [
   "enabled", "offsetValue", "offsetDir", "offsetAnchor", "repeatOn", "repeatInterval",
   "maxAttempts", "recipients", "minOutstandingBalance",
   "channel", "quietStart", "quietEnd", "days",
-  "smallBalanceReminderOn", "smallBalanceMax", "smallBalanceFloor",
 ]
-const MESSAGING_KEYS: (keyof ScenarioSettings)[] = ["introMessage", "repeatMessage"]
+const MESSAGING_KEYS: (keyof ScenarioSettings)[] = ["customTextEnabled", "introMessage"]
 const DELIVERY_DEFAULT_KEYS: (keyof PanelState)[] = ["defaultSendOnHolidays"]
 const REPAYMENT_KEYS: (keyof PanelState)[] = [
   "repaymentOfferAllowed", "repaymentOfferEnabled", "repaymentRequireGoodStanding", "repaymentMinBalance", "repaymentMaxBalance",
-  "repaymentMinDownPercent", "planMaxMonthsAutomated", "planRequireApprovalAmount",
-  "planRequireApprovalSecondInYear", "planAllowWithActiveAgreement",
+  "repaymentStartMonth", "planMaxMonthsAutomated", "planRequireApprovalAmount",
+  "planAllowExceedLeaseEnd", "planAllowWithActiveAgreement",
 ]
 const ELIGIBILITY_KEYS: (keyof PanelState)[] = [
   "eligibilityEnabled", "eligibilityFactors", "eligibilityThresholdModerate",
@@ -728,7 +723,7 @@ function computeChangedSections(a: PanelState, b: PanelState): string[] {
     keys.some((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]))
 
   if (scenarioKeysDiffer(CADENCE_KEYS) || panelKeysDiffer(DELIVERY_DEFAULT_KEYS)) out.push("Cadence")
-  if (scenarioKeysDiffer(MESSAGING_KEYS)) out.push("Custom Messaging")
+  if (scenarioKeysDiffer(MESSAGING_KEYS)) out.push("Custom text")
   if (panelKeysDiffer(REPAYMENT_KEYS)) out.push("Repayment agreements")
   if (panelKeysDiffer(ELIGIBILITY_KEYS)) out.push("Resident eligibility")
   if (panelKeysDiffer(CONTEXT_OUTREACH_KEYS)) out.push("Context-aware outreach")
@@ -821,11 +816,8 @@ const SCENARIO_FIELD_META: {
   quietStart:           { scope: "Cadence",     label: "Quiet hours start",              format: formatHour },
   quietEnd:             { scope: "Cadence",     label: "Quiet hours end",                format: formatHour },
   days:                 { scope: "Cadence",     label: "Send days",                      format: formatDays },
-  smallBalanceReminderOn:{ scope: "Cadence",    label: "Small-balance reminder",         format: yesNo },
-  smallBalanceMax:      { scope: "Cadence",     label: "Small-balance ceiling",          format: formatThreshold },
-  smallBalanceFloor:    { scope: "Cadence",     label: "Small-balance floor",            format: formatThreshold },
   introMessage:         { scope: "Custom text", label: "Intro message",                  format: (v) => (v ? `"${v}"` : "(empty)") },
-  repeatMessage:        { scope: "Custom text", label: "Repeat message",                 format: (v) => (v ? `"${v}"` : "(empty)") },
+  customTextEnabled:    { scope: "Custom text", label: "Custom text",                    format: yesNo },
 }
 
 /** Per-key label + formatter for property-wide fields.  Keys not listed here
@@ -837,7 +829,6 @@ const PANEL_FIELD_META: {
     format: (v: PanelState[K]) => string
   }
 } = {
-  agentDisplayName:               { scope: "Agent identity",     label: "Display name",                                          format: (v) => (v ? `"${v}"` : "(default: Eli)") },
   defaultSendOnHolidays:          { scope: "Cadence",            label: "Send on federal holidays",                              format: yesNo },
   // Payment actions — repayment agreements
   repaymentOfferAllowed:          { scope: "Payment actions",    label: "Allow ELI+ to offer repayment agreements",              format: yesNo },
@@ -845,10 +836,10 @@ const PANEL_FIELD_META: {
   repaymentRequireGoodStanding:   { scope: "Payment actions",    label: "Require good standing",                                 format: yesNo },
   repaymentMinBalance:            { scope: "Payment actions",    label: "Minimum balance for repayment agreement",               format: formatThreshold },
   repaymentMaxBalance:            { scope: "Payment actions",    label: "Maximum balance for repayment agreement",               format: formatThreshold },
-  repaymentMinDownPercent:        { scope: "Payment actions",    label: "Minimum down payment",                                  format: (v) => `${v}%` },
+  repaymentStartMonth:            { scope: "Payment actions",    label: "Start repayments in",                                   format: (v) => (v === "next" ? "Next month" : "Current month") },
   planMaxMonthsAutomated:         { scope: "Payment actions",    label: "ELI+ can create plans up to",                           format: (v) => `${v} month${v === 1 ? "" : "s"}` },
   planRequireApprovalAmount:      { scope: "Payment actions",    label: "Require approval above",                                format: (v) => `$${v.toLocaleString()}` },
-  planRequireApprovalSecondInYear:{ scope: "Payment actions",    label: "Require approval for second plan within 12 months",     format: yesNo },
+  planAllowExceedLeaseEnd:        { scope: "Payment actions",    label: "Allow repayment plans to exceed lease end date",        format: yesNo },
   planAllowWithActiveAgreement:   { scope: "Payment actions",    label: "Allow ELI+ to create plans when an active plan is on file", format: yesNo },
   // Payment actions — payments
   shareFlexAvailability:          { scope: "Payment actions",    label: "Allow ELI+ to share Flex availability",                 format: yesNo },
@@ -877,7 +868,6 @@ const PANEL_FIELD_META: {
 /** Order of scopes in the confirmation dialog. Any scope not listed appears
  *  after these, in first-seen order. */
 const SCOPE_ORDER: string[] = [
-  "Agent identity",
   "Cadence",
   "Custom text",
   "Payment actions",
@@ -1023,10 +1013,11 @@ function makeInitialState(): PanelState {
     repaymentRequireGoodStanding: true,
     repaymentMinBalance: fixedThreshold(50),
     repaymentMaxBalance: fixedThreshold(5000),
-    repaymentMinDownPercent: 25,
+    repaymentStartMonth: "current",
     planMaxMonthsAutomated: 3,
     planRequireApprovalAmount: 2000,
-    planRequireApprovalSecondInYear: true,
+    // Default off: escalate plans that would run past the lease end date.
+    planAllowExceedLeaseEnd: false,
     // Default off: escalate any plan request from a resident with an active
     // plan on file. Property may opt in.
     planAllowWithActiveAgreement: false,
@@ -1168,16 +1159,28 @@ export function PaymentsAISettingsPanel({
 
   const handleScenarioMessageChange = (
     scenarioId: ScenarioId,
-    field: "introMessage" | "repeatMessage",
     value: string,
   ) => {
     setState((prev) => {
       const stored =
         scenarioId === prev.scenario ? extractScenarioSettings(prev) : prev.scenarioStore[scenarioId]
-      const nextScenarioSettings = { ...stored, [field]: value }
+      const nextScenarioSettings = { ...stored, introMessage: value }
       const scenarioStore = { ...prev.scenarioStore, [scenarioId]: nextScenarioSettings }
       if (scenarioId === prev.scenario) {
-        return { ...prev, [field]: value, scenarioStore }
+        return { ...prev, introMessage: value, scenarioStore }
+      }
+      return { ...prev, scenarioStore }
+    })
+  }
+
+  const handleCustomTextEnabledToggle = (scenarioId: ScenarioId, enabled: boolean) => {
+    setState((prev) => {
+      const stored =
+        scenarioId === prev.scenario ? extractScenarioSettings(prev) : prev.scenarioStore[scenarioId]
+      const nextScenarioSettings = { ...stored, customTextEnabled: enabled }
+      const scenarioStore = { ...prev.scenarioStore, [scenarioId]: nextScenarioSettings }
+      if (scenarioId === prev.scenario) {
+        return { ...prev, customTextEnabled: enabled, scenarioStore }
       }
       return { ...prev, scenarioStore }
     })
@@ -1241,24 +1244,17 @@ export function PaymentsAISettingsPanel({
             </div>
           )}
           {/* Single-column layout: two primary tabs — Guardrails (which hosts
-              Agent identity, per-scenario Cadence (which itself contains, top
-              to bottom: the scenario selector, the per-scenario enable toggle,
-              the cadence controls, and per-scenario Custom Text), the
-              property-wide Collection journey, and property-wide guardrails)
-              and Change Log (property-wide audit trail). Per-scenario blocks
-              inside Cadence dim when the active scenario is disabled;
-              property-wide blocks never dim. */}
+              per-scenario Cadence, Custom Text, the property-wide Collection
+              journey, and property-wide guardrails) and Change Log
+              (property-wide audit trail). Per-scenario blocks inside Cadence
+              dim when the active scenario is disabled; property-wide blocks
+              never dim. */}
           <div className="min-w-0 flex-1 space-y-4">
             <DetailTabBar active={detailTab} onChange={setDetailTab} />
 
             <div className="space-y-6">
               {detailTab === "guardrails" && (
                 <>
-                  <AgentIdentitySection
-                    state={state}
-                    update={update}
-                  />
-
                   <CadenceSection
                     state={state}
                     update={update}
@@ -1268,7 +1264,14 @@ export function PaymentsAISettingsPanel({
                     scenarioStore={state.scenarioStore}
                     onScenarioChange={handleScenarioChange}
                     onScenarioEnabledToggle={handleScenarioEnabledToggle}
-                    onScenarioMessageChange={handleScenarioMessageChange}
+                  />
+
+                  <CustomTextSection
+                    activeScenario={state.scenario}
+                    scenarioStore={state.scenarioStore}
+                    current={state}
+                    onMessageChange={handleScenarioMessageChange}
+                    onCustomTextEnabledToggle={handleCustomTextEnabledToggle}
                   />
 
                   <JourneyTimeline
@@ -1545,38 +1548,19 @@ function ScenarioEnableBanner({
   scenario,
   enabled,
   onToggle,
-  propertyContext,
 }: {
   scenario: ScenarioId
   enabled: boolean
   onToggle: (enabled: boolean) => void
-  propertyContext: PropertyContextView
 }) {
   const meta = SCENARIOS.find((s) => s.id === scenario)
   const title = meta?.title ?? "Scenario"
-  const enableNotice: { icon: typeof Info; text: React.ReactNode } | null =
-    enabled && scenario === "initial"
-      ? {
-          icon: AlertTriangle,
-          text: (
-            <>
-              Standard Rent Reminders will no longer be sent. Payments AI now handles all
-              rent-reminder outreach for this property.
-            </>
-          ),
-        }
-      : enabled && (scenario === "late" || scenario === "legal")
-        ? {
-            icon: Info,
-            text: (
-              <>
-                Payments AI will not change your legal notices. This scenario controls a separate
-                collections nudge. Standard delinquency and collections notices will continue to be
-                sent per your Delinquency and Collections policies.
-              </>
-            ),
-          }
-        : null
+  const enabledDescription =
+    scenario === "initial"
+      ? "Standard Rent Reminders will no longer be sent. Payments AI now handles all rent-reminder outreach for this property."
+      : scenario === "late" || scenario === "legal"
+        ? "Payments AI will not change your legal notices. This scenario controls a separate collections nudge. Standard delinquency and collections notices will continue to be sent per your Delinquency and Collections policies."
+        : "The agent runs this scenario's cadence and messaging as configured below."
   return (
     <section
       className={cn(
@@ -1600,7 +1584,7 @@ function ScenarioEnableBanner({
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
             {enabled
-              ? "The agent runs this scenario's identity, cadence, and messaging as configured below."
+              ? enabledDescription
               : "The agent will not run any outreach or cadence for this scenario. Its settings are saved but inactive."}
           </p>
         </div>
@@ -1609,12 +1593,6 @@ function ScenarioEnableBanner({
           <ToggleSwitch checked={enabled} onChange={onToggle} disabled={meta?.outOfScope} />
         </div>
       </div>
-      {enableNotice && (
-        <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
-          <enableNotice.icon className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
-          <p className="text-xs leading-relaxed text-amber-900">{enableNotice.text}</p>
-        </div>
-      )}
     </section>
   )
 }
@@ -2107,8 +2085,8 @@ function JourneyOverlapWarning({
 
 /* ══════════════════════════════════════════════════════════════════════════
    Scenario rail — single persistent selector (item 6).
-   Sticky so it stays visible while the Identity / Cadence / Messaging blocks
-   scroll. The active scenario is clearly highlighted.
+   Sticky so it stays visible while the Cadence / Custom Text blocks scroll.
+   The active scenario is clearly highlighted.
    ══════════════════════════════════════════════════════════════════════════ */
 
 /** One-line cadence summary for a scenario, shown under each rail item. */
@@ -2122,8 +2100,9 @@ function scenarioCadenceSummary(s: ScenarioSettings): string {
 /* ══════════════════════════════════════════════════════════════════════════
    Scenario tab bar — horizontal, sits at the top of the Cadence card inside
    the Guardrails tab, immediately followed by the per-scenario enable banner.
-   It drives the active scenario for every per-scenario block inside Cadence
-   (cadence controls + Custom Text). Not rendered on Change Log.
+   It drives the active scenario for Cadence controls. Custom Text is a
+   separate block below Cadence and highlights the matching scenario row.
+   Not rendered on Change Log.
    ══════════════════════════════════════════════════════════════════════════ */
 
 function ScenarioTabBar({
@@ -2222,56 +2201,21 @@ function ScenarioTabBar({
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   Agent identity section — name + default tone, per-property branding
+   Custom Text — per-scenario intro copy with optional enablement
    ══════════════════════════════════════════════════════════════════════════ */
 
-function AgentIdentitySection({
-  state,
-  update,
-}: {
-  state: PanelState
-  update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
-}) {
-  return (
-    <SectionShell
-      icon={Bot}
-      title="Agent identity"
-      description="Brand the agent. The agent always acknowledges it's AI when asked."
-      hint="How the agent presents itself to residents: its display name. This is static across all scenarios. Compliance and workflow behavior are unaffected."
-    >
-      <div className="space-y-5">
-        <div>
-          <div className="flex items-center gap-1.5">
-            <label className="text-xs font-medium text-foreground">Display name</label>
-            <InfoHint label="The name the agent uses to refer to itself in messages. Default is Eli." />
-          </div>
-          <Input
-            value={state.agentDisplayName}
-            onChange={(e) => update("agentDisplayName", e.target.value)}
-            placeholder="Eli"
-            maxLength={40}
-            className="mt-1.5"
-          />
-        </div>
-      </div>
-    </SectionShell>
-  )
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
-   Custom Text grid — intro + repeat copy for every scenario (2 cols × 3 rows)
-   ══════════════════════════════════════════════════════════════════════════ */
-
-function ScenarioCustomTextGrid({
+function CustomTextSection({
   activeScenario,
   scenarioStore,
   current,
   onMessageChange,
+  onCustomTextEnabledToggle,
 }: {
   activeScenario: ScenarioId
   scenarioStore: Record<ScenarioId, ScenarioSettings>
   current: PanelState
-  onMessageChange: (scenarioId: ScenarioId, field: "introMessage" | "repeatMessage", value: string) => void
+  onMessageChange: (scenarioId: ScenarioId, value: string) => void
+  onCustomTextEnabledToggle: (scenarioId: ScenarioId, enabled: boolean) => void
 }) {
   const settingsFor = (id: ScenarioId) =>
     id === activeScenario ? extractScenarioSettings(current) : scenarioStore[id]
@@ -2280,63 +2224,60 @@ function ScenarioCustomTextGrid({
     "w-full resize-y rounded-md border border-border bg-white px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/20"
 
   return (
-    <div className="rounded-lg border border-border bg-zinc-50/40 p-4">
-      <div className="flex items-center gap-1.5">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-foreground">Custom Text</h4>
-        <InfoHint label="Customize the first message the agent sends and the follow-up it repeats for each scenario. Merge tags {name}, {balance}, and {link} are replaced at send time." />
-      </div>
-
-      <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Intro message</p>
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Repeat message</p>
-      </div>
-
-      <div className="mt-2 space-y-4">
+    <SectionShell
+      icon={MessageSquareText}
+      title="Custom Text"
+      description="Customize the first message the agent sends for each scenario. Turn custom text off to use the platform default opener for that cadence."
+      hint="Merge tags {name}, {balance}, and {link} are replaced at send time. When custom text is off, the platform default opener is used. Repeat follow-ups always use the platform default."
+    >
+      <div className="space-y-4">
         {SCENARIOS.map((s) => {
           const settings = settingsFor(s.id)
-          const isActive = activeScenario === s.id
+          const outOfScope = s.outOfScope
           return (
             <div
               key={s.id}
-              className={cn(
-                "grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border p-3 transition-colors",
-                isActive ? "border-purple-300 bg-purple-50/40" : "border-border/60 bg-white",
-              )}
+              className="rounded-lg border border-border/60 bg-white p-3"
             >
-              <p
+              <div className="flex items-center justify-between gap-3">
+                <p className="flex min-w-0 items-center gap-2 text-xs font-semibold text-foreground">
+                  <span
+                    className={cn(
+                      "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
+                      settings.enabled ? "bg-emerald-500" : "bg-zinc-400",
+                    )}
+                    aria-hidden
+                  />
+                  {s.title}
+                </p>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="text-[10px] font-medium text-muted-foreground">Custom text</span>
+                  <ToggleSwitch
+                    checked={settings.customTextEnabled}
+                    disabled={outOfScope}
+                    onChange={(v) => onCustomTextEnabledToggle(s.id, v)}
+                  />
+                </div>
+              </div>
+              <div
                 className={cn(
-                  "col-span-2 flex items-center gap-2 text-xs font-semibold",
-                  isActive ? "text-purple-900" : "text-foreground",
+                  "mt-3 transition-opacity",
+                  (!settings.customTextEnabled || outOfScope) && "pointer-events-none opacity-50",
                 )}
+                aria-disabled={!settings.customTextEnabled || outOfScope}
               >
-                <span
-                  className={cn(
-                    "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
-                    settings.enabled ? "bg-emerald-500" : "bg-zinc-400",
-                  )}
-                  aria-hidden
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Intro message
+                </label>
+                <textarea
+                  value={settings.introMessage}
+                  onChange={(e) => onMessageChange(s.id, e.target.value)}
+                  rows={3}
+                  disabled={!settings.customTextEnabled || outOfScope}
+                  aria-label={`${s.title} intro message`}
+                  className={cn(textareaClass, "mt-1.5")}
                 />
-                {s.title}
-                {isActive && (
-                  <span className="rounded-full bg-purple-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-purple-700">
-                    Editing cadence
-                  </span>
-                )}
-              </p>
-              <textarea
-                value={settings.introMessage}
-                onChange={(e) => onMessageChange(s.id, "introMessage", e.target.value)}
-                rows={3}
-                aria-label={`${s.title} intro message`}
-                className={textareaClass}
-              />
-              <textarea
-                value={settings.repeatMessage}
-                onChange={(e) => onMessageChange(s.id, "repeatMessage", e.target.value)}
-                rows={3}
-                aria-label={`${s.title} repeat message`}
-                className={textareaClass}
-              />
+              </div>
             </div>
           )
         })}
@@ -2347,7 +2288,7 @@ function ScenarioCustomTextGrid({
         <code className="rounded bg-zinc-100 px-1 py-0.5">{"{balance}"}</code>{" "}
         <code className="rounded bg-zinc-100 px-1 py-0.5">{"{link}"}</code>
       </p>
-    </div>
+    </SectionShell>
   )
 }
 
@@ -2439,22 +2380,21 @@ function RepaymentAgreementsSection({
                 <div className="mt-1 divide-y divide-border/40">
                   <GuardrailRule
                     layout="row"
-                    title="Minimum down payment"
-                    description="Percent of the balance the resident must pay up front when the plan starts."
+                    title="Start repayments in"
+                    description="When the first installment of an ELI+-created plan may begin — the current calendar month or the next one."
                   >
-                    <div className="flex items-center gap-1.5 text-sm">
-                      <Input
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={state.repaymentMinDownPercent}
-                        onChange={(e) =>
-                          update("repaymentMinDownPercent", Math.max(0, Math.min(100, Number(e.target.value) || 0)))
-                        }
-                        className="h-8 w-16 text-sm"
-                      />
-                      <span className="text-muted-foreground">%</span>
-                    </div>
+                    <Select
+                      value={state.repaymentStartMonth}
+                      onValueChange={(v) => update("repaymentStartMonth", v as "current" | "next")}
+                    >
+                      <SelectTrigger className="h-8 w-[140px] text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="current">Current month</SelectItem>
+                        <SelectItem value="next">Next month</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </GuardrailRule>
                   <GuardrailRule
                     layout="row"
@@ -2492,12 +2432,12 @@ function RepaymentAgreementsSection({
                   </GuardrailRule>
                   <GuardrailRule
                     layout="row"
-                    title="Require approval for second plan within 12 months"
-                    description="A resident who already completed or broke a plan this year usually needs a human conversation, not another ELI+-created plan."
+                    title="Allow repayment plans to exceed lease end date"
+                    description="When on, ELI+ may create a plan whose final installment falls after the resident's lease end date. When off (default), those plans escalate to a human."
                   >
                     <ToggleSwitch
-                      checked={state.planRequireApprovalSecondInYear}
-                      onChange={(v) => update("planRequireApprovalSecondInYear", v)}
+                      checked={state.planAllowExceedLeaseEnd}
+                      onChange={(v) => update("planAllowExceedLeaseEnd", v)}
                     />
                   </GuardrailRule>
                   <GuardrailRule
@@ -2597,7 +2537,6 @@ function CadenceSection({
   scenarioStore,
   onScenarioChange,
   onScenarioEnabledToggle,
-  onScenarioMessageChange,
 }: {
   state: PanelState
   update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
@@ -2607,7 +2546,6 @@ function CadenceSection({
   scenarioStore: Record<ScenarioId, ScenarioSettings>
   onScenarioChange: (s: ScenarioId) => void
   onScenarioEnabledToggle: (enabled: boolean) => void
-  onScenarioMessageChange: (scenarioId: ScenarioId, field: "introMessage" | "repeatMessage", value: string) => void
 }) {
   const anchor = OFFSET_ANCHORS[state.offsetAnchor]
   const scenarioCadence = SCENARIO_CADENCE[state.scenario]
@@ -2667,7 +2605,6 @@ function CadenceSection({
           scenario={state.scenario}
           enabled={state.enabled}
           onToggle={onScenarioEnabledToggle}
-          propertyContext={propertyContext}
         />
         <div
           className={cn(
@@ -2828,37 +2765,6 @@ function CadenceSection({
               />
             </div>
 
-            {isDelinquency && (
-              <div className="rounded-md border border-border bg-zinc-50/40 p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
-                    Small balance reminder
-                    <InfoHint label="Send a lighter reminder for balances under the max but above the floor. Useful for utility or fee balances that don't warrant full delinquency outreach." />
-                  </span>
-                  <ToggleSwitch
-                    checked={state.smallBalanceReminderOn}
-                    onChange={(v) => update("smallBalanceReminderOn", v)}
-                  />
-                </div>
-                {state.smallBalanceReminderOn && (
-                  <div className="mt-3 space-y-3">
-                    <BalanceThresholdInput
-                      value={state.smallBalanceFloor}
-                      onChange={(v) => update("smallBalanceFloor", v)}
-                      avgRent={avgRent}
-                      label="Floor"
-                    />
-                    <BalanceThresholdInput
-                      value={state.smallBalanceMax}
-                      onChange={(v) => update("smallBalanceMax", v)}
-                      avgRent={avgRent}
-                      label="Ceiling"
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-
           </div>
 
           {/* ─── Column 2: Delivery Window ─── */}
@@ -2992,13 +2898,6 @@ function CadenceSection({
         </div>
         </div>
 
-        <ScenarioCustomTextGrid
-          activeScenario={state.scenario}
-          scenarioStore={scenarioStore}
-          current={state}
-          onMessageChange={onScenarioMessageChange}
-        />
-
       </div>
     </SectionShell>
   )
@@ -3033,7 +2932,7 @@ type ChangeLogEntry = {
   id: string
   timestamp: string
   user: { name: string; role: string }
-  scope: "Cadence" | "Custom Messaging" | "Guardrails" | "Agent identity"
+  scope: "Cadence" | "Custom text" | "Guardrails"
   /** Present for scenario-scoped changes. Omitted for property-wide settings. */
   scenario?: ScenarioId
   setting: string
@@ -3074,7 +2973,7 @@ const CHANGE_LOG_ENTRIES: ChangeLogEntry[] = [
     id: "cl-5",
     timestamp: "2026-06-25T13:24:00-06:00",
     user: { name: "James Kim", role: "Property Manager" },
-    scope: "Custom Messaging",
+    scope: "Custom text",
     scenario: "initial",
     setting: "Intro message",
     oldValue: "Hi {resident_first_name}, this is a friendly reminder your rent is due soon.",
@@ -3088,15 +2987,6 @@ const CHANGE_LOG_ENTRIES: ChangeLogEntry[] = [
     setting: "Repayment agreements — max months (automated)",
     oldValue: "3 months",
     newValue: "4 months",
-  },
-  {
-    id: "cl-7",
-    timestamp: "2026-06-22T14:41:00-06:00",
-    user: { name: "Devon Carter", role: "Suite Leader" },
-    scope: "Agent identity",
-    setting: "Agent display name",
-    oldValue: "Payments AI",
-    newValue: "ELI+ Payments",
   },
   {
     id: "cl-8",
@@ -3120,9 +3010,8 @@ function formatChangeLogTimestamp(iso: string): string {
 
 const CHANGE_LOG_SCOPE_STYLES: Record<ChangeLogEntry["scope"], string> = {
   "Cadence": "bg-sky-100 text-sky-800",
-  "Custom Messaging": "bg-violet-100 text-violet-800",
+  "Custom text": "bg-violet-100 text-violet-800",
   "Guardrails": "bg-emerald-100 text-emerald-800",
-  "Agent identity": "bg-zinc-200 text-zinc-800",
 }
 
 const CHANGE_LOG_SCENARIO_STYLES: Record<ScenarioId, string> = {
