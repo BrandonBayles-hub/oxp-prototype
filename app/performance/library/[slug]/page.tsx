@@ -1,10 +1,5 @@
 import { notFound } from "next/navigation";
-import {
-  ELI_DASHBOARD_ORDER,
-  getDashboard,
-  type DashboardBlock,
-  type EliDashboard,
-} from "@/lib/eli-library";
+import { ELI_DASHBOARD_ORDER, getDashboard } from "@/lib/eli-library";
 import { LibraryDashboardView } from "./dashboard-view";
 
 export function generateStaticParams() {
@@ -12,18 +7,6 @@ export function generateStaticParams() {
 }
 
 export const dynamicParams = false;
-
-function isNewMetricBlock(block: DashboardBlock): boolean {
-  return Boolean(block.isNew || block.config?.isNew);
-}
-
-/** Payments AI library view: hide metrics tagged New until they graduate. */
-function withoutNewMetrics(dashboard: EliDashboard): EliDashboard {
-  return {
-    ...dashboard,
-    blocks: dashboard.blocks.filter((block) => !isNewMetricBlock(block)),
-  };
-}
 
 export default async function LibraryDashboardPage({
   params,
@@ -37,10 +20,5 @@ export default async function LibraryDashboardPage({
     notFound();
   }
 
-  const dashboard =
-    slug === "bi-eli-payments-ai"
-      ? withoutNewMetrics(eliDashboard)
-      : eliDashboard;
-
-  return <LibraryDashboardView dashboard={dashboard} />;
+  return <LibraryDashboardView dashboard={eliDashboard} />;
 }

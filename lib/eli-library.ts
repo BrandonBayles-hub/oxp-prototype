@@ -42,7 +42,6 @@ export interface DashboardBlock {
   title?: string;
   order: number;
   config: Record<string, any>;
-  isNew?: boolean;
   mockValue?: string | number;
   mockDelta?: { direction: "up" | "down" | "flat"; label: string };
   mockSub?: string;
@@ -200,110 +199,45 @@ const LEASING_AI_BLOCKS: DashboardBlock[] = [
 
 const PAYMENTS_AI_BLOCKS: DashboardBlock[] = [
   { type: "section-header", width: "full", order: 1, config: { title: "ELI+ Metrics Dashboard", subtitle: "Activation, collections, and savings headline" } },
-
-  // ─── NEW — On-Time Collections Efficacy ───────────────────────────────────
-  { type: "section-header", width: "full", order: 2, isNew: true, config: { title: "On-Time Collections Efficacy", subtitle: "NEW — Is the AI actually shifting residents to pay on time?", isNew: true } },
-  { type: "line-chart", width: "full", title: "On-Time Payment Rate — Trend", order: 3, isNew: true, config: {}, mockTrend: mockTrend(701, 94, 4) },
-  { type: "bar-chart", width: "half", title: "Days-to-Pay Distribution", order: 4, isNew: true, config: {}, mockRows: [
-    { label: "0–3 days", value: 18420 }, { label: "4–7 days", value: 8640 },
-    { label: "8–14 days", value: 3120 }, { label: "15–30 days", value: 1420 },
-    { label: "30+ days", value: 520 },
-  ] },
-  { type: "funnel-chart", width: "half", title: "First-Payment Recovery Funnel", order: 5, isNew: true, config: {}, mockStages: [
-    { label: "Charges posted (delinquent day 1)", value: 3820 },
-    { label: "Reminder sent by AI", value: 3746 },
-    { label: "Opened / Engaged", value: 2418 },
-    { label: "Paid within 7 days", value: 1984 },
-  ] },
-  { type: "funnel-chart", width: "full", title: "Repayment Agreement Outcomes", order: 6, isNew: true, config: {}, mockStages: [
-    { label: "Proposed by AI", value: 1240 },
-    { label: "Accepted by resident", value: 862 },
-    { label: "First payment on time", value: 748 },
-    { label: "Fully honored", value: 612 },
-    { label: "Defaulted", value: 136 },
-  ] },
-  { type: "kpi-card", width: "half", title: "Promise-to-Pay Kept Rate", order: 7, isNew: true, config: {}, mockValue: "82.4%", mockSub: "of AI-captured pay-date commitments honored", mockDelta: { direction: "up", label: "+6.8 pts" } },
-  { type: "kpi-card", width: "half", title: "Autopay Adoption via AI", order: 8, isNew: true, config: {}, mockValue: "1,124", mockSub: "recurring payments set up in AI conversations", mockDelta: { direction: "up", label: "+184" } },
-  { type: "bar-chart", width: "full", title: "Aging Bucket Recovery ($ recovered)", order: 9, isNew: true, config: {}, mockRows: [
-    { label: "0–30 days", value: 486000 },
-    { label: "31–60 days", value: 214000 },
-    { label: "61–90 days", value: 96000 },
-    { label: "90+ days", value: 42000 },
-  ] },
-
-  // ─── NEW — Automation & Staff Time Freed ──────────────────────────────────
-  { type: "section-header", width: "full", order: 10, isNew: true, config: { title: "Automation & Staff Time Freed", subtitle: "NEW — What did the AI actually do without a human?", isNew: true } },
-  { type: "kpi-card", width: "third", title: "Staff Hours Saved", order: 11, isNew: true, config: {}, mockValue: "1,842", mockSub: "staff hours saved · last 30 days", mockDelta: { direction: "up", label: "+240" } },
-  { type: "kpi-card", width: "third", title: "Deflection Rate", order: 12, isNew: true, config: {}, mockValue: "68.4%", mockSub: "of resident payment conversations fully AI-resolved", mockDelta: { direction: "up", label: "+4.2 pts" } },
-  { type: "kpi-card", width: "third", title: "After-Hours Coverage", order: 13, isNew: true, config: {}, mockValue: "38.6%", mockSub: "of AI interactions handled outside office hours", mockDelta: { direction: "up", label: "+2.4 pts" } },
-  { type: "donut-chart", width: "half", title: "Auto-Resolved vs. Escalated", order: 14, isNew: true, config: {}, mockSlices: [
-    { label: "Auto-resolved", value: 8640 }, { label: "Escalated to office", value: 3980 },
-  ] },
-  { type: "donut-chart", width: "half", title: "Scenario Load Distribution", order: 15, isNew: true, config: {}, mockSlices: [
-    { label: "Initial reminders", value: 24180 },
-    { label: "Delinquency (late)", value: 12420 },
-    { label: "Pre-collections (legal)", value: 3260 },
-  ] },
-  { type: "bar-chart", width: "full", title: "Autonomous Actions Taken by Type", order: 16, isNew: true, config: {}, mockRows: [
-    { label: "Reminders sent", value: 42180 },
-    { label: "Fees auto-waived (under cap)", value: 1284 },
-    { label: "Repayment plans proposed", value: 1240 },
-    { label: "One-time payments accepted", value: 3620 },
-    { label: "Recurring payments set up", value: 1124 },
-  ] },
-  { type: "bar-chart", width: "half", title: "Guardrail Interventions (AI paused for human)", order: 17, isNew: true, config: {}, mockRows: [
-    { label: "Autonomy ceiling reached", value: 486 },
-    { label: "Fee waiver over cap", value: 312 },
-    { label: "Ineligible for repayment plan", value: 218 },
-    { label: "Active repayment agreement", value: 142 },
-    { label: "Legal / pre-collections handoff", value: 98 },
-  ] },
-  { type: "bar-chart", width: "half", title: "Handoffs to Office by Scenario", order: 18, isNew: true, config: {}, mockRows: [
-    { label: "Initial reminders", value: 486 },
-    { label: "Delinquency (late)", value: 2418 },
-    { label: "Pre-collections (legal)", value: 1076 },
-  ] },
-
-  // ─── Existing ELI+ 1.0 report ──────────────────────────────────────────────
-  { type: "kpi-card", width: "third", title: "Total Organizations", order: 19, config: {}, mockValue: "98", mockSub: "activated", mockDelta: { direction: "up", label: "+8" } },
-  { type: "kpi-card", width: "third", title: "Total Properties", order: 20, config: {}, mockValue: "842", mockSub: "properties", mockDelta: { direction: "up", label: "+62" } },
-  { type: "kpi-card", width: "third", title: "Total Active Units", order: 21, config: {}, mockValue: "34,120", mockSub: "units", mockDelta: { direction: "up", label: "+1,840" } },
-  { type: "kpi-card", width: "third", title: "% of Rent Collected", order: 22, config: {}, mockValue: "94.2%", mockSub: "collection rate", mockDelta: { direction: "up", label: "+2.1 pts" } },
-  { type: "bar-chart", width: "third", title: "Late Payers (After Grace Period)", order: 23, config: {}, mockTrend: mockTrend(401, 180, 60) },
-  { type: "kpi-card", width: "third", title: "Rent Payments / Charges / % Collected", order: 24, config: {}, mockValue: "$2.4M / $2.54M", mockSub: "payments vs charges" },
-  { type: "kpi-card", width: "full", title: "Savings from Office Hours", order: 25, config: {}, mockValue: "$127,840", mockSub: "estimated savings · last 30 days", mockDelta: { direction: "up", label: "+$18K" } },
-  { type: "bar-chart", width: "half", title: "Top 10 — % Collected", order: 26, config: {}, mockRows: [
+  { type: "kpi-card", width: "third", title: "Total Organizations", order: 2, config: {}, mockValue: "98", mockSub: "activated", mockDelta: { direction: "up", label: "+8" } },
+  { type: "kpi-card", width: "third", title: "Total Properties", order: 3, config: {}, mockValue: "842", mockSub: "properties", mockDelta: { direction: "up", label: "+62" } },
+  { type: "kpi-card", width: "third", title: "Total Active Units", order: 4, config: {}, mockValue: "34,120", mockSub: "units", mockDelta: { direction: "up", label: "+1,840" } },
+  { type: "kpi-card", width: "third", title: "% of Rent Collected", order: 5, config: {}, mockValue: "94.2%", mockSub: "collection rate", mockDelta: { direction: "up", label: "+2.1 pts" } },
+  { type: "bar-chart", width: "third", title: "Late Payers (After Grace Period)", order: 6, config: {}, mockTrend: mockTrend(401, 180, 60) },
+  { type: "kpi-card", width: "third", title: "Rent Payments / Charges / % Collected", order: 7, config: {}, mockValue: "$2.4M / $2.54M", mockSub: "payments vs charges" },
+  { type: "kpi-card", width: "full", title: "Savings from Office Hours", order: 8, config: {}, mockValue: "$127,840", mockSub: "estimated savings · last 30 days", mockDelta: { direction: "up", label: "+$18K" } },
+  { type: "bar-chart", width: "half", title: "Top 10 — % Collected", order: 9, config: {}, mockRows: [
     { label: "Summit Ridge", value: 98.4 }, { label: "Hillside Living", value: 97.2 },
     { label: "The Beacon", value: 96.8 }, { label: "Parkview Flats", value: 96.1 },
     { label: "Jamison Apts", value: 95.8 },
   ] },
-  { type: "bar-chart", width: "half", title: "Bottom 10 — % Collected", order: 27, config: {}, mockRows: [
+  { type: "bar-chart", width: "half", title: "Bottom 10 — % Collected", order: 10, config: {}, mockRows: [
     { label: "Lakewood", value: 88.2 }, { label: "Maple Court", value: 89.1 },
     { label: "Cedar Hills", value: 90.4 }, { label: "Pine Valley", value: 91.2 },
     { label: "Oak Terrace", value: 91.8 },
   ] },
-  { type: "data-table", width: "full", title: "Savings from Office Hours — Details", order: 28, config: {}, mockRows: [
+  { type: "data-table", width: "full", title: "Savings from Office Hours — Details", order: 11, config: {}, mockRows: [
     { label: "Hillside Living", value: "$32,180" }, { label: "Jamison Apartments", value: "$28,420" },
     { label: "The Beacon", value: "$24,120" }, { label: "Parkview Flats", value: "$21,840" },
     { label: "Summit Ridge", value: "$21,280" },
   ] },
-  { type: "section-header", width: "full", order: 29, config: { title: "Messaging", subtitle: "Reminder volume, response rates, and opt-outs" } },
-  { type: "kpi-card", width: "quarter", title: "Residents with No Phone", order: 30, config: {}, mockValue: "1,842", mockSub: "no phone on file" },
-  { type: "kpi-card", width: "quarter", title: "Phone Opt Outs", order: 31, config: {}, mockValue: "3.2%", mockSub: "opt-out rate" },
-  { type: "kpi-card", width: "quarter", title: "Email Opt Outs", order: 32, config: {}, mockValue: "1.8%", mockSub: "opt-out rate" },
-  { type: "kpi-card", width: "quarter", title: "Total Reminders Sent", order: 33, config: {}, mockValue: "42,180", mockSub: "SMS + email", mockDelta: { direction: "up", label: "+12%" } },
-  { type: "bar-chart", width: "full", title: "Office Escalation Reasons", order: 34, config: {}, mockRows: [
+  { type: "section-header", width: "full", order: 12, config: { title: "Messaging", subtitle: "Reminder volume, response rates, and opt-outs" } },
+  { type: "kpi-card", width: "quarter", title: "Residents with No Phone", order: 13, config: {}, mockValue: "1,842", mockSub: "no phone on file" },
+  { type: "kpi-card", width: "quarter", title: "Phone Opt Outs", order: 14, config: {}, mockValue: "3.2%", mockSub: "opt-out rate" },
+  { type: "kpi-card", width: "quarter", title: "Email Opt Outs", order: 15, config: {}, mockValue: "1.8%", mockSub: "opt-out rate" },
+  { type: "kpi-card", width: "quarter", title: "Total Reminders Sent", order: 16, config: {}, mockValue: "42,180", mockSub: "SMS + email", mockDelta: { direction: "up", label: "+12%" } },
+  { type: "bar-chart", width: "full", title: "Office Escalation Reasons", order: 18, config: {}, mockRows: [
     { label: "Late Payment Settlement", value: 286 }, { label: "Balance Breakdown", value: 198 },
     { label: "Ask to Contact", value: 142 }, { label: "Other", value: 98 },
     { label: "General Info", value: 86 }, { label: "Payment Assistance", value: 72 },
     { label: "Maintenance", value: 48 }, { label: "Technical Problems", value: 32 },
   ] },
-  { type: "donut-chart", width: "full", title: "Language Preference", order: 35, config: {}, mockSlices: [
+  { type: "donut-chart", width: "full", title: "Language Preference", order: 19, config: {}, mockSlices: [
     { label: "English", value: 84 }, { label: "Spanish", value: 14 }, { label: "Other", value: 2 },
   ] },
-  { type: "section-header", width: "full", order: 36, config: { title: "Appendix", subtitle: "Detailed property-level and daily breakdowns" } },
-  { type: "kpi-card", width: "quarter", title: "Avg Late Payers", order: 37, config: {}, mockValue: "142", mockSub: "per property avg" },
-  { type: "data-table", width: "full", title: "Rent Payments / Charges / % Collected", order: 38, config: {}, mockRows: [
+  { type: "section-header", width: "full", order: 20, config: { title: "Appendix", subtitle: "Detailed property-level and daily breakdowns" } },
+  { type: "kpi-card", width: "quarter", title: "Avg Late Payers", order: 21, config: {}, mockValue: "142", mockSub: "per property avg" },
+  { type: "data-table", width: "full", title: "Rent Payments / Charges / % Collected", order: 22, config: {}, mockRows: [
     { label: "Hillside Living", value: "97.2%" }, { label: "Jamison Apartments", value: "95.8%" },
     { label: "The Beacon", value: "96.8%" }, { label: "Parkview Flats", value: "94.1%" },
   ] },
@@ -400,7 +334,7 @@ export const ELI_DASHBOARDS: Record<EliAgentSlug, EliDashboard> = {
     slug: "bi-eli-payments-ai",
     title: "ELI+ Payments AI",
     titleSuffix: "— Impact",
-    description: "ELI+ Payments agent performance, collection impact, and delinquency reduction — mirrors the Domo ELI+ | Payments AI report, extended with new On-Time Collections Efficacy and Automation & Staff Time Freed sections",
+    description: "ELI+ Payments agent performance, collection impact, and delinquency reduction — mirrors the Domo ELI+ | Payments AI report",
     iconSrc: "/eli-cube.svg",
     headlineKpi: { label: "On-time payment rate", value: "94.2%", sub: "last 30 days · +2.1 pts vs prior" },
     blocks: PAYMENTS_AI_BLOCKS,
