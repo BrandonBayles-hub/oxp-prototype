@@ -486,7 +486,7 @@ function renderBlocks(blocks: DashboardBlock[]): React.ReactNode[] {
 export function LibraryDashboardView({
   dashboard: d,
   backHref = "/performance/library",
-  backLabel = "Back to ELI+ 1.0 Library",
+  backLabel = "Back to ELI+ Legacy Library",
   toolbar,
 }: {
   dashboard: EliDashboard;
