@@ -1804,7 +1804,7 @@ function JourneyTimeline({
       icon={CalendarRange}
       title="Collection journey"
       description="The full lifecycle from charge posting through balance sent to collections. Nine anchor events, derived from Property Settings."
-      hint="Numbered ①–⑨ markers plot each event on the axis; the legend below matches those numbers to the event, its date, and its source setting. The axis is split into three phases (Before Rent Due / Delinquency & Eviction Cycle / Post Move-Out & Collections) with proportional day scales so tightly-clustered events get breathing room. Attached beneath the axis, three thin scenario ribbons show when Rent Reminder, Delinquency, and Pre-Collections messages fire — dots mark each projected send day, and the active scenario is emphasized."
+      hint="Numbered ①–⑨ markers plot each event on the axis — hover a marker for the event name, date, and source setting. The axis is split into three phases (Before Rent Due / Delinquency & Eviction Cycle / Post Move-Out & Collections) with proportional day scales so tightly-clustered events get breathing room. Attached beneath the axis, three thin scenario ribbons show when Rent Reminder, Delinquency, and Pre-Collections messages fire — dots mark each projected send day, and the active scenario is emphasized."
       collapsible
     >
       <TooltipProvider delayDuration={200}>
@@ -1881,8 +1881,8 @@ function JourneyTimeline({
               {/* Axis line with numbered markers (①–⑨), Charges Posted range
                  pill, and phase dividers. Numbers replace the icon-in-dot
                  because 3 events share AlertTriangle and 2 share Gavel — the
-                 icon alone can't disambiguate. The full label + icon + date
-                 live in the legend directly below. */}
+                 icon alone can't disambiguate. Full label + date + source
+                 setting appear on hover. */}
               <div className="relative mt-2 h-10">
                 <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-zinc-200" aria-hidden />
 
@@ -2002,28 +2002,6 @@ function JourneyTimeline({
                           ))}
                         </>
                       )}
-                    </div>
-                  )
-                })}
-              </div>
-
-              {/* Legend — one entry per numbered axis marker. `auto-fill` +
-                 `minmax(180px, 1fr)` makes the grid wrap into as few or as
-                 many columns as the panel width allows, so the journey
-                 never triggers horizontal overflow. */}
-              <div className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-x-3 gap-y-1.5 text-[10px] leading-tight">
-                {JOURNEY_EVENT_DEFS.map((e, i) => {
-                  const Icon = e.icon
-                  return (
-                    <div key={e.key} className="flex items-start gap-1.5">
-                      <span className="mt-px inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-[9px] font-bold leading-none text-white">
-                        {i + 1}
-                      </span>
-                      <Icon className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
-                      <div className="min-w-0 flex-1">
-                        <div className="font-semibold text-foreground">{e.label}</div>
-                        <div className="text-muted-foreground">{e.dateLabel(resolvedSettings)}</div>
-                      </div>
                     </div>
                   )
                 })}
