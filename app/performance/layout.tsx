@@ -7,7 +7,7 @@ import { BarChart3, Library } from "lucide-react";
 
 const TABS = [
   { href: "/performance", label: "Overview", icon: BarChart3, exact: true },
-  { href: "/performance/library", label: "ELI+ 1.0 Library", icon: Library, exact: false },
+  { href: "/performance/library", label: "ELI+ Legacy Library", icon: Library, exact: false },
 ];
 
 export default function PerformanceLayout({

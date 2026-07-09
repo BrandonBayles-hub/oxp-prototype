@@ -24,7 +24,7 @@ const PROPERTIES = [
 // the share of selected properties; intensive metrics (rates, %, averages,
 // ratios, durations) stay stable since sub-selecting properties shouldn't move
 // a per-unit figure. With all properties selected the numbers match the
-// ELI+ 1.0 Library report exactly.
+// ELI+ Legacy Library report exactly.
 // -----------------------------------------------------------------------------
 
 function scaleNumericString(raw: string, factor: number): string {
