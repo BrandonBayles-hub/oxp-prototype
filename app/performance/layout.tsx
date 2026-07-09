@@ -3,11 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { BarChart3, Library, TrendingUp } from "lucide-react";
+import { BarChart3, Library } from "lucide-react";
 
 const TABS = [
   { href: "/performance", label: "Overview", icon: BarChart3, exact: true },
-  { href: "/performance/leasing-ai", label: "Leasing AI", icon: TrendingUp, exact: false },
   { href: "/performance/library", label: "ELI+ 1.0 Library", icon: Library, exact: false },
 ];
 

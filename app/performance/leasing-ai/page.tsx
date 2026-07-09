@@ -18,6 +18,7 @@ import {
 import { ArrowLeft, ArrowUpRight, ArrowDownRight, Calendar, ChevronDown, Search, X, AlertCircle, CheckCircle2, Clock, Building2, Mail, MessageSquare, Phone, Bot, CalendarClock, MapPin } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 // -----------------------------------------------------------------------------
@@ -237,14 +238,6 @@ const pendingKnowledgeCategories = [
   { category: "Lease Term Options", count: 18 },
 ];
 
-const channelPerformance = [
-  { channel: "Chat", conversations: 8420, aiResolution: 87, handoffRate: 13, responseTimeSec: 6, leadToTour: 41 },
-  { channel: "SMS", conversations: 6840, aiResolution: 83, handoffRate: 17, responseTimeSec: 9, leadToTour: 39 },
-  { channel: "Email", conversations: 4210, aiResolution: 79, handoffRate: 21, responseTimeSec: 28, leadToTour: 34 },
-  { channel: "ILS", conversations: 2980, aiResolution: 76, handoffRate: 24, responseTimeSec: 45, leadToTour: 31 },
-  { channel: "Voice", conversations: 950, aiResolution: 61, handoffRate: 39, responseTimeSec: 3, leadToTour: 44 },
-];
-
 const taskStatusBreakdown = [
   { status: "Resolved on Time", count: 443 },
   { status: "Resolved (Late)", count: 33 },
@@ -302,49 +295,6 @@ const agentActivityRows = [
   { agent: "Trevor Mills",   property: "Maple Court",          emailsSent: 29,  smsSent: 17, prospectsAssisted: 6,  resolvedTasks: 14, callsDialed: 4  },
   { agent: "Camille Dubois", property: "Lakewood",             emailsSent: 18,  smsSent: 11, prospectsAssisted: 3,  resolvedTasks: 9,  callsDialed: 2  },
 ];
-
-// -----------------------------------------------------------------------------
-// Conversation Funnel data (REQ-19.2) — 6-state drop-off, sliceable by
-// property, date range, channel, and lead source. Illustrative prototype data.
-// -----------------------------------------------------------------------------
-
-const CONV_FUNNEL_STAGES = [
-  { key: "INITIAL_CONTACT", label: "Initial Contact" },
-  { key: "QUALIFYING", label: "Qualifying" },
-  { key: "UNIT_MATCHING", label: "Unit Matching" },
-  { key: "TOUR_SCHEDULING", label: "Tour Scheduling" },
-  { key: "TOUR_CONFIRMED", label: "Tour Confirmed" },
-  { key: "APPLICATION", label: "Application" },
-] as const;
-
-// Base stage counts: all channels/sources/properties, full period.
-const CONV_FUNNEL_BASE = [10564, 6840, 5180, 4128, 3260, 2410];
-
-// Entry volume (INITIAL_CONTACT) by channel and by lead source — scales the
-// funnel when a single channel / source is selected.
-const CONV_CHANNEL_ENTRY: Record<string, number> = {
-  Chat: 3200, SMS: 2600, Email: 1800, ILS: 1900, Voice: 1064,
-};
-const CONV_SOURCE_ENTRY: Record<string, number> = {
-  "ILS / Listing Sites": 4012, "Property Website": 2854, Referral: 1480,
-  "Walk-in / Drive-by": 1162, "Paid Search": 1056,
-};
-
-// Per-transition retention multipliers (relative to the base curve) so drop-off
-// differs by channel / source — the point of REQ-19.2 reportability.
-const CONV_CHANNEL_RETENTION: Record<string, number> = {
-  Chat: 1.06, SMS: 1.02, Email: 0.96, ILS: 0.92, Voice: 1.10,
-};
-const CONV_SOURCE_RETENTION: Record<string, number> = {
-  "ILS / Listing Sites": 0.97, "Property Website": 1.05, Referral: 1.12,
-  "Walk-in / Drive-by": 1.08, "Paid Search": 0.94,
-};
-
-const CONV_CHANNELS = ["Chat", "SMS", "Email", "ILS", "Voice"];
-const CONV_SOURCES = Object.keys(CONV_SOURCE_ENTRY);
-
-// Color ramp across the 6 stages (cool -> warm) for the funnel bars.
-const CONV_STAGE_COLORS = ["#3b82f6", "#0ea5e9", "#06b6d4", "#14b8a6", "#10b981", "#22c55e"];
 
 // -----------------------------------------------------------------------------
 // Period slicing — limits trend data to the selected period
@@ -412,15 +362,6 @@ function KpiCard({
         )}
       </CardContent>
     </Card>
-  );
-}
-
-function SectionBanner({ title, description }: { title: string; description: string }) {
-  return (
-    <div className="mb-3 rounded-md bg-muted/60 px-4 py-3">
-      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-      <p className="text-xs text-muted-foreground">{description}</p>
-    </div>
   );
 }
 
@@ -1113,281 +1054,10 @@ const BETA_ALL = buildAllBeta(BETA_CUSTOMERS);
 // Beta KPIs section
 // -----------------------------------------------------------------------------
 
-const SELECT_CLS =
-  "rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-200";
-
-// -----------------------------------------------------------------------------
-// Conversation Funnel section (REQ-19.2)
-// -----------------------------------------------------------------------------
-
-function ConversationFunnelSection() {
-  const [property, setProperty] = useState<string>("All");
-  const [periodId, setPeriodId] = useState<string>("12m");
-  const [channel, setChannel] = useState<string>("All");
-  const [source, setSource] = useState<string>("All");
-
-  const { rows, entry, overallConv, biggestDrop } = useMemo(() => {
-    // Base per-transition retention ratios from the all-up curve.
-    const baseRet = CONV_FUNNEL_BASE.slice(1).map((c, i) => c / CONV_FUNNEL_BASE[i]);
-
-    // Entry volume from the selected channel / source.
-    let entryVol = CONV_FUNNEL_BASE[0];
-    if (channel !== "All" && source !== "All") {
-      entryVol = Math.round(CONV_CHANNEL_ENTRY[channel] * (CONV_SOURCE_ENTRY[source] / CONV_FUNNEL_BASE[0]));
-    } else if (channel !== "All") {
-      entryVol = CONV_CHANNEL_ENTRY[channel];
-    } else if (source !== "All") {
-      entryVol = CONV_SOURCE_ENTRY[source];
-    }
-
-    // Property + date scaling (illustrative volume only — does not alter drop-off).
-    if (property !== "All") entryVol = Math.round(entryVol / PROPERTIES.length);
-    const months = PERIOD_OPTIONS.find((p) => p.id === periodId)?.months ?? 12;
-    entryVol = Math.max(1, Math.round(entryVol * (months / 12)));
-
-    // Retention modifier from channel + source, clamped so we never exceed ~98%.
-    const chanMod = channel !== "All" ? CONV_CHANNEL_RETENTION[channel] : 1;
-    const srcMod = source !== "All" ? CONV_SOURCE_RETENTION[source] : 1;
-
-    const counts = [entryVol];
-    for (let i = 0; i < baseRet.length; i++) {
-      const ret = Math.min(0.98, baseRet[i] * chanMod * srcMod);
-      counts.push(Math.round(counts[i] * ret));
-    }
-
-    let worst = { label: "", pct: 0 };
-    const built = CONV_FUNNEL_STAGES.map((s, i) => {
-      const count = counts[i];
-      const pctOfEntry = entryVol > 0 ? (count / entryVol) * 100 : 0;
-      const dropPct = i > 0 && counts[i - 1] > 0 ? (1 - count / counts[i - 1]) * 100 : 0;
-      if (i > 0 && dropPct > worst.pct) worst = { label: `${CONV_FUNNEL_STAGES[i - 1].label} → ${s.label}`, pct: dropPct };
-      return { key: s.key, label: s.label, count, pctOfEntry, dropPct };
-    });
-
-    const conv = entryVol > 0 ? (counts[counts.length - 1] / entryVol) * 100 : 0;
-    return { rows: built, entry: entryVol, overallConv: conv, biggestDrop: worst };
-  }, [property, periodId, channel, source]);
-
-  return (
-    <section className="mb-6">
-      <SectionBanner
-        title="Conversation Funnel"
-        description="Drop-off at each conversation-state transition, from first contact to application. Reportable by property, date range, channel, and lead source (REQ-19.2)."
-      />
-
-      {/* Filter bar — property, date range, channel, lead source */}
-      <div className="mb-4 flex flex-wrap items-end gap-3 rounded-md border border-border/60 bg-muted/30 px-3 py-3">
-        <label className="flex flex-col gap-1">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Property</span>
-          <select value={property} onChange={(e) => setProperty(e.target.value)} className={SELECT_CLS}>
-            <option value="All">All properties</option>
-            {PROPERTIES.map((p) => (
-              <option key={p} value={p}>{p}</option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date range</span>
-          <select value={periodId} onChange={(e) => setPeriodId(e.target.value)} className={SELECT_CLS}>
-            {PERIOD_OPTIONS.map((o) => (
-              <option key={o.id} value={o.id}>{o.label}</option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Channel</span>
-          <select value={channel} onChange={(e) => setChannel(e.target.value)} className={SELECT_CLS}>
-            <option value="All">All channels</option>
-            {CONV_CHANNELS.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Lead source</span>
-          <select value={source} onChange={(e) => setSource(e.target.value)} className={SELECT_CLS}>
-            <option value="All">All sources</option>
-            {CONV_SOURCES.map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      {/* Summary KPIs */}
-      <div className="mb-3 grid gap-3 sm:grid-cols-3">
-        <KpiCard label="Entered funnel" value={entry.toLocaleString()} sub="Initial Contact volume" />
-        <KpiCard
-          label="Overall conversion"
-          value={`${overallConv.toFixed(1)}%`}
-          sub="Initial Contact → Application"
-        />
-        <KpiCard
-          label="Biggest drop-off"
-          value={`${biggestDrop.pct.toFixed(1)}%`}
-          deltaTone="negative"
-          sub={biggestDrop.label || "—"}
-        />
-      </div>
-
-      {/* Funnel */}
-      <Card className="border-border/60">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">State-Transition Drop-Off</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            {rows.map((r, i) => (
-              <div key={r.key} className="flex items-center gap-3">
-                <div className="w-32 shrink-0 text-xs font-medium text-foreground">{r.label}</div>
-                <div className="relative h-7 flex-1 overflow-hidden rounded bg-muted/40">
-                  <div
-                    className="flex h-full items-center rounded px-2 text-[11px] font-semibold text-white tabular-nums"
-                    style={{ width: `${Math.max(r.pctOfEntry, 6)}%`, backgroundColor: CONV_STAGE_COLORS[i] }}
-                  >
-                    {r.count.toLocaleString()}
-                  </div>
-                </div>
-                <div className="w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-                  {r.pctOfEntry.toFixed(0)}%
-                </div>
-                <div className="w-28 shrink-0 text-right">
-                  {i > 0 && (
-                    <span className="inline-flex items-center gap-0.5 text-xs font-medium text-rose-600 tabular-nums">
-                      <ArrowDownRight className="h-3 w-3" />
-                      {r.dropPct.toFixed(1)}% drop
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="mt-3 flex items-center justify-end gap-6 border-t border-border/60 pt-2 text-[11px] text-muted-foreground">
-            <span>Bar width = % of Initial Contact</span>
-            <span className="inline-flex items-center gap-1 text-rose-600">
-              <ArrowDownRight className="h-3 w-3" /> step drop-off vs. previous state
-            </span>
-          </div>
-        </CardContent>
-      </Card>
-
-      <p className="mt-2 text-[11px] italic text-muted-foreground/80">
-        Illustrative prototype data. Channel and lead-source selections vary the drop-off curve; property and date-range
-        selections scale volume only.
-      </p>
-    </section>
-  );
-}
-
 // -----------------------------------------------------------------------------
 // Domo Replica data — illustrative prototype figures mirroring the production
 // Domo dashboard structure. All numbers are synthetic.
 // -----------------------------------------------------------------------------
-
-const DOMO_OVERVIEW = {
-  customersActivated: 4,
-  totalProperties: 14,
-  totalActiveUnits: 3200,
-  gcToTourRate: 28.4,
-  leadsToAppStarted: 187,
-  leadsToAppCompleted: 142,
-  gcToAppStartedDays: 6.2,
-  gcToAppCompletedDays: 11.8,
-};
-
-const DOMO_GC_TOUR_MONTHLY = MONTH_LABELS.map((m, i) => ({
-  month: m,
-  rate: Math.round(22 + 8 * (i / 11) + (i % 2 === 0 ? 1.2 : -0.6)),
-}));
-
-const DOMO_CHATBOT_VOICE = {
-  chatbotConversations: 1842,
-  leadsFromChatbot: 312,
-  voiceConversations: 950,
-  leadsFromVoice: 218,
-};
-
-const DOMO_COMMS = {
-  smsReceived: 2380,
-  smsSent: 5378,
-  emailsSent: 4456,
-  emailsReceived: 962,
-  smsResponseRate: 44.3,
-  emailResponseRate: 21.6,
-  savedHoursSms: 179,
-  savedHoursEmail: 148,
-  phoneOptOuts: 86,
-  phoneOptOutRatio: 1.6,
-  emailOptOuts: 124,
-  emailOptOutRatio: 2.8,
-  leadResponseTimeFirstMsgSec: 14,
-  gcToFirstOutgoingMsgSec: 38,
-  leadResponseTimeFirstMsg: "14 sec",
-  leasingAgentEarlyTakeover: 12.4,
-  savingsFromOfficeHours: 327,
-};
-
-const DOMO_SENT_SMS_VS_EMAIL = [
-  { name: "SMS", value: 55, count: 5378, color: "#3b82f6" },
-  { name: "Email", value: 45, count: 4456, color: "#8b5cf6" },
-];
-
-const DOMO_RECV_SMS_VS_EMAIL = [
-  { name: "SMS", value: 71, count: 2380, color: "#3b82f6" },
-  { name: "Email", value: 29, count: 962, color: "#8b5cf6" },
-];
-
-const DOMO_LEADS = {
-  activationDate: "Sep 19, 2024",
-  totalLeads: 4404,
-  managedByEli: 3862,
-  managedPct: 87.7,
-  leasingAgentBeforeTour: 614,
-  voiceCallsPotentialLeads: 347,
-  chatbotLeads: 312,
-};
-
-const DOMO_MANAGED_LEADS_PIE = [
-  { name: "ELI+ Leasing Agent", value: Math.round((DOMO_LEADS.managedByEli / DOMO_LEADS.totalLeads) * 100), count: DOMO_LEADS.managedByEli, color: "#be123c" },
-  { name: "Site Leasing Agent", value: Math.round(((DOMO_LEADS.totalLeads - DOMO_LEADS.managedByEli) / DOMO_LEADS.totalLeads) * 100), count: DOMO_LEADS.totalLeads - DOMO_LEADS.managedByEli, color: "#6b21a8" },
-];
-
-const DOMO_AGENT_BEFORE_TOUR_PIE = [
-  { name: "ELI+", value: Math.round((DOMO_LEADS.leasingAgentBeforeTour / (DOMO_LEADS.leasingAgentBeforeTour + 1638)) * 100), count: DOMO_LEADS.leasingAgentBeforeTour, color: "#be123c" },
-  { name: "Site Agents", value: Math.round((1638 / (DOMO_LEADS.leasingAgentBeforeTour + 1638)) * 100), count: 1638, color: "#6b21a8" },
-];
-
-const DOMO_LEADS_MONTHLY = MONTH_LABELS.map((m, i) => ({
-  month: m,
-  leads: Math.round(280 + 90 * (i / 11) + (i % 3 === 0 ? 40 : -10)),
-}));
-
-const DOMO_LEADS_PER_CHANNEL = [
-  { channel: "SMS", count: 1640 },
-  { channel: "Email", count: 1120 },
-  { channel: "ILS", count: 842 },
-  { channel: "Voice", count: 490 },
-  { channel: "Chatbot", count: 312 },
-];
-
-const DOMO_LEADS_PER_SOURCE = [
-  { source: "ILS / Listing Sites", count: 1670 },
-  { source: "Property Website", count: 1184 },
-  { source: "Referral", count: 614 },
-  { source: "Walk-in / Drive-by", count: 482 },
-  { source: "Paid Search", count: 454 },
-];
-
-const DOMO_LEAD_JOURNEY = [
-  { stage: "Guest Card Created", count: 4404, pct: 100 },
-  { stage: "First Message Sent", count: 4120, pct: 93.6 },
-  { stage: "Lead Responded", count: 1812, pct: 41.1 },
-  { stage: "Tour Scheduled", count: 1252, pct: 28.4 },
-  { stage: "Tour Completed", count: 986, pct: 22.4 },
-  { stage: "Application Started", count: 187, pct: 4.2 },
-  { stage: "Application Completed", count: 142, pct: 3.2 },
-  { stage: "Lease Signed", count: 118, pct: 2.7 },
-];
 
 const DOMO_ESCALATIONS = {
   total: 480,
@@ -1396,280 +1066,626 @@ const DOMO_ESCALATIONS = {
   voiceTransferCount: 185,
 };
 
-const DOMO_ESCALATION_REASONS = [
-  { reason: "Ask to contact office", count: 142 },
-  { reason: "Technical issue", count: 116 },
-  { reason: "No availability of preferred unit", count: 89 },
-  { reason: "Pricing question", count: 72 },
-  { reason: "Policy question", count: 38 },
-  { reason: "Amenities question", count: 23 },
-];
-
+// Four categories sum to ~10,386 to align with the Tours Booked KPI.
 const DOMO_TOURS = {
-  guidedDuring: 222,
-  guidedOutside: 197,
-  selfDuring: 91,
-  selfOutside: 139,
+  guidedDuring: 3552,
+  guidedOutside: 3152,
+  selfDuring: 1456,
+  selfOutside: 2226,
   messageSentAfterTour: 842,
 };
 
-const DOMO_LEADS_FUNNEL_AFTER_TOUR = [
-  { stage: "Guest Card Completed", count: 108600, color: "#f97316" },
-  { stage: "Application Started", count: 17900, color: "#f59e0b" },
-  { stage: "Application Completed", count: 5330, color: "#eab308" },
-  { stage: "Application Approved", count: 6000, color: "#84cc16" },
-  { stage: "Lease Started", count: 1350, color: "#22c55e" },
-  { stage: "Lease Completed", count: 5690, color: "#06b6d4" },
-  { stage: "Lease Approved", count: 2370, color: "#8b5cf6" },
+// -----------------------------------------------------------------------------
+// Lead Capture & Tours (committed v1 metrics) — daily per-property data
+// -----------------------------------------------------------------------------
+
+const LEAD_CAPTURE_METRICS = [
+  { key: "sessions", label: "Sessions Captured" },
+  { key: "guestCards", label: "Total Guest Cards Created" },
+  { key: "guestCardsEli", label: "Leads Managed by ELI+" },
+  { key: "toursBooked", label: "Tours Booked" },
+] as const;
+
+type LeadCaptureMetricKey = (typeof LEAD_CAPTURE_METRICS)[number]["key"];
+
+// Lead source is already captured today; channel capture is targeted for
+// phase 1 per engineering grooming (2026-07-09).
+const LEAD_SOURCE_SHARES = [
+  { name: "ILS / Listing Sites", share: 0.38, color: "#3b82f6" },
+  { name: "Property Website", share: 0.27, color: "#10b981" },
+  { name: "Referral", share: 0.14, color: "#f59e0b" },
+  { name: "Walk-in / Drive-by", share: 0.11, color: "#8b5cf6" },
+  { name: "Paid Search", share: 0.10, color: "#06b6d4" },
 ];
+
+const LEAD_CHANNEL_SHARES = [
+  { name: "Chat", share: 0.34, color: "#3b82f6" },
+  { name: "SMS", share: 0.24, color: "#10b981" },
+  { name: "Email", share: 0.17, color: "#f59e0b" },
+  { name: "ILS", share: 0.15, color: "#8b5cf6" },
+  { name: "Voice", share: 0.10, color: "#06b6d4" },
+];
+
+interface LeadCaptureDailyCounts {
+  sessions: number;
+  guestCards: number;
+  guestCardsEli: number;
+  toursBooked: number;
+}
+
+interface LeadCaptureDailyPoint {
+  date: string;  // ISO yyyy-mm-dd
+  label: string; // "Jul 8"
+  perProperty: Record<Property, LeadCaptureDailyCounts>;
+}
+
+const LEAD_CAPTURE_TOTAL_DAYS = 36 * 30; // 3 years of daily data
+const LEAD_CAPTURE_END_DATE = new Date(2026, 6, 8);
+
+const leadCaptureDailyData: LeadCaptureDailyPoint[] = (() => {
+  const rand = seedRand(20260708);
+  const data: LeadCaptureDailyPoint[] = [];
+  for (let d = 0; d < LEAD_CAPTURE_TOTAL_DAYS; d++) {
+    const date = new Date(LEAD_CAPTURE_END_DATE);
+    date.setDate(date.getDate() - (LEAD_CAPTURE_TOTAL_DAYS - 1 - d));
+    const growth = 1 + 0.5 * (d / LEAD_CAPTURE_TOTAL_DAYS);   // slow volume growth over 3 years
+    const dow = date.getDay();
+    const weekday = dow === 0 ? 0.55 : dow === 6 ? 0.75 : 1;  // weekend dip
+    const perProperty = {} as Record<Property, LeadCaptureDailyCounts>;
+    PROPERTIES.forEach((p, idx) => {
+      const propBase = 3 + (idx % 5) * 1.4; // property-size variation
+      const guestCards = Math.max(0, Math.round(propBase * growth * weekday + (rand() - 0.5) * 3));
+      const sessions = Math.round(guestCards * (2.1 + rand() * 0.8));
+      const guestCardsEli = Math.round(guestCards * (0.8 + rand() * 0.12));
+      const toursBooked = Math.round(guestCards * (0.32 + rand() * 0.14));
+      perProperty[p] = { sessions, guestCards, guestCardsEli, toursBooked };
+    });
+    data.push({
+      date: date.toISOString().slice(0, 10),
+      label: `${MONTH_LABELS[date.getMonth()]} ${date.getDate()}`,
+      perProperty,
+    });
+  }
+  return data;
+})();
+
+function sliceLeadCaptureDaily(months: number): LeadCaptureDailyPoint[] {
+  const days = Math.min(months * 30, LEAD_CAPTURE_TOTAL_DAYS);
+  return leadCaptureDailyData.slice(LEAD_CAPTURE_TOTAL_DAYS - days);
+}
+
+// -----------------------------------------------------------------------------
+// Trend grouping — aggregates daily points into day / week / month buckets
+// -----------------------------------------------------------------------------
+
+type TrendGrouping = "day" | "week" | "month";
+
+const TREND_GROUPING_OPTIONS: { key: TrendGrouping; label: string }[] = [
+  { key: "day", label: "Day" },
+  { key: "week", label: "Week" },
+  { key: "month", label: "Month" },
+];
+
+function groupTrendData(
+  points: { date: string; value: number }[],
+  grouping: TrendGrouping,
+): { label: string; value: number }[] {
+  if (grouping === "day") {
+    return points.map((p) => {
+      const d = new Date(p.date + "T00:00:00");
+      return { label: `${MONTH_LABELS[d.getMonth()]} ${d.getDate()}`, value: p.value };
+    });
+  }
+  const buckets = new Map<string, { label: string; value: number }>();
+  for (const p of points) {
+    const d = new Date(p.date + "T00:00:00");
+    let key: string;
+    let label: string;
+    if (grouping === "week") {
+      const monday = new Date(d);
+      monday.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // week starts Monday
+      key = `${monday.getFullYear()}-${monday.getMonth()}-${monday.getDate()}`;
+      label = `${MONTH_LABELS[monday.getMonth()]} ${monday.getDate()}`;
+    } else {
+      key = `${d.getFullYear()}-${d.getMonth()}`;
+      label = `${MONTH_LABELS[d.getMonth()]} '${String(d.getFullYear()).slice(2)}`;
+    }
+    const bucket = buckets.get(key);
+    if (bucket) bucket.value += p.value;
+    else buckets.set(key, { label, value: p.value });
+  }
+  return Array.from(buckets.values());
+}
+
+function TrendGroupingSelect({ value, onChange }: { value: TrendGrouping; onChange: (g: TrendGrouping) => void }) {
+  return (
+    <Select value={value} onValueChange={(v) => onChange(v as TrendGrouping)}>
+      <SelectTrigger className="h-8 w-[110px] text-xs">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent align="end">
+        {TREND_GROUPING_OPTIONS.map((o) => (
+          <SelectItem key={o.key} value={o.key} className="text-xs">
+            {o.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function sumLeadCaptureCounts(days: LeadCaptureDailyPoint[], selected: Set<Property>): LeadCaptureDailyCounts {
+  const totals: LeadCaptureDailyCounts = { sessions: 0, guestCards: 0, guestCardsEli: 0, toursBooked: 0 };
+  for (const day of days) {
+    for (const p of selected) {
+      const c = day.perProperty[p];
+      totals.sessions += c.sessions;
+      totals.guestCards += c.guestCards;
+      totals.guestCardsEli += c.guestCardsEli;
+      totals.toursBooked += c.toursBooked;
+    }
+  }
+  return totals;
+}
+
+function LeadCaptureSection({ filters, months }: { filters: FiltersState; months: number }) {
+  const [metric, setMetric] = useState<LeadCaptureMetricKey>("guestCards");
+  const [grouping, setGrouping] = useState<TrendGrouping>("month");
+
+  const days = useMemo(() => sliceLeadCaptureDaily(months), [months]);
+  const totals = useMemo(() => sumLeadCaptureCounts(days, filters.selected), [days, filters.selected]);
+
+  const chartData = useMemo(() => {
+    const daily = days.map((day) => {
+      let value = 0;
+      for (const p of filters.selected) {
+        value += day.perProperty[p][metric];
+      }
+      return { date: day.date, value };
+    });
+    return groupTrendData(daily, grouping);
+  }, [days, filters.selected, metric, grouping]);
+
+  const metricLabel = LEAD_CAPTURE_METRICS.find((m) => m.key === metric)?.label ?? "";
+
+  const sourceData = LEAD_SOURCE_SHARES.map((s) => ({ ...s, count: Math.round(totals.guestCards * s.share) }));
+  const channelData = LEAD_CHANNEL_SHARES.map((c) => ({ ...c, count: Math.round(totals.guestCards * c.share) }));
+
+  const funnelRows = [
+    { label: "Sessions Captured", count: totals.sessions, color: "#3b82f6", pct: 100 },
+    { label: "Guest Cards Created", count: totals.guestCards, color: "#10b981", pct: totals.sessions > 0 ? Math.round((totals.guestCards / totals.sessions) * 100) : 0 },
+    { label: "Tours Booked", count: totals.toursBooked, color: "#f59e0b", pct: totals.sessions > 0 ? Math.round((totals.toursBooked / totals.sessions) * 100) : 0 },
+  ];
+
+  return (
+    <section className="mb-6">
+      {/* ---- Lead to Tour ---- */}
+      <div className="mb-3 flex items-center gap-2">
+        <ArrowUpRight className="h-3.5 w-3.5 text-emerald-500" />
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Lead to Tour</p>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiCard label="Sessions Captured" value={totals.sessions.toLocaleString()} sub="selected period" />
+        <KpiCard label="Total Guest Cards Created" value={totals.guestCards.toLocaleString()} sub="all sources, selected period" />
+        <KpiCard label="Leads Managed by ELI+" value={totals.guestCardsEli.toLocaleString()} sub={`${totals.guestCards > 0 ? Math.round((totals.guestCardsEli / totals.guestCards) * 100) : 0}% of all guest cards`} />
+        <KpiCard label="Tours Booked" value={totals.toursBooked.toLocaleString()} sub="selected period" />
+      </div>
+
+      <div className="mt-3 grid gap-3 lg:grid-cols-3">
+        <Card className="border-border/60">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Sessions → Guest Cards → Tours</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {funnelRows.map((row) => (
+              <div key={row.label}>
+                <div className="mb-1 flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">{row.label}</span>
+                  <span className="font-semibold tabular-nums text-foreground">
+                    {row.count.toLocaleString()} <span className="ml-1 font-normal text-muted-foreground">({row.pct}%)</span>
+                  </span>
+                </div>
+                <div className="h-2.5 rounded-full bg-muted">
+                  <div className="h-2.5 rounded-full" style={{ width: `${row.pct}%`, backgroundColor: row.color }} />
+                </div>
+              </div>
+            ))}
+            <p className="pt-1 text-[11px] italic text-muted-foreground/80">Conversion shown as % of sessions captured</p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/60">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Guest Cards by Lead Source</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ChartContainer
+              config={{ count: { label: "Guest Cards", color: "#3b82f6" } }}
+              className="!aspect-auto h-[200px] w-full"
+            >
+              <BarChart data={sourceData} layout="vertical" margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e5e7eb" />
+                <XAxis type="number" tickLine={false} axisLine={false} tickFormatter={(v) => Number(v).toLocaleString()} />
+                <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} width={118} tick={{ fontSize: 11 }} />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+                  {sourceData.map((s) => (
+                    <Cell key={s.name} fill={s.color} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ChartContainer>
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/60">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Guest Cards by Channel</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ChartContainer
+              config={{ count: { label: "Guest Cards", color: "#3b82f6" } }}
+              className="!aspect-auto h-[200px] w-full"
+            >
+              <BarChart data={channelData} margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} tick={{ fontSize: 11 }} />
+                <YAxis tickLine={false} axisLine={false} tickMargin={8} width={42} tickFormatter={(v) => Number(v).toLocaleString()} />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                  {channelData.map((c) => (
+                    <Cell key={c.name} fill={c.color} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ChartContainer>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="mt-3 border-border/60">
+        <CardHeader className="pb-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="text-sm">Trend — {metricLabel}</CardTitle>
+            <div className="flex items-center gap-2">
+              <Select value={metric} onValueChange={(v) => setMetric(v as LeadCaptureMetricKey)}>
+                <SelectTrigger className="h-8 w-[280px] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  {LEAD_CAPTURE_METRICS.map((m) => (
+                    <SelectItem key={m.key} value={m.key} className="text-xs">
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <TrendGroupingSelect value={grouping} onChange={setGrouping} />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <ChartContainer
+            config={{ value: { label: metricLabel, color: "#2563eb" } }}
+            className="!aspect-auto h-[280px] w-full"
+          >
+            <LineChart data={chartData} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+              <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={48} />
+              <YAxis tickLine={false} axisLine={false} tickMargin={8} width={42} tickFormatter={(v) => Number(v).toLocaleString()} />
+              <ChartTooltip content={<ChartTooltipContent />} />
+              <Line type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ChartContainer>
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Communication Channels — daily per-property conversation counts
+// -----------------------------------------------------------------------------
+
+const COMM_CHANNEL_METRICS = [
+  { key: "voice", label: "Voice Conversations" },
+  { key: "sms", label: "SMS Conversations" },
+  { key: "email", label: "Email Conversations" },
+  { key: "chat", label: "Chat Conversations" },
+] as const;
+
+type CommChannelMetricKey = (typeof COMM_CHANNEL_METRICS)[number]["key"];
+
+interface CommChannelDailyCounts {
+  voice: number;
+  sms: number;
+  email: number;
+  chat: number;
+}
+
+interface CommChannelDailyPoint {
+  date: string;  // ISO yyyy-mm-dd
+  label: string; // "Jul 8"
+  perProperty: Record<Property, CommChannelDailyCounts>;
+}
+
+const commChannelDailyData: CommChannelDailyPoint[] = (() => {
+  const rand = seedRand(20260709);
+  const data: CommChannelDailyPoint[] = [];
+  for (let d = 0; d < LEAD_CAPTURE_TOTAL_DAYS; d++) {
+    const date = new Date(LEAD_CAPTURE_END_DATE);
+    date.setDate(date.getDate() - (LEAD_CAPTURE_TOTAL_DAYS - 1 - d));
+    const growth = 1 + 0.5 * (d / LEAD_CAPTURE_TOTAL_DAYS);   // slow volume growth over 3 years
+    const dow = date.getDay();
+    const weekday = dow === 0 ? 0.55 : dow === 6 ? 0.75 : 1;  // weekend dip
+    const perProperty = {} as Record<Property, CommChannelDailyCounts>;
+    PROPERTIES.forEach((p, idx) => {
+      const propBase = 3 + (idx % 5) * 1.4; // property-size variation
+      const volume = propBase * growth * weekday;
+      const chat = Math.max(0, Math.round(volume * 2.4 + (rand() - 0.5) * 4));
+      const sms = Math.max(0, Math.round(volume * 1.7 + (rand() - 0.5) * 3));
+      const email = Math.max(0, Math.round(volume * 1.2 + (rand() - 0.5) * 3));
+      const voice = Math.max(0, Math.round(volume * 0.7 + (rand() - 0.5) * 2));
+      perProperty[p] = { voice, sms, email, chat };
+    });
+    data.push({
+      date: date.toISOString().slice(0, 10),
+      label: `${MONTH_LABELS[date.getMonth()]} ${date.getDate()}`,
+      perProperty,
+    });
+  }
+  return data;
+})();
+
+function sliceCommChannelDaily(months: number): CommChannelDailyPoint[] {
+  const days = Math.min(months * 30, LEAD_CAPTURE_TOTAL_DAYS);
+  return commChannelDailyData.slice(LEAD_CAPTURE_TOTAL_DAYS - days);
+}
+
+function CommunicationChannelsSection({ filters, months }: { filters: FiltersState; months: number }) {
+  const [metric, setMetric] = useState<CommChannelMetricKey>("voice");
+  const [grouping, setGrouping] = useState<TrendGrouping>("month");
+
+  const days = useMemo(() => sliceCommChannelDaily(months), [months]);
+
+  const totals = useMemo(() => {
+    const t: CommChannelDailyCounts = { voice: 0, sms: 0, email: 0, chat: 0 };
+    for (const day of days) {
+      for (const p of filters.selected) {
+        const c = day.perProperty[p];
+        t.voice += c.voice;
+        t.sms += c.sms;
+        t.email += c.email;
+        t.chat += c.chat;
+      }
+    }
+    return t;
+  }, [days, filters.selected]);
+
+  const chartData = useMemo(() => {
+    const daily = days.map((day) => {
+      let value = 0;
+      for (const p of filters.selected) {
+        value += day.perProperty[p][metric];
+      }
+      return { date: day.date, value };
+    });
+    return groupTrendData(daily, grouping);
+  }, [days, filters.selected, metric, grouping]);
+
+  const metricLabel = COMM_CHANNEL_METRICS.find((m) => m.key === metric)?.label ?? "";
+
+  return (
+    <>
+      {/* ---- Communication Channels ---- */}
+      <div className="mb-3 mt-5 flex items-center gap-2">
+        <MessageSquare className="h-3.5 w-3.5 text-emerald-500" />
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Communication Channels</p>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiCard label="Voice Conversations" value={totals.voice.toLocaleString()} sub="selected period" />
+        <KpiCard label="SMS Conversations" value={totals.sms.toLocaleString()} sub="selected period" />
+        <KpiCard label="Email Conversations" value={totals.email.toLocaleString()} sub="selected period" />
+        <KpiCard label="Chat Conversations" value={totals.chat.toLocaleString()} sub="selected period" />
+      </div>
+
+      <Card className="mt-3 border-border/60">
+        <CardHeader className="pb-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="text-sm">Trend — {metricLabel}</CardTitle>
+            <div className="flex items-center gap-2">
+              <Select value={metric} onValueChange={(v) => setMetric(v as CommChannelMetricKey)}>
+                <SelectTrigger className="h-8 w-[280px] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  {COMM_CHANNEL_METRICS.map((m) => (
+                    <SelectItem key={m.key} value={m.key} className="text-xs">
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <TrendGroupingSelect value={grouping} onChange={setGrouping} />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <ChartContainer
+            config={{ value: { label: metricLabel, color: "#2563eb" } }}
+            className="!aspect-auto h-[280px] w-full"
+          >
+            <LineChart data={chartData} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+              <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={48} />
+              <YAxis tickLine={false} axisLine={false} tickMargin={8} width={42} tickFormatter={(v) => Number(v).toLocaleString()} />
+              <ChartTooltip content={<ChartTooltipContent />} />
+              <Line type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ChartContainer>
+        </CardContent>
+      </Card>
+    </>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Section daily trend — reusable daily-series generator + trend card matching
+// the Lead to Tour daily trend chart
+// -----------------------------------------------------------------------------
+
+interface SectionTrendMetric {
+  key: string;
+  label: string;
+  factor: number; // share of daily property volume attributed to this metric
+}
+
+interface SectionTrendDailyPoint {
+  date: string;  // ISO yyyy-mm-dd
+  label: string; // "Jul 8"
+  perProperty: Record<Property, Record<string, number>>;
+}
+
+function buildSectionDailySeries(seed: number, metrics: SectionTrendMetric[]): SectionTrendDailyPoint[] {
+  const rand = seedRand(seed);
+  const data: SectionTrendDailyPoint[] = [];
+  for (let d = 0; d < LEAD_CAPTURE_TOTAL_DAYS; d++) {
+    const date = new Date(LEAD_CAPTURE_END_DATE);
+    date.setDate(date.getDate() - (LEAD_CAPTURE_TOTAL_DAYS - 1 - d));
+    const growth = 1 + 0.5 * (d / LEAD_CAPTURE_TOTAL_DAYS);   // slow volume growth over 3 years
+    const dow = date.getDay();
+    const weekday = dow === 0 ? 0.55 : dow === 6 ? 0.75 : 1;  // weekend dip
+    const perProperty = {} as Record<Property, Record<string, number>>;
+    PROPERTIES.forEach((p, idx) => {
+      const propBase = 3 + (idx % 5) * 1.4; // property-size variation
+      const volume = propBase * growth * weekday;
+      const counts: Record<string, number> = {};
+      for (const m of metrics) {
+        // Unrounded per-property values; rounding happens at aggregation so
+        // low-volume metrics still produce a sensible portfolio-level line.
+        counts[m.key] = Math.max(0, volume * m.factor * (0.8 + rand() * 0.4));
+      }
+      perProperty[p] = counts;
+    });
+    data.push({
+      date: date.toISOString().slice(0, 10),
+      label: `${MONTH_LABELS[date.getMonth()]} ${date.getDate()}`,
+      perProperty,
+    });
+  }
+  return data;
+}
+
+const TOURS_TREND_METRICS: SectionTrendMetric[] = [
+  { key: "guidedDuring", label: "Guided Tours During Office Hours", factor: 0.132 },
+  { key: "guidedOutside", label: "Guided Tours Outside Office Hours", factor: 0.117 },
+  { key: "selfDuring", label: "Self Guided Tours During Office Hours", factor: 0.054 },
+  { key: "selfOutside", label: "Self Guided Tours Outside Office Hours", factor: 0.082 },
+];
+const toursTrendData = buildSectionDailySeries(20260710, TOURS_TREND_METRICS);
+
+const ESCALATIONS_TREND_METRICS: SectionTrendMetric[] = [
+  { key: "officeEscalations", label: "# Office Escalations", factor: 0.018 },
+  { key: "voiceTransfers", label: "Voice Calls Transferred to Office", factor: 0.007 },
+];
+const escalationsTrendData = buildSectionDailySeries(20260711, ESCALATIONS_TREND_METRICS);
+
+function SectionDailyTrendCard({
+  metrics,
+  data,
+  filters,
+  months,
+}: {
+  metrics: SectionTrendMetric[];
+  data: SectionTrendDailyPoint[];
+  filters: FiltersState;
+  months: number;
+}) {
+  const [metric, setMetric] = useState<string>(metrics[0].key);
+  const [grouping, setGrouping] = useState<TrendGrouping>("month");
+
+  const days = useMemo(() => {
+    const count = Math.min(months * 30, LEAD_CAPTURE_TOTAL_DAYS);
+    return data.slice(LEAD_CAPTURE_TOTAL_DAYS - count);
+  }, [data, months]);
+
+  const chartData = useMemo(() => {
+    const daily = days.map((day) => {
+      let value = 0;
+      for (const p of filters.selected) {
+        value += day.perProperty[p][metric];
+      }
+      return { date: day.date, value };
+    });
+    // Round after grouping so low-volume metrics aggregate sensibly.
+    return groupTrendData(daily, grouping).map((pt) => ({ ...pt, value: Math.round(pt.value) }));
+  }, [days, filters.selected, metric, grouping]);
+
+  const metricLabel = metrics.find((m) => m.key === metric)?.label ?? "";
+
+  return (
+    <Card className="mt-3 border-border/60">
+      <CardHeader className="pb-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="text-sm">Trend — {metricLabel}</CardTitle>
+          <div className="flex items-center gap-2">
+            <Select value={metric} onValueChange={setMetric}>
+              <SelectTrigger className="h-8 w-[280px] text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="end">
+                {metrics.map((m) => (
+                  <SelectItem key={m.key} value={m.key} className="text-xs">
+                    {m.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <TrendGroupingSelect value={grouping} onChange={setGrouping} />
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <ChartContainer
+          config={{ value: { label: metricLabel, color: "#2563eb" } }}
+          className="!aspect-auto h-[280px] w-full"
+        >
+          <LineChart data={chartData} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+            <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={48} />
+            <YAxis tickLine={false} axisLine={false} tickMargin={8} width={42} tickFormatter={(v) => Number(v).toLocaleString()} />
+            <ChartTooltip content={<ChartTooltipContent />} />
+            <Line type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={2} dot={false} />
+          </LineChart>
+        </ChartContainer>
+      </CardContent>
+    </Card>
+  );
+}
 
 // -----------------------------------------------------------------------------
 // Domo Replica section
 // -----------------------------------------------------------------------------
 
-function DomoReplicaSection() {
+function DomoReplicaSection({ filters, months }: { filters: FiltersState; months: number }) {
   return (
     <section className="mb-6">
-      {/* ---- Overview / Top-Level KPIs ---- */}
+      {/* ---- Tours ---- */}
       <div className="mb-3 flex items-center gap-2">
-        <Building2 className="h-3.5 w-3.5 text-blue-500" />
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Overview / Top-Level KPIs</p>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <KpiCard label="Total Properties with Leasing AI" value={String(DOMO_OVERVIEW.totalProperties)} sub="activated properties" />
-        <KpiCard label="Total Active Units" value={DOMO_OVERVIEW.totalActiveUnits.toLocaleString()} sub="across all activated properties" />
-        <KpiCard label="Conversion Rate Guest Card to Tour" value={`${DOMO_OVERVIEW.gcToTourRate}%`} sub="guest cards that scheduled a tour" />
-      </div>
-
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Leads Converted to Application Started" value={`${((DOMO_OVERVIEW.leadsToAppStarted / DOMO_LEADS.totalLeads) * 100).toFixed(1)}%`} sub={`${DOMO_OVERVIEW.leadsToAppStarted} of ${DOMO_LEADS.totalLeads.toLocaleString()} leads`} />
-        <KpiCard label="Leads Converted to Application Completed" value={`${((DOMO_OVERVIEW.leadsToAppCompleted / DOMO_LEADS.totalLeads) * 100).toFixed(1)}%`} sub={`${DOMO_OVERVIEW.leadsToAppCompleted} of ${DOMO_LEADS.totalLeads.toLocaleString()} leads`} />
-        <KpiCard label="Guest Card To App Started — Days" value={`${DOMO_OVERVIEW.gcToAppStartedDays} days`} sub="avg days from guest card to app start" />
-        <KpiCard label="Guest Card To App Completed — Days" value={`${DOMO_OVERVIEW.gcToAppCompletedDays} days`} sub="avg days from guest card to app complete" />
-      </div>
-
-      <div className="mt-3 grid gap-3 lg:grid-cols-1">
-        <Card className="border-border/60">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Conversion Rate Guest Card to Tour — Monthly</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ChartContainer
-              config={{ rate: { label: "GC → Tour %", color: "#2563eb" } }}
-              className="!aspect-auto h-[240px] w-full"
-            >
-              <LineChart data={DOMO_GC_TOUR_MONTHLY} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
-                <YAxis tickLine={false} axisLine={false} tickMargin={8} width={32} domain={[0, 40]} tickFormatter={(v) => `${v}%`} />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Line type="monotone" dataKey="rate" stroke="#2563eb" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ChartContainer>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* ---- Chatbot & Voice ---- */}
-      <div className="mb-3 mt-5 flex items-center gap-2">
-        <Bot className="h-3.5 w-3.5 text-violet-500" />
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Chatbot & Voice</p>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Lead Conversion in Chatbot" value={DOMO_CHATBOT_VOICE.chatbotConversations.toLocaleString()} sub="number of chatbot conversations" />
-        <KpiCard label="Leads Created by Chatbot" value={String(DOMO_CHATBOT_VOICE.leadsFromChatbot)} sub="guest cards from chatbot" />
-        <KpiCard label="Num of Voice Conversations" value={DOMO_CHATBOT_VOICE.voiceConversations.toLocaleString()} sub="total voice conversations" />
-        <KpiCard label="Leads Created by Voice" value={String(DOMO_CHATBOT_VOICE.leadsFromVoice)} sub="guest cards from voice" />
-      </div>
-
-      {/* ---- Communication ---- */}
-      <div className="mb-3 mt-5 flex items-center gap-2">
-        <MessageSquare className="h-3.5 w-3.5 text-emerald-500" />
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Communication</p>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="SMS Sent" value={DOMO_COMMS.smsSent.toLocaleString()} sub="outbound SMS messages" />
-        <KpiCard label="SMS Received" value={DOMO_COMMS.smsReceived.toLocaleString()} sub="inbound SMS messages" />
-        <KpiCard label="Emails Sent" value={DOMO_COMMS.emailsSent.toLocaleString()} sub="outbound emails" />
-        <KpiCard label="Emails Received" value={DOMO_COMMS.emailsReceived.toLocaleString()} sub="inbound emails" />
-      </div>
-
-      <div className="mt-3 grid gap-3 lg:grid-cols-2">
-        <Card className="border-border/60">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Sent SMS vs. Sent Email</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <DonutWithLegend data={DOMO_SENT_SMS_VS_EMAIL} />
-          </CardContent>
-        </Card>
-        <Card className="border-border/60">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Received SMS vs. Received Emails</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <DonutWithLegend data={DOMO_RECV_SMS_VS_EMAIL} />
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="SMS Response Rate" value={`${DOMO_COMMS.smsResponseRate}%`} sub="of SMS sent that got a reply" />
-        <KpiCard label="Email Response Rate" value={`${DOMO_COMMS.emailResponseRate}%`} sub="of emails sent that got a reply" />
-        <KpiCard label="Saved Hours — SMS" value={`${DOMO_COMMS.savedHoursSms} hrs`} sub="estimated staff time saved" />
-        <KpiCard label="Saved Hours — Email" value={`${DOMO_COMMS.savedHoursEmail} hrs`} sub="estimated staff time saved" />
-      </div>
-
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Phone Opt-Outs" value={String(DOMO_COMMS.phoneOptOuts)} sub="prospects opting out of phone" />
-        <KpiCard label="Phone Opt-Out Ratio" value={`${DOMO_COMMS.phoneOptOutRatio}%`} sub="of total leads" />
-        <KpiCard label="Email Opt-Outs" value={String(DOMO_COMMS.emailOptOuts)} sub="prospects opting out of email" />
-        <KpiCard label="Email Opt-Out Ratio" value={`${DOMO_COMMS.emailOptOutRatio}%`} sub="of total leads" />
-      </div>
-
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <KpiCard label="Lead Response Time to First Message" value={DOMO_COMMS.leadResponseTimeFirstMsg} sub={`${DOMO_COMMS.leadResponseTimeFirstMsgSec} seconds`} />
-        <KpiCard label="Time From Guest Card to First Outgoing Message" value={`${DOMO_COMMS.gcToFirstOutgoingMsgSec} sec`} sub="guest card creation to first AI message" />
-        <KpiCard label="Leasing Agent Early Takeover" value={`${DOMO_COMMS.leasingAgentEarlyTakeover}%`} sub="staff taking over before AI requests help" />
-        <KpiCard label="Savings from Office Hours" value={`${DOMO_COMMS.savingsFromOfficeHours} hrs`} sub="after-hours conversations handled by AI" />
-      </div>
-
-      {/* ---- Leads & Activity ---- */}
-      <div className="mb-3 mt-5 flex items-center gap-2">
-        <ArrowUpRight className="h-3.5 w-3.5 text-amber-500" />
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Leads & Activity</p>
+        <CalendarClock className="h-3.5 w-3.5 text-amber-500" />
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tours</p>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <KpiCard label="Activation Date" value={DOMO_LEADS.activationDate} sub="first customer activated" />
-        <KpiCard label="Leads" value={DOMO_LEADS.totalLeads.toLocaleString()} sub="total leads in period" />
-        <KpiCard label="Leads Managed by ELI+" value={DOMO_LEADS.managedByEli.toLocaleString()} sub="AI-managed leads" />
-        <KpiCard label="Chatbot Leads" value={String(DOMO_LEADS.chatbotLeads)} sub="leads from chatbot" />
+        <KpiCard label="Guided Tours During Office Hours" value={DOMO_TOURS.guidedDuring.toLocaleString()} sub="guided, during office hours" />
+        <KpiCard label="Guided Tours Outside Office Hours" value={DOMO_TOURS.guidedOutside.toLocaleString()} sub="guided, after hours" />
+        <KpiCard label="Self Guided Tours During Office Hours" value={DOMO_TOURS.selfDuring.toLocaleString()} sub="self-guided, during office hours" />
+        <KpiCard label="Self Guided Tours Outside Office Hours" value={DOMO_TOURS.selfOutside.toLocaleString()} sub="self-guided, after hours" />
       </div>
 
-      <div className="mt-3 grid gap-3 lg:grid-cols-2">
-        <Card className="border-border/60">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Managed Leads %</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <DonutWithLegend data={DOMO_MANAGED_LEADS_PIE} />
-          </CardContent>
-        </Card>
-        <Card className="border-border/60">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Leasing Agent Before Tour</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <DonutWithLegend data={DOMO_AGENT_BEFORE_TOUR_PIE} />
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <KpiCard label="Number of Voice Calls — Potential Leads" value={String(DOMO_LEADS.voiceCallsPotentialLeads)} sub="voice calls from potential leads" />
-      </div>
-
-      <div className="mt-3 grid gap-3 lg:grid-cols-2">
-        <Card className="border-border/60">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Leads over Time (by Month)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ChartContainer
-              config={{ leads: { label: "Leads", color: "#2563eb" } }}
-              className="!aspect-auto h-[240px] w-full"
-            >
-              <LineChart data={DOMO_LEADS_MONTHLY} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
-                <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Line type="monotone" dataKey="leads" stroke="#2563eb" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ChartContainer>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/60">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Leads per Channel</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ChartContainer config={{}} className="!aspect-auto h-[240px] w-full">
-              <BarChart data={DOMO_LEADS_PER_CHANNEL} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                <XAxis dataKey="channel" tickLine={false} axisLine={false} tickMargin={8} />
-                <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Bar dataKey="count" fill="#374151" radius={[2, 2, 0, 0]}>
-                  {DOMO_LEADS_PER_CHANNEL.map((_, i) => (
-                    <Cell key={i} fill={CHART_PALETTE[i % CHART_PALETTE.length]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ChartContainer>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="mt-3 grid gap-3 lg:grid-cols-2">
-        <Card className="border-border/60">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Leads per Source</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ChartContainer config={{}} className="!aspect-auto h-[240px] w-full">
-              <BarChart data={DOMO_LEADS_PER_SOURCE} layout="vertical" margin={{ left: 8, right: 24, top: 8, bottom: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e5e7eb" />
-                <XAxis type="number" tickLine={false} axisLine={false} tickMargin={8} />
-                <YAxis type="category" dataKey="source" tickLine={false} axisLine={false} tickMargin={8} width={140} tick={{ fontSize: 11 }} />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Bar dataKey="count" fill="#374151" radius={[0, 2, 2, 0]}>
-                  {DOMO_LEADS_PER_SOURCE.map((_, i) => (
-                    <Cell key={i} fill={CHART_PALETTE[i % CHART_PALETTE.length]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ChartContainer>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/60">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Lead Journey Table</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-muted/40">
-                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Stage</th>
-                    <th className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Count</th>
-                    <th className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">% of Leads</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {DOMO_LEAD_JOURNEY.map((row, i) => (
-                    <tr key={row.stage} className={cn("border-b border-border/60 last:border-0", i % 2 === 1 && "bg-muted/20")}>
-                      <td className="px-4 py-2.5 font-medium text-foreground">{row.stage}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-foreground">{row.count.toLocaleString()}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">
-                        <span className={cn("font-medium", row.pct >= 20 ? "text-emerald-600" : row.pct >= 5 ? "text-amber-600" : "text-muted-foreground")}>
-                          {row.pct}%
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <SectionDailyTrendCard metrics={TOURS_TREND_METRICS} data={toursTrendData} filters={filters} months={months} />
 
       {/* ---- Escalations ---- */}
       <div className="mb-3 mt-5 flex items-center gap-2">
@@ -1684,62 +1700,9 @@ function DomoReplicaSection() {
         <KpiCard label="Voice Calls Transferred to Office" value={String(DOMO_ESCALATIONS.voiceTransferCount)} sub="escalated voice calls" />
       </div>
 
-      <div className="mt-3">
-        <Card className="border-border/60">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Escalation Reasons</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ChartContainer config={{}} className="!aspect-auto h-[260px] w-full">
-              <BarChart data={DOMO_ESCALATION_REASONS} margin={{ left: 8, right: 12, top: 8, bottom: 40 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                <XAxis dataKey="reason" tickLine={false} axisLine={false} tickMargin={8} angle={-25} textAnchor="end" height={60} interval={0} />
-                <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Bar dataKey="count" radius={[2, 2, 0, 0]}>
-                  {DOMO_ESCALATION_REASONS.map((_, i) => (
-                    <Cell key={i} fill={CHART_PALETTE[i % CHART_PALETTE.length]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ChartContainer>
-          </CardContent>
-        </Card>
-      </div>
+      <SectionDailyTrendCard metrics={ESCALATIONS_TREND_METRICS} data={escalationsTrendData} filters={filters} months={months} />
 
-      {/* ---- Tours ---- */}
-      <div className="mb-3 mt-5 flex items-center gap-2">
-        <CalendarClock className="h-3.5 w-3.5 text-amber-500" />
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tours</p>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <KpiCard label="Guided Tours During Office Hours" value={String(DOMO_TOURS.guidedDuring)} sub="guided, during office hours" />
-        <KpiCard label="Guided Tours Outside Office Hours" value={String(DOMO_TOURS.guidedOutside)} sub="guided, after hours" />
-        <KpiCard label="Self Guided Tours During Office Hours" value={String(DOMO_TOURS.selfDuring)} sub="self-guided, during office hours" />
-        <KpiCard label="Self Guided Tours Outside Office Hours" value={String(DOMO_TOURS.selfOutside)} sub="self-guided, after hours" />
-      </div>
-
-      <div className="mt-3">
-        <Card className="border-border/60">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Leads Funnel — Message Sent After Tour</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {DOMO_LEADS_FUNNEL_AFTER_TOUR.map((row) => (
-                <div key={row.stage} className="flex items-center gap-3 text-sm">
-                  <span className="h-3 w-3 shrink-0 rounded-sm" style={{ backgroundColor: row.color }} />
-                  <span className="flex-1 text-foreground">{row.stage}</span>
-                  <span className="font-semibold tabular-nums text-foreground">
-                    {row.count >= 1000 ? `${(row.count / 1000).toFixed(row.count >= 10000 ? 1 : 2)}K` : row.count.toLocaleString()}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <CommunicationChannelsSection filters={filters} months={months} />
 
     </section>
   );
@@ -1799,16 +1762,19 @@ export default function LeasingAiDashboardPage() {
         <ViewToggle state={filters} setState={setFilters} />
       </div>
 
-      <DomoReplicaSection />
+      <LeadCaptureSection filters={filters} months={months} />
+
+      <DomoReplicaSection filters={filters} months={months} />
 
       {/* ============================================================ */}
       {/* Section 1b — Agent Adoption (DEV-301196)                      */}
       {/* ============================================================ */}
       <section className="mb-6">
-        <SectionBanner
-          title="Agent Adoption"
-          description="Human engagement, task follow-through, and AI handoff responsiveness across onsite teams"
-        />
+        {/* ---- Agent Adoption ---- */}
+        <div className="mb-3 flex items-center gap-2">
+          <CheckCircle2 className="h-3.5 w-3.5 text-blue-500" />
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Agent Adoption</p>
+        </div>
 
         {/* Agent activity table */}
         <div className="mb-4">
@@ -1849,200 +1815,9 @@ export default function LeasingAiDashboardPage() {
           </Card>
         </div>
 
-        {/* KPI row 1 — score + engagement */}
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <KpiCard
-            label="Agent Adoption Score"
-            value="74 / 100"
-            delta="+3 pts"
-            deltaTone="positive"
-            sub="Portfolio avg · Strong ≥ 80 · Watch 60–79 · At Risk < 40"
-          />
-          <KpiCard
-            label="Human follow-up rate"
-            value="68%"
-            delta="-4 pts"
-            deltaTone="negative"
-            sub="AI handoffs followed up by staff · target 75%"
-          />
-          <KpiCard
-            label="Task completion rate"
-            value="82%"
-            delta="+2 pts"
-            deltaTone="positive"
-            sub="AI-generated tasks completed · target 80%"
-          />
-          <KpiCard
-            label="Median time to first action"
-            value="2.4 hrs"
-            delta="-0.7 hrs"
-            deltaTone="positive"
-            sub="after AI handoff · SLA target 3.1 hrs"
-          />
-        </div>
-
-        {/* KPI row 2 — outbound + tasks */}
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <KpiCard label="Emails sent"  value="1,247" delta="+12%" sub="human outbound emails" />
-          <KpiCard label="SMS sent"     value="843"   delta="-3%"  deltaTone="negative" sub="human outbound SMS" />
-          <KpiCard label="Calls dialed" value="291"   delta="+8%"  sub="human outbound calls" />
-          <KpiCard
-            label="Agent-assisted prospects"
-            value="312 (71%)"
-            delta="+6 pts"
-            deltaTone="positive"
-            sub="of 439 active prospects touched by staff"
-          />
-          <KpiCard
-            label="Overdue tasks"
-            value="47"
-            delta="+14"
-            deltaTone="negative"
-            sub="open tasks past SLA deadline"
-          />
-        </div>
-
       </section>
 
-      {/* ============================================================ */}
-      {/* Section 1 — AI Operational Health (DEV-298594)               */}
-      {/* ============================================================ */}
-      <section className="mb-6">
-        <SectionBanner
-          title="AI Operational Health"
-          description="Human behavior signals, knowledge gaps, task resolution, and channel performance — operational metrics that reveal AI trust, configuration health, and team accountability"
-        />
 
-        {/* 4a — Human Behavior Signals */}
-        <div className="mb-3 flex items-center gap-2">
-          <AlertCircle className="h-3.5 w-3.5 text-muted-foreground" />
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Human Behavior Signals</p>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <KpiCard
-            label="Early Takeover Rate"
-            value="12.4%"
-            delta="-3.8 pts"
-            deltaTone="positive"
-            sub="humans taking over before AI requests help"
-            subItalic="Target ≤10% · Yellow 10–25% · Red >25%"
-          />
-          <KpiCard
-            label="AI Handoff Rate"
-            value="18.2%"
-            delta="-4.1 pts"
-            deltaTone="positive"
-            sub="AI-initiated escalations to human"
-            subItalic="Target ≤15% · Yellow 15–30% · Red >30%"
-          />
-          <KpiCard
-            label="Top Handoff Reason"
-            value="Complex Q"
-            sub="42% of handoffs — AI couldn't handle"
-            subItalic="vs. 31% explicit request, 16% complaint"
-          />
-          <KpiCard
-            label="Conversations Fully Resolved"
-            value="81.8%"
-            delta="+4.1 pts"
-            sub="handled end-to-end by AI, no human"
-            subItalic="Inverse of handoff rate"
-          />
-        </div>
-
-
-        {/* Task Resolution */}
-        <div className="mb-3 mt-5 flex items-center gap-2">
-          <CheckCircle2 className="h-3.5 w-3.5 text-muted-foreground" />
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Task Resolution</p>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <KpiCard
-            label="Task Resolution Rate"
-            value="91.3%"
-            delta="+5.2 pts"
-            sub="AI-generated tasks resolved this period"
-            subItalic="Target ≥90% · Yellow 75–90% · Red <75%"
-          />
-          <KpiCard
-            label="SLA Resolution Rate"
-            value="84.6%"
-            delta="+3.8 pts"
-            sub="tasks resolved within SLA (24h default)"
-          />
-          <KpiCard
-            label="Overdue Tasks"
-            value="9"
-            deltaTone="negative"
-            sub="past SLA threshold, not yet resolved"
-          />
-          <KpiCard
-            label="Median Resolution Time"
-            value="5.2 hrs"
-            delta="-2.6 hrs"
-            deltaTone="positive"
-            sub="task creation to resolution"
-            subItalic="vs. 7.8h prior period"
-          />
-        </div>
-
-
-        {/* Channel Performance */}
-        <div className="mb-3 mt-5 flex items-center gap-2">
-          <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Communication Performance by Channel</p>
-        </div>
-
-        <Card className="border-border/60">
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-muted/40">
-                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Channel</th>
-                    <th className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Conversations</th>
-                    <th className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">AI Resolution</th>
-                    <th className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Handoff Rate</th>
-                    <th className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Avg Response</th>
-                    <th className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Lead-to-Tour</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {channelPerformance.map((row, i) => (
-                    <tr key={row.channel} className={cn("border-b border-border/60 last:border-0", i % 2 === 0 ? "" : "bg-muted/20")}>
-                      <td className="px-4 py-2.5 font-medium text-foreground">{row.channel}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-foreground">{row.conversations.toLocaleString()}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">
-                        <span className={cn("font-medium", row.aiResolution >= 85 ? "text-emerald-600" : row.aiResolution >= 75 ? "text-amber-600" : "text-rose-600")}>
-                          {row.aiResolution}%
-                        </span>
-                      </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">
-                        <span className={cn("font-medium", row.handoffRate <= 15 ? "text-emerald-600" : row.handoffRate <= 30 ? "text-amber-600" : "text-rose-600")}>
-                          {row.handoffRate}%
-                        </span>
-                      </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
-                        {row.responseTimeSec < 60 ? `${row.responseTimeSec}s` : `${Math.round(row.responseTimeSec / 60)}m`}
-                      </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">
-                        <span className={cn("font-medium", row.leadToTour >= 35 ? "text-emerald-600" : row.leadToTour >= 20 ? "text-amber-600" : "text-rose-600")}>
-                          {row.leadToTour}%
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-
-      </section>
-
-      <ConversationFunnelSection />
 
       <p className="mb-4 mt-2 border-t border-border pt-3 text-xs text-muted-foreground">
         This is a prototype dashboard. Data is illustrative and does not reflect live property metrics. Baseline represents pre-AI performance for comparison. All metrics reflect the selected time period.
