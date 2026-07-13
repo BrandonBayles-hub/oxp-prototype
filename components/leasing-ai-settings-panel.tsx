@@ -140,16 +140,11 @@ interface PreQualGoal {
 
 // Master list of screening criteria the user can choose from
 const AVAILABLE_SCREENING_CRITERIA = [
-  "Monthly Income",
-  "Will you need a guarantor or co-signer?",
-  "Do you have any pets?",
-  "Minimum Age",
-  "Credit Score",
+  "Income-to-rent ratio",
   "Employment Status",
-  "Rental History",
-  "Number of Occupants",
-  "Move-in Date",
-  "Lease Term",
+  "Move-in timeline",
+  "Pet Policy Compliance",
+  "Credit Score",
 ] as const
 
 interface ScreeningCriterionConfig {
@@ -172,18 +167,25 @@ const PREQUAL_OPERATOR_LABELS: Record<PreQualOperator, string> = {
   dont_know: "Don't Know",
 }
 
-const YES_NO_INPUTS = new Set([
-  "Will you need a guarantor or co-signer?",
-  "Do you have any pets?",
-])
+const YES_NO_INPUTS = new Set<string>([])
 
 const INCOME_INPUTS = new Set([
-  "Monthly Income",
+  "Income-to-rent ratio",
 ])
+
+// Criteria answered by picking from a fixed set of choices
+const CHOICE_INPUTS: Record<string, string[]> = {
+  "Income-to-rent ratio": ["1x", "1.5x", "2x", "2.5x", "3x"],
+  "Employment Status": ["Unemployed", "Part-Time (Less than 40 hours)", "Full-time (40 hours or more)"],
+  "Move-in timeline": ["Within 30 days", "30-60 days", "60+ days"],
+  "Pet Policy Compliance": ["Yes, I have a pet", "No, I don't have a pet"],
+  "Credit Score": ["500 minimum", "600 minimum", "700 minimum", "800 minimum"],
+}
 
 function operatorsForInput(input: string): PreQualOperator[] {
   if (YES_NO_INPUTS.has(input)) return ["yes", "no", "dont_know"]
-  if (INCOME_INPUTS.has(input)) return ["less_than", "greater_than", "at_least", "at_most", "less_than_multiplier", "at_least_multiplier"]
+  if (INCOME_INPUTS.has(input)) return ["less_than", "at_least", "equals", "not_equals"]
+  if (CHOICE_INPUTS[input]) return ["equals", "not_equals"]
   return ["greater_than", "less_than", "at_least", "at_most", "equals", "not_equals"]
 }
 
@@ -235,22 +237,16 @@ interface PreQualRule {
 }
 
 function makeCondition(defaultInput?: string): PreQualCondition {
+  const input = defaultInput ?? AVAILABLE_SCREENING_CRITERIA[0]
   return {
     id: `c-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    input: defaultInput ?? AVAILABLE_SCREENING_CRITERIA[0],
-    operator: "greater_than",
+    input,
+    operator: operatorsForInput(input)[0],
     value: "",
   }
 }
 
-const DEFAULT_PREQUAL_RULES: PreQualRule[] = [
-  { id: "r-1", label: "Monthly Income", connector: "and", tour: "if_asked", application: "none", offerMarketRate: true,
-    conditions: [{ id: "r-1-c1", input: "Monthly Income", operator: "less_than_multiplier", value: "3x" }] },
-  { id: "r-2", label: "Minimum Age", connector: "and", tour: "none", application: "none", offerMarketRate: false,
-    conditions: [{ id: "r-2-c1", input: "Minimum Age", operator: "less_than", value: "18" }] },
-  { id: "r-3", label: "Do you have any pets?", connector: "and", tour: "if_asked", application: "none", offerMarketRate: false,
-    conditions: [{ id: "r-3-c1", input: "Do you have any pets?", operator: "yes", value: "yes" }] },
-]
+const DEFAULT_PREQUAL_RULES: PreQualRule[] = []
 
 const DEFAULT_PREQUAL_GOALS: PreQualGoal[] = [
   { result: "qualified",             tour: "offer",    application: "offer",    waitlist: "none",     offerMarketRate: false },
@@ -326,11 +322,7 @@ function makeDefaultState(): PanelState {
   return {
     conversationMode: DEFAULT_MODE,
     preQualEnabled: false,
-    screeningCriteria: [
-      { id: "sc-1", label: "Monthly Income", value: "3x monthly rent" },
-      { id: "sc-2", label: "Do you have any pets?", value: "" },
-      { id: "sc-3", label: "Minimum Age", value: "18" },
-    ],
+    screeningCriteria: [],
     affordableFlowEnabled: false,
     conversationStart: "market_first",
     affordableSettings: {
@@ -764,20 +756,34 @@ function SectionPreQualification({ state, update, setState }: {
                 {state.screeningCriteria.map((sc) => (
                   <div key={sc.id} className="flex items-center gap-3">
                     <span className="w-56 shrink-0 text-xs font-medium text-foreground">{sc.label}</span>
-                    <Input
-                      value={sc.value}
-                      onChange={(e) => {
-                        update("screeningCriteria", state.screeningCriteria.map((s) =>
-                          s.id === sc.id ? { ...s, value: e.target.value } : s
-                        ))
-                      }}
-                      placeholder={
-                        YES_NO_INPUTS.has(sc.label) ? "e.g. breed restrictions, weight limits"
-                        : INCOME_INPUTS.has(sc.label) ? "e.g. 3x monthly rent or $4,500"
-                        : "e.g. threshold or requirement"
-                      }
-                      className="h-8 flex-1 text-xs"
-                    />
+                    {CHOICE_INPUTS[sc.label] ? (
+                      <Select
+                        value={sc.value || undefined}
+                        onValueChange={(v) => {
+                          update("screeningCriteria", state.screeningCriteria.map((s) =>
+                            s.id === sc.id ? { ...s, value: v } : s
+                          ))
+                        }}
+                      >
+                        <SelectTrigger className="h-8 flex-1 text-xs"><SelectValue placeholder="Select an option" /></SelectTrigger>
+                        <SelectContent>
+                          {CHOICE_INPUTS[sc.label].map((opt) => (
+                            <SelectItem key={opt} value={opt} className="text-xs">{opt}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        value={sc.value}
+                        onChange={(e) => {
+                          update("screeningCriteria", state.screeningCriteria.map((s) =>
+                            s.id === sc.id ? { ...s, value: e.target.value } : s
+                          ))
+                        }}
+                        placeholder="e.g. threshold or requirement"
+                        className="h-8 flex-1 text-xs"
+                      />
+                    )}
                     <button
                       onClick={() => update("screeningCriteria", state.screeningCriteria.filter((s) => s.id !== sc.id))}
                       className="text-muted-foreground hover:text-destructive transition-colors"
@@ -919,7 +925,7 @@ function SectionPreQualification({ state, update, setState }: {
                       <div className="grid flex-1 gap-2 sm:grid-cols-3">
                         <div className="space-y-1">
                           {idx === 0 && <label className="text-[10px] font-medium text-muted-foreground">Input</label>}
-                          <Select value={c.input} onValueChange={(v) => patchDraftCondition(c.id, { input: v })}>
+                          <Select value={c.input} onValueChange={(v) => patchDraftCondition(c.id, { input: v, operator: operatorsForInput(v)[0], value: "" })}>
                             <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                             <SelectContent>{state.screeningCriteria.map((sc) => <SelectItem key={sc.id} value={sc.label} className="text-xs">{sc.label}</SelectItem>)}</SelectContent>
                           </Select>
@@ -951,7 +957,18 @@ function SectionPreQualification({ state, update, setState }: {
                             </div>
                             <div className="space-y-1">
                               {idx === 0 && <label className="text-[10px] font-medium text-muted-foreground">Value / source</label>}
-                              <Input placeholder="e.g. $68,000" className="h-8 text-xs" value={c.value} onChange={(e) => patchDraftCondition(c.id, { value: e.target.value })} />
+                              {CHOICE_INPUTS[c.input] ? (
+                                <Select value={c.value || undefined} onValueChange={(v) => patchDraftCondition(c.id, { value: v })}>
+                                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select an option" /></SelectTrigger>
+                                  <SelectContent>
+                                    {CHOICE_INPUTS[c.input].map((opt) => (
+                                      <SelectItem key={opt} value={opt} className="text-xs">{opt}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <Input placeholder="e.g. 3x or $4,500" className="h-8 text-xs" value={c.value} onChange={(e) => patchDraftCondition(c.id, { value: e.target.value })} />
+                              )}
                             </div>
                           </>
                         )}
