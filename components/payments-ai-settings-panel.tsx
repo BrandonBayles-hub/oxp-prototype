@@ -3243,7 +3243,7 @@ function StopConditionsSection({
         <GuardrailRule
           layout="row"
           title="Pause sequence once resident moves out"
-          description="Only applies to Rent Reminder and Delinquency cadences. Once the resident's move-out date has passed on the lease, those scenarios stop; any remaining balance is handled through move-out charge workflows, and Pre-Collections continues under its own eviction / legal-notice logic."
+          description="Once the resident's move-out date has passed on the lease, ELI+ stops automated payment outreach for that resident. Any remaining balance is handled through move-out charge workflows."
         >
           <ToggleSwitch
             checked={state.pauseOnMoveOut}
@@ -3273,7 +3273,7 @@ function StopConditionsSection({
         <GuardrailRule
           layout="row"
           title="Pause sequence for residents with an active repayment agreement in good standing"
-          description="Only applies to Delinquency and Pre-Collections cadences. When on, ELI+ will not send Delinquency or Pre-Collections notices to residents who are current on a repayment plan; the cadence resumes if the plan lapses."
+          description="When on, ELI+ holds automated payment outreach for residents who are current on an active repayment agreement in good standing. Outreach resumes if the plan lapses."
         >
           <ToggleSwitch
             checked={state.pauseOnActiveRepaymentAgreement}
