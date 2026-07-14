@@ -4,7 +4,7 @@ import type { GeneratedWorkflow, WorkflowNodeData } from "./types";
 const NODE_WIDTH = 260;
 const NODE_HEIGHT = 110;
 const HORIZONTAL_GAP = 80;
-const VERTICAL_GAP = 60;
+const VERTICAL_GAP = 80;
 
 interface LayoutNode {
   id: string;
@@ -13,21 +13,24 @@ interface LayoutNode {
   children: string[];
 }
 
-export function workflowToReactFlow(workflow: GeneratedWorkflow): {
+export function workflowToReactFlow(
+  workflow: GeneratedWorkflow,
+  opts?: {
+    onInsert?: (edgeId: string, source: string, target: string, type: Extract<WorkflowNodeData["type"], "action" | "loop" | "condition">) => void;
+  },
+): {
   nodes: Node[];
   edges: Edge[];
 } {
   const nodeMap = new Map<string, typeof workflow.nodes[0]>();
   for (const n of workflow.nodes) nodeMap.set(n.id, n);
 
-  const childrenMap = new Map<string, Array<{ target: string; label?: string }>>();
-  const parentCount = new Map<string, number>();
+  const childrenMap = new Map<string, Array<{ target: string; label?: string; isErrorPath?: boolean }>>();
 
   for (const e of workflow.edges) {
     const list = childrenMap.get(e.source) ?? [];
-    list.push({ target: e.target, label: e.label });
+    list.push({ target: e.target, label: e.label, isErrorPath: e.isErrorPath });
     childrenMap.set(e.source, list);
-    parentCount.set(e.target, (parentCount.get(e.target) ?? 0) + 1);
   }
 
   const triggerNode = workflow.nodes.find((n) => n.type === "trigger");
@@ -91,6 +94,12 @@ export function workflowToReactFlow(workflow: GeneratedWorkflow): {
       mcpTool: raw.mcpTool,
       mcpServer: raw.mcpServer,
       config: raw.config,
+      retryPolicy: raw.retryPolicy,
+      timeout: raw.timeout,
+      inputMappings: raw.inputMappings,
+      outputFields: raw.outputFields,
+      errorPath: raw.errorPath,
+      errorTargetId: raw.errorTargetId,
     };
 
     rfNodes.push({
@@ -104,9 +113,14 @@ export function workflowToReactFlow(workflow: GeneratedWorkflow): {
   const rfEdges: Edge[] = workflow.edges.map((e) => {
     const sourceNode = nodeMap.get(e.source);
     const isCondition = sourceNode?.type === "condition";
+    const isErrorPath =
+      e.isErrorPath ||
+      (typeof e.label === "string" && e.label.toLowerCase().includes("error"));
 
     let sourceHandle: string | undefined;
-    if (isCondition) {
+    if (isErrorPath) {
+      sourceHandle = "on-error";
+    } else if (isCondition) {
       const lbl = (e.label ?? "").toLowerCase();
       if (lbl.includes("yes") || lbl.includes("true")) sourceHandle = "yes";
       else if (lbl.includes("no") || lbl.includes("false")) sourceHandle = "no";
@@ -118,13 +132,13 @@ export function workflowToReactFlow(workflow: GeneratedWorkflow): {
       target: e.target,
       sourceHandle,
       label: e.label,
-      type: "smoothstep",
-      animated: true,
-      style: { stroke: "#94a3b8", strokeWidth: 2 },
-      labelStyle: { fontSize: 11, fontWeight: 600, fill: "#475569" },
-      labelBgStyle: { fill: "#f8fafc", stroke: "#e2e8f0", strokeWidth: 1 },
-      labelBgPadding: [6, 4] as [number, number],
-      labelBgBorderRadius: 4,
+      type: "insertable",
+      animated: !isErrorPath,
+      style: { stroke: isErrorPath ? "#f87171" : "#94a3b8", strokeWidth: 2 },
+      data: {
+        onInsert: opts?.onInsert,
+        isErrorPath,
+      },
     };
   });
 

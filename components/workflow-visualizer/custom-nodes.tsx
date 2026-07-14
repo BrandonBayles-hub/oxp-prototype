@@ -169,6 +169,18 @@ function WorkflowNode({ data, selected }: NodeProps & { data: Record<string, unk
         />
       )}
 
+      {/* Dedicated on-error path handle */}
+      {hasError && d.type !== "end" && d.type !== "trigger" && (
+        <Handle
+          type="source"
+          position={Position.Right}
+          id="on-error"
+          className="!h-3.5 !w-3.5 !border-2 !border-white !bg-red-500 hover:!scale-125 !transition-all"
+          style={{ top: "70%" }}
+          title="On-error path"
+        />
+      )}
+
       {isCondition && (
         <>
           <Handle

@@ -29,6 +29,8 @@ import {
   Filter,
   Plus,
 } from "lucide-react";
+import { FieldMapButton, type DataSourceGroup } from "./field-mapper";
+import { WORKFLOW_PROPERTY_FIELDS, ERROR_PROPERTY_FIELDS } from "./formula-engine";
 
 interface NodeConfigPanelProps {
   nodeId: string;
@@ -37,6 +39,8 @@ interface NodeConfigPanelProps {
   onUpdate: (nodeId: string, data: Partial<WorkflowNodeData>) => void;
   onDelete: (nodeId: string) => void;
   onClose: () => void;
+  /** Create or wire a dedicated on-error target node for this step. */
+  onEnsureErrorBranch?: (nodeId: string) => void;
 }
 
 const DEFAULT_RETRY: RetryPolicy = { maxRetries: 3, backoffMs: 1000, backoffMultiplier: 2 };
@@ -349,72 +353,6 @@ function getNodeOutputFields(node: { type: string; mcpTool?: string; config?: Re
     { name: "result", type: "object" },
     { name: "success", type: "boolean" },
   ];
-}
-
-// ─── Data Pill Picker (inline dropdown for parameter fields) ───
-
-function DataPillPicker({
-  upstreamNodes,
-  onSelect,
-}: {
-  upstreamNodes: Array<{ id: string; type: string; label: string; mcpTool?: string; config?: Record<string, string>; outputFields?: OutputField[] }>;
-  onSelect: (expression: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-
-  if (upstreamNodes.length === 0) return null;
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="flex h-[26px] items-center gap-0.5 rounded border border-indigo-200 bg-indigo-50 px-1.5 text-[9px] font-semibold text-indigo-600 hover:bg-indigo-100"
-        title="Insert data from a previous step"
-      >
-        <Database className="h-2.5 w-2.5" />
-        <ChevronDown className="h-2 w-2" />
-      </button>
-      {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-72 rounded-lg border border-border bg-white shadow-xl">
-          <div className="border-b border-border px-3 py-2">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Insert data from previous step</p>
-          </div>
-          <div className="max-h-64 overflow-y-auto">
-            {upstreamNodes.map((un) => {
-              const fields = getNodeOutputFields(un);
-              return (
-                <div key={un.id} className="border-b border-border/50 last:border-b-0">
-                  <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5">
-                    <NodeIcon type={un.type as WorkflowNodeData["type"]} />
-                    <span className="text-[10px] font-semibold text-foreground">{un.label}</span>
-                    <span className="ml-auto text-[9px] text-muted-foreground">{fields.length} fields</span>
-                  </div>
-                  <div className="py-1">
-                    {fields.map((f) => (
-                      <button
-                        key={f.name}
-                        type="button"
-                        onClick={() => {
-                          onSelect(`{{${un.id}.${f.name}}}`);
-                          setOpen(false);
-                        }}
-                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-indigo-50"
-                      >
-                        <span className="shrink-0 rounded bg-indigo-100 px-1 py-px text-[8px] font-mono font-bold text-indigo-600">{f.type}</span>
-                        <span className="text-[11px] font-medium text-foreground">{f.name}</span>
-                        {f.sample && <span className="ml-auto truncate text-[9px] text-muted-foreground max-w-[100px]">{f.sample}</span>}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
 }
 
 // ─── Trigger Configuration ───
@@ -759,6 +697,7 @@ export function NodeConfigPanel({
   onUpdate,
   onDelete,
   onClose,
+  onEnsureErrorBranch,
 }: NodeConfigPanelProps) {
   const [activeTab, setActiveTab] = useState<"config" | "mapping" | "errors">("config");
   const [showToolPicker, setShowToolPicker] = useState(false);
@@ -775,7 +714,7 @@ export function NodeConfigPanel({
     const reachable = new Set<string>();
     function walk(id: string) {
       for (const e of workflow.edges) {
-        if (e.source === id && !reachable.has(e.target)) {
+        if (e.source === id && !reachable.has(e.target) && !e.isErrorPath) {
           reachable.add(e.target);
           walk(e.target);
         }
@@ -784,6 +723,39 @@ export function NodeConfigPanel({
     walk(n.id);
     return reachable.has(nodeId) && n.id !== nodeId;
   });
+
+  const dataSources: DataSourceGroup[] = [
+    {
+      id: "workflow",
+      label: "Workflow Properties",
+      kind: "workflow",
+      fields: WORKFLOW_PROPERTY_FIELDS.map((f) => ({
+        name: f.name,
+        type: f.type,
+        sample: f.sample,
+        description: f.description,
+      })),
+    },
+    ...upstreamNodes.map((un) => ({
+      id: un.id,
+      label: un.label,
+      kind: (un.type === "trigger" ? "trigger" : "step") as DataSourceGroup["kind"],
+      fields: getNodeOutputFields(un),
+    })),
+  ];
+
+  const showErrorSource =
+    data.errorPath === "branch" ||
+    workflow.edges.some((e) => e.target === nodeId && (e.isErrorPath || (e.label ?? "").toLowerCase().includes("error"))) ||
+    nodeId.startsWith("error-handler-");
+  if (showErrorSource && !dataSources.some((s) => s.id === "error")) {
+    dataSources.push({
+      id: "error",
+      label: "Error Details",
+      kind: "error",
+      fields: ERROR_PROPERTY_FIELDS,
+    });
+  }
 
   const filteredTools = allMcpTools().filter(
     (t) =>
@@ -977,9 +949,9 @@ export function NodeConfigPanel({
                       <div className="mt-1.5 flex items-center gap-1">
                         <input
                           type="text"
-                          placeholder={`Value or {{step.field}}...`}
+                          placeholder="Map a field or write a formula..."
                           className={`flex-1 rounded border bg-white px-2 py-1 text-[11px] focus:border-indigo-300 focus:outline-none ${
-                            String(data.config?.[param.name] ?? "").startsWith("{{")
+                            String(data.config?.[param.name] ?? "").includes("{{") || /[A-Z_]+\s*\(/.test(String(data.config?.[param.name] ?? ""))
                               ? "border-indigo-200 bg-indigo-50/30 font-mono text-indigo-700"
                               : "border-gray-200"
                           }`}
@@ -990,9 +962,13 @@ export function NodeConfigPanel({
                             })
                           }
                         />
-                        <DataPillPicker
-                          upstreamNodes={upstreamNodes}
-                          onSelect={(expr) =>
+                        <FieldMapButton
+                          targetField={param.name}
+                          targetLabel={param.name}
+                          currentValue={String(data.config?.[param.name] ?? "")}
+                          sources={dataSources}
+                          showErrorSource={showErrorSource}
+                          onApply={(expr) =>
                             onUpdate(nodeId, {
                               config: { ...data.config, [param.name]: expr },
                             })
@@ -1095,7 +1071,7 @@ export function NodeConfigPanel({
                   <textarea
                     className="flex-1 rounded-lg border border-border bg-slate-50 px-3 py-2 font-mono text-xs text-foreground focus:border-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-200"
                     rows={2}
-                    placeholder="e.g. {{trigger.priority}} === 'emergency'"
+                    placeholder='e.g. {{trigger.priority}} === "emergency" or IF(...)'
                     value={data.config?.["expression"] ?? ""}
                     onChange={(e) =>
                       onUpdate(nodeId, {
@@ -1103,11 +1079,15 @@ export function NodeConfigPanel({
                       })
                     }
                   />
-                  <DataPillPicker
-                    upstreamNodes={upstreamNodes}
-                    onSelect={(expr) =>
+                  <FieldMapButton
+                    targetField="expression"
+                    targetLabel="Condition Expression"
+                    currentValue={data.config?.["expression"] ?? ""}
+                    sources={dataSources}
+                    showErrorSource={showErrorSource}
+                    onApply={(expr) =>
                       onUpdate(nodeId, {
-                        config: { ...data.config, expression: `${data.config?.["expression"] ?? ""}${expr}` },
+                        config: { ...data.config, expression: expr },
                       })
                     }
                   />
@@ -1156,7 +1136,7 @@ export function NodeConfigPanel({
                   <input
                     type="text"
                     className="flex-1 rounded-lg border border-border bg-slate-50 px-3 py-2 font-mono text-xs focus:border-indigo-300 focus:outline-none"
-                    placeholder="e.g. {{get_leases.output.items}}"
+                    placeholder="Map a list field from an upstream step"
                     value={data.config?.["collection"] ?? ""}
                     onChange={(e) =>
                       onUpdate(nodeId, {
@@ -1164,9 +1144,13 @@ export function NodeConfigPanel({
                       })
                     }
                   />
-                  <DataPillPicker
-                    upstreamNodes={upstreamNodes}
-                    onSelect={(expr) =>
+                  <FieldMapButton
+                    targetField="collection"
+                    targetLabel="Iterate Over"
+                    currentValue={data.config?.["collection"] ?? ""}
+                    sources={dataSources}
+                    showErrorSource={showErrorSource}
+                    onApply={(expr) =>
                       onUpdate(nodeId, {
                         config: { ...data.config, collection: expr },
                       })
@@ -1209,44 +1193,34 @@ export function NodeConfigPanel({
             {/* Data flow visualization */}
             <div className="rounded-lg border border-indigo-200 bg-indigo-50/30 p-3">
               <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-indigo-600">
-                Data flowing into this step
+                Available data pills
               </p>
-              {upstreamNodes.length === 0 ? (
-                <p className="text-[11px] italic text-muted-foreground">
-                  {data.type === "trigger" ? "This is the entry point — it produces data for downstream steps." : "No upstream nodes connected."}
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {upstreamNodes.map((un) => {
-                    const fields = getNodeOutputFields(un);
-                    return (
-                      <div key={un.id} className="rounded-lg border border-border bg-white p-2.5">
-                        <div className="flex items-center gap-1.5 mb-1.5">
-                          <NodeIcon type={un.type as WorkflowNodeData["type"]} />
-                          <span className="text-[11px] font-semibold text-foreground">{un.label}</span>
-                          <ArrowDown className="ml-auto h-3 w-3 text-indigo-400" />
-                        </div>
-                        <div className="flex flex-wrap gap-1">
-                          {fields.map((f) => (
-                            <button
-                              key={f.name}
-                              type="button"
-                              className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-700 hover:bg-indigo-100"
-                              onClick={() => {
-                                navigator.clipboard.writeText(`{{${un.id}.${f.name}}}`);
-                              }}
-                              title={`Click to copy {{${un.id}.${f.name}}}${f.sample ? ` — sample: ${f.sample}` : ""}`}
-                            >
-                              <span className="rounded bg-indigo-200/60 px-0.5 text-[8px] font-mono font-bold">{f.type}</span>
-                              {f.name}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              <div className="space-y-2">
+                {dataSources.map((src) => (
+                  <div key={src.id} className="rounded-lg border border-border bg-white p-2.5">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <NodeIcon type={src.kind === "workflow" ? "end" : src.kind === "error" ? "end" : src.kind === "trigger" ? "trigger" : "action"} />
+                      <span className="text-[11px] font-semibold text-foreground">{src.label}</span>
+                      <span className="ml-auto text-[9px] text-muted-foreground">{src.fields.length} fields</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {src.fields.map((f) => (
+                        <span
+                          key={f.name}
+                          className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-700"
+                          title={f.description ?? f.sample}
+                        >
+                          <span className="rounded bg-indigo-200/60 px-0.5 text-[8px] font-mono font-bold">{f.type}</span>
+                          {src.id}.{f.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-2 text-[9px] text-muted-foreground">
+                Use the <strong>Map</strong> button on each parameter to open the two-pane field mapper — no need to type {"{{step.field}}"} strings.
+              </p>
             </div>
 
             {/* Current step's configured mappings */}
@@ -1258,10 +1232,10 @@ export function NodeConfigPanel({
                 <div className="space-y-1">
                   {toolParams.map((p) => {
                     const value = String(data.config?.[p.name] ?? "");
-                    const isMapped = value.startsWith("{{");
+                    const isMapped = value.includes("{{") || /[A-Z_]+\s*\(/.test(value);
                     return (
                       <div key={p.name} className={`flex items-center gap-2 rounded px-2.5 py-1.5 ${isMapped ? "bg-indigo-50" : value ? "bg-slate-50" : "bg-white border border-dashed border-gray-200"}`}>
-                        <span className="text-[11px] font-medium text-foreground w-28 truncate">{p.name}</span>
+                        <span className="text-[11px] font-medium text-foreground w-24 truncate">{p.name}</span>
                         {isMapped ? (
                           <span className="flex-1 truncate rounded bg-indigo-100 px-1.5 py-0.5 font-mono text-[10px] text-indigo-700">{value}</span>
                         ) : value ? (
@@ -1269,9 +1243,18 @@ export function NodeConfigPanel({
                         ) : (
                           <span className="flex-1 text-[10px] italic text-gray-300">not configured</span>
                         )}
-                        {p.required && !value && (
-                          <span className="shrink-0 text-[9px] font-bold text-red-500">!</span>
-                        )}
+                        <FieldMapButton
+                          targetField={p.name}
+                          targetLabel={p.name}
+                          currentValue={value}
+                          sources={dataSources}
+                          showErrorSource={showErrorSource}
+                          onApply={(expr) =>
+                            onUpdate(nodeId, {
+                              config: { ...data.config, [p.name]: expr },
+                            })
+                          }
+                        />
                       </div>
                     );
                   })}
@@ -1294,7 +1277,7 @@ export function NodeConfigPanel({
                 ))}
               </div>
               <p className="mt-1.5 text-[9px] text-muted-foreground">
-                Reference these fields in downstream steps using <code className="rounded bg-slate-100 px-1 text-indigo-600">{`{{${nodeId}.field_name}}`}</code>
+                Downstream steps can map these fields via the field mapper as <code className="rounded bg-slate-100 px-1 text-indigo-600">{`${nodeId}.field_name`}</code>
               </p>
             </div>
           </div>
@@ -1345,14 +1328,14 @@ export function NodeConfigPanel({
 
             {/* On Error Behavior */}
             <div>
-              <h4 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">On Error</h4>
+              <h4 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">On Error (after retries)</h4>
               <div className="space-y-1.5">
                 {(
                   [
-                    { value: "stop", label: "Stop workflow", desc: "Halt execution and mark as failed" },
-                    { value: "continue", label: "Continue to next step", desc: "Log error and proceed" },
-                    { value: "branch", label: "Follow error path", desc: "Route to a dedicated error-handling branch" },
-                  ] as const
+                    { value: "stop" as const, label: "Stop workflow", desc: "Halt execution and mark as failed" },
+                    { value: "continue" as const, label: "Continue to next step", desc: "Log error and proceed along the happy path" },
+                    { value: "branch" as const, label: "Follow on-error path", desc: "Route to a dedicated error-handling branch with error data pills" },
+                  ]
                 ).map((opt) => (
                   <label
                     key={opt.value}
@@ -1367,7 +1350,12 @@ export function NodeConfigPanel({
                       name="errorPath"
                       className="mt-0.5"
                       checked={(data.errorPath ?? "stop") === opt.value}
-                      onChange={() => onUpdate(nodeId, { errorPath: opt.value })}
+                      onChange={() => {
+                        onUpdate(nodeId, { errorPath: opt.value });
+                        if (opt.value === "branch") {
+                          onEnsureErrorBranch?.(nodeId);
+                        }
+                      }}
                     />
                     <div>
                       <p className="text-[11px] font-semibold text-foreground">{opt.label}</p>
@@ -1377,6 +1365,44 @@ export function NodeConfigPanel({
                 ))}
               </div>
             </div>
+
+            {(data.errorPath ?? "stop") === "branch" && (
+              <div className="rounded-lg border border-red-200 bg-red-50/50 p-3">
+                <div className="mb-2 flex items-center gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 text-red-600" />
+                  <p className="text-[11px] font-semibold text-red-800">Error path data pills</p>
+                </div>
+                <p className="mb-2 text-[10px] text-red-700/80">
+                  When this step fails, downstream error-path steps can map these fields:
+                </p>
+                <div className="flex flex-wrap gap-1">
+                  {ERROR_PROPERTY_FIELDS.map((f) => (
+                    <span
+                      key={f.name}
+                      className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-white px-2 py-0.5 text-[10px] font-medium text-red-700"
+                      title={f.description}
+                    >
+                      <span className="rounded bg-red-100 px-0.5 text-[8px] font-mono font-bold">{f.type}</span>
+                      error.{f.name}
+                    </span>
+                  ))}
+                </div>
+                {data.errorTargetId && (
+                  <p className="mt-2 text-[10px] text-red-700">
+                    Error branch target: <strong>{workflow.nodes.find((n) => n.id === data.errorTargetId)?.label ?? data.errorTargetId}</strong>
+                  </p>
+                )}
+                {!data.errorTargetId && onEnsureErrorBranch && (
+                  <button
+                    type="button"
+                    onClick={() => onEnsureErrorBranch(nodeId)}
+                    className="mt-2 flex w-full items-center justify-center gap-1 rounded border border-dashed border-red-300 py-1.5 text-[10px] font-medium text-red-700 hover:bg-red-50"
+                  >
+                    <Plus className="h-3 w-3" /> Create on-error handler step
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

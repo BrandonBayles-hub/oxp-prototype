@@ -12,12 +12,15 @@ import {
   ReactFlowProvider,
   addEdge,
   type NodeTypes,
+  type EdgeTypes,
   type Connection,
   type Node,
+  type Edge,
   BackgroundVariant,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { CustomWorkflowNode } from "./custom-nodes";
+import { InsertableEdge, type InsertStepType } from "./insertable-edge";
 import { workflowToReactFlow } from "./layout";
 import type { GeneratedWorkflow, WorkflowNodeData } from "./types";
 import { generateWorkflow } from "@/lib/workflow-generator";
@@ -39,6 +42,7 @@ import {
 } from "lucide-react";
 
 const nodeTypes: NodeTypes = { workflowNode: CustomWorkflowNode };
+const edgeTypes: EdgeTypes = { insertable: InsertableEdge };
 
 const PALETTE_ITEMS: Array<{ type: WorkflowNodeData["type"]; label: string; icon: typeof Zap }> = [
   { type: "action", label: "Action", icon: Cog },
@@ -64,8 +68,18 @@ function WorkflowCanvas({
   onIterationRequest,
 }: WorkflowVisualizerProps) {
   const { fitView, screenToFlowPosition } = useReactFlow();
+
+  // Stable ref so layout edges and insert handlers always call the latest insert fn
+  const handleInsertStepRef = useRef<
+    (edgeId: string, source: string, target: string, type: InsertStepType) => void
+  >(() => {});
+
   const { nodes: layoutNodes, edges: layoutEdges } = useMemo(
-    () => workflowToReactFlow(workflow),
+    () =>
+      workflowToReactFlow(workflow, {
+        onInsert: (edgeId, source, target, type) =>
+          handleInsertStepRef.current(edgeId, source, target, type),
+      }),
     [workflow],
   );
 
@@ -129,6 +143,7 @@ function WorkflowCanvas({
           inputMappings: d.inputMappings as WorkflowNodeData["inputMappings"],
           outputFields: d.outputFields as WorkflowNodeData["outputFields"],
           errorPath: d.errorPath as WorkflowNodeData["errorPath"],
+          errorTargetId: d.errorTargetId as string | undefined,
         };
       });
       const wfEdges = updatedEdges.map((e) => ({
@@ -136,9 +151,12 @@ function WorkflowCanvas({
         source: e.source as string,
         target: e.target as string,
         label: typeof e.label === "string" ? e.label : undefined,
+        isErrorPath: Boolean((e.data as { isErrorPath?: boolean } | undefined)?.isErrorPath) ||
+          (typeof e.label === "string" && e.label.toLowerCase().includes("error")),
       }));
       onWorkflowChange({
         ...workflow,
+        id: workflow.id ?? `wf-${workflow.name.toLowerCase().replace(/\s+/g, "-").slice(0, 24)}`,
         nodes: wfNodes,
         edges: wfEdges,
       });
@@ -146,18 +164,101 @@ function WorkflowCanvas({
     [onWorkflowChange, workflow],
   );
 
+  const handleInsertStep = useCallback(
+    (edgeId: string, source: string, target: string, type: InsertStepType) => {
+      internalEditRef.current = true;
+      const newId = `${type}-${Date.now()}`;
+      const labels: Record<InsertStepType, string> = {
+        action: "New Action",
+        condition: "New Condition",
+        loop: "New Loop",
+      };
+      const newNodeBase: Node = {
+        id: newId,
+        type: "workflowNode",
+        position: { x: 0, y: 0 },
+        zIndex: 1000,
+        selected: true,
+        data: {
+          type,
+          label: labels[type],
+          description: type === "condition"
+            ? "Configure a yes/no condition"
+            : type === "loop"
+              ? "Iterate over a collection"
+              : "Configure this action",
+        } satisfies Record<string, unknown>,
+      };
+
+      setNodes((nds) => {
+        const sourceNode = nds.find((n) => n.id === source);
+        const targetNode = nds.find((n) => n.id === target);
+        const midX = ((sourceNode?.position.x ?? 0) + (targetNode?.position.x ?? 0)) / 2;
+        // Offset slightly so the new step doesn't sit under either neighbor
+        const midY =
+          ((sourceNode?.position.y ?? 0) + (targetNode?.position.y ?? 0)) / 2 + 8;
+        const placed = { ...newNodeBase, position: { x: midX, y: midY } };
+
+        setEdges((eds) => {
+          const remaining = eds.filter((e) => e.id !== edgeId);
+          const oldEdge = eds.find((e) => e.id === edgeId);
+          const edge1 = {
+            id: `e-${source}-${newId}`,
+            source,
+            target: newId,
+            type: "insertable" as const,
+            animated: true,
+            style: { stroke: "#94a3b8", strokeWidth: 2 },
+            label: oldEdge?.label,
+            data: {
+              onInsert: (eid: string, s: string, t: string, ty: InsertStepType) =>
+                handleInsertStepRef.current(eid, s, t, ty),
+            },
+          };
+          const edge2 = {
+            id: `e-${newId}-${target}`,
+            source: newId,
+            target,
+            type: "insertable" as const,
+            animated: true,
+            style: { stroke: "#94a3b8", strokeWidth: 2 },
+            data: {
+              onInsert: (eid: string, s: string, t: string, ty: InsertStepType) =>
+                handleInsertStepRef.current(eid, s, t, ty),
+            },
+            ...(type === "condition" ? { sourceHandle: "yes", label: "Yes" } : {}),
+          };
+          const updated = [...remaining, edge1, edge2];
+          const updatedNodes = [...nds, placed];
+          setTimeout(() => syncWorkflow(updatedNodes, updated), 0);
+          return updated;
+        });
+        return [...nds, placed];
+      });
+      setSelectedNodeId(newId);
+      setRightPanel("config");
+      // Bring the new step into view so it isn't hidden under neighbors
+      setTimeout(() => {
+        fitView({ nodes: [{ id: newId }], padding: 0.45, duration: 300, maxZoom: 1.1 });
+      }, 50);
+    },
+    [setNodes, setEdges, syncWorkflow, fitView],
+  );
+
+  handleInsertStepRef.current = handleInsertStep;
+
   const onConnect = useCallback(
     (connection: Connection) => {
       const newEdge = {
         ...connection,
         id: `e-${Date.now()}`,
-        type: "smoothstep" as const,
+        type: "insertable" as const,
         animated: true,
         style: { stroke: "#94a3b8", strokeWidth: 2 },
-        labelStyle: { fontSize: 11, fontWeight: 600, fill: "#475569" },
-        labelBgStyle: { fill: "#f8fafc", stroke: "#e2e8f0", strokeWidth: 1 },
-        labelBgPadding: [6, 4] as [number, number],
-        labelBgBorderRadius: 4,
+        data: {
+          onInsert: (eid: string, s: string, t: string, ty: InsertStepType) =>
+            handleInsertStepRef.current(eid, s, t, ty),
+        },
       };
       // @ts-expect-error -- addEdge returns Edge[] which is wider than the inferred edge state type
       setEdges((eds: Edge[]) => {
@@ -173,6 +274,80 @@ function WorkflowCanvas({
     setSelectedNodeId(node.id);
     setRightPanel("config");
   }, []);
+
+  const handleEnsureErrorBranch = useCallback(
+    (sourceNodeId: string) => {
+      internalEditRef.current = true;
+      const existing = workflow.nodes.find((n) => n.id === `error-handler-${sourceNodeId}`);
+      if (existing) {
+        setNodes((nds) => {
+          const updated = nds.map((n) =>
+            n.id === sourceNodeId
+              ? { ...n, data: { ...n.data, errorPath: "branch", errorTargetId: existing.id } }
+              : n,
+          );
+          setTimeout(() => syncWorkflow(updated, edges), 0);
+          return updated;
+        });
+        return;
+      }
+
+      const errorNodeId = `error-handler-${sourceNodeId}`;
+      const sourceNode = nodes.find((n) => n.id === sourceNodeId);
+      const errorNode: Node = {
+        id: errorNodeId,
+        type: "workflowNode",
+        position: {
+          x: (sourceNode?.position.x ?? 0) + 320,
+          y: (sourceNode?.position.y ?? 0) + 40,
+        },
+        data: {
+          type: "action",
+          label: "On Error Handler",
+          description: "Handle failure — error.* pills are available here",
+          config: {},
+        } satisfies Record<string, unknown>,
+      };
+
+      setNodes((nds) => {
+        const updated = [
+          ...nds.map((n) =>
+            n.id === sourceNodeId
+              ? { ...n, data: { ...n.data, errorPath: "branch", errorTargetId: errorNodeId } }
+              : n,
+          ),
+          errorNode,
+        ];
+        setEdges((eds) => {
+          const hasEdge = eds.some((e) => e.source === sourceNodeId && e.target === errorNodeId);
+          const updatedEdges = hasEdge
+            ? eds
+            : [
+                ...eds,
+                {
+                  id: `e-${sourceNodeId}-error-${errorNodeId}`,
+                  source: sourceNodeId,
+                  target: errorNodeId,
+                  sourceHandle: "on-error",
+                  label: "on-error",
+                  type: "insertable" as const,
+                  animated: false,
+                  style: { stroke: "#f87171", strokeWidth: 2 },
+                  data: {
+                    isErrorPath: true,
+                    onInsert: (eid: string, s: string, t: string, ty: InsertStepType) =>
+                      handleInsertStepRef.current(eid, s, t, ty),
+                  },
+                },
+              ];
+          setTimeout(() => syncWorkflow(updated, updatedEdges), 0);
+          return updatedEdges;
+        });
+        return updated;
+      });
+    },
+    [workflow.nodes, nodes, edges, setNodes, setEdges, syncWorkflow],
+  );
 
   const handleNodeUpdate = useCallback(
     (nodeId: string, patch: Partial<WorkflowNodeData>) => {
@@ -367,6 +542,7 @@ function WorkflowCanvas({
             onDrop={onDrop}
             onDragOver={onDragOver}
             nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
             fitView
             fitViewOptions={{ padding: 0.3, maxZoom: 1 }}
             proOptions={{ hideAttribution: true }}
@@ -376,7 +552,7 @@ function WorkflowCanvas({
             deleteKeyCode={["Backspace", "Delete"]}
             connectionLineStyle={{ stroke: "#6366f1", strokeWidth: 2, strokeDasharray: "5 5" }}
             defaultEdgeOptions={{
-              type: "smoothstep",
+              type: "insertable",
               animated: true,
               style: { stroke: "#94a3b8", strokeWidth: 2 },
             }}
@@ -421,7 +597,7 @@ function WorkflowCanvas({
 
           {/* Drag hint */}
           <div className="absolute bottom-3 left-3 rounded-lg border border-border bg-white/90 px-2.5 py-1.5 text-[10px] text-muted-foreground shadow-sm backdrop-blur-sm">
-            Drag nodes from palette · Click node to configure · Drag between handles to connect · Backspace to delete
+            Drag nodes from palette · Click <span className="font-semibold text-indigo-600">+</span> on edges to insert · Click node to configure · Backspace to delete
           </div>
 
           {/* Rebuild overlay */}
@@ -462,6 +638,7 @@ function WorkflowCanvas({
             workflow={workflow}
             onUpdate={handleNodeUpdate}
             onDelete={handleNodeDelete}
+            onEnsureErrorBranch={handleEnsureErrorBranch}
             onClose={() => { setRightPanel("none"); setSelectedNodeId(null); }}
           />
         )}
