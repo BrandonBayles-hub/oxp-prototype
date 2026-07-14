@@ -10,12 +10,10 @@ import {
   useEdgesState,
   useReactFlow,
   ReactFlowProvider,
-  addEdge,
   type NodeTypes,
   type EdgeTypes,
   type Connection,
   type Node,
-  type Edge,
   BackgroundVariant,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -249,9 +247,13 @@ function WorkflowCanvas({
 
   const onConnect = useCallback(
     (connection: Connection) => {
+      if (!connection.source || !connection.target) return;
       const newEdge = {
-        ...connection,
         id: `e-${Date.now()}`,
+        source: connection.source,
+        target: connection.target,
+        sourceHandle: connection.sourceHandle ?? null,
+        targetHandle: connection.targetHandle ?? null,
         type: "insertable" as const,
         animated: true,
         style: { stroke: "#94a3b8", strokeWidth: 2 },
@@ -260,9 +262,8 @@ function WorkflowCanvas({
             handleInsertStepRef.current(eid, s, t, ty),
         },
       };
-      // @ts-expect-error -- addEdge returns Edge[] which is wider than the inferred edge state type
-      setEdges((eds: Edge[]) => {
-        const updated = addEdge(newEdge, eds);
+      setEdges((eds) => {
+        const updated = [...eds, newEdge];
         setTimeout(() => syncWorkflow(nodes, updated), 0);
         return updated;
       });

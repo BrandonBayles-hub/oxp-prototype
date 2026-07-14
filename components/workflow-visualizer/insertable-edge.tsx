@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   BaseEdge,
@@ -209,8 +209,10 @@ function InsertableEdgeComponent({
   const [menuOpen, setMenuOpen] = useState(false);
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const edgeData = (data ?? {}) as InsertEdgeData;
-  const isError = edgeData.isErrorPath || (typeof label === "string" && label.toLowerCase().includes("error"));
+  const edgeData = useMemo(() => (data ?? {}) as InsertEdgeData, [data]);
+  const onInsert = edgeData.onInsert;
+  const isError =
+    edgeData.isErrorPath || (typeof label === "string" && label.toLowerCase().includes("error"));
 
   const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
@@ -238,10 +240,10 @@ function InsertableEdgeComponent({
 
   const handleInsert = useCallback(
     (type: InsertStepType) => {
-      edgeData.onInsert?.(id, source, target, type);
+      onInsert?.(id, source, target, type);
       closeMenu();
     },
-    [edgeData, id, source, target, closeMenu],
+    [onInsert, id, source, target, closeMenu],
   );
 
   const stroke = isError ? "#f87171" : "#94a3b8";
