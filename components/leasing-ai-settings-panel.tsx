@@ -18,14 +18,19 @@ import {
   ListChecks,
   Plus,
   Trash2,
-  Pencil,
-  X,
   Lock,
   AlertTriangle,
   Info,
+  HelpCircle,
   Home,
   ShieldCheck,
 } from "lucide-react"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 /* ══════════════════════════════════════════════════════════════════════════
    Conversation modes
@@ -104,19 +109,6 @@ interface AffordableSettings {
   requiredDocuments: string[]
 }
 
-type PreQualOperator =
-  | "greater_than"
-  | "less_than"
-  | "at_least"
-  | "at_most"
-  | "equals"
-  | "not_equals"
-  | "less_than_multiplier"
-  | "at_least_multiplier"
-  | "yes"
-  | "no"
-  | "dont_know"
-
 type PreQualResult =
   | "qualified"
   | "over_income"
@@ -124,8 +116,6 @@ type PreQualResult =
   | "unit_ineligible"
   | "potentially_qualified"
   | "in_progress"
-
-type PreQualConnector = "and" | "or"
 
 type TourGoal = "offer" | "if_asked" | "none"
 type ApplicationGoal = "offer" | "if_asked" | "none"
@@ -138,55 +128,70 @@ interface PreQualGoal {
   offerMarketRate: boolean
 }
 
-// Master list of screening criteria the user can choose from
-const AVAILABLE_SCREENING_CRITERIA = [
-  "Income-to-rent ratio",
-  "Employment Status",
-  "Move-in timeline",
-  "Pet Policy Compliance",
-  "Credit Score",
-] as const
+/* ── Deterministic pre-qualification: two supported criteria, three outcomes ── */
 
-interface ScreeningCriterionConfig {
-  id: string
+type TourPolicy = "proactive" | "on_request" | "blocked"
+type ApplicationPolicy = "proactive" | "on_request" | "blocked"
+
+/* ── Stance presets for prospects who don't meet the requirements ── */
+
+type UnqualifiedStance = "continue" | "step_back" | "stop"
+
+interface StanceConfig {
   label: string
-  value: string
+  description: string
+  tour: TourPolicy
+  application: ApplicationPolicy
 }
 
-const PREQUAL_OPERATOR_LABELS: Record<PreQualOperator, string> = {
-  greater_than: "is greater than",
-  less_than: "is less than",
-  at_least: "is at least",
-  at_most: "is at most",
-  equals: "equals",
-  not_equals: "does not equal",
-  less_than_multiplier: "is less than (multiplier of rent)",
-  at_least_multiplier: "is at least (multiplier of rent)",
-  yes: "Yes",
-  no: "No",
-  dont_know: "Don't Know",
+const UNQUALIFIED_STANCE_ORDER: UnqualifiedStance[] = ["continue", "step_back", "stop"]
+
+const UNQUALIFIED_STANCES: Record<UnqualifiedStance, StanceConfig> = {
+  continue: {
+    label: "Continue",
+    description: "ELI+ mentions the requirements aren\u2019t met, but tours and applications stay fully available.",
+    tour: "proactive",
+    application: "proactive",
+  },
+  step_back: {
+    label: "Slow down",
+    description: "ELI+ stops suggesting tours and applications, but will book or share them if the prospect asks.",
+    tour: "on_request",
+    application: "on_request",
+  },
+  stop: {
+    label: "Stop",
+    description: "No tours or application link, even if the prospect asks. The leasing team takes it from here.",
+    tour: "blocked",
+    application: "blocked",
+  },
 }
 
-const YES_NO_INPUTS = new Set<string>([])
-
-const INCOME_INPUTS = new Set([
-  "Income-to-rent ratio",
-])
-
-// Criteria answered by picking from a fixed set of choices
-const CHOICE_INPUTS: Record<string, string[]> = {
-  "Income-to-rent ratio": ["1x", "1.5x", "2x", "2.5x", "3x"],
-  "Employment Status": ["Unemployed", "Part-Time (Less than 40 hours)", "Full-time (40 hours or more)"],
-  "Move-in timeline": ["Within 30 days", "30-60 days", "60+ days"],
-  "Pet Policy Compliance": ["Yes, I have a pet", "No, I don't have a pet"],
-  "Credit Score": ["500 minimum", "600 minimum", "700 minimum", "800 minimum"],
+function validateIncomeMultiplier(raw: string): string | null {
+  if (!raw.trim()) return "A multiplier is required when this criterion is enabled."
+  const n = Number(raw)
+  if (!Number.isFinite(n)) return "Enter a numeric value."
+  if (n < 1 || n > 10) return "Enter a value between 1.0 and 10.0."
+  if (Math.abs(n * 10 - Math.round(n * 10)) > 1e-9) return "Use increments of 0.1."
+  return null
 }
 
-function operatorsForInput(input: string): PreQualOperator[] {
-  if (YES_NO_INPUTS.has(input)) return ["yes", "no", "dont_know"]
-  if (INCOME_INPUTS.has(input)) return ["less_than", "at_least", "equals", "not_equals"]
-  if (CHOICE_INPUTS[input]) return ["equals", "not_equals"]
-  return ["greater_than", "less_than", "at_least", "at_most", "equals", "not_equals"]
+function validateCreditScore(raw: string): string | null {
+  if (!raw.trim()) return "A minimum score is required when this criterion is enabled."
+  const n = Number(raw)
+  if (!Number.isFinite(n)) return "Enter a numeric value."
+  if (!Number.isInteger(n)) return "Whole numbers only."
+  if (n < 300 || n > 850) return "Enter a value between 300 and 850."
+  return null
+}
+
+function formatMultiplier(raw: string): string {
+  if (validateIncomeMultiplier(raw) !== null) return "\u2014"
+  return String(Math.round(Number(raw) * 10) / 10)
+}
+
+function formatScore(raw: string): string {
+  return validateCreditScore(raw) === null ? String(Number(raw)) : "\u2014"
 }
 
 const PREQUAL_RESULT_LABELS: Record<PreQualResult, string> = {
@@ -218,35 +223,6 @@ const APP_GOAL_LABELS: Record<ApplicationGoal, string> = {
   if_asked: "Only if asked",
   none: "Do not share",
 }
-
-interface PreQualCondition {
-  id: string
-  input: string
-  operator: PreQualOperator
-  value: string
-}
-
-interface PreQualRule {
-  id: string
-  label: string
-  connector: PreQualConnector
-  conditions: PreQualCondition[]
-  tour: TourGoal
-  application: ApplicationGoal
-  offerMarketRate: boolean
-}
-
-function makeCondition(defaultInput?: string): PreQualCondition {
-  const input = defaultInput ?? AVAILABLE_SCREENING_CRITERIA[0]
-  return {
-    id: `c-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    input,
-    operator: operatorsForInput(input)[0],
-    value: "",
-  }
-}
-
-const DEFAULT_PREQUAL_RULES: PreQualRule[] = []
 
 const DEFAULT_PREQUAL_GOALS: PreQualGoal[] = [
   { result: "qualified",             tour: "offer",    application: "offer",    waitlist: "none",     offerMarketRate: false },
@@ -310,11 +286,14 @@ function isApplicationModeEligible(derived: DerivedPropertyData): boolean {
 interface PanelState {
   conversationMode: ConversationModeId
   preQualEnabled: boolean
-  screeningCriteria: ScreeningCriterionConfig[]
+  incomeEnabled: boolean
+  incomeMultiplier: string
+  creditEnabled: boolean
+  creditMinScore: string
+  unqualifiedStance: UnqualifiedStance
   affordableFlowEnabled: boolean
   conversationStart: ConversationStart
   affordableSettings: AffordableSettings
-  preQualRules: PreQualRule[]
   preQualGoals: PreQualGoal[]
 }
 
@@ -322,7 +301,11 @@ function makeDefaultState(): PanelState {
   return {
     conversationMode: DEFAULT_MODE,
     preQualEnabled: false,
-    screeningCriteria: [],
+    incomeEnabled: true,
+    incomeMultiplier: "3.0",
+    creditEnabled: false,
+    creditMinScore: "600",
+    unqualifiedStance: "step_back",
     affordableFlowEnabled: false,
     conversationStart: "market_first",
     affordableSettings: {
@@ -336,7 +319,6 @@ function makeDefaultState(): PanelState {
       ageRestricted: false, minimumAge: "", ageQuestionWording: "",
       requiredDocuments: ["Government-issued ID", "4 most recent pay stubs", "Bank statements"],
     },
-    preQualRules: DEFAULT_PREQUAL_RULES,
     preQualGoals: DEFAULT_PREQUAL_GOALS,
   }
 }
@@ -377,20 +359,12 @@ export function LeasingAISettingsPanel({
         household_income?: string
         household_size?: string
         vouchers_accepted?: boolean
-        prequalification_rules?: {
-          label?: string
-          connector?: string
-          conditions?: { input: string; operator: string; value: string }[]
-          input?: string
-          operator?: string
-          value?: string
-          tour?: string
-          application?: string
-          offer_market_rate?: boolean
-          result?: string
-        }[]
+        prequalification_criteria?: {
+          income?: { enabled?: boolean; multiplier?: number | string }
+          credit?: { enabled?: boolean; min_score?: number | string }
+        }
+        prequalification_actions?: { outcome?: string; tour?: string; application?: string }[]
         prequalification_goals?: { result: string; tour: string; application: string; waitlist?: string; offer_market_rate: boolean }[]
-        prequalification_actions?: { result: string; action: string }[]
       }) => {
         const defaults = makeDefaultState()
         const loaded: Partial<PanelState> = {
@@ -404,32 +378,24 @@ export function LeasingAISettingsPanel({
             vouchersAccepted: Boolean(data.vouchers_accepted),
           },
         }
-        if (data.prequalification_rules && data.prequalification_rules.length > 0) {
-          loaded.preQualRules = data.prequalification_rules.map((r, i) => {
-            const conditions: PreQualCondition[] =
-              r.conditions && r.conditions.length > 0
-                ? r.conditions.map((c, j) => ({
-                    id: `r-${i + 1}-c${j + 1}`,
-                    input: c.input,
-                    operator: c.operator as PreQualOperator,
-                    value: c.value,
-                  }))
-                : [{
-                    id: `r-${i + 1}-c1`,
-                    input: r.input ?? AVAILABLE_SCREENING_CRITERIA[0],
-                    operator: (r.operator as PreQualOperator) ?? "greater_than",
-                    value: r.value ?? "",
-                  }]
-            return {
-              id: `r-${i + 1}`,
-              label: r.label ?? "",
-              connector: (r.connector as PreQualConnector) ?? "and",
-              conditions,
-              tour: (r.tour as TourGoal) ?? "none",
-              application: (r.application as ApplicationGoal) ?? "none",
-              offerMarketRate: Boolean(r.offer_market_rate),
-            }
-          })
+        if (data.prequalification_criteria) {
+          const inc = data.prequalification_criteria.income
+          if (inc) {
+            loaded.incomeEnabled = Boolean(inc.enabled)
+            if (inc.multiplier != null) loaded.incomeMultiplier = String(inc.multiplier)
+          }
+          const cred = data.prequalification_criteria.credit
+          if (cred) {
+            loaded.creditEnabled = Boolean(cred.enabled)
+            if (cred.min_score != null) loaded.creditMinScore = String(cred.min_score)
+          }
+        }
+        if (data.prequalification_actions && data.prequalification_actions.length > 0) {
+          const dnm = data.prequalification_actions.find((a) => a.outcome === "does_not_meet")
+          if (dnm) {
+            loaded.unqualifiedStance =
+              dnm.tour === "blocked" ? "stop" : dnm.tour === "on_request" ? "step_back" : "continue"
+          }
         }
         if (data.prequalification_goals && data.prequalification_goals.length > 0) {
           loaded.preQualGoals = data.prequalification_goals.map((g) => ({
@@ -458,6 +424,22 @@ export function LeasingAISettingsPanel({
   const update = <K extends keyof PanelState>(key: K, value: PanelState[K]) =>
     setState((s) => ({ ...s, [key]: value }))
 
+  const saveBlockers = useMemo(() => {
+    if (!state.preQualEnabled) return []
+    const blockers: string[] = []
+    if (!state.incomeEnabled && !state.creditEnabled)
+      blockers.push("Pre-qualification requires at least one enabled criterion.")
+    if (state.incomeEnabled) {
+      const err = validateIncomeMultiplier(state.incomeMultiplier)
+      if (err) blockers.push(`Income-to-rent requirement: ${err}`)
+    }
+    if (state.creditEnabled) {
+      const err = validateCreditScore(state.creditMinScore)
+      if (err) blockers.push(`Credit-score requirement: ${err}`)
+    }
+    return blockers
+  }, [state.preQualEnabled, state.incomeEnabled, state.incomeMultiplier, state.creditEnabled, state.creditMinScore])
+
   const syncToBackend = useCallback((s: PanelState) => {
     const activeMode = CONVERSATION_MODES.find((m) => m.id === s.conversationMode)
     fetch(`${CHATBOT_API}/sales-mode`, {
@@ -472,17 +454,21 @@ export function LeasingAISettingsPanel({
         household_income: s.preQualEnabled ? s.affordableSettings.householdIncome : undefined,
         household_size: s.preQualEnabled ? s.affordableSettings.householdSize : undefined,
         vouchers_accepted: s.preQualEnabled ? s.affordableSettings.vouchersAccepted : undefined,
-        prequalification_rules: s.preQualEnabled
-          ? s.preQualRules
-              .map((r) => ({
-                label: r.label,
-                connector: r.connector,
-                conditions: r.conditions.filter((c) => c.value.trim()).map((c) => ({ input: c.input, operator: c.operator, value: c.value })),
-                tour: r.tour,
-                application: r.application,
-                offer_market_rate: r.offerMarketRate,
-              }))
-              .filter((r) => r.conditions.length > 0)
+        prequalification_criteria: s.preQualEnabled
+          ? {
+              income: { enabled: s.incomeEnabled, multiplier: s.incomeEnabled ? Number(s.incomeMultiplier) : undefined },
+              credit: { enabled: s.creditEnabled, min_score: s.creditEnabled ? Number(s.creditMinScore) : undefined },
+            }
+          : undefined,
+        prequalification_actions: s.preQualEnabled
+          ? [
+              { outcome: "meets", tour: "proactive", application: "proactive" },
+              {
+                outcome: "does_not_meet",
+                tour: UNQUALIFIED_STANCES[s.unqualifiedStance].tour,
+                application: UNQUALIFIED_STANCES[s.unqualifiedStance].application,
+              },
+            ]
           : [],
         prequalification_goals: s.preQualEnabled
           ? s.preQualGoals.map((g) => ({ result: g.result, tour: g.tour, application: g.application, waitlist: g.waitlist, offer_market_rate: g.offerMarketRate }))
@@ -494,6 +480,7 @@ export function LeasingAISettingsPanel({
   }, [])
 
   const handleSave = () => {
+    if (saveBlockers.length > 0) return
     setPristine(state)
     syncToBackend(state)
   }
@@ -521,11 +508,12 @@ export function LeasingAISettingsPanel({
         <div className="mx-auto max-w-3xl space-y-8">
           <GroupHeading label="Leasing AI Settings" />
           <SectionConversationMode state={state} update={update} appModeEligible={appModeEligible} />
-          <SectionPreQualification state={state} update={update} setState={setState} />
+          <SectionPreQualification state={state} update={update} />
+          <SectionAffordable state={state} update={update} setState={setState} />
         </div>
       </div>
 
-      <FooterActionBar dirty={dirty} onSave={handleSave} onDiscard={handleDiscard} backendStatus={backendStatus} />
+      <FooterActionBar dirty={dirty} blockers={saveBlockers} onSave={handleSave} onDiscard={handleDiscard} backendStatus={backendStatus} />
     </div>
   )
 }
@@ -630,42 +618,275 @@ function SectionConversationMode({ state, update, appModeEligible }: {
    Pre-qualification
    ══════════════════════════════════════════════════════════════════════════ */
 
-function SectionPreQualification({ state, update, setState }: {
+function SectionPreQualification({ state, update }: {
+  state: PanelState
+  update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
+}) {
+  const incomeError = state.incomeEnabled ? validateIncomeMultiplier(state.incomeMultiplier) : null
+  const creditError = state.creditEnabled ? validateCreditScore(state.creditMinScore) : null
+  const noCriteria = !state.incomeEnabled && !state.creditEnabled
+
+  return (
+    <SectionShell
+      icon={ListChecks}
+      title="Pre-qualification"
+      description="When enabled, ELI+ asks new prospects whether they expect to meet each enabled requirement before proceeding. Outcomes are evaluated deterministically — no rules to build or order."
+      headerAction={
+        <label className="flex cursor-pointer items-center gap-2">
+          <span className="text-[11px] font-medium text-muted-foreground">
+            {state.preQualEnabled ? "On" : "Off"}
+          </span>
+          <Checkbox
+            checked={state.preQualEnabled}
+            onCheckedChange={(v) => update("preQualEnabled", v === true)}
+          />
+        </label>
+      }
+    >
+      {!state.preQualEnabled ? (
+        <div className="flex items-start gap-2 rounded-lg border border-dashed border-border bg-zinc-50/40 px-3 py-3">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <p className="text-[11px] text-muted-foreground">
+            Pre-qualification is off. The agent proceeds straight into the selected conversation mode
+            without qualifying the prospect. Toggle on to configure application requirements and actions by outcome.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+
+          {/* ── Application requirements ── */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-1.5">
+              <p className="text-xs font-semibold text-foreground">Application requirements</p>
+              <TooltipProvider delayDuration={150}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button type="button" aria-label="About application requirements" className="text-muted-foreground transition-colors hover:text-foreground">
+                      <HelpCircle className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="max-w-xs px-3.5 py-3">
+                    <p className="text-[11px] leading-relaxed text-muted-foreground">
+                      Enable either criterion or both — at least one must be enabled while pre-qualification is on.
+                      Disabled criteria are never asked about and never affect the result.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+
+            {noCriteria && (
+              <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                <p className="text-[11px] font-medium text-amber-900">
+                  At least one criterion must be enabled while pre-qualification is on. Enable the income or credit requirement to save.
+                </p>
+              </div>
+            )}
+
+            <div className="grid gap-3 lg:grid-cols-2">
+              {/* Income requirement card */}
+              <div className={cn("rounded-lg border p-4", state.incomeEnabled ? "border-border bg-white" : "border-dashed border-border bg-zinc-50/40")}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-xs font-semibold text-foreground">Income-to-rent requirement</p>
+                      <TooltipProvider delayDuration={150}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button type="button" aria-label="About the income-to-rent requirement" className="text-muted-foreground transition-colors hover:text-foreground">
+                              <HelpCircle className="h-3.5 w-3.5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="right" className="max-w-xs px-3.5 py-3">
+                            <p className="text-[11px] leading-relaxed text-muted-foreground">
+                              ELI+ will ask whether the prospect expects their gross monthly household income to meet
+                              this requirement. It will not ask for documents or verify income.
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <p className="mt-0.5 text-[10px] text-muted-foreground">Minimum gross monthly household income</p>
+                  </div>
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <span className="text-[11px] font-medium text-muted-foreground">{state.incomeEnabled ? "On" : "Off"}</span>
+                    <Checkbox checked={state.incomeEnabled} onCheckedChange={(v) => update("incomeEnabled", v === true)} />
+                  </label>
+                </div>
+                {state.incomeEnabled && (
+                  <div className="mt-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        inputMode="decimal"
+                        min={1}
+                        max={10}
+                        step={0.1}
+                        value={state.incomeMultiplier}
+                        onChange={(e) => update("incomeMultiplier", e.target.value)}
+                        aria-label="Minimum gross monthly household income multiplier"
+                        className={cn("h-8 w-24 text-xs", incomeError && "border-red-400 focus-visible:ring-red-400")}
+                      />
+                      <span className="text-xs font-medium text-foreground">× monthly rent</span>
+                    </div>
+                    {incomeError && <p className="text-[10px] font-medium text-red-600">{incomeError}</p>}
+                    <div className="rounded-md border border-border bg-zinc-50/60 px-3 py-2 text-[11px] text-foreground">
+                      Applicants generally need gross monthly household income of at least{" "}
+                      <span className="font-semibold">{formatMultiplier(state.incomeMultiplier)}×</span> the monthly rent.
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Credit requirement card */}
+              <div className={cn("rounded-lg border p-4", state.creditEnabled ? "border-border bg-white" : "border-dashed border-border bg-zinc-50/40")}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-xs font-semibold text-foreground">Credit-score requirement</p>
+                      <TooltipProvider delayDuration={150}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button type="button" aria-label="About the credit-score requirement" className="text-muted-foreground transition-colors hover:text-foreground">
+                              <HelpCircle className="h-3.5 w-3.5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="right" className="max-w-xs px-3.5 py-3">
+                            <p className="text-[11px] leading-relaxed text-muted-foreground">
+                              ELI+ will ask whether the prospect expects to meet this minimum. It will not request a
+                              credit report or perform a credit check.
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <p className="mt-0.5 text-[10px] text-muted-foreground">Minimum expected credit score</p>
+                  </div>
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <span className="text-[11px] font-medium text-muted-foreground">{state.creditEnabled ? "On" : "Off"}</span>
+                    <Checkbox checked={state.creditEnabled} onCheckedChange={(v) => update("creditEnabled", v === true)} />
+                  </label>
+                </div>
+                {state.creditEnabled && (
+                  <div className="mt-3 space-y-2">
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      min={300}
+                      max={850}
+                      step={1}
+                      value={state.creditMinScore}
+                      onChange={(e) => update("creditMinScore", e.target.value)}
+                      aria-label="Minimum expected credit score"
+                      className={cn("h-8 w-24 text-xs", creditError && "border-red-400 focus-visible:ring-red-400")}
+                    />
+                    {creditError && <p className="text-[10px] font-medium text-red-600">{creditError}</p>}
+                    <div className="rounded-md border border-border bg-zinc-50/60 px-3 py-2 text-[11px] text-foreground">
+                      Applicants generally need a minimum credit score of{" "}
+                      <span className="font-semibold">{formatScore(state.creditMinScore)}</span>.
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* ── If a prospect doesn't meet the requirements ── */}
+          <div className="space-y-3 border-t border-border pt-5">
+            <div>
+              <div className="flex items-center gap-1.5">
+                <p className="text-xs font-semibold text-foreground">If a prospect doesn&apos;t meet the requirements&hellip;</p>
+                <TooltipProvider delayDuration={150}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button type="button" aria-label="How outcomes are determined" className="text-muted-foreground transition-colors hover:text-foreground">
+                        <HelpCircle className="h-3.5 w-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-sm space-y-2.5 px-3.5 py-3">
+                      <p className="text-[11px] font-semibold text-foreground">How this works</p>
+                      <p className="text-[11px] leading-relaxed text-muted-foreground">
+                        ELI+ asks whether the prospect expects to meet each enabled requirement. Prospects answer
+                        &ldquo;Yes, I expect to meet it,&rdquo; &ldquo;No, I do not expect to meet it,&rdquo;
+                        &ldquo;I&apos;m not sure,&rdquo; or &ldquo;Prefer not to answer.&rdquo; Prospects are never
+                        asked for an exact income or credit score.
+                      </p>
+                      <p className="text-[11px] leading-relaxed text-muted-foreground">
+                        If every enabled requirement gets a &ldquo;Yes,&rdquo; the conversation simply continues with
+                        the selected conversation mode. Any other answer — &ldquo;No,&rdquo; &ldquo;I&apos;m not
+                        sure,&rdquo; &ldquo;Prefer not to answer,&rdquo; or incomplete — applies the stance you choose
+                        here: Continue, Slow down, or Stop.
+                      </p>
+                      <p className="text-[10px] leading-snug text-muted-foreground">
+                        &ldquo;Prefer not to answer&rdquo; is treated the same as &ldquo;I&apos;m not sure&rdquo; but
+                        retained as a distinct response for analytics. When only one criterion is enabled, only that
+                        criterion is evaluated.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                Prospects who meet the requirements continue with the selected conversation mode — nothing to
+                configure. When requirements aren&apos;t met, ELI+ always lets the prospect know. Choose what happens
+                next:
+              </p>
+            </div>
+            <div role="radiogroup" aria-label="Behavior when a prospect doesn't meet the requirements" className="space-y-2">
+              {UNQUALIFIED_STANCE_ORDER.map((id) => {
+                const stance = UNQUALIFIED_STANCES[id]
+                const active = state.unqualifiedStance === id
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    onClick={() => update("unqualifiedStance", id)}
+                    className={cn(
+                      "w-full rounded-lg border px-4 py-3 text-left transition-all",
+                      active
+                        ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+                        : "border-border bg-white text-foreground hover:border-zinc-400",
+                    )}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <span className={cn("mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border", active ? "border-white" : "border-zinc-400")}>
+                        {active && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+                      </span>
+                      <div>
+                        <p className="text-xs font-semibold leading-snug">{stance.label}</p>
+                        <p className={cn("mt-0.5 text-[11px] leading-snug", active ? "text-white/75" : "text-muted-foreground")}>
+                          {stance.description}
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              &ldquo;Stop next steps&rdquo; blocks tour recommendations, tour slots, self-scheduling links, the
+              tour-booking action, and prevents ELI+ from providing or exposing the application link.
+            </p>
+          </div>
+
+        </div>
+      )}
+    </SectionShell>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Affordable qualification
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function SectionAffordable({ state, update, setState }: {
   state: PanelState
   update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
   setState: React.Dispatch<React.SetStateAction<PanelState>>
 }) {
-  // ── Add-rule form state ──
-  const [newConnector, setNewConnector] = useState<PreQualConnector>("and")
-  const [newConditions, setNewConditions] = useState<PreQualCondition[]>(() => [makeCondition()])
-  const [newTour, setNewTour] = useState<TourGoal>("none")
-  const [newApp, setNewApp] = useState<ApplicationGoal>("none")
-  const [newMarketRate, setNewMarketRate] = useState(false)
-
-  const addDraftCondition = () => setNewConditions((cs) => [...cs, makeCondition()])
-  const removeDraftCondition = (id: string) =>
-    setNewConditions((cs) => (cs.length > 1 ? cs.filter((c) => c.id !== id) : cs))
-  const patchDraftCondition = (id: string, patch: Partial<PreQualCondition>) =>
-    setNewConditions((cs) => cs.map((c) => (c.id === id ? { ...c, ...patch } : c)))
-
-  const draftValid = newConditions.some((c) => c.value.trim())
-
-  const addRule = () => {
-    if (!draftValid) return
-    const filledConditions = newConditions.filter((c) => c.value.trim())
-    const autoLabel = filledConditions[0]?.input || ""
-    update("preQualRules", [
-      ...state.preQualRules,
-      { id: `r-${Date.now()}`, label: autoLabel, connector: newConnector, conditions: filledConditions, tour: newTour, application: newApp, offerMarketRate: newMarketRate },
-    ])
-    setNewConnector("and"); setNewConditions([makeCondition()]); setNewTour("none"); setNewApp("none"); setNewMarketRate(false)
-  }
-
-  const removeRule = (id: string) => update("preQualRules", state.preQualRules.filter((r) => r.id !== id))
-  const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
-  const patchRule = (id: string, patch: Partial<PreQualRule>) =>
-    update("preQualRules", state.preQualRules.map((r) => (r.id === id ? { ...r, ...patch } : r)))
-
   // ── Post-qualification goals helpers ──
   const goalFor = (result: PreQualResult): PreQualGoal =>
     state.preQualGoals.find((g) => g.result === result) ?? { result, tour: "none", application: "none", waitlist: "none", offerMarketRate: false }
@@ -685,353 +906,31 @@ function SectionPreQualification({ state, update, setState }: {
 
   return (
     <SectionShell
-      icon={ListChecks}
-      title="Pre-qualification"
-      description="When enabled, the AI prequalifies leads against the building's units by asking for household size, income, and other configured qualifications before proceeding."
+      icon={Home}
+      title="Affordable qualification"
+      description="Configure affordable-specific settings: income limits, household size, vouchers, conversation opener, and post-qualification actions."
       headerAction={
         <label className="flex cursor-pointer items-center gap-2">
           <span className="text-[11px] font-medium text-muted-foreground">
-            {state.preQualEnabled ? "On" : "Off"}
+            {state.affordableFlowEnabled ? "On" : "Off"}
           </span>
           <Checkbox
-            checked={state.preQualEnabled}
-            onCheckedChange={(v) => update("preQualEnabled", v === true)}
+            checked={state.affordableFlowEnabled}
+            onCheckedChange={(v) => update("affordableFlowEnabled", v === true)}
           />
         </label>
       }
     >
-      {!state.preQualEnabled ? (
+      {!state.affordableFlowEnabled ? (
         <div className="flex items-start gap-2 rounded-lg border border-dashed border-border bg-zinc-50/40 px-3 py-3">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <p className="text-[11px] text-muted-foreground">
-            Pre-qualification is off. The agent proceeds straight into the selected conversation mode
-            without qualifying the prospect. Toggle on to configure qualification rules.
+            Affordable qualification is off. Toggle on to configure income limits, household size, vouchers,
+            terminology, compliance messaging, and affordable post-qualification actions.
           </p>
         </div>
       ) : (
-        <div className="space-y-6">
-
-          {/* ── Screening setup ── */}
-          <div className="space-y-3">
-            <div>
-              <p className="text-xs font-semibold text-foreground">Screening setup</p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                Select which criteria the AI will screen prospects on. Each selected item becomes available as an input when building rules below.
-              </p>
-            </div>
-
-            {/* Picklist */}
-            <div className="flex flex-wrap gap-2">
-              {AVAILABLE_SCREENING_CRITERIA.map((label) => {
-                const isSelected = state.screeningCriteria.some((sc) => sc.label === label)
-                return (
-                  <button
-                    key={label}
-                    type="button"
-                    onClick={() => {
-                      if (isSelected) {
-                        update("screeningCriteria", state.screeningCriteria.filter((sc) => sc.label !== label))
-                      } else {
-                        update("screeningCriteria", [...state.screeningCriteria, { id: `sc-${Date.now()}`, label, value: "" }])
-                      }
-                    }}
-                    className={cn(
-                      "rounded-full border px-3 py-1.5 text-xs font-medium transition-all",
-                      isSelected
-                        ? "border-zinc-900 bg-zinc-900 text-white"
-                        : "border-border bg-white text-foreground hover:border-zinc-400",
-                    )}
-                  >
-                    {isSelected && <span className="mr-1">✓</span>}
-                    {label}
-                  </button>
-                )
-              })}
-            </div>
-
-            {/* Configuration for selected criteria */}
-            {state.screeningCriteria.length > 0 && (
-              <div className="space-y-2 rounded-lg border border-border bg-zinc-50/30 p-3">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Configure Screening Criteria</p>
-                {state.screeningCriteria.map((sc) => (
-                  <div key={sc.id} className="flex items-center gap-3">
-                    <span className="w-56 shrink-0 text-xs font-medium text-foreground">{sc.label}</span>
-                    {CHOICE_INPUTS[sc.label] ? (
-                      <Select
-                        value={sc.value || undefined}
-                        onValueChange={(v) => {
-                          update("screeningCriteria", state.screeningCriteria.map((s) =>
-                            s.id === sc.id ? { ...s, value: v } : s
-                          ))
-                        }}
-                      >
-                        <SelectTrigger className="h-8 flex-1 text-xs"><SelectValue placeholder="Select an option" /></SelectTrigger>
-                        <SelectContent>
-                          {CHOICE_INPUTS[sc.label].map((opt) => (
-                            <SelectItem key={opt} value={opt} className="text-xs">{opt}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <Input
-                        value={sc.value}
-                        onChange={(e) => {
-                          update("screeningCriteria", state.screeningCriteria.map((s) =>
-                            s.id === sc.id ? { ...s, value: e.target.value } : s
-                          ))
-                        }}
-                        placeholder="e.g. threshold or requirement"
-                        className="h-8 flex-1 text-xs"
-                      />
-                    )}
-                    <button
-                      onClick={() => update("screeningCriteria", state.screeningCriteria.filter((s) => s.id !== sc.id))}
-                      className="text-muted-foreground hover:text-destructive transition-colors"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* ── Post-qualification actions ── */}
-          <div className="space-y-3 border-t border-border pt-5">
-            <div>
-              <p className="text-xs font-semibold text-foreground">Post-qualification actions</p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                Evaluated top to bottom — the first matching rule determines what the agent may offer. The agent
-                collects answers for each input; rules decide the next action deterministically.
-              </p>
-            </div>
-
-            {state.preQualRules.length === 0 ? (
-              <div className="flex items-center justify-center rounded-lg border border-dashed border-border bg-zinc-50/40 py-8">
-                <p className="text-sm text-muted-foreground">No rules yet — add one below.</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto rounded-lg border border-border">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border bg-zinc-50/60">
-                      <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">#</th>
-                      <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Conditions</th>
-                      <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Tour</th>
-                      <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Application</th>
-                      <th className="px-3 py-2 w-8" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {state.preQualRules.map((r, i) => {
-                      const isEditing = editingRuleId === r.id
-                      return (
-                        <tr key={r.id} className={cn("border-b border-border/50 last:border-0 transition-colors", isEditing ? "bg-blue-50/40" : "hover:bg-zinc-50/40")}>
-                          <td className="px-3 py-2 align-top text-muted-foreground text-xs tabular-nums">{i + 1}</td>
-                          <td className="px-3 py-2 align-top text-muted-foreground">
-                            <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1">
-                              {r.conditions.map((c, idx) => (
-                                <React.Fragment key={c.id}>
-                                  {idx > 0 && (
-                                    <span className="rounded bg-zinc-200/70 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-zinc-600">
-                                      {r.connector}
-                                    </span>
-                                  )}
-                                  <span className="whitespace-nowrap">
-                                    <span className="font-medium text-foreground">{c.input}</span>{" "}
-                                    {YES_NO_INPUTS.has(c.input)
-                                      ? <span className="text-foreground">= {PREQUAL_OPERATOR_LABELS[c.operator]}</span>
-                                      : <>{PREQUAL_OPERATOR_LABELS[c.operator]} <span className="text-foreground">&quot;{c.value}&quot;</span></>}
-                                  </span>
-                                </React.Fragment>
-                              ))}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2 align-top">
-                            {isEditing ? (
-                              <Select value={r.tour} onValueChange={(v) => patchRule(r.id, { tour: v as TourGoal })}>
-                                <SelectTrigger className="h-7 w-32 text-xs"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  {(Object.keys(TOUR_GOAL_LABELS) as TourGoal[]).map((t) => <SelectItem key={t} value={t} className="text-xs">{TOUR_GOAL_LABELS[t]}</SelectItem>)}
-                                </SelectContent>
-                              </Select>
-                            ) : (
-                              <span className="text-xs">{TOUR_GOAL_LABELS[r.tour]}</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2 align-top">
-                            {isEditing ? (
-                              <Select value={r.application} onValueChange={(v) => patchRule(r.id, { application: v as ApplicationGoal })}>
-                                <SelectTrigger className="h-7 w-32 text-xs"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  {(Object.keys(APP_GOAL_LABELS) as ApplicationGoal[]).map((a) => <SelectItem key={a} value={a} className="text-xs">{APP_GOAL_LABELS[a]}</SelectItem>)}
-                                </SelectContent>
-                              </Select>
-                            ) : (
-                              <span className="text-xs">{APP_GOAL_LABELS[r.application]}</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2 align-top">
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={() => setEditingRuleId(isEditing ? null : r.id)}
-                                className={cn("transition-colors", isEditing ? "text-blue-600 hover:text-blue-800" : "text-muted-foreground hover:text-foreground")}
-                                aria-label={isEditing ? `Done editing rule ${i + 1}` : `Edit rule ${i + 1}`}
-                              >
-                                {isEditing ? <X className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
-                              </button>
-                              <button onClick={() => removeRule(r.id)} className="text-muted-foreground transition-colors hover:text-destructive" aria-label={`Remove rule ${i + 1}`}>
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {/* Add rule form */}
-            <div className="rounded-lg border border-dashed border-border p-3 space-y-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Add rule</p>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-foreground">Conditions</label>
-                  {newConditions.length > 1 && (
-                    <div className="flex items-center gap-1">
-                      <span className="text-[10px] text-muted-foreground">Match</span>
-                      <div className="flex overflow-hidden rounded-md border border-border">
-                        {(["and", "or"] as PreQualConnector[]).map((conn) => (
-                          <button key={conn} type="button" onClick={() => setNewConnector(conn)}
-                            className={cn("px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors",
-                              newConnector === conn ? "bg-zinc-900 text-white" : "bg-white text-muted-foreground hover:bg-zinc-50")}>
-                            {conn === "and" ? "All (AND)" : "Any (OR)"}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                {newConditions.map((c, idx) => (
-                  <div key={c.id} className="space-y-2">
-                    {idx > 0 && (
-                      <div className="flex items-center">
-                        <span className="rounded bg-zinc-200/70 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-zinc-600">{newConnector}</span>
-                      </div>
-                    )}
-                    <div className="flex items-end gap-2">
-                      <div className="grid flex-1 gap-2 sm:grid-cols-3">
-                        <div className="space-y-1">
-                          {idx === 0 && <label className="text-[10px] font-medium text-muted-foreground">Input</label>}
-                          <Select value={c.input} onValueChange={(v) => patchDraftCondition(c.id, { input: v, operator: operatorsForInput(v)[0], value: "" })}>
-                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>{state.screeningCriteria.map((sc) => <SelectItem key={sc.id} value={sc.label} className="text-xs">{sc.label}</SelectItem>)}</SelectContent>
-                          </Select>
-                        </div>
-                        {YES_NO_INPUTS.has(c.input) ? (
-                          <div className="space-y-1 sm:col-span-2">
-                            {idx === 0 && <label className="text-[10px] font-medium text-muted-foreground">Answer</label>}
-                            <Select value={c.operator} onValueChange={(v) => patchDraftCondition(c.id, { operator: v as PreQualOperator, value: v })}>
-                              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                {operatorsForInput(c.input).map((op) => (
-                                  <SelectItem key={op} value={op} className="text-xs">{PREQUAL_OPERATOR_LABELS[op]}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        ) : (
-                          <>
-                            <div className="space-y-1">
-                              {idx === 0 && <label className="text-[10px] font-medium text-muted-foreground">Operator</label>}
-                              <Select value={c.operator} onValueChange={(v) => patchDraftCondition(c.id, { operator: v as PreQualOperator })}>
-                                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  {operatorsForInput(c.input).map((op) => (
-                                    <SelectItem key={op} value={op} className="text-xs">{PREQUAL_OPERATOR_LABELS[op]}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="space-y-1">
-                              {idx === 0 && <label className="text-[10px] font-medium text-muted-foreground">Value / source</label>}
-                              {CHOICE_INPUTS[c.input] ? (
-                                <Select value={c.value || undefined} onValueChange={(v) => patchDraftCondition(c.id, { value: v })}>
-                                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select an option" /></SelectTrigger>
-                                  <SelectContent>
-                                    {CHOICE_INPUTS[c.input].map((opt) => (
-                                      <SelectItem key={opt} value={opt} className="text-xs">{opt}</SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              ) : (
-                                <Input placeholder="e.g. 3x or $4,500" className="h-8 text-xs" value={c.value} onChange={(e) => patchDraftCondition(c.id, { value: e.target.value })} />
-                              )}
-                            </div>
-                          </>
-                        )}
-                      </div>
-                      <button type="button" onClick={() => removeDraftCondition(c.id)} disabled={newConditions.length === 1}
-                        className="mb-1.5 text-muted-foreground transition-colors hover:text-destructive disabled:cursor-not-allowed disabled:opacity-30" aria-label="Remove condition">
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={addDraftCondition}>
-                  <Plus className="mr-1 h-3 w-3" />Add condition
-                </Button>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-foreground">Tour</label>
-                  <Select value={newTour} onValueChange={(v) => setNewTour(v as TourGoal)}>
-                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {(Object.keys(TOUR_GOAL_LABELS) as TourGoal[]).map((t) => <SelectItem key={t} value={t} className="text-xs">{TOUR_GOAL_LABELS[t]}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-foreground">Application</label>
-                  <Select value={newApp} onValueChange={(v) => setNewApp(v as ApplicationGoal)}>
-                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {(Object.keys(APP_GOAL_LABELS) as ApplicationGoal[]).map((a) => <SelectItem key={a} value={a} className="text-xs">{APP_GOAL_LABELS[a]}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <Button size="sm" variant="outline" onClick={addRule} disabled={!draftValid}>
-                <Plus className="mr-1.5 h-3.5 w-3.5" />Add rule
-              </Button>
-            </div>
-          </div>
-
-          {/* ── Affordable flow toggle ── */}
-          <div className="space-y-3 border-t border-border pt-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold text-foreground">Affordable qualification</p>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">
-                  Enable to configure affordable-specific settings: income limits, household size, vouchers, conversation opener, and post-qualification actions.
-                </p>
-              </div>
-              <label className="flex cursor-pointer items-center gap-2">
-                <span className="text-[11px] font-medium text-muted-foreground">
-                  {state.affordableFlowEnabled ? "On" : "Off"}
-                </span>
-                <Checkbox
-                  checked={state.affordableFlowEnabled}
-                  onCheckedChange={(v) => update("affordableFlowEnabled", v === true)}
-                />
-              </label>
-            </div>
-
-            {state.affordableFlowEnabled && (
-              <div className="space-y-5 rounded-lg border border-border bg-zinc-50/30 p-4">
+              <div className="space-y-5">
                 {/* Eligibility settings */}
                 <div className="space-y-2">
                   <p className="text-xs font-medium text-foreground">Eligibility settings</p>
@@ -1095,7 +994,7 @@ function SectionPreQualification({ state, update, setState }: {
                 {/* Terminology controls */}
                 <div className="space-y-2 border-t border-border pt-4">
                   <p className="text-xs font-medium text-foreground">Affordable terminology</p>
-                  <p className="text-[10px] text-muted-foreground">Control the language the AI uses when describing the affordable program. Sensitive branding and regulatory considerations apply.</p>
+                  <p className="text-[10px] text-muted-foreground">Control the language ELI+ uses when describing the affordable program. Sensitive branding and regulatory considerations apply.</p>
                   <div className="grid gap-3 sm:grid-cols-3">
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-foreground">Program display name</label>
@@ -1115,7 +1014,7 @@ function SectionPreQualification({ state, update, setState }: {
                 {/* Compliance-approved outcome messaging */}
                 <div className="space-y-2 border-t border-border pt-4">
                   <p className="text-xs font-medium text-foreground">Compliance-approved messaging</p>
-                  <p className="text-[10px] text-muted-foreground">Configure what the AI tells the prospect for each outcome. Avoids free-form language that may create compliance exposure.</p>
+                  <p className="text-[10px] text-muted-foreground">Configure what ELI+ tells the prospect for each outcome. Avoids free-form language that may create compliance exposure.</p>
                   <div className="space-y-3">
                     {(["over_income", "under_income"] as const).map((outcome) => (
                       <div key={outcome} className="space-y-1">
@@ -1137,7 +1036,7 @@ function SectionPreQualification({ state, update, setState }: {
                 {/* Required documentation */}
                 <div className="space-y-2 border-t border-border pt-4">
                   <p className="text-xs font-medium text-foreground">Required documentation</p>
-                  <p className="text-[10px] text-muted-foreground">Documents the prospect may need for the application or certification. The AI shares this checklist after qualification or when the prospect asks how to apply.</p>
+                  <p className="text-[10px] text-muted-foreground">Documents the prospect may need for the application or certification. ELI+ shares this checklist after qualification or when the prospect asks how to apply.</p>
                   <div className="space-y-2">
                     {aff.requiredDocuments.map((doc, i) => (
                       <div key={i} className="flex items-center gap-2">
@@ -1195,7 +1094,7 @@ function SectionPreQualification({ state, update, setState }: {
                   <div>
                     <p className="text-xs font-medium text-foreground">Post-qualification actions</p>
                     <p className="mt-0.5 text-[10px] text-muted-foreground">
-                      Configure what the AI may offer for each affordable qualification outcome.
+                      Configure what ELI+ may offer for each affordable qualification outcome.
                     </p>
                   </div>
                   <div className="overflow-x-auto rounded-lg border border-border">
@@ -1256,10 +1155,6 @@ function SectionPreQualification({ state, update, setState }: {
                   </div>
                 </div>
               </div>
-            )}
-          </div>
-
-        </div>
       )}
     </SectionShell>
   )
@@ -1269,15 +1164,17 @@ function SectionPreQualification({ state, update, setState }: {
    Sticky footer
    ══════════════════════════════════════════════════════════════════════════ */
 
-function FooterActionBar({ dirty, onSave, onDiscard, backendStatus = "idle" }: { dirty: boolean; onSave: () => void; onDiscard: () => void; backendStatus?: "idle" | "ok" | "error" }) {
+function FooterActionBar({ dirty, blockers = [], onSave, onDiscard, backendStatus = "idle" }: { dirty: boolean; blockers?: string[]; onSave: () => void; onDiscard: () => void; backendStatus?: "idle" | "ok" | "error" }) {
   return (
     <footer className={cn("sticky bottom-0 inset-x-0 border-t bg-white px-8 py-3 transition-all",
       dirty ? "border-amber-200 bg-amber-50" : "border-border")}>
       <div className="mx-auto flex max-w-3xl items-center justify-between">
         <div className="flex items-center gap-4 text-xs">
-          {dirty
-            ? <span className="font-medium text-amber-900"><AlertTriangle className="mr-1 inline h-3.5 w-3.5" /> Unsaved changes — won&apos;t take effect until saved.</span>
-            : <span className="text-muted-foreground">No pending changes</span>}
+          {blockers.length > 0
+            ? <span className="font-medium text-red-700"><AlertTriangle className="mr-1 inline h-3.5 w-3.5" /> {blockers[0]}</span>
+            : dirty
+              ? <span className="font-medium text-amber-900"><AlertTriangle className="mr-1 inline h-3.5 w-3.5" /> Unsaved changes — won&apos;t take effect until saved.</span>
+              : <span className="text-muted-foreground">No pending changes</span>}
           {backendStatus !== "idle" && (
             <span className="flex items-center gap-1.5 text-muted-foreground">
               <span className={`h-2 w-2 rounded-full ${backendStatus === "ok" ? "bg-emerald-400" : "bg-red-400"}`} />
@@ -1287,7 +1184,7 @@ function FooterActionBar({ dirty, onSave, onDiscard, backendStatus = "idle" }: {
         </div>
         <div className="flex gap-2">
           <Button variant="ghost" size="sm" onClick={onDiscard} disabled={!dirty}>Discard</Button>
-          <Button size="sm" onClick={onSave} disabled={!dirty}>Save changes</Button>
+          <Button size="sm" onClick={onSave} disabled={!dirty || blockers.length > 0}>Save changes</Button>
         </div>
       </div>
     </footer>
