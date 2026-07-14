@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import type { GeneratedWorkflow, ExecutionRun, StepRunLog } from "./types";
+import { buildFormulaContext, evaluateFormula } from "./formula-engine";
 import {
   Play,
   Pause,
@@ -27,22 +28,22 @@ interface ExecutionPanelProps {
 
 function generateMockOutput(nodeType: string, mcpTool?: string): Record<string, unknown> {
   if (mcpTool === "renewals.get_expiring_leases") {
-    return { items: [{ lease_id: 4521, resident: "Jane Smith", unit: "204B", expires: "2026-08-15", rent: 1850 }, { lease_id: 4533, resident: "Mark Johnson", unit: "112A", expires: "2026-08-20", rent: 2100 }], count: 2 };
+    return { items: [{ lease_id: 4521, resident: "Jane Smith", unit: "204B", expires: "2026-08-15", rent: 1850 }, { lease_id: 4533, resident: "Mark Johnson", unit: "112A", expires: "2026-08-20", rent: 2100 }], count: 2, leases: [{ lease_id: 4521 }, { lease_id: 4533 }], total_count: 2 };
   }
   if (mcpTool === "renewals.get_resident_history") {
-    return { resident_id: 4521, payment_score: 94, tenure_months: 18, violations: 0, retention_score: 87 };
+    return { resident_id: 4521, payment_score: 94, tenure_months: 18, violations: 0, retention_score: 87, payment_history: { on_time_pct: 98 }, lease_count: 2 };
   }
   if (mcpTool === "renewals.get_market_rent") {
-    return { unit_type: "2BR/2BA", market_rent: 2050, avg_concession: 50 };
+    return { unit_type: "2BR/2BA", market_rent: 2050, avg_concession: 50, effective_date: "2026-07-01" };
   }
   if (mcpTool === "renewals.create_renewal_offer") {
-    return { offer_id: "RO-8821", new_rent: 1990, term_months: 12, discount_pct: 3 };
+    return { offer_id: "RO-8821", new_rent: 1990, term_months: 12, discount_pct: 3, lease_id: 4521, status: "pending" };
   }
   if (mcpTool === "maintenance.get_work_order") {
-    return { work_order_id: 7892, description: "Leaking kitchen faucet", priority: "medium", unit: "204B", resident: "Jane Smith" };
+    return { work_order_id: 7892, description: "Leaking kitchen faucet", priority: "medium", unit: "204B", resident: "Jane Smith", status: "open", unit_id: 204, resident_id: 5521, created_at: "2026-06-20T14:00:00Z" };
   }
   if (mcpTool === "maintenance.dispatch_vendor") {
-    return { dispatch_id: "D-441", vendor: "ABC Plumbing", eta: "2h", status: "dispatched" };
+    return { dispatch_id: "D-441", vendor: "ABC Plumbing", eta: "2h", status: "dispatched", vendor_name: "ABC Plumbing" };
   }
   if (mcpTool?.startsWith("comms.send_sms")) {
     return { message_id: "SMS-9921", status: "delivered", to: "+1-555-0142" };
@@ -54,7 +55,7 @@ function generateMockOutput(nodeType: string, mcpTool?: string): Record<string, 
     return { note_id: "N-2287", posted: true };
   }
   if (nodeType === "trigger") {
-    return { triggered_at: new Date().toISOString(), event: "scheduled_run", property_id: 1042 };
+    return { triggered_at: new Date().toISOString(), event: "scheduled_run", property_id: 1042, first_name: "Jane", last_name: "Smith", email: "jane.smith@email.com", priority: "medium", rent: 1850 };
   }
   if (nodeType === "condition") {
     return { evaluated: true, result: Math.random() > 0.3 };
@@ -65,29 +66,29 @@ function generateMockOutput(nodeType: string, mcpTool?: string): Record<string, 
   if (nodeType === "delay") {
     return { waited_ms: 3600000, resumed_at: new Date().toISOString() };
   }
-  return { result: "ok", processed: true };
+  return { result: "ok", processed: true, success: true };
 }
 
-function generateMockInput(mcpTool?: string): Record<string, unknown> {
-  if (mcpTool === "renewals.get_expiring_leases") {
-    return { property_id: 1042, days_out: 90 };
+function resolveNodeInputs(
+  node: GeneratedWorkflow["nodes"][0],
+  ctx: ReturnType<typeof buildFormulaContext>,
+): { input: Record<string, unknown>; resolvedInputs: Record<string, unknown>; formulaErrors: string[] } {
+  const input: Record<string, unknown> = {};
+  const resolvedInputs: Record<string, unknown> = {};
+  const formulaErrors: string[] = [];
+  const config = node.config ?? {};
+  for (const [key, raw] of Object.entries(config)) {
+    if (key.startsWith("__")) continue;
+    const result = evaluateFormula(raw, ctx);
+    if (result.ok) {
+      input[key] = result.value;
+      resolvedInputs[key] = result.value;
+    } else {
+      input[key] = raw;
+      formulaErrors.push(`${key}: ${result.error}`);
+    }
   }
-  if (mcpTool === "renewals.get_resident_history") {
-    return { resident_id: 4521 };
-  }
-  if (mcpTool === "renewals.get_market_rent") {
-    return { property_id: 1042, unit_type: "2BR/2BA" };
-  }
-  if (mcpTool === "renewals.create_renewal_offer") {
-    return { lease_id: 4521, new_rent: 1990, term_months: 12 };
-  }
-  if (mcpTool?.startsWith("comms.send_sms")) {
-    return { to: "+1-555-0142", body: "Your maintenance request has been received..." };
-  }
-  if (mcpTool?.startsWith("comms.send_email")) {
-    return { to: "jane.smith@email.com", subject: "Renewal Offer", body: "..." };
-  }
-  return {};
+  return { input, resolvedInputs, formulaErrors };
 }
 
 const STATUS_ICON: Record<StepRunLog["status"], typeof CheckCircle2> = {
@@ -96,6 +97,7 @@ const STATUS_ICON: Record<StepRunLog["status"], typeof CheckCircle2> = {
   success: CheckCircle2,
   failure: XCircle,
   skipped: SkipForward,
+  error_handled: AlertTriangle,
 };
 
 const STATUS_COLOR: Record<StepRunLog["status"], string> = {
@@ -104,6 +106,7 @@ const STATUS_COLOR: Record<StepRunLog["status"], string> = {
   success: "text-emerald-500",
   failure: "text-red-500",
   skipped: "text-gray-400",
+  error_handled: "text-amber-500",
 };
 
 export function ExecutionPanel({ workflow, onHighlightNode }: ExecutionPanelProps) {
@@ -115,6 +118,15 @@ export function ExecutionPanel({ workflow, onHighlightNode }: ExecutionPanelProp
   const [showHistory, setShowHistory] = useState(false);
   const [expandedStep, setExpandedStep] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stepOutputsRef = useRef<Record<string, Record<string, unknown>>>({});
+  const lastErrorRef = useRef<{
+    message: string;
+    code?: string;
+    step_id?: string;
+    step_label?: string;
+    timestamp?: string;
+    retry_count?: number;
+  } | null>(null);
 
   const orderedNodeIds = (() => {
     const visited: string[] = [];
@@ -126,7 +138,8 @@ export function ExecutionPanel({ workflow, onHighlightNode }: ExecutionPanelProp
       if (seen.has(id)) return;
       seen.add(id);
       visited.push(id);
-      const outEdges = workflow.edges.filter((e) => e.source === id);
+      // Prefer happy-path edges first; error paths are followed only on failure
+      const outEdges = workflow.edges.filter((e) => e.source === id && !e.isErrorPath);
       for (const e of outEdges) walk(e.target);
     }
     walk(trigger.id);
@@ -137,11 +150,27 @@ export function ExecutionPanel({ workflow, onHighlightNode }: ExecutionPanelProp
   })();
 
   const initSteps = useCallback((): StepRunLog[] => {
+    stepOutputsRef.current = {};
+    lastErrorRef.current = null;
     return orderedNodeIds.map((id): StepRunLog => ({
       nodeId: id,
       status: "pending",
     }));
   }, [orderedNodeIds]);
+
+  const buildCtx = useCallback(() => {
+    const wfId = workflow.id ?? `wf-${workflow.name.toLowerCase().replace(/\s+/g, "-").slice(0, 24)}`;
+    return buildFormulaContext({
+      workflowId: wfId,
+      workflowName: workflow.name,
+      workflowDescription: workflow.description,
+      stepOutputs: stepOutputsRef.current,
+      triggerPayload: (stepOutputsRef.current["trigger"] ??
+        stepOutputsRef.current[workflow.nodes.find((n) => n.type === "trigger")?.id ?? ""] ??
+        {}) as Record<string, unknown>,
+      error: lastErrorRef.current ?? undefined,
+    });
+  }, [workflow]);
 
   const advanceStep = useCallback(
     (stepList: StepRunLog[], idx: number): StepRunLog[] => {
@@ -152,24 +181,118 @@ export function ExecutionPanel({ workflow, onHighlightNode }: ExecutionPanelProp
       const node = workflow.nodes.find((n) => n.id === nodeId);
       if (!node) return newSteps;
 
-      const willFail = node.type === "action" && Math.random() < 0.08;
+      const ctx = buildCtx();
+      // Alias trigger outputs under "trigger" for convenience
+      if (node.type === "trigger") {
+        /* resolved below after output */
+      } else {
+        const triggerNode = workflow.nodes.find((n) => n.type === "trigger");
+        if (triggerNode && stepOutputsRef.current[triggerNode.id]) {
+          ctx.trigger = stepOutputsRef.current[triggerNode.id];
+        }
+      }
+
+      const { input, resolvedInputs, formulaErrors } = resolveNodeInputs(node, ctx);
+
+      // Force failure more often when formula errors, or random 8% for demo
+      const willFail =
+        (node.type === "action" && (Math.random() < 0.08 || formulaErrors.length > 0)) ||
+        (node.label.toLowerCase().includes("on error") ? false : false);
+
       const duration = Math.floor(80 + Math.random() * 600);
 
-      newSteps[idx] = {
-        nodeId,
-        status: willFail ? "failure" : "success",
-        input: generateMockInput(node.mcpTool),
-        output: willFail ? undefined : generateMockOutput(node.type, node.mcpTool),
-        durationMs: duration,
-        error: willFail ? "Connection timeout after 30000ms" : undefined,
-        startedAt: new Date().toISOString(),
-      };
+      if (willFail) {
+        const errorMsg = formulaErrors[0] ?? "Connection timeout after 30000ms";
+        const errorCode = formulaErrors.length > 0 ? "FORMULA_ERROR" : "TIMEOUT";
+        lastErrorRef.current = {
+          message: errorMsg,
+          code: errorCode,
+          step_id: nodeId,
+          step_label: node.label,
+          timestamp: new Date().toISOString(),
+          retry_count: node.retryPolicy?.maxRetries ?? 0,
+        };
 
-      if (node.type === "condition") {
+        const errorPath = node.errorPath ?? "stop";
+        if (errorPath === "branch" && node.errorTargetId) {
+          newSteps[idx] = {
+            nodeId,
+            status: "error_handled",
+            input,
+            resolvedInputs,
+            durationMs: duration,
+            error: errorMsg,
+            errorCode,
+            startedAt: new Date().toISOString(),
+          };
+          // Skip happy-path children; queue error target if not already next
+          const happyTargets = workflow.edges
+            .filter((e) => e.source === nodeId && !e.isErrorPath)
+            .map((e) => e.target);
+          for (const tid of happyTargets) {
+            const skipIdx = orderedNodeIds.indexOf(tid);
+            if (skipIdx >= 0 && newSteps[skipIdx]) {
+              newSteps[skipIdx] = { ...newSteps[skipIdx], status: "skipped" };
+            }
+          }
+          // Ensure error target is not skipped
+          const errIdx = orderedNodeIds.indexOf(node.errorTargetId);
+          if (errIdx >= 0 && newSteps[errIdx]?.status === "skipped") {
+            newSteps[errIdx] = { ...newSteps[errIdx], status: "pending" };
+          }
+        } else if (errorPath === "continue") {
+          newSteps[idx] = {
+            nodeId,
+            status: "error_handled",
+            input,
+            resolvedInputs,
+            durationMs: duration,
+            error: errorMsg,
+            errorCode,
+            startedAt: new Date().toISOString(),
+          };
+        } else {
+          newSteps[idx] = {
+            nodeId,
+            status: "failure",
+            input,
+            resolvedInputs,
+            durationMs: duration,
+            error: errorMsg,
+            errorCode,
+            startedAt: new Date().toISOString(),
+          };
+          // Skip remaining
+          for (let i = idx + 1; i < newSteps.length; i++) {
+            if (newSteps[i].status === "pending") {
+              newSteps[i] = { ...newSteps[i], status: "skipped" };
+            }
+          }
+        }
+        return newSteps;
+      }
+
+      let output = generateMockOutput(node.type, node.mcpTool);
+
+      // Evaluate condition expressions with real formula engine when present
+      if (node.type === "condition" && node.config?.["expression"]) {
+        const condResult = evaluateFormula(node.config["expression"], ctx);
+        const passed = condResult.ok ? Boolean(condResult.value) : Math.random() > 0.35;
+        output = { evaluated: true, result: passed, expression: node.config["expression"], formulaOk: condResult.ok };
         const yesEdge = workflow.edges.find((e) => e.source === nodeId && (e.label?.toLowerCase().includes("yes") || e.label?.toLowerCase().includes("true")));
         const noEdge = workflow.edges.find((e) => e.source === nodeId && (e.label?.toLowerCase().includes("no") || e.label?.toLowerCase().includes("false")));
+        const skipTargetId = passed ? noEdge?.target : yesEdge?.target;
+        if (skipTargetId) {
+          const skipIdx = orderedNodeIds.indexOf(skipTargetId);
+          if (skipIdx >= 0 && newSteps[skipIdx]) {
+            newSteps[skipIdx] = { ...newSteps[skipIdx], status: "skipped" };
+          }
+        }
+      } else if (node.type === "condition") {
         const passed = Math.random() > 0.35;
-        newSteps[idx].output = { evaluated: true, result: passed };
+        output = { evaluated: true, result: passed };
+        const yesEdge = workflow.edges.find((e) => e.source === nodeId && (e.label?.toLowerCase().includes("yes") || e.label?.toLowerCase().includes("true")));
+        const noEdge = workflow.edges.find((e) => e.source === nodeId && (e.label?.toLowerCase().includes("no") || e.label?.toLowerCase().includes("false")));
         const skipTargetId = passed ? noEdge?.target : yesEdge?.target;
         if (skipTargetId) {
           const skipIdx = orderedNodeIds.indexOf(skipTargetId);
@@ -178,9 +301,25 @@ export function ExecutionPanel({ workflow, onHighlightNode }: ExecutionPanelProp
           }
         }
       }
+
+      stepOutputsRef.current[nodeId] = output;
+      if (node.type === "trigger") {
+        stepOutputsRef.current["trigger"] = output;
+      }
+
+      newSteps[idx] = {
+        nodeId,
+        status: "success",
+        input,
+        resolvedInputs,
+        output,
+        durationMs: duration,
+        startedAt: new Date().toISOString(),
+      };
+
       return newSteps;
     },
-    [orderedNodeIds, workflow],
+    [orderedNodeIds, workflow, buildCtx],
   );
 
   const runAll = useCallback(() => {
@@ -415,12 +554,18 @@ export function ExecutionPanel({ workflow, onHighlightNode }: ExecutionPanelProp
                   if (!node) return null;
                   const Icon = STATUS_ICON[step.status];
                   const isExpanded = expandedStep === step.nodeId;
-                  const hasData = step.input || step.output || step.error;
+                  const hasData = step.input || step.output || step.error || step.resolvedInputs;
                   return (
                     <div
                       key={step.nodeId}
                       className={`transition-colors ${
-                        step.status === "running" ? "bg-indigo-50/50" : step.status === "failure" ? "bg-red-50/30" : ""
+                        step.status === "running"
+                          ? "bg-indigo-50/50"
+                          : step.status === "failure"
+                            ? "bg-red-50/30"
+                            : step.status === "error_handled"
+                              ? "bg-amber-50/40"
+                              : ""
                       }`}
                     >
                       <button
@@ -434,9 +579,14 @@ export function ExecutionPanel({ workflow, onHighlightNode }: ExecutionPanelProp
                         <Icon className={`h-4 w-4 shrink-0 ${STATUS_COLOR[step.status]}`} />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-[11px] font-semibold text-foreground">{node.label}</p>
-                          {step.durationMs != null && (
-                            <p className="text-[10px] text-muted-foreground">{step.durationMs}ms</p>
-                          )}
+                          <div className="flex items-center gap-2">
+                            {step.durationMs != null && (
+                              <p className="text-[10px] text-muted-foreground">{step.durationMs}ms</p>
+                            )}
+                            {step.status === "error_handled" && (
+                              <span className="text-[9px] font-semibold text-amber-600">on-error path</span>
+                            )}
+                          </div>
                         </div>
                         {hasData && (
                           isExpanded
@@ -448,7 +598,16 @@ export function ExecutionPanel({ workflow, onHighlightNode }: ExecutionPanelProp
                         <div className="border-t border-dashed border-gray-200 bg-slate-50/50 px-4 py-2.5">
                           {step.error && (
                             <div className="mb-2 rounded bg-red-100 px-2.5 py-1.5 text-[10px] font-medium text-red-700">
+                              {step.errorCode && <span className="mr-1 rounded bg-red-200 px-1 font-mono text-[8px]">{step.errorCode}</span>}
                               {step.error}
+                            </div>
+                          )}
+                          {step.resolvedInputs && Object.keys(step.resolvedInputs).length > 0 && (
+                            <div className="mb-2">
+                              <p className="mb-1 text-[9px] font-bold uppercase tracking-wider text-indigo-500">Resolved formulas</p>
+                              <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-indigo-50 p-2 font-mono text-[10px] text-indigo-800">
+                                {JSON.stringify(step.resolvedInputs, null, 2)}
+                              </pre>
                             </div>
                           )}
                           {step.input && Object.keys(step.input).length > 0 && (
