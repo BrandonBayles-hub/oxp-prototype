@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft, Users, CreditCard, Wrench, RefreshCw,
   CheckCircle2, Phone, Plus, Pencil, Trash2, CirclePlus,
-  Loader2, AlertTriangle, ChevronRight, ChevronDown, Search, X, Calendar, HelpCircle,
+  Loader2, AlertTriangle, Zap, ChevronRight, ChevronDown, Search, X, Calendar, HelpCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -492,12 +492,9 @@ export default function PhoneNumbersPage() {
         {/* Table */}
         <div className="rounded-xl border border-border overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-xs min-w-[1780px] border-separate border-spacing-0">
+            <table className="w-full text-xs min-w-[1440px] border-separate border-spacing-0">
               <colgroup>
                 <col style={{ width: "240px" }} />
-                <col style={{ width: "120px" }} />
-                <col style={{ width: "120px" }} />
-                <col style={{ width: "120px" }} />
                 <col style={{ width: "120px" }} />
                 <col style={{ width: "120px" }} />
                 <col style={{ width: "120px" }} />
@@ -521,22 +518,7 @@ export default function PhoneNumbersPage() {
                   </th>
                   <th className="bg-zinc-50 px-3 py-2 text-left border-b border-l border-border">
                     <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-foreground">
-                      <Users className="h-3.5 w-3.5 text-violet-500" />Leasing AI 2.0
-                    </span>
-                  </th>
-                  <th className="bg-zinc-50 px-3 py-2 text-left border-b border-l border-border">
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-foreground">
-                      <CreditCard className="h-3.5 w-3.5 text-blue-500" />Payments AI 2.0
-                    </span>
-                  </th>
-                  <th className="bg-zinc-50 px-3 py-2 text-left border-b border-l border-border">
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-foreground">
-                      <RefreshCw className="h-3.5 w-3.5 text-emerald-500" />Renewals AI 2.0
-                    </span>
-                  </th>
-                  <th className="bg-zinc-50 px-3 py-2 text-left border-b border-l border-border">
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-foreground">
-                      <Wrench className="h-3.5 w-3.5 text-amber-500" />Maintenance AI 2.0
+                      <Zap className="h-3.5 w-3.5 text-indigo-500" />Super Agent
                     </span>
                   </th>
                   <th colSpan={3} className="bg-zinc-50 px-3 py-2 text-left border-b border-l border-border">
@@ -566,9 +548,6 @@ export default function PhoneNumbersPage() {
                   <th className="bg-zinc-50 px-3 py-2.5 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border">SMS</th>
                   <th className="bg-zinc-50 px-3 py-2.5 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border">SMS/Voice</th>
                   <th className="bg-zinc-50 px-3 py-2.5 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border">SMS</th>
-                  <th className="bg-zinc-50 px-3 py-2.5 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border">SMS</th>
-                  <th className="bg-zinc-50 px-3 py-2.5 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border">SMS/Voice</th>
-                  <th className="bg-zinc-50 px-3 py-2.5 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border">SMS</th>
                   <th className="bg-zinc-50 px-3 py-2.5 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">Voice</th>
                   <th className="bg-zinc-50 px-3 py-2.5 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">IVR text</th>
                   <th className="bg-zinc-50 px-3 py-2.5 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border">SMS</th>
@@ -580,7 +559,7 @@ export default function PhoneNumbersPage() {
               <tbody>
                 {filteredConfigProperties.length === 0 && (
                   <tr>
-                    <td colSpan={14} className="px-6 py-12 text-center text-xs text-muted-foreground">
+                    <td colSpan={11} className="px-6 py-12 text-center text-xs text-muted-foreground">
                       No properties match your filters.
                       {(propertySearch || selectedPropertyIds.size !== PROPERTIES.length) && (
                         <button
@@ -734,55 +713,43 @@ export default function PhoneNumbersPage() {
                           );
                         })()}
 
-                        {/* AI 2.0 assignments — unassigned by default; each cell offers the same
-                           property/company vanity-number dropdown as the other assignment cells. */}
+                        {/* Super Agent — dropdown limited to the numbers already assigned
+                           to this property's four AI product columns (Leasing/Payments/
+                           Maintenance/Renewals AI). */}
                         {(() => {
-                          const v2Opts = vanityOptionsForProperty(prop.id, "");
-                          const renderV2Dropdown = (labelForAriaKey: string) => (
-                            <select
-                              defaultValue=""
-                              onChange={(e) => {
-                                if (e.target.value === "__new__") {
-                                  e.target.value = "";
-                                  openAddVanityModal();
-                                }
-                              }}
-                              aria-label={`Assign vanity number — ${labelForAriaKey} for ${prop.name}`}
-                              className="font-mono text-xs text-foreground bg-transparent border-none outline-none cursor-pointer p-0 text-center"
-                            >
-                              <option value="">—</option>
-                              <option value="__new__" className="font-sans text-blue-600">+ New Vanity Number</option>
-                              {v2Opts.propNums.length > 0 && (
-                                <optgroup label={`— ${prop.name} —`}>
-                                  {v2Opts.propNums.map((v) => (
-                                    <option key={v.id} value={v.phoneNumber}>{v.phoneNumber}</option>
-                                  ))}
-                                </optgroup>
-                              )}
-                              {v2Opts.companyNums.length > 0 && (
-                                <optgroup label="— Company —">
-                                  {v2Opts.companyNums.map((v) => (
-                                    <option key={v.id} value={v.phoneNumber}>{v.phoneNumber}</option>
-                                  ))}
-                                </optgroup>
-                              )}
-                            </select>
-                          );
+                          const superAgentNumbers = Array.from(new Set([
+                            nums.leasing,
+                            extras.voice,
+                            extras.other,
+                            nums.payments,
+                            nums.maintenance,
+                            maint,
+                            nums.renewals,
+                          ].filter(Boolean)));
                           return (
-                            <>
-                              <td className="px-3 py-2.5 align-middle text-center border-b border-l border-border">
-                                {renderCell(renderV2Dropdown("Leasing AI 2.0"))}
-                              </td>
-                              <td className="px-3 py-2.5 align-middle text-center border-b border-l border-border">
-                                {renderCell(renderV2Dropdown("Payments AI 2.0"))}
-                              </td>
-                              <td className="px-3 py-2.5 align-middle text-center border-b border-l border-border">
-                                {renderCell(renderV2Dropdown("Renewals AI 2.0"))}
-                              </td>
-                              <td className="px-3 py-2.5 align-middle text-center border-b border-l border-border">
-                                {renderCell(renderV2Dropdown("Maintenance AI 2.0"))}
-                              </td>
-                            </>
+                            <td className="px-3 py-2.5 align-middle text-center border-b border-l border-border">
+                              {renderCell(
+                                <select
+                                  defaultValue=""
+                                  onChange={(e) => {
+                                    if (e.target.value === "__new__") {
+                                      e.target.value = "";
+                                      openAddVanityModal();
+                                    }
+                                  }}
+                                  aria-label={`Assign vanity number — Super Agent for ${prop.name}`}
+                                  className="font-mono text-xs text-foreground bg-transparent border-none outline-none cursor-pointer p-0 text-center"
+                                >
+                                  <option value="">—</option>
+                                  <option value="__new__" className="font-sans text-blue-600">+ New Vanity Number</option>
+                                  <optgroup label={`— ${prop.name} —`}>
+                                    {superAgentNumbers.map((n) => (
+                                      <option key={n} value={n}>{n}</option>
+                                    ))}
+                                  </optgroup>
+                                </select>
+                              )}
+                            </td>
                           );
                         })()}
 
