@@ -1,8 +1,8 @@
 import path from "path";
 import { fileURLToPath } from "url";
 import type { NextConfig } from "next";
-const basePath = process.env.STACK_NAME === "staging" ? "/oxp-prototype" : "";
-const assetPrefix = process.env.STACK_NAME === "staging" ? "/oxp-prototype/" : "";
+// const basePath = process.env.STACK_NAME === "staging" ? "/oxp-prototype" : "";
+// const assetPrefix = process.env.STACK_NAME === "staging" ? "/oxp-prototype/" : "";
 
 // Academy CSS scope-redirect aliases.
 // ----------------------------------------------------------------------
@@ -56,8 +56,6 @@ const staticExport = process.env.STATIC_EXPORT === "1";
 const nextConfig: NextConfig = {
   ...(staticExport ? { output: "export" as const } : {}),
   trailingSlash: true,
-  basePath,
-  assetPrefix,
   devIndicators: false,
   outputFileTracingRoot: path.join(__dirname),
   transpilePackages: [

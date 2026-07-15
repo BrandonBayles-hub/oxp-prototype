@@ -1001,7 +1001,6 @@ interface ActionCardProps {
   prop: typeof PROPERTIES[0]
   status: PPStatus
   ppUrl: string
-  tcUrl: string
   websiteUrl: string
   isMissing: boolean
   isMultiUnresolved: boolean
@@ -1009,17 +1008,16 @@ interface ActionCardProps {
   failReason?: string
   submitted?: boolean
   submittedPpUrl?: string
-  submittedTcUrl?: string
-  onSubmit: (propId: string, website: string, ppUrl: string, tcUrl: string) => void
+  onSubmit: (propId: string, website: string, ppUrl: string) => void
   onDismiss: (propId: string) => void
   onViewPending: () => void
   /** Fires when heartbeat says carrier-ready and required edits exist — powers Submit All. */
-  onCardReadyChange?: (id: string, meta: { ready: boolean; website: string; ppUrl: string; tcUrl: string }) => void
+  onCardReadyChange?: (id: string, meta: { ready: boolean; website: string; ppUrl: string }) => void
 }
 
 function ActionCard({
-  prop, status, ppUrl, tcUrl, websiteUrl, isMissing, isMultiUnresolved,
-  multiOptions, failReason, submitted, submittedPpUrl, submittedTcUrl,
+  prop, status, ppUrl, websiteUrl, isMissing, isMultiUnresolved,
+  multiOptions, failReason, submitted, submittedPpUrl,
   onSubmit, onDismiss, onViewPending, onCardReadyChange,
 }: ActionCardProps) {
   const isFailed = status === "failed"
@@ -1033,9 +1031,6 @@ function ActionCard({
   const [ppDraft, setPpDraft]           = useState(() => (isFailed ? ppUrl : ""))
   const [verifyStatus, setVerifyStatus] = useState<"idle" | "checking" | "ok" | "fail">("idle")
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [tcDraft, setTcDraft]               = useState(() => (isFailed ? tcUrl : ""))
-  const [tcVerifyStatus, setTcVerifyStatus] = useState<"idle" | "checking" | "ok" | "fail">("idle")
-  const tcDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const resolvedWebsite = isMultiUnresolved
     ? (useCustom ? customUrl : multiDraft)
@@ -1050,10 +1045,7 @@ function ActionCard({
   const ppChanged = isFailed
     ? ppDraft.trim() !== "" && ppDraft.trim() !== ppUrl.trim()
     : ppDraft.trim() !== ""
-  const tcChanged = isFailed
-    ? tcDraft.trim() !== "" && tcDraft.trim() !== tcUrl.trim()
-    : tcDraft.trim() !== ""
-  const canSubmit = !!(resolvedWebsite.trim()) && ppChanged && tcChanged
+  const canSubmit = !!(resolvedWebsite.trim()) && ppChanged
 
   const filteredMulti = useMemo(() => {
     const q = multiQ.trim().toLowerCase()
@@ -1079,27 +1071,15 @@ function ActionCard({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ppDraft, showPolicyColumn, isFailed, ppUrl])
 
-  // Terms & Conditions heartbeat — mirrors the privacy policy URL check
   useEffect(() => {
-    if (tcDebounceRef.current) clearTimeout(tcDebounceRef.current)
-    if (!tcDraft.trim() || !showPolicyColumn) { setTcVerifyStatus("idle"); return }
-    if (isFailed && tcDraft.trim() === tcUrl.trim()) { setTcVerifyStatus("idle"); return }
-    setTcVerifyStatus("checking")
-    tcDebounceRef.current = setTimeout(() => { setTcVerifyStatus("ok") }, 800)
-    return () => { if (tcDebounceRef.current) clearTimeout(tcDebounceRef.current) }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tcDraft, showPolicyColumn, isFailed, tcUrl])
-
-  useEffect(() => {
-    const ready = verifyStatus === "ok" && tcVerifyStatus === "ok" && canSubmit
+    const ready = verifyStatus === "ok" && canSubmit
     onCardReadyChange?.(prop.id, {
       ready,
       website: resolvedWebsite.trim(),
       ppUrl: ppDraft.trim(),
-      tcUrl: tcDraft.trim(),
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [verifyStatus, tcVerifyStatus, canSubmit, prop.id, resolvedWebsite, ppDraft, tcDraft, onCardReadyChange])
+  }, [verifyStatus, canSubmit, prop.id, resolvedWebsite, ppDraft, onCardReadyChange])
 
   useEffect(() => {
     if (!submitted) return
@@ -1118,16 +1098,14 @@ function ActionCard({
     "bg-white text-foreground placeholder:text-muted-foreground/45 focus:ring-zinc-900/15",
   )
 
-  const showCarrierRejectBelowPp = isFailed && failReason && verifyStatus === "idle" && ppDraft.trim() === ppUrl.trim()
-  const showCarrierRejectBelowTc = isFailed && failReason && tcVerifyStatus === "idle" && tcDraft.trim() === tcUrl.trim()
+  const showCarrierRejectBelow = isFailed && failReason && verifyStatus === "idle" && ppDraft.trim() === ppUrl.trim()
   const showWebsiteMissing = isMissing && !websiteDraft.trim()
 
   const websiteBorder = cn(
     rowInput,
     showWebsiteMissing ? "border-amber-300 focus:ring-amber-400/25" : "border-border",
   )
-  const ppInputHasCarrierError = !!(showCarrierRejectBelowPp && failReason)
-  const tcInputHasCarrierError = !!(showCarrierRejectBelowTc && failReason)
+  const ppInputHasCarrierError = !!(showCarrierRejectBelow && failReason)
 
   const ppBorder = cn(
     rowInput, "min-w-0",
@@ -1135,18 +1113,12 @@ function ActionCard({
     ppInputHasCarrierError ? "border-red-400 focus:ring-red-400/20" :
                              "border-border focus:ring-zinc-900/15",
   )
-  const tcBorder = cn(
-    rowInput, "min-w-0",
-    tcVerifyStatus === "ok" ? "border-emerald-500 focus:ring-emerald-500/25" :
-    tcInputHasCarrierError  ? "border-red-400 focus:ring-red-400/20" :
-                              "border-border focus:ring-zinc-900/15",
-  )
 
-  const submitIsPrimary = canSubmit && verifyStatus === "ok" && tcVerifyStatus === "ok"
+  const submitIsPrimary = canSubmit && verifyStatus === "ok"
 
   function doSubmit() {
-    if (!canSubmit || verifyStatus !== "ok" || tcVerifyStatus !== "ok") return
-    onSubmit(prop.id, resolvedWebsite.trim(), ppDraft.trim(), tcDraft.trim())
+    if (!canSubmit || verifyStatus !== "ok") return
+    onSubmit(prop.id, resolvedWebsite.trim(), ppDraft.trim())
   }
 
   // ── Success state (compressed) ─────────────────────────────────────────────
@@ -1163,19 +1135,12 @@ function ActionCard({
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
-        <div className="px-4 py-2 border-t border-emerald-100 space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700/70 w-14 shrink-0">Privacy</span>
-            <p className="font-mono text-[11px] text-muted-foreground truncate flex-1">{submittedPpUrl}</p>
-            <button type="button" onClick={() => { onViewPending(); onDismiss(prop.id) }}
-              className="shrink-0 text-[11px] font-semibold text-emerald-800 hover:underline whitespace-nowrap">
-              View in Carrier Review →
-            </button>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700/70 w-14 shrink-0">Terms</span>
-            <p className="font-mono text-[11px] text-muted-foreground truncate flex-1">{submittedTcUrl}</p>
-          </div>
+        <div className="px-4 py-2 flex items-center gap-2 border-t border-emerald-100">
+          <p className="font-mono text-[11px] text-muted-foreground truncate flex-1">{submittedPpUrl}</p>
+          <button type="button" onClick={() => { onViewPending(); onDismiss(prop.id) }}
+            className="shrink-0 text-[11px] font-semibold text-emerald-800 hover:underline whitespace-nowrap">
+            View in Carrier Review →
+          </button>
         </div>
       </div>
     )
@@ -1190,7 +1155,7 @@ function ActionCard({
         const t = e.target as HTMLElement
         if (t.tagName === "TEXTAREA") return
         if (t.tagName === "BUTTON" || t.closest("button")) return
-        if (canSubmit && verifyStatus === "ok" && tcVerifyStatus === "ok") {
+        if (canSubmit && verifyStatus === "ok") {
           e.preventDefault()
           doSubmit()
         }
@@ -1362,54 +1327,6 @@ function ActionCard({
                 </span>
               </div>
             )}
-
-            {/* Terms & Conditions URL — same required warning + carrier rejection UX as the policy URL */}
-            <div className="mt-4">
-              <div className={cn(labelCls, "flex flex-wrap items-center gap-x-1.5 gap-y-0 !mb-1.5")}>
-                <span>Terms &amp; Conditions URL</span>
-                {tcVerifyStatus === "ok" && tcDraft.trim() && (
-                  <span className="font-medium normal-case text-emerald-600">· Carrier-ready</span>
-                )}
-              </div>
-
-              {showPolicyColumn ? (
-                <>
-                  <input
-                    type="text"
-                    value={tcDraft}
-                    onChange={e => setTcDraft(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === "Enter" && canSubmit && verifyStatus === "ok" && tcVerifyStatus === "ok") {
-                        e.preventDefault()
-                        doSubmit()
-                      }
-                    }}
-                    placeholder={resolvedWebsite.trim() ? `https://${normalizeSiteInput(resolvedWebsite)}/terms` : "https://…/terms"}
-                    className={cn(tcBorder, "w-full")}
-                  />
-                  {/* Warning — terms URL not yet entered */}
-                  {!tcDraft.trim() && (
-                    <div className="mt-1.5 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[11px] leading-snug text-amber-900">
-                      <span className="font-semibold">Terms &amp; Conditions URL required.</span>{" "}
-                      Paste the link to your property's terms &amp; conditions page.
-                    </div>
-                  )}
-                  {/* Error well — carrier rejection */}
-                  {tcInputHasCarrierError && failReason && (
-                    <div className="mt-1.5 rounded-md border border-red-300 bg-red-50 px-2.5 py-1.5 text-[11px] leading-snug text-red-900">
-                      <span className="font-semibold">Carrier rejected this URL.</span>{" "}
-                      {failReason}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className={cn(rowInput, "border-dashed border-zinc-200 bg-zinc-50/80 pointer-events-none justify-start gap-2")}>
-                  <span className="text-xs italic text-muted-foreground/70 truncate">
-                    {isMissing ? "Unlocks after website is entered" : "—"}
-                  </span>
-                </div>
-              )}
-            </div>
           </div>
 
           {/* ── Col 3: Action button — the anchor ── */}
@@ -1462,17 +1379,6 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
     return m
   })
 
-  const [tcUrls, setTcUrls] = useState<Record<string, string>>(() => {
-    const m: Record<string, string> = {}
-    PROPERTIES.forEach(p => {
-      const url = META_MAP[p.id]?.detectedUrl
-      if (url && (INITIALLY_COMPLETED.has(p.id) || INITIALLY_REVIEW.has(p.id) || INITIALLY_FAILED.has(p.id))) {
-        m[p.id] = `${url}/terms`
-      }
-    })
-    return m
-  })
-
   const [providedUrls, setProvidedUrls]       = useState<Record<string, string>>({})
   const [selectedSiteUrl, setSelectedSiteUrl] = useState<Record<string, string>>({})
   const [userFields, setUserFields]           = useState<UserFields>(DEFAULT_USER)
@@ -1484,13 +1390,11 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
   // Cards in "submitted" success state — status not moved to review-in-progress until dismissed
   const [submittedIds, setSubmittedIds]   = useState<Set<string>>(new Set())
   const [submittedUrls, setSubmittedUrls] = useState<Record<string, string>>({})
-  const [submittedTcUrls, setSubmittedTcUrls] = useState<Record<string, string>>({})
 
   /** Cards reporting heartbeat OK + submittable — powers global "Submit all verified". */
-  const [readyToSubmit, setReadyToSubmit] = useState<Record<string, { website: string; ppUrl: string; tcUrl: string }>>({})
+  const [readyToSubmit, setReadyToSubmit] = useState<Record<string, { website: string; ppUrl: string }>>({})
   const [bulkOffer, setBulkOffer] = useState<null | {
     templatePp: string
-    templateTc: string
     sourceHost: string
     targets: { id: string; website: string }[]
   }>(null)
@@ -1546,10 +1450,10 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allDone])
 
-  const onCardReadyChange = useCallback((id: string, meta: { ready: boolean; website: string; ppUrl: string; tcUrl: string }) => {
+  const onCardReadyChange = useCallback((id: string, meta: { ready: boolean; website: string; ppUrl: string }) => {
     setReadyToSubmit(prev => {
       const next = { ...prev }
-      if (meta.ready) next[id] = { website: meta.website, ppUrl: meta.ppUrl, tcUrl: meta.tcUrl }
+      if (meta.ready) next[id] = { website: meta.website, ppUrl: meta.ppUrl }
       else delete next[id]
       return next
     })
@@ -1559,7 +1463,6 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
     propId: string,
     website: string,
     ppUrl: string,
-    tcUrl: string,
     opts?: { silentBulk?: boolean },
   ) {
     const host = normalizeSiteInput(website)
@@ -1578,7 +1481,6 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
       if (siblings.length > 0) {
         setBulkOffer({
           templatePp: ppUrl,
-          templateTc: tcUrl,
           sourceHost: host,
           targets: siblings.map(p => ({
             id: p.id,
@@ -1596,9 +1498,7 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
       setSelectedSiteUrl(prev => ({ ...prev, [propId]: website }))
     }
     setPpUrls(prev => ({ ...prev, [propId]: ppUrl }))
-    setTcUrls(prev => ({ ...prev, [propId]: tcUrl }))
     setSubmittedUrls(prev => ({ ...prev, [propId]: ppUrl }))
-    setSubmittedTcUrls(prev => ({ ...prev, [propId]: tcUrl }))
     setSubmittedIds(prev => new Set([...prev, propId]))
     setReadyToSubmit(prev => {
       const next = { ...prev }
@@ -1613,8 +1513,7 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
     setBulkOffer(null)
     snap.targets.forEach(t => {
       const adapted = adaptPrivacyUrlToHost(snap.templatePp, t.website)
-      const adaptedTc = adaptPrivacyUrlToHost(snap.templateTc, t.website)
-      handleCardSubmit(t.id, t.website, adapted, adaptedTc, { silentBulk: true })
+      handleCardSubmit(t.id, t.website, adapted, { silentBulk: true })
     })
     showToast(`Bulk-applied carrier-ready URL to ${snap.targets.length} matching Entrata Prospect Portal ${snap.targets.length === 1 ? "site" : "sites"}`)
   }
@@ -1622,7 +1521,7 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
   function submitAllVerified() {
     const entries = Object.entries(readyToSubmit)
     if (entries.length === 0) return
-    entries.forEach(([id, v]) => handleCardSubmit(id, v.website, v.ppUrl, v.tcUrl, { silentBulk: true }))
+    entries.forEach(([id, v]) => handleCardSubmit(id, v.website, v.ppUrl, { silentBulk: true }))
     setReadyToSubmit({})
     showToast(`Submitted ${entries.length} ${entries.length === 1 ? "property" : "properties"} for carrier review`)
   }
@@ -1760,7 +1659,6 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
                     prop={prop}
                     status={ppStatuses[prop.id] ?? "needs-pp"}
                     ppUrl={ppUrls[prop.id] ?? ""}
-                    tcUrl={tcUrls[prop.id] ?? ""}
                     websiteUrl={effectiveUrl(prop.id) ?? ""}
                     isMissing={!MULTI_SITE_IDS.has(prop.id) && effectiveUrl(prop.id) === null}
                     isMultiUnresolved={MULTI_SITE_IDS.has(prop.id) && !selectedSiteUrl[prop.id]}
@@ -1768,7 +1666,6 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
                     failReason={FAILED_REASONS[prop.id]}
                     submitted={submittedIds.has(prop.id)}
                     submittedPpUrl={submittedUrls[prop.id]}
-                    submittedTcUrl={submittedTcUrls[prop.id]}
                     onSubmit={handleCardSubmit}
                     onDismiss={handleCardDismiss}
                     onViewPending={() => setFilterView("pending")}
@@ -1810,7 +1707,6 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
                         <span className="flex items-center gap-1.5"><Globe className="h-3 w-3" />Website URL</span>
                       </th>
                       <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border">Privacy Policy URL</th>
-                      <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border">Terms &amp; Conditions URL</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1828,9 +1724,6 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
                         </td>
                         <td className="px-4 py-3 border-b border-l border-border">
                           <span className="font-mono text-[11px] text-foreground block truncate">{ppUrls[prop.id] ?? "—"}</span>
-                        </td>
-                        <td className="px-4 py-3 border-b border-l border-border">
-                          <span className="font-mono text-[11px] text-foreground block truncate">{tcUrls[prop.id] ?? "—"}</span>
                         </td>
                       </tr>
                     ))}
@@ -1859,7 +1752,6 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
                         <span className="flex items-center gap-1.5"><Globe className="h-3 w-3" />Website URL</span>
                       </th>
                       <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border">Privacy Policy URL</th>
-                      <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border">Terms &amp; Conditions URL</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1877,9 +1769,6 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
                         </td>
                         <td className="px-4 py-3 border-b border-l border-border">
                           <span className="font-mono text-[11px] text-foreground block truncate">{ppUrls[prop.id] ?? "—"}</span>
-                        </td>
-                        <td className="px-4 py-3 border-b border-l border-border">
-                          <span className="font-mono text-[11px] text-foreground block truncate">{tcUrls[prop.id] ?? "—"}</span>
                         </td>
                       </tr>
                     ))}
@@ -1902,7 +1791,6 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
                       <span className="flex items-center gap-1.5"><Globe className="h-3 w-3" />Website URL</span>
                     </th>
                     <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border">Privacy Policy URL</th>
-                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border">Terms &amp; Conditions URL</th>
                     <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-l border-border w-[140px]">Status</th>
                   </tr>
                 </thead>
@@ -1910,7 +1798,6 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
                   {PROPERTIES.map(prop => {
                     const status     = ppStatuses[prop.id] ?? "needs-pp"
                     const ppUrl      = ppUrls[prop.id] ?? ""
-                    const tcUrl      = tcUrls[prop.id] ?? ""
                     const websiteUrl = effectiveUrl(prop.id) ?? ""
                     return (
                       <tr key={prop.id} className="bg-white hover:bg-zinc-50/80 transition-colors">
@@ -1926,11 +1813,6 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
                         <td className="px-4 py-2.5 border-b border-l border-border">
                           {ppUrl
                             ? <span className={cn("font-mono text-[11px] block truncate", status === "failed" ? "text-red-400 line-through" : "text-foreground")}>{ppUrl}</span>
-                            : <span className="text-[11px] text-muted-foreground/50 italic">Not submitted</span>}
-                        </td>
-                        <td className="px-4 py-2.5 border-b border-l border-border">
-                          {tcUrl
-                            ? <span className={cn("font-mono text-[11px] block truncate", status === "failed" ? "text-red-400 line-through" : "text-foreground")}>{tcUrl}</span>
                             : <span className="text-[11px] text-muted-foreground/50 italic">Not submitted</span>}
                         </td>
                         <td className="px-4 py-2.5 border-b border-l border-border">
