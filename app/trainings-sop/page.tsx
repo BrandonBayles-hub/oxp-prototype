@@ -16,6 +16,7 @@ import {
   type VaultItem,
   type ApprovalStatus,
   type AgentTrainingStatus,
+  type ViewerAccess,
 } from "@/lib/vault-context";
 import { Button } from "@/components/ui/button";
 import {
@@ -45,6 +46,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { AcademyTab } from "./academy/AcademyTab";
 import { AcademyDemoControls } from "./academy/AcademyDemoControls";
+import { ViewerAccessCombobox } from "@/components/viewer-access-combobox";
 
 /** Library filter values; `pending_review` matches both `review` and `needs_review`. */
 const APPROVAL_FILTERS = ["All", "pending_review", "approved"] as const;
@@ -427,7 +429,7 @@ function TrainingsSopContent({ forcedTab }: { forcedTab?: PageTab } = {}) {
     effectiveDate?: string,
     source: "upload" | "entrata" = "upload",
     body?: string,
-    options?: { scopeLevel?: string; ownerId?: string; propertyId?: string; isInternalOnly?: boolean; tags?: string[] }
+    options?: { scopeLevel?: string; ownerId?: string; propertyId?: string; isInternalOnly?: boolean; tags?: string[]; viewerAccess?: ViewerAccess }
   ) => {
     const docProperty = property ?? "Portfolio";
     const category = documentType === "lease" ? "Leasing" : "Compliance";
@@ -457,7 +459,7 @@ function TrainingsSopContent({ forcedTab }: { forcedTab?: PageTab } = {}) {
       body,
       tags: options?.tags,
       folderId: currentFolderId ?? undefined,
-      viewerAccess: DEFAULT_VIEWER_ACCESS,
+      viewerAccess: options?.viewerAccess ?? DEFAULT_VIEWER_ACCESS,
       history: [{ at: new Date().toISOString(), action: "submitted" as const, by: "Admin", summary: "New document submitted for review." }],
     });
     const escId = addEscalation({
@@ -1907,7 +1909,7 @@ function UploadDocModal({
   onClearLibraryPrefill,
 }: {
   onClose: () => void;
-  onSave: (fileName: string, documentType: VaultItem["documentType"], property?: string, effectiveDate?: string, source?: "upload" | "entrata", body?: string, options?: { scopeLevel?: string; ownerId?: string; propertyId?: string; isInternalOnly?: boolean; tags?: string[] }) => void;
+  onSave: (fileName: string, documentType: VaultItem["documentType"], property?: string, effectiveDate?: string, source?: "upload" | "entrata", body?: string, options?: { scopeLevel?: string; ownerId?: string; propertyId?: string; isInternalOnly?: boolean; tags?: string[]; viewerAccess?: ViewerAccess }) => void;
   properties: string[];
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   libraryPrefill?: {
@@ -1926,6 +1928,7 @@ function UploadDocModal({
   const [fileBody, setFileBody] = useState("");
   const [pickedFileName, setPickedFileName] = useState<string | null>(null);
   const [fileInputKey, setFileInputKey] = useState(0);
+  const [viewerEntries, setViewerEntries] = useState<string[]>(() => [...DEFAULT_VIEWER_ACCESS.entries]);
   const fileInputId = useId();
   const libraryPrefillAppliedRef = useRef(false);
 
@@ -2124,6 +2127,14 @@ function UploadDocModal({
             )}
           </div>
 
+          <div>
+            <label className="mb-1 block text-xs font-medium text-foreground">Viewers</label>
+            <p className="mb-2 text-[10px] text-muted-foreground">
+              Choose the roles and people who can view this document. At least one viewer is required.
+            </p>
+            <ViewerAccessCombobox value={viewerEntries} onChange={setViewerEntries} />
+          </div>
+
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
@@ -2138,10 +2149,16 @@ function UploadDocModal({
                 undefined,
                 libraryPrefill?.source ?? "upload",
                 fileBody || undefined,
-                { scopeLevel, ownerId, propertyId, tags: libraryPrefill?.tags }
+                {
+                  scopeLevel,
+                  ownerId,
+                  propertyId,
+                  tags: libraryPrefill?.tags,
+                  viewerAccess: { entries: viewerEntries },
+                }
               )
             }
-            disabled={!pickedFileName || !fileName.trim()}
+            disabled={!pickedFileName || !fileName.trim() || viewerEntries.length === 0}
           >
             {isEntrataTemplate ? "Add to library" : "Upload & add to Vault"}
           </Button>
