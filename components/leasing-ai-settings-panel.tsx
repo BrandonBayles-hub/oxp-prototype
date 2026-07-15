@@ -26,6 +26,7 @@ import {
   ShieldCheck,
   ListOrdered,
   GripVertical,
+  Link as LinkIcon,
 } from "lucide-react"
 import {
   Tooltip,
@@ -97,6 +98,22 @@ const TOUR_TYPE_LABELS: Record<TourType, string> = {
 }
 
 const DEFAULT_TOUR_PRIORITY: TourType[] = ["agent", "self_guided", "virtual"]
+
+const VIRTUAL_TOUR_URL_ERROR =
+  "Please enter a complete HTTP/HTTPS URL (e.g., http://example.com or https://example.com)"
+
+function validateVirtualTourLink(raw: string): string | null {
+  const value = raw.trim()
+  if (!value) return VIRTUAL_TOUR_URL_ERROR
+  try {
+    const url = new URL(value)
+    if (url.protocol !== "http:" && url.protocol !== "https:") return VIRTUAL_TOUR_URL_ERROR
+    if (!url.hostname.includes(".")) return VIRTUAL_TOUR_URL_ERROR
+    return null
+  } catch {
+    return VIRTUAL_TOUR_URL_ERROR
+  }
+}
 
 function normalizeTourPriority(raw: string[] | undefined): TourType[] {
   if (!raw || raw.length === 0) return DEFAULT_TOUR_PRIORITY
@@ -311,6 +328,7 @@ function isApplicationModeEligible(derived: DerivedPropertyData): boolean {
 interface PanelState {
   conversationMode: ConversationModeId
   tourPriority: TourType[]
+  virtualTourLink: string
   preQualEnabled: boolean
   incomeEnabled: boolean
   incomeMultiplier: string
@@ -327,6 +345,7 @@ function makeDefaultState(): PanelState {
   return {
     conversationMode: DEFAULT_MODE,
     tourPriority: DEFAULT_TOUR_PRIORITY,
+    virtualTourLink: "",
     preQualEnabled: false,
     incomeEnabled: true,
     incomeMultiplier: "3.0",
@@ -382,6 +401,7 @@ export function LeasingAISettingsPanel({
       .then((data: {
         mode_id?: string
         tour_priority?: string[]
+        virtual_tour_link?: string
         prequalification_enabled?: boolean
         conversation_start?: string
         household_income?: string
@@ -398,6 +418,7 @@ export function LeasingAISettingsPanel({
         const loaded: Partial<PanelState> = {
           conversationMode: normalizeModeId(data.mode_id),
           tourPriority: normalizeTourPriority(data.tour_priority),
+          virtualTourLink: data.virtual_tour_link ?? "",
           preQualEnabled: Boolean(data.prequalification_enabled),
           conversationStart: (data.conversation_start as ConversationStart) ?? "market_first",
           affordableSettings: {
@@ -454,8 +475,12 @@ export function LeasingAISettingsPanel({
     setState((s) => ({ ...s, [key]: value }))
 
   const saveBlockers = useMemo(() => {
-    if (!state.preQualEnabled) return []
     const blockers: string[] = []
+    if (state.virtualTourLink.trim().length > 0) {
+      const err = validateVirtualTourLink(state.virtualTourLink)
+      if (err) blockers.push(`Virtual Tour Link: ${err}`)
+    }
+    if (!state.preQualEnabled) return blockers
     if (!state.incomeEnabled && !state.creditEnabled)
       blockers.push("Pre-qualification requires at least one enabled criterion.")
     if (state.incomeEnabled) {
@@ -467,7 +492,7 @@ export function LeasingAISettingsPanel({
       if (err) blockers.push(`Credit-score requirement: ${err}`)
     }
     return blockers
-  }, [state.preQualEnabled, state.incomeEnabled, state.incomeMultiplier, state.creditEnabled, state.creditMinScore])
+  }, [state.virtualTourLink, state.preQualEnabled, state.incomeEnabled, state.incomeMultiplier, state.creditEnabled, state.creditMinScore])
 
   const syncToBackend = useCallback((s: PanelState) => {
     const activeMode = CONVERSATION_MODES.find((m) => m.id === s.conversationMode)
@@ -479,6 +504,7 @@ export function LeasingAISettingsPanel({
         mode_name: activeMode?.name ?? s.conversationMode,
         conversion_goal: activeMode?.conversionGoal ?? "schedule_tours",
         tour_priority: s.tourPriority,
+        virtual_tour_link: s.virtualTourLink.trim() || undefined,
         prequalification_enabled: s.preQualEnabled,
         conversation_start: s.preQualEnabled ? s.conversationStart : undefined,
         household_income: s.preQualEnabled ? s.affordableSettings.householdIncome : undefined,
@@ -539,6 +565,7 @@ export function LeasingAISettingsPanel({
           <GroupHeading label="Leasing AI Settings" />
           <SectionConversationMode state={state} update={update} appModeEligible={appModeEligible} />
           <SectionTourPriority state={state} update={update} />
+          <SectionVirtualTourLink state={state} update={update} />
           <SectionPreQualification state={state} update={update} />
           <SectionAffordable state={state} update={update} setState={setState} />
         </div>
@@ -724,6 +751,40 @@ function SectionTourPriority({ state, update }: {
           )
         })}
       </div>
+    </SectionShell>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Virtual Tour Link
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function SectionVirtualTourLink({ state, update }: {
+  state: PanelState
+  update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
+}) {
+  const error = state.virtualTourLink.trim().length > 0 ? validateVirtualTourLink(state.virtualTourLink) : null
+
+  return (
+    <SectionShell
+      icon={LinkIcon}
+      title="Virtual Tour Link"
+      description="Input a URL for a Virtual Tour, if you want the agent to share the link immediately upon request."
+    >
+      <div className="relative">
+        <LinkIcon className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+        <Input
+          type="url"
+          inputMode="url"
+          value={state.virtualTourLink}
+          onChange={(e) => update("virtualTourLink", e.target.value)}
+          placeholder="Enter virtual tour link"
+          aria-label="Virtual tour link"
+          aria-invalid={error !== null}
+          className={cn("h-9 pl-8 text-xs", error && "border-red-400 focus-visible:ring-red-400")}
+        />
+      </div>
+      {error && <p className="mt-1.5 text-[10px] font-medium text-red-600">{error}</p>}
     </SectionShell>
   )
 }
