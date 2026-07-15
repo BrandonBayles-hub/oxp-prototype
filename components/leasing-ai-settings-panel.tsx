@@ -24,6 +24,8 @@ import {
   HelpCircle,
   Home,
   ShieldCheck,
+  ListOrdered,
+  GripVertical,
 } from "lucide-react"
 import {
   Tooltip,
@@ -80,6 +82,29 @@ function normalizeModeId(id: string | undefined): ConversationModeId {
   if (!id) return DEFAULT_MODE
   if (CONVERSATION_MODES.some((m) => m.id === id)) return id as ConversationModeId
   return LEGACY_MODE_MAP[id] ?? DEFAULT_MODE
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Tour priority
+   ══════════════════════════════════════════════════════════════════════════ */
+
+type TourType = "agent" | "self_guided" | "virtual"
+
+const TOUR_TYPE_LABELS: Record<TourType, string> = {
+  agent: "Agent Tour",
+  self_guided: "Self-Guided Tour",
+  virtual: "Virtual Tour",
+}
+
+const DEFAULT_TOUR_PRIORITY: TourType[] = ["agent", "self_guided", "virtual"]
+
+function normalizeTourPriority(raw: string[] | undefined): TourType[] {
+  if (!raw || raw.length === 0) return DEFAULT_TOUR_PRIORITY
+  const seen = new Set<TourType>()
+  const ordered = raw.filter((t): t is TourType => t in TOUR_TYPE_LABELS && !seen.has(t as TourType) && (seen.add(t as TourType), true))
+  // Append any tour types missing from the saved payload so the list is always complete.
+  for (const t of DEFAULT_TOUR_PRIORITY) if (!seen.has(t)) ordered.push(t)
+  return ordered
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -285,6 +310,7 @@ function isApplicationModeEligible(derived: DerivedPropertyData): boolean {
 
 interface PanelState {
   conversationMode: ConversationModeId
+  tourPriority: TourType[]
   preQualEnabled: boolean
   incomeEnabled: boolean
   incomeMultiplier: string
@@ -300,6 +326,7 @@ interface PanelState {
 function makeDefaultState(): PanelState {
   return {
     conversationMode: DEFAULT_MODE,
+    tourPriority: DEFAULT_TOUR_PRIORITY,
     preQualEnabled: false,
     incomeEnabled: true,
     incomeMultiplier: "3.0",
@@ -354,6 +381,7 @@ export function LeasingAISettingsPanel({
       .then((res) => { if (res.ok) return res.json(); throw new Error() })
       .then((data: {
         mode_id?: string
+        tour_priority?: string[]
         prequalification_enabled?: boolean
         conversation_start?: string
         household_income?: string
@@ -369,6 +397,7 @@ export function LeasingAISettingsPanel({
         const defaults = makeDefaultState()
         const loaded: Partial<PanelState> = {
           conversationMode: normalizeModeId(data.mode_id),
+          tourPriority: normalizeTourPriority(data.tour_priority),
           preQualEnabled: Boolean(data.prequalification_enabled),
           conversationStart: (data.conversation_start as ConversationStart) ?? "market_first",
           affordableSettings: {
@@ -449,6 +478,7 @@ export function LeasingAISettingsPanel({
         mode_id: s.conversationMode,
         mode_name: activeMode?.name ?? s.conversationMode,
         conversion_goal: activeMode?.conversionGoal ?? "schedule_tours",
+        tour_priority: s.tourPriority,
         prequalification_enabled: s.preQualEnabled,
         conversation_start: s.preQualEnabled ? s.conversationStart : undefined,
         household_income: s.preQualEnabled ? s.affordableSettings.householdIncome : undefined,
@@ -508,6 +538,7 @@ export function LeasingAISettingsPanel({
         <div className="mx-auto max-w-3xl space-y-8">
           <GroupHeading label="Leasing AI Settings" />
           <SectionConversationMode state={state} update={update} appModeEligible={appModeEligible} />
+          <SectionTourPriority state={state} update={update} />
           <SectionPreQualification state={state} update={update} />
           <SectionAffordable state={state} update={update} setState={setState} />
         </div>
@@ -607,6 +638,89 @@ function SectionConversationMode({ state, update, appModeEligible }: {
                 </div>
               )}
             </button>
+          )
+        })}
+      </div>
+    </SectionShell>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Tour Priority
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function SectionTourPriority({ state, update }: {
+  state: PanelState
+  update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
+}) {
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
+  const [overIndex, setOverIndex] = useState<number | null>(null)
+
+  const move = (from: number, to: number) => {
+    if (from === to || to < 0 || to >= state.tourPriority.length) return
+    const next = [...state.tourPriority]
+    const [item] = next.splice(from, 1)
+    next.splice(to, 0, item)
+    update("tourPriority", next)
+  }
+
+  const resetDrag = () => {
+    setDragIndex(null)
+    setOverIndex(null)
+  }
+
+  return (
+    <SectionShell
+      icon={ListOrdered}
+      title="Tour Priority"
+      description="Top card is the highest priority, bottom card is the lowest. Drag to reorder the tour types ELI+ offers first."
+    >
+      <div className="space-y-2">
+        {state.tourPriority.map((tour, i) => {
+          const isDragging = dragIndex === i
+          const isDropTarget = overIndex === i && dragIndex !== null && dragIndex !== i
+          return (
+            <div
+              key={tour}
+              draggable
+              tabIndex={0}
+              role="button"
+              aria-label={`${TOUR_TYPE_LABELS[tour]}, priority ${i + 1} of ${state.tourPriority.length}. Use arrow up or down to reorder.`}
+              onDragStart={(e) => {
+                setDragIndex(i)
+                e.dataTransfer.effectAllowed = "move"
+              }}
+              onDragOver={(e) => {
+                e.preventDefault()
+                e.dataTransfer.dropEffect = "move"
+                setOverIndex(i)
+              }}
+              onDrop={(e) => {
+                e.preventDefault()
+                if (dragIndex !== null) move(dragIndex, i)
+                resetDrag()
+              }}
+              onDragEnd={resetDrag}
+              onKeyDown={(e) => {
+                if (e.key === "ArrowUp") {
+                  e.preventDefault()
+                  move(i, i - 1)
+                } else if (e.key === "ArrowDown") {
+                  e.preventDefault()
+                  move(i, i + 1)
+                }
+              }}
+              className={cn(
+                "flex items-center gap-3 rounded-lg border bg-white px-4 py-3.5 transition-all cursor-grab active:cursor-grabbing focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900",
+                isDragging && "opacity-50",
+                isDropTarget
+                  ? "border-zinc-900 ring-1 ring-zinc-900"
+                  : "border-border hover:border-zinc-400",
+              )}
+            >
+              <GripVertical className="h-4 w-4 shrink-0 text-zinc-400" aria-hidden />
+              <span className="text-sm font-medium text-foreground">{TOUR_TYPE_LABELS[tour]}</span>
+            </div>
           )
         })}
       </div>
