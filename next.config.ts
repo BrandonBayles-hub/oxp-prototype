@@ -1,11 +1,13 @@
 import path from "path";
 import { fileURLToPath } from "url";
 import type { NextConfig } from "next";
-// const basePath = process.env.STACK_NAME === "staging" ? "/oxp-prototype" : "";
-// const assetPrefix = process.env.STACK_NAME === "staging" ? "/oxp-prototype/" : "";
+const basePath = process.env.STACK_NAME === "staging" ? "/oxp-prototype" : "";
+const assetPrefix = process.env.STACK_NAME === "staging" ? "/oxp-prototype/" : "";
 const nextConfig: NextConfig = {
   output: "export",
   trailingSlash: true,
+  basePath,
+  assetPrefix,
   devIndicators: false,
   outputFileTracingRoot: path.join(__dirname),
   transpilePackages: [
