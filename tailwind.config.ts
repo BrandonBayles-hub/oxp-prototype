@@ -1,4 +1,6 @@
 import type { Config } from "tailwindcss";
+import tailwindcssAnimate from "tailwindcss-animate";
+import typography from "@tailwindcss/typography";
 
 const config: Config = {
   darkMode: ["class"],
@@ -9,6 +11,10 @@ const config: Config = {
   ],
   theme: {
   	extend: {
+  		fontSize: {
+  			// Named micro tier so we avoid arbitrary text-[Npx] utilities. 11px/14px.
+  			xxs: ['0.6875rem', { lineHeight: '0.875rem' }],
+  		},
   		fontFamily: {
   			heading: [
   				'Plus Jakarta Sans',
@@ -27,6 +33,10 @@ const config: Config = {
   		colors: {
   			background: 'hsl(var(--background))',
   			foreground: 'hsl(var(--foreground))',
+  			'eli-purple': '#9B6FF4',
+  			'eli-pink': '#D975EB',
+  			'eli-warm-bg': 'hsl(var(--eli-warm-bg))',
+  			'eli-warm-bg-foreground': 'hsl(var(--eli-warm-bg-foreground))',
   			muted: {
   				DEFAULT: 'hsl(var(--muted))',
   				foreground: 'hsl(var(--muted-foreground))'
@@ -57,6 +67,29 @@ const config: Config = {
   				DEFAULT: 'hsl(var(--destructive))',
   				foreground: 'hsl(var(--destructive-foreground))'
   			},
+  			/* Semantic status tokens (from prototype-sandbox): one hue per
+  			   meaning — error/warning/success/info as soft bg + fg + border. */
+  			'status-error': {
+  				DEFAULT: 'hsl(var(--status-error))',
+  				foreground: 'hsl(var(--status-error-foreground))',
+  				border: 'hsl(var(--status-error-border))'
+  			},
+  			'status-warning': {
+  				DEFAULT: 'hsl(var(--status-warning))',
+  				foreground: 'hsl(var(--status-warning-foreground))',
+  				border: 'hsl(var(--status-warning-border))'
+  			},
+  			'status-success': {
+  				DEFAULT: 'hsl(var(--status-success))',
+  				foreground: 'hsl(var(--status-success-foreground))',
+  				border: 'hsl(var(--status-success-border))'
+  			},
+  			'status-info': {
+  				DEFAULT: 'hsl(var(--status-info))',
+  				foreground: 'hsl(var(--status-info-foreground))',
+  				border: 'hsl(var(--status-info-border))'
+  			},
+  			progress: 'hsl(var(--progress-indicator))',
   			input: 'hsl(var(--input))',
   			chart: {
   				'1': 'hsl(var(--chart-1))',
@@ -74,7 +107,7 @@ const config: Config = {
   		}
   	}
   },
-  plugins: [require("tailwindcss-animate"), require("@tailwindcss/typography")],
+  plugins: [tailwindcssAnimate, typography],
 };
 
 export default config;

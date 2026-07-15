@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import {
@@ -29,8 +29,9 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import { ThumbsUp, ThumbsDown, MessageSquare, CheckCircle, XCircle, Pencil, FileText, ChevronDown, ArrowRight } from "lucide-react";
+import { ThumbsUp, ThumbsDown, MessageSquare, CheckCircle, XCircle, Pencil, FileText, ChevronDown, ArrowRight, Calendar, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { useAgents } from "@/lib/agents-context";
 import { useEscalations } from "@/lib/escalations-context";
 import { useWorkforce } from "@/lib/workforce-context";
@@ -107,19 +108,21 @@ function useTrendData(period: string, anchors: TrendAnchors) {
   }, [points, anchors.conversations, anchors.escalationRate, anchors.agentPct, anchors.humanPct]);
 }
 
-function usePerformanceMetrics(propertyFilter: string) {
+function usePerformanceMetrics(selectedKey: string, isAll: boolean) {
   const { agents } = useAgents();
   const { items } = useEscalations();
   const { members } = useWorkforce();
   const { items: feedbackItems } = useFeedback();
 
   return useMemo(() => {
-    const scopedAgents = propertyFilter === "All"
+    const selected = new Set(selectedKey ? selectedKey.split("|") : []);
+    const useAll = isAll || selected.size === 0;
+    const scopedAgents = useAll
       ? agents
-      : agents.filter((a) => a.scope === "All properties" || a.scope.includes(propertyFilter));
-    const scopedItems = propertyFilter === "All"
+      : agents.filter((a) => a.scope === "All properties" || Array.from(selected).some((p) => a.scope.includes(p)));
+    const scopedItems = useAll
       ? items
-      : items.filter((i) => i.property === propertyFilter || i.property === "Portfolio");
+      : items.filter((i) => i.property === "Portfolio" || selected.has(i.property));
 
     const activeAgents = scopedAgents.filter((a) => a.status === "Active");
     const autonomousAgents = scopedAgents.filter((a) => a.type === "autonomous");
@@ -430,7 +433,7 @@ function usePerformanceMetrics(propertyFilter: string) {
     ];
 
     return { efficiencyMetrics, assetMetrics, impactByType, topAgents, insights, outcomeNarratives, assetValueChain, totalConversations, escalationRate, agentPct, humanPct };
-  }, [agents, items, members, feedbackItems, propertyFilter]);
+  }, [agents, items, members, feedbackItems, selectedKey, isAll]);
 }
 
 const conversationsChartConfig = { conversations: { label: "Conversations", color: "hsl(var(--chart-1))" } } satisfies ChartConfig;
@@ -447,19 +450,163 @@ const AI_ONLY_EFFICIENCY_IDS = new Set([
   "units_without_ai",
 ]);
 
+function PeriodPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-sm",
+          open ? "border-primary/50 ring-1 ring-primary/20" : "border-border",
+        )}
+      >
+        <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="text-muted-foreground">Period:</span>
+        <span className="font-semibold text-foreground">{value}</span>
+        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 top-full z-20 mt-1 w-[14rem] rounded-md border border-border bg-popover p-1 shadow-lg">
+            {PERIODS.map((opt) => (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => {
+                  onChange(opt);
+                  setOpen(false);
+                }}
+                className={cn(
+                  "block w-full rounded px-3 py-1.5 text-left text-sm hover:bg-muted",
+                  value === opt && "bg-muted font-medium",
+                )}
+              >
+                {opt}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function PropertiesPicker({
+  options,
+  selected,
+  setSelected,
+}: {
+  options: string[];
+  selected: Set<string>;
+  setSelected: (s: Set<string>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const allSelected = options.length > 0 && selected.size === options.length;
+  const label =
+    allSelected || selected.size === 0
+      ? "All"
+      : `${selected.size} selected`;
+
+  const filtered = options.filter((p) =>
+    p.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  function toggle(p: string) {
+    const next = new Set(selected);
+    if (next.has(p)) next.delete(p);
+    else next.add(p);
+    setSelected(next);
+  }
+
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(options));
+  }
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-sm",
+          open ? "border-primary/50 ring-1 ring-primary/20" : "border-border",
+        )}
+      >
+        <span className="text-muted-foreground">Properties:</span>
+        <span className="font-semibold text-foreground">{label}</span>
+        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 top-full z-20 mt-1 w-[18rem] rounded-md border border-border bg-popover p-2 shadow-lg">
+            <div className="relative mb-2">
+              <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search properties..."
+                className="w-full rounded-md border border-border bg-background pl-7 pr-2 py-1.5 text-sm"
+              />
+            </div>
+            <div className="max-h-[16rem] overflow-y-auto">
+              <label className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleAll}
+                  className="h-4 w-4 rounded border-border"
+                />
+                <span className="text-sm font-medium">All Properties</span>
+              </label>
+              {filtered.map((p) => (
+                <label key={p} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(p)}
+                    onChange={() => toggle(p)}
+                    className="h-4 w-4 rounded border-border"
+                  />
+                  <span className="text-sm">{p}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function PerformancePage() {
   const { role } = useRole();
   const { filteredItems: conversations } = useConversations();
   const isPropertyRole = role === "property";
 
-  const properties = useMemo(() => {
+  const propertyOptions = useMemo(() => {
     const set = new Set(conversations.map((c) => c.property));
-    return ["All", ...Array.from(set).sort()];
+    return Array.from(set).sort();
   }, [conversations]);
 
   const [period, setPeriod] = useState("Last 7 days");
-  const [propertyFilter, setPropertyFilter] = useState("All");
-  const perf = usePerformanceMetrics(propertyFilter);
+  const [selectedProperties, setSelectedProperties] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    setSelectedProperties((prev) => (prev.size === 0 ? new Set(propertyOptions) : prev));
+  }, [propertyOptions]);
+
+  const allSelected = propertyOptions.length > 0 && selectedProperties.size === propertyOptions.length;
+  const selectedKey = useMemo(
+    () => Array.from(selectedProperties).sort().join("|"),
+    [selectedProperties],
+  );
+  const perf = usePerformanceMetrics(selectedKey, allSelected);
   const trendData = useTrendData(period, {
     conversations: perf.totalConversations,
     escalationRate: perf.escalationRate,
@@ -471,6 +618,10 @@ export default function PerformancePage() {
     ? perf.efficiencyMetrics.filter((m) => !AI_ONLY_EFFICIENCY_IDS.has(m.id))
     : perf.efficiencyMetrics;
 
+  // Temporarily hidden per design review — code retained for easy restore.
+  const showValueBanner = false;
+  const showAssetImpact = false;
+
   return (
     <>
       <PageHeader
@@ -479,31 +630,18 @@ export default function PerformancePage() {
       />
 
 
-      {!isPropertyRole && <ValueYoureMissingBanner />}
+      {showValueBanner && !isPropertyRole && <ValueYoureMissingBanner />}
 
-      <div className="mb-6 flex flex-wrap items-center gap-3">
-        <select
-          value={period}
-          onChange={(e) => setPeriod(e.target.value)}
-          className="select-base w-auto min-w-[11rem]"
-        >
-          {PERIODS.map((p) => (
-            <option key={p} value={p}>{p}</option>
-          ))}
-        </select>
-        <select
-          value={propertyFilter}
-          onChange={(e) => setPropertyFilter(e.target.value)}
-          className="select-base w-auto min-w-[11rem]"
-          aria-label="Filter by property"
-        >
-          {properties.map((p) => (
-            <option key={p} value={p}>{p === "All" ? "All properties" : p}</option>
-          ))}
-        </select>
+      <div className="mb-6 flex flex-wrap items-center gap-2">
+        <PeriodPicker value={period} onChange={setPeriod} />
+        <PropertiesPicker
+          options={propertyOptions}
+          selected={selectedProperties}
+          setSelected={setSelectedProperties}
+        />
       </div>
 
-      {!isPropertyRole && (
+      {showAssetImpact && !isPropertyRole && (
         <section className="mb-8">
           <h2 className="section-title mb-4">Asset & revenue impact</h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -529,57 +667,10 @@ export default function PerformancePage() {
         </section>
       )}
 
-      {!isPropertyRole && (
-        <section className="mb-8">
-          <h2 className="section-title mb-4">How AI is driving asset value</h2>
-          <div className="grid gap-4 lg:grid-cols-3">
-            {perf.assetValueChain.map((chain) => (
-              <Card key={chain.id} className={`border-border/60 ${!chain.active ? "opacity-70" : ""}`}>
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="flex items-center gap-1.5 text-base">
-                      {chain.active && <img src="/eli-cube.svg" alt="" width={16} height={16} className="shrink-0" />}
-                      {chain.area}
-                    </CardTitle>
-                    <div className="text-right">
-                      <p className="text-lg font-bold text-foreground">{chain.value}</p>
-                      <p className="text-[10px] text-muted-foreground">{chain.valueSub}</p>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {chain.steps.map((step, idx) => (
-                      <div key={step.label} className="flex items-start gap-2">
-                        {idx > 0 && (
-                          <ArrowRight className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground/60" />
-                        )}
-                        {idx === 0 && (
-                          <div className="mt-0.5 h-3 w-3 shrink-0" />
-                        )}
-                        <div className="min-w-0">
-                          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{step.label}</p>
-                          <p className="text-sm text-foreground">{step.detail}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  {!chain.active && (
-                    <Link href="/agent-roster" className="mt-3 inline-block text-xs font-medium text-foreground underline hover:no-underline">
-                      Enable in Agent Roster →
-                    </Link>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </section>
-      )}
-
       <section className="mb-8">
         <Card className="border-border/60">
           <CardHeader>
-            <CardTitle className="text-base">PM health</CardTitle>
+            <CardTitle className="text-base">Property and portfolio health</CardTitle>
             <CardDescription>Key property management KPIs (portfolio)</CardDescription>
           </CardHeader>
           <CardContent>
@@ -606,6 +697,65 @@ export default function PerformancePage() {
           </CardContent>
         </Card>
       </section>
+
+      {!isPropertyRole && (
+        <section className="mb-8">
+          <h2 className="section-title mb-4">How AI is driving value</h2>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {perf.assetValueChain.map((chain) => {
+              if (chain.id === "renewals") {
+                return <RenewalsImpactCard key={chain.id} />;
+              }
+              if (chain.id === "leasing") {
+                return <LeasingImpactCard key={chain.id} />;
+              }
+              if (chain.id === "maintenance") {
+                return <MaintenanceImpactCard key={chain.id} />;
+              }
+              return (
+                <Card key={chain.id} className={`border-border/60 ${!chain.active ? "opacity-70" : ""}`}>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="flex items-center gap-1.5 text-base">
+                        {chain.active && <img src="/eli-cube.svg" alt="" width={16} height={16} className="shrink-0" />}
+                        {chain.area}
+                      </CardTitle>
+                      <div className="text-right">
+                        <p className="text-lg font-bold text-foreground">{chain.value}</p>
+                        <p className="text-[10px] text-muted-foreground">{chain.valueSub}</p>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {chain.steps.map((step, idx) => (
+                        <div key={step.label} className="flex items-start gap-2">
+                          {idx > 0 && (
+                            <ArrowRight className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground/60" />
+                          )}
+                          {idx === 0 && (
+                            <div className="mt-0.5 h-3 w-3 shrink-0" />
+                          )}
+                          <div className="min-w-0">
+                            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{step.label}</p>
+                            <p className="text-sm text-foreground">{step.detail}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {!chain.active && (
+                      <Link href="/agent-roster" className="mt-3 inline-block text-xs font-medium text-foreground underline hover:no-underline">
+                        Enable in Agent Roster →
+                      </Link>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+            <PaymentsImpactCard />
+          </div>
+        </section>
+      )}
 
       <section className="mb-8">
         <h2 className="section-title mb-4">Efficiency & capacity</h2>
@@ -691,7 +841,7 @@ export default function PerformancePage() {
           <Card className="border-border/60">
             <CardHeader>
               <CardTitle className="text-base">Agent performance</CardTitle>
-              <CardDescription>By agent type — conversations, resolution, and revenue</CardDescription>
+              <CardDescription>By agent type — conversations and resolution</CardDescription>
             </CardHeader>
             <CardContent>
               {perf.topAgents.length > 0 ? (
@@ -702,7 +852,7 @@ export default function PerformancePage() {
                         <span className="text-xs font-medium text-muted-foreground">#{idx + 1}</span>
                         <span className="font-medium text-foreground">{agent.name}</span>
                       </div>
-                      <div className="mt-2 grid grid-cols-3 gap-2">
+                      <div className="mt-2 grid grid-cols-2 gap-2">
                         <div>
                           <p className="text-xs text-muted-foreground">Conversations</p>
                           <p className="text-sm font-semibold text-foreground">{agent.conversations}</p>
@@ -710,10 +860,6 @@ export default function PerformancePage() {
                         <div>
                           <p className="text-xs text-muted-foreground">Resolution</p>
                           <p className="text-sm font-semibold text-foreground">{agent.resolutionRate}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Revenue</p>
-                          <p className="text-sm font-semibold text-foreground">{agent.revenueImpact}</p>
                         </div>
                       </div>
                     </Link>
@@ -735,7 +881,6 @@ export default function PerformancePage() {
                       <th className="pb-2 text-left font-medium text-muted-foreground">Type</th>
                       <th className="pb-2 pl-6 text-left font-medium text-muted-foreground" colSpan={2}>Conversations</th>
                       <th className="pb-2 pl-6 text-left font-medium text-muted-foreground whitespace-nowrap" colSpan={2}>Resolution rate</th>
-                      <th className="pb-2 pl-6 text-right font-medium text-muted-foreground">Revenue impact</th>
                     </tr>
                     <tr className="border-b border-border/40">
                       <th className="pb-1.5" />
@@ -743,7 +888,6 @@ export default function PerformancePage() {
                       <th className="pb-1.5 pr-12 w-[3.5rem] text-left text-[10px] font-medium text-muted-foreground">Human</th>
                       <th className="pb-1.5 pl-6 pr-2 w-[3.5rem] text-left text-[10px] font-medium text-muted-foreground">AI</th>
                       <th className="pb-1.5 pr-12 w-[3.5rem] text-left text-[10px] font-medium text-muted-foreground">Human</th>
-                      <th className="pb-1.5 pl-6 text-right text-[10px] font-medium text-muted-foreground">AI</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -755,12 +899,11 @@ export default function PerformancePage() {
                           <td className="py-2 pr-12 text-left text-muted-foreground">{row.humanConversations}</td>
                           <td className="py-2 pl-6 pr-2 text-left text-foreground">{row.resolutionRate}</td>
                           <td className="py-2 pr-12 text-left text-muted-foreground">{row.humanResolutionRate}</td>
-                          <td className="py-2 pl-6 text-right text-foreground">{row.revenueImpact}</td>
                         </tr>
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={6} className="py-6 text-center text-sm text-muted-foreground">
+                        <td colSpan={5} className="py-6 text-center text-sm text-muted-foreground">
                           No agent performance data yet.
                         </td>
                       </tr>
@@ -807,6 +950,266 @@ export default function PerformancePage() {
 
       {!isPropertyRole && <FeedbackReviewSection />}
     </>
+  );
+}
+
+type DeltaTone = "emerald" | "blue";
+
+interface BeforeAfterMetric {
+  id: string;
+  kind: "beforeAfter";
+  label: string;
+  sub: string;
+  before: string;
+  after: string;
+  delta: string;
+  deltaTone: DeltaTone;
+}
+
+interface SingleValueMetric {
+  id: string;
+  kind: "single";
+  label: string;
+  sub: string;
+  value: string;
+  valueSub?: string;
+}
+
+type ImpactMetric = BeforeAfterMetric | SingleValueMetric;
+
+interface ImpactCardProps {
+  title: string;
+  href: string;
+  metrics: ImpactMetric[];
+}
+
+const DELTA_TONE_CLASS: Record<DeltaTone, string> = {
+  emerald: "bg-emerald-50 text-emerald-700",
+  blue: "bg-blue-50 text-blue-700",
+};
+
+function ImpactCard({ title, href, metrics }: ImpactCardProps) {
+  return (
+    <Card className="relative overflow-hidden border-border/60">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-300"
+      />
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-1.5 text-base">
+            <img src="/eli-cube.svg" alt="" width={16} height={16} className="shrink-0" />
+            {title}
+          </CardTitle>
+          <Link
+            href={href}
+            className="inline-flex items-center gap-0.5 text-xs font-medium text-foreground underline underline-offset-2 hover:no-underline"
+          >
+            View dashboard →
+          </Link>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-2">
+          {metrics.map((m) => (
+            <div
+              key={m.id}
+              className="flex items-center justify-between gap-3 rounded-lg bg-muted/50 px-3 py-2.5"
+            >
+              <div className="min-w-0">
+                <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {m.label}
+                </p>
+                <p className="text-xs text-muted-foreground">{m.sub}</p>
+              </div>
+              {m.kind === "beforeAfter" ? (
+                <div className="flex items-center gap-2 whitespace-nowrap">
+                  <span className="text-sm text-muted-foreground">{m.before}</span>
+                  <ArrowRight className="h-3 w-3 text-emerald-500" />
+                  <span className="text-sm font-semibold text-foreground">{m.after}</span>
+                  <span
+                    className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${DELTA_TONE_CLASS[m.deltaTone]}`}
+                  >
+                    {m.delta}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 whitespace-nowrap">
+                  <span className="text-sm font-semibold text-foreground">{m.value}</span>
+                  {m.valueSub && (
+                    <span className="text-[10px] text-muted-foreground">{m.valueSub}</span>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+const RENEWALS_IMPACT_METRICS: ImpactMetric[] = [
+  {
+    id: "renewal_rate",
+    kind: "beforeAfter",
+    label: "Renewal rate",
+    sub: "before \u2192 after AI",
+    before: "64%",
+    after: "74%",
+    delta: "+10 pts",
+    deltaTone: "emerald",
+  },
+  {
+    id: "days_before_lease_end",
+    kind: "beforeAfter",
+    label: "Days before lease end",
+    sub: "renewal signed earlier",
+    before: "42d",
+    after: "68d",
+    delta: "+26d",
+    deltaTone: "blue",
+  },
+  {
+    id: "fully_automated",
+    kind: "single",
+    label: "Fully automated",
+    sub: "no human intervention",
+    value: "62%",
+    valueSub: "(1,499 of 2,418)",
+  },
+];
+
+const LEASING_IMPACT_METRICS: ImpactMetric[] = [
+  {
+    id: "lead_to_lease",
+    kind: "beforeAfter",
+    label: "Lead-to-lease conversion",
+    sub: "before \u2192 after AI",
+    before: "9%",
+    after: "14%",
+    delta: "+5 pts",
+    deltaTone: "emerald",
+  },
+  {
+    id: "time_to_lease",
+    kind: "beforeAfter",
+    label: "Time to lease",
+    sub: "lead created \u2192 lease signed",
+    before: "32d",
+    after: "18d",
+    delta: "-14d",
+    deltaTone: "blue",
+  },
+  {
+    id: "fully_automated_leasing",
+    kind: "single",
+    label: "Fully automated",
+    sub: "no human intervention",
+    value: "48%",
+    valueSub: "(920 of 1,920)",
+  },
+];
+
+function RenewalsImpactCard() {
+  return (
+    <ImpactCard
+      title="Renewals"
+      href="/performance/renewals-ai"
+      metrics={RENEWALS_IMPACT_METRICS}
+    />
+  );
+}
+
+function LeasingImpactCard() {
+  return (
+    <ImpactCard
+      title="Leasing"
+      href="/performance/leasing-ai"
+      metrics={LEASING_IMPACT_METRICS}
+    />
+  );
+}
+
+const MAINTENANCE_IMPACT_METRICS: ImpactMetric[] = [
+  {
+    id: "wo_completion_time",
+    kind: "beforeAfter",
+    label: "Avg days to complete",
+    sub: "before \u2192 after AI",
+    before: "6.8d",
+    after: "4.2d",
+    delta: "-2.6d",
+    deltaTone: "blue",
+  },
+  {
+    id: "wo_deflected",
+    kind: "beforeAfter",
+    label: "Work orders deflected",
+    sub: "resolved via AI self-service",
+    before: "25.2%",
+    after: "31.4%",
+    delta: "+6.2 pts",
+    deltaTone: "emerald",
+  },
+  {
+    id: "fully_automated_maintenance",
+    kind: "single",
+    label: "Fully automated",
+    sub: "no human intervention",
+    value: "50.4%",
+    valueSub: "(2,438 of 4,842)",
+  },
+];
+
+function MaintenanceImpactCard() {
+  return (
+    <ImpactCard
+      title="Maintenance"
+      href="/performance/maintenance-ai"
+      metrics={MAINTENANCE_IMPACT_METRICS}
+    />
+  );
+}
+
+const PAYMENTS_IMPACT_METRICS: ImpactMetric[] = [
+  {
+    id: "rent_collected",
+    kind: "beforeAfter",
+    label: "% of rent collected",
+    sub: "before \u2192 after AI",
+    before: "91.0%",
+    after: "94.2%",
+    delta: "+3.2 pts",
+    deltaTone: "emerald",
+  },
+  {
+    id: "avg_late_payers",
+    kind: "beforeAfter",
+    label: "Avg late payers / property",
+    sub: "after the grace period",
+    before: "186",
+    after: "142",
+    delta: "-44",
+    deltaTone: "blue",
+  },
+  {
+    id: "fully_automated_payments",
+    kind: "single",
+    label: "Fully automated",
+    sub: "reminders sent without office handoff",
+    value: "89%",
+    valueSub: "(37,580 of 42,180)",
+  },
+];
+
+function PaymentsImpactCard() {
+  return (
+    <ImpactCard
+      title="Payments"
+      href="/performance/payments-ai"
+      metrics={PAYMENTS_IMPACT_METRICS}
+    />
   );
 }
 

@@ -185,3 +185,170 @@
     display: none !important;
   }
 }
+
+/* Entrata Marketplace styles — scoped to .marketplace-root so they
+   never leak into OXP Studio surfaces. */
+.marketplace-root {
+  --entrata: 358 73% 51%;
+  --entrata-foreground: 0 0% 100%;
+
+  --warm-light: 0 0% 96.1%;
+  --warm-mid: 0 0% 64%;
+  --warm-dark: 0 0% 32.2%;
+
+  --success: 152 81% 96%;
+  --success-foreground: 161 94% 24%;
+  --info: 214 100% 97%;
+  --info-foreground: 224 76% 48%;
+  --premium: 250 100% 98%;
+  --premium-foreground: 263 70% 50%;
+  --warning: 48 100% 96%;
+  --warning-foreground: 32 95% 36%;
+  --featured: 45 96% 89%;
+  --featured-foreground: 32 81% 29%;
+  --featured-ring: 32 81% 29%;
+  --tier-strategic: 45 96% 89%;
+  --tier-strategic-foreground: 32 81% 29%;
+  --tier-preferred: 214 95% 93%;
+  --tier-preferred-foreground: 226 71% 40%;
+
+  font-family: var(--font-geist-sans, Inter), system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.marketplace-root ::selection {
+  background: hsl(var(--entrata));
+  color: hsl(var(--entrata-foreground));
+}
+.marketplace-root .glass {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.marketplace-root .noise::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  pointer-events: none;
+}
+.marketplace-root .grid-pattern {
+  background-image:
+    linear-gradient(rgba(255,255,255,.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.03) 1px, transparent 1px);
+  background-size: 64px 64px;
+}
+.marketplace-root .card-glow {
+  transition: all 0.3s ease;
+}
+.marketplace-root .card-glow:hover {
+  box-shadow: 0 0 0 1px rgba(228, 33, 39, 0.1), 0 8px 40px -12px rgba(0, 0, 0, 0.15);
+}
+
+/* ===== Knowledge Hub (ported from OXP-Version-Two) =====
+   Additive-only: new semantic status tokens, Eli/AI tokens, and the Eli
+   gradient-border helpers required by the Knowledge Hub page. No existing
+   tokens are modified, so every other surface renders unchanged. */
+@layer utilities {
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+:root {
+  /* Semantic status tokens: soft surface + dark foreground + border. */
+  --status-error: 357 64% 90%;
+  --status-error-foreground: 357 64% 30%;
+  --status-error-border: 357 64% 80%;
+  --status-warning: 43 100% 90%;
+  --status-warning-foreground: 43 100% 24%;
+  --status-warning-border: 43 100% 70%;
+  --status-success: 127 22% 90%;
+  --status-success-foreground: 127 22% 32%;
+  --status-success-border: 127 22% 80%;
+  --status-info: 207 73% 90%;
+  --status-info-foreground: 207 73% 30%;
+  --status-info-border: 207 73% 80%;
+  --progress-indicator: 127 30% 42%;
+  /* Eli / AI-generated content tokens. */
+  --eli-purple: #9B6FF4;
+  --eli-purple-dark: #5726BA;
+  --eli-blue: #2F6FF2;
+  --eli-magenta: #C454E0;
+  --eli-pink: #D975EB;
+  --eli-red: #E42127;
+  --eli-warm-bg: 30 60% 97%;
+  --eli-warm-bg-foreground: 30 20% 30%;
+}
+
+.dark {
+  --status-error: 357 50% 20%;
+  --status-error-foreground: 357 70% 80%;
+  --status-error-border: 357 50% 35%;
+  --status-warning: 43 70% 16%;
+  --status-warning-foreground: 43 90% 70%;
+  --status-warning-border: 43 70% 32%;
+  --status-success: 127 25% 16%;
+  --status-success-foreground: 127 30% 72%;
+  --status-success-border: 127 25% 30%;
+  --status-info: 207 60% 18%;
+  --status-info-foreground: 207 70% 78%;
+  --status-info-border: 207 60% 34%;
+  --progress-indicator: 127 28% 48%;
+  --eli-warm-bg: 30 20% 12%;
+  --eli-warm-bg-foreground: 30 20% 80%;
+}
+
+/* Reserve the scrollbar gutter so content width stays identical whether or not
+   a vertical scrollbar is present (prevents toolbar layout shift). */
+.scrollbar-gutter-stable {
+  scrollbar-gutter: stable;
+}
+
+/* ===== Eli gradient border =====
+   Tier 1 = animated ring (Eli processing); Tier 2 = static ring (Eli generated). */
+@property --eli-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes eli-border-rotate {
+  to { --eli-angle: 360deg; }
+}
+.eli-gradient-border-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2px;
+  opacity: 0.5;
+  background: conic-gradient(
+    from var(--eli-angle),
+    var(--eli-purple), var(--eli-blue), var(--eli-magenta),
+    var(--eli-red), var(--eli-pink), var(--eli-purple-dark), var(--eli-purple)
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: eli-border-rotate 30s linear infinite;
+  pointer-events: none;
+}
+.eli-gradient-border-ring-static {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2px;
+  opacity: 0.5;
+  background: conic-gradient(
+    from 135deg,
+    var(--eli-purple), var(--eli-blue), var(--eli-magenta),
+    var(--eli-red), var(--eli-pink), var(--eli-purple-dark), var(--eli-purple)
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}

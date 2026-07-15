@@ -33,8 +33,7 @@ import { useTools } from "@/lib/tools-context";
 import { useGovernance } from "@/lib/governance-context";
 import { useAgentCompliance } from "@/lib/use-agent-compliance";
 import { useR1Release } from "@/lib/r1-release-context";
-import { useR1_2Release } from "@/lib/r1-2-release-context";
-import { Tag, X, Search, DollarSign, Megaphone, Users, Wrench, ShieldCheck, Power, Activity, AlertCircle, Play, Clock, CheckCircle, CheckCircle2, XCircle, Calendar, Lightbulb, Target, Database, BarChart3, Pencil, Save, ArrowLeft, ArrowRight, Sparkles, BookOpen, Cog, Bot, Box, MessageSquare, Shield, Zap, Eye, EyeOff, Globe, Mail, Phone, Volume2, History, RotateCcw, Lock, ExternalLink, CirclePlay, TrendingUp, TrendingDown, Minus, ArrowUpDown, ChevronDown, ChevronUp, Building2, Layers, Home, Plus, Info } from "lucide-react";
+import { Tag, X, Search, DollarSign, Megaphone, Users, Wrench, ShieldCheck, Power, Activity, AlertCircle, Play, Clock, CheckCircle, CheckCircle2, XCircle, Calendar, Lightbulb, Target, Database, BarChart3, Pencil, Save, ArrowLeft, ArrowRight, Sparkles, BookOpen, Cog, Bot, Box, MessageSquare, Shield, Zap, Eye, EyeOff, Globe, Mail, Phone, Volume2, History, RotateCcw, Lock, ExternalLink, CirclePlay, TrendingUp, TrendingDown, Minus, ArrowUpDown, ChevronDown, ChevronUp, Building2, Layers, Home, Plus, Info, Trash2, Copy, Star } from "lucide-react";
 import {
   useVoice,
   NOVA2_VOICES,
@@ -44,6 +43,7 @@ import {
   type AgentToneId,
   type AgentVoiceTuning,
   type VoiceSettings,
+  type ToneSettings,
 } from "@/lib/voice-context";
 import { Chat, type ChatMessage, type ChatSource, type ChatToolCall } from "@/components/ui/chat";
 
@@ -61,8 +61,11 @@ import { MaintenanceFullPage } from "@/components/eli-plus-setup/pages/Maintenan
 import { RenewalsFullPage } from "@/components/eli-plus-setup/pages/RenewalsFullPage";
 import { LeasingAISettingsPanel } from "@/components/leasing-ai-settings-panel";
 import { MaintenanceAISettingsPanel } from "@/components/maintenance-ai-settings-panel";
+import { RenewalsAISettingsPanel } from "@/components/renewals-ai-settings-panel";
+import { InternalDemoPanel } from "@/components/internal-demo-panel";
 import { LeadToLeaseSettings } from "@/components/lead-to-lease-settings";
 import { L3AgentSheet, getL3AgentConfig } from "@/components/l3-agent-flyout";
+import { ExpertsConfigSheet } from "@/components/entrata-experts-v2/admin/experts-config-sheet";
 
 const DATA_SOURCE_OPTIONS = [
   "Entrata Ledger",
@@ -96,6 +99,37 @@ const TEMPLATES: { name: string; bucket: (typeof BUCKETS)[number]; type: AgentTy
   { name: "Payments AI", bucket: "Revenue & Financial Management", type: "autonomous" },
   { name: "Custom (from scratch)", bucket: BUCKETS[0], type: "autonomous" },
 ];
+
+// Four ELI+ L4 agents that are always anchored at the top of the roster,
+// just below the L5 "Autonomous Lease Progression" hero. Order is intentional.
+const PINNED_ELI_PLUS_ORDER = [
+  "Maintenance AI",
+  "Payments AI",
+  "Leasing AI",
+  "Renewal AI",
+] as const;
+const PINNED_ELI_PLUS_NAMES = new Set<string>(PINNED_ELI_PLUS_ORDER);
+
+// Curated section ordering for the default (unfiltered) roster view. These drive
+// the "Trending" and "Most Popular" groupings shown when no filters/search are
+// active. Names must match agent names in agents-context.tsx exactly.
+const TRENDING_AGENT_NAMES = [
+  "Rebuild Renewal Offers When Pricing Changes",
+  "Create Draw Request",
+  "Countersign Individual Docs",
+  "Advance Period Select All AP Agent",
+  "Installation Complete Update",
+  "Business License Bulk Update",
+] as const;
+
+const MOST_POPULAR_AGENT_NAMES = [
+  "Lifecycle Status Update",
+  "Approve Applications",
+  "Approve for Payment",
+  "Activate & Sync Templates",
+  "Renewal Offer Creation",
+  "Advance Accounting Periods",
+] as const;
 
 const CHANNEL_OPTIONS = [
   { value: "Chat", icon: MessageSquare },
@@ -238,8 +272,7 @@ function AgentRosterContent() {
   };
   const [bucketFilter, setBucketFilter] = useState("All");
   const { isR1Release } = useR1Release();
-  const { isR1_2Release } = useR1_2Release();
-  const isFullVersion = !isR1Release && !isR1_2Release;
+  const isFullVersion = !isR1Release;
   const [statusFilter, setStatusFilter] = useState("All");
   const [typeFilter, setTypeFilter] = useState<AgentType | "All">("All");
   const [sortBy, setSortBy] = useState<"level" | "most_used" | "trending">("level");
@@ -255,12 +288,14 @@ function AgentRosterContent() {
   const [leadToLeaseOpen, setLeadToLeaseOpen] = useState(false);
   const [leadToLeaseActivateOpen, setLeadToLeaseActivateOpen] = useState(false);
   const [l3AgentId, setL3AgentId] = useState<string | null>(null);
+  const [expertsConfigOpen, setExpertsConfigOpen] = useState(false);
   const [expandedBucket, setExpandedBucket] = useState<string | null>(null);
   const [videoAgentName, setVideoAgentName] = useState<string | null>(null);
   const [cardSortBy, setCardSortBy] = useState<"recently_added" | "name" | "level">("recently_added");
   const [selectedBuckets, setSelectedBuckets] = useState<Set<string>>(new Set());
   const [selectedLevels, setSelectedLevels] = useState<Set<string>>(new Set());
   const [selectedStatuses, setSelectedStatuses] = useState<Set<string>>(new Set());
+  const [eliPlusOnly, setEliPlusOnly] = useState(false);
 
   const toggleSetItem = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, value: string) => {
     setter((prev) => {
@@ -274,6 +309,7 @@ function AgentRosterContent() {
   const cardFiltered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return agents.filter((a) => {
+      if (eliPlusOnly && !PINNED_ELI_PLUS_NAMES.has(a.name)) return false;
       if (selectedBuckets.size > 0 && !selectedBuckets.has(a.bucket)) return false;
       if (selectedStatuses.size > 0 && !selectedStatuses.has(a.status)) return false;
       if (selectedLevels.size > 0) {
@@ -286,30 +322,46 @@ function AgentRosterContent() {
       }
       return true;
     });
-  }, [agents, selectedBuckets, selectedStatuses, selectedLevels, search]);
+  }, [agents, eliPlusOnly, selectedBuckets, selectedStatuses, selectedLevels, search]);
 
   const cardSorted = useMemo(() => {
     const arr = [...cardFiltered];
     if (cardSortBy === "name") arr.sort((a, b) => a.name.localeCompare(b.name));
     else if (cardSortBy === "level") arr.sort((a, b) => (TYPE_LEVEL[b.type] ?? 0) - (TYPE_LEVEL[a.type] ?? 0));
-    return arr;
+    else {
+      arr.sort((a, b) => {
+        const aHasConfig = getL3AgentConfig(a.name) ? 1 : 0;
+        const bHasConfig = getL3AgentConfig(b.name) ? 1 : 0;
+        return bHasConfig - aHasConfig;
+      });
+    }
+
+    // Always anchor the four ELI+ L4 agents at the top, just below the L5 hero
+    const pinnedItems = PINNED_ELI_PLUS_ORDER
+      .map((name) => arr.find((a) => a.name === name))
+      .filter((a): a is (typeof arr)[number] => Boolean(a));
+    const rest = arr.filter((a) => !PINNED_ELI_PLUS_NAMES.has(a.name));
+    return [...pinnedItems, ...rest];
   }, [cardFiltered, cardSortBy]);
 
   const activeFilterPills = useMemo(() => {
     const pills: { label: string; group: string; value: string }[] = [];
+    if (eliPlusOnly) pills.push({ label: "ELI+ Agents", group: "eliPlus", value: "eliPlus" });
     selectedBuckets.forEach((b) => pills.push({ label: b, group: "bucket", value: b }));
     selectedLevels.forEach((l) => pills.push({ label: l, group: "level", value: l }));
     selectedStatuses.forEach((s) => pills.push({ label: s, group: "status", value: s }));
     return pills;
-  }, [selectedBuckets, selectedLevels, selectedStatuses]);
+  }, [eliPlusOnly, selectedBuckets, selectedLevels, selectedStatuses]);
 
   const removeFilterPill = (group: string, value: string) => {
-    if (group === "bucket") toggleSetItem(setSelectedBuckets, value);
+    if (group === "eliPlus") setEliPlusOnly(false);
+    else if (group === "bucket") toggleSetItem(setSelectedBuckets, value);
     else if (group === "level") toggleSetItem(setSelectedLevels, value);
     else if (group === "status") toggleSetItem(setSelectedStatuses, value);
   };
 
   const clearAllFilters = () => {
+    setEliPlusOnly(false);
     setSelectedBuckets(new Set());
     setSelectedLevels(new Set());
     setSelectedStatuses(new Set());
@@ -322,12 +374,13 @@ function AgentRosterContent() {
     if (!agentId) return;
     const agent = agents.find((a) => a.id === agentId);
     if (!agent) return;
-    if (agent.name === "Autonomous Lead To Lease") {
+    if (agent.name === "Autonomous Lease Progression") {
       if (agent.status === "Active") setLeadToLeaseOpen(true);
       else setLeadToLeaseActivateOpen(true);
       return;
     }
-    if (agent.type === "efficiency" && getL3AgentConfig(agent.name)) { setL3AgentId(agentId); return; }
+    if (agent.name === "Entrata Experts") { setExpertsConfigOpen(true); return; }
+    if (getL3AgentConfig(agent.name)) { setL3AgentId(agentId); return; }
     if (agent.type === "operations" || agent.type === "intelligence" || agent.type === "efficiency") setOpsAgentId(agentId);
     else setAutoAgentId(agentId);
   }, [searchParams, agents]);
@@ -368,6 +421,113 @@ function AgentRosterContent() {
     return map;
   }, [filtered, sortBy]);
 
+  // The default (unfiltered) roster groups agents into curated sections. As soon
+  // as the user applies any filter or types a search, we fall back to the flat
+  // card grid so filtering keeps working exactly as before.
+  const hasActiveFilters = activeFilterPills.length > 0 || search.trim().length > 0;
+
+  const rosterSections = useMemo(() => {
+    // L5 hero is rendered separately above the sections.
+    const pool = cardSorted.filter((a) => a.type !== "fully_autonomous");
+    const used = new Set<string>();
+
+    const eliPlus = PINNED_ELI_PLUS_ORDER
+      .map((name) => pool.find((a) => a.name === name))
+      .filter((a): a is (typeof pool)[number] => Boolean(a));
+    eliPlus.forEach((a) => used.add(a.id));
+
+    const pickByNames = (names: readonly string[]) =>
+      names
+        .map((name) => pool.find((a) => a.name === name && !used.has(a.id)))
+        .filter((a): a is (typeof pool)[number] => Boolean(a));
+
+    const trending = pickByNames(TRENDING_AGENT_NAMES);
+    trending.forEach((a) => used.add(a.id));
+
+    const mostPopular = pickByNames(MOST_POPULAR_AGENT_NAMES);
+    mostPopular.forEach((a) => used.add(a.id));
+
+    const remaining = pool.filter((a) => !used.has(a.id));
+    const byCategory = BUCKETS
+      .map((bucket) => ({ bucket, items: remaining.filter((a) => a.bucket === bucket) }))
+      .filter((g) => g.items.length > 0);
+
+    return { eliPlus, trending, mostPopular, byCategory };
+  }, [cardSorted]);
+
+  const renderAgentCard = (agent: Agent) => {
+    const isOffEliPlus = agent.type === "autonomous" && agent.status === "Off";
+    const isPinnedEliPlus = PINNED_ELI_PLUS_NAMES.has(agent.name);
+    const typeInfo = AGENT_TYPES.find((t) => t.value === agent.type);
+    const levelLabel = typeInfo?.label ?? "L1 · ELI Essentials";
+    const levelShort = levelLabel.split("·")[0].trim();
+    const levelName = levelLabel.split("·")[1]?.trim() ?? "";
+
+    return (
+      <button
+        key={agent.id}
+        type="button"
+        onClick={() => {
+          if (isOffEliPlus) { setEliPlusActivateAgent(agent.name); return; }
+          if (agent.name === "Entrata Experts") { setExpertsConfigOpen(true); return; }
+          if (getL3AgentConfig(agent.name)) { setL3AgentId(agent.id); return; }
+          if (agent.type === "operations" || agent.type === "efficiency" || agent.type === "intelligence") setOpsAgentId(agent.id);
+          else setAutoAgentId(agent.id);
+        }}
+        className={`group relative flex flex-col rounded-xl border bg-white p-4 text-left transition-all hover:shadow-md ${
+          selectedId === agent.id
+            ? "border-[#6366f1]/40 shadow-md ring-1 ring-[#6366f1]/20"
+            : isPinnedEliPlus
+              ? "border-2 border-[#7c3aed]/40 hover:border-[#7c3aed]/60"
+              : "border-border hover:border-border/80"
+        }`}
+      >
+        {/* Header: icon + name + video button */}
+        <div className="mb-3 flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/50">
+            <img src={AGENT_TYPE_ICON[agent.type] ?? "/icon-l1-essentials.svg"} alt="" width={22} height={22} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-semibold leading-tight text-foreground truncate">
+              {agent.type === "autonomous" ? `ELI+ ${agent.name}` : agent.name}
+            </p>
+          </div>
+          {agent.type === "intelligence" && (
+            <button
+              type="button"
+              title="Watch agent walkthrough"
+              className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              onClick={(e) => { e.stopPropagation(); setVideoAgentName(agent.name); }}
+            >
+              <CirclePlay className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Description */}
+        <p className="mb-4 line-clamp-2 text-[12px] leading-relaxed text-muted-foreground">
+          {agent.description}
+        </p>
+
+        {/* Footer: level + status */}
+        <div className="mt-auto flex items-center justify-between gap-2">
+          <span className="rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            {levelShort}{levelName ? ` · ${levelName}` : ""}
+          </span>
+          <span
+            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+              agent.status === "Active"
+                ? "bg-[#B3FFCC] text-black"
+                : "bg-amber-400 text-amber-950"
+            }`}
+          >
+            {agent.status}
+          </span>
+        </div>
+      </button>
+    );
+  };
+
   return (
     <>
       <PageHeader
@@ -389,6 +549,15 @@ function AgentRosterContent() {
               <div>
                 <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Subcategory</p>
                 <div className="space-y-1.5">
+                  <label className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-sm text-foreground transition-colors hover:bg-muted/50">
+                    <input
+                      type="checkbox"
+                      checked={eliPlusOnly}
+                      onChange={() => setEliPlusOnly((v) => !v)}
+                      className="h-3.5 w-3.5 rounded border-border accent-[#7c3aed]"
+                    />
+                    <span className="truncate text-[13px] font-semibold text-[#7c3aed]">ELI+ Agents</span>
+                  </label>
                   {BUCKETS.map((b) => (
                     <label key={b} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-sm text-foreground transition-colors hover:bg-muted/50">
                       <input
@@ -498,11 +667,19 @@ function AgentRosterContent() {
               </div>
             )}
 
-            {/* L5 Hero Agent */}
+            {/* Featured · L5 Hero Agent */}
             {(() => {
               const l5Agent = cardSorted.find((a) => a.type === "fully_autonomous");
               if (!l5Agent) return null;
               return (
+                <div className="mb-6">
+                {!hasActiveFilters && (
+                  <div className="mb-3 flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-[#7c3aed]" />
+                    <h2 className="text-base font-semibold text-foreground">Featured</h2>
+                    <span className="text-sm text-muted-foreground">Your top-tier autonomous agent.</span>
+                  </div>
+                )}
                 <button
                   key={l5Agent.id}
                   type="button"
@@ -510,7 +687,7 @@ function AgentRosterContent() {
                     if (l5Agent.status === "Active") setLeadToLeaseOpen(true);
                     else setLeadToLeaseActivateOpen(true);
                   }}
-                  className="mb-6 w-full rounded-2xl border-2 border-[#7c3aed]/30 bg-gradient-to-r from-[#7c3aed]/[0.04] via-white to-[#7c3aed]/[0.04] p-6 text-left transition-all hover:shadow-lg hover:border-[#7c3aed]/50 group"
+                  className="w-full rounded-2xl border-2 border-[#7c3aed]/30 bg-gradient-to-r from-[#7c3aed]/[0.04] via-white to-[#7c3aed]/[0.04] p-6 text-left transition-all hover:shadow-lg hover:border-[#7c3aed]/50 group"
                 >
                   <div className="flex items-center gap-5">
                     <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#7c3aed]/10">
@@ -518,7 +695,7 @@ function AgentRosterContent() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-3 mb-1">
-                        <p className="text-lg font-bold text-foreground">Autonomous Lead To Lease</p>
+                        <p className="text-lg font-bold text-foreground">Autonomous Lease Progression</p>
                         <span className="rounded-full bg-gradient-to-r from-[#7c3aed] to-[#6d28d9] px-2.5 py-0.5 text-[10px] font-bold text-white tracking-wide">L5</span>
                         <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${l5Agent.status === "Active" ? "bg-[#B3FFCC] text-black" : "bg-amber-400 text-amber-950"}`}>
                           {l5Agent.status}
@@ -539,80 +716,88 @@ function AgentRosterContent() {
                     </div>
                   </div>
                 </button>
+                </div>
               );
             })()}
 
-            {/* Card grid */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {cardSorted.filter((a) => a.type !== "fully_autonomous").map((agent) => {
-                const isOffEliPlus = agent.type === "autonomous" && agent.status === "Off";
-                const typeInfo = AGENT_TYPES.find((t) => t.value === agent.type);
-                const levelLabel = typeInfo?.label ?? "L1 · ELI Essentials";
-                const levelShort = levelLabel.split("·")[0].trim();
-                const levelName = levelLabel.split("·")[1]?.trim() ?? "";
-
-                return (
-                  <button
-                    key={agent.id}
-                    type="button"
-                    onClick={() => {
-                      if (isOffEliPlus) { setEliPlusActivateAgent(agent.name); return; }
-                      if (agent.type === "efficiency" && getL3AgentConfig(agent.name)) { setL3AgentId(agent.id); return; }
-                      if (agent.type === "operations" || agent.type === "efficiency" || agent.type === "intelligence") setOpsAgentId(agent.id);
-                      else setAutoAgentId(agent.id);
-                    }}
-                    className={`group relative flex flex-col rounded-xl border bg-white p-4 text-left transition-all hover:shadow-md ${
-                      selectedId === agent.id
-                        ? "border-[#6366f1]/40 shadow-md ring-1 ring-[#6366f1]/20"
-                        : "border-border hover:border-border/80"
-                    }`}
-                  >
-                    {/* Header: icon + name + video button */}
-                    <div className="mb-3 flex items-start gap-3">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/50">
-                        <img src={AGENT_TYPE_ICON[agent.type] ?? "/icon-l1-essentials.svg"} alt="" width={22} height={22} />
+            {hasActiveFilters ? (
+              /* ── Filtered / search results: flat grid ── */
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {cardSorted.filter((a) => a.type !== "fully_autonomous").map((agent) => renderAgentCard(agent))}
+              </div>
+            ) : (
+              /* ── Default view: curated sections ── */
+              <div className="space-y-8">
+                {/* ELI+ · Conversational Agents · L4 */}
+                {rosterSections.eliPlus.length > 0 && (
+                  <section className="rounded-2xl border border-[#7c3aed]/20 bg-gradient-to-b from-[#7c3aed]/[0.04] to-transparent p-5">
+                    <div className="mb-4">
+                      <div className="flex items-center gap-2.5">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-[#7c3aed] to-[#6d28d9] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                          <Sparkles className="h-3 w-3" /> ELI+
+                        </span>
+                        <h2 className="text-base font-semibold text-foreground">Conversational Agents · L4</h2>
+                        <span className="text-sm text-muted-foreground">{rosterSections.eliPlus.length}</span>
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[13px] font-semibold leading-tight text-foreground truncate">
-                          {agent.type === "autonomous" ? `ELI+ ${agent.name}` : agent.name}
-                        </p>
+                      <p className="mt-1 text-[13px] text-muted-foreground">Top-tier agents that hold full resident conversations end to end.</p>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                      {rosterSections.eliPlus.map((agent) => renderAgentCard(agent))}
+                    </div>
+                  </section>
+                )}
+
+                {/* Trending */}
+                {rosterSections.trending.length > 0 && (
+                  <section>
+                    <div className="mb-3">
+                      <div className="flex items-center gap-2">
+                        <TrendingUp className="h-4 w-4 text-foreground" />
+                        <h2 className="text-base font-semibold text-foreground">Trending</h2>
+                        <span className="text-sm text-muted-foreground">{rosterSections.trending.length}</span>
                       </div>
-                      {agent.type === "intelligence" && (
-                        <button
-                          type="button"
-                          title="Watch agent walkthrough"
-                          className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                          onClick={(e) => { e.stopPropagation(); setVideoAgentName(agent.name); }}
-                        >
-                          <CirclePlay className="h-4 w-4" />
-                        </button>
-                      )}
+                      <p className="mt-0.5 text-[13px] text-muted-foreground">Gaining momentum across Entrata customers right now.</p>
                     </div>
-
-                    {/* Description */}
-                    <p className="mb-4 line-clamp-2 text-[12px] leading-relaxed text-muted-foreground">
-                      {agent.description}
-                    </p>
-
-                    {/* Footer: level + status */}
-                    <div className="mt-auto flex items-center justify-between gap-2">
-                      <span className="rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                        {levelShort}{levelName ? ` · ${levelName}` : ""}
-                      </span>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                          agent.status === "Active"
-                            ? "bg-[#B3FFCC] text-black"
-                            : "bg-amber-400 text-amber-950"
-                        }`}
-                      >
-                        {agent.status}
-                      </span>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                      {rosterSections.trending.map((agent) => renderAgentCard(agent))}
                     </div>
-                  </button>
-                );
-              })}
-            </div>
+                  </section>
+                )}
+
+                {/* Most Popular */}
+                {rosterSections.mostPopular.length > 0 && (
+                  <section>
+                    <div className="mb-3">
+                      <div className="flex items-center gap-2">
+                        <Star className="h-4 w-4 text-foreground" />
+                        <h2 className="text-base font-semibold text-foreground">Most Popular</h2>
+                        <span className="text-sm text-muted-foreground">{rosterSections.mostPopular.length}</span>
+                      </div>
+                      <p className="mt-0.5 text-[13px] text-muted-foreground">The agents teams use most week to week.</p>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                      {rosterSections.mostPopular.map((agent) => renderAgentCard(agent))}
+                    </div>
+                  </section>
+                )}
+
+                {/* Remaining agents grouped by category */}
+                {rosterSections.byCategory.map(({ bucket, items }) => (
+                  <section key={bucket}>
+                    <div className="mb-3">
+                      <div className="flex items-center gap-2">
+                        {(() => { const Icon = BUCKET_ICONS[bucket]; return Icon ? <Icon className="h-4 w-4 text-foreground" /> : null; })()}
+                        <h2 className="text-base font-semibold text-foreground">{bucket}</h2>
+                        <span className="text-sm text-muted-foreground">{items.length}</span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                      {items.map((agent) => renderAgentCard(agent))}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            )}
 
             {cardSorted.length === 0 && (
               <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border py-16 text-center">
@@ -735,12 +920,13 @@ function AgentRosterContent() {
                               }`}
                               onClick={() => {
                                 if (isOffEliPlus) return;
-                                if (agent.name === "Autonomous Lead To Lease") {
+                                if (agent.name === "Autonomous Lease Progression") {
                                   if (agent.status === "Active") setLeadToLeaseOpen(true);
                                   else setLeadToLeaseActivateOpen(true);
                                   return;
                                 }
-                                if (agent.type === "efficiency" && getL3AgentConfig(agent.name)) { setL3AgentId(agent.id); return; }
+                                if (agent.name === "Entrata Experts") { setExpertsConfigOpen(true); return; }
+                                if (getL3AgentConfig(agent.name)) { setL3AgentId(agent.id); return; }
                                 if (agent.type === "operations" || agent.type === "efficiency" || agent.type === "intelligence") setOpsAgentId(agent.id);
                                 else setAutoAgentId(agent.id);
                               }}
@@ -844,6 +1030,11 @@ function AgentRosterContent() {
           />
         );
       })()}
+
+      <ExpertsConfigSheet
+        open={expertsConfigOpen}
+        onOpenChange={setExpertsConfigOpen}
+      />
 
       {intelAgentId && (() => {
         const intelAgent = agents.find((a) => a.id === intelAgentId);
@@ -1061,7 +1252,7 @@ function AgentRosterContent() {
       })()}
 
       {(() => {
-        const l2lAgent = agents.find((a) => a.name === "Autonomous Lead To Lease");
+        const l2lAgent = agents.find((a) => a.name === "Autonomous Lease Progression");
         const l2lIsActive = l2lAgent?.status === "Active";
         const toggleL2L = () => {
           if (!l2lAgent) return;
@@ -1072,7 +1263,7 @@ function AgentRosterContent() {
             <Sheet open={leadToLeaseOpen} onOpenChange={setLeadToLeaseOpen}>
               <SheetContent className="w-full flex flex-col overflow-hidden p-0 sm:max-w-[90vw]">
                 <SheetHeader className="sr-only">
-                  <SheetTitle>Autonomous Lead To Lease</SheetTitle>
+                  <SheetTitle>Autonomous Lease Progression</SheetTitle>
                   <SheetDescription>Lead to lease settings and configuration</SheetDescription>
                 </SheetHeader>
                 <div className="flex-1 min-h-0 overflow-hidden">
@@ -1092,7 +1283,7 @@ function AgentRosterContent() {
                       <img src="/eli-cube.svg" alt="" width={24} height={24} />
                     </div>
                     <div>
-                      <DialogTitle className="text-base font-semibold">Autonomous Lead To Lease</DialogTitle>
+                      <DialogTitle className="text-base font-semibold">Autonomous Lease Progression</DialogTitle>
                       <DialogDescription className="text-sm text-muted-foreground">
                         End-to-end leasing intelligence for your portfolio
                       </DialogDescription>
@@ -1147,7 +1338,7 @@ function AgentRosterContent() {
                       setLeadToLeaseOpen(true);
                     }}
                   >
-                    Activate Autonomous Lead To Lease
+                    Activate Autonomous Lease Progression
                   </Button>
                 </div>
               </DialogContent>
@@ -3242,13 +3433,12 @@ const ELI_PLUS_SETTINGS_MAP: Record<string, React.ComponentType<FlyoutPageProps>
   "Renewal AI": RenewalsFullPage as React.ComponentType<FlyoutPageProps>,
 };
 
-type SettingItem = { name: string; description: string };
+type SettingItem = { name: string; description: string; link?: string };
 type TabDef = { id: string; label: string; settings: SettingItem[] };
 
 const AGENT_SETTINGS_TABS: Record<string, TabDef[]> = {
   "Leasing AI": [
     { id: "general", label: "General Info", settings: [
-      { name: "Agent Goal", description: "Define the primary objective for the leasing AI agent at this property." },
       { name: "Office Hours", description: "Set the business hours when the agent should be actively responding to prospects." },
     ]},
     { id: "property", label: "Property Info", settings: [
@@ -3283,7 +3473,6 @@ const AGENT_SETTINGS_TABS: Record<string, TabDef[]> = {
     { id: "marketing", label: "Marketing", settings: [
       { name: "Prospect Portal", description: "Configure the prospect-facing portal used for this property." },
       { name: "Property Website", description: "Set the property website URL shared in marketing communications." },
-      { name: "Privacy Policy", description: "Link to the privacy policy displayed to prospects during interactions." },
       { name: "Application Page", description: "Set the URL for the online application landing page." },
       { name: "Floor Plan Page", description: "Configure the floor plan gallery page shared with prospects." },
     ]},
@@ -3348,14 +3537,12 @@ const AGENT_SETTINGS_TABS: Record<string, TabDef[]> = {
   "Renewal AI": [
     { id: "property", label: "Property Info", settings: [
       { name: "Primary Address", description: "The property's physical address used in renewal communications." },
-      { name: "Business Hours", description: "Set operating hours for renewal-related support at this property." },
-      { name: "Contact Points", description: "Configure renewal notification triggers — offer generated, accepted, lease approved, etc." },
+      { name: "Contact Points", description: "Renewal AI handles resident communication directly, but you may still want to configure renewal contact points in Entrata for deterministic notifications such as offer generated, accepted, or lease approved emails.", link: "https://DOMAIN.entrata.com/?module=properties_setupxxx&load_large_dialog=/%3Fmodule%3Dproperty_communication_contact_points_renewals_and_lease_modificationsxxx%26property%5Bid%5D%3DPROPERTYID%26" },
       { name: "ELI+ Dashboard Permissions", description: "Permission users who directly manage the ELI+ console for this property." },
     ]},
     { id: "marketing", label: "Marketing", settings: [
       { name: "Prospect Portal", description: "Configure the prospect-facing portal used for this property." },
-      { name: "Property Website", description: "Set the property website URL shared in renewal communications." },
-      { name: "Privacy Policy", description: "Link to the privacy policy displayed during renewal interactions." },
+      { name: "Property Policies", description: "Review and update the property policies displayed to residents during renewal interactions.", link: "https://DOMAIN.entrata.com/?module=properties_setupxxx&load_large_dialog=%3Fmodule%3Dproperty_details_general_policiesxxx%26property%5Bid%5D%3DPROPERTYID%26" },
     ]},
   ],
 };
@@ -3743,15 +3930,19 @@ type ConversationMessage = {
   trace?: TraceStep[];
 };
 
+type ConversationChannel = "SMS" | "Chat" | "Email" | "Voice";
+
 type ConversationLog = {
   id: string;
   residentName: string;
-  channel: "SMS" | "Chat" | "Email";
+  channel: ConversationChannel;
   topic: string;
   summary: string;
   outcome: "resolved" | "escalated" | "pending";
   sentiment: "positive" | "neutral" | "negative";
   startedAt: string;
+  /** Days back from "today" for date-range filtering. 0 = today, 1 = yesterday, etc. */
+  daysAgo: number;
   duration: string;
   turns: number;
   messages: ConversationMessage[];
@@ -3759,6 +3950,15 @@ type ConversationLog = {
   trace: TraceStep[];
   monitors: { label: string; passed: boolean }[];
 };
+
+const CONVERSATION_CHANNELS: ConversationChannel[] = ["Chat", "SMS", "Voice", "Email"];
+
+function conversationChannelIcon(channel: ConversationChannel) {
+  if (channel === "SMS") return <Phone className="h-2.5 w-2.5" />;
+  if (channel === "Email") return <Mail className="h-2.5 w-2.5" />;
+  if (channel === "Voice") return <Volume2 className="h-2.5 w-2.5" />;
+  return <MessageSquare className="h-2.5 w-2.5" />;
+}
 
 const L4_AGENTS_PER_REPLY_TRACE = new Set(["Leasing AI", "Payments AI", "Maintenance AI", "Renewal AI"]);
 
@@ -3867,9 +4067,174 @@ function AgentTraceTimeline({ trace }: { trace: TraceStep[] }) {
   );
 }
 
-function generateConversationLogs(agentName: string, propertyName: string): ConversationLog[] {
+/* ─────────────────────────────────────────────────────────────────────
+   User-friendly trace — plain-language, grouped view for non-Entrata
+   users. No payloads, schemas, durations, status codes, or the term
+   "MCP". Just the phases of how the answer was built.
+   ───────────────────────────────────────────────────────────────────── */
+
+function sanitizeFriendly(text: string): string {
+  return text
+    .replace(/\bMCP\s+(tool\s+call|call|lease snapshot|ledger summary|response|request|tools?)/gi, (_m, g) => g)
+    .replace(/\b(via|over|through)\s+MCP\b/gi, "")
+    .replace(/\bduring\s+(the\s+)?MCP\s+cutover\b/gi, "")
+    .replace(/\bmirrored to REST(\s+for parity)?\b/gi, "logged for parity")
+    .replace(/\bMCP\b/gi, "the system")
+    .replace(/\bREST\b/gi, "the system")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([.,;])/g, "$1")
+    .trim();
+}
+
+function friendlyTraceSource(step: TraceStep): string {
+  if (step.type === "knowledge") return "Property knowledge base";
+  const key = `${step.mcpToolName ?? ""} ${step.label ?? ""}`.toLowerCase();
+  const map: { match: string; label: string }[] = [
+    { match: "getleasesnapshot", label: "Your lease & renewal terms" },
+    { match: "loyalty", label: "Loyalty pricing eligibility" },
+    { match: "getcomparables", label: "Market & comparable rents" },
+    { match: "market.", label: "Market data" },
+    { match: "renewals.", label: "Renewal records" },
+    { match: "knowledge.search", label: "Property knowledge base" },
+    { match: "createescalation", label: "Staff escalation" },
+    { match: "escalation", label: "Staff escalation" },
+    { match: "billing", label: "Billing & payment records" },
+    { match: "payment", label: "Payment records" },
+    { match: "screening", label: "Screening & qualification rules" },
+    { match: "tour", label: "Tour scheduling" },
+    { match: "amenit", label: "Amenity details" },
+    { match: "parking", label: "Parking availability" },
+    { match: "petpolicy", label: "Pet policy" },
+    { match: "policy", label: "Property policies" },
+    { match: "inventory", label: "Unit availability" },
+    { match: "furnished", label: "Unit availability" },
+    { match: "schooldistrict", label: "Local school district info" },
+    { match: "movein", label: "Move-in scheduling" },
+    { match: "pricing", label: "Pricing & term options" },
+    { match: "term", label: "Lease term options" },
+  ];
+  for (const m of map) if (key.includes(m.match)) return m.label;
+  const seg = (step.mcpToolName ?? "").split(".").pop() ?? "";
+  const humanized = seg
+    .replace(/^(get|create|evaluate|check|lookup|adjust|start|send|open|refund)/i, "")
+    .replace(/([A-Z])/g, " $1")
+    .trim();
+  return humanized ? humanized.charAt(0).toUpperCase() + humanized.slice(1) : "Information lookup";
+}
+
+function FriendlyTraceSection({
+  icon,
+  title,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-white">
+      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-100 text-zinc-600">{icon}</span>
+        <h5 className="text-xs font-semibold text-foreground">{title}</h5>
+      </div>
+      <div className="divide-y divide-border/60">{children}</div>
+    </div>
+  );
+}
+
+function FriendlyTraceView({ trace, agentName }: { trace: TraceStep[]; agentName: string }) {
+  const guidelines = trace.filter((s) => s.type === "instruction" || s.type === "prompt_citation");
+  // Exclude legacy/shadow REST parity calls — technical artifacts, not sources.
+  const lookups = trace.filter(
+    (s) =>
+      s.type === "mcp_tool" ||
+      s.type === "tool_call" ||
+      s.type === "knowledge" ||
+      (s.type === "http_api" && !/legacy|shadow/i.test(s.label))
+  );
+  const reasoning = trace.filter((s) => s.type === "reasoning");
+  const hasResponse = trace.some((s) => s.type === "response");
+
+  const seenSources = new Set<string>();
+  const friendlyLookups = lookups
+    .map((s) => ({ source: friendlyTraceSource(s), detail: s.detail ? sanitizeFriendly(s.detail) : undefined }))
+    .filter((l) => {
+      if (seenSources.has(l.source)) return false;
+      seenSources.add(l.source);
+      return true;
+    });
+
+  const firstSentence = (text: string) => {
+    const trimmed = sanitizeFriendly(text).trim();
+    const match = trimmed.match(/^.*?[.!?](\s|$)/);
+    const sentence = match ? match[0].trim() : trimmed;
+    const capped = sentence.replace(/^([a-z])/, (c) => c.toUpperCase());
+    return capped.length > 220 ? `${capped.slice(0, 217)}…` : capped;
+  };
+
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] leading-relaxed text-muted-foreground">
+        A plain-language summary of how {agentName} built this reply. Technical details are available in the
+        Entrata Internal view.
+      </p>
+
+      {guidelines.length > 0 && (
+        <FriendlyTraceSection icon={<BookOpen className="h-3 w-3" />} title="Guidelines it followed">
+          {guidelines.map((s, i) => (
+            <div key={i} className="px-3 py-2.5">
+              <p className="text-xs font-medium text-foreground">
+                {(s.promptSourceLabel ?? s.label).replace(/\s*·.*$/, "")}
+              </p>
+              {s.promptExcerpt && (
+                <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{firstSentence(s.promptExcerpt)}</p>
+              )}
+            </div>
+          ))}
+        </FriendlyTraceSection>
+      )}
+
+      {friendlyLookups.length > 0 && (
+        <FriendlyTraceSection icon={<Database className="h-3 w-3" />} title="Information it gathered">
+          {friendlyLookups.map((l, i) => (
+            <div key={i} className="px-3 py-2.5">
+              <p className="text-xs font-medium text-foreground">{l.source}</p>
+              {l.detail && <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{l.detail}</p>}
+            </div>
+          ))}
+        </FriendlyTraceSection>
+      )}
+
+      {reasoning.length > 0 && (
+        <FriendlyTraceSection icon={<Lightbulb className="h-3 w-3" />} title="How it decided what to say">
+          {reasoning.map((s, i) => (
+            <div key={i} className="px-3 py-2.5">
+              <p className="text-[11px] leading-relaxed text-foreground">
+                {s.thoughtProcess
+                  ? firstSentence(s.thoughtProcess)
+                  : "Weighed the information it gathered against the guidelines to compose an accurate, on-brand reply."}
+              </p>
+            </div>
+          ))}
+        </FriendlyTraceSection>
+      )}
+
+      {hasResponse && (
+        <FriendlyTraceSection icon={<MessageSquare className="h-3 w-3" />} title="Reply sent">
+          <div className="px-3 py-2.5">
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              Composed the reply and sent it to the resident.
+            </p>
+          </div>
+        </FriendlyTraceSection>
+      )}
+    </div>
+  );
+}
+
+function generateBaseConversationLogs(agentName: string, propertyName: string): ConversationLog[] {
   if (agentName === "Leasing AI") return [
-    { id: "conv-l1", residentName: "Sarah Mitchell", channel: "Chat", topic: "Tour Scheduling", summary: "Prospect scheduled a Saturday tour for a 2BR unit.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 2:14 PM", duration: "4m 22s", turns: 6,
+    { id: "conv-l1", residentName: "Sarah Mitchell", channel: "Chat", topic: "Tour Scheduling", summary: "Prospect scheduled a Saturday tour for a 2BR unit.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 2:14 PM", daysAgo: 0, duration: "4m 22s", turns: 6,
       messages: [
         { role: "resident", text: "Hi! I saw your listing for the 2-bedroom on Apartments.com. Do you have any tours available this weekend?", timestamp: "2:14 PM" },
         { role: "agent", text: `Welcome to ${propertyName}! We'd love to show you around. We have availability Saturday at 10am, 1pm, and 3pm. Which works best for you?`, timestamp: "2:14 PM",
@@ -3903,7 +4268,7 @@ function generateConversationLogs(agentName: string, propertyName: string): Conv
       trace: [],
       monitors: [{ label: "Coherent response", passed: true }, { label: "Factually grounded", passed: true }, { label: "Positive sentiment", passed: true }, { label: "No repetition", passed: true }],
     },
-    { id: "conv-l2", residentName: "David Park", channel: "SMS", topic: "Pricing Inquiry", summary: "Prospect asked about 1BR pricing. Sent floor plans. No tour scheduled yet.", outcome: "pending", sentiment: "neutral", startedAt: "Today, 11:43 AM", duration: "2m 10s", turns: 4,
+    { id: "conv-l2", residentName: "David Park", channel: "SMS", topic: "Pricing Inquiry", summary: "Prospect asked about 1BR pricing. Sent floor plans. No tour scheduled yet.", outcome: "pending", sentiment: "neutral", startedAt: "Today, 11:43 AM", daysAgo: 0, duration: "2m 10s", turns: 4,
       messages: [
         { role: "resident", text: "Hey, what's the price for a 1 bedroom?", timestamp: "11:43 AM" },
         { role: "agent", text: `Thanks for reaching out about ${propertyName}! Our 1BR units start at $1,350/mo for the standard layout and $1,475/mo for the upgraded finish package. We're currently offering $500 off the first month. Want me to send you floor plans?`, timestamp: "11:43 AM",
@@ -3926,7 +4291,7 @@ function generateConversationLogs(agentName: string, propertyName: string): Conv
       trace: [],
       monitors: [{ label: "Coherent response", passed: true }, { label: "Factually grounded", passed: true }, { label: "Positive sentiment", passed: true }, { label: "No repetition", passed: true }],
     },
-    { id: "conv-l3", residentName: "Maria Gonzalez", channel: "Chat", topic: "Application Questions", summary: "Prospect had questions about income requirements. Escalated to leasing manager due to Section 8 voucher.", outcome: "escalated", sentiment: "neutral", startedAt: "Yesterday, 4:30 PM", duration: "6m 15s", turns: 8,
+    { id: "conv-l3", residentName: "Maria Gonzalez", channel: "Chat", topic: "Application Questions", summary: "Prospect had questions about income requirements. Escalated to leasing manager due to Section 8 voucher.", outcome: "escalated", sentiment: "neutral", startedAt: "Yesterday, 4:30 PM", daysAgo: 1, duration: "6m 15s", turns: 8,
       messages: [
         { role: "resident", text: "I want to apply but I have a Section 8 voucher. Do you accept those?", timestamp: "4:30 PM" },
         { role: "agent", text: `Great question! ${propertyName} does accept Section 8 Housing Choice Vouchers. The process is slightly different from a standard application — let me connect you with our leasing manager who can walk you through the specific requirements and timeline.`, timestamp: "4:31 PM",
@@ -3953,7 +4318,7 @@ function generateConversationLogs(agentName: string, propertyName: string): Conv
   ];
 
   if (agentName === "Payments AI") return [
-    { id: "conv-p1", residentName: "James Wilson", channel: "SMS", topic: "Late Rent Follow-Up", summary: "Resident paid after receiving reminder. Payment confirmed.", outcome: "resolved", sentiment: "neutral", startedAt: "Today, 10:08 AM", duration: "3m 45s", turns: 6,
+    { id: "conv-p1", residentName: "James Wilson", channel: "SMS", topic: "Late Rent Follow-Up", summary: "Resident paid after receiving reminder. Payment confirmed.", outcome: "resolved", sentiment: "neutral", startedAt: "Today, 10:08 AM", daysAgo: 0, duration: "3m 45s", turns: 6,
       messages: [
         { role: "agent", text: `Hi James, this is a friendly reminder from ${propertyName} that your rent payment of $1,650 was due on the 3rd. Your current balance is $1,650. Would you like a link to make a payment?`, timestamp: "10:08 AM",
           trace: [
@@ -3985,7 +4350,7 @@ function generateConversationLogs(agentName: string, propertyName: string): Conv
       trace: [],
       monitors: [{ label: "Coherent response", passed: true }, { label: "Accurate balance", passed: true }, { label: "Positive sentiment", passed: true }, { label: "No repetition", passed: true }],
     },
-    { id: "conv-p2", residentName: "Amy Chen", channel: "Chat", topic: "Payment Plan Request", summary: "Resident approved for 2-installment plan. Agreement sent for signature.", outcome: "resolved", sentiment: "positive", startedAt: "Yesterday, 3:22 PM", duration: "5m 30s", turns: 6,
+    { id: "conv-p2", residentName: "Amy Chen", channel: "Chat", topic: "Payment Plan Request", summary: "Resident approved for 2-installment plan. Agreement sent for signature.", outcome: "resolved", sentiment: "positive", startedAt: "Yesterday, 3:22 PM", daysAgo: 1, duration: "5m 30s", turns: 6,
       messages: [
         { role: "resident", text: "I can't pay my full rent this month. Are payment plans an option?", timestamp: "3:22 PM" },
         { role: "agent", text: "I'm sorry to hear that, Amy. Yes, we do offer payment plans. Based on your account, you're eligible for a 2-installment plan: $825 due by the 5th and $825 by the 20th. Would you like me to set that up?", timestamp: "3:22 PM",
@@ -4012,7 +4377,7 @@ function generateConversationLogs(agentName: string, propertyName: string): Conv
   ];
 
   if (agentName === "Maintenance AI") return [
-    { id: "conv-m1", residentName: "Tom Bradley", channel: "SMS", topic: "Emergency — Kitchen Flooding", summary: "Emergency work order created. On-call tech dispatched within 5 minutes.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 7:45 AM", duration: "8m 10s", turns: 8,
+    { id: "conv-m1", residentName: "Tom Bradley", channel: "SMS", topic: "Emergency — Kitchen Flooding", summary: "Emergency work order created. On-call tech dispatched within 5 minutes.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 7:45 AM", daysAgo: 0, duration: "8m 10s", turns: 8,
       messages: [
         { role: "resident", text: "HELP my kitchen is flooding!! Water everywhere!!", timestamp: "7:45 AM" },
         { role: "agent", text: "I'm so sorry — let me help right away! This is being flagged as an emergency. First, please locate the shutoff valve under your sink and turn it clockwise to stop the water. I'm dispatching our on-call technician now.", timestamp: "7:45 AM",
@@ -4046,7 +4411,7 @@ function generateConversationLogs(agentName: string, propertyName: string): Conv
       trace: [],
       monitors: [{ label: "Emergency detected", passed: true }, { label: "Fast response (<30s)", passed: true }, { label: "Tech dispatched", passed: true }, { label: "Follow-up scheduled", passed: true }],
     },
-    { id: "conv-m2", residentName: "Lisa Park", channel: "Chat", topic: "AC Not Cooling", summary: "Guided troubleshooting, then created work order for HVAC technician.", outcome: "resolved", sentiment: "neutral", startedAt: "Yesterday, 2:15 PM", duration: "5m 40s", turns: 6,
+    { id: "conv-m2", residentName: "Lisa Park", channel: "Chat", topic: "AC Not Cooling", summary: "Guided troubleshooting, then created work order for HVAC technician.", outcome: "resolved", sentiment: "neutral", startedAt: "Yesterday, 2:15 PM", daysAgo: 1, duration: "5m 40s", turns: 6,
       messages: [
         { role: "resident", text: "My AC has been running all day but it's still 80 degrees in here. Something is wrong.", timestamp: "2:15 PM" },
         { role: "agent", text: "I'm sorry about that! Let's try a few things first. Can you check if the air filter is clean? It's behind the return vent, usually in the hallway. A dirty filter is the most common cause of cooling issues.", timestamp: "2:15 PM",
@@ -4074,7 +4439,7 @@ function generateConversationLogs(agentName: string, propertyName: string): Conv
   ];
 
   if (agentName === "Renewal AI") return [
-    { id: "conv-r1", residentName: "Kevin Pham", channel: "Email", topic: "Renewal Offer Accepted", summary: "Resident accepted renewal at $1,695/mo for 14-month term with loyalty adjustment.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 9:30 AM", duration: "12m 5s", turns: 8,
+    { id: "conv-r1", residentName: "Kevin Pham", channel: "Email", topic: "Renewal Offer Accepted", summary: "Resident accepted renewal at $1,695/mo for 14-month term with loyalty adjustment.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 9:30 AM", daysAgo: 0, duration: "12m 5s", turns: 8,
       messages: [
         {
           role: "agent",
@@ -4121,7 +4486,7 @@ function generateConversationLogs(agentName: string, propertyName: string): Conv
       trace: [],
       monitors: [{ label: "Coherent response", passed: true }, { label: "Accurate pricing", passed: true }, { label: "Positive sentiment", passed: true }, { label: "Retention outcome", passed: true }],
     },
-    { id: "conv-r2", residentName: "Rachel Adams", channel: "SMS", topic: "Move-Out Notice", summary: "Resident decided to move out. Notice processed, move-out checklist sent.", outcome: "resolved", sentiment: "negative", startedAt: "Yesterday, 11:15 AM", duration: "7m 20s", turns: 6,
+    { id: "conv-r2", residentName: "Rachel Adams", channel: "SMS", topic: "Move-Out Notice", summary: "Resident decided to move out. Notice processed, move-out checklist sent.", outcome: "resolved", sentiment: "negative", startedAt: "Yesterday, 11:15 AM", daysAgo: 1, duration: "7m 20s", turns: 6,
       messages: [
         { role: "resident", text: "Hi, I've decided not to renew my lease. What do I need to do?", timestamp: "11:15 AM" },
         {
@@ -4171,10 +4536,200 @@ function generateConversationLogs(agentName: string, propertyName: string): Conv
   return [];
 }
 
-function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; propertyName: string }) {
-  const logs = useMemo(() => generateConversationLogs(agentName, propertyName), [agentName, propertyName]);
-  const [selectedLog, setSelectedLog] = useState<ConversationLog | null>(null);
+/* ─────────────────────────────────────────────────────────────────────
+   Additional preloaded conversation logs for the Eli Plus agents.
+   These are intentionally lighter than the hand-crafted baseline entries
+   above (a short message exchange + a 3-step trace) — their purpose is to
+   give the History & Logging list realistic volume so the filter UI can
+   be demoed against ~20 rows per agent.
+   ───────────────────────────────────────────────────────────────────── */
+
+type QuickLogSpec = {
+  id: string;
+  residentName: string;
+  channel: ConversationChannel;
+  topic: string;
+  summary: string;
+  outcome: ConversationLog["outcome"];
+  sentiment: ConversationLog["sentiment"];
+  startedAt: string;
+  daysAgo: number;
+  duration: string;
+  turns: number;
+  residentText: string;
+  agentText: string;
+  toolName: string;
+  toolHint?: string;
+  monitors?: { label: string; passed: boolean }[];
+};
+
+function buildQuickLog(spec: QuickLogSpec): ConversationLog {
+  const timestamp = spec.startedAt.includes(", ")
+    ? spec.startedAt.slice(spec.startedAt.indexOf(", ") + 2)
+    : spec.startedAt;
+  const requestId = `mcp-${spec.id}-r1`;
+  return {
+    id: spec.id,
+    residentName: spec.residentName,
+    channel: spec.channel,
+    topic: spec.topic,
+    summary: spec.summary,
+    outcome: spec.outcome,
+    sentiment: spec.sentiment,
+    startedAt: spec.startedAt,
+    daysAgo: spec.daysAgo,
+    duration: spec.duration,
+    turns: spec.turns,
+    messages: [
+      { role: "resident", text: spec.residentText, timestamp },
+      {
+        role: "agent",
+        text: spec.agentText,
+        timestamp,
+        trace: [
+          {
+            type: "mcp_tool",
+            label: `MCP · ${spec.toolName}`,
+            mcpToolName: spec.toolName,
+            durationMs: 112,
+            status: "success",
+            detail: spec.toolHint,
+            mcpRequestJson: `{\n  "jsonrpc": "2.0",\n  "id": "${requestId}",\n  "method": "tools/call",\n  "params": { "name": "${spec.toolName}" }\n}`,
+            mcpResponseJson: `{\n  "jsonrpc": "2.0",\n  "id": "${requestId}",\n  "result": { "ok": true }\n}`,
+          },
+          { type: "reasoning", label: "Reply framing", durationMs: 38 },
+          { type: "response", label: "Model · reply", durationMs: 72 },
+        ],
+      },
+    ],
+    trace: [],
+    monitors: spec.monitors ?? [
+      { label: "Coherent response", passed: true },
+      { label: "Factually grounded", passed: true },
+      { label: spec.outcome === "escalated" ? "Appropriate escalation" : "Appropriate tone", passed: true },
+      { label: "No repetition", passed: true },
+    ],
+  };
+}
+
+function generateAdditionalConversationLogs(agentName: string, propertyName: string): ConversationLog[] {
+  if (agentName === "Leasing AI") {
+    return [
+      buildQuickLog({ id: "conv-l4", residentName: "Jordan Reyes", channel: "Voice", topic: "Virtual Tour Request", summary: "Prospect requested a self-guided video tour. Sent personalized walkthrough link.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 9:12 AM", daysAgo: 0, duration: "3m 04s", turns: 4, residentText: "Hi, I'm out of state — can I do a virtual tour of the 2-bedroom before I fly in?", agentText: `Absolutely! I just sent you a self-guided video tour for the 2BR at ${propertyName}, plus a Zoom slot for a live walkthrough Thursday at 11am MT if you'd prefer that.`, toolName: "entrata.tours.sendVirtualPacket" }),
+      buildQuickLog({ id: "conv-l5", residentName: "Emily Carter", channel: "Email", topic: "Amenity Questions", summary: "Asked about gym hours and co-working space. Sent amenity sheet.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 8:48 AM", daysAgo: 0, duration: "2m 41s", turns: 4, residentText: "What are the gym hours, and is the co-working space free for residents?", agentText: `Our 24/7 fitness center is open round the clock with a key fob, and the co-working space is free for residents weekdays 7am–10pm. I'm attaching the full amenity sheet for ${propertyName}.`, toolName: "entrata.property.getAmenities" }),
+      buildQuickLog({ id: "conv-l6", residentName: "Brandon Lee", channel: "Chat", topic: "Parking Availability", summary: "Confirmed covered parking availability and reserved a spot for move-in.", outcome: "resolved", sentiment: "neutral", startedAt: "Today, 7:33 AM", daysAgo: 0, duration: "3m 18s", turns: 5, residentText: "Do you have covered parking? I drive a truck.", agentText: "Yes! Covered parking is $75/month and we have 4 oversized stalls that fit full-size trucks. I held one for your application on file.", toolName: "entrata.parking.getInventory" }),
+      buildQuickLog({ id: "conv-l7", residentName: "Olivia Tran", channel: "SMS", topic: "Lease Term Options", summary: "Asked about 9-month lease. Quoted seasonal premium.", outcome: "pending", sentiment: "neutral", startedAt: "Yesterday, 6:55 PM", daysAgo: 1, duration: "1m 52s", turns: 3, residentText: "Do you offer a 9-month lease? Starting in August.", agentText: "Yes — 9-month leases are available at a $125/mo premium over our 12-month rate. The August 1 move-in 1BR comes to $1,475/mo on a 9-month term.", toolName: "entrata.pricing.getTermOptions" }),
+      buildQuickLog({ id: "conv-l8", residentName: "Marcus Johnson", channel: "Chat", topic: "Pet Deposit Question", summary: "Clarified deposit for a second pet. Sent pet addendum.", outcome: "resolved", sentiment: "positive", startedAt: "Yesterday, 5:20 PM", daysAgo: 1, duration: "2m 08s", turns: 4, residentText: "I have two cats — is the deposit per pet or just one fee?", agentText: "It's per pet — $200 refundable + $15/mo per pet. Total for two cats is a $400 refundable deposit + $30/mo. I'll email you the pet addendum to review.", toolName: "entrata.policy.getPetPolicy" }),
+      buildQuickLog({ id: "conv-l9", residentName: "Hannah Brooks", channel: "Email", topic: "Application Status", summary: "Resident application stalled on income verification — escalated to leasing.", outcome: "escalated", sentiment: "negative", startedAt: "Yesterday, 3:02 PM", daysAgo: 1, duration: "4m 12s", turns: 6, residentText: "It's been 5 days since I uploaded my paystubs and I haven't heard back. Is something wrong?", agentText: "I'm sorry for the delay, Hannah. I'm escalating this directly to our leasing manager Jennifer — she'll personally review your file within the hour and call you with an update.", toolName: "entrata.crm.createEscalation", monitors: [{ label: "Coherent response", passed: true }, { label: "Appropriate escalation", passed: true }, { label: "Empathetic tone", passed: true }, { label: "SLA on file", passed: true }] }),
+      buildQuickLog({ id: "conv-l10", residentName: "Ahmed Khan", channel: "Voice", topic: "Move-In Date Flexibility", summary: "Confirmed unit hold for 10-day delayed move-in.", outcome: "resolved", sentiment: "positive", startedAt: "2 days ago, 1:45 PM", daysAgo: 2, duration: "5m 22s", turns: 6, residentText: "I signed yesterday but my movers can't come until the 17th. Is that OK?", agentText: "No problem — your move-in date is updated to August 17th. There's no proration penalty since you're still in the same month. You'll get your fob and key on the 17th.", toolName: "entrata.leasing.adjustMoveInDate" }),
+      buildQuickLog({ id: "conv-l11", residentName: "Priya Patel", channel: "Chat", topic: "School District Inquiry", summary: "Looked up school assignments for the property zip. Linked district website.", outcome: "resolved", sentiment: "neutral", startedAt: "2 days ago, 11:11 AM", daysAgo: 2, duration: "2m 30s", turns: 4, residentText: "We have two kids. What elementary school would they go to?", agentText: `${propertyName} is in the Cherry Creek district — Belleview Elementary for K–5. Here's the district's school locator page so you can confirm the boundary.`, toolName: "entrata.knowledge.lookupSchoolDistrict" }),
+      buildQuickLog({ id: "conv-l12", residentName: "Tyler Robinson", channel: "SMS", topic: "Income Requirement", summary: "Quoted 3x rent requirement. Prospect to provide co-signer info.", outcome: "pending", sentiment: "neutral", startedAt: "3 days ago, 4:08 PM", daysAgo: 3, duration: "1m 41s", turns: 3, residentText: "What's the income requirement to qualify?", agentText: "We look for 3x the monthly rent in gross household income, or a qualified co-signer if you're under. For a $1,475 unit that's $4,425/mo combined.", toolName: "entrata.screening.getQualifyingRules" }),
+      buildQuickLog({ id: "conv-l13", residentName: "Sophia Nguyen", channel: "Chat", topic: "Furnished Options", summary: "Asked about short-term furnished. Out of inventory; offered waitlist.", outcome: "pending", sentiment: "neutral", startedAt: "3 days ago, 2:36 PM", daysAgo: 3, duration: "2m 19s", turns: 4, residentText: "Do you have any furnished short-term units available?", agentText: "We don't have furnished inventory available right now, but I added you to the waitlist and you'll get a notice as soon as one opens up — usually 2–3 per quarter.", toolName: "entrata.inventory.checkFurnished" }),
+      buildQuickLog({ id: "conv-l14", residentName: "Devon Wright", channel: "Email", topic: "Holding Deposit Refund", summary: "Application withdrawn before screening. Refund processed.", outcome: "resolved", sentiment: "neutral", startedAt: "4 days ago, 10:24 AM", daysAgo: 4, duration: "3m 50s", turns: 5, residentText: "I changed my mind on the apartment — can I get my holding deposit back?", agentText: "Since we hadn't run screening yet, your $200 holding deposit is fully refundable. I just initiated the refund — you'll see it back on your card in 3–5 business days.", toolName: "entrata.payments.refundHold" }),
+      buildQuickLog({ id: "conv-l15", residentName: "Grace Liu", channel: "Voice", topic: "ADA Unit Inquiry", summary: "Confirmed wheelchair-accessible 1BR availability. Booked priority tour.", outcome: "resolved", sentiment: "positive", startedAt: "5 days ago, 1:09 PM", daysAgo: 5, duration: "4m 33s", turns: 5, residentText: "I use a wheelchair — do you have any ground-floor accessible units coming up?", agentText: "Yes! We have an ADA-compliant 1BR opening August 1 with a roll-in shower and lowered counters. I booked you a priority tour for Saturday at 10am with our community manager.", toolName: "entrata.inventory.getAccessibleUnits" }),
+      buildQuickLog({ id: "conv-l16", residentName: "Nathan Reed", channel: "Chat", topic: "Roommate Add to Lease", summary: "Walked prospect through roommate qualification flow.", outcome: "pending", sentiment: "neutral", startedAt: "5 days ago, 11:48 AM", daysAgo: 5, duration: "3m 02s", turns: 5, residentText: "My girlfriend wants to be on the lease too. How does that work?", agentText: "She'll fill out a co-applicant form and run the same screening — $50 app fee. Once approved, we add her to the lease via an amendment. I'll email both you the link.", toolName: "entrata.leasing.startCoApplicant" }),
+      buildQuickLog({ id: "conv-l17", residentName: "Isabella Romano", channel: "Email", topic: "Application Denied — Appeal", summary: "Soft denial appealed; routed to compliance for review.", outcome: "escalated", sentiment: "negative", startedAt: "6 days ago, 9:30 AM", daysAgo: 6, duration: "6m 47s", turns: 7, residentText: "My application was denied but I think there's a mistake on the credit report it pulled.", agentText: "I hear you. Per our policy I'm escalating this to our compliance team — they'll review the credit dispute and respond within 2 business days with next steps and the adverse action notice.", toolName: "entrata.compliance.openAppeal", monitors: [{ label: "Coherent response", passed: true }, { label: "Appropriate escalation", passed: true }, { label: "Empathetic tone", passed: true }, { label: "Compliance routed", passed: true }] }),
+      buildQuickLog({ id: "conv-l18", residentName: "Carlos Mendoza", channel: "SMS", topic: "Application Approved — Next Steps", summary: "Sent move-in checklist and renter's insurance link.", outcome: "resolved", sentiment: "positive", startedAt: "7 days ago, 3:14 PM", daysAgo: 7, duration: "2m 21s", turns: 3, residentText: "Just saw the approval email! What's next?", agentText: "Congrats Carlos! Next: (1) pay the security deposit, (2) e-sign the lease (link sent), (3) bind renter's insurance before move-in. Want me to walk you through any of these?", toolName: "entrata.leasing.getMoveInChecklist" }),
+      buildQuickLog({ id: "conv-l19", residentName: "Megan O'Brien", channel: "Chat", topic: "Specials & Concessions", summary: "Quoted current LMC concession. Prospect to confirm tour.", outcome: "pending", sentiment: "positive", startedAt: "9 days ago, 4:51 PM", daysAgo: 9, duration: "2m 12s", turns: 4, residentText: "Any move-in specials right now?", agentText: "Yes! Sign by August 31 and get $750 off your first full month, plus we waive the $250 admin fee. That applies to the 2BR/2BA you looked at.", toolName: "entrata.specials.getActive" }),
+      buildQuickLog({ id: "conv-l20", residentName: "Jamal Williams", channel: "Voice", topic: "Tour No-Show Reschedule", summary: "Rescheduled missed tour. Sent calendar invite.", outcome: "resolved", sentiment: "neutral", startedAt: "11 days ago, 12:02 PM", daysAgo: 11, duration: "3m 25s", turns: 4, residentText: "I'm sorry I missed our tour yesterday — can we reschedule?", agentText: "Of course! I have Saturday at 11am or Sunday at 1pm. I'll send the calendar invite as soon as you confirm.", toolName: "entrata.tours.rescheduleTour" }),
+    ];
+  }
+
+  if (agentName === "Payments AI") {
+    return [
+      buildQuickLog({ id: "conv-p3", residentName: "Robert Singh", channel: "Chat", topic: "Autopay Setup", summary: "Resident enrolled in monthly ACH autopay on the 3rd.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 11:32 AM", daysAgo: 0, duration: "3m 08s", turns: 5, residentText: "How do I set up autopay so I stop forgetting?", agentText: "Easy — I'll send you a one-tap setup link. You can pick the 1st, 3rd, or 5th of each month and we'll auto-debit from your bank. You can cancel anytime in resident portal.", toolName: "entrata.payments.startAutopayEnrollment" }),
+      buildQuickLog({ id: "conv-p4", residentName: "Linda Thompson", channel: "SMS", topic: "Returned ACH", summary: "Resident's ACH bounced. Sent retry link with fee disclosed.", outcome: "pending", sentiment: "neutral", startedAt: "Today, 9:54 AM", daysAgo: 0, duration: "2m 27s", turns: 4, residentText: "I got a notice my payment bounced. What now?", agentText: "Your bank returned the ACH (likely insufficient funds). The total due with the $35 NSF fee is $1,725. Here's a retry link — you can pay by debit or a different bank.", toolName: "entrata.payments.handleNsf" }),
+      buildQuickLog({ id: "conv-p5", residentName: "Marcus Davis", channel: "Voice", topic: "Balance Inquiry", summary: "Read out current balance and recent posting.", outcome: "resolved", sentiment: "neutral", startedAt: "Today, 8:19 AM", daysAgo: 0, duration: "1m 42s", turns: 3, residentText: "What's my current balance?", agentText: "Your balance as of today is $0.00 — your $1,650 payment posted yesterday morning. You're all set for August.", toolName: "entrata.ledger.getBalance" }),
+      buildQuickLog({ id: "conv-p6", residentName: "Sofia Martinez", channel: "Email", topic: "Receipt Request", summary: "Sent itemized receipt for tax purposes.", outcome: "resolved", sentiment: "positive", startedAt: "Yesterday, 4:08 PM", daysAgo: 1, duration: "2m 03s", turns: 3, residentText: "Can you send me an itemized receipt for all my rent payments this year?", agentText: "Sent! Your 2025 YTD itemized receipt is in your inbox — $11,550 across 7 monthly payments with confirmation numbers and dates.", toolName: "entrata.ledger.exportItemizedReceipt" }),
+      buildQuickLog({ id: "conv-p7", residentName: "William Hayes", channel: "SMS", topic: "Late Fee Dispute", summary: "Late fee waived as one-time courtesy; escalation logged.", outcome: "resolved", sentiment: "neutral", startedAt: "Yesterday, 2:35 PM", daysAgo: 1, duration: "3m 51s", turns: 5, residentText: "I paid on the 5th, why was I charged a late fee?", agentText: "I see — the grace period ended at midnight on the 5th and your payment posted at 12:42am on the 6th. As a one-time courtesy I've waived the $75 fee. Your balance is $0.", toolName: "entrata.policy.waiveLateFee" }),
+      buildQuickLog({ id: "conv-p8", residentName: "Emma Garcia", channel: "Chat", topic: "Partial Payment", summary: "Logged $500 partial payment intent; reminder set for balance.", outcome: "pending", sentiment: "neutral", startedAt: "2 days ago, 5:14 PM", daysAgo: 2, duration: "2m 47s", turns: 4, residentText: "I can pay $500 now and the rest on Friday. Can I do that?", agentText: "Yes — I'll log a partial payment intent. Pay $500 today and I'll send a reminder Friday for the remaining $1,150 with a one-tap pay link.", toolName: "entrata.payments.logPartialIntent" }),
+      buildQuickLog({ id: "conv-p9", residentName: "Anthony Russo", channel: "Voice", topic: "Credit Card Decline", summary: "Card decline; switched to ACH; payment cleared.", outcome: "resolved", sentiment: "neutral", startedAt: "2 days ago, 1:33 PM", daysAgo: 2, duration: "4m 11s", turns: 6, residentText: "My credit card got declined. Can I use a different way?", agentText: "Of course. You can pay by ACH for free, or use a debit card with a 2.95% fee. I'll send the secure payment link to your phone now.", toolName: "entrata.payments.createHostedPayLink" }),
+      buildQuickLog({ id: "conv-p10", residentName: "Natalie Foster", channel: "Email", topic: "Move-Out Refund Status", summary: "Sent SODA timeline and current refund status.", outcome: "resolved", sentiment: "positive", startedAt: "3 days ago, 11:20 AM", daysAgo: 3, duration: "2m 56s", turns: 4, residentText: "I moved out 2 weeks ago — when do I get my security deposit back?", agentText: "Per Colorado law we have 60 days from move-out to send the SODA. Your file shows the unit inspected clean, refund of $1,425 is in the queue for processing on August 25.", toolName: "entrata.moveout.getSodaStatus" }),
+      buildQuickLog({ id: "conv-p11", residentName: "Christopher Yang", channel: "SMS", topic: "Pet Rent Adjustment", summary: "Removed pet rent after pet rehoming proof received.", outcome: "resolved", sentiment: "neutral", startedAt: "3 days ago, 9:48 AM", daysAgo: 3, duration: "3m 18s", turns: 5, residentText: "I rehomed my cat last month — can you remove the pet rent?", agentText: "I've removed the $15/mo pet rent going forward. I also credited $30 back for the months since you sent confirmation. Your new monthly is $1,620.", toolName: "entrata.ledger.adjustRecurringCharge" }),
+      buildQuickLog({ id: "conv-p12", residentName: "Ashley Cooper", channel: "Chat", topic: "Duplicate Payment", summary: "Identified duplicate ACH; refund initiated.", outcome: "resolved", sentiment: "positive", startedAt: "4 days ago, 3:42 PM", daysAgo: 4, duration: "4m 02s", turns: 5, residentText: "I think I paid twice this month by accident!", agentText: "You did — two ACH posts of $1,650. I just initiated a refund of one to your bank on file; it'll clear in 3–5 business days. Account balance is now $0.", toolName: "entrata.payments.refundDuplicate" }),
+      buildQuickLog({ id: "conv-p13", residentName: "Daniel Brooks", channel: "Voice", topic: "Roommate Split Pay", summary: "Set up split-pay between three roommates.", outcome: "resolved", sentiment: "neutral", startedAt: "5 days ago, 1:55 PM", daysAgo: 5, duration: "5m 14s", turns: 6, residentText: "Can my two roommates and I split the rent into thirds?", agentText: "Yes — I just enabled Split Pay on the unit. Each of you will get a portal link to pay your $616.67 share. The full rent is collected when all three pay.", toolName: "entrata.payments.enableSplitPay" }),
+      buildQuickLog({ id: "conv-p14", residentName: "Victoria Patel", channel: "Email", topic: "Section 8 Portion Question", summary: "Clarified HCV tenant portion vs. HAP portion.", outcome: "resolved", sentiment: "neutral", startedAt: "6 days ago, 10:32 AM", daysAgo: 6, duration: "3m 37s", turns: 4, residentText: "My voucher covers most of my rent but I'm confused what I actually owe.", agentText: "Your HCV covers $1,150 monthly (paid by the housing authority). Your tenant portion is $385/mo, due on the 1st. The autopay link below is set to that amount.", toolName: "entrata.affordable.getTenantPortion" }),
+      buildQuickLog({ id: "conv-p15", residentName: "Brandon Schwartz", channel: "SMS", topic: "Eviction Warning Push-Back", summary: "Resident upset about pre-eviction notice — escalated to property manager.", outcome: "escalated", sentiment: "negative", startedAt: "6 days ago, 8:14 AM", daysAgo: 6, duration: "5m 22s", turns: 6, residentText: "Why am I getting eviction papers?? I told you I'd pay!", agentText: "I hear you Brandon, and I'm sorry this is stressful. I'm pulling our property manager Sarah in directly — she'll call you within the hour to walk through options before anything moves forward.", toolName: "entrata.collections.escalateToManager", monitors: [{ label: "Empathetic tone", passed: true }, { label: "Appropriate escalation", passed: true }, { label: "Manager paged", passed: true }, { label: "De-escalation attempted", passed: true }] }),
+      buildQuickLog({ id: "conv-p16", residentName: "Erica Goldberg", channel: "Chat", topic: "Concession Question", summary: "Resident asked why concession was clawed back — explained 12-month minimum.", outcome: "resolved", sentiment: "neutral", startedAt: "7 days ago, 11:18 AM", daysAgo: 7, duration: "3m 49s", turns: 5, residentText: "My first month said $0 rent but now I'm being charged for it?", agentText: "Per your lease, the 1-month concession is amortized over the 12-month term. If you stay the full lease, you net the savings. The line item shows the monthly contra-credit.", toolName: "entrata.leasing.getConcessionTerms" }),
+      buildQuickLog({ id: "conv-p17", residentName: "Jonathan Kim", channel: "Voice", topic: "Payment Plan — Rejected", summary: "Resident requested plan; outside grace policy; escalated.", outcome: "escalated", sentiment: "negative", startedAt: "8 days ago, 2:55 PM", daysAgo: 8, duration: "4m 32s", turns: 6, residentText: "Can I split my rent over the next 60 days?", agentText: "I can't approve a 60-day plan automatically — our policy caps at 30 days. I'll route this to our community manager who can review options based on your account history.", toolName: "entrata.collections.routePlanRequest", monitors: [{ label: "Coherent response", passed: true }, { label: "Appropriate escalation", passed: true }, { label: "Policy boundaries respected", passed: true }, { label: "Empathetic tone", passed: true }] }),
+      buildQuickLog({ id: "conv-p18", residentName: "Mia Singh", channel: "Email", topic: "Renters Insurance Lapse", summary: "Resident notified of insurance lapse; reinstatement link sent.", outcome: "pending", sentiment: "neutral", startedAt: "9 days ago, 4:18 PM", daysAgo: 9, duration: "2m 41s", turns: 4, residentText: "I got a notice that my renters insurance lapsed — what do I need to do?", agentText: "Your Lemonade policy expired last week. You can either reinstate with them or use our partner program for $12/mo. Either way you'll need active coverage on file by next Friday.", toolName: "entrata.compliance.getInsuranceStatus" }),
+      buildQuickLog({ id: "conv-p19", residentName: "Hunter Wallace", channel: "SMS", topic: "Late Payment — Resolved", summary: "Resident paid + late fee. Account current.", outcome: "resolved", sentiment: "neutral", startedAt: "10 days ago, 9:50 AM", daysAgo: 10, duration: "2m 14s", turns: 4, residentText: "Sorry, just paying now. Total with the fee?", agentText: "No worries — total due with the $75 late fee is $1,725. Pay link below. Confirmation will hit your phone the moment it posts.", toolName: "entrata.ledger.getBalance" }),
+      buildQuickLog({ id: "conv-p20", residentName: "Lauren Sato", channel: "Chat", topic: "Direct Deposit For Refund", summary: "Confirmed bank account on file for SODA refund.", outcome: "resolved", sentiment: "positive", startedAt: "12 days ago, 1:30 PM", daysAgo: 12, duration: "1m 58s", turns: 3, residentText: "Can my deposit refund go to the same bank I autopay from?", agentText: "Yes — we'll send the refund to the same account ending in •1239 you used for autopay. No action needed on your end.", toolName: "entrata.payments.verifyRefundDestination" }),
+    ];
+  }
+
+  if (agentName === "Maintenance AI") {
+    return [
+      buildQuickLog({ id: "conv-m3", residentName: "Greg Hamilton", channel: "Chat", topic: "Garbage Disposal Jammed", summary: "Walked resident through reset. Resolved without dispatch.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 12:18 PM", daysAgo: 0, duration: "4m 02s", turns: 6, residentText: "My garbage disposal is making a weird hum and won't turn.", agentText: "Sounds like a jam — find the red reset button on the bottom of the unit, press it firmly. If that doesn't work, the hex key under the sink turns the impeller manually. Let me know if it spins free!", toolName: "entrata.maintenance.getSelfHelpGuide" }),
+      buildQuickLog({ id: "conv-m4", residentName: "Rebecca Chen", channel: "Voice", topic: "Smoke Alarm Beeping", summary: "Resolved low-battery beep without dispatch.", outcome: "resolved", sentiment: "neutral", startedAt: "Today, 10:25 AM", daysAgo: 0, duration: "3m 14s", turns: 5, residentText: "My smoke alarm is beeping every 30 seconds and it's driving me crazy.", agentText: "That's the low-battery chirp. The smoke alarm in the bedroom hallway takes a 9V — you should find spares in the welcome kit. If you don't have one, swing by the office and we'll hand you a fresh battery.", toolName: "entrata.maintenance.classifyAlarm" }),
+      buildQuickLog({ id: "conv-m5", residentName: "Kyle Anderson", channel: "SMS", topic: "Toilet Won't Stop Running", summary: "Created routine WO. Plumber scheduled for next morning.", outcome: "resolved", sentiment: "neutral", startedAt: "Today, 7:48 AM", daysAgo: 0, duration: "2m 50s", turns: 5, residentText: "Toilet in master bath has been running constantly since last night.", agentText: "Created work order MNT-5102 — flapper replacement. Our plumber Carlos has you scheduled for tomorrow 9–11am. He'll text 20 min before arrival.", toolName: "entrata.workorders.createRoutine" }),
+      buildQuickLog({ id: "conv-m6", residentName: "Vanessa Lopez", channel: "Email", topic: "Dishwasher Not Draining", summary: "Diagnosed clogged filter. WO created for tech if self-help fails.", outcome: "pending", sentiment: "neutral", startedAt: "Yesterday, 6:42 PM", daysAgo: 1, duration: "3m 35s", turns: 5, residentText: "My dishwasher won't drain — there's standing water at the bottom.", agentText: "First try cleaning the bottom filter (twist counterclockwise to remove). Run a hot cycle after. If water remains tomorrow, reply STILL and I'll dispatch our appliance tech.", toolName: "entrata.maintenance.getSelfHelpGuide" }),
+      buildQuickLog({ id: "conv-m7", residentName: "Jared Mills", channel: "SMS", topic: "Lockout — After Hours", summary: "Verified identity, dispatched on-call locksmith.", outcome: "resolved", sentiment: "positive", startedAt: "Yesterday, 11:14 PM", daysAgo: 1, duration: "4m 21s", turns: 5, residentText: "I'm locked out of my unit. It's almost midnight, help!", agentText: "I confirmed your identity via account info — our on-call locksmith Terry is on the way, ETA 25 min. He'll meet you at the leasing office door. There's a $75 after-hours service charge billed to your ledger.", toolName: "entrata.dispatch.pageLockoutVendor" }),
+      buildQuickLog({ id: "conv-m8", residentName: "Catherine Wells", channel: "Chat", topic: "Cockroach Sighting", summary: "Logged pest sighting. Routine pest treatment scheduled.", outcome: "resolved", sentiment: "negative", startedAt: "Yesterday, 5:08 PM", daysAgo: 1, duration: "3m 19s", turns: 5, residentText: "I just saw a roach in my kitchen!! Is this normal??", agentText: "I'm sorry, that's frustrating. I scheduled our pest control vendor Eco-Tech to treat your unit Friday between 1–3pm. They'll also do common areas as a precaution. Please remove all dishes from sinks/counters before.", toolName: "entrata.workorders.schedulePestTreatment", monitors: [{ label: "Empathetic tone", passed: true }, { label: "Vendor dispatched", passed: true }, { label: "Resident prep instructions sent", passed: true }, { label: "No repetition", passed: true }] }),
+      buildQuickLog({ id: "conv-m9", residentName: "Trevor Olson", channel: "Voice", topic: "Hot Water Outage — Building", summary: "Building-wide outage; on-call boiler tech en route.", outcome: "resolved", sentiment: "neutral", startedAt: "2 days ago, 6:15 AM", daysAgo: 2, duration: "2m 47s", turns: 4, residentText: "There's no hot water in any of my faucets.", agentText: "We're tracking a hot water outage in building C — boiler tripped overnight. Our boiler tech is on site, ETA to restore: 2 hours. I'll text the whole building once it's back up.", toolName: "entrata.maintenance.getBuildingOutages" }),
+      buildQuickLog({ id: "conv-m10", residentName: "Jasmine Patel", channel: "Chat", topic: "Light Fixture Flickering", summary: "Routine WO for electrical. Tech scheduled.", outcome: "resolved", sentiment: "neutral", startedAt: "2 days ago, 4:33 PM", daysAgo: 2, duration: "2m 38s", turns: 4, residentText: "Living room ceiling light keeps flickering even after I changed the bulb.", agentText: "Likely a loose fixture connection — that's an electrical task. Created MNT-5141. Our maintenance lead Mike will be by Thursday between 10am–12pm.", toolName: "entrata.workorders.createRoutine" }),
+      buildQuickLog({ id: "conv-m11", residentName: "Eric Sandoval", channel: "SMS", topic: "Window Won't Lock", summary: "Created safety WO; prioritized for next-day.", outcome: "resolved", sentiment: "neutral", startedAt: "3 days ago, 7:09 PM", daysAgo: 3, duration: "1m 56s", turns: 3, residentText: "Window in my bedroom won't latch shut.", agentText: "Logging as safety priority. Tomorrow morning between 8–10am our tech will come repair or replace the latch. You'll get a text 20 minutes before he arrives.", toolName: "entrata.workorders.createPriority" }),
+      buildQuickLog({ id: "conv-m12", residentName: "Olivia Bennett", channel: "Email", topic: "Mold Concern", summary: "Mold inspection escalated to property manager.", outcome: "escalated", sentiment: "negative", startedAt: "3 days ago, 9:22 AM", daysAgo: 3, duration: "5m 11s", turns: 6, residentText: "I noticed black spots on the wall behind my couch — I'm worried it's mold.", agentText: "Thanks for flagging this. Per policy any suspected mold goes to our property manager Sarah for inspection — she'll come by today between 2–4pm with a moisture meter and document everything.", toolName: "entrata.maintenance.escalateMoldCheck", monitors: [{ label: "Coherent response", passed: true }, { label: "Appropriate escalation", passed: true }, { label: "Compliance documented", passed: true }, { label: "Resident reassured", passed: true }] }),
+      buildQuickLog({ id: "conv-m13", residentName: "Brian Foster", channel: "Voice", topic: "Garage Door Stuck Open", summary: "Common area WO created; vendor scheduled.", outcome: "pending", sentiment: "neutral", startedAt: "4 days ago, 8:14 PM", daysAgo: 4, duration: "2m 35s", turns: 4, residentText: "The community garage door is stuck open right now.", agentText: "I see the sensor alert too. Logged WO MNT-5168 with the door vendor — they'll be out first thing tomorrow. I'll alert our property manager to keep the security gate down overnight.", toolName: "entrata.workorders.createCommonArea" }),
+      buildQuickLog({ id: "conv-m14", residentName: "Hannah Wright", channel: "Chat", topic: "Bathroom Fan Not Working", summary: "Routine fan replacement scheduled.", outcome: "resolved", sentiment: "neutral", startedAt: "5 days ago, 2:01 PM", daysAgo: 5, duration: "2m 18s", turns: 4, residentText: "Bathroom exhaust fan stopped working — humidity is bad.", agentText: "Created routine WO for fan motor swap — our tech will be by Wednesday 9–11am. In the meantime cracking the window after showers helps with the humidity.", toolName: "entrata.workorders.createRoutine" }),
+      buildQuickLog({ id: "conv-m15", residentName: "Logan Park", channel: "Email", topic: "Refrigerator Not Cooling", summary: "Appliance tech dispatched; loaner mini-fridge offered.", outcome: "resolved", sentiment: "neutral", startedAt: "5 days ago, 11:43 AM", daysAgo: 5, duration: "4m 26s", turns: 6, residentText: "Fridge stopped cooling overnight, lost a bunch of food.", agentText: "Sorry about that. Tech is scheduled today between 1–4pm. In the meantime I can drop a loaner mini-fridge at your door this morning — want me to do that?", toolName: "entrata.workorders.createPriority" }),
+      buildQuickLog({ id: "conv-m16", residentName: "Maya Robertson", channel: "SMS", topic: "Pipe Leak — Ceiling", summary: "Emergency WO; upstairs unit shutoff; ceiling repair vendor queued.", outcome: "resolved", sentiment: "positive", startedAt: "6 days ago, 5:28 AM", daysAgo: 6, duration: "11m 14s", turns: 9, residentText: "Water is dripping from my ceiling, I think there's a leak from upstairs!", agentText: "Emergency — I dispatched our plumber Marcus now (ETA 15 min) and shut off water to the unit above yours. Place towels and a bucket under the drip. Ceiling repair vendor will be scheduled once the leak is patched.", toolName: "entrata.workorders.createEmergency", monitors: [{ label: "Emergency detected", passed: true }, { label: "Fast response (<5 min)", passed: true }, { label: "Containment guidance", passed: true }, { label: "Follow-up scheduled", passed: true }] }),
+      buildQuickLog({ id: "conv-m17", residentName: "Derek Holland", channel: "Voice", topic: "Carpet Stain — Move-In Document", summary: "Documented pre-existing stain for move-in inspection.", outcome: "resolved", sentiment: "positive", startedAt: "7 days ago, 10:15 AM", daysAgo: 7, duration: "3m 02s", turns: 4, residentText: "I just moved in and there's a stain in the living room carpet I want documented.", agentText: "Got it — logged on your move-in inspection report with today's date. If you can text a photo to this number I'll attach it to the record so it won't come out of your deposit later.", toolName: "entrata.inspections.appendMoveInNote" }),
+      buildQuickLog({ id: "conv-m18", residentName: "Stephanie Cole", channel: "Chat", topic: "Pool Card Reset", summary: "Reset pool fob access remotely.", outcome: "resolved", sentiment: "positive", startedAt: "8 days ago, 3:34 PM", daysAgo: 8, duration: "1m 47s", turns: 3, residentText: "My pool fob isn't working.", agentText: "Just reset your fob remotely — try it again in 2 min. If it still doesn't work, swing by the office and we'll re-encode it on the spot.", toolName: "entrata.access.resetResidentFob" }),
+      buildQuickLog({ id: "conv-m19", residentName: "Marco Russo", channel: "Email", topic: "Cabinet Door Loose", summary: "Routine cabinet repair scheduled.", outcome: "pending", sentiment: "neutral", startedAt: "10 days ago, 4:18 PM", daysAgo: 10, duration: "1m 38s", turns: 3, residentText: "One of the kitchen cabinet doors is loose, the hinge looks stripped.", agentText: "Created MNT-5212 — cabinet hinge replacement. Our tech will be by next Tuesday between 9–11am.", toolName: "entrata.workorders.createRoutine" }),
+      buildQuickLog({ id: "conv-m20", residentName: "Allison Pierce", channel: "SMS", topic: "Pest Follow-Up", summary: "Re-treatment scheduled per residual sighting.", outcome: "pending", sentiment: "negative", startedAt: "12 days ago, 9:02 AM", daysAgo: 12, duration: "2m 24s", turns: 4, residentText: "Still seeing roaches a week after the treatment.", agentText: "I'm really sorry — that shouldn't happen. I scheduled Eco-Tech for a follow-up treatment Friday at no charge, and I'm flagging this for our property manager to check the building-wide schedule.", toolName: "entrata.workorders.escalatePestRecurrence", monitors: [{ label: "Empathetic tone", passed: true }, { label: "Vendor re-dispatched", passed: true }, { label: "Manager flagged", passed: true }, { label: "Resident reassured", passed: true }] }),
+    ];
+  }
+
+  if (agentName === "Renewal AI") {
+    return [
+      buildQuickLog({ id: "conv-r3", residentName: "Mason Bell", channel: "Email", topic: "Renewal Decline — Job Change", summary: "Resident declining renewal due to job relocation; exit survey logged.", outcome: "resolved", sentiment: "negative", startedAt: "Today, 10:14 AM", daysAgo: 0, duration: "5m 22s", turns: 5, residentText: "I won't be renewing — accepted a job in Seattle starting October.", agentText: "Congrats on the new role! I've logged your non-renewal with reason RELOCATION_WORK. Your move-out checklist is on its way, and we'll waive the early termination fee since your lease ends on time. Best of luck in Seattle.", toolName: "entrata.crm.logExitSurvey" }),
+      buildQuickLog({ id: "conv-r4", residentName: "Lily Zhao", channel: "Voice", topic: "Renewal Offer Negotiation", summary: "Counter offer accepted at $1,675/12 mo with parking included.", outcome: "resolved", sentiment: "positive", startedAt: "Today, 9:04 AM", daysAgo: 0, duration: "8m 38s", turns: 7, residentText: "The renewal offer is $80 more than I expected. Can we talk?", agentText: "Of course. Given your 3 years here and perfect payment history, I can hold the 12-month rate at $1,675 and include a covered parking spot ($75 value). That's a 2.1% effective YoY. Sound fair?", toolName: "entrata.renewals.evaluateLoyaltyAdjustment" }),
+      buildQuickLog({ id: "conv-r5", residentName: "Caleb Foster", channel: "Chat", topic: "Lease Transfer Request", summary: "Transfer to 2BR approved; lease amendment generated.", outcome: "resolved", sentiment: "positive", startedAt: "Yesterday, 4:48 PM", daysAgo: 1, duration: "6m 17s", turns: 6, residentText: "We had a baby — need to move into a 2BR mid-lease.", agentText: "Congratulations! There's a 2BR opening on the 15th. I prorated your current rent and generated a lease amendment for the swap. No transfer fee since you're a current resident. Sending the document now.", toolName: "entrata.leasing.startInternalTransfer" }),
+      buildQuickLog({ id: "conv-r6", residentName: "Sandra Webb", channel: "SMS", topic: "Renewal — Asking For Time", summary: "Extension granted; soft follow-up scheduled.", outcome: "pending", sentiment: "neutral", startedAt: "Yesterday, 2:11 PM", daysAgo: 1, duration: "1m 49s", turns: 3, residentText: "I need a few more days to decide on the renewal.", agentText: "Take your time — I've extended your decision deadline to August 8. No pressure. I'll send a single reminder on the 7th if I haven't heard back.", toolName: "entrata.renewals.extendDecisionWindow" }),
+      buildQuickLog({ id: "conv-r7", residentName: "Diego Morales", channel: "Email", topic: "Month-to-Month Decision", summary: "MTM premium quoted; resident accepted 6-month instead.", outcome: "resolved", sentiment: "neutral", startedAt: "2 days ago, 1:22 PM", daysAgo: 2, duration: "4m 05s", turns: 5, residentText: "Can I just go month-to-month after my lease ends?", agentText: "Yes — MTM is $1,925/mo, a $230 premium over our 6-month rate of $1,695. Since you mentioned flexibility but want value, would the 6-month at $1,695 work better?", toolName: "entrata.renewals.getOptions" }),
+      buildQuickLog({ id: "conv-r8", residentName: "Whitney Cole", channel: "Chat", topic: "Renewal With Roommate Change", summary: "Replaced co-tenant on renewal; new applicant screening.", outcome: "pending", sentiment: "neutral", startedAt: "2 days ago, 11:48 AM", daysAgo: 2, duration: "5m 14s", turns: 6, residentText: "My roommate is moving out. I want to renew with a new roommate — how does that work?", agentText: "Great. Your new roommate will apply ($50 screening fee) — once approved we issue a lease amendment that releases your current co-tenant and adds the new one, effective on the renewal date.", toolName: "entrata.leasing.startCoTenantSwap" }),
+      buildQuickLog({ id: "conv-r9", residentName: "Tyler Bennett", channel: "Voice", topic: "Early Termination", summary: "Early termination quoted with 2-month fee; resident considering.", outcome: "pending", sentiment: "negative", startedAt: "3 days ago, 5:32 PM", daysAgo: 3, duration: "4m 47s", turns: 5, residentText: "I need to break my lease 3 months early. What's the cost?", agentText: "Per lease the early termination fee is 2 months' rent ($3,300) and you forfeit the remaining concession. If you give 60-day notice now and find a replacement renter, we can waive the fee under our Reletting Option.", toolName: "entrata.leasing.getEtfQuote" }),
+      buildQuickLog({ id: "conv-r10", residentName: "Amelia Park", channel: "Email", topic: "Renewal Locked", summary: "Resident accepted 14-month at $1,725 with carpet cleaning perk.", outcome: "resolved", sentiment: "positive", startedAt: "3 days ago, 10:05 AM", daysAgo: 3, duration: "3m 41s", turns: 4, residentText: "The 14-month works for me, let's lock it in.", agentText: "Locked! 14-month at $1,725/mo starting October 1, complimentary carpet clean after signing. Renewal agreement is on its way to your email — please sign by September 1.", toolName: "entrata.renewals.lockSelectedOffer" }),
+      buildQuickLog({ id: "conv-r11", residentName: "Jasper Knight", channel: "Chat", topic: "Renewal With Pet Add", summary: "Pet added to renewal lease; deposit collected.", outcome: "resolved", sentiment: "positive", startedAt: "4 days ago, 3:18 PM", daysAgo: 4, duration: "4m 02s", turns: 5, residentText: "We just got a puppy. Can I add him to the renewal lease?", agentText: "Of course! I'll add him to the pet roster with a $300 refundable deposit and $25/mo pet rent starting on the renewal. Vaccination records can be uploaded via the resident portal.", toolName: "entrata.leasing.addPetToRenewal" }),
+      buildQuickLog({ id: "conv-r12", residentName: "Beatrice Ng", channel: "SMS", topic: "Renewal — Asking About Market", summary: "Provided market comp context; resident still negotiating.", outcome: "pending", sentiment: "neutral", startedAt: "5 days ago, 11:44 AM", daysAgo: 5, duration: "2m 58s", turns: 4, residentText: "Other buildings in the area are cheaper than my renewal offer. Why?", agentText: "I checked — median 2BR rent in your submarket is $1,825. Your renewal at $1,725 is below market plus you skip the move costs and any new-resident fees. Happy to break the math down if helpful.", toolName: "entrata.market.getComparables" }),
+      buildQuickLog({ id: "conv-r13", residentName: "Ezra Mitchell", channel: "Voice", topic: "Renewal — No Increase Request", summary: "Flat renewal denied; loyalty discount approved instead.", outcome: "resolved", sentiment: "neutral", startedAt: "5 days ago, 9:21 AM", daysAgo: 5, duration: "6m 12s", turns: 6, residentText: "Any chance you can renew me at the same rate I'm paying now?", agentText: "I can't go flat, but I checked with regional — a loyalty rate of $1,685 (vs the $1,725 standard offer) is approved on a 12-month renewal. That's a 1.2% increase from your current $1,665.", toolName: "entrata.renewals.evaluateLoyaltyAdjustment" }),
+      buildQuickLog({ id: "conv-r14", residentName: "Faith Coleman", channel: "Email", topic: "Renewal Question — HCV", summary: "Section 8 renewal routed to compliance.", outcome: "escalated", sentiment: "neutral", startedAt: "6 days ago, 2:34 PM", daysAgo: 6, duration: "4m 02s", turns: 5, residentText: "I'm a Section 8 voucher holder — how does my renewal work?", agentText: "Your HCV renewal goes through a different process. I'm looping in our compliance specialist Linda — she'll coordinate with your housing authority case worker and send updated paperwork within 2 business days.", toolName: "entrata.compliance.routeHcvRenewal", monitors: [{ label: "Coherent response", passed: true }, { label: "Appropriate escalation", passed: true }, { label: "Compliance routed", passed: true }, { label: "Empathetic tone", passed: true }] }),
+      buildQuickLog({ id: "conv-r15", residentName: "Owen Russell", channel: "Chat", topic: "Renewal — Decline Without Reason", summary: "Resident declined; reason captured; manager notified.", outcome: "resolved", sentiment: "negative", startedAt: "7 days ago, 4:21 PM", daysAgo: 7, duration: "3m 36s", turns: 4, residentText: "Not renewing. Don't want to discuss it.", agentText: "Understood, Owen. I've logged your non-renewal — no further questions from me. Your move-out checklist is on its way. Best of luck with whatever comes next.", toolName: "entrata.crm.logExitSurvey" }),
+      buildQuickLog({ id: "conv-r16", residentName: "Stella Foster", channel: "Voice", topic: "Renewal — Maintenance Concerns", summary: "Open work orders surfaced before renewal; ops escalated.", outcome: "escalated", sentiment: "negative", startedAt: "8 days ago, 1:58 PM", daysAgo: 8, duration: "5m 47s", turns: 7, residentText: "I'd renew but I've had 3 unresolved maintenance tickets sitting open.", agentText: "That's a fair concern. I pulled your open WO list and flagged it to the property manager — she'll personally walk your unit this week to close them out before you finalize the renewal decision.", toolName: "entrata.workorders.summarizeOpenForResident", monitors: [{ label: "Coherent response", passed: true }, { label: "Appropriate escalation", passed: true }, { label: "Empathetic tone", passed: true }, { label: "Manager paged", passed: true }] }),
+      buildQuickLog({ id: "conv-r17", residentName: "Riley Hammond", channel: "SMS", topic: "Renewal Offer Sent", summary: "Initial renewal offer delivered with 3 term options.", outcome: "pending", sentiment: "neutral", startedAt: "9 days ago, 8:45 AM", daysAgo: 9, duration: "1m 33s", turns: 2, residentText: "[proactive]", agentText: "Hi Riley — your lease at " + propertyName + " ends November 30. Renewal options: 12-mo $1,795 / 14-mo $1,765 / MTM $2,050. Reply with the term you'd like, or DECLINE if you're moving on.", toolName: "entrata.renewals.sendInitialOffer" }),
+      buildQuickLog({ id: "conv-r18", residentName: "Hayden Sims", channel: "Email", topic: "Renewal Locked With Upgrade", summary: "Renewed + opted into mid-lease upgrade package.", outcome: "resolved", sentiment: "positive", startedAt: "10 days ago, 11:30 AM", daysAgo: 10, duration: "5m 18s", turns: 6, residentText: "I want to renew but also do the kitchen upgrade you mentioned.", agentText: "Locked! 12-month renewal at $1,725 + kitchen upgrade package ($95/mo amortized over the term — quartz counters, new fixtures, dishwasher). Install scheduled for Nov 5.", toolName: "entrata.renewals.bundleUpgrade" }),
+      buildQuickLog({ id: "conv-r19", residentName: "Naomi Hart", channel: "Voice", topic: "Renewal — Roommate Departing", summary: "Confirmed solo renewal feasible; income verified.", outcome: "resolved", sentiment: "neutral", startedAt: "11 days ago, 3:09 PM", daysAgo: 11, duration: "4m 40s", turns: 5, residentText: "My roommate is leaving — can I renew the 2BR by myself?", agentText: "I pulled your income — at $84k you comfortably meet the 3x rent rule on the 2BR ($1,725). Solo renewal is approved. Sending the amended lease over now.", toolName: "entrata.screening.requalifySolo" }),
+      buildQuickLog({ id: "conv-r20", residentName: "Quincy Bell", channel: "Chat", topic: "Renewal — Switch To Different Unit", summary: "Transfer renewal coordinated with 1BR opening.", outcome: "pending", sentiment: "positive", startedAt: "13 days ago, 10:55 AM", daysAgo: 13, duration: "3m 47s", turns: 4, residentText: "Instead of renewing my 2BR, can I downsize to a 1BR at the same complex?", agentText: "Great timing — a 1BR opens November 1. I'd renew you into unit 04-118 at $1,475/12-mo. Same building, same fob. Want me to hold it while you decide?", toolName: "entrata.renewals.proposeUnitChange" }),
+    ];
+  }
+
+  return [];
+}
+
+function generateConversationLogs(agentName: string, propertyName: string): ConversationLog[] {
+  return [
+    ...generateBaseConversationLogs(agentName, propertyName),
+    ...generateAdditionalConversationLogs(agentName, propertyName),
+  ];
+}
+
+/**
+ * Full conversation detail — transcript with per-reply "View Trace" drill-down,
+ * summary + monitors sidebar, and the trace Sheet. Reused by the agent roster
+ * History panel and the knowledge-hub gap conversations popup.
+ */
+function ConversationDetailView({
+  log,
+  agentName,
+  onBack,
+}: {
+  log: ConversationLog;
+  agentName: string;
+  onBack: () => void;
+}) {
   const [traceExpanded, setTraceExpanded] = useState(true);
+  const [traceMode, setTraceMode] = useState<"internal" | "user">("internal");
   const [replyTraceSheet, setReplyTraceSheet] = useState<{
     steps: TraceStep[];
     replyPreview: string;
@@ -4189,170 +4744,273 @@ function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; pro
     return "bg-zinc-100 text-zinc-500 border-zinc-200";
   };
 
+  return (
+    <div className="relative h-full w-full">
+      <div className="flex h-full">
+        <div className="flex-1 min-w-0 flex flex-col border-r border-border">
+          <div className="flex items-center gap-3 px-5 py-3 border-b border-border bg-white shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setReplyTraceSheet(null);
+                onBack();
+              }}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ArrowLeft className="h-3 w-3" /> All Conversations
+            </button>
+            <span className="text-xs text-border">|</span>
+            <span className="text-sm font-medium text-foreground">{log.residentName}</span>
+            <span className="inline-flex items-center gap-1 rounded-full border border-border bg-zinc-50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              {conversationChannelIcon(log.channel)}
+              {log.channel}
+            </span>
+            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${outcomeBadge(log.outcome)}`}>
+              {log.outcome}
+            </span>
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto bg-muted px-5 py-5">
+            <div className="space-y-4 max-w-2xl">
+              {log.messages.map((msg, i) => {
+                let precedingResident: string | null = null;
+                for (let j = i - 1; j >= 0; j--) {
+                  if (log.messages[j].role === "resident") {
+                    precedingResident = log.messages[j].text;
+                    break;
+                  }
+                }
+                const hasReplyTrace = l4PerReplyTraces && msg.role === "agent" && msg.trace && msg.trace.length > 0;
+                return (
+                  <div key={i} className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-medium tracking-wider text-muted-foreground">
+                        {msg.role === "resident" ? log.residentName : agentName}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground/60">{msg.timestamp}</span>
+                    </div>
+                    <div
+                      className={
+                        msg.role === "resident"
+                          ? "max-w-[85%] rounded-2xl px-3 py-2 bg-background text-foreground border border-border shadow-sm text-sm"
+                          : "max-w-full py-1 text-foreground text-sm whitespace-pre-line"
+                      }
+                    >
+                      {msg.text}
+                    </div>
+                    {hasReplyTrace && msg.trace ? (
+                      <button
+                        type="button"
+                        className="mt-1.5 self-start text-xs font-medium text-emerald-700 hover:text-emerald-800 hover:underline"
+                        onClick={() =>
+                          setReplyTraceSheet({
+                            steps: msg.trace!,
+                            replyPreview: msg.text.length > 200 ? msg.text.slice(0, 200) + "\u2026" : msg.text,
+                            precedingResident,
+                          })
+                        }
+                      >
+                        View Trace
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div className="px-5 py-3 border-t border-border bg-white shrink-0">
+            <div className="flex items-center gap-4 text-xs text-muted-foreground">
+              <span>{log.turns} turns</span>
+              <span>{log.duration}</span>
+              <span>{log.startedAt}</span>
+            </div>
+          </div>
+        </div>
+        <aside className="w-80 shrink-0 bg-white overflow-y-auto">
+          <div className="p-5 space-y-6">
+            <div>
+              <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-3">Conversation Summary</h4>
+              <p className="text-xs text-foreground leading-relaxed">{log.summary}</p>
+            </div>
+            <div>
+              <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-3">Monitors</h4>
+              <div className="space-y-1.5">
+                {log.monitors.map((m, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs">
+                    {m.passed ? <CheckCircle className="h-3.5 w-3.5 text-emerald-600 shrink-0" /> : <XCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                    <span className={m.passed ? "text-foreground" : "text-red-600 font-medium"}>{m.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {!l4PerReplyTraces && log.trace.length > 0 ? (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setTraceExpanded(!traceExpanded)}
+                  className="flex items-center justify-between w-full mb-3"
+                >
+                  <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
+                    Agent Trace ({log.trace.length} steps)
+                  </h4>
+                  <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${traceExpanded ? "" : "-rotate-90"}`} />
+                </button>
+                {traceExpanded ? <AgentTraceTimeline trace={log.trace} /> : null}
+              </div>
+            ) : null}
+            {l4PerReplyTraces ? (
+              <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3">
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Traces are attached to each {agentName} reply. Use <span className="font-medium text-foreground">View Trace</span> under a message to see tools, knowledge, and reasoning for that response.
+                </p>
+              </div>
+            ) : null}
+          </div>
+        </aside>
+      </div>
+
+      {l4PerReplyTraces ? (
+        <Sheet open={replyTraceSheet !== null} onOpenChange={(open) => { if (!open) setReplyTraceSheet(null); }}>
+          <SheetContent className="z-[120] flex w-full flex-col overflow-y-auto sm:max-w-3xl">
+            <SheetHeader>
+              <SheetTitle>Trace for this reply</SheetTitle>
+              <SheetDescription>Steps and context that led to this {agentName} response.</SheetDescription>
+            </SheetHeader>
+            <div className="mt-4">
+              <div className="inline-flex rounded-lg border border-border bg-muted/40 p-0.5 text-xs">
+                {([
+                  ["internal", "Entrata Internal"],
+                  ["user", "User View"],
+                ] as const).map(([val, label]) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setTraceMode(val)}
+                    className={`rounded-md px-3 py-1 font-medium transition-colors ${
+                      traceMode === val
+                        ? "bg-white text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                {traceMode === "internal"
+                  ? "Full technical trace — tools, schemas, and payloads."
+                  : "Plain-language summary of how the answer was built — what your users would see."}
+              </p>
+            </div>
+            {replyTraceSheet ? (
+              <div className="mt-5 space-y-5">
+                {replyTraceSheet.precedingResident ? (
+                  <div className="rounded-lg border border-border bg-muted/50 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Resident message (context)</p>
+                    <p className="text-xs text-foreground leading-relaxed whitespace-pre-line">{replyTraceSheet.precedingResident}</p>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Proactive agent message — there is no prior resident turn in this thread for this reply.
+                  </p>
+                )}
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Agent reply</p>
+                  <p className="text-xs text-foreground leading-relaxed whitespace-pre-line">{replyTraceSheet.replyPreview}</p>
+                </div>
+                <div>
+                  <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-3">
+                    {traceMode === "internal" ? "Execution trace" : "How this answer was built"}
+                  </h4>
+                  {traceMode === "internal" ? (
+                    <AgentTraceTimeline trace={replyTraceSheet.steps} />
+                  ) : (
+                    <FriendlyTraceView trace={replyTraceSheet.steps} agentName={agentName} />
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </SheetContent>
+        </Sheet>
+      ) : null}
+    </div>
+  );
+}
+
+function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; propertyName: string }) {
+  const logs = useMemo(() => generateConversationLogs(agentName, propertyName), [agentName, propertyName]);
+  const [selectedLog, setSelectedLog] = useState<ConversationLog | null>(null);
+
+  const [residentQuery, setResidentQuery] = useState("");
+  const [dateFrom, setDateFrom] = useState<string>("");
+  const [dateTo, setDateTo] = useState<string>("");
+  const [channelFilter, setChannelFilter] = useState<Set<ConversationChannel>>(new Set());
+  const [escalatedOnly, setEscalatedOnly] = useState(false);
+
+  const toggleChannel = (channel: ConversationChannel) => {
+    setChannelFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(channel)) next.delete(channel);
+      else next.add(channel);
+      return next;
+    });
+  };
+
+  const clearAllFilters = () => {
+    setResidentQuery("");
+    setDateFrom("");
+    setDateTo("");
+    setChannelFilter(new Set());
+    setEscalatedOnly(false);
+  };
+
+  const hasActiveFilters =
+    residentQuery.trim().length > 0 ||
+    dateFrom !== "" ||
+    dateTo !== "" ||
+    channelFilter.size > 0 ||
+    escalatedOnly;
+
+  const filteredLogs = useMemo(() => {
+    const trimmedQuery = residentQuery.trim().toLowerCase();
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const MS_PER_DAY = 86_400_000;
+
+    const fromTs = dateFrom ? new Date(dateFrom + "T00:00:00").getTime() : null;
+    const toTs = dateTo ? new Date(dateTo + "T23:59:59.999").getTime() : null;
+
+    return logs.filter((log) => {
+      if (trimmedQuery && !log.residentName.toLowerCase().includes(trimmedQuery)) return false;
+      if (channelFilter.size > 0 && !channelFilter.has(log.channel)) return false;
+      if (escalatedOnly && log.outcome !== "escalated") return false;
+      if (fromTs !== null || toTs !== null) {
+        const logTs = startOfToday.getTime() - log.daysAgo * MS_PER_DAY;
+        if (fromTs !== null && logTs < fromTs) return false;
+        if (toTs !== null && logTs > toTs) return false;
+      }
+      return true;
+    });
+  }, [logs, residentQuery, dateFrom, dateTo, channelFilter, escalatedOnly]);
+
   const sentimentBadge = (s: ConversationLog["sentiment"]) => {
     if (s === "positive") return "bg-emerald-50 text-emerald-700 border-emerald-200";
     if (s === "negative") return "bg-red-50 text-red-700 border-red-200";
     return "bg-zinc-100 text-zinc-500 border-zinc-200";
   };
 
+  const outcomeBadge = (outcome: ConversationLog["outcome"]) => {
+    if (outcome === "resolved") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+    if (outcome === "escalated") return "bg-amber-50 text-amber-700 border-amber-200";
+    return "bg-zinc-100 text-zinc-500 border-zinc-200";
+  };
+
   if (selectedLog) {
     return (
-      <div className="relative h-full w-full">
-        <div className="flex h-full">
-          <div className="flex-1 min-w-0 flex flex-col border-r border-border">
-            <div className="flex items-center gap-3 px-5 py-3 border-b border-border bg-white shrink-0">
-              <button
-                type="button"
-                onClick={() => {
-                  setReplyTraceSheet(null);
-                  setSelectedLog(null);
-                }}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <ArrowLeft className="h-3 w-3" /> All Conversations
-              </button>
-              <span className="text-xs text-border">|</span>
-              <span className="text-sm font-medium text-foreground">{selectedLog.residentName}</span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-border bg-zinc-50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                {selectedLog.channel === "SMS" ? <Phone className="h-2.5 w-2.5" /> : selectedLog.channel === "Email" ? <Mail className="h-2.5 w-2.5" /> : <MessageSquare className="h-2.5 w-2.5" />}
-                {selectedLog.channel}
-              </span>
-              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${outcomeBadge(selectedLog.outcome)}`}>
-                {selectedLog.outcome}
-              </span>
-            </div>
-            <div className="flex-1 min-h-0 overflow-y-auto bg-muted px-5 py-5">
-              <div className="space-y-4 max-w-2xl">
-                {selectedLog.messages.map((msg, i) => {
-                  let precedingResident: string | null = null;
-                  for (let j = i - 1; j >= 0; j--) {
-                    if (selectedLog.messages[j].role === "resident") {
-                      precedingResident = selectedLog.messages[j].text;
-                      break;
-                    }
-                  }
-                  const hasReplyTrace = l4PerReplyTraces && msg.role === "agent" && msg.trace && msg.trace.length > 0;
-                  return (
-                    <div key={i} className="flex flex-col gap-0.5">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-medium tracking-wider text-muted-foreground">
-                          {msg.role === "resident" ? selectedLog.residentName : agentName}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground/60">{msg.timestamp}</span>
-                      </div>
-                      <div
-                        className={
-                          msg.role === "resident"
-                            ? "max-w-[85%] rounded-2xl px-3 py-2 bg-background text-foreground border border-border shadow-sm text-sm"
-                            : "max-w-full py-1 text-foreground text-sm whitespace-pre-line"
-                        }
-                      >
-                        {msg.text}
-                      </div>
-                      {hasReplyTrace && msg.trace ? (
-                        <button
-                          type="button"
-                          className="mt-1.5 self-start text-xs font-medium text-emerald-700 hover:text-emerald-800 hover:underline"
-                          onClick={() =>
-                            setReplyTraceSheet({
-                              steps: msg.trace!,
-                              replyPreview: msg.text.length > 200 ? msg.text.slice(0, 200) + "\u2026" : msg.text,
-                              precedingResident,
-                            })
-                          }
-                        >
-                          View Trace
-                        </button>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="px-5 py-3 border-t border-border bg-white shrink-0">
-              <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                <span>{selectedLog.turns} turns</span>
-                <span>{selectedLog.duration}</span>
-                <span>{selectedLog.startedAt}</span>
-              </div>
-            </div>
-          </div>
-          <aside className="w-80 shrink-0 bg-white overflow-y-auto">
-            <div className="p-5 space-y-6">
-              <div>
-                <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-3">Conversation Summary</h4>
-                <p className="text-xs text-foreground leading-relaxed">{selectedLog.summary}</p>
-              </div>
-              <div>
-                <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-3">Monitors</h4>
-                <div className="space-y-1.5">
-                  {selectedLog.monitors.map((m, i) => (
-                    <div key={i} className="flex items-center gap-2 text-xs">
-                      {m.passed ? <CheckCircle className="h-3.5 w-3.5 text-emerald-600 shrink-0" /> : <XCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />}
-                      <span className={m.passed ? "text-foreground" : "text-red-600 font-medium"}>{m.label}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              {!l4PerReplyTraces && selectedLog.trace.length > 0 ? (
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => setTraceExpanded(!traceExpanded)}
-                    className="flex items-center justify-between w-full mb-3"
-                  >
-                    <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
-                      Agent Trace ({selectedLog.trace.length} steps)
-                    </h4>
-                    <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${traceExpanded ? "" : "-rotate-90"}`} />
-                  </button>
-                  {traceExpanded ? <AgentTraceTimeline trace={selectedLog.trace} /> : null}
-                </div>
-              ) : null}
-              {l4PerReplyTraces ? (
-                <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3">
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">
-                    Traces are attached to each {agentName} reply. Use <span className="font-medium text-foreground">View Trace</span> under a message to see tools, knowledge, and reasoning for that response.
-                  </p>
-                </div>
-              ) : null}
-            </div>
-          </aside>
-        </div>
-
-        {l4PerReplyTraces ? (
-          <Sheet open={replyTraceSheet !== null} onOpenChange={(open) => { if (!open) setReplyTraceSheet(null); }}>
-            <SheetContent className="flex w-full flex-col overflow-y-auto sm:max-w-3xl">
-              <SheetHeader>
-                <SheetTitle>Trace for this reply</SheetTitle>
-                <SheetDescription>Steps and context that led to this {agentName} response.</SheetDescription>
-              </SheetHeader>
-              {replyTraceSheet ? (
-                <div className="mt-6 space-y-5">
-                  {replyTraceSheet.precedingResident ? (
-                    <div className="rounded-lg border border-border bg-muted/50 p-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Resident message (context)</p>
-                      <p className="text-xs text-foreground leading-relaxed whitespace-pre-line">{replyTraceSheet.precedingResident}</p>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      Proactive agent message — there is no prior resident turn in this thread for this reply.
-                    </p>
-                  )}
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Agent reply</p>
-                    <p className="text-xs text-foreground leading-relaxed whitespace-pre-line">{replyTraceSheet.replyPreview}</p>
-                  </div>
-                  <div>
-                    <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 mb-3">Execution trace</h4>
-                    <AgentTraceTimeline trace={replyTraceSheet.steps} />
-                  </div>
-                </div>
-              ) : null}
-            </SheetContent>
-          </Sheet>
-        ) : null}
-      </div>
+      <ConversationDetailView
+        log={selectedLog}
+        agentName={agentName}
+        onBack={() => setSelectedLog(null)}
+      />
     );
   }
 
@@ -4361,43 +5019,157 @@ function AgentHistoryPanel({ agentName, propertyName }: { agentName: string; pro
       <div className="flex items-center justify-between mb-1.5">
         <h2 className="text-xl font-bold text-foreground">History & Logging</h2>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">{logs.filter(l => l.outcome === "resolved").length} Resolved</span>
-          <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">{logs.filter(l => l.outcome === "escalated").length} Escalated</span>
-          <span className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500">{logs.filter(l => l.outcome === "pending").length} Pending</span>
+          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">{filteredLogs.filter(l => l.outcome === "resolved").length} Resolved</span>
+          <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">{filteredLogs.filter(l => l.outcome === "escalated").length} Escalated</span>
+          <span className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500">{filteredLogs.filter(l => l.outcome === "pending").length} Pending</span>
         </div>
       </div>
-      <p className="text-sm text-muted-foreground mb-6">
+      <p className="text-sm text-muted-foreground mb-5">
         Review past conversations, inspect agent reasoning traces, and monitor quality for {agentName} at {propertyName}.
       </p>
-      <div className="space-y-3">
-        {logs.map((conversationLog) => (
-          <button
-            key={conversationLog.id}
-            type="button"
-            onClick={() => setSelectedLog(conversationLog)}
-            className="w-full flex items-center gap-4 rounded-xl border border-border bg-white p-4 text-left transition-all hover:border-zinc-400 hover:shadow-md group"
-          >
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <p className="text-sm font-semibold text-foreground">{conversationLog.residentName}</p>
-                <span className="inline-flex items-center gap-1 rounded-full border border-border bg-zinc-50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                  {conversationLog.channel === "SMS" ? <Phone className="h-2.5 w-2.5" /> : conversationLog.channel === "Email" ? <Mail className="h-2.5 w-2.5" /> : <MessageSquare className="h-2.5 w-2.5" />}
-                  {conversationLog.channel}
-                </span>
-                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${outcomeBadge(conversationLog.outcome)}`}>{conversationLog.outcome}</span>
-                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${sentimentBadge(conversationLog.sentiment)}`}>{conversationLog.sentiment}</span>
-              </div>
-              <p className="text-xs text-muted-foreground">{conversationLog.topic} — {conversationLog.summary}</p>
-              <div className="flex items-center gap-3 mt-1.5 text-[10px] text-muted-foreground/70">
-                <span>{conversationLog.startedAt}</span>
-                <span>{conversationLog.turns} turns</span>
-                <span>{conversationLog.duration}</span>
-                <span>{countLogTraceSteps(conversationLog, agentName)} trace steps</span>
-              </div>
+
+      {/* Filters */}
+      <div className="mb-4 rounded-xl border border-border bg-white p-4">
+        <div className="flex flex-wrap items-end gap-4">
+          {/* Resident search */}
+          <div className="flex-1 min-w-[200px]">
+            <label className="block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Resident</label>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                type="text"
+                value={residentQuery}
+                onChange={(e) => setResidentQuery(e.target.value)}
+                placeholder="Search by name…"
+                className="h-9 pl-8 text-sm"
+              />
             </div>
-            <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors shrink-0" />
-          </button>
-        ))}
+          </div>
+
+          {/* Date range */}
+          <div>
+            <label className="block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">From</label>
+            <Input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="h-9 text-sm w-[150px]"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">To</label>
+            <Input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="h-9 text-sm w-[150px]"
+            />
+          </div>
+
+          {/* Escalated toggle */}
+          <div>
+            <label className="block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Status</label>
+            <button
+              type="button"
+              onClick={() => setEscalatedOnly((v) => !v)}
+              className={`h-9 inline-flex items-center gap-1.5 rounded-md border px-3 text-sm font-medium transition-colors ${
+                escalatedOnly
+                  ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                  : "border-border bg-white text-muted-foreground hover:bg-zinc-50 hover:text-foreground"
+              }`}
+            >
+              <AlertCircle className="h-3.5 w-3.5" />
+              Escalated only
+            </button>
+          </div>
+
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              className="h-9 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2"
+            >
+              <X className="h-3 w-3" />
+              Clear
+            </button>
+          )}
+        </div>
+
+        {/* Channel chips */}
+        <div className="mt-3 flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mr-1">Channel</span>
+          {CONVERSATION_CHANNELS.map((channel) => {
+            const isActive = channelFilter.has(channel);
+            return (
+              <button
+                key={channel}
+                type="button"
+                onClick={() => toggleChannel(channel)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                  isActive
+                    ? "border-blue-300 bg-blue-50 text-blue-700"
+                    : "border-border bg-white text-muted-foreground hover:bg-zinc-50 hover:text-foreground"
+                }`}
+              >
+                {conversationChannelIcon(channel)}
+                {channel}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {hasActiveFilters && (
+        <p className="text-xs text-muted-foreground mb-3">
+          Showing <span className="font-medium text-foreground">{filteredLogs.length}</span> of {logs.length} conversations
+        </p>
+      )}
+
+      <div className="space-y-3">
+        {filteredLogs.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border bg-zinc-50/50 p-8 text-center">
+            <p className="text-sm font-medium text-foreground">No conversations match these filters</p>
+            <p className="text-xs text-muted-foreground mt-1">Try adjusting your filters or clearing them to see all conversations.</p>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={clearAllFilters}
+                className="mt-3 text-xs font-medium text-blue-700 hover:text-blue-800 hover:underline"
+              >
+                Clear all filters
+              </button>
+            )}
+          </div>
+        ) : (
+          filteredLogs.map((conversationLog) => (
+            <button
+              key={conversationLog.id}
+              type="button"
+              onClick={() => setSelectedLog(conversationLog)}
+              className="w-full flex items-center gap-4 rounded-xl border border-border bg-white p-4 text-left transition-all hover:border-zinc-400 hover:shadow-md group"
+            >
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-sm font-semibold text-foreground">{conversationLog.residentName}</p>
+                  <span className="inline-flex items-center gap-1 rounded-full border border-border bg-zinc-50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    {conversationChannelIcon(conversationLog.channel)}
+                    {conversationLog.channel}
+                  </span>
+                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${outcomeBadge(conversationLog.outcome)}`}>{conversationLog.outcome}</span>
+                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${sentimentBadge(conversationLog.sentiment)}`}>{conversationLog.sentiment}</span>
+                </div>
+                <p className="text-xs text-muted-foreground">{conversationLog.topic} — {conversationLog.summary}</p>
+                <div className="flex items-center gap-3 mt-1.5 text-[10px] text-muted-foreground/70">
+                  <span>{conversationLog.startedAt}</span>
+                  <span>{conversationLog.turns} turns</span>
+                  <span>{conversationLog.duration}</span>
+                  <span>{countLogTraceSteps(conversationLog, agentName)} trace steps</span>
+                </div>
+              </div>
+              <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors shrink-0" />
+            </button>
+          ))
+        )}
       </div>
     </div>
   );
@@ -4539,7 +5311,7 @@ function AgentVoiceTonePanel({ agentName, property }: { agentName: string; prope
     <div className="p-8 max-w-3xl">
       <h2 className="text-xl font-bold text-foreground">Voice & Tone</h2>
       <p className="text-sm text-muted-foreground mt-1.5">
-        How {agentName} communicates at {property.name}. Tone settings cascade from Default → Vertical → Property, while voice settings still resolve through the platform voice configuration.
+        How {agentName} communicates at {property.name}. Both tone and voice cascade from Company → Vertical → Property. You can edit the property-level override from this screen; Company and Vertical defaults are managed in the centralized Agent Voice &amp; Tone settings.
       </p>
 
       <div className="mt-5 flex gap-1 rounded-lg border border-border bg-zinc-50/50 p-1 w-fit">
@@ -4574,6 +5346,16 @@ function AgentVoiceTonePanel({ agentName, property }: { agentName: string; prope
 
 /* ─── Tone Section ─── */
 
+/**
+ * Builds a stable, idempotent ID for a per-agent + per-property tone override
+ * created from this screen. Mirrors the slugged pattern used by the centralized
+ * Voice & Tone admin so overrides created here surface there cleanly.
+ */
+function buildToneOverrideId(toneAgentId: AgentToneId, propertyName: string) {
+  const slug = propertyName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return `${toneAgentId}-${slug}`;
+}
+
 function AgentToneSection({
   agentName,
   property,
@@ -4597,116 +5379,357 @@ function AgentToneSection({
       )
     : undefined;
 
+  // Cascade resolution. Source label "Company" is used for the agent's default
+  // tone so the cascade reads consistently with the Voice tab (Company → Vertical
+  // → Property) — the user explicitly only manages the property level from here.
   const persona = (() => {
     if (propOvr?.settings.persona) return { value: propOvr.settings.persona, source: "Property" as CascadeLevel };
     if (vertOvr?.settings.persona) return { value: vertOvr.settings.persona, source: "Vertical" as CascadeLevel };
-    return { value: defaultTone?.persona ?? "", source: "Default" as CascadeLevel };
+    return { value: defaultTone?.persona ?? "", source: "Company" as CascadeLevel };
   })();
 
   const guidelines = (() => {
     if (propOvr?.settings.guidelines) return { value: propOvr.settings.guidelines, source: "Property" as CascadeLevel };
     if (vertOvr?.settings.guidelines) return { value: vertOvr.settings.guidelines, source: "Vertical" as CascadeLevel };
-    return { value: defaultTone?.guidelines ?? "", source: "Default" as CascadeLevel };
+    return { value: defaultTone?.guidelines ?? "", source: "Company" as CascadeLevel };
   })();
 
   const doList = (() => {
     if (propOvr?.settings.doExamples.length) return { value: propOvr.settings.doExamples, source: "Property" as CascadeLevel };
     if (vertOvr?.settings.doExamples.length) return { value: vertOvr.settings.doExamples, source: "Vertical" as CascadeLevel };
-    return { value: defaultTone?.doExamples ?? [], source: "Default" as CascadeLevel };
+    return { value: defaultTone?.doExamples ?? [], source: "Company" as CascadeLevel };
   })();
 
   const dontList = (() => {
     if (propOvr?.settings.dontExamples.length) return { value: propOvr.settings.dontExamples, source: "Property" as CascadeLevel };
     if (vertOvr?.settings.dontExamples.length) return { value: vertOvr.settings.dontExamples, source: "Vertical" as CascadeLevel };
-    return { value: defaultTone?.dontExamples ?? [], source: "Default" as CascadeLevel };
+    return { value: defaultTone?.dontExamples ?? [], source: "Company" as CascadeLevel };
   })();
 
-  const editHref = toneAgentId
-    ? `/voice?agent=${toneAgentId}&property=${encodeURIComponent(property.name)}`
-    : "/voice";
+  const hasPropertyOverride = !!propOvr;
+
+  // Do's/Don'ts now live in the Agent Knowledge Hub (General Knowledge), so they
+  // are hidden here. Flag retained so the UI can be restored if that changes.
+  const showDosDonts = false;
+
+  // ─── Editor state ────────────────────────────────────────────────────────
+  const [editing, setEditing] = useState(false);
+  const [draftPersona, setDraftPersona] = useState(persona.value);
+  const [draftGuidelines, setDraftGuidelines] = useState(guidelines.value);
+  const [draftDos, setDraftDos] = useState<string[]>(doList.value);
+  const [draftDonts, setDraftDonts] = useState<string[]>(dontList.value);
+
+  const startEditing = () => {
+    // Seed drafts with the currently inherited values so the user starts from
+    // what is effectively in play (rather than blank fields).
+    setDraftPersona(persona.value);
+    setDraftGuidelines(guidelines.value);
+    setDraftDos([...doList.value]);
+    setDraftDonts([...dontList.value]);
+    setEditing(true);
+  };
+
+  const saveOverride = () => {
+    if (!toneAgentId) return;
+    const settings: ToneSettings = {
+      persona: draftPersona.trim(),
+      guidelines: draftGuidelines.trim(),
+      doExamples: draftDos.map((d) => d.trim()).filter(Boolean),
+      dontExamples: draftDonts.map((d) => d.trim()).filter(Boolean),
+    };
+    if (propOvr) {
+      voice.updateAgentPropertyToneOverride(propOvr.id, { settings });
+    } else {
+      voice.addAgentPropertyToneOverrides([
+        {
+          id: buildToneOverrideId(toneAgentId, property.name),
+          agentId: toneAgentId,
+          propertyName: property.name,
+          vertical: property.vertical,
+          settings,
+        },
+      ]);
+    }
+    setEditing(false);
+  };
+
+  const removeOverride = () => {
+    if (propOvr) {
+      voice.removeAgentPropertyToneOverride(propOvr.id);
+    }
+    setEditing(false);
+  };
+
+  const toneAvailable = !!toneAgentId;
 
   return (
     <>
-      <div className="mt-6 rounded-xl border border-border bg-zinc-50/50 p-4">
+      <div className="mt-6 rounded-xl border border-border bg-zinc-50/50 px-4 pt-4 pb-8">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Cascade Inheritance</p>
             <CascadeDots
               hasVertical={!!vertOvr}
-              hasProperty={!!propOvr}
+              hasProperty={hasPropertyOverride}
               hasAgent={false}
-              rootLabel="Default"
+              rootLabel="Company"
               includeAgent={false}
             />
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => window.location.assign(editHref)}
-            className="gap-1"
-          >
-            <Pencil className="h-3 w-3" /> Edit in Voice & Tone settings
-          </Button>
-        </div>
-      </div>
-
-      <div className="mt-6 space-y-4">
-        <div className="rounded-xl border border-border bg-white p-5">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-semibold text-foreground">AI Persona</p>
-            <SourceBadge source={persona.source} />
-          </div>
-          <p className="text-sm text-muted-foreground">{persona.value || "Not configured"}</p>
-        </div>
-
-        <div className="rounded-xl border border-border bg-white p-5">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-semibold text-foreground">Agent Tone & Instructions</p>
-            <SourceBadge source={guidelines.source} />
-          </div>
-          <p className="text-sm text-muted-foreground whitespace-pre-wrap">{guidelines.value || "Not configured"}</p>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div className="rounded-xl border border-border bg-white p-5">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-semibold text-emerald-700">Do&apos;s</p>
-              <SourceBadge source={doList.source} />
-            </div>
-            {doList.value.length > 0 ? (
-              <ul className="space-y-1.5">
-                {doList.value.map((item, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
-                    <CheckCircle className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-muted-foreground">No items configured</p>
+          <div className="flex items-center gap-2">
+            {hasPropertyOverride && !editing && (
+              <Badge variant="outline" className="text-emerald-700 border-emerald-300 bg-emerald-50 text-xs">
+                Property Override Active
+              </Badge>
             )}
-          </div>
-          <div className="rounded-xl border border-border bg-white p-5">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-semibold text-red-700">Don&apos;ts</p>
-              <SourceBadge source={dontList.source} />
-            </div>
-            {dontList.value.length > 0 ? (
-              <ul className="space-y-1.5">
-                {dontList.value.map((item, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
-                    <XCircle className="h-3.5 w-3.5 text-red-500 mt-0.5 shrink-0" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-muted-foreground">No items configured</p>
+            {!editing && toneAvailable && (
+              <Button variant="outline" size="sm" onClick={startEditing} className="gap-1">
+                {hasPropertyOverride ? (
+                  <>
+                    <Pencil className="h-3 w-3" /> Edit Property Override
+                  </>
+                ) : (
+                  <>
+                    <Plus className="h-3.5 w-3.5" /> Add Property Override
+                  </>
+                )}
+              </Button>
             )}
           </div>
         </div>
       </div>
+
+      {!editing && (
+        <div className="mt-6 space-y-4">
+          <div className="rounded-xl border border-border bg-white p-5">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-foreground">AI Persona</p>
+              <SourceBadge source={persona.source} />
+            </div>
+            <p className="text-sm text-muted-foreground">{persona.value || "Not configured"}</p>
+          </div>
+
+          <div className="rounded-xl border border-border bg-white p-5">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-foreground">Agent Tone Guidelines</p>
+              <SourceBadge source={guidelines.source} />
+            </div>
+            <p className="text-sm text-muted-foreground whitespace-pre-wrap">{guidelines.value || "Not configured"}</p>
+          </div>
+
+          {showDosDonts && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="rounded-xl border border-border bg-white p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold text-emerald-700">Do&apos;s</p>
+                  <SourceBadge source={doList.source} />
+                </div>
+                {doList.value.length > 0 ? (
+                  <ul className="space-y-1.5">
+                    {doList.value.map((item, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                        <CheckCircle className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No items configured</p>
+                )}
+              </div>
+              <div className="rounded-xl border border-border bg-white p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold text-red-700">Don&apos;ts</p>
+                  <SourceBadge source={dontList.source} />
+                </div>
+                {dontList.value.length > 0 ? (
+                  <ul className="space-y-1.5">
+                    {dontList.value.map((item, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                        <XCircle className="h-3.5 w-3.5 text-red-500 mt-0.5 shrink-0" />
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No items configured</p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {editing && (
+        <div className="mt-6 space-y-5">
+          <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50/30 p-5 space-y-5">
+            <div className="flex items-center gap-2 mb-1">
+              <Home className="h-4 w-4 text-emerald-600" />
+              <p className="text-sm font-semibold text-foreground">Property-Level Tone Override</p>
+              <span className="text-xs text-muted-foreground">
+                for {agentName} at {property.name}
+              </span>
+            </div>
+            <p className="-mt-3 text-xs text-muted-foreground">
+              Changes save as a property-level override and will appear in the centralized
+              Agent Voice &amp; Tone settings. Company and Vertical defaults aren&apos;t editable
+              from this screen.
+            </p>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-foreground">AI Persona</label>
+              <input
+                type="text"
+                value={draftPersona}
+                onChange={(e) => setDraftPersona(e.target.value)}
+                className="input-base text-sm"
+                placeholder="e.g. Luxury concierge"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Inherited: {persona.value || "Not configured"} ({persona.source})
+              </p>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-foreground">
+                Agent Tone Guidelines
+              </label>
+              <textarea
+                value={draftGuidelines}
+                onChange={(e) => setDraftGuidelines(e.target.value)}
+                rows={5}
+                className="input-base resize-y text-sm"
+                placeholder="Describe how the agent should sound at this property..."
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Inherited from {guidelines.source} level
+              </p>
+            </div>
+
+            {showDosDonts && (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <ToneListEditor
+                  title="Do's"
+                  items={draftDos}
+                  onChange={setDraftDos}
+                  accent="emerald"
+                  placeholder="Add a Do…"
+                  inheritedSource={doList.source}
+                />
+                <ToneListEditor
+                  title="Don'ts"
+                  items={draftDonts}
+                  onChange={setDraftDonts}
+                  accent="red"
+                  placeholder="Add a Don't…"
+                  inheritedSource={dontList.source}
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Button size="sm" onClick={saveOverride} className="gap-1">
+              <Save className="h-3.5 w-3.5" /> Save Override
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
+            {hasPropertyOverride && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={removeOverride}
+                className="gap-1 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200 ml-auto"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Remove Override
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
     </>
+  );
+}
+
+/**
+ * Editable list (Do's / Don'ts) used inside the property-level tone override
+ * editor. Mirrors the read-only list styling so the editor feels like an
+ * in-place edit of the same cards.
+ */
+function ToneListEditor({
+  title,
+  items,
+  onChange,
+  accent,
+  placeholder,
+  inheritedSource,
+}: {
+  title: string;
+  items: string[];
+  onChange: (next: string[]) => void;
+  accent: "emerald" | "red";
+  placeholder: string;
+  inheritedSource: CascadeLevel;
+}) {
+  const [draft, setDraft] = useState("");
+  const titleColor = accent === "emerald" ? "text-emerald-700" : "text-red-700";
+  const iconColor = accent === "emerald" ? "text-emerald-500" : "text-red-500";
+  const Icon = accent === "emerald" ? CheckCircle : XCircle;
+
+  const addItem = () => {
+    const value = draft.trim();
+    if (!value) return;
+    onChange([...items, value]);
+    setDraft("");
+  };
+
+  return (
+    <div className="rounded-xl border border-border bg-white p-4">
+      <div className="flex items-center justify-between mb-2">
+        <p className={`text-sm font-semibold ${titleColor}`}>{title}</p>
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          Inherited from {inheritedSource}
+        </span>
+      </div>
+      <ul className="space-y-1.5 mb-3">
+        {items.length === 0 && (
+          <li className="text-xs text-muted-foreground italic">No items yet — add one below.</li>
+        )}
+        {items.map((item, i) => (
+          <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+            <Icon className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${iconColor}`} />
+            <span className="flex-1">{item}</span>
+            <button
+              type="button"
+              onClick={() => onChange(items.filter((_, idx) => idx !== i))}
+              className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-zinc-100 hover:text-red-600 transition-colors"
+              aria-label={`Remove ${title} item`}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div className="flex gap-1.5">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              addItem();
+            }
+          }}
+          className="input-base text-sm flex-1"
+          placeholder={placeholder}
+        />
+        <Button type="button" size="sm" variant="outline" onClick={addItem} className="gap-1 shrink-0">
+          <Plus className="h-3 w-3" /> Add
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -4741,11 +5764,18 @@ function AgentVoiceSection({
   const hasVerticalVoice = vertOvr?.voiceSettings && Object.keys(vertOvr.voiceSettings).length > 0;
   const hasPropertyVoice = propOvr?.voiceSettings && Object.keys(propOvr.voiceSettings).length > 0;
 
+  // The per-agent + per-property override is presented to the user as the
+  // "Property" override on this screen — the Agent cascade dot was removed so
+  // the inheritance reads consistently with the Tone tab (Company → Vertical
+  // → Property). Persistence still goes through `agentTuning` so we don't break
+  // existing reads; future cleanup could migrate this to
+  // `agentPropertyVoiceOverrides` for a single source of truth.
   const agentOvr = voice.agentTuning.find(
     t => t.agentId === agentId && t.propertyName === property.name,
   );
   const ovr = agentOvr?.voiceOverrides;
   const hasAgentVoiceOverride = !!ovr;
+  const hasAnyPropertyOverride = !!hasPropertyVoice || hasAgentVoiceOverride;
 
   const [editing, setEditing] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -4812,17 +5842,19 @@ function AgentVoiceSection({
   const effectiveGender = hasAgentVoiceOverride ? ovr!.voiceGender ?? gender.value : gender.value;
   const effectiveAccent = hasAgentVoiceOverride ? ovr!.voiceAccent ?? accent.value : accent.value;
   const effectiveLanguages = hasAgentVoiceOverride ? ovr!.voiceLanguages ?? languages.value : languages.value;
-  const genderSource: CascadeLevel = hasAgentVoiceOverride && ovr!.voiceGender ? "Agent" : gender.source;
-  const accentSource: CascadeLevel = hasAgentVoiceOverride && ovr!.voiceAccent ? "Agent" : accent.source;
-  const languagesSource: CascadeLevel = hasAgentVoiceOverride && ovr!.voiceLanguages ? "Agent" : languages.source;
-  const autoDetectSource: CascadeLevel = hasAgentVoiceOverride && ovr!.autoDetectLanguage !== undefined ? "Agent" : autoDetectLanguage.source;
-  const recordAudioSource: CascadeLevel = hasAgentVoiceOverride && ovr!.recordAudio !== undefined ? "Agent" : recordAudio.source;
-  const transcriptsSource: CascadeLevel = hasAgentVoiceOverride && ovr!.generateTranscripts !== undefined ? "Agent" : generateTranscripts.source;
-  const legalSource: CascadeLevel = hasAgentVoiceOverride && ovr!.legalDisclosureEnabled !== undefined ? "Agent" : legalDisclosureEnabled.source;
-  const greetingSource: CascadeLevel = hasAgentVoiceOverride && ovr!.greeting !== undefined ? "Agent" : greeting.source;
-  const holdPhraseSource: CascadeLevel = hasAgentVoiceOverride && ovr!.holdPhrase !== undefined ? "Agent" : holdPhrase.source;
-  const maxCallSource: CascadeLevel = hasAgentVoiceOverride && ovr!.maxCallLength !== undefined ? "Agent" : maxCallLength.source;
-  const disclosureSource: CascadeLevel = hasAgentVoiceOverride && ovr!.aiDisclosureEnabled !== undefined ? "Agent" : aiDisclosure.source;
+  // Per-agent-per-property edits are surfaced as "Property" level overrides on
+  // this screen (no separate "Agent" tier in the cascade UI here).
+  const genderSource: CascadeLevel = hasAgentVoiceOverride && ovr!.voiceGender ? "Property" : gender.source;
+  const accentSource: CascadeLevel = hasAgentVoiceOverride && ovr!.voiceAccent ? "Property" : accent.source;
+  const languagesSource: CascadeLevel = hasAgentVoiceOverride && ovr!.voiceLanguages ? "Property" : languages.source;
+  const autoDetectSource: CascadeLevel = hasAgentVoiceOverride && ovr!.autoDetectLanguage !== undefined ? "Property" : autoDetectLanguage.source;
+  const recordAudioSource: CascadeLevel = hasAgentVoiceOverride && ovr!.recordAudio !== undefined ? "Property" : recordAudio.source;
+  const transcriptsSource: CascadeLevel = hasAgentVoiceOverride && ovr!.generateTranscripts !== undefined ? "Property" : generateTranscripts.source;
+  const legalSource: CascadeLevel = hasAgentVoiceOverride && ovr!.legalDisclosureEnabled !== undefined ? "Property" : legalDisclosureEnabled.source;
+  const greetingSource: CascadeLevel = hasAgentVoiceOverride && ovr!.greeting !== undefined ? "Property" : greeting.source;
+  const holdPhraseSource: CascadeLevel = hasAgentVoiceOverride && ovr!.holdPhrase !== undefined ? "Property" : holdPhrase.source;
+  const maxCallSource: CascadeLevel = hasAgentVoiceOverride && ovr!.maxCallLength !== undefined ? "Property" : maxCallLength.source;
+  const disclosureSource: CascadeLevel = hasAgentVoiceOverride && ovr!.aiDisclosureEnabled !== undefined ? "Property" : aiDisclosure.source;
 
   const effectiveRecordAudio = hasAgentVoiceOverride && ovr!.recordAudio !== undefined ? ovr!.recordAudio : recordAudio.value;
   const effectiveTranscripts = hasAgentVoiceOverride && ovr!.generateTranscripts !== undefined ? ovr!.generateTranscripts : generateTranscripts.value;
@@ -4835,25 +5867,31 @@ function AgentVoiceSection({
 
   return (
     <>
-      <div className="mt-6 rounded-xl border border-border bg-zinc-50/50 p-4">
+      <div className="mt-6 rounded-xl border border-border bg-zinc-50/50 px-4 pt-4 pb-8">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Cascade Inheritance</p>
-            <CascadeDots hasVertical={!!hasVerticalVoice} hasProperty={!!hasPropertyVoice} hasAgent={hasAgentVoiceOverride} />
+            <CascadeDots
+              hasVertical={!!hasVerticalVoice}
+              hasProperty={hasAnyPropertyOverride}
+              hasAgent={false}
+              rootLabel="Company"
+              includeAgent={false}
+            />
           </div>
           <div className="flex items-center gap-2">
             {hasAgentVoiceOverride ? (
               <>
-                <Badge variant="outline" className="text-emerald-700 border-emerald-300 bg-emerald-50 text-xs">Agent Override Active</Badge>
+                <Badge variant="outline" className="text-emerald-700 border-emerald-300 bg-emerald-50 text-xs">Property Override Active</Badge>
                 {!editing && (
                   <Button variant="outline" size="sm" onClick={startEditing} className="gap-1">
-                    <Pencil className="h-3 w-3" /> Edit
+                    <Pencil className="h-3 w-3" /> Edit Property Override
                   </Button>
                 )}
               </>
             ) : (
               <Button variant="outline" size="sm" onClick={startEditing} className="gap-1">
-                <Plus className="h-3.5 w-3.5" /> Add Agent Override
+                <Plus className="h-3.5 w-3.5" /> Add Property Override
               </Button>
             )}
           </div>
@@ -4973,10 +6011,15 @@ function AgentVoiceSection({
         <div className="mt-6 space-y-5">
           <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50/30 p-5 space-y-5">
             <div className="flex items-center gap-2 mb-1">
-              <Bot className="h-4 w-4 text-emerald-600" />
-              <p className="text-sm font-semibold text-foreground">Agent-Level Voice Override</p>
+              <Home className="h-4 w-4 text-emerald-600" />
+              <p className="text-sm font-semibold text-foreground">Property-Level Voice Override</p>
               <span className="text-xs text-muted-foreground">for {agentName} at {property.name}</span>
             </div>
+            <p className="-mt-3 text-xs text-muted-foreground">
+              Changes save as a property-level override and will appear in the centralized
+              Agent Voice &amp; Tone settings. Company and Vertical defaults aren&apos;t editable
+              from this screen.
+            </p>
 
             <div>
               <label className="mb-2 block text-sm font-medium">Voice Gender</label>
@@ -5194,15 +6237,44 @@ const AGENT_FLYOUT_DESCRIPTIONS: Record<string, string> = {
   "Renewal AI": "Automate renewal conversations, offers, and retention outreach.",
 };
 
-type SettingsNav = "property" | "agent-settings" | "voice-tone" | "simulation" | "history";
+type SettingsNav = "property" | "agent-settings" | "voice-tone" | "simulation" | "internal-demo" | "history";
+
+const AGENTS_WITH_HISTORY = new Set<string>([
+  "Maintenance AI",
+  "Payments AI",
+  "Leasing AI",
+  "Renewal AI",
+]);
+
+/**
+ * The four ELI+ agents. These all get a "Simulation" tab (formerly named
+ * "Internal Demo"). For each agent it embeds the live demo iframe. If an
+ * agent's demo URL is not yet configured in INTERNAL_DEMO_AGENTS, the panel
+ * falls back to a Coming Soon placeholder.
+ */
+const ELI_PLUS_AGENTS = new Set<string>([
+  "Leasing AI",
+  "Renewal AI",
+  "Payments AI",
+  "Maintenance AI",
+]);
 
 function getAgentSubPages(agentName: string): { id: SettingsNav; label: string }[] {
-  return [
+  const pages: { id: SettingsNav; label: string }[] = [
     { id: "agent-settings", label: `${agentName} Settings` },
     { id: "voice-tone", label: "Voice & Tone" },
-    { id: "simulation", label: "Simulation" },
-    { id: "history", label: "History & Logging" },
+    // NOTE: legacy "Simulation" tab intentionally hidden from the nav.
+    // The "simulation" id, AgentSimulationPanel, and routing branch are kept
+    // intact so we can re-enable later without code churn.
+    // { id: "simulation", label: "Simulation" },
   ];
+  if (AGENTS_WITH_HISTORY.has(agentName)) {
+    pages.push({ id: "history", label: "History & Logging" });
+  }
+  if (ELI_PLUS_AGENTS.has(agentName)) {
+    pages.push({ id: "internal-demo", label: "Simulation" });
+  }
+  return pages;
 }
 
 function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: string; property: typeof AGENT_FLYOUT_PROPERTIES[0]; onBack: () => void }) {
@@ -5277,8 +6349,10 @@ function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: 
                     {section.settings.map(setting => (
                       <a
                         key={setting.name}
-                        href="#"
-                        onClick={e => e.preventDefault()}
+                        href={setting.link ?? "#"}
+                        target={setting.link ? "_blank" : undefined}
+                        rel={setting.link ? "noopener noreferrer" : undefined}
+                        onClick={setting.link ? undefined : (e => e.preventDefault())}
                         className="flex items-center gap-4 rounded-xl border border-border bg-white p-4 text-left transition-all hover:border-zinc-400 hover:shadow-md group"
                       >
                         <div className="flex-1 min-w-0">
@@ -5288,7 +6362,7 @@ function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: 
                           )}
                         </div>
                         <div className="h-8 w-8 rounded-full bg-zinc-900 flex items-center justify-center shrink-0 group-hover:bg-zinc-700 transition-colors">
-                          <ArrowRight className="h-4 w-4 text-white" />
+                          {setting.link ? <ExternalLink className="h-4 w-4 text-white" /> : <ArrowRight className="h-4 w-4 text-white" />}
                         </div>
                       </a>
                     ))}
@@ -5304,12 +6378,18 @@ function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: 
                 propertyName={property.name}
                 agentDisplayLabel={`ELI+ ${agentName}`}
                 simulationCount={simulationCount}
-                onOpenSimulation={() => setActiveNav("simulation")}
+                onOpenSimulation={() => setActiveNav("internal-demo")}
               />
             </div>
           ) : agentName === "Maintenance AI" ? (
             <MaintenanceAISettingsPanel
               propertyName={property.name}
+              agentDisplayLabel={`ELI+ ${agentName}`}
+            />
+          ) : agentName === "Renewal AI" ? (
+            <RenewalsAISettingsPanel
+              propertyName={property.name}
+              propertyId={property.id}
               agentDisplayLabel={`ELI+ ${agentName}`}
             />
           ) : (
@@ -5339,6 +6419,8 @@ function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: 
             propertyName={property.name}
             onSimulationStarted={() => setSimulationCount((n) => n + 1)}
           />
+        ) : activeNav === "internal-demo" ? (
+          <InternalDemoPanel agentName={agentName} propertyName={property.name} />
         ) : (
           <AgentHistoryPanel agentName={agentName} propertyName={property.name} />
         )}
@@ -5346,6 +6428,8 @@ function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: 
     </div>
   );
 }
+
+type CloneSettingType = "communication_windows" | "offer_follow_ups" | "lease_follow_ups";
 
 function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string; SettingsPage: React.ComponentType<FlyoutPageProps> }) {
   const [selectedProperty, setSelectedProperty] = useState<typeof AGENT_FLYOUT_PROPERTIES[0] | null>(null);
@@ -5356,6 +6440,48 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
   const [sortField, setSortField] = useState<"name" | "vertical" | "status">("name");
   const [sortAsc, setSortAsc] = useState(true);
   const [activatePopover, setActivatePopover] = useState<string | null>(null);
+
+  const [cloneOpen, setCloneOpen] = useState(false);
+  const [cloneSource, setCloneSource] = useState<string | null>(null);
+  const [cloneSettings, setCloneSettings] = useState<Set<CloneSettingType>>(new Set(["communication_windows", "offer_follow_ups", "lease_follow_ups"]));
+  const [cloneTargets, setCloneTargets] = useState<Set<string>>(new Set());
+  const [cloneSuccess, setCloneSuccess] = useState(false);
+
+  const activeProperties = AGENT_FLYOUT_PROPERTIES.filter(p => p.status === "Active");
+  const isRenewalAI = agentName === "Renewal AI";
+
+  const openCloneDialog = () => {
+    setCloneSource(null);
+    setCloneSettings(new Set(["communication_windows", "offer_follow_ups", "lease_follow_ups"]));
+    setCloneTargets(new Set());
+    setCloneSuccess(false);
+    setCloneOpen(true);
+  };
+
+  const toggleCloneSetting = (s: CloneSettingType) => {
+    setCloneSettings(prev => {
+      const next = new Set(prev);
+      if (next.has(s)) next.delete(s); else next.add(s);
+      return next;
+    });
+  };
+
+  const toggleCloneTarget = (id: string) => {
+    setCloneTargets(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllTargets = () => {
+    const eligible = activeProperties.filter(p => p.id !== cloneSource).map(p => p.id);
+    setCloneTargets(new Set(eligible));
+  };
+
+  const deselectAllTargets = () => setCloneTargets(new Set());
+
+  const handleClone = () => setCloneSuccess(true);
 
   const filtered = AGENT_FLYOUT_PROPERTIES
     .filter(p => visibleIds.has(p.id))
@@ -5416,6 +6542,16 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
           >
             {filterLabel} <ChevronDown className="h-3.5 w-3.5 text-muted-foreground ml-1" />
           </button>
+          {isRenewalAI && activeProperties.length > 1 && (
+            <button
+              type="button"
+              onClick={openCloneDialog}
+              className="h-9 flex items-center gap-2 rounded-lg border border-border bg-white pl-3 pr-3 text-sm text-foreground hover:border-zinc-400 transition-colors"
+            >
+              <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+              Clone Settings
+            </button>
+          )}
         </div>
 
         <table className="w-full text-sm">
@@ -5611,6 +6747,160 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
                 Apply Filter
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {cloneOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onClick={() => setCloneOpen(false)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 flex flex-col" style={{ maxHeight: "85vh" }} onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-border">
+              <div>
+                <h2 className="text-lg font-bold text-foreground">Clone Renewal AI Settings</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">Copy settings from one property to others.</p>
+              </div>
+              <button type="button" onClick={() => setCloneOpen(false)} className="p-1 rounded-md hover:bg-zinc-100 text-muted-foreground hover:text-foreground transition-colors">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {cloneSuccess ? (
+              <div className="flex flex-col items-center justify-center py-16 px-6">
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 mb-4">
+                  <CheckCircle className="h-7 w-7 text-emerald-600" />
+                </div>
+                <h3 className="text-base font-semibold text-foreground mb-1">Settings cloned successfully</h3>
+                <p className="text-sm text-muted-foreground text-center max-w-sm mb-6">
+                  {cloneSettings.size} setting{cloneSettings.size !== 1 ? "s" : ""} from <strong>{activeProperties.find(p => p.id === cloneSource)?.name}</strong> {cloneSettings.size !== 1 ? "have" : "has"} been applied to {cloneTargets.size} propert{cloneTargets.size !== 1 ? "ies" : "y"}.
+                </p>
+                <button type="button" onClick={() => setCloneOpen(false)} className="px-6 py-2 rounded-full bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-800 transition-colors">
+                  Done
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-6">
+                  {/* Step 1: Source property */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-900 text-[10px] font-bold text-white">1</span>
+                      <p className="text-sm font-semibold text-foreground">Select source property</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground ml-7">Choose the property whose settings you want to copy from.</p>
+                    <div className="ml-7 grid grid-cols-2 gap-1.5">
+                      {activeProperties.map(p => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => { setCloneSource(p.id); setCloneTargets(prev => { const n = new Set(prev); n.delete(p.id); return n; }); }}
+                          className={`text-left px-3 py-2 text-sm rounded-lg border transition-all ${
+                            cloneSource === p.id
+                              ? "border-zinc-900 bg-zinc-50 font-medium"
+                              : "border-border hover:border-zinc-400"
+                          }`}
+                        >
+                          {p.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Step 2: Which settings */}
+                  {cloneSource && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-900 text-[10px] font-bold text-white">2</span>
+                        <p className="text-sm font-semibold text-foreground">Choose settings to clone</p>
+                      </div>
+                      <p className="text-xs text-muted-foreground ml-7">Select which configuration sections to copy.</p>
+                      <div className="ml-7 space-y-1.5">
+                        {([
+                          { id: "communication_windows" as CloneSettingType, label: "Communication Windows", desc: "Send time and allowed days" },
+                          { id: "offer_follow_ups" as CloneSettingType, label: "Renewal Offer Follow-Ups", desc: "Follow-up schedule for pending offers" },
+                          { id: "lease_follow_ups" as CloneSettingType, label: "Renewal Lease Follow-Ups", desc: "Follow-up schedule for unsigned leases" },
+                        ]).map(s => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => toggleCloneSetting(s.id)}
+                            className={`w-full text-left px-3 py-2.5 rounded-lg border transition-all flex items-center gap-3 ${
+                              cloneSettings.has(s.id)
+                                ? "border-zinc-900 bg-zinc-50"
+                                : "border-border hover:border-zinc-400"
+                            }`}
+                          >
+                            <div className={`flex h-4 w-4 items-center justify-center rounded border transition-colors ${
+                              cloneSettings.has(s.id) ? "bg-zinc-900 border-zinc-900" : "border-zinc-300"
+                            }`}>
+                              {cloneSettings.has(s.id) && <CheckCircle2 className="h-3 w-3 text-white" />}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium">{s.label}</p>
+                              <p className="text-[11px] text-muted-foreground">{s.desc}</p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Step 3: Target properties */}
+                  {cloneSource && cloneSettings.size > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-900 text-[10px] font-bold text-white">3</span>
+                        <p className="text-sm font-semibold text-foreground">Select target properties</p>
+                      </div>
+                      <div className="ml-7 flex items-center justify-between">
+                        <p className="text-xs text-muted-foreground">Choose which properties will receive the cloned settings.</p>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={selectAllTargets} className="text-[11px] font-medium text-foreground hover:underline">Select all</button>
+                          <span className="text-zinc-300">|</span>
+                          <button type="button" onClick={deselectAllTargets} className="text-[11px] font-medium text-muted-foreground hover:underline">Clear</button>
+                        </div>
+                      </div>
+                      <div className="ml-7 grid grid-cols-2 gap-1.5">
+                        {activeProperties.filter(p => p.id !== cloneSource).map(p => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => toggleCloneTarget(p.id)}
+                            className={`text-left px-3 py-2 text-sm rounded-lg border transition-all flex items-center gap-2 ${
+                              cloneTargets.has(p.id)
+                                ? "border-zinc-900 bg-zinc-50 font-medium"
+                                : "border-border hover:border-zinc-400"
+                            }`}
+                          >
+                            <div className={`flex h-3.5 w-3.5 items-center justify-center rounded border transition-colors shrink-0 ${
+                              cloneTargets.has(p.id) ? "bg-zinc-900 border-zinc-900" : "border-zinc-300"
+                            }`}>
+                              {cloneTargets.has(p.id) && <CheckCircle2 className="h-2.5 w-2.5 text-white" />}
+                            </div>
+                            {p.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between px-6 py-4 border-t border-border">
+                  <p className="text-xs text-muted-foreground">
+                    {cloneSource && cloneSettings.size > 0 && cloneTargets.size > 0
+                      ? `${cloneSettings.size} setting${cloneSettings.size !== 1 ? "s" : ""} → ${cloneTargets.size} propert${cloneTargets.size !== 1 ? "ies" : "y"}`
+                      : "Complete all steps to clone"}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleClone}
+                    disabled={!cloneSource || cloneSettings.size === 0 || cloneTargets.size === 0}
+                    className="px-6 py-2 rounded-full bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Clone Settings
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

@@ -1,0 +1,82 @@
+[
+  {
+    "id": "cmph3aroa01j1j94zimmadq9a",
+    "orderId": "cmph3aro901j0j94zkaoe692p",
+    "listingId": "cmph3ar6b003ej94zkjc8cgqh",
+    "metricName": "Invoices Processed",
+    "metricValue": 2400,
+    "metricUnit": "invoices",
+    "period": "Q4 2025",
+    "measuredAt": "2026-05-22T15:43:54.779Z"
+  },
+  {
+    "id": "cmph3aroa01j2j94z4h2cs32i",
+    "orderId": "cmph3aro901j0j94zkaoe692p",
+    "listingId": "cmph3ar6b003ej94zkjc8cgqh",
+    "metricName": "Exceptions Caught",
+    "metricValue": 47,
+    "metricUnit": "exceptions",
+    "period": "Q4 2025",
+    "measuredAt": "2026-05-22T15:43:54.779Z"
+  },
+  {
+    "id": "cmph3aroa01j3j94z8gyx8wbg",
+    "orderId": "cmph3aro901j0j94zkaoe692p",
+    "listingId": "cmph3ar6b003ej94zkjc8cgqh",
+    "metricName": "Hours Saved",
+    "metricValue": 180,
+    "metricUnit": "hours",
+    "period": "Q4 2025",
+    "measuredAt": "2026-05-22T15:43:54.779Z"
+  },
+  {
+    "id": "cmph3arob01j6j94z8el0hgwp",
+    "orderId": "cmph3arob01j5j94zoa25t46b",
+    "listingId": "cmph3ar6w004sj94zcc23o387",
+    "metricName": "Leads Responded",
+    "metricValue": 3200,
+    "metricUnit": "leads",
+    "period": "Q4 2025",
+    "measuredAt": "2026-05-22T15:43:54.780Z"
+  },
+  {
+    "id": "cmph3arob01j7j94zt4khh495",
+    "orderId": "cmph3arob01j5j94zoa25t46b",
+    "listingId": "cmph3ar6w004sj94zcc23o387",
+    "metricName": "Avg Response Time",
+    "metricValue": 38,
+    "metricUnit": "seconds",
+    "period": "Q4 2025",
+    "measuredAt": "2026-05-22T15:43:54.780Z"
+  },
+  {
+    "id": "cmph3arob01j8j94z0ygfpxbg",
+    "orderId": "cmph3arob01j5j94zoa25t46b",
+    "listingId": "cmph3ar6w004sj94zcc23o387",
+    "metricName": "Tours Scheduled",
+    "metricValue": 840,
+    "metricUnit": "tours",
+    "period": "Q4 2025",
+    "measuredAt": "2026-05-22T15:43:54.780Z"
+  },
+  {
+    "id": "cmph3aroc01jbj94z9vywmwux",
+    "orderId": "cmph3aroc01jaj94zsyv60x7j",
+    "listingId": "cmph3ar89007yj94zeed1dn0t",
+    "metricName": "Residents Enrolled",
+    "metricValue": 12400,
+    "metricUnit": "residents",
+    "period": "Q4 2025",
+    "measuredAt": "2026-05-22T15:43:54.781Z"
+  },
+  {
+    "id": "cmph3aroc01jcj94zbma38rcs",
+    "orderId": "cmph3aroc01jaj94zsyv60x7j",
+    "listingId": "cmph3ar89007yj94zeed1dn0t",
+    "metricName": "ARRPU",
+    "metricValue": 39.03,
+    "metricUnit": "USD",
+    "period": "Q4 2025",
+    "measuredAt": "2026-05-22T15:43:54.781Z"
+  }
+]

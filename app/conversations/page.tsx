@@ -59,7 +59,16 @@ import {
   Link2,
   SlidersHorizontal,
   CircleHelp,
+  Beaker,
+  PhoneIncoming,
+  User,
+  UserCheck,
+  UserX,
+  Zap,
+  PauseCircle,
+  PlayCircle,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -101,6 +110,8 @@ import {
   satisfiesEscalatedPropertyInboxLabels,
   conversationHasCurrentUserPrivateNoteMention,
   getLinkedConversationsByEscalation,
+  isSuperAgentDemoThread,
+  isSuperAgent1DemoThread,
 } from "@/lib/conversations-context";
 import { useAgents } from "@/lib/agents-context";
 import { useWorkforce } from "@/lib/workforce-context";
@@ -112,6 +123,7 @@ import {
   getVoiceOrSmsThreadRoutingNumbers,
 } from "@/lib/email-signature";
 import { useClickToCallDemo } from "@/lib/click-to-call-demo-context";
+import { useCallSystemDemo, type IncomingCallerType } from "@/lib/call-system-demo-context";
 import { useConversationsDemo } from "@/lib/conversations-demo-context";
 import {
   ClickToCallFloatingPanel,
@@ -200,6 +212,31 @@ const LIVE_AI_PROPERTY_FORBIDDEN = new Set([
   "Renewal AI Escalation",
   "Payments AI Escalation",
 ]);
+
+/**
+ * Maps a *Escalation label to the AI agent that gets paused while the escalation
+ * is open (and resumed when it's resolved). Returns null for non-AI-specific
+ * escalations (e.g. "Other Escalation") so the UI can suppress the indicator.
+ */
+const ESCALATION_LABEL_TO_AGENT: Record<string, string> = {
+  "Leasing AI Escalation": "Leasing AI",
+  "Maintenance AI Escalation": "Maintenance AI",
+  "Renewal AI Escalation": "Renewals AI",
+  "Renewals AI Escalation": "Renewals AI",
+  "Payments AI Escalation": "Payments AI",
+};
+function aiAgentFromEscalationLabel(label: string): string | null {
+  return ESCALATION_LABEL_TO_AGENT[label] ?? null;
+}
+/** Resolve a list of unique paused/resumed AI agents from a list of escalation labels. */
+function aiAgentsFromLabels(labels: string[]): string[] {
+  const out: string[] = [];
+  for (const l of labels) {
+    const a = aiAgentFromEscalationLabel(l);
+    if (a && !out.includes(a)) out.push(a);
+  }
+  return out;
+}
 
 /** Logged-in user for the My Inbox tab (human assignee name). */
 const MY_INBOX_ASSIGNEE = "Abe Kashiwagi";
@@ -347,7 +384,67 @@ const AI_ACTIVATION_OPT_IN_LABELS = new Set([
   "Payments AI",
   "Renewal AI",
   "Renewals AI",
+  "AI Conversation",
 ]);
+
+/**
+ * Super Agent 1.0 — known ELI+ AI sub-agents. The presence of a "{name} Escalation"
+ * label on the conversation means that specific sub-agent is blocked from responding
+ * (Column 1 of the SA 1.0 schematic — "Blocking Sub Agent"). Sub-agents not listed
+ * here keep responding (Columns 3 & 4 — non-blocking escalations).
+ */
+const SA1_KNOWN_SUB_AGENTS = [
+  "Renewals AI",
+  "Payments AI",
+  "Leasing AI",
+  "Maintenance AI",
+] as const;
+type Sa1SubAgent = (typeof SA1_KNOWN_SUB_AGENTS)[number];
+
+/**
+ * Super Agent 1.0 — blocking super-agent escalation label (Column 2 of the schematic).
+ * When present, EVERY AI agent is paused until staff resolves it via the Resolve picker.
+ */
+const SA1_SUPER_AGENT_BLOCK_LABEL = "Super Agent Escalation";
+
+/**
+ * Super Agent 1.0 — profile-level "never reply with AI" mark. This represents a resident
+ * profile setting (in the prototype it lives as a conversation label) where staff have
+ * decided AI must never auto-reply to this resident on any conversation, indefinitely,
+ * until a human lifts the block. Beats every conversation-scoped state.
+ */
+const SA1_RESIDENT_PROFILE_BLOCK_LABEL = "Profile · No AI";
+
+type Sa1AiStateKind =
+  | "on"
+  | "partial"
+  | "off-all-subs"
+  | "off-super"
+  | "off-manual"
+  | "off-profile";
+type Sa1AiState = {
+  kind: Sa1AiStateKind;
+  hasSuperAgentBlock: boolean;
+  hasResidentProfileBlock: boolean;
+  blockedSubAgents: Sa1SubAgent[];
+};
+
+function computeSa1AiState(c: ConversationItem, manualOn: boolean): Sa1AiState {
+  const hasResidentProfileBlock = c.labels.includes(SA1_RESIDENT_PROFILE_BLOCK_LABEL);
+  const hasSuperAgentBlock = c.labels.includes(SA1_SUPER_AGENT_BLOCK_LABEL);
+  const blockedSubAgents = SA1_KNOWN_SUB_AGENTS.filter((a) =>
+    c.labels.includes(`${a} Escalation`),
+  );
+  let kind: Sa1AiStateKind;
+  if (hasResidentProfileBlock) kind = "off-profile";
+  else if (!manualOn) kind = "off-manual";
+  else if (hasSuperAgentBlock) kind = "off-super";
+  else if (blockedSubAgents.length === SA1_KNOWN_SUB_AGENTS.length)
+    kind = "off-all-subs";
+  else if (blockedSubAgents.length > 0) kind = "partial";
+  else kind = "on";
+  return { kind, hasSuperAgentBlock, hasResidentProfileBlock, blockedSubAgents };
+}
 
 function isLiveAiPropertyInbox(c: ConversationItem, property: string): boolean {
   if (c.property !== property) return false;
@@ -376,6 +473,7 @@ function isPrimaryAiLaneConversation(c: ConversationItem): boolean {
  */
 function matchesThreadListEscalatedFilter(c: ConversationItem): boolean {
   if (c.status !== "open") return false;
+  if (isSuperAgentDemoThread(c.id) && c.labels.some((l) => l.includes("Escalation"))) return true;
   if (c.hasUnread) return true;
   return !isWaitingOnResidentPublicReply(c);
 }
@@ -417,6 +515,12 @@ type ThreadListConvoTypeFilter = "escalated" | "liveAi";
 /** Open Threads: open only; unread, @mention in a private note, or unattended. Resolved threads never appear here. */
 function conversationMatchesAllThreadsInbox(c: ConversationItem): boolean {
   if (c.status !== "open") return false;
+  if (
+    (isSuperAgentDemoThread(c.id) || isSuperAgent1DemoThread(c.id)) &&
+    c.labels.some((l) => l.includes("Escalation"))
+  ) {
+    return true;
+  }
   return (
     c.hasUnread ||
     conversationHasCurrentUserPrivateNoteMention(c) ||
@@ -745,8 +849,15 @@ function ConversationsContent() {
     return { ai, humans };
   }, [autonomousAgents, humanMembers]);
 
-  const { clickToCallEnabled } = useClickToCallDemo();
-  const { profileCommsPopupRequest } = useConversationsDemo();
+  const { clickToCallEnabled, toggleClickToCallEnabled } = useClickToCallDemo();
+  const { callSystemEnabled, toggleCallSystemEnabled, simulateInboundCall } = useCallSystemDemo();
+  const {
+    superAgentEnabled,
+    toggleSuperAgentEnabled,
+    superAgent1Enabled,
+    toggleSuperAgent1Enabled,
+  } = useConversationsDemo();
+  const [callSystemPanelOpen, setCallSystemPanelOpen] = useState(false);
 
   const clickToCallAssigneeOptions = useMemo(() => {
     const rest = humanMembers
@@ -841,24 +952,43 @@ function ConversationsContent() {
     });
   };
 
+  /**
+   * For Super Agent 1.0 threads: tracks which escalation labels a staff member has already
+   * replied to with a public message. Once the replied-set covers every `*Escalation` label
+   * on the conversation, the thread is added to `sa1HiddenConversationIds` and removed from
+   * the thread list on the left + the unread / needs-action / mentions badge counters.
+   * The escalation labels themselves stay on the conversation — this is purely a "staff is
+   * done responding" UI signal, NOT a resolution. Another staff who can answer a different
+   * escalation will still see the thread until they reply too.
+   */
+  const sa1RepliedEscalationsRef = useRef<Map<string, Set<string>>>(new Map());
+  const [sa1HiddenConversationIds, setSa1HiddenConversationIds] = useState<Set<string>>(new Set());
+
   /** Sum of unread resident messages across threads in “Open Threads” (mention/unattended-only threads contribute 0). */
   const allThreadsUnreadCount = useMemo(() => {
     let total = 0;
     for (const c of conversations) {
+      if (sa1HiddenConversationIds.has(c.id)) continue;
       if (!conversationMatchesAllThreadsInbox(c)) continue;
       total += countUnreadResidentMessagesInThread(c);
     }
     return total;
-  }, [conversations]);
+  }, [conversations, sa1HiddenConversationIds]);
 
   const mentionsInboxCount = useMemo(
-    () => conversations.filter((c) => conversationHasCurrentUserPrivateNoteMention(c)).length,
-    [conversations]
+    () =>
+      conversations.filter(
+        (c) => !sa1HiddenConversationIds.has(c.id) && conversationHasCurrentUserPrivateNoteMention(c)
+      ).length,
+    [conversations, sa1HiddenConversationIds]
   );
 
   const unattendedInboxCount = useMemo(
-    () => conversations.filter((c) => isConversationUnattended(c)).length,
-    [conversations]
+    () =>
+      conversations.filter(
+        (c) => !sa1HiddenConversationIds.has(c.id) && isConversationUnattended(c)
+      ).length,
+    [conversations, sa1HiddenConversationIds]
   );
 
   /** Sidebar badges: unread threads in that inbox’s conversation list (hasUnread). */
@@ -937,13 +1067,14 @@ function ConversationsContent() {
   }, [sidebarFiltered, inboxTab]);
 
   const threadListConvoFiltered = useMemo(() => {
-    if (threadListConvoTypes.size === 0) return tabFiltered;
-    return tabFiltered.filter((c) => {
+    const baseFiltered = tabFiltered.filter((c) => !sa1HiddenConversationIds.has(c.id));
+    if (threadListConvoTypes.size === 0) return baseFiltered;
+    return baseFiltered.filter((c) => {
       if (threadListConvoTypes.has("escalated") && matchesThreadListEscalatedFilter(c)) return true;
       if (threadListConvoTypes.has("liveAi") && matchesThreadListLiveAiNonEscalatedFilter(c)) return true;
       return false;
     });
-  }, [tabFiltered, threadListConvoTypes]);
+  }, [tabFiltered, threadListConvoTypes, sa1HiddenConversationIds]);
 
   const threadListFiltered = useMemo(() => {
     if (threadListPropertyKeys === null) return threadListConvoFiltered;
@@ -1009,6 +1140,8 @@ function ConversationsContent() {
     return getLinkedConversationsByEscalation(conversations, selected.id, selected.escalationId);
   }, [conversations, selected?.id, selected?.escalationId]);
 
+  const [linkedExpanded, setLinkedExpanded] = useState(false);
+
   const selectedEmailRouting =
     selected?.channel === "Email"
       ? getEmailThreadRoutingAddresses(selected.resident, selected.property)
@@ -1019,14 +1152,101 @@ function ConversationsContent() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [selected?.messages.length]);
 
+  // Clear escalation error when switching conversations (but preserve selections for super agent)
+  const superAgentSelectionsRef = useRef<Map<string, Set<string>>>(new Map());
+  const previousSelectedIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    setEscalationError(false);
+    if (selectedId && (isSuperAgentDemoThread(selectedId) || isSuperAgent1DemoThread(selectedId))) {
+      const saved = superAgentSelectionsRef.current.get(selectedId);
+      if (saved && saved.size > 0) {
+        setSelectedEscalationTypes(saved);
+      } else {
+        setSelectedEscalationTypes(new Set());
+      }
+    } else {
+      setSelectedEscalationTypes(new Set());
+    }
+  }, [selectedId]);
+
   // --- Chat input ---
   const [inputMode, setInputMode] = useState<"message" | "private_note">("message");
   const [draft, setDraft] = useState("");
+
+  /**
+   * Email composer body prefix: two blank lines + property/staff signature. Staff types their
+   * reply at the top of the textarea; the signature stays editable inline so they can tweak or
+   * remove it as needed. Cursor is parked at position 0 after the fill so typing lands above
+   * the signature block.
+   */
+  const buildEmailComposerSignatureDraft = useCallback(
+    (convo: ConversationItem | null): string => {
+      if (!convo || convo.channel !== "Email") return "";
+      const sig = staffEmailSignatureForConversation(convo, humanNameSet, humanMembers);
+      if (!sig) return "";
+      return `\n\n${sig}`;
+    },
+    [humanNameSet, humanMembers]
+  );
+
+  /** Parks the composer caret at position 0 so the next keystroke lands above the signature. */
+  const parkCaretAtStart = useCallback(() => {
+    requestAnimationFrame(() => {
+      const el = chatTextareaRef.current;
+      if (!el) return;
+      el.selectionStart = 0;
+      el.selectionEnd = 0;
+      el.scrollTop = 0;
+    });
+  }, []);
+
+  /**
+   * Called from handleSend after a message goes out. Clears the draft and, for Email + Message
+   * conversations, immediately re-seeds the signature so staff can start typing the next reply
+   * above it without having to reopen the thread.
+   */
+  const resetComposerAfterSend = useCallback(
+    (convo: ConversationItem | null, mode: "message" | "private_note") => {
+      const seed = mode === "message" ? buildEmailComposerSignatureDraft(convo) : "";
+      setDraft(seed);
+      if (seed) parkCaretAtStart();
+    },
+    [buildEmailComposerSignatureDraft, parkCaretAtStart]
+  );
+  const [selectedEscalationTypes, setSelectedEscalationTypes] = useState<Set<string>>(new Set());
+  const [superAgentNoteOpen, setSuperAgentNoteOpen] = useState(false);
+  const [superAgentNoteDraft, setSuperAgentNoteDraft] = useState("");
+  const [escalationError, setEscalationError] = useState(false);
+  const [escalationSummaryOpen, setEscalationSummaryOpen] = useState(false);
+  const [contextDetailOpenIdx, setContextDetailOpenIdx] = useState<number | null>(null);
+  const [escalationPickerOpen, setEscalationPickerOpen] = useState(false);
+  const [escalationPickerSelections, setEscalationPickerSelections] = useState<Set<string>>(new Set());
+  const [sa1ResolvePickerOpen, setSa1ResolvePickerOpen] = useState(false);
+  const [sa1ResolveSelections, setSa1ResolveSelections] = useState<Set<string>>(new Set());
   const chatTextareaRef = useRef<HTMLTextAreaElement>(null);
   /** Entrata profile “current inbox” composer — same draft/inputMode as main, separate ref for @mentions. */
   const profilePanelInboxComposerRef = useRef<HTMLTextAreaElement>(null);
   const [privateNoteMention, setPrivateNoteMention] = useState<PrivateNoteMentionActive | null>(null);
   const [privateNoteMentionIndex, setPrivateNoteMentionIndex] = useState(0);
+
+  /**
+   * Seed the composer with an editable signature on conversation switch or mode switch when
+   * the target composer is Email + Message and the draft is currently empty. We intentionally
+   * do NOT re-seed when the user clears the draft mid-conversation — if they deleted the
+   * signature on purpose, it stays gone until they change threads or hit send.
+   */
+  useEffect(() => {
+    if (!selected) return;
+    if (selected.channel !== "Email") return;
+    if (inputMode !== "message") return;
+    if (draft.length > 0) return;
+    const seed = buildEmailComposerSignatureDraft(selected);
+    if (!seed) return;
+    setDraft(seed);
+    parkCaretAtStart();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run on conversation / mode switch
+  }, [selectedId, inputMode]);
 
   const privateNoteMentionFiltered = useMemo(() => {
     if (!privateNoteMention) return [];
@@ -1069,6 +1289,8 @@ function ConversationsContent() {
     from: string;
     propertyName: string;
   } | null>(null);
+  const [newThreadSubject, setNewThreadSubject] = useState("");
+  const [newThreadSubjectError, setNewThreadSubjectError] = useState(false);
   /** Staff / private-note messages sent from the Entrata profile thread composer (prototype; not persisted). */
   const [entSideSentByThreadKey, setEntSideSentByThreadKey] = useState<
     Record<
@@ -1089,17 +1311,6 @@ function ConversationsContent() {
   /** True after the muted 0–3s cover preview has finished (paused at ~3s). Next play restarts from 0 with sound. */
   const messageIntroPreviewCompletedRef = useRef(false);
 
-  /** Demo control: Entrata profile overlay only (no right-hand conversation / threads panel). */
-  useEffect(() => {
-    if (profileCommsPopupRequest === 0) return;
-    if (!selected) return;
-    setShowMessageIntro(false);
-    setProfileModalOpen(true);
-    setThreadsPanelOpen(false);
-    setProfilePanelInboxOpen(false);
-    setOpenThreadIdx(null);
-    setNewThreadOutbound(null);
-  }, [profileCommsPopupRequest, selected]);
 
   useEffect(() => {
     if (!showMessageIntro) {
@@ -1348,6 +1559,22 @@ function ConversationsContent() {
 
   const handleSend = () => {
     if (!draft.trim() || !selected) return;
+    if (isSuperAgentDemoThread(selected.id) && aiActivated && inputMode === "message" && selectedEscalationTypes.size === 0) {
+      setEscalationError(true);
+      return;
+    }
+    // SA 1.0 conversations with active escalations: staff must pick which escalation(s) they're
+    // replying to before the message can go out. This mirrors the SA 2.0 gate so it's consistent.
+    if (
+      isSuperAgent1DemoThread(selected.id) &&
+      inputMode === "message" &&
+      selected.labels.some((l) => l.includes("Escalation")) &&
+      selectedEscalationTypes.size === 0
+    ) {
+      setEscalationError(true);
+      return;
+    }
+    setEscalationError(false);
     const now = new Date();
     const timestamp = now.toLocaleString("en-US", {
       month: "short",
@@ -1358,9 +1585,15 @@ function ConversationsContent() {
       hour12: true,
       timeZoneName: "short",
     });
-    const emailSignature =
-      selected.channel === "Email" && inputMode === "message"
-        ? staffEmailSignatureForConversation(selected, humanNameSet, humanMembers)
+    // Composer flow: the signature is edited inline in the draft body, so we no longer add it
+    // as a separate emailSignature field on the outbound message. Non-composer flows (bulk email,
+    // Entrata profile side panel) still populate this field explicitly where needed.
+    const emailSignature: string | undefined = undefined;
+    const sa1ReplyToEscalations =
+      isSuperAgent1DemoThread(selected.id) &&
+      inputMode === "message" &&
+      selectedEscalationTypes.size > 0
+        ? Array.from(selectedEscalationTypes)
         : undefined;
     addMessage(selected.id, {
       role: "staff",
@@ -1369,8 +1602,106 @@ function ConversationsContent() {
       type: inputMode,
       ...(emailSignature ? { emailSignature } : {}),
       ...(inputMode === "private_note" ? { privateNoteAuthor: MY_INBOX_ASSIGNEE } : {}),
+      ...(sa1ReplyToEscalations ? { replyToEscalations: sa1ReplyToEscalations } : {}),
     });
-    setDraft("");
+
+    // Super Agent 1.0: staff selected escalation(s) to reply to. This is purely a context
+    // affordance — the message itself is the public reply. We do NOT remove escalation labels
+    // or resolve the conversation. We just track which escalations have been replied to; once
+    // every escalation on the thread has at least one reply, the thread is hidden from the list.
+    if (
+      isSuperAgent1DemoThread(selected.id) &&
+      inputMode === "message" &&
+      selectedEscalationTypes.size > 0
+    ) {
+      const conversationId = selected.id;
+      const replied = new Set(sa1RepliedEscalationsRef.current.get(conversationId) ?? []);
+      for (const esc of selectedEscalationTypes) replied.add(esc);
+      sa1RepliedEscalationsRef.current.set(conversationId, replied);
+
+      const allEscalations = selected.labels.filter((l) => l.includes("Escalation"));
+      const allCovered = allEscalations.length > 0 && allEscalations.every((l) => replied.has(l));
+      if (allCovered) {
+        setSa1HiddenConversationIds((prev) => {
+          const next = new Set(prev);
+          next.add(conversationId);
+          return next;
+        });
+      }
+
+      setSelectedEscalationTypes(new Set());
+      superAgentSelectionsRef.current.set(conversationId, new Set());
+      resetComposerAfterSend(selected, inputMode);
+      setPrivateNoteMention(null);
+      return;
+    }
+
+    if (
+      isSuperAgentDemoThread(selected.id) &&
+      aiActivated &&
+      inputMode === "message" &&
+      selectedEscalationTypes.size > 0
+    ) {
+      const escalationsResolved = Array.from(selectedEscalationTypes);
+
+      addMessage(selected.id, {
+        role: "staff",
+        text: "",
+        timestamp,
+        type: "label_activity",
+        labelActivity: {
+          actor: MY_INBOX_ASSIGNEE,
+          labelsAdded: escalationsResolved,
+          action: "context_provided",
+        },
+      });
+      for (const esc of selectedEscalationTypes) {
+        removeLabel(selected.id, esc);
+      }
+
+      const remainingEscalations = selected.labels.filter(
+        (l) => l.includes("Escalation") && !selectedEscalationTypes.has(l)
+      );
+      if (remainingEscalations.length === 0) {
+        resolveConversation(selected.id, MY_INBOX_ASSIGNEE);
+        superAgentSelectionsRef.current.delete(selected.id);
+      } else {
+        superAgentSelectionsRef.current.set(selected.id, new Set());
+      }
+      setSelectedEscalationTypes(new Set());
+
+      const selectedId = selected.id;
+      setTimeout(() => {
+        const aiTimestamp = new Date().toLocaleString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+          timeZoneName: "short",
+        });
+        const aiResponseMap: Record<string, string> = {
+          "Renewals AI Escalation": `I've looked into your renewal and have some good news. Based on your excellent 2-year payment history and residency, we're able to offer you a reduced increase. Your renewal rate will be adjusted to $1,820/mo (a 1.4% increase instead of 3%). I'll send over the updated offer for your review shortly.`,
+          "Payments AI Escalation": `Regarding your payment — given your consistent 2-year payment history, we're happy to waive the $50 late fee as a one-time courtesy. The credit has been applied to your account and your current balance reflects the adjustment.`,
+          "Other Escalation": `About the pool party — great news! You're welcome to reserve the pool area for your birthday. Here's what you need to know:\n\n• Reservations can be made up to 30 days in advance at the leasing office\n• For groups over 10, there's a refundable $100 deposit\n• Pool hours for private events are 10am–8pm on weekends\n• Please review the community pool guidelines posted at the pool entrance\n\nWould you like me to help you pick a date and get the reservation started?`,
+        };
+        const parts = escalationsResolved.map((esc) =>
+          aiResponseMap[esc] ?? `I've addressed the ${esc.replace(" Escalation", "").toLowerCase()} topic based on the team's guidance.`
+        );
+        const combinedText = escalationsResolved.length > 1
+          ? `Hi Marcus! I have updates on your questions.\n\n${parts.join("\n\n")}\n\nLet me know if there's anything else I can help with!`
+          : `Hi Marcus! ${parts[0]} Let me know if you have any questions!`;
+        addMessage(selectedId, {
+          role: "agent",
+          text: combinedText,
+          timestamp: aiTimestamp,
+          type: "message",
+        });
+      }, 1500);
+    }
+
+    resetComposerAfterSend(selected, inputMode);
     setPrivateNoteMention(null);
   };
 
@@ -1378,6 +1709,10 @@ function ConversationsContent() {
   const handleProfileEntThreadSend = () => {
     const text = threadDraft.trim();
     if (!text || openThreadIdx === null || !selected) return;
+    if (openThreadIdx === -1 && newThreadOutbound?.channel === "Email" && !newThreadSubject.trim()) {
+      setNewThreadSubjectError(true);
+      return;
+    }
     const now = new Date();
     const timestamp = now.toLocaleString("en-US", {
       month: "short",
@@ -1634,33 +1969,60 @@ function ConversationsContent() {
             Settings
           </h3>
           <ul className="space-y-0.5">
-            {(["Email Integration", "Manage Vanity Numbers", "Manage Inboxes", "Manage Labels", "Reporting"]).map((label) => (
+            {(["Call System", "Email Integration", "Manage Vanity Numbers", "Manage Inboxes", "Manage Labels", "Reporting"]).map((label) => {
+              if (label === "Call System" && !callSystemEnabled) return null;
+              return (
               <li key={label}>
-                {label === "Email Integration" ? (
+                {label === "Call System" ? (
+                  <Button
+                    variant={callSystemPanelOpen ? "secondary" : "ghost"}
+                    className={cn("w-full justify-start font-normal", callSystemPanelOpen && "font-medium")}
+                    onClick={() => setCallSystemPanelOpen(!callSystemPanelOpen)}
+                  >
+                    {label}
+                  </Button>
+                ) : label === "Email Integration" ? (
                   <Link href="/communications-setup/custom-email">
-                    <Button variant="ghost" className="w-full justify-start font-normal">
+                    <Button variant="ghost" className="w-full justify-start font-normal" onClick={() => setCallSystemPanelOpen(false)}>
                       {label}
                     </Button>
                   </Link>
                 ) : label === "Manage Vanity Numbers" ? (
                   <Link href="/communications-setup/phone-numbers">
-                    <Button variant="ghost" className="w-full justify-start font-normal">
+                    <Button variant="ghost" className="w-full justify-start font-normal" onClick={() => setCallSystemPanelOpen(false)}>
                       {label}
                     </Button>
                   </Link>
                 ) : (
-                  <Button variant="ghost" className="w-full justify-start font-normal">
+                  <Button variant="ghost" className="w-full justify-start font-normal" onClick={() => setCallSystemPanelOpen(false)}>
                     {label}
                   </Button>
                 )}
               </li>
-            ))}
+              );
+            })}
           </ul>
         </nav>
+
+        {/* ===== COMMUNICATIONS DEMO CONTROL ===== */}
+        <CommunicationsDemoControl
+          clickToCallEnabled={clickToCallEnabled}
+          onToggleClickToCall={toggleClickToCallEnabled}
+          callSystemEnabled={callSystemEnabled}
+          onToggleCallSystem={toggleCallSystemEnabled}
+          onSimulateInboundCall={simulateInboundCall}
+          superAgentEnabled={superAgentEnabled}
+          onToggleSuperAgent={toggleSuperAgentEnabled}
+          superAgent1Enabled={superAgent1Enabled}
+          onToggleSuperAgent1={toggleSuperAgent1Enabled}
+        />
       </aside>
 
+      {/* ===== CALL SYSTEM SETTINGS PANEL ===== */}
+      {callSystemPanelOpen && <CallSystemSettingsPanel onClose={() => setCallSystemPanelOpen(false)} />}
+
       {/* ===== CONVERSATION LIST ===== */}
-      <div className="flex w-[340px] shrink-0 flex-col border-r border-border bg-card">
+      <div className={cn("flex w-[340px] shrink-0 flex-col border-r border-border bg-card", callSystemPanelOpen && "hidden")}>
         {/* Tabs bar + thread list filters */}
         <div className="space-y-2 px-3 py-2">
           <div className="flex items-center gap-1.5">
@@ -1882,7 +2244,7 @@ function ConversationsContent() {
 
               <div className="space-y-1.5">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Completed filter
+                  Conversation filter
                 </p>
                 <Select
                   value={threadListCompletedFilter}
@@ -1892,8 +2254,8 @@ function ConversationsContent() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="active">Open (Active Conversation)</SelectItem>
+                    <SelectItem value="completed">Closed (Completed Conversation)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1932,7 +2294,21 @@ function ConversationsContent() {
                     <li key={convo.id}>
                       <button
                         type="button"
-                        onClick={() => { setSelectedId(convo.id); markRead(convo.id, MY_INBOX_ASSIGNEE); }}
+                        onClick={() => {
+                          if (isSuperAgentDemoThread(convo.id)) {
+                            previousSelectedIdRef.current = selectedId;
+                            setSelectedId(convo.id);
+                            markRead(convo.id, MY_INBOX_ASSIGNEE);
+                            const saved = superAgentSelectionsRef.current.get(convo.id);
+                            if (!saved || saved.size === 0) {
+                              setEscalationPickerSelections(new Set());
+                              setEscalationPickerOpen(true);
+                            }
+                          } else {
+                            setSelectedId(convo.id);
+                            markRead(convo.id, MY_INBOX_ASSIGNEE);
+                          }
+                        }}
                         className={cn(
                           "relative flex w-full flex-col gap-1 py-3 pl-4 pr-4 text-left transition-colors",
                           isActive
@@ -2042,7 +2418,7 @@ function ConversationsContent() {
       </div>
 
       {/* ===== CONVERSATION DETAIL ===== */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className={cn("flex min-w-0 flex-1 flex-col", callSystemPanelOpen && "hidden")}>
         {selected ? (
           <>
             {/* Header */}
@@ -2064,7 +2440,530 @@ function ConversationsContent() {
                   </button>
                   <span className="text-sm text-muted-foreground">{selected.property}</span>
                 </div>
-                <div className="flex items-center gap-3 [&>*]:shrink-0">
+                <div className="flex items-center gap-1.5 [&>*]:shrink-0">
+                  {/* Labels icon popover */}
+                  <Popover open={addLabelOpen} onOpenChange={(open) => { setAddLabelOpen(open); if (!open) setNewLabelText(""); }}>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-[11px] font-medium transition-colors hover:bg-muted"
+                        title="Labels"
+                      >
+                        <Tag className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span>{selected.labels.length}</span>
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-64 p-0" align="end">
+                      <div className="max-h-48 overflow-y-auto p-2 space-y-1">
+                        {selected.labels.map((label) => (
+                          <div key={label} className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-muted/60">
+                            <Badge
+                              variant={label.includes("Escalation") ? "destructive" : "outline"}
+                              className={cn(
+                                "gap-1 rounded-md text-xs font-normal",
+                                label.includes("Escalation")
+                                  ? "border-sky-200 bg-sky-50 text-sky-700"
+                                  : "border-border"
+                              )}
+                            >
+                              {label}
+                            </Badge>
+                            <button
+                              type="button"
+                              onClick={() => removeLabel(selected.id, label)}
+                              className="rounded-sm p-0.5 opacity-60 transition-opacity hover:opacity-100 hover:bg-muted"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="border-t border-border p-2">
+                        <Input
+                          autoFocus
+                          value={newLabelText}
+                          onChange={(e) => setNewLabelText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && newLabelText.trim()) {
+                              const exists = allLabels.some((l) => l.toLowerCase() === newLabelText.toLowerCase());
+                              if (exists) {
+                                const match = allLabels.find((l) => l.toLowerCase() === newLabelText.toLowerCase())!;
+                                if (!selected.labels.includes(match)) addLabel(selected.id, match, MY_INBOX_ASSIGNEE);
+                              } else {
+                                addLabel(selected.id, newLabelText.trim(), MY_INBOX_ASSIGNEE);
+                              }
+                              setNewLabelText("");
+                            }
+                          }}
+                          placeholder="Search or create label…"
+                          className="h-7 text-xs"
+                        />
+                      </div>
+                      <div className="max-h-40 overflow-y-auto border-t border-border">
+                        {[...allLabels]
+                          .sort((a, b) => a.localeCompare(b))
+                          .filter((l) => !newLabelText.trim() || l.toLowerCase().includes(newLabelText.toLowerCase()))
+                          .map((label) => {
+                            const applied = selected.labels.includes(label);
+                            return (
+                              <button
+                                key={label}
+                                type="button"
+                                className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent transition-colors"
+                                onClick={() => {
+                                  if (applied) {
+                                    removeLabel(selected.id, label);
+                                  } else {
+                                    addLabel(selected.id, label, MY_INBOX_ASSIGNEE);
+                                  }
+                                }}
+                              >
+                                <Check className={cn("h-3.5 w-3.5 shrink-0", applied ? "opacity-100 text-emerald-500" : "opacity-0")} />
+                                <span className="truncate">{label}</span>
+                              </button>
+                            );
+                          })}
+                        {newLabelText.trim() && !allLabels.some((l) => l.toLowerCase() === newLabelText.toLowerCase()) && (
+                          <button
+                            type="button"
+                            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent transition-colors text-muted-foreground"
+                            onClick={() => {
+                              addLabel(selected.id, newLabelText.trim(), MY_INBOX_ASSIGNEE);
+                              setNewLabelText("");
+                              setAddLabelOpen(false);
+                            }}
+                          >
+                            <Plus className="h-3.5 w-3.5 shrink-0" />
+                            <span className="truncate">Create &ldquo;{newLabelText.trim()}&rdquo;</span>
+                          </button>
+                        )}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+
+                  {selected.labels.some((label) => AI_ACTIVATION_OPT_IN_LABELS.has(label)) && (() => {
+                    const sa1State = isSuperAgent1DemoThread(selected.id)
+                      ? computeSa1AiState(selected, aiActivated)
+                      : null;
+                    const pillVariant: "on" | "partial" | "off" = sa1State
+                      ? sa1State.kind === "on"
+                        ? "on"
+                        : sa1State.kind === "partial"
+                        ? "partial"
+                        : "off"
+                      : aiActivated
+                      ? "on"
+                      : "off";
+                    const pillLabel = sa1State
+                      ? sa1State.kind === "on"
+                        ? "AI On"
+                        : sa1State.kind === "partial"
+                        ? "AI Partially Off"
+                        : "AI Off"
+                      : aiActivated
+                      ? "AI On"
+                      : "AI Off";
+                    const pillClass =
+                      pillVariant === "on"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300"
+                        : pillVariant === "partial"
+                        ? "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+                        : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300";
+                    return (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className={cn(
+                            "flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-[11px] font-medium transition-colors",
+                            pillClass
+                          )}
+                          title="AI activation & opt-in settings"
+                        >
+                          <Zap className="h-3.5 w-3.5" />
+                          {pillLabel}
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        className={cn("p-3", sa1State ? "w-[360px]" : "w-auto")}
+                        align="end"
+                      >
+                        {sa1State ? (() => {
+                          const residentLabel = selected.resident || "this resident";
+                          const bannerCopy =
+                            sa1State.kind === "on"
+                              ? "All AI agents will respond on this conversation."
+                              : sa1State.kind === "partial"
+                              ? `${sa1State.blockedSubAgents.join(" and ")} ${sa1State.blockedSubAgents.length === 1 ? "is" : "are"} paused until staff resolves the blocking escalation. Other AI agents continue to respond.`
+                              : sa1State.kind === "off-profile"
+                              ? `${residentLabel}'s profile is marked "no AI" by staff. AI will never reply to this resident on any conversation until the profile block is lifted.`
+                              : sa1State.kind === "off-super"
+                              ? "All AI agents are paused — the resident asked for a human. AI will not reply until staff resolves the super-agent escalation."
+                              : sa1State.kind === "off-all-subs"
+                              ? "Every AI agent is blocked by a sub-agent escalation. AI will not reply until staff resolves at least one."
+                              : "AI has been manually deactivated for this conversation by staff.";
+                          const bannerClass =
+                            sa1State.kind === "on"
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200"
+                              : sa1State.kind === "partial"
+                              ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
+                              : "border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/30 dark:text-red-200";
+                          const allOffByAuto =
+                            sa1State.kind === "off-super" ||
+                            sa1State.kind === "off-all-subs" ||
+                            sa1State.kind === "off-profile";
+                          return (
+                            <div className="space-y-3">
+                              <div className={cn("rounded-md border px-2.5 py-2 text-[11px] leading-snug", bannerClass)}>
+                                {bannerCopy}
+                              </div>
+
+                              <div className="space-y-1.5">
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                  AI Agent status
+                                </p>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  {SA1_KNOWN_SUB_AGENTS.map((agent) => {
+                                    const blocked =
+                                      sa1State.kind === "off-manual" ||
+                                      allOffByAuto ||
+                                      sa1State.blockedSubAgents.includes(agent);
+                                    return (
+                                      <div
+                                        key={agent}
+                                        className={cn(
+                                          "flex items-center justify-between rounded-md border px-2 py-1.5 text-[11px]",
+                                          blocked
+                                            ? "border-red-200 bg-red-50/60 dark:border-red-900/50 dark:bg-red-950/20"
+                                            : "border-emerald-200 bg-emerald-50/60 dark:border-emerald-900/50 dark:bg-emerald-950/20"
+                                        )}
+                                      >
+                                        <span className="font-medium text-foreground">{agent}</span>
+                                        <span
+                                          className={cn(
+                                            "text-[10px] font-bold uppercase tracking-wide",
+                                            blocked
+                                              ? "text-red-700 dark:text-red-300"
+                                              : "text-emerald-700 dark:text-emerald-300"
+                                          )}
+                                        >
+                                          {blocked ? "Off" : "On"}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2 border-t border-border pt-2">
+                                <span className="text-xs font-medium text-foreground whitespace-nowrap">
+                                  AI Activated
+                                </span>
+                                <Select
+                                  value={sa1State.hasResidentProfileBlock ? "off-profile" : "active"}
+                                  onValueChange={(v) => {
+                                    const next = v as "active" | "off-profile";
+                                    const wasProfileBlocked = sa1State.hasResidentProfileBlock;
+
+                                    if (next === "off-profile") {
+                                      if (!wasProfileBlocked) {
+                                        addLabel(
+                                          selected.id,
+                                          SA1_RESIDENT_PROFILE_BLOCK_LABEL,
+                                          "ELI+ Super Agent",
+                                        );
+                                      }
+                                      toast.info(`${residentLabel}'s profile marked "no AI"`, {
+                                        description:
+                                          "AI will never reply to this resident on any conversation until staff lifts the block.",
+                                      });
+                                    } else {
+                                      if (wasProfileBlocked) {
+                                        removeLabel(selected.id, SA1_RESIDENT_PROFILE_BLOCK_LABEL);
+                                        toast.success("Profile AI block cleared", {
+                                          description: "AI agents can resume responding to this resident.",
+                                        });
+                                      } else if (
+                                        sa1State.hasSuperAgentBlock ||
+                                        sa1State.blockedSubAgents.length > 0
+                                      ) {
+                                        toast.info("AI activation set on", {
+                                          description:
+                                            "Some agents stay paused until the blocking escalations are resolved.",
+                                        });
+                                      } else {
+                                        toast.success("AI activated for this conversation", {
+                                          description:
+                                            "Replies will be drafted by AI on this thread.",
+                                        });
+                                      }
+                                    }
+                                  }}
+                                >
+                                  <SelectTrigger className="h-7 flex-1 text-[11px]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="active">
+                                      <span className="flex items-center gap-2">
+                                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                                        Active
+                                      </span>
+                                    </SelectItem>
+                                    <SelectItem value="off-profile">
+                                      <span className="flex items-center gap-2">
+                                        <UserX className="h-3.5 w-3.5 text-red-500" />
+                                        Off — profile (indefinite)
+                                      </span>
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              <div className="flex items-center gap-3 border-t border-border pt-2">
+                                <div className="flex items-center gap-2">
+                                  <label className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">Phone</label>
+                                  <Select
+                                    value={phoneOpt}
+                                    onValueChange={(v) => {
+                                      const choice = v as ChannelOptChoice;
+                                      setPhoneOpt(choice);
+                                      recordThreadActivity(selected.id, {
+                                        kind: "channel_opt",
+                                        channel: "phone",
+                                        choice,
+                                        actor: MY_INBOX_ASSIGNEE,
+                                      });
+                                    }}
+                                  >
+                                    <SelectTrigger className="h-7 w-[110px] text-[11px]"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
+                                      <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
+                                      <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <label className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">Email</label>
+                                  <Select
+                                    value={emailOpt}
+                                    onValueChange={(v) => {
+                                      const choice = v as ChannelOptChoice;
+                                      setEmailOpt(choice);
+                                      recordThreadActivity(selected.id, {
+                                        kind: "channel_opt",
+                                        channel: "email",
+                                        choice,
+                                        actor: MY_INBOX_ASSIGNEE,
+                                      });
+                                    }}
+                                  >
+                                    <SelectTrigger className="h-7 w-[110px] text-[11px]"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
+                                      <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
+                                      <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-1.5 border-t border-dashed border-border pt-2">
+                                <Beaker className="h-3 w-3 text-muted-foreground" />
+                                <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
+                                  Demo
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (sa1State.hasSuperAgentBlock) {
+                                      removeLabel(selected.id, SA1_SUPER_AGENT_BLOCK_LABEL);
+                                      toast.success("Super-agent block cleared");
+                                    } else {
+                                      addLabel(selected.id, SA1_SUPER_AGENT_BLOCK_LABEL, "ELI+ Super Agent");
+                                      toast.info("Super-agent block added", {
+                                        description: "All AI agents are now paused for this thread.",
+                                      });
+                                    }
+                                  }}
+                                  className="rounded border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:bg-muted"
+                                >
+                                  {sa1State.hasSuperAgentBlock ? "Clear super-agent block" : "Add super-agent block"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const missing = SA1_KNOWN_SUB_AGENTS.filter(
+                                      (a) => !selected.labels.includes(`${a} Escalation`)
+                                    );
+                                    if (missing.length > 0) {
+                                      for (const a of missing) {
+                                        addLabel(selected.id, `${a} Escalation`, "ELI+ Super Agent");
+                                      }
+                                      toast.info("All sub-agent blocks added", {
+                                        description: "Every known AI sub-agent is now blocked on this thread.",
+                                      });
+                                    } else {
+                                      for (const a of SA1_KNOWN_SUB_AGENTS) {
+                                        removeLabel(selected.id, `${a} Escalation`);
+                                      }
+                                      toast.success("Sub-agent blocks cleared", {
+                                        description: "All known AI sub-agents are back on.",
+                                      });
+                                    }
+                                  }}
+                                  className="rounded border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:bg-muted"
+                                >
+                                  {SA1_KNOWN_SUB_AGENTS.every((a) => selected.labels.includes(`${a} Escalation`))
+                                    ? "Clear all sub-agent blocks"
+                                    : "Block all sub-agents"}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })() : (
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              checked={aiActivated}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setAiActivated(true);
+                                  setReactivationDate(null);
+                                  setNoLimit(false);
+                                  setShowDatePicker(false);
+                                  recordThreadActivity(selected.id, {
+                                    kind: "ai_activation",
+                                    active: true,
+                                    actor: MY_INBOX_ASSIGNEE,
+                                  });
+                                } else {
+                                  setShowDatePicker(true);
+                                }
+                              }}
+                            />
+                            <span className="text-xs font-medium text-foreground whitespace-nowrap">
+                              AI Activated
+                            </span>
+                            {(!aiActivated || showDatePicker) && (
+                              <div className="flex items-center gap-1.5 ml-1">
+                                <span className="text-[11px] text-muted-foreground whitespace-nowrap">until</span>
+                                {noLimit ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setNoLimit(false);
+                                      setShowDatePicker(true);
+                                    }}
+                                    className="rounded-md border border-input bg-background px-2 py-0.5 text-[11px] transition-colors hover:bg-accent"
+                                  >
+                                    No Limit
+                                  </button>
+                                ) : (
+                                  <Popover open={showDatePicker} onOpenChange={(open) => {
+                                    setShowDatePicker(open);
+                                    if (!open && aiActivated && !reactivationDate && !noLimit) {
+                                      setShowDatePicker(false);
+                                    }
+                                  }}>
+                                    <PopoverTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="flex items-center gap-1 rounded-md border border-input bg-background px-2 py-0.5 text-[11px] transition-colors hover:bg-accent"
+                                      >
+                                        <CalendarIcon className="h-3 w-3 text-muted-foreground" />
+                                        {reactivationDate
+                                          ? reactivationDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                                          : "Date"}
+                                      </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0" align="start">
+                                      <MiniCalendar
+                                        selected={reactivationDate}
+                                        onSelect={(date) => {
+                                          setReactivationDate(date);
+                                          setNoLimit(false);
+                                          setShowDatePicker(false);
+                                          setAiActivated(false);
+                                          recordThreadActivity(selected.id, {
+                                            kind: "ai_activation",
+                                            active: false,
+                                            actor: MY_INBOX_ASSIGNEE,
+                                          });
+                                        }}
+                                        onNoLimit={() => {
+                                          setReactivationDate(null);
+                                          setNoLimit(true);
+                                          setShowDatePicker(false);
+                                          setAiActivated(false);
+                                          recordThreadActivity(selected.id, {
+                                            kind: "ai_activation",
+                                            active: false,
+                                            actor: MY_INBOX_ASSIGNEE,
+                                          });
+                                        }}
+                                      />
+                                    </PopoverContent>
+                                  </Popover>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 border-t border-border pt-2">
+                            <div className="flex items-center gap-2">
+                              <label className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">Phone</label>
+                              <Select
+                                value={phoneOpt}
+                                onValueChange={(v) => {
+                                  const choice = v as ChannelOptChoice;
+                                  setPhoneOpt(choice);
+                                  recordThreadActivity(selected.id, {
+                                    kind: "channel_opt",
+                                    channel: "phone",
+                                    choice,
+                                    actor: MY_INBOX_ASSIGNEE,
+                                  });
+                                }}
+                              >
+                                <SelectTrigger className="h-7 w-[110px] text-[11px]"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
+                                  <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
+                                  <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <label className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">Email</label>
+                              <Select
+                                value={emailOpt}
+                                onValueChange={(v) => {
+                                  const choice = v as ChannelOptChoice;
+                                  setEmailOpt(choice);
+                                  recordThreadActivity(selected.id, {
+                                    kind: "channel_opt",
+                                    channel: "email",
+                                    choice,
+                                    actor: MY_INBOX_ASSIGNEE,
+                                  });
+                                }}
+                              >
+                                <SelectTrigger className="h-7 w-[110px] text-[11px]"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
+                                  <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
+                                  <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                        </div>
+                        )}
+                      </PopoverContent>
+                    </Popover>
+                    );
+                  })()}
                   {clickToCallEnabled && (
                     <Button
                       type="button"
@@ -2113,11 +3012,21 @@ function ConversationsContent() {
                       />
                     </PopoverContent>
                   </Popover>
-                  {selected.status === "open" ? (
+                  {isSuperAgentDemoThread(selected.id) && aiActivated ? null : selected.status === "open" ? (
                     <Button
                       size="sm"
                       className="h-8 gap-1.5 px-3 text-xs"
-                      onClick={() => resolveConversation(selected.id, MY_INBOX_ASSIGNEE)}
+                      onClick={() => {
+                        if (isSuperAgent1DemoThread(selected.id)) {
+                          const escalations = selected.labels.filter((l) => l.includes("Escalation"));
+                          if (escalations.length > 0) {
+                            setSa1ResolveSelections(new Set());
+                            setSa1ResolvePickerOpen(true);
+                            return;
+                          }
+                        }
+                        resolveConversation(selected.id, MY_INBOX_ASSIGNEE);
+                      }}
                     >
                       <Check className="h-3.5 w-3.5" />
                       Resolve
@@ -2135,284 +3044,56 @@ function ConversationsContent() {
                 </div>
               </div>
 
-              {/* Row 2: Labels */}
-              <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                {selected.labels.map((label) => (
-                  <Badge
-                    key={label}
-                    variant={label.includes("Escalation") ? "destructive" : "outline"}
-                    className={cn(
-                      "gap-1 rounded-md text-xs font-normal",
-                      label.includes("Escalation")
-                        ? "border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
-                        : "border-border"
-                    )}
-                  >
-                    {label}
-                    <button
-                      type="button"
-                      onClick={() => removeLabel(selected.id, label)}
-                      className="ml-0.5 rounded-sm opacity-60 transition-opacity hover:opacity-100"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </Badge>
-                ))}
-                <Popover open={addLabelOpen} onOpenChange={(open) => { setAddLabelOpen(open); if (!open) setNewLabelText(""); }}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="h-6 w-6 rounded-full border-dashed"
-                      aria-label="Add label"
-                    >
-                      <Plus className="h-3 w-3" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-52 p-0" align="start">
-                    <div className="p-2">
-                      <Input
-                        autoFocus
-                        value={newLabelText}
-                        onChange={(e) => setNewLabelText(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && newLabelText.trim()) {
-                            addLabel(selected.id, newLabelText.trim(), MY_INBOX_ASSIGNEE);
-                            setNewLabelText("");
-                            setAddLabelOpen(false);
-                          }
-                        }}
-                        placeholder="Search labels…"
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                    <div className="max-h-40 overflow-y-auto border-t border-border">
-                      {allLabels
-                        .filter((l) => !newLabelText.trim() || l.toLowerCase().includes(newLabelText.toLowerCase()))
-                        .map((label) => {
-                          const applied = selected.labels.includes(label);
-                          return (
-                            <button
-                              key={label}
-                              type="button"
-                              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent transition-colors"
-                              onClick={() => {
-                                if (applied) {
-                                  removeLabel(selected.id, label);
-                                } else {
-                                  addLabel(selected.id, label, MY_INBOX_ASSIGNEE);
-                                }
-                              }}
-                            >
-                              <Check className={cn("h-3.5 w-3.5 shrink-0", applied ? "opacity-100" : "opacity-0")} />
-                              <span className="truncate">{label}</span>
-                            </button>
-                          );
-                        })}
-                      {newLabelText.trim() && !allLabels.some((l) => l.toLowerCase() === newLabelText.toLowerCase()) && (
-                        <button
-                          type="button"
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent transition-colors text-muted-foreground"
-                          onClick={() => {
-                            addLabel(selected.id, newLabelText.trim(), MY_INBOX_ASSIGNEE);
-                            setNewLabelText("");
-                            setAddLabelOpen(false);
-                          }}
-                        >
-                          <Plus className="h-3.5 w-3.5 shrink-0" />
-                          <span className="truncate">Create &ldquo;{newLabelText.trim()}&rdquo;</span>
-                        </button>
-                      )}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
+              {/* Row 2: Labels — hidden behind icon popover */}
 
               {selected.labels.some((label) => AI_ACTIVATION_OPT_IN_LABELS.has(label)) && (
                 <>
-                  {/* Row 3: AI Activated toggle */}
-                  <div className="mt-3 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
-                    <div className="flex items-center gap-2.5">
-                      <Switch
-                        checked={aiActivated}
-                        onCheckedChange={(checked) => {
-                          setAiActivated(checked);
-                          recordThreadActivity(selected.id, {
-                            kind: "ai_activation",
-                            active: checked,
-                            actor: MY_INBOX_ASSIGNEE,
-                          });
-                          if (checked) {
-                            setReactivationDate(null);
-                            setNoLimit(false);
-                            setShowDatePicker(false);
-                          } else {
-                            setShowDatePicker(true);
-                          }
-                        }}
-                      />
-                      <span className="text-sm font-medium text-foreground whitespace-nowrap">
-                        AI Activated
-                      </span>
-                      {!aiActivated && (reactivationDate || noLimit) && (
-                        <span className="ml-auto text-xs text-muted-foreground truncate">
-                          {noLimit
-                            ? "Will not reactivate"
-                            : `Reactivates ${reactivationDate!.toLocaleDateString("en-US", {
-                                month: "short",
-                                day: "numeric",
-                                year: "numeric",
-                              })}`}
-                        </span>
-                      )}
-                    </div>
-                    {!aiActivated && (
-                      <div className="mt-2 flex items-center gap-2 pl-[46px]">
-                        <label className="text-xs text-muted-foreground whitespace-nowrap">
-                          Deactivation up to:
-                        </label>
-                        {noLimit ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setNoLimit(false);
-                              setShowDatePicker(true);
-                            }}
-                            className="flex items-center gap-1.5 rounded-md border border-input bg-background px-2.5 py-1 text-xs transition-colors hover:bg-accent"
-                          >
-                            No Limit
-                          </button>
-                        ) : (
-                          <Popover open={showDatePicker} onOpenChange={setShowDatePicker}>
-                            <PopoverTrigger asChild>
-                              <button
-                                type="button"
-                                className="flex items-center gap-1.5 rounded-md border border-input bg-background px-2.5 py-1 text-xs transition-colors hover:bg-accent"
-                              >
-                                <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                                {reactivationDate
-                                  ? reactivationDate.toLocaleDateString("en-US", {
-                                      month: "short",
-                                      day: "numeric",
-                                      year: "numeric",
-                                    })
-                                  : "Select date"}
-                              </button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="start">
-                              <MiniCalendar
-                                selected={reactivationDate}
-                                onSelect={(date) => {
-                                  setReactivationDate(date);
-                                  setNoLimit(false);
-                                  setShowDatePicker(false);
-                                }}
-                                onNoLimit={() => {
-                                  setReactivationDate(null);
-                                  setNoLimit(true);
-                                  setShowDatePicker(false);
-                                }}
-                              />
-                            </PopoverContent>
-                          </Popover>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Row 4: Phone / Email opt-in */}
-                  <div className="mt-3 flex gap-3">
-                    <div className="flex-1 min-w-0">
-                      <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Phone</label>
-                      <Select
-                        value={phoneOpt}
-                        onValueChange={(v) => {
-                          const choice = v as ChannelOptChoice;
-                          setPhoneOpt(choice);
-                          recordThreadActivity(selected.id, {
-                            kind: "channel_opt",
-                            channel: "phone",
-                            choice,
-                            actor: MY_INBOX_ASSIGNEE,
-                          });
-                        }}
-                      >
-                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
-                          <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
-                          <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Email</label>
-                      <Select
-                        value={emailOpt}
-                        onValueChange={(v) => {
-                          const choice = v as ChannelOptChoice;
-                          setEmailOpt(choice);
-                          recordThreadActivity(selected.id, {
-                            kind: "channel_opt",
-                            channel: "email",
-                            choice,
-                            actor: MY_INBOX_ASSIGNEE,
-                          });
-                        }}
-                      >
-                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
-                          <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
-                          <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
                   {selected.escalationId && linkedByEscalation.length > 0 && (
                     <div
                       className="mt-2 overflow-hidden rounded-lg border border-violet-200/80 bg-violet-50/50 shadow-sm dark:border-violet-900/50 dark:bg-violet-950/20"
                       role="region"
                       aria-label="Related escalated conversations"
                     >
-                      <div className="flex gap-2 border-b border-violet-200/60 px-2.5 py-2 dark:border-violet-800/40">
-                        <div
-                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-violet-100 text-violet-700 dark:bg-violet-900/60 dark:text-violet-200"
-                          aria-hidden
-                        >
-                          <Link2 className="h-3.5 w-3.5" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[10px] font-semibold uppercase tracking-wide text-violet-800 dark:text-violet-200">
-                            Linked conversations
-                          </p>
-                          <p className="mt-0.5 text-[10px] leading-snug text-violet-950/70 dark:text-violet-100/70">
-                            Any related escalated conversations will also be resolved automatically together when you
-                            resolve one.
-                          </p>
-                        </div>
-                      </div>
-                      <ul className="space-y-0.5 bg-background/60 px-1.5 py-1.5 dark:bg-background/40">
-                        {linkedByEscalation.map((c) => (
-                          <li key={c.id}>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedId(c.id);
-                                markRead(c.id, MY_INBOX_ASSIGNEE);
-                              }}
-                              className="flex w-full items-center gap-1.5 rounded-md border border-transparent px-1.5 py-1.5 text-left text-[11px] transition-colors hover:border-violet-200 hover:bg-violet-50/80 dark:hover:border-violet-800 dark:hover:bg-violet-950/40"
-                            >
-                              <span className="shrink-0 font-medium text-violet-700/90 dark:text-violet-300/90">
-                                {c.channel}
-                              </span>
-                              <span className="min-w-0 flex-1 truncate text-foreground">{c.preview}</span>
-                              <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
+                      <button
+                        type="button"
+                        onClick={() => setLinkedExpanded(!linkedExpanded)}
+                        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-violet-100/50 dark:hover:bg-violet-900/30"
+                      >
+                        <Link2 className="h-3.5 w-3.5 shrink-0 text-violet-600 dark:text-violet-300" />
+                        <span className="text-[11px] font-semibold text-violet-800 dark:text-violet-200">
+                          {linkedByEscalation.length} Linked Conversation{linkedByEscalation.length > 1 ? "s" : ""}
+                        </span>
+                        <ChevronRight
+                          className={cn(
+                            "ml-auto h-3.5 w-3.5 shrink-0 text-violet-500 transition-transform duration-200",
+                            linkedExpanded && "rotate-90"
+                          )}
+                        />
+                      </button>
+                      {linkedExpanded && (
+                        <ul className="space-y-0.5 border-t border-violet-200/60 bg-background/60 px-1.5 py-1.5 dark:border-violet-800/40 dark:bg-background/40">
+                          {linkedByEscalation.map((c) => (
+                            <li key={c.id}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedId(c.id);
+                                  markRead(c.id, MY_INBOX_ASSIGNEE);
+                                }}
+                                className="flex w-full items-center gap-2 rounded-md border border-transparent px-2 py-1.5 text-left text-[11px] transition-colors hover:border-violet-200 hover:bg-violet-50/80 dark:hover:border-violet-800 dark:hover:bg-violet-950/40"
+                              >
+                                <span className="shrink-0 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 dark:bg-violet-900/60 dark:text-violet-300">
+                                  {c.channel}
+                                </span>
+                                <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                                  {c.resident}
+                                </span>
+                                <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
                   )}
                 </>
@@ -2420,7 +3101,7 @@ function ConversationsContent() {
             </div>
 
             {/* Messages */}
-            <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-hover bg-muted/30 px-5 py-4">
+            <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-hover bg-background px-5 py-4">
               <div className="space-y-4">
                 {selected.channel === "Email" && (
                   <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
@@ -2468,42 +3149,146 @@ function ConversationsContent() {
                       )}
                       {selected.messages.map((msg, idx) => {
                         if (msg.type === "handoff") {
+                          if (isSuperAgentDemoThread(selected.id) || isSuperAgent1DemoThread(selected.id)) return null;
+                          const escalationLabel = selected.labels.find((l) => l.includes("Escalation"));
                           return (
-                            <div key={idx} className="flex items-center justify-center gap-2 py-1">
-                              <CornerDownRight className="h-3 w-3 text-muted-foreground" />
-                              <span className="text-[11px] text-muted-foreground">
+                            <div key={idx} className={cn(
+                              "flex items-center justify-center gap-2 py-1",
+                              escalationLabel && "rounded-md border border-orange-200 bg-orange-50/80 px-3 py-2 dark:border-orange-900/50 dark:bg-orange-950/20"
+                            )}>
+                              {escalationLabel ? (
+                                <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-orange-500" />
+                              ) : (
+                                <CornerDownRight className="h-3 w-3 text-muted-foreground" />
+                              )}
+                              <span className={cn("text-[11px]", escalationLabel ? "text-orange-800 dark:text-orange-200" : "text-muted-foreground")}>
                                 Handoff {handoffAssigneeLabelForConversation(
                                 selected.assignee,
                                 isHumanAssignee,
                                 selected.staffRespondentIsExternalAgent
-                              )} · {msg.timestamp}
+                              )}
+                                {escalationLabel && (
+                                  <span className="ml-1.5 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200">
+                                    {escalationLabel}
+                                  </span>
+                                )}
+                                {" · "}{msg.timestamp}
                               </span>
                             </div>
                           );
                         }
                         if (msg.type === "thread_activity" && msg.threadActivity) {
+                          if (isSuperAgent1DemoThread(selected.id) && msg.threadActivity.kind === "status" && msg.threadActivity.action === "resolved") {
+                            return null;
+                          }
                           return <ConversationThreadActivityRow key={idx} message={msg} />;
                         }
                         if (msg.type === "label_activity" && msg.labelActivity) {
-                          const { actor, labelsAdded } = msg.labelActivity;
+                          const { actor, labelsAdded, action } = msg.labelActivity;
+                          const isEscalation = labelsAdded.some((l) => l.includes("Escalation"));
+
+                          if (action === "resolved_escalation") {
+                            const resumedAgents = aiAgentsFromLabels(labelsAdded);
+                            return (
+                              <div key={idx} className="flex flex-col items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50/80 py-2.5 px-3 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+                                <div className="flex items-center gap-2">
+                                  <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden />
+                                  <p className="text-center text-[11px] text-emerald-800 dark:text-emerald-200">
+                                    <span className="font-semibold text-emerald-900 dark:text-emerald-100">{actor}</span>
+                                    {" resolved "}
+                                    {labelsAdded.map((label, i) => (
+                                      <span key={label}>
+                                        {i > 0 && <span className="text-emerald-600">{" & "}</span>}
+                                        <span className="inline-flex items-center rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+                                          {label}
+                                        </span>
+                                      </span>
+                                    ))}
+                                    {msg.timestamp && (
+                                      <>
+                                        <span className="opacity-60"> · </span>
+                                        <span>{msg.timestamp}</span>
+                                      </>
+                                    )}
+                                  </p>
+                                </div>
+                                {resumedAgents.length > 0 && (
+                                  <div className="flex items-center gap-1.5 text-[10px] text-emerald-700/80 dark:text-emerald-300/80">
+                                    <PlayCircle className="h-3 w-3 shrink-0 text-emerald-600" aria-hidden />
+                                    <span>
+                                      {resumedAgents.map((a, i) => (
+                                        <span key={a}>
+                                          {i > 0 && ", "}
+                                          <span className="font-semibold">{a}</span>
+                                        </span>
+                                      ))}
+                                      {" turned back on"}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          }
+
+                          const pausedAgents = isEscalation ? aiAgentsFromLabels(labelsAdded) : [];
                           return (
                             <div
                               key={idx}
-                              className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/70 bg-muted/25 py-2.5 px-3"
+                              data-escalation-label={isEscalation ? labelsAdded.find((l) => l.includes("Escalation")) : undefined}
+                              className={cn(
+                                "flex flex-col items-center gap-1 rounded-md border py-2.5 px-3",
+                                isEscalation
+                                  ? "border-orange-200 bg-orange-50/80 dark:border-orange-900/50 dark:bg-orange-950/20"
+                                  : "border-dashed border-border/70 bg-muted/25"
+                              )}
                             >
-                              <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                              <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
-                                <span className="font-medium text-foreground">{actor}</span>
-                                {" added "}
-                                {labelsAdded.length === 1 ? "label " : "labels "}
-                                <span className="font-medium text-foreground">{labelsAdded.join(", ")}</span>
-                                {msg.timestamp && (
-                                  <>
-                                    <span className="text-muted-foreground/70"> · </span>
-                                    <span>{msg.timestamp}</span>
-                                  </>
+                              <div className="flex items-center gap-2">
+                                {isEscalation ? (
+                                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-orange-500" aria-hidden />
+                                ) : (
+                                  <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
                                 )}
-                              </p>
+                                <p className={cn(
+                                  "text-center text-[11px] leading-relaxed",
+                                  isEscalation ? "text-orange-800 dark:text-orange-200" : "text-muted-foreground"
+                                )}>
+                                  <span className={cn("font-medium", isEscalation ? "text-orange-900 dark:text-orange-100" : "text-foreground")}>{actor}</span>
+                                  {" escalated → "}
+                                  {labelsAdded.map((label, i) => (
+                                    <span key={label}>
+                                      {i > 0 && ", "}
+                                      <span className={cn(
+                                        "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold",
+                                        isEscalation
+                                          ? "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200"
+                                          : "font-medium text-foreground"
+                                      )}>
+                                        {label}
+                                      </span>
+                                    </span>
+                                  ))}
+                                  {msg.timestamp && (
+                                    <>
+                                      <span className="opacity-60"> · </span>
+                                      <span>{msg.timestamp}</span>
+                                    </>
+                                  )}
+                                </p>
+                              </div>
+                              {pausedAgents.length > 0 && (
+                                <div className="flex items-center gap-1.5 text-[10px] text-orange-700/80 dark:text-orange-300/80">
+                                  <PauseCircle className="h-3 w-3 shrink-0 text-orange-500" aria-hidden />
+                                  <span>
+                                    {pausedAgents.map((a, i) => (
+                                      <span key={a}>
+                                        {i > 0 && ", "}
+                                        <span className="font-semibold">{a}</span>
+                                      </span>
+                                    ))}
+                                    {" turned off until resolved"}
+                                  </span>
+                                </div>
+                              )}
                             </div>
                           );
                         }
@@ -2573,6 +3358,18 @@ function ConversationsContent() {
                                 {msg.timestamp && <span className="text-[10px] text-muted-foreground">{msg.timestamp}</span>}
                               </div>
                             </div>
+                            {isStaff && msg.replyToEscalations && msg.replyToEscalations.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {msg.replyToEscalations.map((esc) => (
+                                  <span
+                                    key={esc}
+                                    className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
+                                  >
+                                    Replying to {esc.replace(" Escalation", "")}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                             <div className="rounded-md border border-border bg-muted/30 px-4 py-3 text-sm leading-relaxed text-foreground">
                               {msg.text.split("\n").map((line, li) => (
                                 <span key={li}>
@@ -2659,6 +3456,7 @@ function ConversationsContent() {
                 {selected.channel !== "Email" &&
                 selected.messages.map((msg, idx) => {
                   if (msg.type === "handoff") {
+                    if (isSuperAgentDemoThread(selected.id) || isSuperAgent1DemoThread(selected.id)) return null;
                     return (
                       <div key={idx} className="flex items-center justify-center gap-2 py-1">
                         <CornerDownRight className="h-3 w-3 text-muted-foreground" />
@@ -2674,6 +3472,9 @@ function ConversationsContent() {
                   }
 
                   if (msg.type === "thread_activity" && msg.threadActivity) {
+                    if (isSuperAgent1DemoThread(selected.id) && msg.threadActivity.kind === "status" && msg.threadActivity.action === "resolved") {
+                      return null;
+                    }
                     return <ConversationThreadActivityRow key={idx} message={msg} />;
                   }
 
@@ -2722,25 +3523,152 @@ function ConversationsContent() {
                   }
 
                   if (msg.type === "label_activity" && msg.labelActivity) {
-                    const { actor, labelsAdded } = msg.labelActivity;
+                    const { actor, labelsAdded, action } = msg.labelActivity;
+                    const isEscalation = labelsAdded.some((l) => l.includes("Escalation"));
+                    const isContextProvided = action === "context_provided";
+
+                    if (isContextProvided) {
+                      return (
+                        <div key={idx} className="rounded-md border border-emerald-200 bg-emerald-50/80 px-3 py-2.5 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+                          <div className="flex items-center gap-2">
+                            <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden />
+                            <p className="flex-1 text-[11px] text-emerald-800 dark:text-emerald-200">
+                              <span className="font-semibold text-emerald-900 dark:text-emerald-100">{actor}</span>
+                              {" provided context for "}
+                              {labelsAdded.map((label, i) => (
+                                <span key={label}>
+                                  {i > 0 && <span className="text-emerald-600">{" & "}</span>}
+                                  <span className="inline-flex items-center rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+                                    {label}
+                                  </span>
+                                </span>
+                              ))}
+                              {msg.timestamp && (
+                                <>
+                                  <span className="opacity-60"> · </span>
+                                  <span>{msg.timestamp}</span>
+                                </>
+                              )}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setContextDetailOpenIdx(contextDetailOpenIdx === idx ? null : idx)}
+                              className="rounded-md border border-emerald-300 bg-white px-2 py-0.5 text-[10px] font-medium text-emerald-700 transition-colors hover:bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
+                            >
+                              {contextDetailOpenIdx === idx ? "Hide" : "Details"}
+                            </button>
+                          </div>
+                          {contextDetailOpenIdx === idx && (
+                            <div className="mt-2 rounded-md border border-emerald-100 bg-white p-2.5 text-[11px] leading-relaxed text-foreground/80 dark:border-emerald-900/40 dark:bg-card">
+                              {selected.messages[idx - 1]?.role === "staff" ? selected.messages[idx - 1].text : "Context provided to AI."}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    if (action === "resolved_escalation") {
+                      const resumedAgents = aiAgentsFromLabels(labelsAdded);
+                      return (
+                        <div key={idx} className="flex flex-col items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50/80 py-2.5 px-3 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+                          <div className="flex items-center gap-2">
+                            <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden />
+                            <p className="text-center text-[11px] text-emerald-800 dark:text-emerald-200">
+                              <span className="font-semibold text-emerald-900 dark:text-emerald-100">{actor}</span>
+                              {" resolved "}
+                              {labelsAdded.map((label, i) => (
+                                <span key={label}>
+                                  {i > 0 && <span className="text-emerald-600">{" & "}</span>}
+                                  <span className="inline-flex items-center rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+                                    {label}
+                                  </span>
+                                </span>
+                              ))}
+                              {msg.timestamp && (
+                                <>
+                                  <span className="opacity-60"> · </span>
+                                  <span>{msg.timestamp}</span>
+                                </>
+                              )}
+                            </p>
+                          </div>
+                          {resumedAgents.length > 0 && (
+                            <div className="flex items-center gap-1.5 text-[10px] text-emerald-700/80 dark:text-emerald-300/80">
+                              <PlayCircle className="h-3 w-3 shrink-0 text-emerald-600" aria-hidden />
+                              <span>
+                                {resumedAgents.map((a, i) => (
+                                  <span key={a}>
+                                    {i > 0 && ", "}
+                                    <span className="font-semibold">{a}</span>
+                                  </span>
+                                ))}
+                                {" turned back on"}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    const pausedAgents = isEscalation ? aiAgentsFromLabels(labelsAdded) : [];
                     return (
                       <div
                         key={idx}
-                        className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/70 bg-muted/25 py-2.5 px-3"
+                        data-escalation-label={isEscalation ? labelsAdded.find((l) => l.includes("Escalation")) : undefined}
+                        className={cn(
+                          "flex flex-col items-center gap-1 rounded-md border py-2.5 px-3",
+                          isEscalation
+                            ? "border-orange-200 bg-orange-50/80 dark:border-orange-900/50 dark:bg-orange-950/20"
+                            : "border-dashed border-border/70 bg-muted/25"
+                        )}
                       >
-                        <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                        <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
-                          <span className="font-medium text-foreground">{actor}</span>
-                          {" added "}
-                          {labelsAdded.length === 1 ? "label " : "labels "}
-                          <span className="font-medium text-foreground">{labelsAdded.join(", ")}</span>
-                          {msg.timestamp && (
-                            <>
-                              <span className="text-muted-foreground/70"> · </span>
-                              <span>{msg.timestamp}</span>
-                            </>
+                        <div className="flex items-center gap-2">
+                          {isEscalation ? (
+                            <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-orange-500" aria-hidden />
+                          ) : (
+                            <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
                           )}
-                        </p>
+                          <p className={cn(
+                            "text-center text-[11px] leading-relaxed",
+                            isEscalation ? "text-orange-800 dark:text-orange-200" : "text-muted-foreground"
+                          )}>
+                            <span className={cn("font-medium", isEscalation ? "text-orange-900 dark:text-orange-100" : "text-foreground")}>{actor}</span>
+                            {" escalated → "}
+                            {labelsAdded.map((label, i) => (
+                              <span key={label}>
+                                {i > 0 && ", "}
+                                <span className={cn(
+                                  "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold",
+                                  isEscalation
+                                    ? "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200"
+                                    : "font-medium text-foreground"
+                                )}>
+                                  {label}
+                                </span>
+                              </span>
+                            ))}
+                            {msg.timestamp && (
+                              <>
+                                <span className="opacity-60"> · </span>
+                                <span>{msg.timestamp}</span>
+                              </>
+                            )}
+                          </p>
+                        </div>
+                        {pausedAgents.length > 0 && (
+                          <div className="flex items-center gap-1.5 text-[10px] text-orange-700/80 dark:text-orange-300/80">
+                            <PauseCircle className="h-3 w-3 shrink-0 text-orange-500" aria-hidden />
+                            <span>
+                              {pausedAgents.map((a, i) => (
+                                <span key={a}>
+                                  {i > 0 && ", "}
+                                  <span className="font-semibold">{a}</span>
+                                </span>
+                              ))}
+                              {" turned off until resolved"}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     );
                   }
@@ -2820,6 +3748,18 @@ function ConversationsContent() {
                           !isAgent && !isStaff && "border border-border bg-card text-card-foreground shadow-sm"
                         )}
                       >
+                        {isStaff && msg.replyToEscalations && msg.replyToEscalations.length > 0 && (
+                          <div className="mb-1.5 flex flex-wrap gap-1">
+                            {msg.replyToEscalations.map((esc) => (
+                              <span
+                                key={esc}
+                                className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-medium text-white ring-1 ring-inset ring-white/30"
+                              >
+                                Replying to {esc.replace(" Escalation", "")}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                         {msg.text.split("\n").map((line, li) => (
                           <span key={li}>
                             {line}
@@ -2834,34 +3774,620 @@ function ConversationsContent() {
             </div>
 
             {/* Chat input */}
-            <div className="shrink-0 bg-muted/50">
-              {/* Mode toggle */}
-              <div className="flex items-center gap-1 px-5 pt-3 pb-2">
-                <Button
-                  variant={inputMode === "message" ? "default" : "ghost"}
-                  size="sm"
-                  className="gap-1.5 rounded-full text-xs"
-                  onClick={() => {
-                    setInputMode("message");
-                    setPrivateNoteMention(null);
-                  }}
-                >
-                  <MessageSquare className="h-3.5 w-3.5" />
-                  Message
-                </Button>
-                <Button
-                  variant={inputMode === "private_note" ? "secondary" : "ghost"}
-                  size="sm"
-                  className={cn(
-                    "gap-1.5 rounded-full text-xs",
-                    inputMode === "private_note" && "bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300"
+            <div className="shrink-0 border-t border-border bg-muted/40 shadow-[0_-2px_6px_rgba(0,0,0,0.04)]">
+              {/* Mode toggle — hidden for Super Agent when AI is active */}
+              {!(selected && isSuperAgentDemoThread(selected.id) && aiActivated) && (
+                <div className="flex items-center gap-1 px-5 pt-3 pb-2">
+                  <Button
+                    variant={inputMode === "message" ? "default" : "ghost"}
+                    size="sm"
+                    className="gap-1.5 rounded-full text-xs"
+                    onClick={() => {
+                      setInputMode("message");
+                      setPrivateNoteMention(null);
+                    }}
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" />
+                    Message
+                  </Button>
+                  <Button
+                    variant={inputMode === "private_note" ? "secondary" : "ghost"}
+                    size="sm"
+                    className={cn(
+                      "gap-1.5 rounded-full text-xs",
+                      inputMode === "private_note" && "bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300"
+                    )}
+                    onClick={() => setInputMode("private_note")}
+                  >
+                    <StickyNote className="h-3.5 w-3.5" />
+                    Private Note
+                  </Button>
+                  {selected && isSuperAgent1DemoThread(selected.id) && (
+                    <button
+                      type="button"
+                      onClick={() => setEscalationSummaryOpen((v) => !v)}
+                      className="ml-auto flex items-center gap-1.5 rounded-md bg-gradient-to-r from-indigo-500 to-blue-500 px-2.5 py-1.5 text-[10px] font-semibold text-white shadow-sm transition-all hover:from-indigo-600 hover:to-blue-600 hover:shadow-md"
+                    >
+                      <Sparkles className="h-3 w-3" />
+                      AI Summary
+                    </button>
                   )}
-                  onClick={() => setInputMode("private_note")}
-                >
-                  <StickyNote className="h-3.5 w-3.5" />
-                  Private Note
-                </Button>
-              </div>
+                </div>
+              )}
+
+              {/* SA 1.0: compact escalation-reply selector — instructive label + helper sub-line + pill checkboxes. */}
+              {selected &&
+                isSuperAgent1DemoThread(selected.id) &&
+                inputMode === "message" &&
+                selected.labels.some((l) => l.includes("Escalation")) && (() => {
+                  const sa1Escalations = selected.labels.filter((l) => l.includes("Escalation"));
+                  const selectedCount = selectedEscalationTypes.size;
+                  const isError = escalationError && selectedCount === 0;
+                  return (
+                    <div className="px-5 pb-2">
+                      <div
+                        className={cn(
+                          "rounded-md border px-2.5 py-1.5 transition-all",
+                          isError
+                            ? "border-red-400 bg-red-50 dark:border-red-600 dark:bg-red-950/20"
+                            : "border-orange-300 bg-orange-50/70 dark:border-orange-700/60 dark:bg-orange-950/20"
+                        )}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={cn(
+                              "flex items-center gap-1.5 text-[11px] font-semibold",
+                              isError ? "text-red-700 dark:text-red-300" : "text-orange-800 dark:text-orange-200"
+                            )}
+                          >
+                            {isError && <AlertTriangle className="h-3 w-3 animate-pulse" />}
+                            {isError
+                              ? "Pick an escalation before sending:"
+                              : `Which escalation(s) does this reply address? (${selectedCount}/${sa1Escalations.length})`}
+                            <TooltipProvider delayDuration={150}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    aria-label="What does this do?"
+                                    className={cn(
+                                      "flex h-3.5 w-3.5 items-center justify-center rounded-full transition-colors",
+                                      isError
+                                        ? "text-red-700 hover:bg-red-200/60 dark:text-red-300 dark:hover:bg-red-900/40"
+                                        : "text-orange-700 hover:bg-orange-200/60 dark:text-orange-300 dark:hover:bg-orange-900/40"
+                                    )}
+                                  >
+                                    <CircleHelp className="h-3.5 w-3.5" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-[280px] text-[11px] leading-relaxed">
+                                  Marks which escalation this reply is for. Escalations no one has answered stay in everyone&apos;s queue so a teammate can step in. The thread leaves your list only after every escalation has had at least one staff reply.
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </span>
+                          {sa1Escalations.map((label) => {
+                            const isSelected = selectedEscalationTypes.has(label);
+                            return (
+                              <button
+                                key={label}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedEscalationTypes((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(label)) next.delete(label);
+                                    else next.add(label);
+                                    if (selected) superAgentSelectionsRef.current.set(selected.id, next);
+                                    return next;
+                                  });
+                                  setEscalationError(false);
+                                  chatTextareaRef.current?.focus();
+                                }}
+                                className={cn(
+                                  "flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-all",
+                                  isSelected
+                                    ? "border-orange-500 bg-orange-500 text-white shadow-sm dark:border-orange-400 dark:bg-orange-500"
+                                    : isError
+                                      ? "border-red-400 bg-white text-red-700 animate-pulse dark:border-red-600 dark:bg-card dark:text-red-300"
+                                      : "border-orange-300 bg-white text-orange-800 hover:border-orange-500 hover:bg-orange-100/60 dark:border-orange-700 dark:bg-card dark:text-orange-200 dark:hover:bg-orange-950/40"
+                                )}
+                              >
+                                <span
+                                  className={cn(
+                                    "flex h-3 w-3 shrink-0 items-center justify-center rounded-sm border",
+                                    isSelected
+                                      ? "border-white bg-white text-orange-600"
+                                      : isError
+                                        ? "border-red-400"
+                                        : "border-orange-400"
+                                  )}
+                                >
+                                  {isSelected && <Check className="h-2.5 w-2.5 stroke-[3]" />}
+                                </span>
+                                {label.replace(" Escalation", "")}
+                              </button>
+                            );
+                          })}
+                          {selectedCount > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedEscalationTypes(new Set());
+                                if (selected) superAgentSelectionsRef.current.set(selected.id, new Set());
+                              }}
+                              className="ml-auto rounded px-1.5 py-0.5 text-[10px] font-medium text-orange-700 transition-colors hover:bg-orange-200/50 dark:text-orange-300 dark:hover:bg-orange-900/40"
+                            >
+                              Clear
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+              {/* Escalation selector + context summary for Super Agent */}
+              {selected && isSuperAgentDemoThread(selected.id) && aiActivated && inputMode === "message" && (
+                <div className="px-5 pt-3 pb-2">
+                  {escalationSummaryOpen ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setEscalationSummaryOpen(false)}
+                        className="flex w-full items-center gap-2 rounded-t-lg border border-b-0 border-blue-200 bg-blue-50/70 px-3 py-2 text-left transition-colors hover:bg-blue-50 dark:border-blue-900/50 dark:bg-blue-950/20 dark:hover:bg-blue-950/30"
+                      >
+                        <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-blue-100 dark:bg-blue-900/50">
+                          <FileText className="h-3 w-3 text-blue-600 dark:text-blue-300" />
+                        </div>
+                        <span className="flex-1 text-xs font-semibold text-blue-800 dark:text-blue-200">
+                          Escalation Context Summary
+                        </span>
+                        <ChevronDown className="h-4 w-4 text-blue-500" />
+                      </button>
+                      <div className="space-y-2 rounded-b-lg border border-t-0 border-blue-200 bg-white p-3 dark:border-blue-900/50 dark:bg-card">
+                        {selected.labels
+                          .filter((l) => l.includes("Escalation"))
+                          .map((label) => {
+                            const summaryMap: Record<string, string> = {
+                              "Renewals AI Escalation": "Resident is requesting a rate exception on their 12-month renewal offer ($1,850/mo, 3% increase). They've been a tenant for 2 years with on-time payment history and feel the increase is higher than expected.",
+                              "Payments AI Escalation": "Resident's October rent payment ($1,795) was returned due to insufficient funds (employer payroll delay). A $50 late fee was applied. Resident is requesting a late fee waiver given their clean 2-year payment history.",
+                              "Other Escalation": "Resident wants to host a birthday party at the pool area next month (15\u201320 guests, Saturday afternoon). Needs info on reservation process, community guidelines, and any applicable fees.",
+                            };
+                            const summary = summaryMap[label] ?? "AI escalated this topic for staff review.";
+                            return (
+                              <div
+                                key={label}
+                                className="rounded-md border-l-[3px] border-l-orange-400 bg-orange-50/50 px-3 py-2 dark:bg-orange-950/10"
+                              >
+                                <div className="flex items-center gap-1.5 mb-1">
+                                  <span className="text-[11px] font-bold text-orange-800 dark:text-orange-200">
+                                    {label.replace(" Escalation", "")}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] leading-relaxed text-foreground/80">
+                                  {summary}
+                                </p>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Select The Escalation You Want To Give Context For
+                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setSuperAgentNoteOpen(true)}
+                            className="flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[10px] font-semibold text-amber-700 shadow-sm transition-all hover:bg-amber-100 hover:shadow-md dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                          >
+                            <StickyNote className="h-3 w-3" />
+                            Private Note
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEscalationSummaryOpen(true)}
+                            className="flex items-center gap-1.5 rounded-md bg-gradient-to-r from-indigo-500 to-blue-500 px-2.5 py-1.5 text-[10px] font-semibold text-white shadow-sm transition-all hover:from-indigo-600 hover:to-blue-600 hover:shadow-md"
+                          >
+                            <Sparkles className="h-3 w-3" />
+                            AI Summary
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        {selected.labels
+                          .filter((l) => l.includes("Escalation"))
+                          .map((label) => {
+                            const isSelected = selectedEscalationTypes.has(label);
+                            return (
+                              <button
+                                key={label}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedEscalationTypes((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(label)) next.delete(label);
+                                    else next.add(label);
+                                    if (selected) superAgentSelectionsRef.current.set(selected.id, next);
+                                    return next;
+                                  });
+                                  setEscalationError(false);
+                                  chatTextareaRef.current?.focus();
+                                }}
+                                className={cn(
+                                  "flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-all",
+                                  isSelected
+                                    ? "border-orange-400 bg-orange-50 text-orange-800 ring-1 ring-orange-400 dark:border-orange-600 dark:bg-orange-950/30 dark:text-orange-200"
+                                    : escalationError
+                                      ? "border-red-400 bg-red-50 text-red-700 ring-1 ring-red-300 animate-pulse dark:border-red-600 dark:bg-red-950/20 dark:text-red-300"
+                                      : "border-border bg-background text-muted-foreground hover:border-orange-300 hover:bg-orange-50/50 hover:text-orange-700"
+                                )}
+                              >
+                                <span className={cn(
+                                  "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                                  isSelected
+                                    ? "border-orange-500 bg-orange-500 text-white"
+                                    : "border-muted-foreground/30"
+                                )}>
+                                  {isSelected && <Check className="h-2.5 w-2.5" />}
+                                </span>
+                                {label.replace(" Escalation", "")}
+                              </button>
+                            );
+                          })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Escalation context summary — visible when AI deactivated for Super Agent */}
+              {selected && isSuperAgentDemoThread(selected.id) && !aiActivated && inputMode === "message" && (
+                <div className="px-5 pt-3 pb-2">
+                  <button
+                    type="button"
+                    onClick={() => setEscalationSummaryOpen(!escalationSummaryOpen)}
+                    className="flex w-full items-center gap-2 rounded-lg border border-blue-200 bg-blue-50/70 px-3 py-2 text-left transition-colors hover:bg-blue-50 dark:border-blue-900/50 dark:bg-blue-950/20 dark:hover:bg-blue-950/30"
+                  >
+                    <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-blue-100 dark:bg-blue-900/50">
+                      <FileText className="h-3 w-3 text-blue-600 dark:text-blue-300" />
+                    </div>
+                    <span className="flex-1 text-xs font-semibold text-blue-800 dark:text-blue-200">
+                      Escalation Context Summary
+                    </span>
+                    <ChevronRight className={cn(
+                      "h-4 w-4 text-blue-500 transition-transform duration-200",
+                      escalationSummaryOpen && "rotate-90"
+                    )} />
+                  </button>
+                  {escalationSummaryOpen && (
+                    <div className="mt-1.5 space-y-2 rounded-lg border border-blue-100 bg-white p-3 shadow-sm dark:border-blue-900/40 dark:bg-card">
+                      {selected.labels
+                        .filter((l) => l.includes("Escalation"))
+                        .map((label) => {
+                          const summaryMap: Record<string, string> = {
+                            "Renewals AI Escalation": "Resident is requesting a rate exception on their 12-month renewal offer ($1,850/mo, 3% increase). They've been a tenant for 2 years with on-time payment history and feel the increase is higher than expected.",
+                            "Payments AI Escalation": "Resident's October rent payment ($1,795) was returned due to insufficient funds (employer payroll delay). A $50 late fee was applied. Resident is requesting a late fee waiver given their clean 2-year payment history.",
+                            "Other Escalation": "Resident wants to host a birthday party at the pool area next month (15\u201320 guests, Saturday afternoon). Needs info on reservation process, community guidelines, and any applicable fees.",
+                          };
+                          const summary = summaryMap[label] ?? "AI escalated this topic for staff review.";
+                          return (
+                            <div
+                              key={label}
+                              className="rounded-md border-l-[3px] border-l-orange-400 bg-orange-50/50 px-3 py-2 dark:bg-orange-950/10"
+                            >
+                              <div className="flex items-center gap-1.5 mb-1">
+                                <span className="text-[11px] font-bold text-orange-800 dark:text-orange-200">
+                                  {label.replace(" Escalation", "")}
+                                </span>
+                              </div>
+                              <p className="text-[11px] leading-relaxed text-foreground/80">
+                                {summary}
+                              </p>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* AI Summary panel for Super Agent 1.0 — overall conversation snapshot + action items */}
+              {selected && isSuperAgent1DemoThread(selected.id) && inputMode === "message" && escalationSummaryOpen && (() => {
+                const escalations = selected.labels.filter((l) => l.includes("Escalation"));
+                const actionMap: Record<string, string> = {
+                  "Renewals AI Escalation":
+                    "Decide on the rate exception for the 12-month renewal offer ($1,850/mo, a 3% increase from $1,795). Resident is asking you to reconsider given 2 years of on-time payments.",
+                  "Payments AI Escalation":
+                    "Decide on the $50 late-fee waiver from the October returned payment (employer payroll delay). Clean 2-year history, one-time event.",
+                };
+                return (
+                  <div className="px-5 pb-2">
+                    <button
+                      type="button"
+                      onClick={() => setEscalationSummaryOpen(false)}
+                      className="flex w-full items-center gap-2 rounded-t-lg border border-b-0 border-blue-200 bg-blue-50/70 px-3 py-2 text-left transition-colors hover:bg-blue-50 dark:border-blue-900/50 dark:bg-blue-950/20 dark:hover:bg-blue-950/30"
+                    >
+                      <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-blue-100 dark:bg-blue-900/50">
+                        <Sparkles className="h-3 w-3 text-blue-600 dark:text-blue-300" />
+                      </div>
+                      <span className="flex-1 text-xs font-semibold text-blue-800 dark:text-blue-200">
+                        AI Summary
+                      </span>
+                      <ChevronDown className="h-4 w-4 text-blue-500" />
+                    </button>
+                    <div className="space-y-3 rounded-b-lg border border-t-0 border-blue-200 bg-white p-3.5 dark:border-blue-900/50 dark:bg-card">
+                      <p className="text-[13px] leading-relaxed text-foreground/80">
+                        <span className="font-semibold text-foreground">{selected.resident}</span>
+                        {selected.unit ? ` (${selected.unit}, ${selected.property})` : ` (${selected.property})`} — a 2-year tenant with on-time payment history — reached out about their upcoming renewal and an October payment issue. The AI handled the routine questions and confirmed a teammate would follow up on the {escalations.length === 1 ? "item" : `${escalations.length} items`} below.
+                      </p>
+                      {escalations.length > 0 && (
+                        <div className="space-y-2 rounded-md border-l-[3px] border-l-orange-400 bg-orange-50/50 px-3 py-2.5 dark:bg-orange-950/10">
+                          <p className="text-[11px] font-bold uppercase tracking-wide text-orange-800 dark:text-orange-200">
+                            Needs your response
+                          </p>
+                          {escalations.map((label) => {
+                            const action = actionMap[label] ?? "Review the conversation and respond on this escalation.";
+                            return (
+                              <div key={label} className="flex gap-2">
+                                <span className="shrink-0 text-[13px] font-semibold text-orange-700 dark:text-orange-300">
+                                  {label.replace(" Escalation", "")}:
+                                </span>
+                                <span className="text-[13px] leading-relaxed text-foreground/80">
+                                  {action}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Private Note modal for Super Agent */}
+              {selected && isSuperAgentDemoThread(selected.id) && (
+                <Dialog open={superAgentNoteOpen} onOpenChange={setSuperAgentNoteOpen}>
+                  <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>Private Note</DialogTitle>
+                      <DialogDescription>
+                        Add an internal note visible only to your team.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-3 pt-2">
+                      <textarea
+                        value={superAgentNoteDraft}
+                        onChange={(e) => setSuperAgentNoteDraft(e.target.value)}
+                        placeholder="Write a private note…"
+                        rows={4}
+                        className="w-full resize-none rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-400 dark:border-amber-800 dark:bg-amber-900/20"
+                      />
+                      <div className="flex justify-end gap-2">
+                        <Button variant="ghost" size="sm" onClick={() => setSuperAgentNoteOpen(false)}>
+                          Cancel
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="bg-amber-600 hover:bg-amber-700 text-white"
+                          disabled={!superAgentNoteDraft.trim()}
+                          onClick={() => {
+                            if (superAgentNoteDraft.trim() && selected) {
+                              addMessage(selected.id, {
+                                role: "staff",
+                                text: superAgentNoteDraft.trim(),
+                                timestamp: new Date().toLocaleString("en-US", {
+                                  month: "short",
+                                  day: "numeric",
+                                  year: "numeric",
+                                  hour: "numeric",
+                                  minute: "2-digit",
+                                  hour12: true,
+                                  timeZoneName: "short",
+                                }),
+                                type: "private_note",
+                                privateNoteAuthor: MY_INBOX_ASSIGNEE,
+                              });
+                              setSuperAgentNoteDraft("");
+                              setSuperAgentNoteOpen(false);
+                            }
+                          }}
+                        >
+                          <StickyNote className="h-3.5 w-3.5 mr-1.5" />
+                          Add Note
+                        </Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              )}
+
+              {/* Escalation picker modal for Super Agent */}
+              {selected && isSuperAgentDemoThread(selected.id) && (
+                <Dialog open={escalationPickerOpen} onOpenChange={setEscalationPickerOpen}>
+                  <DialogContent className="sm:max-w-sm">
+                    <DialogHeader>
+                      <DialogTitle>Which escalation are you resolving?</DialogTitle>
+                      <DialogDescription>
+                        Select the AI escalation(s) you want to respond to in this conversation.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-2 pt-2">
+                      {selected.labels
+                        .filter((l) => l.includes("Escalation"))
+                        .map((label) => {
+                          const isSelected = escalationPickerSelections.has(label);
+                          return (
+                            <button
+                              key={label}
+                              type="button"
+                              onClick={() => {
+                                setEscalationPickerSelections((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(label)) next.delete(label);
+                                  else next.add(label);
+                                  return next;
+                                });
+                              }}
+                              className={cn(
+                                "flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm font-medium transition-all",
+                                isSelected
+                                  ? "border-orange-400 bg-orange-50 text-orange-800 ring-1 ring-orange-400"
+                                  : "border-border bg-background text-foreground hover:border-orange-300 hover:bg-orange-50/50"
+                              )}
+                            >
+                              <span className={cn(
+                                "flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors",
+                                isSelected
+                                  ? "border-orange-500 bg-orange-500 text-white"
+                                  : "border-muted-foreground/30"
+                              )}>
+                                {isSelected && <Check className="h-3 w-3" />}
+                              </span>
+                              <span className={cn("h-2 w-2 rounded-full shrink-0", isSelected ? "bg-orange-500" : "bg-muted-foreground/30")} />
+                              {label.replace(" Escalation", "")}
+                            </button>
+                          );
+                        })}
+                    </div>
+                    <div className="flex justify-end gap-2 pt-3">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setEscalationPickerOpen(false);
+                          if (previousSelectedIdRef.current !== null) {
+                            setSelectedId(previousSelectedIdRef.current);
+                          }
+                        }}
+                      >
+                        Nevermind
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={escalationPickerSelections.size === 0}
+                        onClick={() => {
+                          const selections = new Set(escalationPickerSelections);
+                          setSelectedEscalationTypes(selections);
+                          if (selected) superAgentSelectionsRef.current.set(selected.id, selections);
+                          setEscalationPickerOpen(false);
+                          setTimeout(() => {
+                            if (scrollRef.current) {
+                              const allEscalationEls = scrollRef.current.querySelectorAll("[data-escalation-label]");
+                              for (const el of allEscalationEls) {
+                                const label = el.getAttribute("data-escalation-label");
+                                if (label && selections.has(label)) {
+                                  el.scrollIntoView({ behavior: "smooth", block: "start" });
+                                  break;
+                                }
+                              }
+                            }
+                          }, 300);
+                        }}
+                      >
+                        Continue
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              )}
+
+              {/* SA1 Resolve escalation picker modal */}
+              {selected && isSuperAgent1DemoThread(selected.id) && (
+                <Dialog open={sa1ResolvePickerOpen} onOpenChange={setSa1ResolvePickerOpen}>
+                  <DialogContent className="sm:max-w-sm">
+                    <DialogHeader>
+                      <DialogTitle>Which escalation are you resolving?</DialogTitle>
+                      <DialogDescription>
+                        Select the AI escalation(s) you are resolving for this conversation.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-2 pt-2">
+                      {selected.labels
+                        .filter((l) => l.includes("Escalation"))
+                        .map((label) => {
+                          const isSelected = sa1ResolveSelections.has(label);
+                          return (
+                            <button
+                              key={label}
+                              type="button"
+                              onClick={() => {
+                                setSa1ResolveSelections((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(label)) next.delete(label);
+                                  else next.add(label);
+                                  return next;
+                                });
+                              }}
+                              className={cn(
+                                "flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm font-medium transition-all",
+                                isSelected
+                                  ? "border-emerald-400 bg-emerald-50 text-emerald-800 ring-1 ring-emerald-400"
+                                  : "border-border bg-background text-foreground hover:border-emerald-300 hover:bg-emerald-50/50"
+                              )}
+                            >
+                              <span className={cn(
+                                "flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors",
+                                isSelected
+                                  ? "border-emerald-500 bg-emerald-500 text-white"
+                                  : "border-muted-foreground/30"
+                              )}>
+                                {isSelected && <Check className="h-3 w-3" />}
+                              </span>
+                              <span className={cn("h-2 w-2 rounded-full shrink-0", isSelected ? "bg-emerald-500" : "bg-muted-foreground/30")} />
+                              {label.replace(" Escalation", "")}
+                            </button>
+                          );
+                        })}
+                    </div>
+                    <div className="flex justify-end gap-2 pt-3">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSa1ResolvePickerOpen(false)}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={sa1ResolveSelections.size === 0}
+                        onClick={() => {
+                          if (!selected) return;
+                          const resolved = Array.from(sa1ResolveSelections);
+                          addMessage(selected.id, {
+                            role: "staff",
+                            text: "",
+                            timestamp: new Date().toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true, timeZoneName: "short" }).replace(",", " ·"),
+                            type: "label_activity",
+                            labelActivity: {
+                              actor: MY_INBOX_ASSIGNEE,
+                              labelsAdded: resolved,
+                              action: "resolved_escalation",
+                            },
+                          });
+                          for (const esc of resolved) {
+                            removeLabel(selected.id, esc);
+                          }
+                          const remaining = selected.labels.filter(
+                            (l) => l.includes("Escalation") && !sa1ResolveSelections.has(l)
+                          );
+                          if (remaining.length === 0) {
+                            resolveConversation(selected.id, MY_INBOX_ASSIGNEE);
+                          }
+                          setSa1ResolvePickerOpen(false);
+                          setSa1ResolveSelections(new Set());
+                        }}
+                      >
+                        Resolve
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              )}
 
               {/* Input box */}
               <div className="px-5 pb-4">
@@ -2870,9 +4396,18 @@ function ConversationsContent() {
                     "relative flex flex-col rounded-xl border transition-colors focus-within:ring-1 focus-within:ring-ring",
                     inputMode === "private_note"
                       ? "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20"
-                      : "border-input bg-background"
+                      : selected && isSuperAgentDemoThread(selected.id) && aiActivated && selectedEscalationTypes.size > 0
+                        ? "border-orange-300 bg-orange-50/30 dark:border-orange-700 dark:bg-orange-950/10"
+                        : "border-input bg-background"
                   )}
                 >
+                  {escalationError && inputMode !== "private_note" && (
+                    <div className="flex items-center gap-2 px-4 pt-2.5 pb-0">
+                      <span className="text-[11px] font-medium text-red-600 dark:text-red-400">
+                        Please select an escalation above to send context for.
+                      </span>
+                    </div>
+                  )}
                   {inputMode === "private_note" &&
                     privateNoteMention &&
                     (privateNoteMentionFiltered.length > 0 ? (
@@ -2930,8 +4465,16 @@ function ConversationsContent() {
                       }
                     }}
                     onKeyDown={handleComposerKeyDown}
-                    placeholder={inputMode === "private_note" ? "Write a private note…" : "Write a message…"}
-                    rows={2}
+                    placeholder={
+                      inputMode === "private_note"
+                        ? "Write a private note…"
+                        : selected && isSuperAgentDemoThread(selected.id) && aiActivated
+                          ? selectedEscalationTypes.size > 0
+                            ? "Provide context for this escalation response…"
+                            : "Select an escalation above to respond…"
+                          : "Write a message…"
+                    }
+                    rows={selected?.channel === "Email" && inputMode === "message" ? 4 : 2}
                     className="w-full resize-none bg-transparent px-4 pt-3 pb-1 text-sm placeholder:text-muted-foreground focus-visible:outline-none"
                     aria-label={inputMode === "private_note" ? "Private note" : "Message"}
                     aria-autocomplete={inputMode === "private_note" ? "list" : undefined}
@@ -3122,13 +4665,18 @@ function ConversationsContent() {
                     { label: "Schedule Manual Contact", Icon: Phone },
                   ].map((btn) => (
                     <div key={btn.label} className="relative">
-                      {btn.label === "Message" && !threadsPanelOpen && !messageIntroDismissed && (
+                      {btn.label === "Message" && !threadsPanelOpen && (
                         <>
                           <span className="absolute -top-2 -right-2 z-10 flex items-center rounded-full bg-blue-600 px-1.5 py-0.5 text-[8px] font-bold text-white shadow-sm animate-bounce" style={{ animationDuration: "2s" }}>
                             NEW
                           </span>
                           <span className="absolute inset-0 rounded-md animate-pulse ring-2 ring-blue-400/50" style={{ animationDuration: "2s" }} />
                         </>
+                      )}
+                      {btn.label === "Message" && threadsPanelOpen && (
+                        <span className="absolute -top-2 -right-2 z-10 flex items-center rounded-full bg-blue-600 px-1 py-0.5 text-[7px] font-bold uppercase tracking-wide text-white shadow-sm">
+                          New
+                        </span>
                       )}
                     <button
                       onClick={btn.action}
@@ -3346,6 +4894,8 @@ function ConversationsContent() {
                     onClick={() => {
                       setOpenThreadIdx(null);
                       setNewThreadOutbound(null);
+                      setNewThreadSubject("");
+                      setNewThreadSubjectError(false);
                     }}
                     className="text-gray-500 hover:text-gray-800 transition-colors"
                   >
@@ -3421,6 +4971,8 @@ function ConversationsContent() {
                     onClick={() => {
                       setOpenThreadIdx(null);
                       setNewThreadOutbound(null);
+                      setNewThreadSubject("");
+                      setNewThreadSubjectError(false);
                       setThreadsPanelOpen(false);
                       setProfilePanelInboxOpen(false);
                     }}
@@ -3440,6 +4992,29 @@ function ConversationsContent() {
                         : "Property email"}{" "}
                       · {newThreadOutbound.propertyName}
                     </p>
+                  </div>
+                )}
+
+                {openThreadIdx === -1 && newThreadOutbound?.channel === "Email" && (
+                  <div className="shrink-0 border-b border-gray-200 bg-white px-4 py-2">
+                    <label className={cn("text-[10px] font-semibold uppercase tracking-wide", newThreadSubjectError ? "text-red-600" : "text-gray-500")}>
+                      Subject {newThreadSubjectError && <span className="normal-case tracking-normal font-medium">— required before sending</span>}
+                    </label>
+                    <input
+                      type="text"
+                      value={newThreadSubject}
+                      onChange={(e) => {
+                        setNewThreadSubject(e.target.value);
+                        if (newThreadSubjectError && e.target.value.trim()) setNewThreadSubjectError(false);
+                      }}
+                      placeholder="Enter email subject…"
+                      className={cn(
+                        "mt-1 w-full rounded-md border bg-background px-2.5 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1",
+                        newThreadSubjectError
+                          ? "border-red-400 ring-1 ring-red-300 focus:ring-red-400"
+                          : "border-input focus:ring-ring"
+                      )}
+                    />
                   </div>
                 )}
 
@@ -4217,6 +5792,8 @@ function ConversationsContent() {
                               onClick={() => {
                                 setProfilePanelInboxOpen(false);
                                 setNewThreadOutbound(null);
+                                setNewThreadSubject("");
+                                setNewThreadSubjectError(false);
                                 setOpenThreadIdx(globalIdx);
                               }}
                             >
@@ -4642,6 +6219,7 @@ function ConversationsContent() {
         assigneeOptions={clickToCallAssigneeOptions}
         defaultAssigneeValue={CLICK_TO_CALL_FOLLOWUP_UNASSIGNED}
       />
+
     </div>
   );
 }
@@ -4974,6 +6552,608 @@ function MiniCalendar({
         >
           Apply
         </Button>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   COMMUNICATIONS DEMO CONTROL (sidebar footer)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+function CommunicationsDemoControl({
+  clickToCallEnabled,
+  onToggleClickToCall,
+  callSystemEnabled,
+  onToggleCallSystem,
+  onSimulateInboundCall,
+  superAgentEnabled,
+  onToggleSuperAgent,
+  superAgent1Enabled,
+  onToggleSuperAgent1,
+}: {
+  clickToCallEnabled: boolean;
+  onToggleClickToCall: () => void;
+  callSystemEnabled: boolean;
+  onToggleCallSystem: () => void;
+  onSimulateInboundCall: (callerType?: IncomingCallerType) => void;
+  superAgentEnabled: boolean;
+  onToggleSuperAgent: () => void;
+  superAgent1Enabled: boolean;
+  onToggleSuperAgent1: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const anyActive = clickToCallEnabled || callSystemEnabled || superAgentEnabled || superAgent1Enabled;
+
+  return (
+    <div className="shrink-0 border-t border-border bg-muted/30">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/60"
+        aria-expanded={open}
+        aria-controls="communications-demo-control-panel"
+      >
+        <span className="flex min-w-0 items-center gap-1.5">
+          <Beaker className="h-3 w-3 text-muted-foreground" strokeWidth={2} />
+          <span className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Communications Demo Control
+          </span>
+          {anyActive && (
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500"
+              aria-label="One or more demo controls are active"
+            />
+          )}
+        </span>
+        <ChevronDown
+          className={cn(
+            "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-180"
+          )}
+          strokeWidth={2}
+        />
+      </button>
+
+      {open && (
+        <div id="communications-demo-control-panel" className="px-3 pb-3">
+          <label className="flex cursor-pointer items-start justify-between gap-2 rounded-md px-1.5 py-1.5 transition-colors hover:bg-muted/60">
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-semibold leading-tight text-foreground">Click To Call</p>
+              <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+                Show call controls on Communications
+              </p>
+            </div>
+            <Switch
+              checked={clickToCallEnabled}
+              onCheckedChange={onToggleClickToCall}
+              className="mt-0.5"
+            />
+          </label>
+
+          <label className="flex cursor-pointer items-start justify-between gap-2 rounded-md px-1.5 py-1.5 transition-colors hover:bg-muted/60">
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-semibold leading-tight text-foreground">Call System</p>
+              <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+                Show Call System settings in sidebar
+              </p>
+            </div>
+            <Switch
+              checked={callSystemEnabled}
+              onCheckedChange={onToggleCallSystem}
+              className="mt-0.5"
+            />
+          </label>
+
+          {callSystemEnabled && (
+            <div className="mt-1 rounded-md border border-border/60 bg-background px-2 py-2">
+              <div className="mb-1.5 flex items-center gap-1.5">
+                <PhoneIncoming className="h-3 w-3 text-emerald-500" strokeWidth={2} />
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Replicate Incoming Call
+                </p>
+              </div>
+              <div className="grid grid-cols-3 gap-1">
+                {([
+                  { type: "prospect" as IncomingCallerType, label: "Prospect", Icon: UserX },
+                  { type: "lead" as IncomingCallerType, label: "Lead", Icon: User },
+                  { type: "resident" as IncomingCallerType, label: "Resident", Icon: UserCheck },
+                ]).map((opt) => (
+                  <button
+                    key={opt.type}
+                    type="button"
+                    onClick={() => onSimulateInboundCall(opt.type)}
+                    className="flex flex-col items-center gap-1 rounded-md border border-border bg-background px-1.5 py-1.5 text-center transition-colors hover:border-emerald-300 hover:bg-emerald-50"
+                  >
+                    <opt.Icon className="h-3.5 w-3.5 text-emerald-600" strokeWidth={1.75} />
+                    <span className="text-[10px] font-semibold text-foreground">{opt.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <label className="flex cursor-pointer items-start justify-between gap-2 rounded-md px-1.5 py-1.5 transition-colors hover:bg-muted/60">
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-semibold leading-tight text-foreground">Super Agent 1.0</p>
+              <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+                Normal composer with resolve button
+              </p>
+            </div>
+            <Switch
+              checked={superAgent1Enabled}
+              onCheckedChange={onToggleSuperAgent1}
+              className="mt-0.5"
+            />
+          </label>
+
+          <label className="flex cursor-pointer items-start justify-between gap-2 rounded-md px-1.5 py-1.5 transition-colors hover:bg-muted/60">
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-semibold leading-tight text-foreground">Super Agent 2.0</p>
+              <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+                Escalation selector with AI context flow
+              </p>
+            </div>
+            <Switch
+              checked={superAgentEnabled}
+              onCheckedChange={onToggleSuperAgent}
+              className="mt-0.5"
+            />
+          </label>
+
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   CALL SYSTEM SETTINGS PANEL
+   ───────────────────────────────────────────────────────────────────────────── */
+
+type CallSystemTab = "softphone" | "routing" | "queue";
+
+const CALL_SYSTEM_TABS: { id: CallSystemTab; label: string }[] = [
+  { id: "softphone", label: "Softphone & WebRTC" },
+  { id: "routing", label: "Call Routing" },
+  { id: "queue", label: "Call Queue" },
+];
+
+function CallSystemSettingsPanel({ onClose }: { onClose: () => void }) {
+  const [activeTab, setActiveTab] = useState<CallSystemTab>("softphone");
+  const [routingMode, setRoutingMode] = useState<"round-robin" | "skills-based" | "property-first">("skills-based");
+  const [aiVoiceEnabled, setAiVoiceEnabled] = useState(true);
+  const [maxRingTime, setMaxRingTime] = useState("30");
+
+  return (
+    <div className="flex flex-1 flex-col overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-border px-6 py-4">
+        <div>
+          <h2 className="text-lg font-semibold">Call System Settings</h2>
+          <p className="text-sm text-muted-foreground">Configure call routing, IVR, AI voice agents, and phone system settings</p>
+        </div>
+        <Button variant="ghost" size="icon" onClick={onClose}>
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <div className="flex flex-1 min-h-0">
+        {/* Tab navigation */}
+        <div className="w-[200px] shrink-0 border-r border-border bg-muted/30 p-2">
+          <ul className="space-y-0.5">
+            {CALL_SYSTEM_TABS.map((tab) => (
+              <li key={tab.id}>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={cn(
+                    "w-full rounded-md px-3 py-2 text-left text-sm transition-colors",
+                    activeTab === tab.id
+                      ? "bg-background font-medium text-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-background/60 hover:text-foreground"
+                  )}
+                >
+                  {tab.label}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Tab content */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {activeTab === "softphone" && (
+            <div className="max-w-3xl space-y-6">
+              <div>
+                <h3 className="text-base font-semibold">Softphone & WebRTC Client</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Browser-based softphone powered by Twilio Client SDK. Agents answer and make calls directly within Entrata — no desk phone, personal cell, or separate app required.
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-border p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="text-sm font-medium">WebRTC Softphone</label>
+                    <p className="text-xs text-muted-foreground mt-0.5">Enable browser-based calling for agents</p>
+                  </div>
+                  <Switch defaultChecked />
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border p-4 space-y-4">
+                <div>
+                  <label className="text-sm font-medium">Agent Status Options</label>
+                  <p className="text-xs text-muted-foreground mt-0.5">Configure available agent presence states</p>
+                </div>
+                <div className="space-y-2">
+                  {[
+                    { status: "Available", desc: "Ready to receive calls", color: "bg-emerald-500", enabled: true },
+                    { status: "Away", desc: "Temporarily unavailable", color: "bg-amber-500", enabled: true },
+                    { status: "On Break", desc: "Scheduled break, no calls", color: "bg-orange-500", enabled: true },
+                    { status: "In Meeting", desc: "Do not disturb", color: "bg-purple-500", enabled: true },
+                    { status: "Offline", desc: "Logged out of phone system", color: "bg-gray-400", enabled: true },
+                  ].map((s) => (
+                    <div key={s.status} className="flex items-center justify-between rounded border border-border px-3 py-2">
+                      <div className="flex items-center gap-3">
+                        <span className={cn("h-2.5 w-2.5 rounded-full", s.color)} />
+                        <div>
+                          <p className="text-sm font-medium">{s.status}</p>
+                          <p className="text-xs text-muted-foreground">{s.desc}</p>
+                        </div>
+                      </div>
+                      <Switch defaultChecked={s.enabled} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border p-4 space-y-4">
+                <div>
+                  <label className="text-sm font-medium">Call Controls</label>
+                  <p className="text-xs text-muted-foreground mt-0.5">Active call features available to agents</p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {[
+                    { feature: "Mute/Unmute", enabled: true },
+                    { feature: "Hold", enabled: true },
+                    { feature: "Blind Transfer", enabled: true },
+                    { feature: "Warm Transfer", enabled: true },
+                    { feature: "DTMF Keypad", enabled: true },
+                    { feature: "Conference (3-way)", enabled: false },
+                  ].map((f) => (
+                    <div key={f.feature} className="flex items-center justify-between rounded border border-border px-3 py-2">
+                      <span className="text-sm">{f.feature}</span>
+                      <Switch defaultChecked={f.enabled} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border p-4 space-y-4">
+                <div>
+                  <label className="text-sm font-medium">Browser & Audio</label>
+                  <p className="text-xs text-muted-foreground mt-0.5">Audio and connectivity settings</p>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                    <div>
+                      <p className="text-sm">Network quality indicator</p>
+                      <p className="text-xs text-muted-foreground">Show connection quality during calls</p>
+                    </div>
+                    <Switch defaultChecked />
+                  </div>
+                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                    <div>
+                      <p className="text-sm">Desktop notifications for incoming calls</p>
+                      <p className="text-xs text-muted-foreground">Browser push notification when a call comes in</p>
+                    </div>
+                    <Switch defaultChecked />
+                  </div>
+                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                    <div>
+                      <p className="text-sm">Ringtone sound</p>
+                      <p className="text-xs text-muted-foreground">Audio alert for incoming calls</p>
+                    </div>
+                    <Select defaultValue="default">
+                      <SelectTrigger className="w-[140px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="default">Default</SelectItem>
+                        <SelectItem value="gentle">Gentle</SelectItem>
+                        <SelectItem value="urgent">Urgent</SelectItem>
+                        <SelectItem value="silent">Silent (visual only)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border p-4 space-y-4">
+                <div>
+                  <label className="text-sm font-medium">Supported Browsers</label>
+                  <p className="text-xs text-muted-foreground mt-0.5">WebRTC support status</p>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {[
+                    { browser: "Chrome", status: "Full support" },
+                    { browser: "Edge", status: "Full support" },
+                    { browser: "Firefox", status: "Full support" },
+                    { browser: "Safari", status: "Partial (no DTMF)" },
+                    { browser: "Mobile browsers", status: "Not supported (V1)" },
+                  ].map((b) => (
+                    <div key={b.browser} className="rounded border border-border px-3 py-2 text-center">
+                      <p className="text-sm font-medium">{b.browser}</p>
+                      <p className="text-[10px] text-muted-foreground">{b.status}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "queue" && (
+            <div className="max-w-3xl space-y-6">
+              <div>
+                <h3 className="text-base font-semibold">Call Queue & Agent Management</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Configure call queuing, agent team assignments, and supervisor views for managing call center operations.
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-border p-4 space-y-4">
+                <div>
+                  <label className="text-sm font-medium">Queue Configuration</label>
+                  <p className="text-xs text-muted-foreground mt-0.5">Settings for when callers are waiting</p>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                    <div>
+                      <p className="text-sm">Estimated wait time announcement</p>
+                      <p className="text-xs text-muted-foreground">Tell callers their approximate wait time</p>
+                    </div>
+                    <Switch defaultChecked />
+                  </div>
+                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                    <div>
+                      <p className="text-sm">Position in queue announcement</p>
+                      <p className="text-xs text-muted-foreground">&quot;You are caller number X in line&quot;</p>
+                    </div>
+                    <Switch defaultChecked />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm">Max queue wait time</p>
+                      <p className="text-xs text-muted-foreground">Route to overflow after this duration</p>
+                    </div>
+                    <Select defaultValue="180">
+                      <SelectTrigger className="w-[140px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="60">1 minute</SelectItem>
+                        <SelectItem value="120">2 minutes</SelectItem>
+                        <SelectItem value="180">3 minutes</SelectItem>
+                        <SelectItem value="300">5 minutes</SelectItem>
+                        <SelectItem value="600">10 minutes</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                    <div>
+                      <p className="text-sm">Offer callback option</p>
+                      <p className="text-xs text-muted-foreground">&quot;Press 1 to receive a callback instead of waiting&quot;</p>
+                    </div>
+                    <Switch defaultChecked />
+                  </div>
+                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                    <div>
+                      <p className="text-sm">Route to AI Voice while waiting</p>
+                      <p className="text-xs text-muted-foreground">Offer callers the option to speak with AI instead</p>
+                    </div>
+                    <Switch defaultChecked />
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border p-4 space-y-4">
+                <div>
+                  <label className="text-sm font-medium">Agent Teams</label>
+                  <p className="text-xs text-muted-foreground mt-0.5">Organize agents into teams for targeted routing</p>
+                </div>
+                <div className="space-y-2">
+                  {[
+                    { team: "Leasing", agents: 4, queued: 2 },
+                    { team: "Resident Services", agents: 3, queued: 0 },
+                    { team: "Maintenance", agents: 2, queued: 1 },
+                    { team: "General / Front Desk", agents: 5, queued: 0 },
+                  ].map((t) => (
+                    <div key={t.team} className="flex items-center justify-between rounded border border-border px-3 py-2.5">
+                      <div>
+                        <p className="text-sm font-medium">{t.team}</p>
+                        <p className="text-xs text-muted-foreground">{t.agents} agents assigned</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {t.queued > 0 && (
+                          <Badge variant="destructive" className="text-[10px]">{t.queued} in queue</Badge>
+                        )}
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs">Edit</Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <Button variant="outline" size="sm" className="gap-1.5">
+                  <Plus className="h-3.5 w-3.5" />
+                  Add Team
+                </Button>
+              </div>
+
+              <div className="rounded-lg border border-border p-4 space-y-4">
+                <div>
+                  <label className="text-sm font-medium">Supervisor Features</label>
+                  <p className="text-xs text-muted-foreground mt-0.5">Real-time monitoring capabilities for managers</p>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                    <div>
+                      <p className="text-sm">Live agent status board</p>
+                      <p className="text-xs text-muted-foreground">See all agents, their status, and current calls</p>
+                    </div>
+                    <Switch defaultChecked />
+                  </div>
+                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                    <div>
+                      <p className="text-sm">Listen-in (silent monitoring)</p>
+                      <p className="text-xs text-muted-foreground">Supervisors can listen to live calls without being heard</p>
+                    </div>
+                    <Switch defaultChecked />
+                  </div>
+                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                    <div>
+                      <p className="text-sm">Whisper coaching</p>
+                      <p className="text-xs text-muted-foreground">Speak to the agent only (caller can&apos;t hear)</p>
+                    </div>
+                    <Switch defaultChecked={false} />
+                  </div>
+                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                    <div>
+                      <p className="text-sm">Barge-in</p>
+                      <p className="text-xs text-muted-foreground">Join a call as a third party (all parties hear)</p>
+                    </div>
+                    <Switch defaultChecked={false} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "routing" && (
+            <div className="max-w-3xl space-y-6">
+              <div>
+                <h3 className="text-base font-semibold">Call Routing & Distribution</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Configure how inbound calls are distributed to your team members and AI agents.
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-border p-4 space-y-4">
+                <div>
+                  <label className="text-sm font-medium">Routing Strategy</label>
+                  <p className="text-xs text-muted-foreground mt-0.5">Choose how calls are assigned to available agents</p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {([
+                    { id: "round-robin" as const, label: "Round Robin", desc: "Distribute evenly across agents" },
+                    { id: "skills-based" as const, label: "Skills-Based", desc: "Route by agent expertise" },
+                    { id: "property-first" as const, label: "Property-First", desc: "Route to property's assigned agents" },
+                  ]).map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setRoutingMode(opt.id)}
+                      className={cn(
+                        "rounded-lg border p-3 text-left transition-colors",
+                        routingMode === opt.id
+                          ? "border-primary bg-primary/5 ring-1 ring-primary"
+                          : "border-border hover:border-primary/40"
+                      )}
+                    >
+                      <p className="text-sm font-medium">{opt.label}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{opt.desc}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="text-sm font-medium">Max Ring Time</label>
+                    <p className="text-xs text-muted-foreground mt-0.5">Seconds before routing to next agent or fallback</p>
+                  </div>
+                  <Select value={maxRingTime} onValueChange={setMaxRingTime}>
+                    <SelectTrigger className="w-[100px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="15">15 sec</SelectItem>
+                      <SelectItem value="20">20 sec</SelectItem>
+                      <SelectItem value="25">25 sec</SelectItem>
+                      <SelectItem value="30">30 sec</SelectItem>
+                      <SelectItem value="45">45 sec</SelectItem>
+                      <SelectItem value="60">60 sec</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border p-4 space-y-4">
+                <div>
+                  <label className="text-sm font-medium">Overflow & Fallback</label>
+                  <p className="text-xs text-muted-foreground mt-0.5">What happens when no agents are available</p>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                    <div>
+                      <p className="text-sm">Route to AI Voice Agent</p>
+                      <p className="text-xs text-muted-foreground">AI handles the call when no humans available</p>
+                    </div>
+                    <Switch checked={aiVoiceEnabled} onCheckedChange={setAiVoiceEnabled} />
+                  </div>
+                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                    <div>
+                      <p className="text-sm">Queue callback option</p>
+                      <p className="text-xs text-muted-foreground">Offer callers a callback instead of waiting</p>
+                    </div>
+                    <Switch defaultChecked />
+                  </div>
+                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                    <div>
+                      <p className="text-sm">Voicemail fallback</p>
+                      <p className="text-xs text-muted-foreground">Send to voicemail after max retries</p>
+                    </div>
+                    <Switch defaultChecked />
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border p-4 space-y-4">
+                <div>
+                  <label className="text-sm font-medium">Priority Routing Rules</label>
+                  <p className="text-xs text-muted-foreground mt-0.5">Route specific call types to specialized queues</p>
+                </div>
+                <div className="space-y-2">
+                  {[
+                    { condition: "Caller is current resident", action: "Route to Resident Services" },
+                    { condition: "Caller is prospect/lead", action: "Route to Leasing Team" },
+                    { condition: "Maintenance emergency keywords", action: "Route to Emergency Line" },
+                    { condition: "Repeat caller (3+ attempts)", action: "Priority queue, skip IVR" },
+                  ].map((rule) => (
+                    <div key={rule.condition} className="flex items-center justify-between rounded border border-border bg-muted/30 px-3 py-2">
+                      <div className="flex items-center gap-3">
+                        <Badge variant="secondary" className="text-[10px]">IF</Badge>
+                        <span className="text-sm">{rule.condition}</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Badge variant="outline" className="text-[10px]">THEN</Badge>
+                        <span className="text-sm text-muted-foreground">{rule.action}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <Button variant="outline" size="sm" className="gap-1.5">
+                  <Plus className="h-3.5 w-3.5" />
+                  Add Rule
+                </Button>
+              </div>
+            </div>
+          )}
+
+
+
+        </div>
       </div>
     </div>
   );

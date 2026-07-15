@@ -374,7 +374,7 @@ export function LeadToLeaseSettings({ isActive, onToggleActive }: { isActive: bo
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3">
-              <h1 className="text-[28px] font-bold text-foreground tracking-tight">Autonomous Leasing+</h1>
+              <h1 className="text-[28px] font-bold text-foreground tracking-tight">Autonomous Lease Progression</h1>
               <span className="rounded-full border border-border bg-muted/50 px-3 py-1 text-[11px] font-medium text-muted-foreground">L5 · Autonomous</span>
               <span className={`rounded-full px-3 py-1 text-xs font-semibold ${isActive ? "bg-[#B3FFCC] text-black" : "bg-zinc-200 text-zinc-500"}`}>
                 {isActive ? "Active" : "Inactive"}

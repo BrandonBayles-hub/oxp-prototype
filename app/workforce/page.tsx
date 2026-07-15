@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  useCallback, useEffect, useMemo, useRef, useState,
+  Fragment, useCallback, useEffect, useMemo, useRef, useState,
 } from "react";
 import { PageHeader } from "@/components/page-header";
 import { ComingSoon } from "@/components/coming-soon";
@@ -34,6 +34,7 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SPECIALTIES as SPECIALTY_LIST } from "@/lib/specialties-data";
+import { ENTRATA_GROUPS, type EntrataGroup } from "@/lib/entrata-groups";
 import {
   Network, Tag, ChevronRight, ChevronDown, Award,
   X, Plus, Building2, MapPin, Search, Check, List, Trash2, Users, Pencil,
@@ -464,17 +465,6 @@ const BUILT_IN_ROLES: RoleTab[] = [
   { key: "regional", label: "Team Lead", builtin: true },
 ];
 
-type EntrataGroup = { id: string; name: string; memberCount: number };
-
-const ENTRATA_GROUPS: EntrataGroup[] = [
-  { id: "eg-leasing", name: "Leasing Team", memberCount: 6 },
-  { id: "eg-maintenance", name: "Maintenance Staff", memberCount: 12 },
-  { id: "eg-accounting", name: "Accounting", memberCount: 4 },
-  { id: "eg-regional-ops", name: "Regional Operations", memberCount: 8 },
-  { id: "eg-compliance", name: "Compliance Officers", memberCount: 3 },
-  { id: "eg-resident-svc", name: "Resident Services", memberCount: 9 },
-];
-
 function RolesAccessPanel({ humanMembers }: { humanMembers: WorkforceMember[] }) {
   const [customRoles, setCustomRoles] = useState<RoleTab[]>([]);
   const [activeRole, setActiveRole] = useState<string>("admin");
@@ -557,8 +547,14 @@ function RolesAccessPanel({ humanMembers }: { humanMembers: WorkforceMember[] })
     setPermissions((prev) => {
       const next = { ...prev };
       const set = new Set(next[activeRole] ?? []);
-      if (set.has(permId)) set.delete(permId);
-      else set.add(permId);
+      if (set.has(permId)) {
+        set.delete(permId);
+        for (const child of ALL_PERMISSIONS.filter((p) => p.parentId === permId)) {
+          set.delete(child.id);
+        }
+      } else {
+        set.add(permId);
+      }
       next[activeRole] = set;
       return next;
     });
@@ -881,7 +877,8 @@ function RolesAccessPanel({ humanMembers }: { humanMembers: WorkforceMember[] })
         {PERMISSION_SECTIONS.map((section) => {
           const viewPermId = SECTION_VIEW_PERMISSION[section];
           const sectionPerms = ALL_PERMISSIONS.filter((p) => p.section === section);
-          const childPerms = sectionPerms.length === 1 ? sectionPerms : sectionPerms.filter((p) => p.id !== viewPermId);
+          const topLevelPerms = sectionPerms.filter((p) => !p.parentId);
+          const childPerms = topLevelPerms.length === 1 ? topLevelPerms : topLevelPerms.filter((p) => p.id !== viewPermId);
           const viewPerm = sectionPerms.find((p) => p.id === viewPermId);
           if (sectionPerms.length === 0) return null;
           const masterOn = isAdmin || currentPerms.has(viewPermId);
@@ -923,36 +920,80 @@ function RolesAccessPanel({ humanMembers }: { humanMembers: WorkforceMember[] })
                   <tbody>
                     {childPerms.map((perm) => {
                       const enabled = currentPerms.has(perm.id);
+                      const subPerms = sectionPerms.filter((p) => p.parentId === perm.id);
+                      const showSubPerms = subPerms.length > 0 && (isAdmin || enabled);
                       return (
-                        <tr key={perm.id} className="border-b border-border last:border-b-0">
-                          <td className="px-4 py-3 text-sm font-medium text-foreground whitespace-nowrap">{perm.capability}</td>
-                          <td className="px-4 py-3 text-sm text-muted-foreground">{perm.description}</td>
-                          <td className="px-4 py-3 text-right">
-                            {isAdmin ? (
-                              <span className="text-xs text-muted-foreground italic">Always on</span>
-                            ) : enabled ? (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-red-600"
-                                onClick={() => togglePermission(perm.id)}
-                              >
-                                <Trash2 className="h-3 w-3" />
-                                Remove
-                              </Button>
-                            ) : (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-                                onClick={() => togglePermission(perm.id)}
-                              >
-                                <Plus className="h-3 w-3" />
-                                Add
-                              </Button>
-                            )}
-                          </td>
-                        </tr>
+                        <Fragment key={perm.id}>
+                          <tr className="border-b border-border last:border-b-0">
+                            <td className="px-4 py-3 text-sm font-medium text-foreground whitespace-nowrap">{perm.capability}</td>
+                            <td className="px-4 py-3 text-sm text-muted-foreground">{perm.description}</td>
+                            <td className="px-4 py-3 text-right">
+                              {isAdmin ? (
+                                <span className="text-xs text-muted-foreground italic">Always on</span>
+                              ) : enabled ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-red-600"
+                                  onClick={() => togglePermission(perm.id)}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                  Remove
+                                </Button>
+                              ) : (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                                  onClick={() => togglePermission(perm.id)}
+                                >
+                                  <Plus className="h-3 w-3" />
+                                  Add
+                                </Button>
+                              )}
+                            </td>
+                          </tr>
+                          {showSubPerms &&
+                            subPerms.map((sub) => {
+                              const subEnabled = currentPerms.has(sub.id);
+                              return (
+                                <tr key={sub.id} className="border-b border-border last:border-b-0 bg-muted/20">
+                                  <td className="py-2.5 pl-10 pr-4 text-sm text-foreground whitespace-nowrap">
+                                    <span className="flex items-center gap-2">
+                                      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
+                                      {sub.capability}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-2.5 text-sm text-muted-foreground">{sub.description}</td>
+                                  <td className="px-4 py-2.5 text-right">
+                                    {isAdmin ? (
+                                      <span className="text-xs text-muted-foreground italic">Always on</span>
+                                    ) : subEnabled ? (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-red-600"
+                                        onClick={() => togglePermission(sub.id)}
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                        Remove
+                                      </Button>
+                                    ) : (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                                        onClick={() => togglePermission(sub.id)}
+                                      >
+                                        <Plus className="h-3 w-3" />
+                                        Add
+                                      </Button>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </Fragment>
                       );
                     })}
                   </tbody>

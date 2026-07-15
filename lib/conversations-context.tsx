@@ -3,6 +3,7 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { useRole, matchesRoleProperties } from "@/lib/role-context";
 import { useClickToCallDemo } from "@/lib/click-to-call-demo-context";
+import { useConversationsDemo } from "@/lib/conversations-demo-context";
 import { CLICK_TO_CALL_DEMO_THREADS } from "@/lib/click-to-call-demo-threads";
 
 export type EmailAttachmentRef = {
@@ -105,10 +106,17 @@ export type ConversationMessage = {
   labelActivity?: {
     actor: string;
     labelsAdded: string[];
-    action: "added";
+    action: "added" | "context_provided" | "resolved_escalation";
   };
   /** Structured staff activity (resolve, assignment, read, etc.). */
   threadActivity?: ThreadActivity;
+  /**
+   * Super Agent 1.0 only: when a staff member sends a public reply with one or more escalation
+   * checkboxes selected, the chosen escalation labels are stamped on the message so the thread
+   * shows which escalation each staff reply was addressing. Purely a context tag — does not
+   * change resolution state or remove labels.
+   */
+  replyToEscalations?: string[];
   /** Populated when `type === "voicemail"` — inbound recording with transcript. */
   voicemail?: VoicemailRef;
   /** Populated when `type === "missed_call"` — inbound call that went unanswered. */
@@ -528,29 +536,29 @@ Hillside Living
   {
     id: "lc-20",
     resident: "Alma Sanchez",
-    unit: null,
-    preview: "Got it — I’ll upload ID tonight. Thanks!",
+    unit: "Unit 312",
+    preview: "Can we talk about the rent increase? That’s more than I expected.",
     agent: "Staff",
     time: "4m ago",
-    contactType: "Lead",
+    contactType: "Resident",
     property: "Hillside Living",
     channel: "Email",
-    emailSubject: "Re: Your application — ID upload (same case as web chat)",
+    emailSubject: "Re: Your Lease Renewal Offer — Unit 312",
     assignee: "Abe Kashiwagi",
     staffRespondentIsExternalAgent: true,
-    labels: ["Leasing AI", "Leasing AI Escalation"],
+    labels: ["Renewals AI", "Renewals AI Escalation"],
     escalationId: "esc-hillside-alma-12",
     status: "open",
     hasUnread: false,
     messages: [
       {
         role: "staff",
-        text: "Hi Alma — following up on your web chat thread. When you have a moment, please reply with a clear photo of your government ID (or use the secure upload link from my last message in chat). This email is tied to the same escalated case on our side.",
+        text: "Hi Alma — I wanted to follow up on your renewal offer for Unit 312. Your current lease ends November 30, and we’ve sent a renewal proposal with updated terms. Please let me know if you have any questions or would like to discuss the options.",
         timestamp: "Sep 15 2025 · 7:20pm MST",
         type: "message",
         emailSignature: `Best regards,
 Abe Kashiwagi
-Leasing Specialist
+Renewals Specialist
 
 Hillside Living
 (720) 555-0140
@@ -558,10 +566,10 @@ Hillside Living
       },
       {
         role: "resident",
-        text: "Got it — I’ll upload ID tonight. Thanks!",
+        text: "Can we talk about the rent increase? That’s more than I expected.",
         timestamp: "Sep 15 2025 · 7:22pm MST",
         type: "message",
-        emailSignature: "—\nAlma Sanchez\nProspective resident",
+        emailSignature: "—\nAlma Sanchez\nUnit 312, Hillside Living",
       },
     ],
   },
@@ -904,6 +912,86 @@ Hillside Living
   },
 ];
 
+export const SUPER_AGENT_DEMO_THREADS: ConversationItem[] = [
+  {
+    id: "sa-1",
+    resident: "Marcus Rivera",
+    unit: "Unit 208",
+    preview: "Sounds good, thank you. Let me know what they say about everything.",
+    agent: "AI Super Agent",
+    time: "3m ago",
+    contactType: "Resident",
+    property: "Hillside Living",
+    channel: "SMS",
+    assignee: "ELI+ Super Agent",
+    labels: ["AI Conversation", "Renewals AI Escalation", "Payments AI Escalation", "Other Escalation"],
+    escalationId: "esc-super-marcus-01",
+    status: "open",
+    hasUnread: true,
+    messages: [
+      { role: "agent", text: "Hi Marcus! This is Hillside Living's AI assistant. How can I help you today?", timestamp: "Sep 16 2025 \u00b7 10:00am MST", type: "message" },
+      { role: "resident", text: "Hey, I have a couple of things. First, I want to know about renewing my lease \u2014 my current one ends in December and I want to understand my options.", timestamp: "Sep 16 2025 \u00b7 10:01am MST", type: "message" },
+      { role: "agent", text: "Of course! I can help with your lease renewal. Your current lease for Unit 208 expires December 31, 2025. I see we have a few renewal options available:\n\n\u2022 12-month renewal at $1,850/mo (3% increase)\n\u2022 6-month renewal at $1,925/mo\n\u2022 Month-to-month at $2,050/mo\n\nWould you like more details on any of these, or would you like me to send a formal renewal offer?", timestamp: "Sep 16 2025 \u00b7 10:02am MST", type: "message" },
+      { role: "resident", text: "The 3% increase is more than I was expecting. Is there any flexibility on that? I've been here two years and always pay on time.", timestamp: "Sep 16 2025 \u00b7 10:04am MST", type: "message" },
+      { role: "agent", text: "I completely understand, Marcus. Since you're asking about a rate exception on your renewal offer, I'm going to bring in a team member who can review your account history and discuss options with you. They'll follow up shortly.\n\nIn the meantime, is there anything else I can help with?", timestamp: "Sep 16 2025 \u00b7 10:05am MST", type: "message" },
+      { role: "staff", text: "", timestamp: "Sep 16 2025 \u00b7 10:05am MST", type: "handoff" },
+      { role: "staff", text: "", timestamp: "Sep 16 2025 \u00b7 10:05am MST", type: "label_activity", labelActivity: { actor: "ELI+ Super Agent", labelsAdded: ["Renewals AI Escalation"], action: "added" } },
+      { role: "resident", text: "Also, my rent payment bounced and I got a late fee. Can you help with that too?", timestamp: "Sep 16 2025 \u00b7 10:06am MST", type: "message" },
+      { role: "agent", text: "I'm sorry to hear that, Marcus. Let me look into your payment situation.\n\nI can see your October payment of $1,795 was returned on Oct 3rd due to insufficient funds, and a $50 late fee was applied on Oct 6th. To get this resolved, I'll need a team member to review the late fee waiver request since this involves account adjustments.\n\nI've flagged this for the team alongside your renewal question. They'll be able to help with both!", timestamp: "Sep 16 2025 \u00b7 10:07am MST", type: "message" },
+      { role: "staff", text: "", timestamp: "Sep 16 2025 \u00b7 10:07am MST", type: "label_activity", labelActivity: { actor: "ELI+ Super Agent", labelsAdded: ["Payments AI Escalation"], action: "added" } },
+      { role: "resident", text: "Ok thanks. Yeah the payment bounced because my direct deposit was delayed from my employer. It's never happened before.", timestamp: "Sep 16 2025 \u00b7 10:08am MST", type: "message" },
+      { role: "agent", text: "That makes sense \u2014 those payroll delays are frustrating. Given your clean payment history over two years, the team will definitely take that into account when reviewing the late fee. Hang tight and someone will follow up on both the renewal rate and the late fee.", timestamp: "Sep 16 2025 \u00b7 10:09am MST", type: "message" },
+      { role: "resident", text: "One more thing \u2014 I'm thinking about hosting a birthday party at the pool area next month. Is that something I need to reserve or get permission for? It would be maybe 15\u201320 people on a Saturday afternoon.", timestamp: "Sep 16 2025 \u00b7 10:10am MST", type: "message" },
+      { role: "agent", text: "Great question! The pool area can be reserved for private events. However, for parties over 10 guests I'll need to connect you with our team to go over the community guidelines, reservation process, and any applicable fees. Let me flag this for them.", timestamp: "Sep 16 2025 \u00b7 10:11am MST", type: "message" },
+      { role: "staff", text: "", timestamp: "Sep 16 2025 \u00b7 10:11am MST", type: "label_activity", labelActivity: { actor: "ELI+ Super Agent", labelsAdded: ["Other Escalation"], action: "added" } },
+      { role: "resident", text: "Sounds good, thank you. Let me know what they say about everything.", timestamp: "Sep 16 2025 \u00b7 10:12am MST", type: "message" },
+    ],
+  },
+];
+
+const SUPER_AGENT_DEMO_THREAD_IDS = new Set(SUPER_AGENT_DEMO_THREADS.map((c) => c.id));
+
+export function isSuperAgentDemoThread(id: string): boolean {
+  return SUPER_AGENT_DEMO_THREAD_IDS.has(id);
+}
+
+/** Super Agent 1.0 demo threads — same escalation structure but uses normal composer + resolve button. */
+const SUPER_AGENT_1_DEMO_THREADS: ConversationItem[] = [
+  {
+    id: "sa1-1",
+    resident: "Jordan Lee",
+    unit: "Unit 312",
+    preview: "Thanks, just let me know about all of that when you can.",
+    agent: "AI Super Agent",
+    time: "5m ago",
+    contactType: "Resident",
+    property: "Hillside Living",
+    channel: "SMS",
+    assignee: "ELI+ Super Agent",
+    labels: ["AI Conversation", "Renewals AI Escalation", "Payments AI Escalation"],
+    escalationId: "esc-super1-jordan-01",
+    status: "open",
+    hasUnread: true,
+    messages: [
+      { role: "agent", text: "Hi Jordan! This is Hillside Living's AI assistant. How can I help you today?", timestamp: "Sep 18 2025 \u00b7 9:00am MST", type: "message" },
+      { role: "resident", text: "Hey! I have a couple things going on. My lease is up next month and I got the renewal offer, but the new rate seems high \u2014 is there any flexibility on pricing? I\u2019ve been here two years and always pay on time.", timestamp: "Sep 18 2025 \u00b7 9:01am MST", type: "message" },
+      { role: "agent", text: "Thanks for reaching out, Jordan! I can see your renewal offer is for $1,850/mo (a 3% increase from your current $1,795/mo). I appreciate you being such a great tenant for 2 years!\n\nRate adjustments on renewal offers do require approval from our team. Let me flag this so they can review your request for a possible exception.", timestamp: "Sep 18 2025 \u00b7 9:02am MST", type: "message" },
+      { role: "staff", text: "", timestamp: "Sep 18 2025 \u00b7 9:02am MST", type: "handoff" },
+      { role: "staff", text: "", timestamp: "Sep 18 2025 \u00b7 9:02am MST", type: "label_activity", labelActivity: { actor: "ELI+ Super Agent", labelsAdded: ["Renewals AI Escalation"], action: "added" } },
+      { role: "resident", text: "Ok thanks. Also, my October rent payment bounced \u2014 my employer had a payroll delay. I see a $50 late fee on my account now. Is there any way to get that waived since it wasn\u2019t really my fault?", timestamp: "Sep 18 2025 \u00b7 9:04am MST", type: "message" },
+      { role: "agent", text: "I understand, Jordan. I can see the returned payment for October ($1,795) and the $50 late fee that was applied. Given your clean 2-year payment history, this is a good case for a waiver \u2014 but I\u2019ll need our team to approve that.\n\nLet me escalate this so they can review the late fee waiver request.", timestamp: "Sep 18 2025 \u00b7 9:05am MST", type: "message" },
+      { role: "staff", text: "", timestamp: "Sep 18 2025 \u00b7 9:05am MST", type: "label_activity", labelActivity: { actor: "ELI+ Super Agent", labelsAdded: ["Payments AI Escalation"], action: "added" } },
+      { role: "resident", text: "Thanks, just let me know about all of that when you can.", timestamp: "Sep 18 2025 \u00b7 9:06am MST", type: "message" },
+    ],
+  },
+];
+
+const SUPER_AGENT_1_DEMO_THREAD_IDS = new Set(SUPER_AGENT_1_DEMO_THREADS.map((c) => c.id));
+
+export function isSuperAgent1DemoThread(id: string): boolean {
+  return SUPER_AGENT_1_DEMO_THREAD_IDS.has(id);
+}
+
 type ConversationsContextValue = {
   items: ConversationItem[];
   filteredItems: ConversationItem[];
@@ -932,8 +1020,9 @@ export function isClickToCallDemoThread(id: string): boolean {
 export function ConversationsProvider({ children }: { children: React.ReactNode }) {
   const { roleProperties } = useRole();
   const { clickToCallEnabled } = useClickToCallDemo();
+  const { superAgentEnabled, superAgent1Enabled } = useConversationsDemo();
   const [items, setItems] = useState<ConversationItem[]>(() => {
-    const seeded = [...CLICK_TO_CALL_DEMO_THREADS, ...INITIAL];
+    const seeded = [...CLICK_TO_CALL_DEMO_THREADS, ...SUPER_AGENT_DEMO_THREADS, ...SUPER_AGENT_1_DEMO_THREADS, ...INITIAL];
     return seeded.map((c) => {
       const labels = ensureAiLabelCompanions(c.labels);
       return { ...c, labels, hasUnread: clampHasUnread(c.messages, c.hasUnread) };
@@ -944,9 +1033,11 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
     () =>
       items.filter((c) => {
         if (!clickToCallEnabled && isClickToCallDemoThread(c.id)) return false;
+        if (!superAgentEnabled && isSuperAgentDemoThread(c.id)) return false;
+        if (!superAgent1Enabled && isSuperAgent1DemoThread(c.id)) return false;
         return matchesRoleProperties(c.property, roleProperties);
       }),
-    [items, clickToCallEnabled, roleProperties]
+    [items, clickToCallEnabled, superAgentEnabled, superAgent1Enabled, roleProperties]
   );
 
   const propertyCount = new Set(filteredItems.map((c) => c.property)).size;

@@ -104,7 +104,10 @@ runs:
 
     - name: Build
       shell: bash
-      run: npm run build
+      # Static export (output: "export") into out/ + dist/, excluding the
+      # server-only app/api routes the static deploy can't host. The default
+      # `npm run build` is server mode and produces no dist/ — see scripts/build-static.mjs.
+      run: npm run build:static
 
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4

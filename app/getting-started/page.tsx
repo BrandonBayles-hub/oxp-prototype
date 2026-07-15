@@ -17,7 +17,7 @@ import {
   type RiskLevel,
 } from "@/lib/governance-context";
 import { useR1Release } from "@/lib/r1-release-context";
-import { useR1_2Release } from "@/lib/r1-2-release-context";
+import { useActivationProgress } from "@/lib/activation-steps";
 import dynamic from "next/dynamic";
 import {
   CheckCircle2,
@@ -48,21 +48,10 @@ import {
 const EliPlusSetup = dynamic(() => import("@/components/eli-plus-setup"), { ssr: false });
 
 /* ═══════════════════════════════════════════════════════════════════════
-   Steps definition
+   Step icons
+   The canonical step list lives in lib/activation-steps.ts so the sidebar
+   badge ("X/Y") and this page render the exact same set of steps.
    ═══════════════════════════════════════════════════════════════════════ */
-
-const STEPS = [
-  { id: "eli-essentials",      title: "Activate ELI Essentials",                                    href: "/agent-roster" },
-  { id: "ops-efficiency",      title: "Activate Operational & Efficiency Agents",                   href: "/agent-roster" },
-  { id: "train-workforce",     title: "Train Your Workforce — Upload Documents & SOPs",             href: "/trainings-sop" },
-  { id: "playbooks-tasks",     title: "Create Playbooks & Tasks",                                   href: "/escalations" },
-  { id: "workforce",           title: "Configure Your Workforce",                                   href: "/workforce" },
-  { id: "workflows",           title: "Set up Agent Builder",                                        href: "/workflows" },
-  { id: "voice-brand",         title: "Configure Voice & Brand",                                     href: "/voice" },
-  { id: "governance",          title: "Set up Governance",                                           href: "/governance" },
-  { id: "brief-team",          title: "Brief Your Team",                                             href: null },
-  { id: "review-golive",       title: "Review & Go Live",                                            href: null },
-] as const;
 
 const STEP_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   "eli-essentials":      Zap,
@@ -108,8 +97,11 @@ function GettingStartedContent() {
   const { humanMembers } = useWorkforce();
   const { state: govState, updateActivity: updateGovActivity, enabledGuardrailCount } = useGovernance();
   const { isR1Release } = useR1Release();
-  const { isR1_2Release } = useR1_2Release();
-  const isFullVersion = !isR1Release && !isR1_2Release;
+  const isFullVersion = !isR1Release;
+
+  // Canonical activation steps + auto-detection are owned by lib/activation-steps.ts
+  // and shared with the sidebar badge so the two can never drift.
+  const { visibleSteps, completedCount: doneCount, total: totalSteps } = useActivationProgress();
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<"activation" | "eli-plus">(
     searchParams.get("tab") === "eli-plus" ? "eli-plus" : "activation"
@@ -121,19 +113,6 @@ function GettingStartedContent() {
       return () => { document.body.style.overflow = ""; };
     }
   }, [isFullVersion, activeTab]);
-
-  const R1_HIDDEN_STEPS = ["governance", "voice-brand", "eli-essentials", "ops-efficiency", "eli-plus"];
-
-  const visibleSteps = useMemo(() => {
-    if (!isR1Release) return STEPS.map(s => ({ ...s }));
-    const filtered = STEPS
-      .filter(s => !R1_HIDDEN_STEPS.includes(s.id))
-      .map(s => s.id === "review-golive" ? { ...s, title: "Review Activation Steps" } : { ...s });
-    return [
-      { id: "activate-ai-agents", title: "Activate AI Agents", href: "/agent-roster" as const },
-      ...filtered,
-    ];
-  }, [isR1Release]);
 
   const [expandedStep, setExpandedStep] = useState<number | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -150,26 +129,27 @@ function GettingStartedContent() {
   const l2l3Agents = useMemo(() => agents.filter((a) => a.type === "intelligence" || a.type === "efficiency"), [agents]);
   const l1Agents = useMemo(() => agents.filter((a) => a.type === "operations"), [agents]);
 
+  // Re-derive the same per-step auto-detection map locally so the accordion
+  // body can decide what state to show for each row. Source of truth for the
+  // *count* (used by the progress bar and the sidebar badge) is the
+  // useActivationProgress hook above.
   const autoDetected: Record<string, boolean> = useMemo(() => ({
     "eli-essentials":     l1Agents.some((a) => a.status === "Active"),
     "ops-efficiency":     l2l3Agents.some((a) => a.status === "Active"),
     "train-workforce":    false,
     "playbooks-tasks":    false,
     workforce:            false,
-    "eli-plus":           l4Agents.some((a) => a.status === "Active"),
     "activate-ai-agents": l4Agents.some((a) => a.status === "Active"),
     workflows:            atLeastOneEnabled,
     "voice-brand":        voiceConfigured,
     governance:           enabledGuardrailCount > 0,
     "brief-team":         false,
     "review-golive":      false,
-  }), [docCount, l4Agents, l2l3Agents, l1Agents, voiceConfigured, atLeastOneEnabled, humanMembers, enabledGuardrailCount]);
+  }), [l1Agents, l2l3Agents, l4Agents, atLeastOneEnabled, voiceConfigured, enabledGuardrailCount]);
 
   const isStepDone = (id: string, i: number) => completedSteps.includes(i) || autoDetected[id];
 
-  const doneCount = visibleSteps.reduce((n, step, i) => n + (isStepDone(step.id, i) ? 1 : 0), 0);
-  const progressPct =
-    visibleSteps.length > 0 ? (doneCount / visibleSteps.length) * 100 : 0;
+  const progressPct = totalSteps > 0 ? (doneCount / totalSteps) * 100 : 0;
 
   const goLiveChecklist = {
     docs: docCount > 0,
@@ -184,7 +164,7 @@ function GettingStartedContent() {
 
   const handleGoLive = () => {
     setGoLiveComplete(true);
-    router.push("/command-center");
+    router.push("/command-center/");
   };
 
   if (isFullVersion && activeTab === "eli-plus") {
@@ -219,7 +199,7 @@ function GettingStartedContent() {
       />
 
       {isFullVersion && (
-        <div className="mb-6">
+        <div className="mb-6 space-y-3">
           <button
             type="button"
             onClick={() => setActiveTab("eli-plus")}
@@ -443,11 +423,11 @@ function StepTrainWorkforce() {
       {!isR1Release && <StatusPill ok={docCount > 0} label={docCount > 0 ? `${docCount} document(s) uploaded` : "No documents uploaded yet"} />}
 
       <Link
-        href="/trainings-sop"
+        href="/sops-knowledge"
         className="inline-flex items-center gap-2 rounded-lg bg-[hsl(var(--foreground))] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[hsl(var(--foreground))]/90"
       >
         <FileText className="h-4 w-4" />
-        Go to Trainings &amp; SOPs
+        Go to SOPs &amp; Knowledge
         <ExternalLink className="h-3.5 w-3.5" />
       </Link>
     </div>

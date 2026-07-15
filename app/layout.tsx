@@ -21,13 +21,21 @@ import { PermissionsProvider } from "@/lib/permissions-context";
 import { PlaybooksProvider } from "@/lib/playbooks-context";
 
 import { ClickToCallDemoProvider } from "@/lib/click-to-call-demo-context";
+import { CallSystemDemoProvider } from "@/lib/call-system-demo-context";
 import { ConversationsDemoProvider } from "@/lib/conversations-demo-context";
 import { R1ReleaseProvider } from "@/lib/r1-release-context";
-import { R1_2ReleaseProvider } from "@/lib/r1-2-release-context";
+import { R2ReleaseProvider } from "@/lib/r2-release-context";
+import { EntrataExpertsReleaseProvider } from "@/lib/entrata-experts-release-context";
+import { ExpertsPolicyProvider } from "@/lib/entrata-experts-v2/admin-policy-context";
+import { ModelPreferenceProvider } from "@/lib/entrata-experts-v2/model-preference";
 
 import { EliEmailsProvider } from "@/lib/eli-emails-context";
 import { EliPlusSetupProvider } from "@/lib/eli-plus-setup-context";
 import { RoadmapProvider } from "@/lib/roadmap-context";
+import { AnalyticsHandoffProvider } from "@/lib/analytics-handoff-context";
+import { AgentBuilderViewerRoleProvider } from "@/lib/agent-builder-viewer-role-context";
+import { GlobalInboundCallHandler } from "@/components/global-inbound-call-handler";
+import { Toaster } from "@/components/ui/sonner";
 
 export const metadata: Metadata = {
   title: "OXP Studio",
@@ -98,49 +106,63 @@ export default function RootLayout({
         <RoadmapProvider>
         <EliPlusSetupProvider>
         <ClickToCallDemoProvider>
+        <CallSystemDemoProvider>
         <R1ReleaseProvider>
-        <R1_2ReleaseProvider>
+        <R2ReleaseProvider>
+        <EntrataExpertsReleaseProvider>
         <RoleProvider>
         <PermissionsProvider>
         <FeatureEntitlementsProvider>
         <SetupProvider>
           <VaultProvider>
             <AgentsProvider>
+              <ExpertsPolicyProvider>
+              <ModelPreferenceProvider>
               <WorkforceProvider>
                 <WorkflowsProvider>
+                <AgentBuilderViewerRoleProvider>
                 <AgentBuilderProvider>
                   <VoiceProvider>
                     <EscalationsProvider>
-                    <ConversationsProvider>
                     <ConversationsDemoProvider>
+                    <ConversationsProvider>
                     <ToolsProvider>
                     <GovernanceProvider>
                     <FeedbackProvider>
                     <PlaybooksProvider>
                     <NotificationsProvider>
                     <EliEmailsProvider>
+                    <AnalyticsHandoffProvider>
                     <AppShell>{children}</AppShell>
+                    </AnalyticsHandoffProvider>
+                    <GlobalInboundCallHandler />
+                    <Toaster />
                     </EliEmailsProvider>
                     </NotificationsProvider>
                     </PlaybooksProvider>
                     </FeedbackProvider>
                     </GovernanceProvider>
                     </ToolsProvider>
-                    </ConversationsDemoProvider>
                     </ConversationsProvider>
+                    </ConversationsDemoProvider>
                     </EscalationsProvider>
                   </VoiceProvider>
                 </AgentBuilderProvider>
+                </AgentBuilderViewerRoleProvider>
                 </WorkflowsProvider>
               </WorkforceProvider>
+              </ModelPreferenceProvider>
+              </ExpertsPolicyProvider>
             </AgentsProvider>
           </VaultProvider>
         </SetupProvider>
         </FeatureEntitlementsProvider>
         </PermissionsProvider>
         </RoleProvider>
-        </R1_2ReleaseProvider>
+        </EntrataExpertsReleaseProvider>
+        </R2ReleaseProvider>
         </R1ReleaseProvider>
+        </CallSystemDemoProvider>
         </ClickToCallDemoProvider>
         </EliPlusSetupProvider>
         </RoadmapProvider>

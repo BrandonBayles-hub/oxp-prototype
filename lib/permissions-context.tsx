@@ -8,6 +8,8 @@ export type Permission = {
   capability: string;
   description: string;
   section: string;
+  /** When set, this permission is a sub-permission that only renders when its parent is enabled. */
+  parentId?: string;
 };
 
 export const ALL_PERMISSIONS: Permission[] = [
@@ -118,11 +120,12 @@ export const ALL_PERMISSIONS: Permission[] = [
 
   // ── Agent Roster ──
   { id: "p-agents-view", capability: "View Agent Roster", description: "Access the Agent Roster page and view AI Agents", section: "Agent Roster" },
-  { id: "p-agents-operational", capability: "Operational Agents", description: "Enable and disable operational AI Agents", section: "Agent Roster" },
-  { id: "p-agents-create", capability: "Create Agents", description: "Create and edit AI Agents they can deploy for different tasks", section: "Agent Roster" },
   { id: "p-agents-edit-eli", capability: "Edit ELI+ Agents", description: "Edit and modify the functions of ELI+ Agents", section: "Agent Roster" },
-  { id: "p-agents-view-logs", capability: "View Agent Logs", description: "Access conversation and decision logs for AI Agents", section: "Agent Roster" },
-  { id: "p-agents-manage-tools", capability: "Manage Agent Tools", description: "Configure and assign tools available to AI Agents", section: "Agent Roster" },
+  { id: "p-agents-edit-eli-renewals", capability: "Renewals AI", description: "Edit and modify the Renewals AI agent", section: "Agent Roster", parentId: "p-agents-edit-eli" },
+  { id: "p-agents-edit-eli-maintenance", capability: "Maintenance AI", description: "Edit and modify the Maintenance AI agent", section: "Agent Roster", parentId: "p-agents-edit-eli" },
+  { id: "p-agents-edit-eli-leasing", capability: "Leasing AI", description: "Edit and modify the Leasing AI agent", section: "Agent Roster", parentId: "p-agents-edit-eli" },
+  { id: "p-agents-edit-eli-payments", capability: "Payments AI", description: "Edit and modify the Payments AI agent", section: "Agent Roster", parentId: "p-agents-edit-eli" },
+  { id: "p-agents-operational", capability: "Operational Agents", description: "Enable and disable operational AI Agents", section: "Agent Roster" },
 
   // ── Workforce ──
   { id: "p-wf-members-view", capability: "View Workforce Members", description: "View all team members and their assignments", section: "Workforce" },
@@ -141,17 +144,21 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: "p-wf-edit", capability: "Edit Workflows", description: "Modify existing workflow recipes and triggers", section: "Workflows" },
   { id: "p-wf-toggle", capability: "Enable/Disable Workflows", description: "Turn workflows on or off", section: "Workflows" },
 
-  // ── Trainings & SOP ──
-  { id: "p-training-view", capability: "View Trainings & SOPs", description: "Access training documents and SOPs", section: "Trainings & SOP" },
-  { id: "p-training-create", capability: "Create & Edit SOPs", description: "Author and modify standard operating procedures", section: "Trainings & SOP" },
-  { id: "p-training-publish", capability: "Publish SOPs", description: "Publish SOPs and make them available for playbook use", section: "Trainings & SOP" },
-  { id: "p-training-assign", capability: "Manage Training Assignments", description: "Assign trainings and SOPs to team members", section: "Trainings & SOP" },
+  // ── SOPs & Knowledge ──
+  { id: "p-training-view", capability: "View SOPs & Knowledge", description: "Access SOPs, training documents, and knowledge base", section: "SOPs & Knowledge" },
+  { id: "p-training-create", capability: "Create & Edit SOPs", description: "Author and modify standard operating procedures", section: "SOPs & Knowledge" },
+  { id: "p-training-publish", capability: "Publish SOPs", description: "Publish SOPs and make them available for playbook use", section: "SOPs & Knowledge" },
+  { id: "p-training-assign", capability: "Manage SOP Review Assignments", description: "Assign SOP reviews to team members", section: "SOPs & Knowledge" },
+
+  // ── Entrata Academy ──
+  { id: "p-training-entrata-academy", capability: "Trainings - Entrata Academy", description: "Access Entrata Academy trainings and learning content", section: "Entrata Academy" },
 
   // ── Voice ──
-  { id: "p-voice-view", capability: "View Voice Settings", description: "Access voice configuration and settings", section: "Voice" },
-  { id: "p-voice-configure", capability: "Configure Voice Agents", description: "Set up and modify AI voice agent behavior", section: "Voice" },
-  { id: "p-voice-numbers", capability: "Manage Phone Numbers", description: "Add, remove, and route phone numbers", section: "Voice" },
-  { id: "p-voice-logs", capability: "View Call Logs", description: "Access call recordings and transcripts", section: "Voice" },
+  { id: "p-voice-view", capability: "View Voice Settings", description: "Access voice configuration and settings", section: "Voice & Tone" },
+  { id: "p-voice-configure", capability: "Configure Voice Agents", description: "Set up and modify AI voice agent behavior", section: "Voice & Tone" },
+  { id: "p-voice-tone", capability: "Edit Tone & Guidelines", description: "Edit voice tone and content guidelines", section: "Voice & Tone" },
+  { id: "p-voice-numbers", capability: "Manage Phone Numbers", description: "Add, remove, and route phone numbers", section: "Voice & Tone" },
+  { id: "p-voice-logs", capability: "View Call Logs", description: "Access call recordings and transcripts", section: "Voice & Tone" },
 
   // ── Governance ──
   { id: "p-gov-view", capability: "View Governance Policies", description: "Access compliance and governance settings", section: "Governance" },
@@ -160,12 +167,17 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: "p-gov-retention", capability: "Configure Data Retention", description: "Set data retention and archival policies", section: "Governance" },
 
   // ── Entrata Experts ──
-  { id: "p-experts-view", capability: "View Credits & Usage", description: "Access the Entrata Experts page and view credit balance and usage history", section: "Entrata Experts" },
+  { id: "p-experts-view", capability: "Access Entrata Experts", description: "Open the Entrata Experts page and use any surface enabled for this role", section: "Entrata Experts" },
+  { id: "p-experts-use-analyst", capability: "Use Entrata Analyst", description: "Run the data-connected portfolio chat — translates natural-language questions into governed SQL", section: "Entrata Experts" },
+  { id: "p-experts-use-assistants", capability: "Use Assistants", description: "Use the pre-built GPT assistants library (Everyday, Ad Writing, Document Analyzer, etc.)", section: "Entrata Experts" },
+  { id: "p-experts-use-reports", capability: "Use Report Analyzer", description: "Run AI summary, trend, and anomaly analysis on standard Entrata reports", section: "Entrata Experts" },
+  { id: "p-experts-admin-config", capability: "Configure Experts", description: "Open the Entrata Experts admin sheet — surface toggles, spend caps, and model access", section: "Entrata Experts" },
+  { id: "p-experts-admin-insights", capability: "View Admin Insights", description: "View Experts activity log, knowledge gaps, intent clusters, automation candidates, and tokens & usage", section: "Entrata Experts" },
 ];
 
 export const PERMISSION_SECTIONS = [
   "Communications", "Calling Communications", "Escalations", "Entrata Experts", "Performance", "Agent Roster", "Workforce",
-  "Activation", "Workflows", "Trainings & SOP", "Voice", "Governance",
+  "Activation", "Workflows", "SOPs & Knowledge", "Entrata Academy", "Voice & Tone", "Governance",
 ];
 
 export const SECTION_VIEW_PERMISSION: Record<string, string> = {
@@ -177,8 +189,9 @@ export const SECTION_VIEW_PERMISSION: Record<string, string> = {
   "Workforce": "p-wf-members-view",
   "Activation": "p-activation-view",
   "Workflows": "p-workflows-view",
-  "Trainings & SOP": "p-training-view",
-  "Voice": "p-voice-view",
+  "SOPs & Knowledge": "p-training-view",
+  "Entrata Academy": "p-training-entrata-academy",
+  "Voice & Tone": "p-voice-view",
   "Governance": "p-gov-view",
   "Entrata Experts": "p-experts-view",
 };
@@ -201,14 +214,14 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Set<string>> = {
     "p-tasks-view", "p-tasks-edit-specialty", "p-tasks-view-all", "p-tasks-delete", "p-tasks-bulk-actions",
     "p-playbooks-view", "p-playbooks-launch", "p-playbooks-manage", "p-playbooks-delete", "p-playbooks-assign",
     "p-report-performance",
-    "p-agents-view", "p-agents-operational", "p-agents-view-logs",
+    "p-agents-view", "p-agents-operational",
     "p-wf-members-view", "p-wf-members-edit", "p-wf-groups",
     "p-activation-view", "p-activation-complete",
     "p-workflows-view", "p-wf-edit", "p-wf-toggle",
     "p-training-view", "p-training-create", "p-training-assign",
     "p-voice-view", "p-voice-logs",
     "p-gov-view", "p-gov-audit",
-    "p-experts-view",
+    "p-experts-view", "p-experts-use-analyst", "p-experts-use-assistants", "p-experts-use-reports",
   ]),
   property: new Set([
     "p-cc-view",
@@ -232,7 +245,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Set<string>> = {
     "p-training-view",
     "p-voice-view", "p-voice-logs",
     "p-gov-view",
-    "p-experts-view",
+    "p-experts-view", "p-experts-use-analyst", "p-experts-use-assistants", "p-experts-use-reports",
   ]),
   ic: new Set([
     "p-cc-view",
@@ -254,6 +267,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Set<string>> = {
     "p-training-view",
     "p-voice-view",
     "p-gov-view",
+    "p-experts-view", "p-experts-use-analyst",
   ]),
 };
 

@@ -11,8 +11,10 @@ import type {
   UserMessage,
 } from "./types";
 import { compose } from "./data/answers";
-import { ROLE_BY_ID } from "./lenses";
 import { generateActivity } from "./data/activity";
+import { useExpertsHistory, type HistoryThread } from "./history-store";
+import { useExpertsPolicy, startingUserModel } from "./admin-policy-context";
+import { useModelPreference } from "./model-preference";
 
 const REMEMBERED_BY_ROLE: Record<RoleId, string[]> = {
   "vp-ops": [
@@ -43,6 +45,19 @@ const REMEMBERED_BY_ROLE: Record<RoleId, string[]> = {
   ],
 };
 
+/**
+ * Per-call overrides for `send`. Used when re-running a Saved Insight so the
+ * insight's stored lens/depth/model/scope are honored regardless of what the
+ * composer is currently set to. Any field omitted falls back to the store's
+ * current state.
+ */
+export interface SendOverrides {
+  lens?: LensId;
+  depth?: Depth;
+  model?: ModelId;
+  scope?: Scope;
+}
+
 export interface ChatState {
   role: RoleId;
   setRole: (r: RoleId) => void;
@@ -59,20 +74,79 @@ export interface ChatState {
   remembered: string[];
   newConversation: () => void;
   selectConversation: (id: string) => void;
-  send: (prompt: string) => void;
+  send: (prompt: string, overrides?: SendOverrides) => void;
   activity: Conversation[];
 }
 
+// Map a shared HistoryThread (analyst source) back into the richer
+// Conversation shape the Analyst UI renders. The live conversations are
+// display-only — the analytics rollup fields are filled with sane defaults
+// (the Activity Log uses generateActivity(), not these live records).
+function toConversation(t: HistoryThread): Conversation {
+  let lastLens: LensId | undefined;
+  for (let i = t.messages.length - 1; i >= 0; i--) {
+    const m = t.messages[i];
+    if (m.role === "assistant") {
+      lastLens = m.lens;
+      break;
+    }
+  }
+  const lens = t.lens ?? lastLens ?? "leasing";
+  return {
+    id: t.id,
+    title: t.title,
+    userId: "e-analyst",
+    messages: t.messages,
+    createdAt: t.createdAt,
+    updatedAt: t.updatedAt,
+    intent: "live",
+    lens,
+    turnCount: t.messages.filter((m) => m.role === "user").length,
+    durationMs: 0,
+    resolution: "ongoing",
+    lensesUsed: [lens],
+    scopesUsed: [],
+    everDownvoted: false,
+    everRefused: false,
+    everEscalated: false,
+    regressed: false,
+  };
+}
+
 export function useChatStore(): ChatState {
+  const history = useExpertsHistory();
+  const { policy } = useExpertsPolicy();
+  const { lastModel, setLastModel } = useModelPreference();
   const [role, setRole] = React.useState<RoleId>("vp-ops");
   const [scope, setScope] = React.useState<Scope>({ kind: "portfolio", id: "portfolio", label: "Whole portfolio" });
-  const [lens, setLens] = React.useState<LensId>("auto");
+  const [lens, setLens] = React.useState<LensId>("leasing");
   const [depth, setDepth] = React.useState<Depth>("auto");
-  const [model, setModel] = React.useState<ModelId>("auto");
-  const [conversations, setConversations] = React.useState<Conversation[]>([]);
-  const [activeId, setActiveId] = React.useState<string | null>(null);
+  // User-initiated surface: open on the user's sticky model (if still allowed),
+  // otherwise "auto" (the system picks). No admin-imposed default here.
+  const [model, setModelState] = React.useState<ModelId>(() =>
+    startingUserModel(policy.models.default, lastModel),
+  );
   const [isThinking, setIsThinking] = React.useState(false);
   const [activity, setActivity] = React.useState<Conversation[]>([]);
+
+  // The admin policy + sticky preference both hydrate from localStorage AFTER
+  // first paint, so keep re-seeding the starting model until the user makes a
+  // manual pick this session (tracked by `touched`).
+  const touched = React.useRef(false);
+  React.useEffect(() => {
+    if (touched.current) return;
+    setModelState(startingUserModel(policy.models.default, lastModel));
+  }, [policy.models.default, lastModel]);
+
+  // A user pick becomes their sticky personal default for next time.
+  const setModel = React.useCallback(
+    (m: ModelId) => {
+      touched.current = true;
+      setModelState(m);
+      setLastModel(m);
+    },
+    [setLastModel],
+  );
 
   React.useEffect(() => {
     setActivity(generateActivity());
@@ -80,9 +154,24 @@ export function useChatStore(): ChatState {
 
   const remembered = REMEMBERED_BY_ROLE[role];
 
-  React.useEffect(() => {
-    setLens(ROLE_BY_ID[role].defaultLens);
-  }, [role]);
+  // Analyst conversations are the analyst-sourced slice of the shared history.
+  const conversations = React.useMemo<Conversation[]>(
+    () =>
+      history.threads
+        .filter((t) => t.source.kind === "analyst")
+        .map(toConversation),
+    [history.threads],
+  );
+
+  // The shared active thread only counts as "active" here if it belongs to
+  // the Analyst — otherwise this surface shows its empty state.
+  const activeThread = history.activeId ? history.getThread(history.activeId) : undefined;
+  const activeId =
+    activeThread && activeThread.source.kind === "analyst" ? activeThread.id : null;
+
+  // Lens defaults to "Leasing" and stays there until the user explicitly picks
+  // another. We deliberately don't re-derive it from role, so switching role
+  // doesn't silently override the user's selection.
 
   function setLensDepth(l: LensId, d: Depth, m?: ModelId) {
     setLens(l);
@@ -91,14 +180,23 @@ export function useChatStore(): ChatState {
   }
 
   function newConversation() {
-    setActiveId(null);
+    history.newThread();
   }
 
   function selectConversation(id: string) {
-    setActiveId(id);
+    history.setActiveId(id);
   }
 
-  function send(prompt: string) {
+  function send(prompt: string, overrides?: SendOverrides) {
+    // Per-call params (e.g. a Saved Insight's stored lens/scope) take
+    // precedence over the composer's current state. This lets `/insight-name`
+    // re-run a saved question with its original params regardless of how the
+    // user has tweaked the composer since.
+    const effLens = overrides?.lens ?? lens;
+    const effDepth = overrides?.depth ?? depth;
+    const effModel = overrides?.model ?? model;
+    const effScope = overrides?.scope ?? scope;
+
     const now = Date.now();
     const userMsg: UserMessage = {
       id: `u-${now}`,
@@ -107,70 +205,82 @@ export function useChatStore(): ChatState {
       createdAt: new Date(now).toISOString(),
     };
 
-    const isNew = !activeId;
-    const convId = isNew ? `c-${now}` : (activeId as string);
+    // Continue the active Analyst thread if one is open; otherwise start fresh.
+    const current = history.activeId ? history.getThread(history.activeId) : undefined;
+    const continuing = current && current.source.kind === "analyst";
 
-    if (isNew) {
-      const newConv: Conversation = {
-        id: convId,
-        title: prompt.length > 60 ? prompt.slice(0, 57) + "..." : prompt,
-        userId: `e-${role}`,
-        messages: [userMsg],
-        createdAt: userMsg.createdAt,
-        updatedAt: userMsg.createdAt,
-        intent: "pending",
-        lens,
-      };
-      setConversations((prev) => {
-        if (prev.some((c) => c.id === convId)) return prev;
-        return [newConv, ...prev];
-      });
-      setActiveId(convId);
+    // Prior turns (for live model context) captured BEFORE the new user
+    // message is appended below.
+    const priorTurns = continuing
+      ? current!.messages.map((m) => ({ role: m.role, content: m.body }))
+      : [];
+
+    let convId: string;
+    if (continuing) {
+      convId = current!.id;
+      history.appendMessage(convId, userMsg);
     } else {
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === convId
-            ? {
-                ...c,
-                messages: c.messages.some((m) => m.id === userMsg.id)
-                  ? c.messages
-                  : [...c.messages, userMsg],
-                updatedAt: userMsg.createdAt,
-              }
-            : c,
-        ),
-      );
+      convId = history.createThread({
+        source: { kind: "analyst" },
+        title: prompt.length > 60 ? prompt.slice(0, 57) + "..." : prompt,
+        lens: effLens,
+        message: userMsg,
+      });
     }
 
     setIsThinking(true);
-    const thinkMs = depth === "fast" ? 900 : depth === "reasoning" ? 1900 : 1100;
 
-    setTimeout(() => {
-      const composed = compose({ prompt, lens, depth, scope });
-      const aMsgId = `a-${Date.now()}`;
+    const appendAssistant = (
+      message: Omit<AssistantMessage, "id" | "createdAt">,
+    ) => {
       const aMsg: AssistantMessage = {
-        ...composed.message,
-        id: aMsgId,
-        model,
+        ...message,
+        id: `a-${Date.now()}`,
+        model: effModel,
         createdAt: new Date().toISOString(),
       };
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === convId
-            ? {
-                ...c,
-                messages: c.messages.some((m) => m.id === aMsgId)
-                  ? c.messages
-                  : [...c.messages, aMsg],
-                updatedAt: aMsg.createdAt,
-                intent: composed.intentId,
-                lens: aMsg.lens,
-              }
-            : c,
-        ),
-      );
+      history.appendMessage(convId, aMsg, { lens: aMsg.lens });
       setIsThinking(false);
-    }, thinkMs);
+    };
+
+    // Built-in mock answer engine — used when LiteLLM isn't configured or the
+    // live call fails, so the prototype always responds.
+    const runMock = () => {
+      const thinkMs = effDepth === "fast" ? 900 : effDepth === "reasoning" ? 1900 : 1100;
+      setTimeout(() => {
+        const composed = compose({ prompt, lens: effLens, depth: effDepth, scope: effScope });
+        appendAssistant(composed.message);
+      }, thinkMs);
+    };
+
+    // Try the live LiteLLM proxy first; fall back to the mock on any failure.
+    void (async () => {
+      try {
+        // Trailing slash matches next.config `trailingSlash: true` (avoids a
+        // 308 redirect on the POST).
+        const res = await fetch("/api/experts/chat/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt,
+            lens: effLens,
+            depth: effDepth,
+            model: effModel,
+            role,
+            scope: effScope,
+            messages: priorTurns,
+          }),
+        });
+        const data = await res.json().catch(() => null);
+        if (res.ok && data?.ok && data.message) {
+          appendAssistant(data.message as Omit<AssistantMessage, "id" | "createdAt">);
+        } else {
+          runMock();
+        }
+      } catch {
+        runMock();
+      }
+    })();
   }
 
   return {
