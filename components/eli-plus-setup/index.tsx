@@ -88,6 +88,13 @@ const NON_OVERVIEW_PAGES: Partial<Record<PageId, React.ComponentType<BasePagePro
 export default function EliOnboardingHybrid() {
   // Overview is hidden for MVP — default landing is Carrier Compliance (foundation step)
   const [page, setPage] = useState<PageId>("company")
+
+  // Optional deep-link: /getting-started?tab=eli-plus&page=communications opens a specific tab
+  useEffect(() => {
+    const valid: PageId[] = ["overview", "company", "privacy", "email", "communications", "ivr-setup", "leasing", "payments", "maintenance", "renewals", "renewals-channels", "golive"]
+    const p = new URLSearchParams(window.location.search).get("page")
+    if (p && (valid as string[]).includes(p)) setPage(p as PageId)
+  }, [])
   const [completedTasks, setCompletedTasks] = useState<Set<string>>(new Set())
 
   // Phone states pre-seeded with values pulled from Entrata; remaining properties are empty
