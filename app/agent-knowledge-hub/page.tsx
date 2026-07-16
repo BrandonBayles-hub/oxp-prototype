@@ -99,15 +99,9 @@ import {
   MapPin,
   Calendar,
   Clock,
-  Tag,
   HelpCircle,
-  PawPrint,
-  Car,
-  DollarSign,
   ScrollText,
   Upload,
-  Map as MapIcon,
-  GitBranch,
   Pin,
   SignalHigh,
   SignalMedium,
@@ -151,10 +145,6 @@ import {
   type EntryType,
   type EntryStatus,
   type EntrySource,
-  type CategoryGroup,
-  type MirrorCategory,
-  type HubCategory,
-  type Category,
   type AgentName,
   type KnowledgeVersion,
   type PropertyLocationTargets,
@@ -174,7 +164,6 @@ interface KnowledgeGap {
   conflicting?: boolean;
   conflictNote?: string;
   suggestedType: EntryType;
-  suggestedCategory: Category;
   agent: AgentName;
   lastSeen: string;
   /** Properties whose escalation conversations surfaced this gap. Drives the
@@ -191,7 +180,6 @@ interface SuggestedEntry {
   proposedTitle: string;
   proposedBody: string;
   suggestedType: EntryType;
-  suggestedCategory: Category;
   confidence: number;
   evidence: string;
   agent: AgentName;
@@ -200,7 +188,6 @@ interface SuggestedEntry {
 
 interface AddPrefill {
   type: EntryType;
-  category: Category;
   title: string;
   body: string;
   origin?: string;
@@ -247,6 +234,16 @@ const TYPE_META: Record<
     usageVerb: "used",
     blurb:
       "A body of knowledge the AI uses when responding — from a single fact to a full write-up. Once assigned to an agent, it's that agent's source of truth.",
+  },
+  rules: {
+    label: "Rules",
+    plural: "Rules",
+    icon: ListChecks,
+    badge: "bg-indigo-50 text-indigo-800 ring-1 ring-inset ring-indigo-200",
+    accent: "bg-indigo-50/60 border-indigo-200",
+    usageVerb: "followed",
+    blurb:
+      "Short, step-by-step directions the AI follows every time — how to handle a situation and in what order. Keep them brief and specific.",
   },
   suppression: {
     label: "Guardrail",
@@ -299,45 +296,6 @@ const SOURCE_LABEL: Record<EntrySource, string> = {
   pms: "PMS",
 };
 
-const CATEGORY_META: Record<
-  Category,
-  { label: string; group: CategoryGroup; icon: typeof Sparkles }
-> = {
-  pricing: { label: "Pricing", group: "pms_mirror", icon: DollarSign },
-  policies: { label: "Policies", group: "pms_mirror", icon: ScrollText },
-  amenities: { label: "Amenities", group: "pms_mirror", icon: Sparkles },
-  pet_rules: { label: "Pet rules", group: "pms_mirror", icon: PawPrint },
-  parking: { label: "Parking", group: "pms_mirror", icon: Car },
-  specials: { label: "Specials", group: "pms_mirror", icon: Tag },
-  office_hours: { label: "Office hours", group: "pms_mirror", icon: Clock },
-  faqs: { label: "FAQs", group: "pms_mirror", icon: HelpCircle },
-  wayfinding: { label: "Wayfinding", group: "hub_only", icon: MapPin },
-  local_context: { label: "Local context", group: "hub_only", icon: MapIcon },
-  seasonal: { label: "Seasonal", group: "hub_only", icon: Calendar },
-  escalation_rules: { label: "Escalation rules", group: "hub_only", icon: GitBranch },
-  guardrails: { label: "Guardrails", group: "hub_only", icon: ShieldOff },
-  general: { label: "General knowledge", group: "hub_only", icon: Library },
-};
-
-const MIRROR_CATEGORIES: MirrorCategory[] = [
-  "pricing",
-  "policies",
-  "amenities",
-  "pet_rules",
-  "parking",
-  "specials",
-  "office_hours",
-  "faqs",
-];
-const HUB_CATEGORIES: HubCategory[] = [
-  "general",
-  "wayfinding",
-  "local_context",
-  "seasonal",
-  "escalation_rules",
-  "guardrails",
-];
-
 const IMPACT_META: Record<
   KnowledgeGap["impact"],
   { label: string; cls: string; icon: typeof SignalHigh }
@@ -345,11 +303,6 @@ const IMPACT_META: Record<
   high: { label: "High impact", cls: "bg-red-50 text-red-800 ring-1 ring-inset ring-red-200", icon: SignalHigh },
   medium: { label: "Medium impact", cls: "bg-amber-50 text-amber-900 ring-1 ring-inset ring-amber-200", icon: SignalMedium },
   low: { label: "Low impact", cls: "bg-zinc-100 text-zinc-700 ring-1 ring-inset ring-zinc-200", icon: SignalLow },
-};
-
-const TYPE_DEFAULT_CATEGORY: Record<EntryType, Category> = {
-  general: "general",
-  suppression: "guardrails",
 };
 
 /* ──────────────────────────────────────────────────────────────
@@ -418,7 +371,7 @@ function v2ChannelIcon(channel: ConversationLog["channel"]) {
   return <MessageSquare className="h-2.5 w-2.5" />;
 }
 
-type KhSortField = "title" | "type" | "category" | "scope" | "status";
+type KhSortField = "title" | "type" | "scope" | "status";
 
 /* ── Rich-text body normalization ─────────────────────────────────
  * V2 authors knowledge in a Tiptap rich-text editor, so newly written
@@ -526,6 +479,33 @@ function classifyKnowledge(
     };
   }
 
+  // Rules — operating instructions the AI should follow, not just background
+  // knowledge (step-by-step language, always/never directives, escalation flow).
+  if (
+    has(
+      "step 1",
+      "steps:",
+      "in this order",
+      "always ",
+      "never ",
+      "make sure to",
+      "must ",
+      "procedure",
+      "escalate to",
+      "before quoting",
+      "before answering",
+      "first,",
+      "verify ",
+      "confirm the",
+      "follow these"
+    )
+  ) {
+    return {
+      type: "rules",
+      rationale: "Reads like directions for how the AI should act, not just background knowledge.",
+    };
+  }
+
   return {
     type: "general",
     rationale: "Knowledge the AI can draw on when responding to residents and prospects.",
@@ -553,7 +533,6 @@ const SEED_GAPS: KnowledgeGap[] = [
     staffAnswer:
       "Yes — 4 Level-2 chargers in the garage on P1, $0.20/kWh billed to the resident. First-come, no reserved spots.",
     suggestedType: "general",
-    suggestedCategory: "amenities",
     // Property-specific amenity — only the one property that actually has chargers.
     sourceProperties: ["Sunset Ridge Apartments"],
   },
@@ -568,7 +547,6 @@ const SEED_GAPS: KnowledgeGap[] = [
     conflicting: true,
     conflictNote: "Staff disagree: 3 said 'yes, with a fee', 6 said 'no, ACH only'. Resolve before publishing.",
     suggestedType: "general",
-    suggestedCategory: "pricing",
     // Pure portfolio policy — one uniform answer everywhere, no property override.
     sourceProperties: [],
     portfolioWide: true,
@@ -582,7 +560,6 @@ const SEED_GAPS: KnowledgeGap[] = [
     lastSeen: "2 days ago",
     staffAnswer: "Minimum term is 7 months. Month-to-month is available after the initial term at a $300/mo premium.",
     suggestedType: "general",
-    suggestedCategory: "policies",
     // Clustered at a handful of properties, not the whole portfolio.
     sourceProperties: ["Metro Heights", "Downtown Lofts", "Summit Park"],
   },
@@ -596,7 +573,6 @@ const SEED_GAPS: KnowledgeGap[] = [
     staffAnswer:
       "After-hours emergencies: a tech is on-site within 90 minutes. Anything containable (slow drip) is queued for the next morning.",
     suggestedType: "general",
-    suggestedCategory: "policies",
     sourceProperties: ["Victoria Place"],
   },
 ];
@@ -609,7 +585,6 @@ const SEED_SUGGESTIONS: SuggestedEntry[] = [
     proposedBody:
       "Prospects can book a self-guided tour 8am–8pm daily; they check in at the call box with a code texted 15 min before.",
     suggestedType: "general",
-    suggestedCategory: "faqs",
     confidence: 0.92,
     agent: "Leasing AI",
     date: "1 hour ago",
@@ -623,7 +598,6 @@ const SEED_SUGGESTIONS: SuggestedEntry[] = [
     proposedBody:
       "The agent repeatedly cited a 60-day window, but staff corrected it to 90 days in 3 conversations. Suggest updating to 90 days.",
     suggestedType: "general",
-    suggestedCategory: "policies",
     confidence: 0.78,
     agent: "Renewals AI",
     date: "yesterday",
@@ -637,7 +611,6 @@ const SEED_SUGGESTIONS: SuggestedEntry[] = [
     proposedBody:
       "Package room: 6a–10p with fob access. Oversized packages held at the leasing office during business hours. After 7 days, returned to sender.",
     suggestedType: "general",
-    suggestedCategory: "amenities",
     confidence: 0.86,
     agent: "Leasing AI",
     date: "yesterday",
@@ -820,17 +793,6 @@ function ImpactBadge({ impact, v2 = false }: { impact: KnowledgeGap["impact"]; v
       {v2 && <Icon className="h-3 w-3" />}
       {meta.label}
     </Pill>
-  );
-}
-
-function CategoryChip({ category }: { category: Category }) {
-  const meta = CATEGORY_META[category];
-  const Icon = meta.icon;
-  return (
-    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-      <Icon className="h-3 w-3" />
-      {meta.label}
-    </span>
   );
 }
 
@@ -1230,8 +1192,7 @@ export default function AgentKnowledgeHubPage() {
       if (q.length === 0) return true;
       return (
         e.title.toLowerCase().includes(q) ||
-        e.body.toLowerCase().includes(q) ||
-        CATEGORY_META[e.category].label.toLowerCase().includes(q)
+        e.body.toLowerCase().includes(q)
       );
     });
   }, [entries, search, typeFilter, statusFilter, agentFilter]);
@@ -1271,8 +1232,6 @@ export default function AgentKnowledgeHubPage() {
           return e.title.toLowerCase();
         case "type":
           return TYPE_META[e.type].label.toLowerCase();
-        case "category":
-          return CATEGORY_META[e.category].label.toLowerCase();
         case "scope":
           return e.scope;
         case "status":
@@ -1298,8 +1257,6 @@ export default function AgentKnowledgeHubPage() {
         const updated: KnowledgeEntry = {
           ...existing,
           type: e.type,
-          group: e.group,
-          category: e.category,
           title: e.title,
           body: e.body,
           scope: e.scope,
@@ -1352,7 +1309,6 @@ export default function AgentKnowledgeHubPage() {
     const singleProperty = !portfolio && g.sourceProperties.length === 1;
     openAdd({
       type: g.suggestedType,
-      category: g.suggestedCategory,
       title: g.question,
       body: g.staffAnswer,
       agents: [g.agent],
@@ -1375,8 +1331,6 @@ export default function AgentKnowledgeHubPage() {
     const newEntry: KnowledgeEntry = {
       id: `e-${Date.now()}`,
       type: s.suggestedType,
-      group: CATEGORY_META[s.suggestedCategory].group,
-      category: s.suggestedCategory,
       title: s.proposedTitle,
       body: s.proposedBody,
       status: "approved",
@@ -1398,7 +1352,6 @@ export default function AgentKnowledgeHubPage() {
   const editSuggestion = (s: SuggestedEntry) => {
     openAdd({
       type: s.suggestedType,
-      category: s.suggestedCategory,
       title: s.proposedTitle,
       body: s.proposedBody,
       agents: [s.agent],
@@ -1681,7 +1634,6 @@ export default function AgentKnowledgeHubPage() {
           openAdd({
           editId: e.id,
           type: e.type,
-          category: e.category,
           title: e.title,
           body: e.body,
           agents: e.agents,
@@ -1829,7 +1781,7 @@ function KnowledgeHubV2(props: KnowledgeHubV2Props) {
                                       {e.scope === "portfolio" ? "Portfolio" : (e.property ?? DEFAULT_PROPERTY)}
                                     </span>
                                     <span aria-hidden>·</span>
-                                    <span className="truncate">{CATEGORY_META[e.category].label}</span>
+                                    <span className="truncate">{TYPE_META[e.type].label}</span>
                                     <span aria-hidden>·</span>
                                     <span>v{e.version}</span>
                                     {e.updatedAt && (
@@ -1957,6 +1909,7 @@ function KnowledgeHubV2(props: KnowledgeHubV2Props) {
                     options={[
                       { value: "all", label: "All types" },
                       { value: "general", label: TYPE_META.general.label, icon: TYPE_META.general.icon },
+                      { value: "rules", label: TYPE_META.rules.label, icon: TYPE_META.rules.icon },
                       { value: "suppression", label: TYPE_META.suppression.label, icon: TYPE_META.suppression.icon },
                     ]}
                   />
@@ -2025,15 +1978,14 @@ function KnowledgeHubV2(props: KnowledgeHubV2Props) {
                           sortField={sortField}
                           sortDir={sortDir}
                           onSort={onSort}
-                          className={cn("w-[30%]", "sticky-col sticky left-0 z-20", FROZEN_COL_BG)}
+                          className={cn("w-[36%]", "sticky-col sticky left-0 z-20", FROZEN_COL_BG)}
                         />
-                        <V2SortHeader<KhSortField> field="scope" label="Scope" sortField={sortField} sortDir={sortDir} onSort={onSort} className="w-[11%]" />
-                        <V2SortHeader<KhSortField> field="type" label="Type" sortField={sortField} sortDir={sortDir} onSort={onSort} className="w-[15%]" />
-                        <V2SortHeader<KhSortField> field="category" label="Category" sortField={sortField} sortDir={sortDir} onSort={onSort} className="w-[14%]" />
-                        <th className="w-[18%] whitespace-nowrap px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                        <V2SortHeader<KhSortField> field="scope" label="Scope" sortField={sortField} sortDir={sortDir} onSort={onSort} className="w-[14%]" />
+                        <V2SortHeader<KhSortField> field="type" label="Type" sortField={sortField} sortDir={sortDir} onSort={onSort} className="w-[14%]" />
+                        <th className="w-[22%] whitespace-nowrap px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                           Agents
                         </th>
-                        <V2SortHeader<KhSortField> field="status" label="Status" sortField={sortField} sortDir={sortDir} onSort={onSort} className="w-[12%]" />
+                        <V2SortHeader<KhSortField> field="status" label="Status" sortField={sortField} sortDir={sortDir} onSort={onSort} className="w-[14%]" />
                       </tr>
                     </thead>
                     <tbody>
@@ -2098,11 +2050,6 @@ function KnowledgeHubV2(props: KnowledgeHubV2Props) {
                             <td className="whitespace-nowrap px-4 py-3.5">
                               <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
                                 {TYPE_META[e.type].label}
-                              </span>
-                            </td>
-                            <td className="whitespace-nowrap px-4 py-3.5">
-                              <span className="inline-flex items-center text-xs text-muted-foreground">
-                                {CATEGORY_META[e.category].label}
                               </span>
                             </td>
                             <td className="px-4 py-3.5">
@@ -2312,6 +2259,7 @@ function KnowledgeTab(props: KnowledgeTabProps) {
           options={[
             { value: "all", label: "All" },
             { value: "general", label: TYPE_META.general.plural },
+            { value: "rules", label: TYPE_META.rules.plural },
             { value: "suppression", label: TYPE_META.suppression.plural },
           ]}
         />
@@ -2360,7 +2308,7 @@ function KnowledgeTab(props: KnowledgeTabProps) {
         <div className="relative ml-auto min-w-[220px] flex-1 sm:flex-initial sm:w-72">
           <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search title, body, or category"
+            placeholder="Search title or body"
             className="h-9 pl-8"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -2902,7 +2850,7 @@ function GapCard({
             )}
           </div>
 
-          {/* Suggested type/category is drafting-time detail (shown in the
+          {/* Suggested type is drafting-time detail (shown in the
               draft flow), so it's omitted here to keep the triage card clean. */}
           <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-3">
             <Button variant="ghost" size="sm" onClick={() => setShowConversations(true)}>
@@ -3006,8 +2954,6 @@ function GapCard({
                 {TYPE_META[gap.suggestedType].label}
               </span>
             </span>
-            <span>·</span>
-            <CategoryChip category={gap.suggestedCategory} />
           </div>
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" onClick={() => setShowConversations(true)}>
@@ -3348,7 +3294,6 @@ function SuggestionCard({
             <TypeIcon className="h-3 w-3" />
             {TYPE_META[suggestion.suggestedType].label}
           </Pill>
-          <CategoryChip category={suggestion.suggestedCategory} />
           <span className="text-[11px] text-muted-foreground">·</span>
           <span className="text-[11px] font-medium text-foreground">
             {Math.round(suggestion.confidence * 100)}% confidence
@@ -3425,8 +3370,6 @@ function EntryRow({ entry, onSelect }: { entry: KnowledgeEntry; onSelect: () => 
             </div>
             <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground">
               <span className="font-medium text-foreground/70">{meta.label}</span>
-              <span className="text-muted-foreground/40">·</span>
-              <CategoryChip category={entry.category} />
             </div>
             <p className="mt-1.5 line-clamp-2 text-[13px] leading-relaxed text-muted-foreground">
               {entry.body}
@@ -3580,17 +3523,11 @@ const GOOGLE_DRIVE_FILES: {
 function generateKnowledgeFromExternalSource(fileName: string): {
   title: string;
   body: string;
-  category: Category;
 } {
   const baseName = fileName.replace(/\.[^./\\]+$/, "");
   const lower = fileName.toLowerCase();
   const body = keywordFallbackBody(lower, baseName, "document");
-  const category: Category = lower.includes("parking")
-    ? "parking"
-    : lower.includes("pet")
-    ? "pet_rules"
-    : "policies";
-  return { title: baseName, body, category };
+  return { title: baseName, body };
 }
 
 /**
@@ -3678,11 +3615,10 @@ function GenerateSourcesCard({
   );
 }
 
-/** Parses a vault document into a draft knowledge entry (title, body, category). */
+/** Parses a vault document into a draft knowledge entry (title + body). */
 function generateKnowledgeFromDocument(doc: VaultItem): {
   title: string;
   body: string;
-  category: Category;
 } {
   const name = doc.fileName;
   const lower = name.toLowerCase();
@@ -3709,20 +3645,16 @@ function generateKnowledgeFromDocument(doc: VaultItem): {
         points.map((p) => `• ${p}`).join("\n")
       : keywordFallbackBody(lower, name, typeLabel);
 
-  const category: Category =
-    lower.includes("parking")
-      ? "parking"
-      : lower.includes("pet")
-      ? "pet_rules"
-      : "policies";
-
-  return { title: name, body, category };
+  return { title: name, body };
 }
 
 /* ──────────────────────────────────────────────────────────────
  * 9) AddKnowledgeDialog — type picker → type-specific form
  *     Skips the picker when opened with a prefill.
  * ──────────────────────────────────────────────────────────── */
+
+/** Rules are kept short — they steer how the agent behaves on every reply. */
+const RULES_MAX_CHARS = 1000;
 
 function AddKnowledgeDialog({
   open,
@@ -3787,9 +3719,6 @@ function AddKnowledgeDialog({
   // Form fields
   const [title, setTitle] = useState(prefill?.title ?? "");
   const [body, setBody] = useState(prefill?.body ?? "");
-  const [category, setCategory] = useState<Category>(
-    prefill?.category ?? TYPE_DEFAULT_CATEGORY[type]
-  );
   const [scope, setScope] = useState<KnowledgeEntry["scope"]>(prefill?.scope ?? "property");
   // Which property a property-scoped entry belongs to. Editable in the form so
   // the author isn't locked to whatever the page is currently filtered to. A new
@@ -3840,10 +3769,6 @@ function AddKnowledgeDialog({
     setDetectRationale("");
     setTitle(prefill?.title ?? "");
     setBody(prefill?.body ?? "");
-    setCategory(
-      prefill?.category ??
-        TYPE_DEFAULT_CATEGORY[prefill ? normalizeEntryType(prefill.type) : "general"]
-    );
     setScope(prefill?.scope ?? "property");
     setEntryProperty(prefill?.property ?? (propertyPreselected ? property : ""));
     setAgents(prefill?.agents ?? []);
@@ -3867,10 +3792,6 @@ function AddKnowledgeDialog({
     setDetectRationale("");
     setTitle(prefill?.title ?? "");
     setBody(prefill?.body ?? "");
-    setCategory(
-      prefill?.category ??
-        TYPE_DEFAULT_CATEGORY[prefill ? normalizeEntryType(prefill.type) : "general"]
-    );
     setScope(prefill?.scope ?? "property");
     setEntryProperty(prefill?.property ?? (propertyPreselected ? property : ""));
     setAgents(prefill?.agents ?? []);
@@ -3897,7 +3818,6 @@ function AddKnowledgeDialog({
     setTimeout(() => {
       const { type: detected, rationale } = classifyKnowledge(title, v2 ? bodyToPlainText(body) : body);
       setType(detected);
-      setCategory(TYPE_DEFAULT_CATEGORY[detected]);
       setTypeSource("auto");
       setDetectRationale(rationale);
       setStep("form");
@@ -3907,7 +3827,6 @@ function AddKnowledgeDialog({
   // Author overrides the detected type from inside the form.
   const changeType = (t: EntryType) => {
     setType(t);
-    setCategory(TYPE_DEFAULT_CATEGORY[t]);
     setTypeSource("manual");
   };
 
@@ -3915,7 +3834,6 @@ function AddKnowledgeDialog({
   const reanalyzeType = () => {
     const { type: detected, rationale } = classifyKnowledge(title, v2 ? bodyToPlainText(body) : body);
     setType(detected);
-    setCategory(TYPE_DEFAULT_CATEGORY[detected]);
     setTypeSource("auto");
     setDetectRationale(rationale);
   };
@@ -3930,7 +3848,6 @@ function AddKnowledgeDialog({
       setTitle(draft.title);
       setBody(draft.body);
       setType(detected);
-      setCategory(draft.category);
       setTypeSource("auto");
       setDetectRationale(rationale);
       setSourceDoc(doc);
@@ -3961,7 +3878,6 @@ function AddKnowledgeDialog({
       setTitle(draft.title);
       setBody(draft.body);
       setType(detected);
-      setCategory(draft.category);
       setTypeSource("auto");
       setDetectRationale(rationale);
       setSourceDoc(synthetic);
@@ -3974,9 +3890,15 @@ function AddKnowledgeDialog({
     onOpenChange(v);
   };
 
+  // Rules are woven into the agent's working instructions on every reply, so
+  // they stay short and to the point — unlike open-ended knowledge entries.
+  const bodyCharCount = bodyToPlainText(body).length;
+  const rulesOverLimit = type === "rules" && bodyCharCount > RULES_MAX_CHARS;
+
   const canSubmit =
     title.trim().length > 0 &&
     body.trim().length > 0 &&
+    !rulesOverLimit &&
     (scope !== "property" || entryProperty.trim().length > 0);
 
   const handleSubmit = () => {
@@ -3984,8 +3906,6 @@ function AddKnowledgeDialog({
     const newEntry: KnowledgeEntry = {
       id: prefill?.editId ?? `e-${Date.now()}`,
       type,
-      group: CATEGORY_META[category].group,
-      category,
       title: title.trim(),
       body: body.trim(),
       status: "in_review",
@@ -4096,7 +4016,7 @@ function AddKnowledgeDialog({
 
                 <p className="flex items-center gap-1.5 text-xxs text-muted-foreground">
                   <Box className="h-3.5 w-3.5 text-eli-purple" />
-                  Next, we&apos;ll suggest a type (Knowledge or Guardrail)
+                  Next, we&apos;ll suggest a type (Knowledge, Rules, or Guardrail)
                   and the rest of the details.
                 </p>
               </div>
@@ -4121,7 +4041,7 @@ function AddKnowledgeDialog({
                 </DialogTitle>
                 <DialogDescription className="mt-1 text-sm text-muted-foreground">
                   {step === "analyzing" ? (
-                    "Determining the best type and category for this entry…"
+                    "Determining the best type for this entry…"
                   ) : (
                     <>
                       Analyzing{" "}
@@ -4460,8 +4380,7 @@ function AddKnowledgeDialog({
                   </div>
                 </div>
 
-                {/* Core content — title, the knowledge body, and its category are
-                    one conceptual unit, so they share a single section. */}
+                {/* Core content — title + the entry body share a single section. */}
                 <div className="space-y-4 rounded-lg border border-border bg-muted/40 p-3">
                   <div className="space-y-1.5">
                     <Label className="text-sm">Title</Label>
@@ -4474,42 +4393,44 @@ function AddKnowledgeDialog({
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label className="text-sm">Category</Label>
-                    <Select value={category} onValueChange={(v) => setCategory(v as Category)}>
-                      <SelectTrigger className="w-full bg-background sm:max-w-[280px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <div className="px-2 pt-1.5 pb-1 text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Property / Portfolio information
-                        </div>
-                        {MIRROR_CATEGORIES.map((c) => (
-                          <SelectItem key={c} value={c}>
-                            {CATEGORY_META[c].label}
-                          </SelectItem>
-                        ))}
-                        <div className="px-2 pt-2 pb-1 text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Additional information and context
-                        </div>
-                        {HUB_CATEGORIES.map((c) => (
-                          <SelectItem key={c} value={c}>
-                            {CATEGORY_META[c].label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-1.5">
                     <Label className="text-sm">
-                      {type === "suppression" ? "What topic should the AI not discuss?" : "Knowledge"}
+                      {type === "suppression"
+                        ? "What topic should the AI not discuss?"
+                        : type === "rules"
+                          ? "What rules should the AI follow?"
+                          : "Knowledge"}
                     </Label>
                     <RichTextEditor
                       content={bodyToHtml(body)}
                       onChange={(html) => setBody(html === "<p></p>" ? "" : html)}
-                      placeholder="Plain language is fine — bullets, a sentence, or a full write-up. The AI turns it into natural answers."
-                      className="[&_.ProseMirror]:min-h-[260px] [&_.ProseMirror]:overflow-y-auto"
+                      placeholder={
+                        type === "rules"
+                          ? 'Short, direct instructions — e.g. "Always confirm the unit number before scheduling a repair." One rule per line works best.'
+                          : "Plain language is fine — bullets, a sentence, or a full write-up. The AI turns it into natural answers."
+                      }
+                      className={cn(
+                        "[&_.ProseMirror]:overflow-y-auto",
+                        type === "rules"
+                          ? "[&_.ProseMirror]:min-h-[160px]"
+                          : "[&_.ProseMirror]:min-h-[260px]"
+                      )}
                     />
+                    {type === "rules" && (
+                      <div className="flex items-start justify-between gap-3 pt-0.5">
+                        <p className="text-xxs text-muted-foreground">
+                          Rules guide how the agent acts on every reply, so keep them short and
+                          specific.
+                        </p>
+                        <span
+                          className={cn(
+                            "shrink-0 text-xxs tabular-nums",
+                            rulesOverLimit ? "font-medium text-destructive" : "text-muted-foreground"
+                          )}
+                        >
+                          {bodyCharCount.toLocaleString()} / {RULES_MAX_CHARS.toLocaleString()}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -4891,7 +4812,7 @@ function AddKnowledgeDialog({
 
               <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                 <Sparkles className="h-3.5 w-3.5 text-primary" />
-                Next, we&apos;ll suggest a type (Knowledge or Guardrail)
+                Next, we&apos;ll suggest a type (Knowledge, Rules, or Guardrail)
                 and the rest of the details.
               </p>
             </div>
@@ -4913,7 +4834,7 @@ function AddKnowledgeDialog({
             <DialogHeader>
               <DialogTitle>Analyzing your knowledge</DialogTitle>
               <DialogDescription>
-                Determining the best type and category for this entry…
+                Determining the best type for this entry…
               </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col items-center justify-center gap-6 py-16">
@@ -5201,7 +5122,13 @@ function AddKnowledgeDialog({
               </div>
 
               <div className="space-y-1">
-                <Label>{type === "suppression" ? "What topic should the AI not discuss?" : "Knowledge"}</Label>
+                <Label>
+                  {type === "suppression"
+                    ? "What topic should the AI not discuss?"
+                    : type === "rules"
+                      ? "What rules should the AI follow?"
+                      : "Knowledge"}
+                </Label>
                 {v2 ? (
                   <RichTextEditor
                     content={bodyToHtml(body)}
@@ -5214,8 +5141,28 @@ function AddKnowledgeDialog({
                     className="min-h-[260px] w-full rounded-md border border-border bg-background p-2 text-sm"
                     value={body}
                     onChange={(e) => setBody(e.target.value)}
-                    placeholder="Plain language is fine — bullets, a sentence, or a full write-up. The AI turns it into natural answers."
+                    placeholder={
+                      type === "rules"
+                        ? 'Short, direct instructions — e.g. "Always confirm the unit number before scheduling a repair." One rule per line works best.'
+                        : "Plain language is fine — bullets, a sentence, or a full write-up. The AI turns it into natural answers."
+                    }
                   />
+                )}
+                {type === "rules" && (
+                  <div className="flex items-start justify-between gap-3 pt-0.5">
+                    <p className="text-[11px] text-muted-foreground">
+                      Rules guide how the agent acts on every reply, so keep them short and
+                      specific.
+                    </p>
+                    <span
+                      className={cn(
+                        "shrink-0 text-[11px] tabular-nums",
+                        rulesOverLimit ? "font-medium text-destructive" : "text-muted-foreground"
+                      )}
+                    >
+                      {bodyCharCount.toLocaleString()} / {RULES_MAX_CHARS.toLocaleString()}
+                    </span>
+                  </div>
                 )}
               </div>
 
@@ -5241,33 +5188,6 @@ function AddKnowledgeDialog({
                   </div>
                 </div>
               )}
-
-              <div className="space-y-1">
-                <Label>Category</Label>
-                <Select value={category} onValueChange={(v) => setCategory(v as Category)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <div className="px-2 pt-1.5 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      Property / Portfolio information
-                    </div>
-                    {MIRROR_CATEGORIES.map((c) => (
-                      <SelectItem key={c} value={c}>
-                        {CATEGORY_META[c].label}
-                      </SelectItem>
-                    ))}
-                    <div className="px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      Additional information and context
-                    </div>
-                    {HUB_CATEGORIES.map((c) => (
-                      <SelectItem key={c} value={c}>
-                        {CATEGORY_META[c].label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
 
               <div className="space-y-1.5 rounded-md border border-border bg-muted/30 p-3">
                 <div className="flex items-center justify-between">
@@ -5580,8 +5500,6 @@ function EntryDetail({
   v2?: boolean;
 }) {
   const meta = TYPE_META[entry.type];
-  const cat = CATEGORY_META[entry.category];
-  const CatIcon = cat.icon;
   const isInReview = entry.status === "in_review";
 
   /* Level + inheritance and Used-by-agents are rendered as variables so V2 can
@@ -5710,18 +5628,10 @@ function EntryDetail({
               <TypeBadge type={entry.type} v2={v2} />
               <StatusBadge status={entry.status} v2={v2} />
             </div>
-            {/* V2 shows only the category here (usage moved to its own section
-                below); when the category just restates the type badge above
-                (e.g. "General Knowledge" type + "General knowledge" category)
-                it's kept sr-only so the dialog still has an accessible description. */}
-            <DialogDescription
-              className={cn(
-                "mt-2 inline-flex flex-wrap items-center gap-1.5",
-                cat.label.toLowerCase() === meta.label.toLowerCase() && "sr-only"
-              )}
-            >
-              <CatIcon className="h-3.5 w-3.5" />
-              <span>{cat.label}</span>
+            {/* The type badge above carries the visual classification; an sr-only
+                description keeps the dialog accessible. */}
+            <DialogDescription className="sr-only">
+              {meta.label} entry
             </DialogDescription>
             <div className="mt-2">
               <SourceOfTruthHint />
@@ -5749,9 +5659,6 @@ function EntryDetail({
               {entry.title}
             </DialogTitle>
             <DialogDescription className="mt-1 inline-flex flex-wrap items-center gap-1.5">
-              <CatIcon className="h-3.5 w-3.5" />
-              <span>{cat.label}</span>
-              <span className="text-muted-foreground/60">·</span>
               <span>
                 {meta.usageVerb} {entry.usageCount}× total
               </span>
@@ -5811,8 +5718,20 @@ function EntryDetail({
 
         {/* Body */}
         <Section
-          title={entry.type === "suppression" ? "What's suppressed" : "Knowledge"}
-          icon={entry.type === "suppression" ? ShieldOff : BookOpen}
+          title={
+            entry.type === "suppression"
+              ? "What's suppressed"
+              : entry.type === "rules"
+                ? "Rules the AI follows"
+                : "Knowledge"
+          }
+          icon={
+            entry.type === "suppression"
+              ? ShieldOff
+              : entry.type === "rules"
+                ? ListChecks
+                : BookOpen
+          }
           v2={v2}
         >
           <div className="rounded-lg border border-border bg-muted/20 p-4">
