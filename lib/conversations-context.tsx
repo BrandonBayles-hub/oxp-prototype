@@ -152,6 +152,15 @@ export type ConversationItem = {
    * `(External Agent)` — responder is not an Entrata user (e.g. ELI+ escalation console).
    */
   staffRespondentIsExternalAgent?: boolean;
+  /**
+   * When set, this conversation is linked to multiple resident profiles and we don't
+   * know for sure which one is speaking. The thread-list card and conversation header
+   * hide the primary resident name and show a "Multiple Profiles" / "See Profiles"
+   * affordance instead; the header dropdown lists `[resident, ...additionalResidents]`
+   * for the staff to pick which profile to open. Each entry can carry its own
+   * `property` since different profiles may live at different properties.
+   */
+  additionalResidents?: { name: string; property?: string }[];
 };
 
 /** Login / profile handles matched in private notes as @handle (prototype viewer). */
@@ -595,6 +604,7 @@ Hillside Living
   {
     id: "lc-13",
     resident: "Keisha Monroe",
+    additionalResidents: [{ name: "John Monroe", property: "Jamison Apartments" }],
     unit: "Unit 412",
     preview: "Will the desk stay open until 8pm? Want to double-check b...",
     agent: "Staff",

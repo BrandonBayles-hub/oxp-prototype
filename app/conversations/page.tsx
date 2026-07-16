@@ -1273,6 +1273,13 @@ function ConversationsContent() {
   const [newLabelText, setNewLabelText] = useState("");
   const [addLabelOpen, setAddLabelOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
+  /**
+   * When a conversation has multiple resident profiles (see `additionalResidents`) and
+   * staff picks one from the "See Records" dropdown, the profile curtain displays that
+   * resident instead of `selected.resident`. Cleared when the modal closes.
+   */
+  const [profileResidentOverride, setProfileResidentOverride] = useState<string | null>(null);
+  const [multiProfilePickerOpen, setMultiProfilePickerOpen] = useState(false);
   const [emailAttachmentPreview, setEmailAttachmentPreview] = useState<EmailAttachmentRef | null>(null);
   const [bulkEmailModal, setBulkEmailModal] = useState<BulkOutboundEmailRef | null>(null);
   const [threadsPanelOpen, setThreadsPanelOpen] = useState(false);
@@ -2384,9 +2391,21 @@ function ConversationsContent() {
                           <ConversationListChannelChip channel={convo.channel} />
                         </div>
                       <div className="flex items-center justify-between gap-2">
-                        <span className={cn("truncate text-sm", convo.hasUnread ? "font-bold" : "font-semibold")}>
-                          {convo.resident}
-                        </span>
+                        {convo.additionalResidents && convo.additionalResidents.length > 0 ? (
+                          <span
+                            className={cn(
+                              "truncate text-sm italic text-muted-foreground",
+                              convo.hasUnread && "font-semibold text-foreground",
+                            )}
+                            title="Multiple resident profiles are linked to this conversation"
+                          >
+                            Multiple Profiles
+                          </span>
+                        ) : (
+                          <span className={cn("truncate text-sm", convo.hasUnread ? "font-bold" : "font-semibold")}>
+                            {convo.resident}
+                          </span>
+                        )}
                         <span className="shrink-0 text-[10px] text-muted-foreground">{convo.time}</span>
                       </div>
                       <p className={cn("truncate text-xs", convo.hasUnread ? "text-foreground" : "text-muted-foreground")}>{convo.preview}</p>
@@ -2426,19 +2445,73 @@ function ConversationsContent() {
               {/* Row 1: Name + Assignee + Resolve */}
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3 min-w-0">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setProfileModalOpen(true);
-                      setThreadsPanelOpen(true);
-                      setOpenThreadIdx(null);
-                      setProfilePanelInboxOpen(true);
-                    }}
-                    className="text-base font-semibold leading-tight hover:underline hover:text-blue-600 transition-colors cursor-pointer"
-                  >
-                    {selected.resident}
-                  </button>
-                  <span className="text-sm text-muted-foreground">{selected.property}</span>
+                  {selected.additionalResidents && selected.additionalResidents.length > 0 ? (
+                    <Popover open={multiProfilePickerOpen} onOpenChange={setMultiProfilePickerOpen}>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex items-center gap-1.5 text-base font-semibold leading-tight text-foreground hover:text-blue-600 transition-colors cursor-pointer"
+                          title="Multiple resident profiles are linked to this conversation"
+                        >
+                          <span className="italic">View Multiple Profiles</span>
+                          <ChevronDown className="h-4 w-4 opacity-70" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent align="start" className="w-72 p-1">
+                        <p className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          Linked resident profiles
+                        </p>
+                        {[
+                          { name: selected.resident, property: selected.property },
+                          ...selected.additionalResidents.map((r) => ({
+                            name: r.name,
+                            property: r.property ?? selected.property,
+                          })),
+                        ].map((profile) => (
+                          <button
+                            key={`${profile.name}::${profile.property}`}
+                            type="button"
+                            onClick={() => {
+                              setProfileResidentOverride(profile.name);
+                              setMultiProfilePickerOpen(false);
+                              setProfileModalOpen(true);
+                              setThreadsPanelOpen(true);
+                              setOpenThreadIdx(null);
+                              setProfilePanelInboxOpen(true);
+                            }}
+                            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/60"
+                          >
+                            <div className={cn(
+                              "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white",
+                              avatarColor(profile.name),
+                            )}>
+                              {initials(profile.name)}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate font-medium text-foreground">{profile.name}</p>
+                              <p className="truncate text-[11px] text-muted-foreground">{profile.property}</p>
+                            </div>
+                          </button>
+                        ))}
+                      </PopoverContent>
+                    </Popover>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileModalOpen(true);
+                        setThreadsPanelOpen(true);
+                        setOpenThreadIdx(null);
+                        setProfilePanelInboxOpen(true);
+                      }}
+                      className="text-base font-semibold leading-tight hover:underline hover:text-blue-600 transition-colors cursor-pointer"
+                    >
+                      {selected.resident}
+                    </button>
+                  )}
+                  {(!selected.additionalResidents || selected.additionalResidents.length === 0) && (
+                    <span className="text-sm text-muted-foreground">{selected.property}</span>
+                  )}
                 </div>
                 <div className="flex items-center gap-1.5 [&>*]:shrink-0">
                   {/* Labels icon popover */}
@@ -4602,14 +4675,18 @@ function ConversationsContent() {
       </Dialog>
 
       {/* Resident Profile Curtain Overlay */}
-      {profileModalOpen && selected && (
+      {profileModalOpen && selected && (() => {
+        const profileResidentName = profileResidentOverride ?? selected.resident;
+        const closeProfileCurtain = () => {
+          setProfileModalOpen(false);
+          setProfilePanelInboxOpen(false);
+          setProfileResidentOverride(null);
+        };
+        return (
         <div className="fixed inset-0 z-[60] flex">
           <div
             className="absolute inset-0 bg-black/30"
-            onClick={() => {
-              setProfileModalOpen(false);
-              setProfilePanelInboxOpen(false);
-            }}
+            onClick={closeProfileCurtain}
           />
           <div className="relative z-10 flex flex-1 flex-col animate-in slide-in-from-top duration-300 bg-white">
             {/* Entrata brand bar — full width */}
@@ -4618,10 +4695,7 @@ function ConversationsContent() {
               <div className="flex items-center gap-4">
                 <button
                   type="button"
-                  onClick={() => {
-                    setProfileModalOpen(false);
-                    setProfilePanelInboxOpen(false);
-                  }}
+                  onClick={closeProfileCurtain}
                   className="flex items-center gap-1.5 text-[14px] font-medium text-white/90 hover:text-white transition-colors"
                 >
                   <X className="h-4 w-4" />
@@ -4638,10 +4712,10 @@ function ConversationsContent() {
               <div className="flex items-center bg-white px-5 py-5 shrink-0 border-b border-gray-200">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#2e7d32] text-sm font-bold text-white shrink-0">
-                    {initials(selected.resident)}
+                    {initials(profileResidentName)}
                   </div>
                   <div className="min-w-0">
-                    <span className="text-[15px] font-bold text-gray-900">{selected.resident}</span>
+                    <span className="text-[15px] font-bold text-gray-900">{profileResidentName}</span>
                     <p className="text-[12px] text-gray-500">{selected.property} | #32</p>
                   </div>
                 </div>
@@ -5873,7 +5947,8 @@ function ConversationsContent() {
             )}
           </div>}
         </div>
-      )}
+        );
+      })()}
 
       <Dialog
         open={newThreadDialogOpen}
