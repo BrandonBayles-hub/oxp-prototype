@@ -225,7 +225,7 @@ function showsEscalationStep(v: AgentVersion): boolean {
 
 const STEPS: StepDef[] = [
   { id: "name", label: "Name & prompt", icon: Sparkles, show: () => true },
-  { id: "triggers", label: "Triggers & Entry Points", icon: Zap, show: () => true },
+  { id: "triggers", label: "Triggers", icon: Zap, show: () => true },
   // { id: "prompt", label: "Prompt", icon: MessageSquare, show: () => true },
   // { id: "success", label: "Success", icon: Target, show: () => true },
   { id: "data-skills", label: "Data & Skills", icon: Database, show: () => true },
@@ -634,10 +634,19 @@ export function AgentBuilderWizard({ agentId, versionNumber, onClose, onAgentCre
         <main className="min-w-0 flex-1">
           <div className="rounded-xl border border-border bg-white p-6">
             {current?.id === "name" && <NameStep version={version} patch={patch} nameReadOnly={nameReadOnly} />}
-            {current?.id === "triggers" && <TriggersStep version={version} patch={patch} agentId={agentId} />}
+            {current?.id === "triggers" && <TriggersStep version={version} patch={patch} />}
             {/* {current?.id === "prompt" && <PromptStep version={version} patch={patch} />} */}
             {/* {current?.id === "success" && <SuccessStep version={version} patch={patch} />} */}
-            {current?.id === "data-skills" && <DataSkillsStep version={version} patch={patch} />}
+            {current?.id === "data-skills" && (
+              <DataSkillsStep
+                version={version}
+                patch={patch}
+                onGoToPromptStep={() => {
+                  const idx = visibleSteps.findIndex((s) => s.id === "name");
+                  setActiveStep(idx >= 0 ? idx : 0);
+                }}
+              />
+            )}
             {current?.id === "properties" && <PropertiesStep version={version} patch={patch} />}
             {current?.id === "knowledge" && <KnowledgeStep version={version} patch={patch} />}
             {current?.id === "communication" && <CommunicationStep version={version} patch={patch} />}
@@ -1445,15 +1454,10 @@ function AdvancedAgentSettings({
   );
 }
 
-/* ─────────── Step 2: Triggers & Entry Points ─────────── */
+/* ─────────── Step 2: Triggers ─────────── */
 
-function TriggersStep({ version, patch, agentId }: { version: AgentVersion; patch: (p: Partial<AgentVersion>) => void; agentId: string }) {
+function TriggersStep({ version, patch }: { version: AgentVersion; patch: (p: Partial<AgentVersion>) => void }) {
   const triggers = version.triggers ?? [];
-  const { getAgent, updateEntryPoints } = useCustomAgents();
-  const agent = getAgent(agentId);
-  const entryPoints = agent?.entryPoints ?? [];
-  const [manualEnabled, setManualEnabled] = useState(entryPoints.some((ep) => ep.enabled));
-  const [entryQuery, setEntryQuery] = useState("");
 
   const addTrigger = (kind: Trigger["kind"]) => {
     patch({ triggers: [...triggers, newTrigger(kind)] });
@@ -1465,50 +1469,13 @@ function TriggersStep({ version, patch, agentId }: { version: AgentVersion; patc
 
   const removeTrigger = (id: string) => patch({ triggers: triggers.filter((t) => t.id !== id) });
 
-  const enabledKeys = new Set(entryPoints.filter((ep) => ep.enabled).map((ep) => ep.moduleKey));
-
-  const categories = useMemo(() => {
-    const grouped = new Map<string, typeof ENTRY_POINT_MODULES[number][]>();
-    for (const mod of ENTRY_POINT_MODULES) {
-      const list = grouped.get(mod.category) ?? [];
-      list.push(mod);
-      grouped.set(mod.category, list);
-    }
-    return Array.from(grouped.entries());
-  }, []);
-
-  const toggleEntryPoint = (moduleKey: string) => {
-    const existing = entryPoints.find((ep) => ep.moduleKey === moduleKey);
-    let next: AgentEntryPoint[];
-    if (existing) {
-      next = entryPoints.map((ep) =>
-        ep.moduleKey === moduleKey ? { ...ep, enabled: !ep.enabled } : ep
-      );
-    } else {
-      next = [
-        ...entryPoints,
-        { id: `ep-${moduleKey}`, moduleKey, label: `Run ${agent?.name ?? "Agent"}`, enabled: true },
-      ];
-    }
-    updateEntryPoints(agentId, next);
-  };
-
-  const filteredModules = entryQuery.trim()
-    ? ENTRY_POINT_MODULES.filter(
-        (m) =>
-          m.label.toLowerCase().includes(entryQuery.toLowerCase()) ||
-          m.moduleKey.toLowerCase().includes(entryQuery.toLowerCase())
-      )
-    : null;
-
   return (
     <section>
       <h2 className="font-heading text-lg text-foreground">When should this agent run?</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Add automated triggers, or enable manual invocation from specific pages in the platform.
+        Add automated triggers. The agent runs whenever any of these fire.
       </p>
 
-      {/* ── Automated Triggers ── */}
       <div className="mt-5">
         <h3 className="text-sm font-semibold text-foreground mb-2">Automated triggers</h3>
         <p className="text-[11px] text-muted-foreground mb-3">The agent runs automatically whenever any trigger fires.</p>
@@ -1549,81 +1516,6 @@ function TriggersStep({ version, patch, agentId }: { version: AgentVersion; patc
             <MessageSquare className="h-3.5 w-3.5" /><Plus className="h-3 w-3" /> Inbound message
           </button>
         </div>
-      </div>
-
-      {/* ── Manual Invocation (merged from Entry Points) ── */}
-      <div className="mt-8 rounded-xl border border-border bg-muted/10 p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700">
-              <ExternalLink className="h-4 w-4" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">Manual Invocation</h3>
-              <p className="text-[11px] text-muted-foreground">
-                Let users trigger this agent manually from specific pages in the platform.
-              </p>
-            </div>
-          </div>
-          <label className="inline-flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              checked={manualEnabled}
-              onChange={(e) => setManualEnabled(e.target.checked)}
-              className="h-4 w-4 rounded border-border accent-indigo-600"
-            />
-            <span className="text-xs font-medium text-foreground">Enable</span>
-          </label>
-        </div>
-
-        {manualEnabled && (
-          <div className="mt-4 border-t border-border pt-4">
-            <p className="text-[11px] text-muted-foreground mb-3">
-              Users with the <code className="rounded bg-muted px-1 py-0.5 text-[11px]">agent:execute</code> permission will see a &ldquo;Run Agent&rdquo; button on each enabled page.
-            </p>
-
-            <div className="relative mb-3">
-              <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input placeholder="Search pages..." value={entryQuery} onChange={(e) => setEntryQuery(e.target.value)} className="pl-9 text-sm" />
-            </div>
-
-            {enabledKeys.size > 0 && (
-              <div className="mb-3 rounded-lg border border-green-200 bg-green-50/50 p-3">
-                <p className="text-[11px] font-medium text-green-800 mb-1">Enabled on {enabledKeys.size} page{enabledKeys.size !== 1 ? "s" : ""}</p>
-                <div className="flex flex-wrap gap-1">
-                  {entryPoints.filter((ep) => ep.enabled).map((ep) => {
-                    const mod = ENTRY_POINT_MODULES.find((m) => m.moduleKey === ep.moduleKey);
-                    return (
-                      <Badge key={ep.id} variant="outline" className="text-[10px] bg-white">
-                        {mod?.label ?? ep.moduleKey}
-                      </Badge>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            <div className="max-h-60 overflow-y-auto space-y-1">
-              {(filteredModules ?? ENTRY_POINT_MODULES).map((mod) => {
-                const enabled = enabledKeys.has(mod.moduleKey);
-                return (
-                  <label key={mod.moduleKey} className={`flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 transition-colors ${enabled ? "bg-indigo-50/50" : "hover:bg-muted/30"}`}>
-                    <input
-                      type="checkbox"
-                      checked={enabled}
-                      onChange={() => toggleEntryPoint(mod.moduleKey)}
-                      className="h-3.5 w-3.5 rounded border-border accent-indigo-600"
-                    />
-                    <div className="min-w-0">
-                      <p className="text-xs font-medium text-foreground">{mod.label}</p>
-                      <p className="text-[10px] text-muted-foreground">{mod.category}</p>
-                    </div>
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-        )}
       </div>
     </section>
   );
@@ -1931,7 +1823,86 @@ function SuccessStep({ version, patch }: { version: AgentVersion; patch: (p: Par
 
 /* ─────────── Step 5: Data & Skills (MCP Servers) ─────────── */
 
-function DataSkillsStep({ version, patch }: { version: AgentVersion; patch: (p: Partial<AgentVersion>) => void }) {
+function findServerIdForCapability(cap: CapabilityMapping): string | null {
+  if (cap.toolId) {
+    for (const server of MCP_SERVER_CATALOG) {
+      if (server.tools.some((t) => t.id === cap.toolId)) return server.id;
+    }
+  }
+  if (cap.serverName) {
+    const byName = MCP_SERVER_CATALOG.find(
+      (s) => s.name.toLowerCase() === cap.serverName!.toLowerCase(),
+    );
+    if (byName) return byName.id;
+  }
+  return null;
+}
+
+/** Local fallback when the LLM isn't available — drop lines that look tied to the capability. */
+function stripCapabilitiesFromPromptLocally(prompt: string, caps: CapabilityMapping[]): string {
+  let next = prompt;
+  for (const cap of caps) {
+    const capLabel = cap.capability.toLowerCase();
+    const words = capLabel.split(/\s+/).filter((w) => w.length > 3);
+    next = next
+      .split("\n")
+      .filter((line) => {
+        const l = line.toLowerCase();
+        const matchCount = words.filter((w) => l.includes(w)).length;
+        return words.length === 0 || matchCount < words.length * 0.6;
+      })
+      .join("\n");
+  }
+  return next.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+async function rewritePromptWithoutCapabilities(
+  prompt: string,
+  caps: CapabilityMapping[],
+): Promise<string> {
+  if (caps.length === 0) return prompt;
+  const list = caps.map((c) => `- ${c.capability}${c.reason ? ` (${c.reason})` : ""}`).join("\n");
+
+  if (isClientLLMConfigured()) {
+    try {
+      const result = await callClientLLM(
+        [
+          {
+            role: "system",
+            content: `You rewrite AI agent system prompts for a property management platform.
+Remove only the requirements, actions, or instructions that depend on the listed unavailable capabilities.
+Keep everything else intact, coherent, and actionable.
+Do not mention that capabilities were removed or that tools are missing.
+Return JSON only: { "prompt": "..." }`,
+          },
+          {
+            role: "user",
+            content: `Original prompt:\n${prompt}\n\nRemove requirements for these capabilities:\n${list}`,
+          },
+        ],
+        { temperature: 0.2, maxTokens: 4000 },
+      );
+      const parsed = JSON.parse(result.content.match(/\{[\s\S]*\}/)?.[0] ?? result.content);
+      if (typeof parsed.prompt === "string" && parsed.prompt.trim()) {
+        return parsed.prompt.trim();
+      }
+    } catch (err) {
+      console.error("Prompt rewrite failed, using local fallback:", err);
+    }
+  }
+
+  return stripCapabilitiesFromPromptLocally(prompt, caps);
+}
+
+function DataSkillsStep({
+  version,
+  patch,
+  onGoToPromptStep,
+}: {
+  version: AgentVersion;
+  patch: (p: Partial<AgentVersion>) => void;
+  onGoToPromptStep: () => void;
+}) {
   const mcpServers = version.mcpServers ?? [];
   const [expandedServer, setExpandedServer] = useState<string | null>(null);
   const [toolQuery, setToolQuery] = useState("");
@@ -1940,9 +1911,18 @@ function DataSkillsStep({ version, patch }: { version: AgentVersion; patch: (p: 
   const [capAnalysis, setCapAnalysis] = useState<CapabilityAnalysis | null>(null);
   const [capLoading, setCapLoading] = useState(false);
   const [capError, setCapError] = useState<string | null>(null);
-  const [featureRequestSent, setFeatureRequestSent] = useState<Set<string>>(new Set());
   const [removedFromPrompt, setRemovedFromPrompt] = useState<Set<string>>(new Set());
   const [showCapDetails, setShowCapDetails] = useState(true);
+  const [rewritingPrompt, setRewritingPrompt] = useState(false);
+  const [pendingDisable, setPendingDisable] = useState<{
+    serverId: string;
+    serverName: string;
+    caps: CapabilityMapping[];
+  } | null>(null);
+  const [extraMcpWarning, setExtraMcpWarning] = useState<{
+    serverName: string;
+    serverId: string;
+  } | null>(null);
   const prevPromptRef = useRef(version.prompt);
 
   const runCapabilityAnalysis = useCallback(async () => {
@@ -2006,24 +1986,7 @@ function DataSkillsStep({ version, patch }: { version: AgentVersion; patch: (p: 
     }
   }, [version.prompt, runCapabilityAnalysis]);
 
-  const handleRemoveFromPrompt = (cap: CapabilityMapping) => {
-    const capLabel = cap.capability.toLowerCase();
-    const lines = version.prompt.split("\n");
-    const filtered = lines.filter((line) => {
-      const l = line.toLowerCase();
-      const words = capLabel.split(/\s+/).filter((w) => w.length > 3);
-      const matchCount = words.filter((w) => l.includes(w)).length;
-      return matchCount < words.length * 0.6;
-    });
-    patch({ prompt: filtered.join("\n") });
-    setRemovedFromPrompt((prev) => new Set([...prev, cap.id]));
-  };
-
-  const handleSendFeatureRequest = (cap: CapabilityMapping) => {
-    setFeatureRequestSent((prev) => new Set([...prev, cap.id]));
-  };
-
-  const toggleServer = (serverId: string) => {
+  const applyServerEnabled = (serverId: string, enabled: boolean) => {
     const existing = mcpServers.find((s) => s.id === serverId);
     const serverDef = MCP_SERVER_CATALOG.find((s) => s.id === serverId);
     if (!serverDef) return;
@@ -2031,10 +1994,10 @@ function DataSkillsStep({ version, patch }: { version: AgentVersion; patch: (p: 
     if (existing) {
       patch({
         mcpServers: mcpServers.map((s) =>
-          s.id === serverId ? { ...s, enabled: !s.enabled } : s
+          s.id === serverId ? { ...s, enabled } : s,
         ),
       });
-    } else {
+    } else if (enabled) {
       patch({
         mcpServers: [
           ...mcpServers,
@@ -2050,6 +2013,103 @@ function DataSkillsStep({ version, patch }: { version: AgentVersion; patch: (p: 
       });
     }
     setTimeout(() => runCapabilityAnalysis(), 300);
+  };
+
+  const neededServerIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!capAnalysis) return ids;
+    for (const cap of capAnalysis.capabilities) {
+      if (cap.status === "supported" || cap.status === "no_access") {
+        const sid = findServerIdForCapability(cap);
+        if (sid) ids.add(sid);
+      }
+    }
+    return ids;
+  }, [capAnalysis]);
+
+  const handleNotifyAndRewriteUnsupported = async () => {
+    const missing =
+      capAnalysis?.unsupported.filter(
+        (c) => c.status === "unavailable" && !removedFromPrompt.has(c.id),
+      ) ?? [];
+    if (missing.length === 0 || rewritingPrompt) return;
+
+    // Background: notify Entrata of every missing capability (prototype: fire-and-forget)
+    console.info(
+      "[agent-builder] Feature request sent to Entrata for missing MCPs:",
+      missing.map((c) => ({ id: c.id, capability: c.capability, reason: c.reason })),
+    );
+    setRewritingPrompt(true);
+
+    try {
+      const rewritten = await rewritePromptWithoutCapabilities(version.prompt, missing);
+      patch({ prompt: rewritten });
+      setRemovedFromPrompt((prev) => {
+        const next = new Set(prev);
+        for (const cap of missing) next.add(cap.id);
+        return next;
+      });
+      onGoToPromptStep();
+    } finally {
+      setRewritingPrompt(false);
+    }
+  };
+
+  const handleConfirmDisableAndRewrite = async () => {
+    if (!pendingDisable || rewritingPrompt) return;
+    setRewritingPrompt(true);
+    try {
+      const rewritten = await rewritePromptWithoutCapabilities(
+        version.prompt,
+        pendingDisable.caps,
+      );
+      patch({ prompt: rewritten });
+      applyServerEnabled(pendingDisable.serverId, false);
+      setRemovedFromPrompt((prev) => {
+        const next = new Set(prev);
+        for (const cap of pendingDisable.caps) next.add(cap.id);
+        return next;
+      });
+      setPendingDisable(null);
+      onGoToPromptStep();
+    } finally {
+      setRewritingPrompt(false);
+    }
+  };
+
+  const toggleServer = (serverId: string) => {
+    const existing = mcpServers.find((s) => s.id === serverId);
+    const serverDef = MCP_SERVER_CATALOG.find((s) => s.id === serverId);
+    if (!serverDef) return;
+
+    const currentlyEnabled = existing?.enabled ?? false;
+
+    // Disabling a server the prompt still needs → confirm keep vs update prompt
+    if (currentlyEnabled) {
+      const dependentCaps =
+        capAnalysis?.supported.filter(
+          (c) => findServerIdForCapability(c) === serverId,
+        ) ?? [];
+      if (dependentCaps.length > 0) {
+        setPendingDisable({
+          serverId,
+          serverName: serverDef.name,
+          caps: dependentCaps,
+        });
+        return;
+      }
+      applyServerEnabled(serverId, false);
+      if (extraMcpWarning?.serverId === serverId) setExtraMcpWarning(null);
+      return;
+    }
+
+    // Enabling a server the prompt doesn't need → allow, but warn
+    if (capAnalysis && !neededServerIds.has(serverId)) {
+      setExtraMcpWarning({ serverId, serverName: serverDef.name });
+    } else if (extraMcpWarning?.serverId === serverId) {
+      setExtraMcpWarning(null);
+    }
+    applyServerEnabled(serverId, true);
   };
 
   const isServerEnabled = (serverId: string) => mcpServers.find((s) => s.id === serverId)?.enabled ?? false;
@@ -2088,6 +2148,8 @@ function DataSkillsStep({ version, patch }: { version: AgentVersion; patch: (p: 
   const enabledCount = mcpServers.filter((s) => s.enabled).length;
 
   const activeUnsupported = capAnalysis?.unsupported.filter((c) => !removedFromPrompt.has(c.id)) ?? [];
+  const unavailableCaps = activeUnsupported.filter((c) => c.status === "unavailable");
+  const noAccessCaps = activeUnsupported.filter((c) => c.status === "no_access");
 
   return (
     <section>
@@ -2126,18 +2188,77 @@ function DataSkillsStep({ version, patch }: { version: AgentVersion; patch: (p: 
 
           {showCapDetails && !capLoading && capAnalysis && (
             <div className="border-t border-border px-4 py-4">
-              {/* Unsupported capabilities warning */}
-              {activeUnsupported.length > 0 && (
+              {/* Missing MCPs — single combined CTA (notify + rewrite) */}
+              {unavailableCaps.length > 0 && (
                 <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50/80 p-3">
                   <div className="flex items-start gap-2">
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
                     <div className="flex-1 min-w-0">
                       <p className="text-[13px] font-semibold text-amber-900">
-                        {activeUnsupported.length} capabilit{activeUnsupported.length === 1 ? "y" : "ies"} cannot be fulfilled
+                        {unavailableCaps.length} capabilit{unavailableCaps.length === 1 ? "y" : "ies"} not available yet
                       </p>
                       <p className="mt-0.5 text-[11px] text-amber-800/80">
-                        Your agent&apos;s prompt references capabilities that don&apos;t have matching MCP tools. Without these tools, the agent may hallucinate or fail to complete parts of its task. You can remove unsupported items from the prompt and/or request that Entrata build the missing tools.
+                        Your prompt asks for skills Entrata doesn&apos;t have MCP tools for yet.
+                        One action notifies Entrata of the gaps and rewrites your prompt so the agent only uses available skills.
                       </p>
+                      <ul className="mt-2 space-y-1">
+                        {unavailableCaps.map((cap) => (
+                          <li key={cap.id} className="flex items-start gap-2 text-[12px] text-amber-950">
+                            <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-500" />
+                            <span>
+                              <span className="font-medium">{cap.capability}</span>
+                              {cap.reason && (
+                                <span className="text-amber-800/70"> — {cap.reason}</span>
+                              )}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                      <button
+                        type="button"
+                        disabled={rewritingPrompt}
+                        onClick={() => void handleNotifyAndRewriteUnsupported()}
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+                      >
+                        {rewritingPrompt && !pendingDisable ? (
+                          <>
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            Notifying Entrata &amp; updating prompt…
+                          </>
+                        ) : (
+                          <>
+                            <Send className="h-3.5 w-3.5" />
+                            Notify Entrata &amp; update my prompt
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* MCP exists but is not enabled */}
+              {noAccessCaps.length > 0 && (
+                <div className="mb-4 rounded-lg border border-sky-200 bg-sky-50/70 p-3">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] font-semibold text-sky-900">
+                        {noAccessCaps.length} capabilit{noAccessCaps.length === 1 ? "y" : "ies"} need an MCP enabled
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-sky-800/80">
+                        These are available — enable the matching MCP server below to fulfill them.
+                      </p>
+                      <ul className="mt-2 space-y-1">
+                        {noAccessCaps.map((cap) => (
+                          <li key={cap.id} className="text-[12px] text-sky-950">
+                            <span className="font-medium">{cap.capability}</span>
+                            {cap.serverName && (
+                              <span className="text-sky-800/80"> → enable {cap.serverName}</span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   </div>
                 </div>
@@ -2165,86 +2286,6 @@ function DataSkillsStep({ version, patch }: { version: AgentVersion; patch: (p: 
                         )}
                       </div>
                     ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Unsupported capabilities */}
-              {activeUnsupported.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1">
-                    <XCircle className="h-3 w-3 text-red-500" /> Unsupported capabilities ({activeUnsupported.length})
-                  </p>
-                  <div className="space-y-2">
-                    {activeUnsupported.map((cap) => (
-                      <div key={cap.id} className="rounded-lg border border-red-100 bg-red-50/30 px-3 py-2.5">
-                        <div className="flex items-start gap-2">
-                          {cap.status === "unavailable" ? (
-                            <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-500" />
-                          ) : (
-                            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[12px] font-medium text-foreground">{cap.capability}</p>
-                            <p className="mt-0.5 text-[11px] text-muted-foreground">{cap.reason}</p>
-                            {cap.status === "no_access" && cap.serverName && (
-                              <p className="mt-1 text-[10px] text-amber-700">
-                                Tip: Enable <span className="font-semibold">{cap.serverName}</span> above to grant access.
-                              </p>
-                            )}
-                            <div className="mt-2 flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveFromPrompt(cap)}
-                                className="flex items-center gap-1 rounded-md border border-border bg-white px-2 py-1 text-[11px] font-medium text-foreground hover:bg-muted transition-colors"
-                              >
-                                <X className="h-3 w-3" /> Remove from prompt
-                              </button>
-                              {cap.status === "unavailable" && !featureRequestSent.has(cap.id) && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleSendFeatureRequest(cap)}
-                                  className="flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100 transition-colors"
-                                >
-                                  <Send className="h-3 w-3" /> Request from Entrata
-                                </button>
-                              )}
-                              {featureRequestSent.has(cap.id) && (
-                                <span className="flex items-center gap-1 text-[11px] text-green-700">
-                                  <Check className="h-3 w-3" /> Feature request sent
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Bulk actions */}
-                  <div className="mt-3 flex items-center gap-2 border-t border-border pt-3">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        for (const cap of activeUnsupported) handleRemoveFromPrompt(cap);
-                      }}
-                      className="flex items-center gap-1 rounded-md border border-border bg-white px-2.5 py-1.5 text-[11px] font-medium text-foreground hover:bg-muted transition-colors"
-                    >
-                      <X className="h-3 w-3" /> Remove all unsupported from prompt
-                    </button>
-                    {activeUnsupported.some((c) => c.status === "unavailable" && !featureRequestSent.has(c.id)) && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          for (const cap of activeUnsupported.filter((c) => c.status === "unavailable")) {
-                            handleSendFeatureRequest(cap);
-                          }
-                        }}
-                        className="flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100 transition-colors"
-                      >
-                        <Send className="h-3 w-3" /> Request all missing tools from Entrata
-                      </button>
-                    )}
                   </div>
                 </div>
               )}
@@ -2278,12 +2319,83 @@ function DataSkillsStep({ version, patch }: { version: AgentVersion; patch: (p: 
         </div>
       )}
 
-      {/* ── Feature Request Confirmation Modal ── */}
-      {featureRequestSent.size > 0 && (
-        <FeatureRequestConfirmation
-          capabilities={capAnalysis?.unsupported.filter((c) => featureRequestSent.has(c.id)) ?? []}
-          onDismiss={() => setFeatureRequestSent(new Set())}
-        />
+      {/* ── Extra MCP warning (enabled but not needed by prompt) ── */}
+      {extraMcpWarning && (
+        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-semibold text-amber-900">
+                {extraMcpWarning.serverName} may not be needed
+              </p>
+              <p className="mt-1 text-[11px] text-amber-800/85">
+                Your prompt doesn&apos;t appear to require this MCP. Enabling it still gives the agent access to those tools,
+                which can lead to unexpected actions. You can leave it on if you want the extra capability.
+              </p>
+              <button
+                type="button"
+                onClick={() => setExtraMcpWarning(null)}
+                className="mt-2 text-[11px] font-medium text-amber-800 hover:underline"
+              >
+                Got it
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Disable MCP confirmation ── */}
+      {pendingDisable && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="disable-mcp-title"
+            className="w-full max-w-md rounded-xl border border-border bg-white p-5 shadow-2xl"
+          >
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+              <div>
+                <h3 id="disable-mcp-title" className="text-sm font-semibold text-foreground">
+                  Remove {pendingDisable.serverName}?
+                </h3>
+                <p className="mt-1 text-[12px] text-muted-foreground">
+                  Turning this MCP off will prevent the agent from doing everything your prompt currently requires:
+                </p>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-[12px] text-foreground">
+                  {pendingDisable.caps.map((cap) => (
+                    <li key={cap.id}>{cap.capability}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                disabled={rewritingPrompt}
+                onClick={() => setPendingDisable(null)}
+                className="rounded-md border border-border bg-white px-3 py-2 text-[12px] font-medium text-foreground hover:bg-muted disabled:opacity-60"
+              >
+                Keep {pendingDisable.serverName}
+              </button>
+              <button
+                type="button"
+                disabled={rewritingPrompt}
+                onClick={() => void handleConfirmDisableAndRewrite()}
+                className="inline-flex items-center justify-center gap-1.5 rounded-md bg-indigo-600 px-3 py-2 text-[12px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+              >
+                {rewritingPrompt ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Updating prompt…
+                  </>
+                ) : (
+                  "Update prompt & remove MCP"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <div className="mt-4 rounded-lg border border-indigo-100 bg-indigo-50/50 p-3">
@@ -2464,48 +2576,6 @@ function DataSkillsStep({ version, patch }: { version: AgentVersion; patch: (p: 
 
       <AudienceBuilderSection version={version} patch={patch} />
     </section>
-  );
-}
-
-/* ─────────── Feature Request Confirmation ─────────── */
-
-function FeatureRequestConfirmation({
-  capabilities,
-  onDismiss,
-}: {
-  capabilities: CapabilityMapping[];
-  onDismiss: () => void;
-}) {
-  if (capabilities.length === 0) return null;
-
-  return (
-    <div className="mt-3 rounded-xl border border-green-200 bg-green-50/60 p-4">
-      <div className="flex items-start gap-2">
-        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
-        <div className="flex-1 min-w-0">
-          <p className="text-[13px] font-semibold text-green-900">Feature request{capabilities.length > 1 ? "s" : ""} sent to Entrata</p>
-          <p className="mt-1 text-[11px] text-green-800/80">
-            The Entrata product team will receive your request to build the following MCP tools. You&apos;ll be notified when they become available.
-          </p>
-          <ul className="mt-2 space-y-1">
-            {capabilities.map((cap) => (
-              <li key={cap.id} className="flex items-center gap-2 text-[12px] text-green-900">
-                <Send className="h-3 w-3 shrink-0 text-green-600" />
-                <span className="font-medium">{cap.capability}</span>
-                {cap.reason && <span className="text-green-700/70">— {cap.reason}</span>}
-              </li>
-            ))}
-          </ul>
-          <button
-            type="button"
-            onClick={onDismiss}
-            className="mt-3 text-[11px] text-green-700 hover:underline"
-          >
-            Dismiss
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
 
