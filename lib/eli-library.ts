@@ -282,41 +282,101 @@ const MAINTENANCE_AI_BLOCKS: DashboardBlock[] = [
   { type: "line-chart", width: "full", title: "Incoming Messages per Day", order: 19, config: {}, mockTrend: mockTrend(502, 140, 50) },
 ];
 
-// ─── RENEWALS AI (25 blocks) ────────────────────────────────────────────────
+// ─── RENEWALS AI (restructured) ─────────────────────────────────────────────
 
 const RENEWALS_AI_BLOCKS: DashboardBlock[] = [
-  { type: "section-header", width: "full", order: 1, config: { title: "ELI+ Renewals AI Report", subtitle: "Renewal outcomes, outreach volume, and escalations" } },
-  { type: "kpi-card", width: "third", title: "Renewed Residents", order: 2, config: {}, mockValue: "2,418", mockSub: "residents renewed", mockDelta: { direction: "up", label: "+14%" } },
-  { type: "line-chart", width: "third", title: "Total Renewed Residents Over Month", order: 3, config: {}, mockTrend: mockTrend(601, 200, 60) },
-  { type: "kpi-card", width: "third", title: "Renewal Ratio", order: 4, config: {}, mockValue: "74%", mockSub: "renewal rate", mockDelta: { direction: "up", label: "+4 pts" } },
-  { type: "line-chart", width: "third", title: "Renewed / Contacted Over Month", order: 5, config: {}, mockTrend: mockTrend(602, 72, 12) },
-  { type: "kpi-card", width: "third", title: "3 Month Renewal Ratio", order: 6, config: {}, mockValue: "71.2%", mockSub: "3-month average", mockDelta: { direction: "up", label: "+2.8 pts" } },
-  { type: "kpi-card", width: "third", title: "Residents Up for Renewal", order: 7, config: {}, mockValue: "3,264", mockSub: "upcoming renewals" },
-  { type: "kpi-card", width: "third", title: "Avg Days to Renew", order: 8, config: {}, mockValue: "9.2", mockSub: "vs 14.1 baseline", mockDelta: { direction: "down", label: "−4.9 days" } },
-  { type: "section-header", width: "full", order: 9, config: { title: "Staff Time Saved", subtitle: "Hours saved and reminder volume" } },
-  { type: "kpi-card", width: "full", title: "Staff Time Saved (Hours)", order: 10, config: {}, mockValue: "1,842", mockSub: "staff hours saved", mockDelta: { direction: "up", label: "+240 hrs" } },
-  { type: "kpi-card", width: "half", title: "Total Reminder Messages", order: 11, config: {}, mockValue: "18,420", mockSub: "messages sent", mockDelta: { direction: "up", label: "+12%" } },
-  { type: "donut-chart", width: "half", title: "SMS vs Email", order: 12, config: {}, mockSlices: [{ label: "SMS", value: 12840 }, { label: "Email", value: 5580 }] },
-  { type: "kpi-card", width: "third", title: "SMS Sent", order: 13, config: {}, mockValue: "12,840", mockSub: "outbound SMS", mockDelta: { direction: "up", label: "+8%" } },
-  { type: "line-chart", width: "third", title: "SMS Sent Over Months", order: 14, config: {}, mockTrend: mockTrend(603, 1080, 300) },
-  { type: "kpi-card", width: "third", title: "Resident Response Rate", order: 15, config: {}, mockValue: "38.4%", mockSub: "response rate", mockDelta: { direction: "up", label: "+2.1 pts" } },
-  { type: "line-chart", width: "full", title: "Response Rate Over Months", order: 16, config: {}, mockTrend: mockTrend(604, 36, 8) },
-  { type: "bar-chart", width: "full", title: "Reasons for Non-Renewal", order: 17, config: {}, mockRows: [
-    { label: "Price", value: 412 }, { label: "Moving", value: 286 },
-    { label: "Buying", value: 184 }, { label: "Other", value: 142 },
+  // ── Section 1: Overall Renewal Performance ──
+  { type: "section-header", width: "full", order: 1, config: { title: "Overall Renewal Performance", subtitle: "Key renewal metrics across all properties — independent of AI usage" } },
+  { type: "kpi-card", width: "third", title: "Renewal Rate", order: 2, config: { periodAware: true, baseValue: 74, unit: "%", subTemplate: "of eligible residents renewed", deltaLabel: "+4 pts", deltaDir: "up" }, mockValue: "74%", mockSub: "of eligible residents renewed", mockDelta: { direction: "up", label: "+4 pts" } },
+  { type: "kpi-card", width: "third", title: "Leases Eligible for Renewal", order: 4, config: { periodAware: true, baseValue: 3264, unit: "", subTemplate: "leases expired during period", scaleWithPeriod: true }, mockValue: "3,264", mockSub: "leases expired during period" },
+  { type: "kpi-card", width: "third", title: "Renewed Residents", order: 5, config: { periodAware: true, baseValue: 2418, unit: "", subTemplate: "renewed during period", scaleWithPeriod: true, deltaLabel: "+14%", deltaDir: "up" }, mockValue: "2,418", mockSub: "renewed during period", mockDelta: { direction: "up", label: "+14%" } },
+  { type: "line-chart", width: "half", title: "Renewal Rate — Monthly Trend", order: 6, config: {}, mockTrend: mockTrend(601, 72, 10) },
+  { type: "line-chart", width: "half", title: "Total Renewals — Monthly Trend", order: 7, config: {}, mockTrend: mockTrend(602, 200, 60) },
+
+  // Financial Impact
+  { type: "kpi-card", width: "third", title: "Avg Rent Increase at Renewal", order: 8, config: { periodAware: true, baseValue: 4.8, unit: "%", prefix: "+", subTemplate: "$52 avg monthly increase", deltaLabel: "+0.6 pts", deltaDir: "up" }, mockValue: "+4.8%", mockSub: "$52 avg monthly increase", mockDelta: { direction: "up", label: "+0.6 pts" } },
+  { type: "kpi-card", width: "third", title: "Incremental Annual Revenue", order: 9, config: { periodAware: true, baseValue: 1510000, unit: "$M", subTemplate: "from renewal rent increases", scaleWithPeriod: true, deltaLabel: "+$184K", deltaDir: "up" }, mockValue: "$1.51M", mockSub: "from renewal rent increases", mockDelta: { direction: "up", label: "+$184K" } },
+  { type: "kpi-card", width: "third", title: "Avoided Turnover Costs", order: 10, config: { periodAware: true, baseValue: 2140000, unit: "$M", formula: "$5,000 avg turnover cost × 428 retained leases", subTemplate: "est. savings from retained residents", scaleWithPeriod: true, deltaLabel: "+$320K", deltaDir: "up" }, mockValue: "$2.14M", mockSub: "est. savings from retained residents", mockDelta: { direction: "up", label: "+$320K" } },
+  { type: "line-chart", width: "half", title: "Avg % Rent Increase at Renewal — Trend", order: 11, config: {}, mockTrend: mockTrend(610, 4.6, 1.2) },
+  { type: "bar-chart", width: "half", title: "Rent Increase Distribution", order: 12, config: {}, mockRows: [
+    { label: "0–2%", value: 312 }, { label: "2–4%", value: 586 },
+    { label: "4–6%", value: 842 }, { label: "6–8%", value: 418 },
+    { label: "8–10%", value: 164 }, { label: "10%+", value: 96 },
   ] },
-  { type: "section-header", width: "full", order: 18, config: { title: "Escalations", subtitle: "Escalation rate, volume, and resolution status" } },
-  { type: "kpi-card", width: "quarter", title: "Escalation Rate", order: 19, config: {}, mockValue: "12.4%", mockSub: "of contacted", mockDelta: { direction: "down", label: "−1.8 pts" } },
-  { type: "kpi-card", width: "quarter", title: "Total Escalations", order: 20, config: {}, mockValue: "406", mockSub: "escalations" },
-  { type: "kpi-card", width: "quarter", title: "Open", order: 21, config: {}, mockValue: "42", mockSub: "open escalations" },
-  { type: "kpi-card", width: "quarter", title: "Resolved", order: 22, config: {}, mockValue: "364", mockSub: "resolved", mockDelta: { direction: "up", label: "+89%" } },
-  { type: "donut-chart", width: "full", title: "Renewal Intents", order: 23, config: {}, mockSlices: [
-    { label: "Wants to Renew", value: 1842 }, { label: "Other", value: 412 },
-    { label: "Does Not Want to Renew", value: 318 }, { label: "New Lease Questions", value: 186 },
-    { label: "Needs Different Apt", value: 124 }, { label: "Technical Problems", value: 42 },
+
+  // Renewal Timing
+  { type: "kpi-card", width: "third", title: "Avg Days to Renew", order: 14, config: { periodAware: true, baseValue: 9.2, unit: "days", subTemplate: "days from offer generated to signed", deltaLabel: "−4.9 days", deltaDir: "down" }, mockValue: "9.2", mockSub: "days from offer generated to signed", mockDelta: { direction: "down", label: "−4.9 days" } },
+  { type: "kpi-card", width: "third", title: "Avg Days Before Lease End", order: 15, config: { periodAware: true, baseValue: 68, unit: "days", subTemplate: "days before expiration renewal is finalized", deltaLabel: "+12 days", deltaDir: "up" }, mockValue: "68", mockSub: "days before expiration renewal is finalized", mockDelta: { direction: "up", label: "+12 days" } },
+  { type: "kpi-card", width: "third", title: "Renewals Signed 60+ Days Early", order: 16, config: { periodAware: true, baseValue: 72, unit: "%", subTemplate: "of renewals finalized 60+ days before expiry", deltaLabel: "+8 pts", deltaDir: "up" }, mockValue: "72%", mockSub: "of renewals finalized 60+ days before expiry", mockDelta: { direction: "up", label: "+8 pts" } },
+
+  // Renewal Rate by Bedroom Count (trend over time)
+  { type: "line-chart", width: "half", title: "Renewal Rate by Bedrooms — Trend", order: 17, config: { multiSeries: true, series: ["Studio", "1 BR", "2 BR", "3 BR"] }, mockTrend: mockTrend(620, 72, 10) },
+
+  // Reasons for Non-Renewal
+  { type: "bar-chart", width: "half", title: "Reasons for Non-Renewal", order: 18, config: {}, mockRows: [
+    { label: "Price", value: 412 }, { label: "Relocating", value: 286 },
+    { label: "Buying Home", value: 184 }, { label: "Roommate Changes", value: 98 },
+    { label: "Maintenance Issues", value: 72 }, { label: "Other", value: 142 },
   ] },
-  { type: "donut-chart", width: "full", title: "Renewals Intent Distribution", order: 24, config: {}, mockSlices: [
-    { label: "Does Not Renew", value: 318 }, { label: "Considering", value: 412 },
+  { type: "donut-chart", width: "half", title: "Renewal Intent Distribution", order: 19, config: {}, mockSlices: [
+    { label: "Wants to Renew", value: 1842 }, { label: "Considering", value: 412 },
+    { label: "Does Not Want to Renew", value: 318 }, { label: "Needs Different Unit", value: 124 },
+    { label: "New Lease Questions", value: 186 },
+  ] },
+
+  // Lease Term Analytics
+  { type: "bar-chart", width: "half", title: "Renewals Signed by Term Length (Volume)", order: 20, config: {}, mockRows: [
+    { label: "Month-to-Month", value: 186 }, { label: "6 Months", value: 312 },
+    { label: "9 Months", value: 248 }, { label: "12 Months", value: 1284 },
+    { label: "14 Months", value: 218 }, { label: "15+ Months", value: 170 },
+  ] },
+
+  // ── Section 2: Renewals AI Impact ──
+  { type: "section-header", width: "full", order: 30, config: { title: "Renewals AI Impact", subtitle: "Time savings, automation metrics, and AI-driven value for properties using Renewals AI" } },
+  { type: "kpi-card", width: "third", title: "Staff Hours Saved", order: 31, config: { periodAware: true, baseValue: 1842, unit: "hrs", formula: "18,420 messages × 6 min avg manual handling ÷ 60", subTemplate: "hours saved by AI automation", scaleWithPeriod: true, deltaLabel: "+240 hrs", deltaDir: "up" }, mockValue: "1,842", mockSub: "hours saved by AI automation", mockDelta: { direction: "up", label: "+240 hrs" } },
+  { type: "kpi-card", width: "third", title: "Avg Days to Renew (AI)", order: 32, config: { periodAware: true, baseValue: 9.2, unit: "days", subTemplate: "vs 14.1 days without AI", deltaLabel: "−4.9 days faster", deltaDir: "down" }, mockValue: "9.2", mockSub: "vs 14.1 days without AI", mockDelta: { direction: "down", label: "−4.9 days faster" } },
+  { type: "kpi-card", width: "third", title: "Renewal Rate Lift (AI vs Non-AI)", order: 33, config: { periodAware: true, baseValue: 8.2, unit: "pts", prefix: "+", subTemplate: "AI-managed: 78% vs non-AI: 69.8%", deltaLabel: "+8.2 pts", deltaDir: "up" }, mockValue: "+8.2 pts", mockSub: "AI-managed: 78% vs non-AI: 69.8%", mockDelta: { direction: "up", label: "+8.2 pts" } },
+
+  // Fully Automated Renewals
+  { type: "kpi-card", width: "half", title: "Fully Automated Renewals", order: 34, config: { periodAware: true, baseValue: 62, unit: "%", subTemplate: "renewals completed with zero human intervention", deltaLabel: "+8 pts", deltaDir: "up" }, mockValue: "62%", mockSub: "1,499 of 2,418 renewals completed with zero human intervention", mockDelta: { direction: "up", label: "+8 pts" } },
+  { type: "line-chart", width: "half", title: "Fully Automated Renewals — Trend", order: 35, config: { noBaseline: true }, mockTrend: [
+    { label: "Jan", value: 48 }, { label: "Feb", value: 50 }, { label: "Mar", value: 52 },
+    { label: "Apr", value: 54 }, { label: "May", value: 56 }, { label: "Jun", value: 57 },
+    { label: "Jul", value: 58 }, { label: "Aug", value: 59 }, { label: "Sep", value: 60 },
+    { label: "Oct", value: 61 }, { label: "Nov", value: 61 }, { label: "Dec", value: 62 },
+  ] },
+  { type: "line-chart", width: "half", title: "Resident Engagement Breakdown — Trend", order: 36, config: { noBaseline: true, multiSeries: true, series: ["Engaged %", "No Response %", "Opted Out %"] }, mockTrend: [
+    { label: "Jan", value: 52 }, { label: "Feb", value: 53 }, { label: "Mar", value: 54 },
+    { label: "Apr", value: 55 }, { label: "May", value: 56 }, { label: "Jun", value: 56 },
+    { label: "Jul", value: 57 }, { label: "Aug", value: 57 }, { label: "Sep", value: 58 },
+    { label: "Oct", value: 58 }, { label: "Nov", value: 58 }, { label: "Dec", value: 58 },
+  ] },
+
+  // Communication & Outreach
+  { type: "kpi-card", width: "quarter", title: "Total Outreach Messages", order: 37, config: { periodAware: true, baseValue: 18420, unit: "", subTemplate: "AI-sent messages", scaleWithPeriod: true, deltaLabel: "+12%", deltaDir: "up" }, mockValue: "18,420", mockSub: "AI-sent messages", mockDelta: { direction: "up", label: "+12%" } },
+  { type: "kpi-card", width: "quarter", title: "SMS Sent", order: 38, config: { periodAware: true, baseValue: 12840, unit: "", subTemplate: "outbound SMS", scaleWithPeriod: true, deltaLabel: "+8%", deltaDir: "up" }, mockValue: "12,840", mockSub: "outbound SMS", mockDelta: { direction: "up", label: "+8%" } },
+  { type: "kpi-card", width: "quarter", title: "Emails Sent", order: 39, config: { periodAware: true, baseValue: 5580, unit: "", subTemplate: "outbound emails", scaleWithPeriod: true, deltaLabel: "+18%", deltaDir: "up" }, mockValue: "5,580", mockSub: "outbound emails", mockDelta: { direction: "up", label: "+18%" } },
+  { type: "kpi-card", width: "quarter", title: "Resident Response Rate", order: 40, config: { periodAware: true, baseValue: 38.4, unit: "%", subTemplate: "responded to AI outreach", deltaLabel: "+2.1 pts", deltaDir: "up" }, mockValue: "38.4%", mockSub: "responded to AI outreach", mockDelta: { direction: "up", label: "+2.1 pts" } },
+  { type: "kpi-card", width: "half", title: "Avg AI Response Time", order: 41, config: { periodAware: true, baseValue: 8, unit: "sec", prefix: "< ", subTemplate: "from resident message to AI reply", deltaLabel: "−2 sec", deltaDir: "down" }, mockValue: "< 8 sec", mockSub: "from resident message to AI reply", mockDelta: { direction: "down", label: "−2 sec" } },
+  { type: "kpi-card", width: "half", title: "Avg Resident Response Time", order: 42, config: { periodAware: true, baseValue: 4.2, unit: "hrs", subTemplate: "from AI message to resident reply", deltaLabel: "−1.4 hrs", deltaDir: "down" }, mockValue: "4.2 hrs", mockSub: "from AI message to resident reply", mockDelta: { direction: "down", label: "−1.4 hrs" } },
+  { type: "donut-chart", width: "half", title: "Outreach Channel Mix", order: 43, config: {}, mockSlices: [{ label: "SMS", value: 12840 }, { label: "Email", value: 5580 }] },
+
+  // Escalations
+  { type: "section-header", width: "full", order: 50, config: { title: "Escalations", subtitle: "Escalation rate, volume, resolution status, and response times" } },
+  { type: "kpi-card", width: "quarter", title: "Escalation Rate", order: 51, config: { periodAware: true, baseValue: 12.4, unit: "%", subTemplate: "of AI contacts escalated", deltaLabel: "−1.8 pts", deltaDir: "down" }, mockValue: "12.4%", mockSub: "of AI contacts escalated", mockDelta: { direction: "down", label: "−1.8 pts" } },
+  { type: "kpi-card", width: "quarter", title: "Total Escalations", order: 52, config: { periodAware: true, baseValue: 406, unit: "", subTemplate: "escalated to staff", scaleWithPeriod: true, drillable: true }, mockValue: "406", mockSub: "escalated to staff" },
+  { type: "kpi-card", width: "quarter", title: "Open Escalations", order: 53, config: { periodAware: true, baseValue: 42, unit: "", subTemplate: "pending resolution" }, mockValue: "42", mockSub: "pending resolution" },
+  { type: "kpi-card", width: "quarter", title: "Resolved", order: 54, config: { periodAware: true, baseValue: 364, unit: "", subTemplate: "resolved by staff", scaleWithPeriod: true, deltaLabel: "89% resolution", deltaDir: "up" }, mockValue: "364", mockSub: "resolved by staff", mockDelta: { direction: "up", label: "89% resolution" } },
+  { type: "bar-chart", width: "half", title: "Escalation Reasons", order: 55, config: {}, mockRows: [
+    { label: "Pricing Question", value: 142 }, { label: "Lease Terms", value: 98 },
+    { label: "Unit Transfer", value: 72 }, { label: "Maintenance", value: 48 },
+    { label: "Contact Office", value: 32 }, { label: "Technical", value: 14 },
+  ] },
+  { type: "line-chart", width: "half", title: "Avg Escalation Resolution Time — Trend", order: 56, config: {}, mockTrend: [
+    { label: "Jan", value: 4.8 }, { label: "Feb", value: 4.2 }, { label: "Mar", value: 3.9 },
+    { label: "Apr", value: 3.6 }, { label: "May", value: 3.8 }, { label: "Jun", value: 3.2 },
+    { label: "Jul", value: 2.9 }, { label: "Aug", value: 3.1 }, { label: "Sep", value: 2.7 },
+    { label: "Oct", value: 2.5 }, { label: "Nov", value: 2.3 }, { label: "Dec", value: 2.1 },
   ] },
 ];
 
@@ -351,10 +411,10 @@ export const ELI_DASHBOARDS: Record<EliAgentSlug, EliDashboard> = {
   "bi-eli-renewals-ai": {
     slug: "bi-eli-renewals-ai",
     title: "ELI+ Renewals AI",
-    titleSuffix: "— Impact",
-    description: "ELI+ Renewals agent performance, renewal rate impact, and offer analytics — mirrors the Domo ELI+ | Renewals AI report",
+    titleSuffix: "— Performance & Impact",
+    description: "Renewal performance across all properties plus AI-driven time savings, financial impact, and outreach analytics",
     iconSrc: "/eli-cube.svg",
-    headlineKpi: { label: "Renewal rate", value: "74%", sub: "last 30 days · +4 pts vs prior" },
+    headlineKpi: { label: "Renewal rate", value: "74%", sub: "+4 pts vs prior · $1.51M incremental annual revenue" },
     blocks: RENEWALS_AI_BLOCKS,
   },
 };
@@ -369,6 +429,40 @@ export const ELI_DASHBOARD_ORDER: EliAgentSlug[] = [
 export function getDashboard(slug: string): EliDashboard | null {
   return ELI_DASHBOARDS[slug as EliAgentSlug] ?? null;
 }
+
+export interface EscalationDetail {
+  property: string;
+  resident: string;
+  unit: string;
+  reason: string;
+  generatedOn: string;
+  resolvedOn: string | null;
+  responseTimeHrs: number | null;
+  conversationId: string;
+}
+
+export const RENEWALS_ESCALATION_DETAILS: EscalationDetail[] = [
+  { property: "Harvest Peak Capital", resident: "Maria Garcia", unit: "Unit 204", reason: "Pricing Question", generatedOn: "2026-05-18 09:14 AM", resolvedOn: "2026-05-18 11:42 AM", responseTimeHrs: 2.5, conversationId: "conv-r-001" },
+  { property: "Skyline Apartments", resident: "James Chen", unit: "Unit 112", reason: "Lease Terms", generatedOn: "2026-05-17 02:30 PM", resolvedOn: "2026-05-17 04:15 PM", responseTimeHrs: 1.8, conversationId: "conv-r-002" },
+  { property: "The Meridian", resident: "Aisha Patel", unit: "Unit 308", reason: "Maintenance Concern", generatedOn: "2026-05-17 10:05 AM", resolvedOn: "2026-05-17 03:22 PM", responseTimeHrs: 5.3, conversationId: "conv-r-003" },
+  { property: "Oakwood Village", resident: "David Thompson", unit: "Unit 415", reason: "Moving Out", generatedOn: "2026-05-16 11:48 AM", resolvedOn: "2026-05-16 02:10 PM", responseTimeHrs: 2.4, conversationId: "conv-r-004" },
+  { property: "Harvest Peak Capital", resident: "Sarah Kim", unit: "Unit 127", reason: "Pricing Question", generatedOn: "2026-05-16 08:22 AM", resolvedOn: "2026-05-16 10:05 AM", responseTimeHrs: 1.7, conversationId: "conv-r-005" },
+  { property: "Pine Ridge Estates", resident: "Michael Robinson", unit: "Unit 201", reason: "Ask to Contact Office", generatedOn: "2026-05-15 03:45 PM", resolvedOn: "2026-05-16 09:30 AM", responseTimeHrs: 17.8, conversationId: "conv-r-006" },
+  { property: "Campus View", resident: "Emily Nguyen", unit: "Unit 522", reason: "Lease Terms", generatedOn: "2026-05-15 01:12 PM", resolvedOn: "2026-05-15 02:48 PM", responseTimeHrs: 1.6, conversationId: "conv-r-007" },
+  { property: "Metro Heights", resident: "Robert Martinez", unit: "Unit 304", reason: "Pricing Question", generatedOn: "2026-05-14 09:30 AM", resolvedOn: "2026-05-14 11:15 AM", responseTimeHrs: 1.8, conversationId: "conv-r-008" },
+  { property: "Lakeside Commons", resident: "Jennifer Lee", unit: "Unit 118", reason: "Maintenance Concern", generatedOn: "2026-05-14 08:05 AM", resolvedOn: "2026-05-14 12:30 PM", responseTimeHrs: 4.4, conversationId: "conv-r-009" },
+  { property: "Heritage Place", resident: "William Davis", unit: "Unit 210", reason: "Other", generatedOn: "2026-05-13 04:18 PM", resolvedOn: "2026-05-13 05:42 PM", responseTimeHrs: 1.4, conversationId: "conv-r-010" },
+  { property: "Summit Towers", resident: "Lisa Anderson", unit: "Unit 802", reason: "Pricing Question", generatedOn: "2026-05-13 10:30 AM", resolvedOn: "2026-05-13 01:15 PM", responseTimeHrs: 2.8, conversationId: "conv-r-011" },
+  { property: "Skyline Apartments", resident: "Carlos Reyes", unit: "Unit 305", reason: "Lease Terms", generatedOn: "2026-05-12 11:20 AM", resolvedOn: "2026-05-12 03:45 PM", responseTimeHrs: 4.4, conversationId: "conv-r-012" },
+  { property: "The Meridian", resident: "Amanda Wilson", unit: "Unit 410", reason: "Moving Out", generatedOn: "2026-05-12 09:00 AM", resolvedOn: null, responseTimeHrs: null, conversationId: "conv-r-013" },
+  { property: "Oakwood Village", resident: "Kevin Brown", unit: "Unit 215", reason: "Ask to Contact Office", generatedOn: "2026-05-11 02:30 PM", resolvedOn: "2026-05-11 04:10 PM", responseTimeHrs: 1.7, conversationId: "conv-r-014" },
+  { property: "Harvest Peak Capital", resident: "Rachel Taylor", unit: "Unit 306", reason: "Pricing Question", generatedOn: "2026-05-11 08:45 AM", resolvedOn: "2026-05-11 10:20 AM", responseTimeHrs: 1.6, conversationId: "conv-r-015" },
+  { property: "Campus View", resident: "Daniel Park", unit: "Unit 118", reason: "Maintenance Concern", generatedOn: "2026-05-10 03:15 PM", resolvedOn: null, responseTimeHrs: null, conversationId: "conv-r-016" },
+  { property: "Metro Heights", resident: "Sophia Zhang", unit: "Unit 512", reason: "Other", generatedOn: "2026-05-10 10:00 AM", resolvedOn: "2026-05-10 11:30 AM", responseTimeHrs: 1.5, conversationId: "conv-r-017" },
+  { property: "Lakeside Commons", resident: "Andrew Cooper", unit: "Unit 224", reason: "Lease Terms", generatedOn: "2026-05-09 01:45 PM", resolvedOn: "2026-05-09 04:20 PM", responseTimeHrs: 2.6, conversationId: "conv-r-018" },
+  { property: "Pine Ridge Estates", resident: "Michelle Torres", unit: "Unit 103", reason: "Pricing Question", generatedOn: "2026-05-09 09:10 AM", resolvedOn: "2026-05-09 11:50 AM", responseTimeHrs: 2.7, conversationId: "conv-r-019" },
+  { property: "Heritage Place", resident: "Thomas White", unit: "Unit 405", reason: "Moving Out", generatedOn: "2026-05-08 11:30 AM", resolvedOn: "2026-05-08 02:15 PM", responseTimeHrs: 2.8, conversationId: "conv-r-020" },
+];
 
 export function getSparklineValues(seed: number, count = 12): number[] {
   const rng = seededRandom(seed);
