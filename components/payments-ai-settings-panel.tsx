@@ -168,32 +168,13 @@ const SCENARIOS: {
   },
 ]
 
-/** Default outreach copy per scenario. `{name}`, `{balance}`, and `{link}` are
- *  merge tags the agent fills in at send time. Email custom text is included
- *  in the body of the reminder email; SMS custom text is appended to the
- *  standard SMS reminder. */
+/** Default outreach copy per scenario. Empty by default — the property fills
+ *  these in when they enable custom text for a scenario. When left blank the
+ *  platform default opener is used. */
 const SCENARIO_MESSAGES: Record<ScenarioId, { emailSubject: string; emailCustomText: string; smsCustomText: string }> = {
-  initial: {
-    emailSubject: "A friendly reminder about your upcoming rent",
-    emailCustomText:
-      "Hi {name}, this is a friendly reminder that your rent of {balance} is due soon. You can pay anytime here: {link}",
-    smsCustomText:
-      "Thanks for being a great neighbor — pay your rent anytime at {link}.",
-  },
-  late: {
-    emailSubject: "Your rent balance is now past due",
-    emailCustomText:
-      "Hi {name}, your rent balance of {balance} is now past due and late fees may apply. Please pay or set up a plan here: {link}",
-    smsCustomText:
-      "Late fees may apply. Pay or set up a plan at {link}.",
-  },
-  legal: {
-    emailSubject: "Important: your account has reached pre-collections",
-    emailCustomText:
-      "Hi {name}, your account ({balance}) has reached pre-collections. Please resolve this right away to avoid further action: {link}",
-    smsCustomText:
-      "Please resolve your past-due balance today at {link} to avoid further action.",
-  },
+  initial: { emailSubject: "", emailCustomText: "", smsCustomText: "" },
+  late: { emailSubject: "", emailCustomText: "", smsCustomText: "" },
+  legal: { emailSubject: "", emailCustomText: "", smsCustomText: "" },
 }
 
 const ALL_DAYS_FALSE_SUN: DayFlags = { sun: false, mon: true, tue: true, wed: true, thu: true, fri: true, sat: true }
@@ -656,7 +637,7 @@ function makeScenarioSettings(scenario: ScenarioId): ScenarioSettings {
     quietStart: c.quietStart,
     quietEnd: c.quietEnd,
     days: { ...c.days },
-    customTextEnabled: true,
+    customTextEnabled: false,
     emailSubject: SCENARIO_MESSAGES[scenario].emailSubject,
     emailCustomText: SCENARIO_MESSAGES[scenario].emailCustomText,
     smsCustomText: SCENARIO_MESSAGES[scenario].smsCustomText,
@@ -1298,11 +1279,6 @@ export function PaymentsAISettingsPanel({
                     icon={Receipt}
                     title="Payment actions"
                     description="What actions ELI+ can take on the resident's balance during a conversation — creating repayment agreements, running one-time full-balance payments, enrolling recurring payments, and sharing Flex availability."
-                    headerAction={
-                      <Badge variant="gray" className="text-[10px]">
-                        Property-wide
-                      </Badge>
-                    }
                   >
                     <div className="space-y-4">
                       <p className="rounded-md border border-amber-200 bg-amber-50/60 px-3 py-1.5 text-xs text-amber-900">
@@ -1320,11 +1296,6 @@ export function PaymentsAISettingsPanel({
                     icon={UserCheck}
                     title="Resident eligibility"
                     description="Score residents from payment history and route outreach by scenario based on risk band. When on, ELI+ computes a score from the factors below and applies per-scenario rules before sending outreach."
-                    headerAction={
-                      <Badge variant="gray" className="text-[10px]">
-                        Property-wide
-                      </Badge>
-                    }
                   >
                     <p className="mb-4 rounded-md border border-amber-200 bg-amber-50/60 px-3 py-1.5 text-xs text-amber-900">
                       Compliance note: eligibility scoring may be subject to fair-housing rules and company policy. Review with legal before enabling in production.
@@ -1336,11 +1307,6 @@ export function PaymentsAISettingsPanel({
                     icon={History}
                     title="Context awareness"
                     description="How ELI+ uses payment history and prior conversation context (staff, manager, and Payments AI threads) when deciding to reach out or escalate."
-                    headerAction={
-                      <Badge variant="gray" className="text-[10px]">
-                        Property-wide
-                      </Badge>
-                    }
                   >
                     <ContextAwareOutreachSection state={state} update={update} propertyContext={propertyContext} />
                   </SectionShell>
@@ -1349,11 +1315,6 @@ export function PaymentsAISettingsPanel({
                     icon={Ban}
                     title="Stop conditions"
                     description="When ELI+ should stop the cadence and hold further outreach. Property-wide — these apply to every scenario unless noted otherwise."
-                    headerAction={
-                      <Badge variant="gray" className="text-[10px]">
-                        Property-wide
-                      </Badge>
-                    }
                   >
                     <StopConditionsSection state={state} update={update} />
                   </SectionShell>
@@ -2222,13 +2183,13 @@ function CustomTextSection({
       icon={MessageSquareText}
       title="Custom Text"
       description="Customize the email subject, email body copy, and SMS copy the agent sends for each scenario. Turn custom text off to use the platform default for that cadence."
-      hint="Email custom text is included in the body of the reminder email. SMS custom text is appended to the bottom of the standard SMS reminder. Merge tags {name}, {balance}, and {link} are replaced at send time. When custom text is off, the platform default is used."
+      hint="Email custom text is included in the body of the reminder email. SMS custom text is appended to the bottom of the standard SMS reminder. When custom text is off, the platform default is used."
     >
       <div className="space-y-4">
         {SCENARIOS.map((s) => {
           const settings = settingsFor(s.id)
           const outOfScope = s.outOfScope
-          const disabled = !settings.customTextEnabled || outOfScope
+          const showFields = settings.customTextEnabled && !outOfScope
           return (
             <div
               key={s.id}
@@ -2246,7 +2207,7 @@ function CustomTextSection({
                   {s.title}
                 </p>
                 <div className="flex shrink-0 items-center gap-2">
-                  <span className="text-[10px] font-medium text-muted-foreground">Custom text</span>
+                  <span className="text-[10px] font-medium text-muted-foreground">Enable Custom Text</span>
                   <ToggleSwitch
                     checked={settings.customTextEnabled}
                     disabled={outOfScope}
@@ -2254,69 +2215,50 @@ function CustomTextSection({
                   />
                 </div>
               </div>
-              <div
-                className={cn(
-                  "mt-3 space-y-3 transition-opacity",
-                  disabled && "pointer-events-none opacity-50",
-                )}
-                aria-disabled={disabled}
-              >
-                <div>
-                  <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Email subject
-                  </label>
-                  <input
-                    type="text"
-                    value={settings.emailSubject}
-                    onChange={(e) => onMessageChange(s.id, "emailSubject", e.target.value)}
-                    disabled={disabled}
-                    aria-label={`${s.title} email subject`}
-                    className={cn(inputClass, "mt-1.5")}
-                  />
+              {showFields && (
+                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <div>
+                    <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Email subject
+                    </label>
+                    <input
+                      type="text"
+                      value={settings.emailSubject}
+                      onChange={(e) => onMessageChange(s.id, "emailSubject", e.target.value)}
+                      aria-label={`${s.title} email subject`}
+                      className={cn(inputClass, "mt-1.5")}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Email custom text
+                    </label>
+                    <textarea
+                      value={settings.emailCustomText}
+                      onChange={(e) => onMessageChange(s.id, "emailCustomText", e.target.value)}
+                      rows={3}
+                      aria-label={`${s.title} email custom text`}
+                      className={cn(textareaClass, "mt-1.5")}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      SMS custom text
+                    </label>
+                    <textarea
+                      value={settings.smsCustomText}
+                      onChange={(e) => onMessageChange(s.id, "smsCustomText", e.target.value)}
+                      rows={3}
+                      aria-label={`${s.title} SMS custom text`}
+                      className={cn(textareaClass, "mt-1.5")}
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Email custom text
-                  </label>
-                  <textarea
-                    value={settings.emailCustomText}
-                    onChange={(e) => onMessageChange(s.id, "emailCustomText", e.target.value)}
-                    rows={3}
-                    disabled={disabled}
-                    aria-label={`${s.title} email custom text`}
-                    className={cn(textareaClass, "mt-1.5")}
-                  />
-                  <p className="mt-1 text-[10px] text-muted-foreground">
-                    Included in the body of the reminder email.
-                  </p>
-                </div>
-                <div>
-                  <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    SMS custom text
-                  </label>
-                  <textarea
-                    value={settings.smsCustomText}
-                    onChange={(e) => onMessageChange(s.id, "smsCustomText", e.target.value)}
-                    rows={2}
-                    disabled={disabled}
-                    aria-label={`${s.title} SMS custom text`}
-                    className={cn(textareaClass, "mt-1.5")}
-                  />
-                  <p className="mt-1 text-[10px] text-muted-foreground">
-                    Appended to the bottom of the standard SMS reminder.
-                  </p>
-                </div>
-              </div>
+              )}
             </div>
           )
         })}
       </div>
-
-      <p className="mt-3 text-[11px] text-muted-foreground">
-        Merge tags: <code className="rounded bg-zinc-100 px-1 py-0.5">{"{name}"}</code>{" "}
-        <code className="rounded bg-zinc-100 px-1 py-0.5">{"{balance}"}</code>{" "}
-        <code className="rounded bg-zinc-100 px-1 py-0.5">{"{link}"}</code>
-      </p>
     </SectionShell>
   )
 }
@@ -2803,9 +2745,6 @@ function CadenceSection({
                 Delivery window
               </span>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Channel, quiet hours, and days of week for this scenario&apos;s outreach. Each cadence has its own delivery window.
-            </p>
 
           <div className="space-y-5">
             {/* Channel preference */}
@@ -2916,11 +2855,11 @@ function CadenceSection({
                   onChange={(v) => update("defaultSendOnHolidays", v)}
                 />
               </div>
-              <p className="mt-1.5 text-xs text-muted-foreground">
-                {state.defaultSendOnHolidays
-                  ? "Messages send on holidays and other blocked days as scheduled."
-                  : "Scheduled communications that land on a blocked day will be sent the next available business day."}
-              </p>
+              {state.defaultSendOnHolidays && (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Messages send on holidays and other blocked days as scheduled.
+                </p>
+              )}
             </div>
           </div>
           </div>
@@ -3056,11 +2995,6 @@ function ChangeLogSection({ propertyName }: { propertyName: string }) {
       title="Change log"
       description={`Audit trail of Payments AI setting edits for ${propertyName}. Shows who changed what, when, and from what value.`}
       hint="Property-wide history. Most recent changes appear first."
-      headerAction={
-        <Badge variant="gray" className="text-[10px]">
-          Property-wide
-        </Badge>
-      }
     >
       <div className="overflow-hidden rounded-lg border border-border">
         <table className="w-full border-collapse text-sm">
@@ -3601,18 +3535,8 @@ function GuardrailSubsection({
       <div className="flex items-center gap-2 px-3 py-2.5">
         <p className="text-sm font-semibold text-foreground">{title}</p>
         {description && <InfoHint label={description} />}
-        {scope === "global" && (
-          <Badge variant="gray" className="ml-auto text-[9px]">
-            Global — all scenarios
-          </Badge>
-        )}
-        {scope === "phase" && (
-          <Badge variant="gray" className="ml-auto text-[9px]">
-            Phase-specific
-          </Badge>
-        )}
         {masterToggle && (
-          <div className={cn("shrink-0", !scope && "ml-auto")}>{masterToggle}</div>
+          <div className="ml-auto shrink-0">{masterToggle}</div>
         )}
       </div>
       <div className="border-t border-border/60 px-3 py-2.5">{children}</div>

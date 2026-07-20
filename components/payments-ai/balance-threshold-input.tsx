@@ -2,7 +2,6 @@
 
 import { Input } from "@/components/ui/input";
 import {
-  formatBalanceThreshold,
   getThresholdNumericValue,
   setThresholdNumericValue,
   type BalanceThreshold,
@@ -17,7 +16,7 @@ type Props = {
   className?: string;
 };
 
-export function BalanceThresholdInput({ value, onChange, avgRent, label, className }: Props) {
+export function BalanceThresholdInput({ value, onChange, label, className }: Props) {
   const numeric = getThresholdNumericValue(value);
 
   return (
@@ -66,7 +65,6 @@ export function BalanceThresholdInput({ value, onChange, avgRent, label, classNa
           {value.mode === "percentOfRent" && <span className="text-sm text-muted-foreground">%</span>}
         </div>
       </div>
-      <p className="text-[11px] text-muted-foreground">{formatBalanceThreshold(value, avgRent)}</p>
     </div>
   );
 }
