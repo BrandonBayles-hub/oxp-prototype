@@ -169,19 +169,30 @@ const SCENARIOS: {
 ]
 
 /** Default outreach copy per scenario. `{name}`, `{balance}`, and `{link}` are
- *  merge tags the agent fills in at send time. */
-const SCENARIO_MESSAGES: Record<ScenarioId, { intro: string; repeat: string }> = {
+ *  merge tags the agent fills in at send time. Email custom text is included
+ *  in the body of the reminder email; SMS custom text is appended to the
+ *  standard SMS reminder. */
+const SCENARIO_MESSAGES: Record<ScenarioId, { emailSubject: string; emailCustomText: string; smsCustomText: string }> = {
   initial: {
-    intro: "Hi {name}, this is a friendly reminder that your rent of {balance} is due soon. You can pay anytime here: {link}",
-    repeat: "Hi {name}, just a quick reminder that your rent of {balance} is due. Pay here when you're ready: {link}",
+    emailSubject: "A friendly reminder about your upcoming rent",
+    emailCustomText:
+      "Hi {name}, this is a friendly reminder that your rent of {balance} is due soon. You can pay anytime here: {link}",
+    smsCustomText:
+      "Thanks for being a great neighbor — pay your rent anytime at {link}.",
   },
   late: {
-    intro: "Hi {name}, your rent balance of {balance} is now past due and late fees may apply. Please pay or set up a plan here: {link}",
-    repeat: "Hi {name}, your balance of {balance} is still outstanding. Avoid further fees by paying or arranging a plan here: {link}",
+    emailSubject: "Your rent balance is now past due",
+    emailCustomText:
+      "Hi {name}, your rent balance of {balance} is now past due and late fees may apply. Please pay or set up a plan here: {link}",
+    smsCustomText:
+      "Late fees may apply. Pay or set up a plan at {link}.",
   },
   legal: {
-    intro: "Hi {name}, your account ({balance}) has reached pre-collections. Please resolve this right away to avoid further action: {link}",
-    repeat: "Hi {name}, your past-due balance of {balance} remains unresolved. Contact us or pay now to stop escalation: {link}",
+    emailSubject: "Important: your account has reached pre-collections",
+    emailCustomText:
+      "Hi {name}, your account ({balance}) has reached pre-collections. Please resolve this right away to avoid further action: {link}",
+    smsCustomText:
+      "Please resolve your past-due balance today at {link} to avoid further action.",
   },
 }
 
@@ -528,10 +539,13 @@ interface ScenarioSettings {
   quietStart: number
   quietEnd: number
   days: DayFlags
-  // Customizable outreach copy for this scenario.
+  // Customizable outreach copy for this scenario. Email custom text is
+  // included in the body of the reminder email; SMS custom text is appended
+  // to the bottom of the standard SMS reminder.
   customTextEnabled: boolean
-  introMessage: string
-  repeatMessage: string
+  emailSubject: string
+  emailCustomText: string
+  smsCustomText: string
 }
 
 /** Keys on PanelState that are scenario-scoped (mirrored to/from the store). */
@@ -551,8 +565,9 @@ const SCENARIO_SCOPED_KEYS: (keyof ScenarioSettings)[] = [
   "quietEnd",
   "days",
   "customTextEnabled",
-  "introMessage",
-  "repeatMessage",
+  "emailSubject",
+  "emailCustomText",
+  "smsCustomText",
 ]
 
 interface PanelState extends ScenarioSettings {
@@ -600,16 +615,11 @@ interface PanelState extends ScenarioSettings {
   onTimePayerGraceEnabled: boolean
   onTimePayerGraceDays: number
   onTimePayerMinRate: number
-  // Stop conditions — property-wide, applies to every scenario. Exceptions:
+  // Stop conditions — property-wide, applies to every scenario. Exception:
   // `pauseOnMoveOut` only applies to Rent Reminder + Delinquency (Pre-Collections
-  // is post-move-out by definition and has its own move-out handling);
-  // `pauseOnActiveRepaymentAgreement` only applies to Delinquency +
-  // Pre-Collections (Rent Reminder is upstream of any plan).
+  // is post-move-out by definition and has its own move-out handling).
   pauseOnExpectedPayDate: boolean
   pauseOnMoveOut: boolean
-  pauseOnReply: boolean
-  pauseOnEviction: boolean
-  pauseOnActiveRepaymentAgreement: boolean
   // Workflow guardrails — Reliability guards (property-wide)
   toolFailureCap: number
   loopGuardCount: number
@@ -647,8 +657,9 @@ function makeScenarioSettings(scenario: ScenarioId): ScenarioSettings {
     quietEnd: c.quietEnd,
     days: { ...c.days },
     customTextEnabled: true,
-    introMessage: SCENARIO_MESSAGES[scenario].intro,
-    repeatMessage: SCENARIO_MESSAGES[scenario].repeat,
+    emailSubject: SCENARIO_MESSAGES[scenario].emailSubject,
+    emailCustomText: SCENARIO_MESSAGES[scenario].emailCustomText,
+    smsCustomText: SCENARIO_MESSAGES[scenario].smsCustomText,
   }
 }
 
@@ -688,7 +699,12 @@ const CADENCE_KEYS: (keyof ScenarioSettings)[] = [
   "maxAttempts", "recipients", "minOutstandingBalance",
   "channel", "quietStart", "quietEnd", "days",
 ]
-const MESSAGING_KEYS: (keyof ScenarioSettings)[] = ["customTextEnabled", "introMessage"]
+const MESSAGING_KEYS: (keyof ScenarioSettings)[] = [
+  "customTextEnabled",
+  "emailSubject",
+  "emailCustomText",
+  "smsCustomText",
+]
 const DELIVERY_DEFAULT_KEYS: (keyof PanelState)[] = ["defaultSendOnHolidays"]
 const REPAYMENT_KEYS: (keyof PanelState)[] = [
   "repaymentOfferAllowed", "repaymentOfferEnabled", "repaymentRequireGoodStanding", "repaymentMinBalance", "repaymentMaxBalance",
@@ -705,8 +721,7 @@ const CONTEXT_OUTREACH_KEYS: (keyof PanelState)[] = [
   "onTimePayerGraceEnabled", "onTimePayerGraceDays", "onTimePayerMinRate",
 ]
 const STOP_CONDITION_KEYS: (keyof PanelState)[] = [
-  "pauseOnExpectedPayDate", "pauseOnMoveOut", "pauseOnReply", "pauseOnEviction",
-  "pauseOnActiveRepaymentAgreement",
+  "pauseOnExpectedPayDate", "pauseOnMoveOut",
 ]
 const GUARDRAIL_KEYS: (keyof PanelState)[] = [
   "shareFlexAvailability", "acceptOneTimePayments", "setupRecurringPayments",
@@ -816,7 +831,9 @@ const SCENARIO_FIELD_META: {
   quietStart:           { scope: "Cadence",     label: "Quiet hours start",              format: formatHour },
   quietEnd:             { scope: "Cadence",     label: "Quiet hours end",                format: formatHour },
   days:                 { scope: "Cadence",     label: "Send days",                      format: formatDays },
-  introMessage:         { scope: "Custom text", label: "Intro message",                  format: (v) => (v ? `"${v}"` : "(empty)") },
+  emailSubject:         { scope: "Custom text", label: "Email subject",                  format: (v) => (v ? `"${v}"` : "(empty)") },
+  emailCustomText:      { scope: "Custom text", label: "Email custom text",              format: (v) => (v ? `"${v}"` : "(empty)") },
+  smsCustomText:        { scope: "Custom text", label: "SMS custom text",                format: (v) => (v ? `"${v}"` : "(empty)") },
   customTextEnabled:    { scope: "Custom text", label: "Custom text",                    format: yesNo },
 }
 
@@ -860,9 +877,6 @@ const PANEL_FIELD_META: {
   // Stop conditions
   pauseOnExpectedPayDate:         { scope: "Stop conditions",    label: "Pause when resident supplies an expected pay date",     format: yesNo },
   pauseOnMoveOut:                 { scope: "Stop conditions",    label: "Pause on move-out",                                     format: yesNo },
-  pauseOnReply:                   { scope: "Stop conditions",    label: "Pause after any resident reply",                        format: yesNo },
-  pauseOnEviction:                { scope: "Stop conditions",    label: "Pause on eviction filed",                               format: yesNo },
-  pauseOnActiveRepaymentAgreement:{ scope: "Stop conditions",    label: "Pause when an active repayment agreement is on file",   format: yesNo },
 }
 
 /** Order of scopes in the confirmation dialog. Any scope not listed appears
@@ -1038,14 +1052,9 @@ function makeInitialState(): PanelState {
     onTimePayerGraceDays: 3,
     onTimePayerMinRate: 90,
     // Stop conditions — property-wide. `pauseOnMoveOut` is scoped in-code to
-    // Rent Reminder + Delinquency (Pre-Collections handles move-out separately);
-    // `pauseOnActiveRepaymentAgreement` is scoped in-code to Delinquency +
-    // Pre-Collections.
+    // Rent Reminder + Delinquency (Pre-Collections handles move-out separately).
     pauseOnExpectedPayDate: true,
     pauseOnMoveOut: true,
-    pauseOnReply: true,
-    pauseOnEviction: true,
-    pauseOnActiveRepaymentAgreement: true,
     toolFailureCap: 3,
     loopGuardCount: 4,
     shareFlexAvailability: true,
@@ -1159,15 +1168,16 @@ export function PaymentsAISettingsPanel({
 
   const handleScenarioMessageChange = (
     scenarioId: ScenarioId,
+    field: "emailSubject" | "emailCustomText" | "smsCustomText",
     value: string,
   ) => {
     setState((prev) => {
       const stored =
         scenarioId === prev.scenario ? extractScenarioSettings(prev) : prev.scenarioStore[scenarioId]
-      const nextScenarioSettings = { ...stored, introMessage: value }
+      const nextScenarioSettings = { ...stored, [field]: value }
       const scenarioStore = { ...prev.scenarioStore, [scenarioId]: nextScenarioSettings }
       if (scenarioId === prev.scenario) {
-        return { ...prev, introMessage: value, scenarioStore }
+        return { ...prev, [field]: value, scenarioStore }
       }
       return { ...prev, scenarioStore }
     })
@@ -1296,7 +1306,7 @@ export function PaymentsAISettingsPanel({
                   >
                     <div className="space-y-4">
                       <p className="rounded-md border border-amber-200 bg-amber-50/60 px-3 py-1.5 text-xs text-amber-900">
-                        Compliance note: repayment terms may be subject to state tenant law, fair-housing rules, and company policy. Review with legal before enabling in production.
+                        ELI+ will only offer repayment agreements when repayment agreements are allowed in your property settings.
                       </p>
                       <RepaymentAgreementsSection state={state} update={update} avgRent={resolvedSettings.avgRent} />
                       <div className="grid gap-4 md:grid-cols-2">
@@ -2192,12 +2202,18 @@ function CustomTextSection({
   activeScenario: ScenarioId
   scenarioStore: Record<ScenarioId, ScenarioSettings>
   current: PanelState
-  onMessageChange: (scenarioId: ScenarioId, value: string) => void
+  onMessageChange: (
+    scenarioId: ScenarioId,
+    field: "emailSubject" | "emailCustomText" | "smsCustomText",
+    value: string,
+  ) => void
   onCustomTextEnabledToggle: (scenarioId: ScenarioId, enabled: boolean) => void
 }) {
   const settingsFor = (id: ScenarioId) =>
     id === activeScenario ? extractScenarioSettings(current) : scenarioStore[id]
 
+  const inputClass =
+    "w-full rounded-md border border-border bg-white px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/20"
   const textareaClass =
     "w-full resize-y rounded-md border border-border bg-white px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/20"
 
@@ -2205,13 +2221,14 @@ function CustomTextSection({
     <SectionShell
       icon={MessageSquareText}
       title="Custom Text"
-      description="Customize the first message the agent sends for each scenario. Turn custom text off to use the platform default opener for that cadence."
-      hint="Merge tags {name}, {balance}, and {link} are replaced at send time. When custom text is off, the platform default opener is used. Repeat follow-ups always use the platform default."
+      description="Customize the email subject, email body copy, and SMS copy the agent sends for each scenario. Turn custom text off to use the platform default for that cadence."
+      hint="Email custom text is included in the body of the reminder email. SMS custom text is appended to the bottom of the standard SMS reminder. Merge tags {name}, {balance}, and {link} are replaced at send time. When custom text is off, the platform default is used."
     >
       <div className="space-y-4">
         {SCENARIOS.map((s) => {
           const settings = settingsFor(s.id)
           const outOfScope = s.outOfScope
+          const disabled = !settings.customTextEnabled || outOfScope
           return (
             <div
               key={s.id}
@@ -2239,22 +2256,56 @@ function CustomTextSection({
               </div>
               <div
                 className={cn(
-                  "mt-3 transition-opacity",
-                  (!settings.customTextEnabled || outOfScope) && "pointer-events-none opacity-50",
+                  "mt-3 space-y-3 transition-opacity",
+                  disabled && "pointer-events-none opacity-50",
                 )}
-                aria-disabled={!settings.customTextEnabled || outOfScope}
+                aria-disabled={disabled}
               >
-                <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Intro message
-                </label>
-                <textarea
-                  value={settings.introMessage}
-                  onChange={(e) => onMessageChange(s.id, e.target.value)}
-                  rows={3}
-                  disabled={!settings.customTextEnabled || outOfScope}
-                  aria-label={`${s.title} intro message`}
-                  className={cn(textareaClass, "mt-1.5")}
-                />
+                <div>
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Email subject
+                  </label>
+                  <input
+                    type="text"
+                    value={settings.emailSubject}
+                    onChange={(e) => onMessageChange(s.id, "emailSubject", e.target.value)}
+                    disabled={disabled}
+                    aria-label={`${s.title} email subject`}
+                    className={cn(inputClass, "mt-1.5")}
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Email custom text
+                  </label>
+                  <textarea
+                    value={settings.emailCustomText}
+                    onChange={(e) => onMessageChange(s.id, "emailCustomText", e.target.value)}
+                    rows={3}
+                    disabled={disabled}
+                    aria-label={`${s.title} email custom text`}
+                    className={cn(textareaClass, "mt-1.5")}
+                  />
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    Included in the body of the reminder email.
+                  </p>
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    SMS custom text
+                  </label>
+                  <textarea
+                    value={settings.smsCustomText}
+                    onChange={(e) => onMessageChange(s.id, "smsCustomText", e.target.value)}
+                    rows={2}
+                    disabled={disabled}
+                    aria-label={`${s.title} SMS custom text`}
+                    className={cn(textareaClass, "mt-1.5")}
+                  />
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    Appended to the bottom of the standard SMS reminder.
+                  </p>
+                </div>
               </div>
             </div>
           )
@@ -3248,36 +3299,6 @@ function StopConditionsSection({
           <ToggleSwitch
             checked={state.pauseOnMoveOut}
             onChange={(v) => update("pauseOnMoveOut", v)}
-          />
-        </GuardrailRule>
-        <GuardrailRule
-          layout="row"
-          title="Pause sequence on any inbound reply"
-          description="If the resident replies — even just to ask a question — pause the cadence until a human resumes it."
-        >
-          <ToggleSwitch
-            checked={state.pauseOnReply}
-            onChange={(v) => update("pauseOnReply", v)}
-          />
-        </GuardrailRule>
-        <GuardrailRule
-          layout="row"
-          title="Pause sequence once resident enters eviction proceedings"
-          description="Once formal eviction proceedings begin, stop automated messaging so it doesn't conflict with the legal process."
-        >
-          <ToggleSwitch
-            checked={state.pauseOnEviction}
-            onChange={(v) => update("pauseOnEviction", v)}
-          />
-        </GuardrailRule>
-        <GuardrailRule
-          layout="row"
-          title="Pause sequence for residents with an active repayment agreement in good standing"
-          description="When on, ELI+ holds automated payment outreach for residents who are current on an active repayment agreement in good standing. Outreach resumes if the plan lapses."
-        >
-          <ToggleSwitch
-            checked={state.pauseOnActiveRepaymentAgreement}
-            onChange={(v) => update("pauseOnActiveRepaymentAgreement", v)}
           />
         </GuardrailRule>
       </div>
