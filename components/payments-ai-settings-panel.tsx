@@ -3052,7 +3052,7 @@ function ChangeLogSection({ propertyName }: { propertyName: string }) {
         </table>
       </div>
       <p className="mt-3 text-[11px] text-muted-foreground">
-        Prototype data — a production change log will pull from the same audit stream that powers Entrata's other admin activity logs.
+        Prototype data — a production change log will pull from the same audit stream that powers Entrata&apos;s other admin activity logs.
       </p>
     </SectionShell>
   )
