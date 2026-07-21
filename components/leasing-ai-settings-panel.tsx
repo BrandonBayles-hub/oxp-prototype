@@ -326,6 +326,7 @@ function isApplicationModeEligible(derived: DerivedPropertyData): boolean {
    ══════════════════════════════════════════════════════════════════════════ */
 
 interface PanelState {
+  agentName: string
   conversationMode: ConversationModeId
   tourPriority: TourType[]
   virtualTourLink: string
@@ -341,8 +342,9 @@ interface PanelState {
   preQualGoals: PreQualGoal[]
 }
 
-function makeDefaultState(): PanelState {
+function makeDefaultState(agentDisplayLabel = "Leasing AI"): PanelState {
   return {
+    agentName: agentDisplayLabel,
     conversationMode: DEFAULT_MODE,
     tourPriority: DEFAULT_TOUR_PRIORITY,
     virtualTourLink: "",
@@ -386,12 +388,14 @@ export function LeasingAISettingsPanel({
   propertyName,
   agentDisplayLabel = "Leasing AI",
 }: Props) {
+  const initialAgentDisplayLabel = agentDisplayLabel.trim() || "Leasing AI"
   const derived = useMemo(() => deriveProperty(propertyName), [propertyName])
   const appModeEligible = useMemo(() => isApplicationModeEligible(derived), [derived])
 
-  const [state, setState] = useState<PanelState>(() => makeDefaultState())
-  const [pristine, setPristine] = useState<PanelState>(() => makeDefaultState())
+  const [state, setState] = useState<PanelState>(() => makeDefaultState(initialAgentDisplayLabel))
+  const [pristine, setPristine] = useState<PanelState>(() => makeDefaultState(initialAgentDisplayLabel))
   const [backendStatus, setBackendStatus] = useState<"idle" | "ok" | "error">("idle")
+  const resolvedAgentDisplayLabel = state.agentName.trim() || initialAgentDisplayLabel
 
   const CHATBOT_API = "http://localhost:8000"
 
@@ -399,6 +403,7 @@ export function LeasingAISettingsPanel({
     fetch(`${CHATBOT_API}/sales-mode`)
       .then((res) => { if (res.ok) return res.json(); throw new Error() })
       .then((data: {
+        agent_display_name?: string
         mode_id?: string
         tour_priority?: string[]
         virtual_tour_link?: string
@@ -414,8 +419,9 @@ export function LeasingAISettingsPanel({
         prequalification_actions?: { outcome?: string; tour?: string; application?: string }[]
         prequalification_goals?: { result: string; tour: string; application: string; waitlist?: string; offer_market_rate: boolean }[]
       }) => {
-        const defaults = makeDefaultState()
+        const defaults = makeDefaultState(initialAgentDisplayLabel)
         const loaded: Partial<PanelState> = {
+          agentName: data.agent_display_name?.trim() || initialAgentDisplayLabel,
           conversationMode: normalizeModeId(data.mode_id),
           tourPriority: normalizeTourPriority(data.tour_priority),
           virtualTourLink: data.virtual_tour_link ?? "",
@@ -462,7 +468,7 @@ export function LeasingAISettingsPanel({
       })
       .catch(() => setBackendStatus("error"))
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [initialAgentDisplayLabel])
 
   useEffect(() => {
     if (!appModeEligible && state.conversationMode === "maximize-application") {
@@ -501,6 +507,7 @@ export function LeasingAISettingsPanel({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         mode_id: s.conversationMode,
+        agent_display_name: s.agentName.trim() || initialAgentDisplayLabel,
         mode_name: activeMode?.name ?? s.conversationMode,
         conversion_goal: activeMode?.conversionGoal ?? "schedule_tours",
         tour_priority: s.tourPriority,
@@ -547,9 +554,9 @@ export function LeasingAISettingsPanel({
       <header className="border-b border-border bg-white px-8 py-5">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-bold text-foreground">{agentDisplayLabel} Settings</h2>
+            <h2 className="text-xl font-bold text-foreground">{resolvedAgentDisplayLabel} Settings</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Configure how {agentDisplayLabel} guides prospects at <strong>{propertyName}</strong>.
+              Configure how {resolvedAgentDisplayLabel} guides prospects at <strong>{propertyName}</strong>.
               Set the conversation mode and optional pre-qualification flow for this property.
             </p>
           </div>
@@ -562,8 +569,9 @@ export function LeasingAISettingsPanel({
 
       <div className="flex-1 overflow-y-auto px-8 pb-32 pt-6">
         <div className="mx-auto max-w-3xl space-y-8">
-          <GroupHeading label="Leasing AI Settings" />
-          <SectionConversationMode state={state} update={update} appModeEligible={appModeEligible} />
+          <GroupHeading label={`${resolvedAgentDisplayLabel} Settings`} />
+          <SectionAgentIdentity state={state} update={update} />
+          <SectionConversationMode state={state} update={update} appModeEligible={appModeEligible} agentDisplayLabel={resolvedAgentDisplayLabel} />
           <SectionTourPriority state={state} update={update} />
           <SectionVirtualTourLink state={state} update={update} />
           <SectionPreQualification state={state} update={update} />
@@ -586,6 +594,36 @@ function GroupHeading({ label }: { label: string }) {
       <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">{label}</span>
       <div className="flex-1 border-t border-border" />
     </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Agent identity
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function SectionAgentIdentity({ state, update }: {
+  state: PanelState
+  update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
+}) {
+  return (
+    <SectionShell
+      icon={ShieldCheck}
+      title="Agent Name"
+      description="Choose the display name shown for this leasing agent in the ELI+ settings experience."
+    >
+      <div className="space-y-2">
+        <Input
+          value={state.agentName}
+          onChange={(e) => update("agentName", e.target.value)}
+          placeholder="Enter agent name"
+          aria-label="Agent name"
+          className="h-9 text-sm"
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Use a custom name if you want this agent to appear as something other than ELI+.
+        </p>
+      </div>
+    </SectionShell>
   )
 }
 
@@ -621,16 +659,17 @@ function SectionShell({ icon: Icon, title, description, headerAction, children }
    Conversation Mode
    ══════════════════════════════════════════════════════════════════════════ */
 
-function SectionConversationMode({ state, update, appModeEligible }: {
+function SectionConversationMode({ state, update, appModeEligible, agentDisplayLabel }: {
   state: PanelState
   update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
   appModeEligible: boolean
+  agentDisplayLabel: string
 }) {
   return (
     <SectionShell
       icon={MessageSquare}
       title="Conversation Mode"
-      description="Choose how the agent prioritizes and converts prospects at this property."
+      description={`Choose how ${agentDisplayLabel} prioritizes and converts prospects at this property.`}
     >
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {CONVERSATION_MODES.map((m) => {
