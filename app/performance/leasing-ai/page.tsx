@@ -1080,10 +1080,10 @@ const DOMO_TOURS = {
 // -----------------------------------------------------------------------------
 
 const LEAD_CAPTURE_METRICS = [
-  { key: "sessions", label: "Sessions Captured" },
-  { key: "guestCards", label: "Total Guest Cards Created" },
+  { key: "sessions", label: "Conversations" },
+  { key: "guestCards", label: "Total Guest Cards Created by ELI+" },
   { key: "guestCardsEli", label: "Leads Managed by ELI+" },
-  { key: "toursBooked", label: "Tours Booked" },
+  { key: "toursBooked", label: "Tours Book by ELI+" },
 ] as const;
 
 type LeadCaptureMetricKey = (typeof LEAD_CAPTURE_METRICS)[number]["key"];
@@ -1099,11 +1099,10 @@ const LEAD_SOURCE_SHARES = [
 ];
 
 const LEAD_CHANNEL_SHARES = [
-  { name: "Chat", share: 0.34, color: "#3b82f6" },
-  { name: "SMS", share: 0.24, color: "#10b981" },
-  { name: "Email", share: 0.17, color: "#f59e0b" },
-  { name: "ILS", share: 0.15, color: "#8b5cf6" },
-  { name: "Voice", share: 0.10, color: "#06b6d4" },
+  { name: "Chat", share: 0.4, color: "#3b82f6" },
+  { name: "SMS", share: 0.28, color: "#10b981" },
+  { name: "Email", share: 0.2, color: "#f59e0b" },
+  { name: "Voice", share: 0.12, color: "#06b6d4" },
 ];
 
 interface LeadCaptureDailyCounts {
@@ -1249,12 +1248,12 @@ function LeadCaptureSection({ filters, months }: { filters: FiltersState; months
   const metricLabel = LEAD_CAPTURE_METRICS.find((m) => m.key === metric)?.label ?? "";
 
   const sourceData = LEAD_SOURCE_SHARES.map((s) => ({ ...s, count: Math.round(totals.guestCards * s.share) }));
-  const channelData = LEAD_CHANNEL_SHARES.map((c) => ({ ...c, count: Math.round(totals.guestCards * c.share) }));
+  const channelData = LEAD_CHANNEL_SHARES.map((c) => ({ ...c, count: Math.round(totals.guestCardsEli * c.share) }));
 
   const funnelRows = [
-    { label: "Sessions Captured", count: totals.sessions, color: "#3b82f6", pct: 100 },
+    { label: "Conversations", count: totals.sessions, color: "#3b82f6", pct: 100 },
     { label: "Guest Cards Created", count: totals.guestCards, color: "#10b981", pct: totals.sessions > 0 ? Math.round((totals.guestCards / totals.sessions) * 100) : 0 },
-    { label: "Tours Booked", count: totals.toursBooked, color: "#f59e0b", pct: totals.sessions > 0 ? Math.round((totals.toursBooked / totals.sessions) * 100) : 0 },
+    { label: "Tours Book by ELI+", count: totals.toursBooked, color: "#f59e0b", pct: totals.sessions > 0 ? Math.round((totals.toursBooked / totals.sessions) * 100) : 0 },
   ];
 
   return (
@@ -1266,16 +1265,16 @@ function LeadCaptureSection({ filters, months }: { filters: FiltersState; months
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Sessions Captured" value={totals.sessions.toLocaleString()} sub="selected period" />
-        <KpiCard label="Total Guest Cards Created" value={totals.guestCards.toLocaleString()} sub="all sources, selected period" />
+        <KpiCard label="Conversations" value={totals.sessions.toLocaleString()} sub="selected period" />
+        <KpiCard label="Total Guest Cards Created by ELI+" value={totals.guestCards.toLocaleString()} sub="selected period" />
         <KpiCard label="Leads Managed by ELI+" value={totals.guestCardsEli.toLocaleString()} sub={`${totals.guestCards > 0 ? Math.round((totals.guestCardsEli / totals.guestCards) * 100) : 0}% of all guest cards`} />
-        <KpiCard label="Tours Booked" value={totals.toursBooked.toLocaleString()} sub="selected period" />
+        <KpiCard label="Tours Book by ELI+" value={totals.toursBooked.toLocaleString()} sub="selected period" />
       </div>
 
       <div className="mt-3 grid gap-3 lg:grid-cols-3">
         <Card className="border-border/60">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Sessions → Guest Cards → Tours</CardTitle>
+            <CardTitle className="text-sm">Conversations → Guest Cards → Tours</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {funnelRows.map((row) => (
@@ -1291,7 +1290,7 @@ function LeadCaptureSection({ filters, months }: { filters: FiltersState; months
                 </div>
               </div>
             ))}
-            <p className="pt-1 text-[11px] italic text-muted-foreground/80">Conversion shown as % of sessions captured</p>
+            <p className="pt-1 text-[11px] italic text-muted-foreground/80">Conversion shown as % of conversations</p>
           </CardContent>
         </Card>
 
@@ -1321,7 +1320,7 @@ function LeadCaptureSection({ filters, months }: { filters: FiltersState; months
 
         <Card className="border-border/60">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Guest Cards by Channel</CardTitle>
+            <CardTitle className="text-sm">Guest Cards by ELI+ Channel</CardTitle>
           </CardHeader>
           <CardContent>
             <ChartContainer
@@ -1825,4 +1824,3 @@ export default function LeasingAiDashboardPage() {
     </div>
   );
 }
-
