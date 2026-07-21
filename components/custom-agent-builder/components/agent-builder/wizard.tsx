@@ -58,7 +58,7 @@ import {
   type ApiExposure,
   type EntrataApiEntry,
 } from "../../lib/entrata-apis-catalog";
-import { TriggerEditor, newTrigger } from "./trigger-editor";
+import { TriggerEditor, newTrigger, applyFrequencyDefaults } from "./trigger-editor";
 import { ThresholdWarning, ContextBar } from "./threshold-warning";
 import { ThresholdConfirmDialog } from "./threshold-confirm-dialog";
 import { evaluateContextUsage } from "../../lib/custom-agents-thresholds";
@@ -67,7 +67,7 @@ import {
   PMC_PROPERTY_RECORDS,
   getPropertyPrimaryEmail,
 } from "../../lib/pmc-identity";
-import { inferFromPrompt, inferSuccessMetrics } from "../../lib/custom-agents-inference";
+import { inferEvents, inferFromPrompt, inferSuccessMetrics } from "../../lib/custom-agents-inference";
 import { formatCurrency } from "../../lib/custom-agents-cost";
 import { DEFAULT_GUARDRAILS } from "../../lib/default-guardrails";
 import {
@@ -230,12 +230,12 @@ const STEPS: StepDef[] = [
   // { id: "success", label: "Success", icon: Target, show: () => true },
   { id: "data-skills", label: "Data & Skills", icon: Database, show: () => true },
   { id: "properties", label: "Properties", icon: Building2, show: () => true },
-  {
-    id: "knowledge",
-    label: "Knowledge",
-    icon: BookOpen,
-    show: isConversationalAgent,
-  },
+  // {
+  //   id: "knowledge",
+  //   label: "Knowledge",
+  //   icon: BookOpen,
+  //   show: isConversationalAgent,
+  // },
   {
     id: "communication",
     label: "Conversational Abilities",
@@ -248,12 +248,12 @@ const STEPS: StepDef[] = [
     icon: ClipboardList,
     show: isConversationalAgent,
   },
-  {
-    id: "escalation",
-    label: "Escalation",
-    icon: LifeBuoy,
-    show: showsEscalationStep,
-  },
+  // {
+  //   id: "escalation",
+  //   label: "Escalation",
+  //   icon: LifeBuoy,
+  //   show: showsEscalationStep,
+  // },
   // Entry Points merged into Triggers step above.
   // { id: "entry-points", label: "Entry Points", icon: ExternalLink, show: () => true },
   { id: "cost", label: "Cost Forecast", icon: DollarSign, show: () => true },
@@ -648,10 +648,10 @@ export function AgentBuilderWizard({ agentId, versionNumber, onClose, onAgentCre
               />
             )}
             {current?.id === "properties" && <PropertiesStep version={version} patch={patch} />}
-            {current?.id === "knowledge" && <KnowledgeStep version={version} patch={patch} />}
+            {/* {current?.id === "knowledge" && <KnowledgeStep version={version} patch={patch} />} */}
             {current?.id === "communication" && <CommunicationStep version={version} patch={patch} />}
             {current?.id === "extraction" && <ExtractionStep version={version} patch={patch} />}
-            {current?.id === "escalation" && <EscalationStep version={version} patch={patch} />}
+            {/* {current?.id === "escalation" && <EscalationStep version={version} patch={patch} />} */}
             {current?.id === "cost" && <CostDryRunStep version={version} patch={patch} />}
             {/* {current?.id === "review" && <ReviewStep version={version} />} */}
           </div>
@@ -789,6 +789,91 @@ Write a thorough, production-quality system prompt that includes:
 Return ONLY the JSON object.`;
 }
 
+type GeneratedTriggerSuggestion = {
+  triggers: Trigger[];
+  unsupported: string[];
+};
+
+function inferGeneratedTriggersFromDescriptions(
+  suggestions: string[] | undefined,
+  prompt: string,
+): GeneratedTriggerSuggestion {
+  const rawSuggestions = (suggestions ?? []).map((s) => s.trim()).filter(Boolean);
+  const inputs = rawSuggestions.length > 0 ? rawSuggestions : [prompt];
+  const triggers: Trigger[] = [];
+  const unsupported = new Set<string>();
+  const seen = new Set<string>();
+
+  const pushTrigger = (trigger: Trigger, dedupeKey: string) => {
+    if (seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+    triggers.push(trigger);
+  };
+
+  inputs.forEach((source, index) => {
+    const lower = source.toLowerCase();
+    const idSeed = `ai_${index}_${Math.random().toString(36).slice(2, 8)}`;
+
+    const matchedEvents = inferEvents(source);
+    matchedEvents.forEach((event, eventIndex) => {
+      pushTrigger(
+        {
+          id: `trg_${idSeed}_evt_${eventIndex}`,
+          kind: "event",
+          eventId: event.id,
+        },
+        `event:${event.id}`,
+      );
+    });
+
+    if (/\b(sms|text message|text|email|voice|phone call|call|inbound message|incoming message|reply|respond)\b/.test(lower)) {
+      const channel: "sms" | "email" | "voice" =
+        /\b(email)\b/.test(lower) ? "email" : /\b(voice|phone call|call)\b/.test(lower) ? "voice" : "sms";
+      pushTrigger(
+        {
+          id: `trg_${idSeed}_inbound`,
+          kind: "inbound_message",
+          channel,
+        },
+        `inbound:${channel}`,
+      );
+    }
+
+    if (/\b(hourly|daily|weekly|monthly|annually|yearly|once|every day|every week|every month|every year|nightly|each night)\b/.test(lower)) {
+      let frequency: Extract<Trigger, { kind: "schedule" }>["frequency"] = "daily";
+      if (/\b(hourly)\b/.test(lower)) frequency = "hourly";
+      else if (/\b(weekly|every week)\b/.test(lower)) frequency = "weekly";
+      else if (/\b(monthly|every month)\b/.test(lower)) frequency = "monthly";
+      else if (/\b(annually|yearly|every year)\b/.test(lower)) frequency = "annually";
+      else if (/\b(once)\b/.test(lower)) frequency = "once";
+
+      pushTrigger(
+        applyFrequencyDefaults(
+          {
+            id: `trg_${idSeed}_schedule`,
+            kind: "schedule",
+            frequency: "daily",
+            timeOfDay: "09:00",
+          },
+          frequency,
+        ),
+        `schedule:${frequency}`,
+      );
+    }
+
+    const supported =
+      matchedEvents.length > 0 ||
+      /\b(sms|text message|text|email|voice|phone call|call|inbound message|incoming message|reply|respond|hourly|daily|weekly|monthly|annually|yearly|once|every day|every week|every month|every year|nightly|each night)\b/.test(lower);
+
+    if (!supported && rawSuggestions.length > 0) unsupported.add(source);
+  });
+
+  return {
+    triggers,
+    unsupported: [...unsupported],
+  };
+}
+
 function NameStep({ version, patch, nameReadOnly }: { version: AgentVersion; patch: (p: Partial<AgentVersion>) => void; nameReadOnly?: boolean }) {
   const selectedClassification = AGENT_CLASSIFICATION_OPTIONS.find(
     (o) => o.value === version.classification
@@ -801,6 +886,7 @@ function NameStep({ version, patch, nameReadOnly }: { version: AgentVersion; pat
   const [disableConfirmId, setDisableConfirmId] = useState<string | null>(null);
   const [aiChangeRequest, setAiChangeRequest] = useState("");
   const [aiChangeLoading, setAiChangeLoading] = useState(false);
+  const [unsupportedTriggerSuggestions, setUnsupportedTriggerSuggestions] = useState<string[]>([]);
 
   const guardrails = version.structuredGuardrails ?? DEFAULT_GUARDRAILS.map((g) => ({ ...g }));
   if (!version.structuredGuardrails) {
@@ -862,12 +948,18 @@ function NameStep({ version, patch, nameReadOnly }: { version: AgentVersion; pat
         clearInterval(interval);
 
         const generatedSkills: string[] = parsed.skillIds ?? [];
+        const generatedTriggers = inferGeneratedTriggersFromDescriptions(
+          parsed.suggestedTriggers,
+          shortDescription,
+        );
+        setUnsupportedTriggerSuggestions(generatedTriggers.unsupported);
         patch({
           prompt: parsed.prompt ?? "",
           classification: parsed.classification as AgentClassification | undefined,
           skillIds: generatedSkills,
           dataIds: parsed.dataIds ?? [],
           guardrails: parsed.guardrails ?? "",
+          triggers: generatedTriggers.triggers,
           mcpServers: deriveMcpServersFromToolIds(generatedSkills),
         });
       } else {
@@ -892,10 +984,13 @@ function NameStep({ version, patch, nameReadOnly }: { version: AgentVersion; pat
         if (desc.includes("vendor") || desc.includes("dispatch")) skillGuess.push("maintenance.dispatch_vendor");
 
         const dedupedSkills = [...new Set(skillGuess)];
+        const generatedTriggers = inferGeneratedTriggersFromDescriptions(undefined, shortDescription);
+        setUnsupportedTriggerSuggestions(generatedTriggers.unsupported);
         patch({
           prompt: generatedPrompt,
           classification: cls as AgentClassification,
           skillIds: dedupedSkills,
+          triggers: generatedTriggers.triggers,
           mcpServers: deriveMcpServersFromToolIds(dedupedSkills),
         });
       }
@@ -927,17 +1022,25 @@ function NameStep({ version, patch, nameReadOnly }: { version: AgentVersion; pat
 
         const parsed = JSON.parse(result.content.match(/\{[\s\S]*\}/)?.[0] ?? result.content);
         const updatedSkills: string[] = parsed.skillIds ?? version.skillIds ?? [];
+        const generatedTriggers = inferGeneratedTriggersFromDescriptions(
+          parsed.suggestedTriggers,
+          `${version.prompt}\n${aiChangeRequest}`,
+        );
+        setUnsupportedTriggerSuggestions(generatedTriggers.unsupported);
         patch({
           prompt: parsed.prompt ?? version.prompt,
           classification: parsed.classification as AgentClassification | undefined ?? version.classification,
           skillIds: updatedSkills,
           dataIds: parsed.dataIds ?? version.dataIds,
           guardrails: parsed.guardrails ?? version.guardrails,
+          triggers: generatedTriggers.triggers.length > 0 ? generatedTriggers.triggers : version.triggers,
           mcpServers: deriveMcpServersFromToolIds(updatedSkills),
         });
       } else {
         await new Promise((r) => setTimeout(r, 2000));
         const currentPrompt = version.prompt;
+        const generatedTriggers = inferGeneratedTriggersFromDescriptions(undefined, aiChangeRequest);
+        setUnsupportedTriggerSuggestions(generatedTriggers.unsupported);
         patch({ prompt: currentPrompt + `\n\n## Additional: ${aiChangeRequest}` });
       }
     } catch (err) {
@@ -1129,6 +1232,27 @@ function NameStep({ version, patch, nameReadOnly }: { version: AgentVersion; pat
           <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">Pick a tier and we&apos;ll explain what it means right here.</p>
         )}
       </div>
+
+      {unsupportedTriggerSuggestions.length > 0 && (
+        <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50/70 p-4">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+            <div className="min-w-0">
+              <h4 className="text-sm font-semibold text-amber-900">Some requested triggers aren&apos;t supported yet</h4>
+              <p className="mt-1 text-[11px] text-amber-800/80">
+                This builder currently supports schedule, event, and inbound message triggers. Edit the prompt if you want to replace these with a supported trigger type.
+              </p>
+              <ul className="mt-2 space-y-1">
+                {unsupportedTriggerSuggestions.map((suggestion) => (
+                  <li key={suggestion} className="text-[12px] text-amber-950">
+                    <span className="font-medium">{suggestion}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Generated Prompt ── */}
       <div className="mt-6">
@@ -1919,9 +2043,12 @@ function DataSkillsStep({
     serverName: string;
     caps: CapabilityMapping[];
   } | null>(null);
-  const [extraMcpWarning, setExtraMcpWarning] = useState<{
-    serverName: string;
+  const [pendingToolDisable, setPendingToolDisable] = useState<{
     serverId: string;
+    serverName: string;
+    toolId: string;
+    toolName: string;
+    caps: CapabilityMapping[];
   } | null>(null);
   const prevPromptRef = useRef(version.prompt);
 
@@ -2077,6 +2204,42 @@ function DataSkillsStep({
     }
   };
 
+  const handleConfirmDisableToolAndRewrite = async () => {
+    if (!pendingToolDisable || rewritingPrompt) return;
+    setRewritingPrompt(true);
+    try {
+      const rewritten = await rewritePromptWithoutCapabilities(
+        version.prompt,
+        pendingToolDisable.caps,
+      );
+      patch({ prompt: rewritten });
+      const server = mcpServers.find((s) => s.id === pendingToolDisable.serverId);
+      const serverDef = MCP_SERVER_CATALOG.find((s) => s.id === pendingToolDisable.serverId);
+      if (server && serverDef) {
+        const allToolIds = serverDef.tools.map((t) => t.id);
+        const current = server.restrictedToolIds ?? allToolIds;
+        const next = current.filter((id) => id !== pendingToolDisable.toolId);
+        const isAll = next.length === allToolIds.length;
+        patch({
+          mcpServers: mcpServers.map((s) =>
+            s.id === pendingToolDisable.serverId
+              ? { ...s, restrictedToolIds: isAll ? undefined : next }
+              : s,
+          ),
+        });
+      }
+      setRemovedFromPrompt((prev) => {
+        const next = new Set(prev);
+        for (const cap of pendingToolDisable.caps) next.add(cap.id);
+        return next;
+      });
+      setPendingToolDisable(null);
+      onGoToPromptStep();
+    } finally {
+      setRewritingPrompt(false);
+    }
+  };
+
   const toggleServer = (serverId: string) => {
     const existing = mcpServers.find((s) => s.id === serverId);
     const serverDef = MCP_SERVER_CATALOG.find((s) => s.id === serverId);
@@ -2099,16 +2262,10 @@ function DataSkillsStep({
         return;
       }
       applyServerEnabled(serverId, false);
-      if (extraMcpWarning?.serverId === serverId) setExtraMcpWarning(null);
       return;
     }
 
     // Enabling a server the prompt doesn't need → allow, but warn
-    if (capAnalysis && !neededServerIds.has(serverId)) {
-      setExtraMcpWarning({ serverId, serverName: serverDef.name });
-    } else if (extraMcpWarning?.serverId === serverId) {
-      setExtraMcpWarning(null);
-    }
     applyServerEnabled(serverId, true);
   };
 
@@ -2124,6 +2281,22 @@ function DataSkillsStep({
     const allToolIds = serverDef.tools.map((t) => t.id);
     const current = server.restrictedToolIds ?? allToolIds;
     const isEnabled = current.includes(toolId);
+
+    if (isEnabled) {
+      const dependentCaps =
+        capAnalysis?.supported.filter((c) => c.toolId === toolId) ?? [];
+      if (dependentCaps.length > 0) {
+        const toolName = serverDef.tools.find((t) => t.id === toolId)?.name ?? toolId;
+        setPendingToolDisable({
+          serverId,
+          serverName: serverDef.name,
+          toolId,
+          toolName,
+          caps: dependentCaps,
+        });
+        return;
+      }
+    }
 
     const next = isEnabled
       ? current.filter((id) => id !== toolId)
@@ -2150,6 +2323,13 @@ function DataSkillsStep({
   const activeUnsupported = capAnalysis?.unsupported.filter((c) => !removedFromPrompt.has(c.id)) ?? [];
   const unavailableCaps = activeUnsupported.filter((c) => c.status === "unavailable");
   const noAccessCaps = activeUnsupported.filter((c) => c.status === "no_access");
+  const neededToolIds = useMemo(() => {
+    const ids = new Set<string>();
+    capAnalysis?.supported.forEach((cap) => {
+      if (cap.toolId) ids.add(cap.toolId);
+    });
+    return ids;
+  }, [capAnalysis]);
 
   return (
     <section>
@@ -2319,31 +2499,6 @@ function DataSkillsStep({
         </div>
       )}
 
-      {/* ── Extra MCP warning (enabled but not needed by prompt) ── */}
-      {extraMcpWarning && (
-        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
-          <div className="flex items-start gap-2">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-            <div className="flex-1 min-w-0">
-              <p className="text-[13px] font-semibold text-amber-900">
-                {extraMcpWarning.serverName} may not be needed
-              </p>
-              <p className="mt-1 text-[11px] text-amber-800/85">
-                Your prompt doesn&apos;t appear to require this MCP. Enabling it still gives the agent access to those tools,
-                which can lead to unexpected actions. You can leave it on if you want the extra capability.
-              </p>
-              <button
-                type="button"
-                onClick={() => setExtraMcpWarning(null)}
-                className="mt-2 text-[11px] font-medium text-amber-800 hover:underline"
-              >
-                Got it
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ── Disable MCP confirmation ── */}
       {pendingDisable && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
@@ -2398,6 +2553,59 @@ function DataSkillsStep({
         </div>
       )}
 
+      {pendingToolDisable && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="disable-tool-title"
+            className="w-full max-w-md rounded-xl border border-border bg-white p-5 shadow-2xl"
+          >
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+              <div>
+                <h3 id="disable-tool-title" className="text-sm font-semibold text-foreground">
+                  Remove {pendingToolDisable.toolName}?
+                </h3>
+                <p className="mt-1 text-[12px] text-muted-foreground">
+                  Turning off this tool will prevent the agent from doing everything your prompt currently requires:
+                </p>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-[12px] text-foreground">
+                  {pendingToolDisable.caps.map((cap) => (
+                    <li key={cap.id}>{cap.capability}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                disabled={rewritingPrompt}
+                onClick={() => setPendingToolDisable(null)}
+                className="rounded-md border border-border bg-white px-3 py-2 text-[12px] font-medium text-foreground hover:bg-muted disabled:opacity-60"
+              >
+                Keep {pendingToolDisable.toolName}
+              </button>
+              <button
+                type="button"
+                disabled={rewritingPrompt}
+                onClick={() => void handleConfirmDisableToolAndRewrite()}
+                className="inline-flex items-center justify-center gap-1.5 rounded-md bg-indigo-600 px-3 py-2 text-[12px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+              >
+                {rewritingPrompt ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Updating prompt…
+                  </>
+                ) : (
+                  "Update prompt & remove tool"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="mt-4 rounded-lg border border-indigo-100 bg-indigo-50/50 p-3">
         <div className="flex items-start gap-2 text-[12px] text-indigo-900">
           <Brain className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -2436,6 +2644,7 @@ function DataSkillsStep({
           const activeToolCount = restrictedTools ? restrictedTools.length : serverDef.tools.length;
           const readTools = serverDef.tools.filter((t) => !t.mutates);
           const writeTools = serverDef.tools.filter((t) => t.mutates);
+          const showUnneededServerWarning = enabled && capAnalysis !== null && !neededServerIds.has(serverDef.id);
 
           const filteredTools = toolQuery.trim()
             ? serverDef.tools.filter((t) =>
@@ -2478,6 +2687,19 @@ function DataSkillsStep({
                 )}
               </div>
 
+              {showUnneededServerWarning && (
+                <div className="px-4 pb-3">
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                      <p className="text-[11px] text-amber-900">
+                        <span className="font-semibold">{serverDef.name}</span> doesn&apos;t appear to be needed for the current prompt. Leaving it enabled gives the agent access to extra capabilities it may not need, which increases the risk of unexpected actions.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {enabled && isExpanded && (
                 <div className="border-t border-border px-4 py-4">
                   <div className="mb-3 flex items-center justify-between">
@@ -2515,19 +2737,28 @@ function DataSkillsStep({
                         <div className="grid grid-cols-1 gap-1">
                           {readTools.filter((t) => filteredTools.includes(t)).map((tool) => {
                             const active = isToolEnabled(serverDef.id, tool.id);
+                            const showUnneededToolWarning =
+                              active && capAnalysis !== null && !neededToolIds.has(tool.id);
                             return (
-                              <label key={tool.id} className={`flex cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-1.5 text-[12px] transition-colors ${active ? "bg-green-50/50" : "opacity-50"}`}>
-                                <input
-                                  type="checkbox"
-                                  checked={active}
-                                  onChange={() => toggleTool(serverDef.id, tool.id)}
-                                  className="mt-0.5 h-3.5 w-3.5 rounded border-border accent-indigo-600"
-                                />
-                                <div>
-                                  <span className="font-medium text-foreground">{tool.name}</span>
-                                  <span className="ml-1.5 text-muted-foreground">{tool.description}</span>
+                              <div key={tool.id} className="space-y-1">
+                                <label className={`flex cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-1.5 text-[12px] transition-colors ${active ? "bg-green-50/50" : "opacity-50"}`}>
+                                  <input
+                                    type="checkbox"
+                                    checked={active}
+                                    onChange={() => toggleTool(serverDef.id, tool.id)}
+                                    className="mt-0.5 h-3.5 w-3.5 rounded border-border accent-indigo-600"
+                                  />
+                                  <div>
+                                    <span className="font-medium text-foreground">{tool.name}</span>
+                                    <span className="ml-1.5 text-muted-foreground">{tool.description}</span>
+                                  </div>
+                                </label>
+                                {showUnneededToolWarning && (
+                                  <div className="ml-6 rounded-md border border-amber-200 bg-amber-50/80 px-2.5 py-1.5 text-[11px] text-amber-900">
+                                    This tool doesn&apos;t appear to be needed for the current prompt. Leaving it enabled gives the agent extra access it may not need, which increases the risk of unexpected actions.
+                                  </div>
+                                )}
                                 </div>
-                              </label>
                             );
                           })}
                         </div>
@@ -2545,22 +2776,31 @@ function DataSkillsStep({
                         <div className="grid grid-cols-1 gap-1">
                           {writeTools.filter((t) => filteredTools.includes(t)).map((tool) => {
                             const active = isToolEnabled(serverDef.id, tool.id);
+                            const showUnneededToolWarning =
+                              active && capAnalysis !== null && !neededToolIds.has(tool.id);
                             return (
-                              <label key={tool.id} className={`flex cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-1.5 text-[12px] transition-colors ${active ? "bg-amber-50/50" : "opacity-50"}`}>
-                                <input
-                                  type="checkbox"
-                                  checked={active}
-                                  onChange={() => toggleTool(serverDef.id, tool.id)}
-                                  className="mt-0.5 h-3.5 w-3.5 rounded border-border accent-indigo-600"
-                                />
-                                <div className="flex items-start gap-1.5">
-                                  <div>
-                                    <span className="font-medium text-foreground">{tool.name}</span>
-                                    {tool.requiresApproval && <Badge variant="outline" className="ml-1.5 text-[9px] border-amber-300 text-amber-700">Requires approval</Badge>}
-                                    <span className="ml-1.5 text-muted-foreground">{tool.description}</span>
+                              <div key={tool.id} className="space-y-1">
+                                <label className={`flex cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-1.5 text-[12px] transition-colors ${active ? "bg-amber-50/50" : "opacity-50"}`}>
+                                  <input
+                                    type="checkbox"
+                                    checked={active}
+                                    onChange={() => toggleTool(serverDef.id, tool.id)}
+                                    className="mt-0.5 h-3.5 w-3.5 rounded border-border accent-indigo-600"
+                                  />
+                                  <div className="flex items-start gap-1.5">
+                                    <div>
+                                      <span className="font-medium text-foreground">{tool.name}</span>
+                                      {tool.requiresApproval && <Badge variant="outline" className="ml-1.5 text-[9px] border-amber-300 text-amber-700">Requires approval</Badge>}
+                                      <span className="ml-1.5 text-muted-foreground">{tool.description}</span>
+                                    </div>
                                   </div>
-                                </div>
-                              </label>
+                                </label>
+                                {showUnneededToolWarning && (
+                                  <div className="ml-6 rounded-md border border-amber-200 bg-amber-50/80 px-2.5 py-1.5 text-[11px] text-amber-900">
+                                    This tool doesn&apos;t appear to be needed for the current prompt. Leaving it enabled gives the agent extra access it may not need, which increases the risk of unexpected actions.
+                                  </div>
+                                )}
+                              </div>
                             );
                           })}
                         </div>
@@ -2574,7 +2814,7 @@ function DataSkillsStep({
         })}
       </div>
 
-      <AudienceBuilderSection version={version} patch={patch} />
+      {/* <AudienceBuilderSection version={version} patch={patch} /> */}
     </section>
   );
 }
