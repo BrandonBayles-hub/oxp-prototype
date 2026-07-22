@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { FieldMapButton, type DataSourceGroup } from "./field-mapper";
 import { WORKFLOW_PROPERTY_FIELDS, ERROR_PROPERTY_FIELDS } from "./formula-engine";
+import { RichTextEditor } from "@/components/rich-text-editor";
 
 interface NodeConfigPanelProps {
   nodeId: string;
@@ -766,6 +767,8 @@ export function NodeConfigPanel({
   );
 
   const retry = data.retryPolicy ?? DEFAULT_RETRY;
+  const isEmailBodyParam = (toolId?: string, paramName?: string) =>
+    toolId === "comms.send_email" && paramName === "body";
 
   return (
     <div className="flex h-full min-h-0 w-[380px] flex-col border-l border-border bg-white">
@@ -946,35 +949,70 @@ export function NodeConfigPanel({
                         {param.required && <span className="text-[9px] font-bold text-red-500">required</span>}
                       </div>
                       <p className="mt-0.5 text-[10px] text-muted-foreground">{param.description}</p>
-                      <div className="mt-1.5 flex items-center gap-1">
-                        <input
-                          type="text"
-                          placeholder="Map a field or write a formula..."
-                          className={`flex-1 rounded border bg-white px-2 py-1 text-[11px] focus:border-indigo-300 focus:outline-none ${
-                            String(data.config?.[param.name] ?? "").includes("{{") || /[A-Z_]+\s*\(/.test(String(data.config?.[param.name] ?? ""))
-                              ? "border-indigo-200 bg-indigo-50/30 font-mono text-indigo-700"
-                              : "border-gray-200"
-                          }`}
-                          value={String(data.config?.[param.name] ?? "")}
-                          onChange={(e) =>
-                            onUpdate(nodeId, {
-                              config: { ...data.config, [param.name]: e.target.value },
-                            })
-                          }
-                        />
-                        <FieldMapButton
-                          targetField={param.name}
-                          targetLabel={param.name}
-                          currentValue={String(data.config?.[param.name] ?? "")}
-                          sources={dataSources}
-                          showErrorSource={showErrorSource}
-                          onApply={(expr) =>
-                            onUpdate(nodeId, {
-                              config: { ...data.config, [param.name]: expr },
-                            })
-                          }
-                        />
-                      </div>
+                      {isEmailBodyParam(data.mcpTool, param.name) ? (
+                        <div className="mt-1.5 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-[10px] text-muted-foreground">
+                              Use rich text formatting to style the email body, or insert mapped values from prior steps.
+                            </p>
+                            <FieldMapButton
+                              targetField={param.name}
+                              targetLabel={param.name}
+                              currentValue={String(data.config?.[param.name] ?? "")}
+                              sources={dataSources}
+                              showErrorSource={showErrorSource}
+                              onApply={(expr) =>
+                                onUpdate(nodeId, {
+                                  config: { ...data.config, [param.name]: expr },
+                                })
+                              }
+                            />
+                          </div>
+                          <RichTextEditor
+                            value={String(data.config?.[param.name] ?? "")}
+                            onChange={(html) =>
+                              onUpdate(nodeId, {
+                                config: { ...data.config, [param.name]: html },
+                              })
+                            }
+                            placeholder="Write and format the email body…"
+                            minHeight="220px"
+                            className="bg-white"
+                            contentKey={`${nodeId}:${param.name}`}
+                            showOutline={false}
+                          />
+                        </div>
+                      ) : (
+                        <div className="mt-1.5 flex items-center gap-1">
+                          <input
+                            type="text"
+                            placeholder="Map a field or write a formula..."
+                            className={`flex-1 rounded border bg-white px-2 py-1 text-[11px] focus:border-indigo-300 focus:outline-none ${
+                              String(data.config?.[param.name] ?? "").includes("{{") || /[A-Z_]+\s*\(/.test(String(data.config?.[param.name] ?? ""))
+                                ? "border-indigo-200 bg-indigo-50/30 font-mono text-indigo-700"
+                                : "border-gray-200"
+                            }`}
+                            value={String(data.config?.[param.name] ?? "")}
+                            onChange={(e) =>
+                              onUpdate(nodeId, {
+                                config: { ...data.config, [param.name]: e.target.value },
+                              })
+                            }
+                          />
+                          <FieldMapButton
+                            targetField={param.name}
+                            targetLabel={param.name}
+                            currentValue={String(data.config?.[param.name] ?? "")}
+                            sources={dataSources}
+                            showErrorSource={showErrorSource}
+                            onApply={(expr) =>
+                              onUpdate(nodeId, {
+                                config: { ...data.config, [param.name]: expr },
+                              })
+                            }
+                          />
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
