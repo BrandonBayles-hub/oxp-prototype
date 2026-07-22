@@ -2458,6 +2458,18 @@ function DeterministicBuilderModal({
     setBuiltWorkflow(updated);
   }, []);
 
+  const visualizerWorkflow = useMemo(() => {
+    if (!builtWorkflow) return null;
+    return {
+      name: builtWorkflow.name,
+      description: builtWorkflow.description,
+      nodes: builtWorkflow.nodes,
+      edges: builtWorkflow.edges,
+      dataSources: builtWorkflow.dataSources,
+      triggers: builtWorkflow.triggers,
+    };
+  }, [builtWorkflow]);
+
   const [conversionBanner, setConversionBanner] = useState<{
     show: boolean;
     changeRequest: string;
@@ -3182,7 +3194,7 @@ function DeterministicBuilderModal({
         <div className="min-h-0 flex-1">
           <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading workflow visualizer...</div>}>
             <WorkflowVisualizer
-              workflow={{
+              workflow={visualizerWorkflow ?? {
                 name: builtWorkflow.name,
                 description: builtWorkflow.description,
                 nodes: builtWorkflow.nodes,

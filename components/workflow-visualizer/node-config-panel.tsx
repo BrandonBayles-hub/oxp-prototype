@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { FieldMapButton, type DataSourceGroup } from "./field-mapper";
 import { WORKFLOW_PROPERTY_FIELDS, ERROR_PROPERTY_FIELDS } from "./formula-engine";
+import { RichTextEditor } from "@/components/rich-text-editor";
 
 interface NodeConfigPanelProps {
   nodeId: string;
@@ -766,6 +767,8 @@ export function NodeConfigPanel({
   );
 
   const retry = data.retryPolicy ?? DEFAULT_RETRY;
+  const isEmailBodyParam = (toolId?: string, paramName?: string) =>
+    toolId === "comms.send_email" && paramName === "body";
 
   return (
     <div className="flex h-full min-h-0 w-[380px] flex-col border-l border-border bg-white">
@@ -946,35 +949,70 @@ export function NodeConfigPanel({
                         {param.required && <span className="text-[9px] font-bold text-red-500">required</span>}
                       </div>
                       <p className="mt-0.5 text-[10px] text-muted-foreground">{param.description}</p>
-                      <div className="mt-1.5 flex items-center gap-1">
-                        <input
-                          type="text"
-                          placeholder="Map a field or write a formula..."
-                          className={`flex-1 rounded border bg-white px-2 py-1 text-[11px] focus:border-indigo-300 focus:outline-none ${
-                            String(data.config?.[param.name] ?? "").includes("{{") || /[A-Z_]+\s*\(/.test(String(data.config?.[param.name] ?? ""))
-                              ? "border-indigo-200 bg-indigo-50/30 font-mono text-indigo-700"
-                              : "border-gray-200"
-                          }`}
-                          value={String(data.config?.[param.name] ?? "")}
-                          onChange={(e) =>
-                            onUpdate(nodeId, {
-                              config: { ...data.config, [param.name]: e.target.value },
-                            })
-                          }
-                        />
-                        <FieldMapButton
-                          targetField={param.name}
-                          targetLabel={param.name}
-                          currentValue={String(data.config?.[param.name] ?? "")}
-                          sources={dataSources}
-                          showErrorSource={showErrorSource}
-                          onApply={(expr) =>
-                            onUpdate(nodeId, {
-                              config: { ...data.config, [param.name]: expr },
-                            })
-                          }
-                        />
-                      </div>
+                      {isEmailBodyParam(data.mcpTool, param.name) ? (
+                        <div className="mt-1.5 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-[10px] text-muted-foreground">
+                              Use rich text formatting to style the email body, or insert mapped values from prior steps.
+                            </p>
+                            <FieldMapButton
+                              targetField={param.name}
+                              targetLabel={param.name}
+                              currentValue={String(data.config?.[param.name] ?? "")}
+                              sources={dataSources}
+                              showErrorSource={showErrorSource}
+                              onApply={(expr) =>
+                                onUpdate(nodeId, {
+                                  config: { ...data.config, [param.name]: expr },
+                                })
+                              }
+                            />
+                          </div>
+                          <RichTextEditor
+                            value={String(data.config?.[param.name] ?? "")}
+                            onChange={(html) =>
+                              onUpdate(nodeId, {
+                                config: { ...data.config, [param.name]: html },
+                              })
+                            }
+                            placeholder="Write and format the email body…"
+                            minHeight="220px"
+                            className="bg-white"
+                            contentKey={`${nodeId}:${param.name}`}
+                            showOutline={false}
+                          />
+                        </div>
+                      ) : (
+                        <div className="mt-1.5 flex items-center gap-1">
+                          <input
+                            type="text"
+                            placeholder="Map a field or write a formula..."
+                            className={`flex-1 rounded border bg-white px-2 py-1 text-[11px] focus:border-indigo-300 focus:outline-none ${
+                              String(data.config?.[param.name] ?? "").includes("{{") || /[A-Z_]+\s*\(/.test(String(data.config?.[param.name] ?? ""))
+                                ? "border-indigo-200 bg-indigo-50/30 font-mono text-indigo-700"
+                                : "border-gray-200"
+                            }`}
+                            value={String(data.config?.[param.name] ?? "")}
+                            onChange={(e) =>
+                              onUpdate(nodeId, {
+                                config: { ...data.config, [param.name]: e.target.value },
+                              })
+                            }
+                          />
+                          <FieldMapButton
+                            targetField={param.name}
+                            targetLabel={param.name}
+                            currentValue={String(data.config?.[param.name] ?? "")}
+                            sources={dataSources}
+                            showErrorSource={showErrorSource}
+                            onApply={(expr) =>
+                              onUpdate(nodeId, {
+                                config: { ...data.config, [param.name]: expr },
+                              })
+                            }
+                          />
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1131,45 +1169,123 @@ export function NodeConfigPanel({
             {/* Loop config */}
             {data.type === "loop" && (
               <div>
-                <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Iterate Over</label>
-                <div className="flex items-center gap-1">
-                  <input
-                    type="text"
-                    className="flex-1 rounded-lg border border-border bg-slate-50 px-3 py-2 font-mono text-xs focus:border-indigo-300 focus:outline-none"
-                    placeholder="Map a list field from an upstream step"
-                    value={data.config?.["collection"] ?? ""}
-                    onChange={(e) =>
-                      onUpdate(nodeId, {
-                        config: { ...data.config, collection: e.target.value },
-                      })
-                    }
-                  />
-                  <FieldMapButton
-                    targetField="collection"
-                    targetLabel="Iterate Over"
-                    currentValue={data.config?.["collection"] ?? ""}
-                    sources={dataSources}
-                    showErrorSource={showErrorSource}
-                    onApply={(expr) =>
-                      onUpdate(nodeId, {
-                        config: { ...data.config, collection: expr },
-                      })
-                    }
-                  />
-                </div>
-                <div className="mt-2 flex items-center gap-2">
-                  <label className="text-[11px] text-muted-foreground">Batch size</label>
-                  <input
-                    type="number"
-                    className="w-16 rounded border border-border bg-slate-50 px-2 py-1 text-xs focus:border-indigo-300 focus:outline-none"
-                    value={data.config?.["batchSize"] ?? "10"}
-                    onChange={(e) =>
-                      onUpdate(nodeId, {
-                        config: { ...data.config, batchSize: e.target.value },
-                      })
-                    }
-                  />
-                </div>
+                <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Loop Type</label>
+                <select
+                  className="w-full rounded-lg border border-border bg-slate-50 px-3 py-2 text-xs focus:border-indigo-300 focus:outline-none"
+                  value={data.config?.["loopType"] ?? "for_each"}
+                  onChange={(e) =>
+                    onUpdate(nodeId, {
+                      label:
+                        e.target.value === "do_while"
+                          ? "Do While Loop"
+                          : e.target.value === "while"
+                            ? "While Loop"
+                            : "For Each Loop",
+                      description:
+                        e.target.value === "do_while"
+                          ? "Run the nested sub-workflow first, then repeat while the condition stays true"
+                          : e.target.value === "while"
+                            ? "Repeat the nested sub-workflow while the condition stays true"
+                            : "Run the nested sub-workflow once for each item in a collection",
+                      config: { ...data.config, loopType: e.target.value },
+                    })
+                  }
+                >
+                  <option value="for_each">For Each</option>
+                  <option value="while">While</option>
+                  <option value="do_while">Do While</option>
+                </select>
+
+                {(data.config?.["loopType"] ?? "for_each") === "for_each" ? (
+                  <>
+                    <label className="mb-1 mt-3 block text-[11px] font-medium text-muted-foreground">Iterate Over</label>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="text"
+                        className="flex-1 rounded-lg border border-border bg-slate-50 px-3 py-2 font-mono text-xs focus:border-indigo-300 focus:outline-none"
+                        placeholder="Map a list field from an upstream step"
+                        value={data.config?.["collection"] ?? ""}
+                        onChange={(e) =>
+                          onUpdate(nodeId, {
+                            config: { ...data.config, collection: e.target.value },
+                          })
+                        }
+                      />
+                      <FieldMapButton
+                        targetField="collection"
+                        targetLabel="Iterate Over"
+                        currentValue={data.config?.["collection"] ?? ""}
+                        sources={dataSources}
+                        showErrorSource={showErrorSource}
+                        onApply={(expr) =>
+                          onUpdate(nodeId, {
+                            config: { ...data.config, collection: expr },
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="mb-1 block text-[11px] text-muted-foreground">Item alias</label>
+                        <input
+                          type="text"
+                          className="w-full rounded border border-border bg-slate-50 px-2 py-1.5 text-xs focus:border-indigo-300 focus:outline-none"
+                          value={data.config?.["itemAlias"] ?? "item"}
+                          onChange={(e) =>
+                            onUpdate(nodeId, {
+                              config: { ...data.config, itemAlias: e.target.value },
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                    <p className="mt-2 text-[10px] text-muted-foreground">
+                      Every item in the mapped array will run through the loop body. No batching is applied.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <label className="mb-1 mt-3 block text-[11px] font-medium text-muted-foreground">Repeat While</label>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="text"
+                        className="flex-1 rounded-lg border border-border bg-slate-50 px-3 py-2 font-mono text-xs focus:border-indigo-300 focus:outline-none"
+                        placeholder="e.g. {{step.has_more}} == true"
+                        value={data.config?.["condition"] ?? ""}
+                        onChange={(e) =>
+                          onUpdate(nodeId, {
+                            config: { ...data.config, condition: e.target.value },
+                          })
+                        }
+                      />
+                      <FieldMapButton
+                        targetField="condition"
+                        targetLabel="Loop Condition"
+                        currentValue={data.config?.["condition"] ?? ""}
+                        sources={dataSources}
+                        showErrorSource={showErrorSource}
+                        onApply={(expr) =>
+                          onUpdate(nodeId, {
+                            config: { ...data.config, condition: expr },
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="mt-2">
+                      <label className="mb-1 block text-[11px] text-muted-foreground">Max iterations</label>
+                      <input
+                        type="number"
+                        className="w-24 rounded border border-border bg-slate-50 px-2 py-1.5 text-xs focus:border-indigo-300 focus:outline-none"
+                        value={data.config?.["maxIterations"] ?? "100"}
+                        onChange={(e) =>
+                          onUpdate(nodeId, {
+                            config: { ...data.config, maxIterations: e.target.value },
+                          })
+                        }
+                      />
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -1373,7 +1489,7 @@ export function NodeConfigPanel({
                   <p className="text-[11px] font-semibold text-red-800">Error path data pills</p>
                 </div>
                 <p className="mb-2 text-[10px] text-red-700/80">
-                  When this step fails, downstream error-path steps can map these fields:
+                  When this step fails, the failure-monitor branch can map these fields and report them without blocking the rest of the workflow:
                 </p>
                 <div className="flex flex-wrap gap-1">
                   {ERROR_PROPERTY_FIELDS.map((f) => (
@@ -1398,7 +1514,7 @@ export function NodeConfigPanel({
                     onClick={() => onEnsureErrorBranch(nodeId)}
                     className="mt-2 flex w-full items-center justify-center gap-1 rounded border border-dashed border-red-300 py-1.5 text-[10px] font-medium text-red-700 hover:bg-red-50"
                   >
-                    <Plus className="h-3 w-3" /> Create on-error handler step
+                    <Plus className="h-3 w-3" /> Create failure monitor branch
                   </button>
                 )}
               </div>

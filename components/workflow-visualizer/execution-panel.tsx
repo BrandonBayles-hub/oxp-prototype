@@ -214,6 +214,7 @@ export function ExecutionPanel({ workflow, onHighlightNode }: ExecutionPanelProp
         };
 
         const errorPath = node.errorPath ?? "stop";
+        const continueAfterError = node.config?.["continueAfterError"] === "true";
         if (errorPath === "branch" && node.errorTargetId) {
           newSteps[idx] = {
             nodeId,
@@ -226,13 +227,15 @@ export function ExecutionPanel({ workflow, onHighlightNode }: ExecutionPanelProp
             startedAt: new Date().toISOString(),
           };
           // Skip happy-path children; queue error target if not already next
-          const happyTargets = workflow.edges
-            .filter((e) => e.source === nodeId && !e.isErrorPath)
-            .map((e) => e.target);
-          for (const tid of happyTargets) {
-            const skipIdx = orderedNodeIds.indexOf(tid);
-            if (skipIdx >= 0 && newSteps[skipIdx]) {
-              newSteps[skipIdx] = { ...newSteps[skipIdx], status: "skipped" };
+          if (!continueAfterError) {
+            const happyTargets = workflow.edges
+              .filter((e) => e.source === nodeId && !e.isErrorPath)
+              .map((e) => e.target);
+            for (const tid of happyTargets) {
+              const skipIdx = orderedNodeIds.indexOf(tid);
+              if (skipIdx >= 0 && newSteps[skipIdx]) {
+                newSteps[skipIdx] = { ...newSteps[skipIdx], status: "skipped" };
+              }
             }
           }
           // Ensure error target is not skipped
