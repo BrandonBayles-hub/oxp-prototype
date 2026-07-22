@@ -66,6 +66,37 @@ function WorkflowCanvas({
   onIterationRequest,
 }: WorkflowVisualizerProps) {
   const { fitView, screenToFlowPosition } = useReactFlow();
+  const workflowSignature = useMemo(
+    () =>
+      JSON.stringify({
+        id: workflow.id,
+        name: workflow.name,
+        description: workflow.description,
+        nodes: workflow.nodes.map((node) => ({
+          id: node.id,
+          type: node.type,
+          label: node.label,
+          description: node.description,
+          mcpTool: node.mcpTool,
+          mcpServer: node.mcpServer,
+          config: node.config,
+          retryPolicy: node.retryPolicy,
+          timeout: node.timeout,
+          inputMappings: node.inputMappings,
+          outputFields: node.outputFields,
+          errorPath: node.errorPath,
+          errorTargetId: node.errorTargetId,
+        })),
+        edges: workflow.edges.map((edge) => ({
+          id: edge.id,
+          source: edge.source,
+          target: edge.target,
+          label: edge.label,
+          isErrorPath: edge.isErrorPath,
+        })),
+      }),
+    [workflow],
+  );
 
   // Stable ref so layout edges and insert handlers always call the latest insert fn
   const handleInsertStepRef = useRef<
@@ -93,12 +124,12 @@ function WorkflowCanvas({
   const [rebuildPhase, setRebuildPhase] = useState<"idle" | "analyzing" | "redesigning" | "done">("idle");
   const [iterationHistory, setIterationHistory] = useState<Array<{ request: string; timestamp: string }>>([]);
 
-  const prevWorkflowRef = useRef(workflow);
+  const prevWorkflowSignatureRef = useRef(workflowSignature);
   useEffect(() => {
-    if (prevWorkflowRef.current !== workflow) {
+    if (prevWorkflowSignatureRef.current !== workflowSignature) {
       const isInternalEdit = internalEditRef.current;
       internalEditRef.current = false;
-      prevWorkflowRef.current = workflow;
+      prevWorkflowSignatureRef.current = workflowSignature;
       setNodes(layoutNodes);
       setEdges(layoutEdges);
       if (!isInternalEdit) {
@@ -106,7 +137,7 @@ function WorkflowCanvas({
         setTimeout(() => fitView({ padding: 0.3, maxZoom: 1, duration: 600 }), 50);
       }
     }
-  }, [workflow, layoutNodes, layoutEdges, setNodes, setEdges, fitView]);
+  }, [workflowSignature, layoutNodes, layoutEdges, setNodes, setEdges, fitView]);
 
   useEffect(() => {
     if (!highlightedNodeId) return;
