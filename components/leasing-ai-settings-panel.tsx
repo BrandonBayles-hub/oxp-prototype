@@ -7,6 +7,14 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -27,6 +35,11 @@ import {
   ListOrdered,
   GripVertical,
   Link as LinkIcon,
+  Mail,
+  MessageSquareText,
+  Bell,
+  Pencil,
+  History,
 } from "lucide-react"
 import {
   Tooltip,
@@ -72,6 +85,45 @@ const CONVERSATION_MODES: ConversationMode[] = [
 ]
 
 const DEFAULT_MODE: ConversationModeId = "maximize-tour"
+
+type LeasingSettingsTab = "settings" | "pre-tour-nurture" | "post-tour-nurture"
+
+interface PreTourContactPoint {
+  id: string
+  event: string
+  actions: string[]
+}
+
+const PRE_TOUR_NURTURE_CONTACT_POINTS: PreTourContactPoint[] = [
+  { id: "guest-card-completed", event: "Guest Card Completed", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+  { id: "no-tour-24h", event: "No Tour Scheduled – 24 Hours After Guest Card Completion", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+  { id: "no-tour-48h", event: "No Tour Scheduled – 48 Hours After Guest Card Completion", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+  { id: "no-tour-72h", event: "No Tour Scheduled – 72 Hours After Guest Card Completion", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+  { id: "no-tour-7d", event: "No Tour Scheduled – 7 Days After Guest Card Completion", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+  { id: "appt-onsite", event: "Appointment Scheduled by Onsite Staff", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+  { id: "appt-leasing-center", event: "Appointment Scheduled – from Leasing Center", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+  { id: "scheduled-prospect-portal", event: "Scheduled Tour – from Prospect Portal", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+  { id: "virtual-tour-scheduled", event: "Virtual Tour Scheduled", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+  { id: "self-guided-tour-scheduled", event: "Self-Guided Tour Scheduled", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+  { id: "appointment-reminder", event: "Appointment Reminder", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+  { id: "self-guided-tour-reminder", event: "Self-Guided Tour Reminder", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+  { id: "self-guided-tour-rescheduled", event: "Self-Guided Tour Rescheduled", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+  { id: "tour-canceled", event: "Tour Canceled – No New Tour Scheduled", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+  { id: "tour-outcome-not-recorded", event: "Tour Outcome Not Recorded", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+]
+
+const POST_TOUR_NURTURE_CONTACT_POINTS: PreTourContactPoint[] = [
+  { id: "tour-completed", event: "Tour Completed", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+  { id: "self-guided-tour-completed", event: "Self-Guided Tour Completed", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+  { id: "tour-completed-no-app-2h", event: "Tour Completed – No Application After 2 Hours", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+  { id: "tour-completed-no-app-48h", event: "Tour Completed – No Application After 48 Hours", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+  { id: "tour-completed-no-app-6d", event: "Tour Completed – No Application After 6 Days", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+  { id: "tour-completed-no-app-12d", event: "Tour Completed – No Application After 12 Days", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+  { id: "multiple-tours-no-app", event: "Multiple Tours Completed – No Application", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+  { id: "rental-application-invitation", event: "Rental Application Invitation", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+  { id: "application-started-prospect-portal", event: "Application Started – from Prospect Portal", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+  { id: "post-tour-human-follow-up", event: "Post-Tour Human Follow-Up Needed", actions: ["Automatic Email", "Automated Text Message", "Manual Contact"] },
+]
 
 const LEGACY_MODE_MAP: Record<string, ConversationModeId> = {
   "tour-first": "maximize-tour",
@@ -330,6 +382,8 @@ interface PanelState {
   conversationMode: ConversationModeId
   tourPriority: TourType[]
   virtualTourLink: string
+  externalSelfGuidedTourLink: string
+  externalAgentGuidedTourLink: string
   preQualEnabled: boolean
   incomeEnabled: boolean
   incomeMultiplier: string
@@ -348,6 +402,8 @@ function makeDefaultState(agentDisplayLabel = "Leasing AI"): PanelState {
     conversationMode: DEFAULT_MODE,
     tourPriority: DEFAULT_TOUR_PRIORITY,
     virtualTourLink: "",
+    externalSelfGuidedTourLink: "",
+    externalAgentGuidedTourLink: "",
     preQualEnabled: false,
     incomeEnabled: true,
     incomeMultiplier: "3.0",
@@ -395,6 +451,7 @@ export function LeasingAISettingsPanel({
   const [state, setState] = useState<PanelState>(() => makeDefaultState(initialAgentDisplayLabel))
   const [pristine, setPristine] = useState<PanelState>(() => makeDefaultState(initialAgentDisplayLabel))
   const [backendStatus, setBackendStatus] = useState<"idle" | "ok" | "error">("idle")
+  const [activeTab, setActiveTab] = useState<LeasingSettingsTab>("settings")
   const resolvedAgentDisplayLabel = state.agentName.trim() || initialAgentDisplayLabel
 
   const CHATBOT_API = "http://localhost:8000"
@@ -407,6 +464,8 @@ export function LeasingAISettingsPanel({
         mode_id?: string
         tour_priority?: string[]
         virtual_tour_link?: string
+        external_self_guided_tour_link?: string
+        external_agent_guided_tour_link?: string
         prequalification_enabled?: boolean
         conversation_start?: string
         household_income?: string
@@ -425,6 +484,8 @@ export function LeasingAISettingsPanel({
           conversationMode: normalizeModeId(data.mode_id),
           tourPriority: normalizeTourPriority(data.tour_priority),
           virtualTourLink: data.virtual_tour_link ?? "",
+          externalSelfGuidedTourLink: data.external_self_guided_tour_link ?? "",
+          externalAgentGuidedTourLink: data.external_agent_guided_tour_link ?? "",
           preQualEnabled: Boolean(data.prequalification_enabled),
           conversationStart: (data.conversation_start as ConversationStart) ?? "market_first",
           affordableSettings: {
@@ -486,6 +547,14 @@ export function LeasingAISettingsPanel({
       const err = validateVirtualTourLink(state.virtualTourLink)
       if (err) blockers.push(`Virtual Tour Link: ${err}`)
     }
+    if (state.externalSelfGuidedTourLink.trim().length > 0) {
+      const err = validateVirtualTourLink(state.externalSelfGuidedTourLink)
+      if (err) blockers.push(`External Self-Guided Tour Link: ${err}`)
+    }
+    if (state.externalAgentGuidedTourLink.trim().length > 0) {
+      const err = validateVirtualTourLink(state.externalAgentGuidedTourLink)
+      if (err) blockers.push(`External Agent Guided Tour Link: ${err}`)
+    }
     if (!state.preQualEnabled) return blockers
     if (!state.incomeEnabled && !state.creditEnabled)
       blockers.push("Pre-qualification requires at least one enabled criterion.")
@@ -498,7 +567,7 @@ export function LeasingAISettingsPanel({
       if (err) blockers.push(`Credit-score requirement: ${err}`)
     }
     return blockers
-  }, [state.virtualTourLink, state.preQualEnabled, state.incomeEnabled, state.incomeMultiplier, state.creditEnabled, state.creditMinScore])
+  }, [state.virtualTourLink, state.externalSelfGuidedTourLink, state.externalAgentGuidedTourLink, state.preQualEnabled, state.incomeEnabled, state.incomeMultiplier, state.creditEnabled, state.creditMinScore])
 
   const syncToBackend = useCallback((s: PanelState) => {
     const activeMode = CONVERSATION_MODES.find((m) => m.id === s.conversationMode)
@@ -512,6 +581,8 @@ export function LeasingAISettingsPanel({
         conversion_goal: activeMode?.conversionGoal ?? "schedule_tours",
         tour_priority: s.tourPriority,
         virtual_tour_link: s.virtualTourLink.trim() || undefined,
+        external_self_guided_tour_link: s.externalSelfGuidedTourLink.trim() || undefined,
+        external_agent_guided_tour_link: s.externalAgentGuidedTourLink.trim() || undefined,
         prequalification_enabled: s.preQualEnabled,
         conversation_start: s.preQualEnabled ? s.conversationStart : undefined,
         household_income: s.preQualEnabled ? s.affordableSettings.householdIncome : undefined,
@@ -565,18 +636,50 @@ export function LeasingAISettingsPanel({
             Property scope
           </Badge>
         </div>
+        <div className="mt-5 flex items-center gap-1 border-b border-border/80">
+          {([
+            { id: "settings" as LeasingSettingsTab, label: "Settings" },
+            { id: "pre-tour-nurture" as LeasingSettingsTab, label: "Pre-tour nurture" },
+            { id: "post-tour-nurture" as LeasingSettingsTab, label: "Post-tour nurture" },
+          ]).map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                "relative px-4 py-2.5 text-sm font-medium transition-colors",
+                activeTab === tab.id ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {tab.label}
+              {activeTab === tab.id && (
+                <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-zinc-900" />
+              )}
+            </button>
+          ))}
+        </div>
       </header>
 
       <div className="flex-1 overflow-y-auto px-8 pb-32 pt-6">
-        <div className="mx-auto max-w-3xl space-y-8">
-          <GroupHeading label={`${resolvedAgentDisplayLabel} Settings`} />
-          <SectionAgentIdentity state={state} update={update} />
-          <SectionConversationMode state={state} update={update} appModeEligible={appModeEligible} agentDisplayLabel={resolvedAgentDisplayLabel} />
-          <SectionTourPriority state={state} update={update} />
-          <SectionVirtualTourLink state={state} update={update} />
-          <SectionPreQualification state={state} update={update} />
-          <SectionAffordable state={state} update={update} setState={setState} />
-        </div>
+        {activeTab === "settings" ? (
+          <div className="mx-auto max-w-3xl space-y-8">
+            <GroupHeading label={`${resolvedAgentDisplayLabel} Settings`} />
+            <SectionAgentIdentity state={state} update={update} />
+            <SectionConversationMode state={state} update={update} appModeEligible={appModeEligible} agentDisplayLabel={resolvedAgentDisplayLabel} />
+            <SectionTourPriority state={state} update={update} />
+            <SectionVirtualTourLink state={state} update={update} />
+            <SectionPreQualification state={state} update={update} />
+            <SectionAffordable state={state} update={update} setState={setState} />
+          </div>
+        ) : (
+          <div className="mx-auto max-w-6xl">
+            {activeTab === "pre-tour-nurture" ? (
+              <PreTourNurtureTab />
+            ) : (
+              <PostTourNurtureTab />
+            )}
+          </div>
+        )}
       </div>
 
       <FooterActionBar dirty={dirty} blockers={saveBlockers} onSave={handleSave} onDiscard={handleDiscard} backendStatus={backendStatus} />
@@ -802,29 +905,419 @@ function SectionVirtualTourLink({ state, update }: {
   state: PanelState
   update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
 }) {
-  const error = state.virtualTourLink.trim().length > 0 ? validateVirtualTourLink(state.virtualTourLink) : null
+  const virtualError = state.virtualTourLink.trim().length > 0 ? validateVirtualTourLink(state.virtualTourLink) : null
+  const selfGuidedError = state.externalSelfGuidedTourLink.trim().length > 0 ? validateVirtualTourLink(state.externalSelfGuidedTourLink) : null
+  const agentGuidedError = state.externalAgentGuidedTourLink.trim().length > 0 ? validateVirtualTourLink(state.externalAgentGuidedTourLink) : null
 
   return (
     <SectionShell
       icon={LinkIcon}
-      title="Virtual Tour Link"
+      title="External Tour Links"
       description="Input a URL for a Virtual Tour, if you want the agent to share the link immediately upon request."
+      headerAction={
+        <TooltipProvider delayDuration={150}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button type="button" aria-label="About external tour links" className="text-muted-foreground transition-colors hover:text-foreground">
+                <HelpCircle className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="left" className="max-w-xs px-3.5 py-3">
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                If a URL exists for one of these external tour links, the agent will default to that link when booking that tour type.
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      }
     >
-      <div className="relative">
-        <LinkIcon className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
-        <Input
-          type="url"
-          inputMode="url"
-          value={state.virtualTourLink}
-          onChange={(e) => update("virtualTourLink", e.target.value)}
-          placeholder="Enter virtual tour link"
-          aria-label="Virtual tour link"
-          aria-invalid={error !== null}
-          className={cn("h-9 pl-8 text-xs", error && "border-red-400 focus-visible:ring-red-400")}
-        />
+      <div className="space-y-4">
+        <div>
+          <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Virtual Tour Link</p>
+          <div className="relative">
+            <LinkIcon className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <Input
+              type="url"
+              inputMode="url"
+              value={state.virtualTourLink}
+              onChange={(e) => update("virtualTourLink", e.target.value)}
+              placeholder="Enter virtual tour link"
+              aria-label="Virtual tour link"
+              aria-invalid={virtualError !== null}
+              className={cn("h-9 pl-8 text-xs", virtualError && "border-red-400 focus-visible:ring-red-400")}
+            />
+          </div>
+          {virtualError && <p className="mt-1.5 text-[10px] font-medium text-red-600">{virtualError}</p>}
+        </div>
+
+        <div>
+          <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">External Self-Guided Tour Link</p>
+          <div className="relative">
+            <LinkIcon className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <Input
+              type="url"
+              inputMode="url"
+              value={state.externalSelfGuidedTourLink}
+              onChange={(e) => update("externalSelfGuidedTourLink", e.target.value)}
+              placeholder="Enter external self-guided tour link"
+              aria-label="External self-guided tour link"
+              aria-invalid={selfGuidedError !== null}
+              className={cn("h-9 pl-8 text-xs", selfGuidedError && "border-red-400 focus-visible:ring-red-400")}
+            />
+          </div>
+          {selfGuidedError && <p className="mt-1.5 text-[10px] font-medium text-red-600">{selfGuidedError}</p>}
+        </div>
+
+        <div>
+          <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">External Agent Guided Tour Link</p>
+          <div className="relative">
+            <LinkIcon className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <Input
+              type="url"
+              inputMode="url"
+              value={state.externalAgentGuidedTourLink}
+              onChange={(e) => update("externalAgentGuidedTourLink", e.target.value)}
+              placeholder="Enter external agent guided tour link"
+              aria-label="External agent guided tour link"
+              aria-invalid={agentGuidedError !== null}
+              className={cn("h-9 pl-8 text-xs", agentGuidedError && "border-red-400 focus-visible:ring-red-400")}
+            />
+          </div>
+          {agentGuidedError && <p className="mt-1.5 text-[10px] font-medium text-red-600">{agentGuidedError}</p>}
+        </div>
       </div>
-      {error && <p className="mt-1.5 text-[10px] font-medium text-red-600">{error}</p>}
     </SectionShell>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Pre-tour nurture
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function PreTourNurtureTab() {
+  const [editingPoint, setEditingPoint] = useState<PreTourContactPoint | null>(null)
+  const [historyPoint, setHistoryPoint] = useState<PreTourContactPoint | null>(null)
+
+  return (
+    <>
+      <div className="mb-5">
+        <h3 className="text-xl font-bold text-foreground">Pre-tour nurture</h3>
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          Review and manage the contact points used to nurture prospects before a tour is booked or completed.
+        </p>
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-border bg-white">
+        <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1.8fr)_88px] bg-zinc-700 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-white">
+          <div>Event</div>
+          <div>Action(s)</div>
+          <div className="text-right"> </div>
+        </div>
+        <div>
+          {PRE_TOUR_NURTURE_CONTACT_POINTS.map((point, index) => (
+            <div
+              key={point.id}
+              className={cn(
+                "grid grid-cols-[minmax(0,1.2fr)_minmax(0,1.8fr)_88px] gap-4 px-4 py-4",
+                index !== PRE_TOUR_NURTURE_CONTACT_POINTS.length - 1 && "border-b border-border",
+              )}
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground">{point.event}</p>
+              </div>
+              <div className="space-y-2">
+                {point.actions.map((action) => (
+                  <ActionSummary key={action} action={action} />
+                ))}
+              </div>
+              <div className="flex items-start justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingPoint(point)}
+                  className="rounded-md p-1.5 text-amber-500 transition-colors hover:bg-amber-50 hover:text-amber-600"
+                  aria-label={`Edit ${point.event}`}
+                >
+                  <Pencil className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHistoryPoint(point)}
+                  className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700"
+                  aria-label={`View edit history for ${point.event}`}
+                >
+                  <History className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <PreTourNurtureEditDialog point={editingPoint} onOpenChange={(open) => !open && setEditingPoint(null)} />
+      <PreTourNurtureHistoryDialog point={historyPoint} onOpenChange={(open) => !open && setHistoryPoint(null)} />
+    </>
+  )
+}
+
+function PostTourNurtureTab() {
+  const [editingPoint, setEditingPoint] = useState<PreTourContactPoint | null>(null)
+  const [historyPoint, setHistoryPoint] = useState<PreTourContactPoint | null>(null)
+
+  return (
+    <>
+      <div className="mb-5">
+        <h3 className="text-xl font-bold text-foreground">Post-tour nurture</h3>
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          Review and manage the contact points used to follow up with prospects after a tour has been completed.
+        </p>
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-border bg-white">
+        <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1.8fr)_88px] bg-zinc-700 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-white">
+          <div>Event</div>
+          <div>Action(s)</div>
+          <div className="text-right"> </div>
+        </div>
+        <div>
+          {POST_TOUR_NURTURE_CONTACT_POINTS.map((point, index) => (
+            <div
+              key={point.id}
+              className={cn(
+                "grid grid-cols-[minmax(0,1.2fr)_minmax(0,1.8fr)_88px] gap-4 px-4 py-4",
+                index !== POST_TOUR_NURTURE_CONTACT_POINTS.length - 1 && "border-b border-border",
+              )}
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground">{point.event}</p>
+              </div>
+              <div className="space-y-2">
+                {point.actions.map((action) => (
+                  <ActionSummary key={action} action={action} />
+                ))}
+              </div>
+              <div className="flex items-start justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingPoint(point)}
+                  className="rounded-md p-1.5 text-amber-500 transition-colors hover:bg-amber-50 hover:text-amber-600"
+                  aria-label={`Edit ${point.event}`}
+                >
+                  <Pencil className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHistoryPoint(point)}
+                  className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700"
+                  aria-label={`View edit history for ${point.event}`}
+                >
+                  <History className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <PreTourNurtureEditDialog point={editingPoint} onOpenChange={(open) => !open && setEditingPoint(null)} />
+      <PreTourNurtureHistoryDialog point={historyPoint} onOpenChange={(open) => !open && setHistoryPoint(null)} />
+    </>
+  )
+}
+
+function ActionSummary({ action }: { action: string }) {
+  const config =
+    action === "Automatic Email"
+      ? {
+          icon: Mail,
+          iconClass: "text-amber-500",
+          secondary: "Entrata Default | View Preview",
+          tertiary: "To: Prospects",
+        }
+      : action === "Automated Text Message"
+        ? {
+            icon: MessageSquareText,
+            iconClass: "text-sky-500",
+            secondary: "Prospect nurture SMS enabled",
+            tertiary: "To: Prospects",
+          }
+        : {
+            icon: Bell,
+            iconClass: "text-amber-500",
+            secondary: "Schedule a manual follow-up",
+            tertiary: "Assigned to onsite team",
+          }
+
+  const Icon = config.icon
+
+  return (
+    <div className="flex items-start gap-2">
+      <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", config.iconClass)} />
+      <div>
+        <p className="text-sm text-foreground">{action}</p>
+        <p className="text-xs text-muted-foreground">{config.secondary}</p>
+        <p className="text-xs text-muted-foreground">{config.tertiary}</p>
+      </div>
+    </div>
+  )
+}
+
+function PreTourNurtureEditDialog({
+  point,
+  onOpenChange,
+}: {
+  point: PreTourContactPoint | null
+  onOpenChange: (open: boolean) => void
+}) {
+  const [emailEnabled, setEmailEnabled] = useState(true)
+  const [textEnabled, setTextEnabled] = useState(true)
+  const [manualEnabled, setManualEnabled] = useState(true)
+
+  useEffect(() => {
+    if (!point) return
+    setEmailEnabled(point.actions.includes("Automatic Email"))
+    setTextEnabled(point.actions.includes("Automated Text Message"))
+    setManualEnabled(point.actions.includes("Manual Contact"))
+  }, [point])
+
+  return (
+    <Dialog open={point !== null} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-6xl p-0 sm:max-w-6xl">
+        {point && (
+          <>
+            <DialogHeader className="border-b border-border bg-zinc-800 px-6 py-4 text-left">
+              <DialogTitle className="text-xl font-semibold text-white">{point.event}</DialogTitle>
+              <DialogDescription className="text-zinc-300">
+                Edit the nurture actions associated with this pre-tour contact point.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 px-6 py-6 lg:grid-cols-3">
+              <EditActionCard
+                checked={emailEnabled}
+                onCheckedChange={setEmailEnabled}
+                title="Send an Automated Email"
+                icon={Mail}
+                accent="text-amber-500"
+              >
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-foreground">Email Template:</label>
+                  <div className="rounded-md border border-border bg-zinc-50 px-3 py-2 text-sm text-muted-foreground">
+                    Prospect Tour Nurture Template
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm">Edit Email</Button>
+                    <Button variant="ghost" size="sm" className="text-muted-foreground">Revert To Default Template</Button>
+                  </div>
+                </div>
+              </EditActionCard>
+
+              <EditActionCard
+                checked={textEnabled}
+                onCheckedChange={setTextEnabled}
+                title="Send an Automated Text Message"
+                icon={MessageSquareText}
+                accent="text-sky-500"
+              >
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-foreground">Text Message:</label>
+                  <div className="rounded-md border border-border bg-zinc-50 px-3 py-2 text-sm text-muted-foreground">
+                    Hi there! We noticed you haven&apos;t booked your tour yet. Here&apos;s the next best step to keep things moving.
+                  </div>
+                  <Button variant="outline" size="sm">Merge Fields</Button>
+                </div>
+              </EditActionCard>
+
+              <EditActionCard
+                checked={manualEnabled}
+                onCheckedChange={setManualEnabled}
+                title="Schedule a Manual Contact"
+                icon={Bell}
+                accent="text-amber-500"
+              >
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-foreground">Instructions:</label>
+                  <textarea
+                    rows={7}
+                    className="w-full rounded-md border border-border bg-white px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+                    defaultValue="Call the prospect and confirm whether they still want help scheduling a tour."
+                  />
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span className="text-xs font-medium text-foreground">Consider Overdue After:</span>
+                    <Input className="h-9 w-16 text-sm" defaultValue="1" />
+                    <span>Business Hours</span>
+                  </div>
+                </div>
+              </EditActionCard>
+            </div>
+            <DialogFooter className="border-t border-border px-6 py-4">
+              <Button size="sm" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+              <Button size="sm" onClick={() => onOpenChange(false)}>Save Event</Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function EditActionCard({
+  checked,
+  onCheckedChange,
+  title,
+  icon: Icon,
+  accent,
+  children,
+}: {
+  checked: boolean
+  onCheckedChange: (checked: boolean) => void
+  title: string
+  icon: React.ComponentType<{ className?: string }>
+  accent: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-white p-4">
+      <div className="mb-4 flex items-center gap-2 border-b border-border pb-3">
+        <Checkbox checked={checked} onCheckedChange={(value) => onCheckedChange(value === true)} />
+        <Icon className={cn("h-4 w-4", accent)} />
+        <p className="text-sm font-medium text-foreground">{title}</p>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function PreTourNurtureHistoryDialog({
+  point,
+  onOpenChange,
+}: {
+  point: PreTourContactPoint | null
+  onOpenChange: (open: boolean) => void
+}) {
+  return (
+    <Dialog open={point !== null} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Edit History</DialogTitle>
+          <DialogDescription>
+            Recent edits for {point?.event ?? "this contact point"}.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          {[
+            "Updated manual contact instructions on July 22, 2026 at 9:14 AM",
+            "Adjusted automated text message copy on July 20, 2026 at 2:41 PM",
+            "Enabled automated email on July 18, 2026 at 11:03 AM",
+          ].map((entry) => (
+            <div key={entry} className="rounded-lg border border-border bg-zinc-50 px-4 py-3 text-sm text-foreground">
+              {entry}
+            </div>
+          ))}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
