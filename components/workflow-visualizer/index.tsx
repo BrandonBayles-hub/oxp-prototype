@@ -171,6 +171,7 @@ function WorkflowCanvas({
         condition: "New Condition",
         loop: "New Loop",
       };
+      const loopBodyId = `loop-body-${Date.now()}`;
       const newNodeBase: Node = {
         id: newId,
         type: "workflowNode",
@@ -183,8 +184,19 @@ function WorkflowCanvas({
           description: type === "condition"
             ? "Configure a yes/no condition"
             : type === "loop"
-              ? "Iterate over a collection"
+              ? "Repeat a nested sub-workflow until the loop completes"
               : "Configure this action",
+          ...(type === "loop"
+            ? {
+                config: {
+                  loopType: "for_each",
+                  collection: "",
+                  itemAlias: "item",
+                  condition: "",
+                  maxIterations: "100",
+                },
+              }
+            : {}),
         } satisfies Record<string, unknown>,
       };
 
@@ -196,11 +208,31 @@ function WorkflowCanvas({
         const midY =
           ((sourceNode?.position.y ?? 0) + (targetNode?.position.y ?? 0)) / 2 + 8;
         const placed = { ...newNodeBase, position: { x: midX, y: midY } };
+        const loopBodyNode: Node = {
+          id: loopBodyId,
+          type: "workflowNode",
+          position: { x: midX, y: midY + 190 },
+          zIndex: 999,
+          data: {
+            type: "action",
+            label: "Loop Body Step",
+            description: "Add the actions that should run inside this loop",
+            config: {
+              loopScope: newId,
+              continueAfterError: "true",
+            },
+            errorPath: "branch",
+          } satisfies Record<string, unknown>,
+        };
 
         setEdges((eds) => {
           const remaining = eds.filter((e) => e.id !== edgeId);
           const oldEdge = eds.find((e) => e.id === edgeId);
-          const edge1 = {
+          const edgeData = {
+            onInsert: (eid: string, s: string, t: string, ty: InsertStepType) =>
+              handleInsertStepRef.current(eid, s, t, ty),
+          };
+          const baseEntryEdge = {
             id: `e-${source}-${newId}`,
             source,
             target: newId,
@@ -208,30 +240,61 @@ function WorkflowCanvas({
             animated: true,
             style: { stroke: "#94a3b8", strokeWidth: 2 },
             label: oldEdge?.label,
-            data: {
-              onInsert: (eid: string, s: string, t: string, ty: InsertStepType) =>
-                handleInsertStepRef.current(eid, s, t, ty),
-            },
+            data: edgeData,
           };
-          const edge2 = {
-            id: `e-${newId}-${target}`,
-            source: newId,
-            target,
-            type: "insertable" as const,
-            animated: true,
-            style: { stroke: "#94a3b8", strokeWidth: 2 },
-            data: {
-              onInsert: (eid: string, s: string, t: string, ty: InsertStepType) =>
-                handleInsertStepRef.current(eid, s, t, ty),
-            },
-            ...(type === "condition" ? { sourceHandle: "yes", label: "Yes" } : {}),
-          };
-          const updated = [...remaining, edge1, edge2];
-          const updatedNodes = [...nds, placed];
+          let updated;
+          let updatedNodes;
+          if (type === "loop") {
+            const loopBodyEdge = {
+              id: `e-${newId}-${loopBodyId}`,
+              source: newId,
+              target: loopBodyId,
+              type: "insertable" as const,
+              animated: true,
+              style: { stroke: "#94a3b8", strokeWidth: 2 },
+              label: "Repeat",
+              data: edgeData,
+            };
+            const loopReturnEdge = {
+              id: `e-${loopBodyId}-${newId}`,
+              source: loopBodyId,
+              target: newId,
+              type: "insertable" as const,
+              animated: true,
+              style: { stroke: "#7c3aed", strokeWidth: 2 },
+              label: "Next item",
+              data: edgeData,
+            };
+            const loopExitEdge = {
+              id: `e-${newId}-${target}`,
+              source: newId,
+              target,
+              type: "insertable" as const,
+              animated: true,
+              style: { stroke: "#94a3b8", strokeWidth: 2 },
+              label: "Done",
+              data: edgeData,
+            };
+            updated = [...remaining, baseEntryEdge, loopBodyEdge, loopReturnEdge, loopExitEdge];
+            updatedNodes = [...nds, placed, loopBodyNode];
+          } else {
+            const edge2 = {
+              id: `e-${newId}-${target}`,
+              source: newId,
+              target,
+              type: "insertable" as const,
+              animated: true,
+              style: { stroke: "#94a3b8", strokeWidth: 2 },
+              data: edgeData,
+              ...(type === "condition" ? { sourceHandle: "yes", label: "Yes" } : {}),
+            };
+            updated = [...remaining, baseEntryEdge, edge2];
+            updatedNodes = [...nds, placed];
+          }
           setTimeout(() => syncWorkflow(updatedNodes, updated), 0);
           return updated;
         });
-        return [...nds, placed];
+        return type === "loop" ? [...nds, placed, loopBodyNode] : [...nds, placed];
       });
       setSelectedNodeId(newId);
       setRightPanel("config");
@@ -280,11 +343,23 @@ function WorkflowCanvas({
     (sourceNodeId: string) => {
       internalEditRef.current = true;
       const existing = workflow.nodes.find((n) => n.id === `error-handler-${sourceNodeId}`);
+      const existingReport = workflow.nodes.find((n) => n.id === `error-report-${sourceNodeId}`);
       if (existing) {
         setNodes((nds) => {
           const updated = nds.map((n) =>
             n.id === sourceNodeId
-              ? { ...n, data: { ...n.data, errorPath: "branch", errorTargetId: existing.id } }
+              ? {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    errorPath: "branch",
+                    errorTargetId: existing.id,
+                    config: {
+                      ...((n.data as Record<string, unknown>).config as Record<string, string> | undefined),
+                      continueAfterError: "true",
+                    },
+                  },
+                }
               : n,
           );
           setTimeout(() => syncWorkflow(updated, edges), 0);
@@ -294,7 +369,12 @@ function WorkflowCanvas({
       }
 
       const errorNodeId = `error-handler-${sourceNodeId}`;
+      const reportNodeId = `error-report-${sourceNodeId}`;
       const sourceNode = nodes.find((n) => n.id === sourceNodeId);
+      const sourceData = sourceNode?.data as Record<string, unknown> | undefined;
+      const loopScopeId = typeof sourceData?.config === "object" && sourceData?.config && "loopScope" in (sourceData.config as Record<string, unknown>)
+        ? String((sourceData.config as Record<string, unknown>).loopScope)
+        : undefined;
       const errorNode: Node = {
         id: errorNodeId,
         type: "workflowNode",
@@ -304,9 +384,29 @@ function WorkflowCanvas({
         },
         data: {
           type: "action",
-          label: "On Error Handler",
-          description: "Handle failure — error.* pills are available here",
-          config: {},
+          label: "Monitor Failures",
+          description: "Capture failed step details so the workflow can report the error and continue",
+          config: {
+            monitorMode: "step_failure",
+            reportLevel: "item",
+          },
+        } satisfies Record<string, unknown>,
+      };
+      const reportNode: Node = {
+        id: reportNodeId,
+        type: "workflowNode",
+        position: {
+          x: (sourceNode?.position.x ?? 0) + 320,
+          y: (sourceNode?.position.y ?? 0) + 180,
+        },
+        data: {
+          type: "action",
+          label: "Send Failure Report",
+          description: "Send failed step name, error code, item details, and retry context to your destination",
+          config: {
+            reportChannel: "email_or_webhook",
+            includeErrorPayload: "true",
+          },
         } satisfies Record<string, unknown>,
       };
 
@@ -314,33 +414,84 @@ function WorkflowCanvas({
         const updated = [
           ...nds.map((n) =>
             n.id === sourceNodeId
-              ? { ...n, data: { ...n.data, errorPath: "branch", errorTargetId: errorNodeId } }
+              ? {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    errorPath: "branch",
+                    errorTargetId: errorNodeId,
+                    config: {
+                      ...((n.data as Record<string, unknown>).config as Record<string, string> | undefined),
+                      continueAfterError: "true",
+                    },
+                  },
+                }
               : n,
           ),
           errorNode,
+          reportNode,
         ];
         setEdges((eds) => {
           const hasEdge = eds.some((e) => e.source === sourceNodeId && e.target === errorNodeId);
-          const updatedEdges = hasEdge
-            ? eds
-            : [
-                ...eds,
-                {
-                  id: `e-${sourceNodeId}-error-${errorNodeId}`,
-                  source: sourceNodeId,
-                  target: errorNodeId,
-                  sourceHandle: "on-error",
-                  label: "on-error",
-                  type: "insertable" as const,
-                  animated: false,
-                  style: { stroke: "#f87171", strokeWidth: 2 },
-                  data: {
-                    isErrorPath: true,
-                    onInsert: (eid: string, s: string, t: string, ty: InsertStepType) =>
-                      handleInsertStepRef.current(eid, s, t, ty),
-                  },
+          const hasMonitorToReport = eds.some((e) => e.source === errorNodeId && e.target === reportNodeId);
+          const hasReportToLoop = loopScopeId ? eds.some((e) => e.source === reportNodeId && e.target === loopScopeId) : false;
+          let updatedEdges = eds;
+          if (!hasEdge) {
+            updatedEdges = [
+              ...updatedEdges,
+              {
+                id: `e-${sourceNodeId}-error-${errorNodeId}`,
+                source: sourceNodeId,
+                target: errorNodeId,
+                sourceHandle: "on-error",
+                label: "on-error",
+                type: "insertable" as const,
+                animated: false,
+                style: { stroke: "#f87171", strokeWidth: 2 },
+                data: {
+                  isErrorPath: true,
+                  onInsert: (eid: string, s: string, t: string, ty: InsertStepType) =>
+                    handleInsertStepRef.current(eid, s, t, ty),
                 },
-              ];
+              },
+            ];
+          }
+          if (!hasMonitorToReport) {
+            updatedEdges = [
+              ...updatedEdges,
+              {
+                id: `e-${errorNodeId}-${reportNodeId}`,
+                source: errorNodeId,
+                target: reportNodeId,
+                type: "insertable" as const,
+                animated: true,
+                label: "Report",
+                style: { stroke: "#f59e0b", strokeWidth: 2 },
+                data: {
+                  onInsert: (eid: string, s: string, t: string, ty: InsertStepType) =>
+                    handleInsertStepRef.current(eid, s, t, ty),
+                },
+              },
+            ];
+          }
+          if (loopScopeId && !hasReportToLoop) {
+            updatedEdges = [
+              ...updatedEdges,
+              {
+                id: `e-${reportNodeId}-${loopScopeId}`,
+                source: reportNodeId,
+                target: loopScopeId,
+                type: "insertable" as const,
+                animated: true,
+                label: "Continue loop",
+                style: { stroke: "#7c3aed", strokeWidth: 2 },
+                data: {
+                  onInsert: (eid: string, s: string, t: string, ty: InsertStepType) =>
+                    handleInsertStepRef.current(eid, s, t, ty),
+                },
+              },
+            ];
+          }
           setTimeout(() => syncWorkflow(updated, updatedEdges), 0);
           return updatedEdges;
         });

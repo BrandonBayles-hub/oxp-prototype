@@ -62,6 +62,11 @@ function WorkflowNode({ data, selected }: NodeProps & { data: Record<string, unk
     ? Object.values(d.config).filter((v) => typeof v === "string" && v.includes("{{")).length
     : 0;
   const outputFieldCount = d.outputFields?.length ?? 0;
+  const loopType = d.type === "loop" ? d.config?.["loopType"] ?? "for_each" : null;
+  const loopTypeLabel =
+    loopType === "do_while" ? "Do While" : loopType === "while" ? "While" : "For Each";
+  const isFailureMonitor = d.config?.["monitorMode"] === "step_failure";
+  const isFailureReport = d.config?.["reportChannel"] === "email_or_webhook";
 
   let execRing = "";
   if (d.execStatus === "running") execRing = "ring-2 ring-indigo-400 ring-offset-2";
@@ -140,6 +145,32 @@ function WorkflowNode({ data, selected }: NodeProps & { data: Record<string, unk
             <Database className="h-3 w-3 text-gray-400" />
             <span className="truncate text-[10px] font-mono text-gray-500">
               {d.mcpTool}
+            </span>
+          </div>
+        )}
+        {d.type === "loop" && (
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            <span className="inline-flex items-center gap-0.5 rounded-full bg-purple-100 px-1.5 py-0.5 text-[8px] font-semibold text-purple-700">
+              <Repeat className="h-2 w-2" /> {loopTypeLabel}
+            </span>
+            {loopType === "for_each" && d.config?.["itemAlias"] ? (
+              <span className="inline-flex items-center rounded-full bg-white/80 px-1.5 py-0.5 text-[8px] font-semibold text-purple-700">
+                item: {d.config["itemAlias"]}
+              </span>
+            ) : null}
+          </div>
+        )}
+        {isFailureMonitor && (
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[8px] font-semibold text-amber-700">
+              <AlertTriangle className="h-2 w-2" /> monitors step failures
+            </span>
+          </div>
+        )}
+        {isFailureReport && (
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            <span className="inline-flex items-center gap-0.5 rounded-full bg-red-100 px-1.5 py-0.5 text-[8px] font-semibold text-red-700">
+              <Shield className="h-2 w-2" /> sends failure details
             </span>
           </div>
         )}
