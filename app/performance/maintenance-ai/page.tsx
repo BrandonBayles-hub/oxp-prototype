@@ -68,6 +68,9 @@ const TECHNICIANS = [
   "Wong, Daniel",
 ] as const;
 
+// "Assigned to" filter options — "Unassigned" sits first, directly below "All".
+const ASSIGNED_TO_OPTIONS = ["Unassigned", ...TECHNICIANS] as const;
+
 const VENDORS = [
   "ABC Plumbing Co.",
   "BrightSpark Electric",
@@ -106,13 +109,16 @@ const SOURCE_COLORS: Record<WorkOrderSource, string> = {
   "Entrata Facilities App": "#f97316",
 };
 
+// Year-to-date span, in months (January through the current month).
+const YTD_MONTHS = new Date().getMonth() + 1;
+
 const PERIOD_OPTIONS = [
   { id: "3m", label: "Last 3 Months", months: 3 },
   { id: "6m", label: "Last 6 Months", months: 6 },
   { id: "12m", label: "Last 12 Months", months: 12 },
   { id: "2y", label: "Last 2 Years", months: 24 },
   { id: "3y", label: "Last 3 Years", months: 36 },
-  { id: "all", label: "All Time", months: 48 },
+  { id: "ytd", label: "Year To Date", months: YTD_MONTHS },
 ] as const;
 type PeriodId = (typeof PERIOD_OPTIONS)[number]["id"] | "custom";
 
@@ -285,6 +291,7 @@ interface PeriodScaledMetrics {
   totalMessagesSent: number;
   receivedToSentRatio: string;
   incomingPerDay: { date: string; count: number }[];
+  incomingGranularity: "day" | "week" | "month";
 }
 
 const BASE_3Y = {
@@ -357,14 +364,16 @@ function buildMetricsForPeriod(months: number, filters: FilterState): PeriodScal
     Preventative: scaleInt(BASE_3Y.priorityCounts.Preventative),
   };
 
-  // Status by month — historical heavily Completed, recent heavily Open
+  // Status by month — historical heavily Completed, recent heavily Open.
+  // Shows the most recent months in the selected period (capped at 13),
+  // ordered oldest → most recent.
   const statusByMonth = (() => {
     const rand = seedRand(101 + months);
     const data: PeriodScaledMetrics["statusByMonth"] = [];
-    const startIdx = MONTH_LABELS.length - (months % 12 === 0 ? 12 : months % 12);
-    for (let i = 0; i < Math.min(months, 13); i++) {
-      const monthOffset = months - i - 1;
-      const t = i / Math.max(months - 1, 1);
+    const count = Math.min(months, 13);
+    for (let i = 0; i < count; i++) {
+      const monthOffset = count - 1 - i;
+      const t = i / Math.max(count - 1, 1);
       const total = 700000 + rand() * 200000;
       const completedRatio = 0.85 - 0.7 * t;
       const openRatio = 0.05 + 0.45 * t;
@@ -385,7 +394,8 @@ function buildMetricsForPeriod(months: number, filters: FilterState): PeriodScal
         Unassigned: Math.round(total * unassignedRatio * adjusted),
       });
     }
-    return data.reverse();
+    // Oldest months first, most recent at the end — matches the other charts.
+    return data;
   })();
 
   const includedSources = WORK_ORDER_SOURCES.filter((s) =>
@@ -432,11 +442,15 @@ function buildMetricsForPeriod(months: number, filters: FilterState): PeriodScal
   const unitsAiUsageRate = scalePct(BASE_3Y.unitsAiUsageRate);
   const monthlyAiWoSubmitted = (() => {
     const data: PeriodScaledMetrics["monthlyAiWoSubmitted"] = [];
-    for (let i = 0; i < 12; i++) {
-      const t = i / 11;
+    // One point per month across the selected period, oldest → most recent.
+    const monthCount = Math.max(1, months);
+    for (let i = 0; i < monthCount; i++) {
+      const t = monthCount === 1 ? 1 : i / (monthCount - 1);
       const dateRef = new Date();
-      dateRef.setMonth(dateRef.getMonth() - (11 - i));
-      const label = MONTH_LABELS[dateRef.getMonth()];
+      dateRef.setMonth(dateRef.getMonth() - (monthCount - 1 - i));
+      const label = `${MONTH_LABELS[dateRef.getMonth()]} '${String(
+        dateRef.getFullYear(),
+      ).slice(-2)}`;
       data.push({
         month: label,
         baseline: Math.round(300 + (i % 4) * 12),
@@ -495,17 +509,47 @@ function buildMetricsForPeriod(months: number, filters: FilterState): PeriodScal
       ? `${(totalMessagesReceived / totalMessagesSent).toFixed(2)}:1`
       : "—";
 
+  // Incoming message traffic rolls up based on the selected range:
+  //   ≤ 3 months → daily · > 3 and < 12 months → weekly · ≥ 12 months → monthly
+  const incomingGranularity: "day" | "week" | "month" =
+    months <= 3 ? "day" : months < 12 ? "week" : "month";
   const incomingPerDay = (() => {
-    const days = Math.min(28, months * 30);
     const rand = seedRand(317 + months);
     const out: PeriodScaledMetrics["incomingPerDay"] = [];
-    for (let i = 0; i < days; i++) {
-      const d = new Date();
-      d.setDate(d.getDate() - (days - i - 1));
-      out.push({
-        date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-        count: Math.round(115 + rand() * 50),
-      });
+    const dailyBase = () => Math.round(115 + rand() * 50);
+
+    if (incomingGranularity === "day") {
+      const days = Math.min(92, Math.round(months * 30));
+      for (let i = 0; i < days; i++) {
+        const d = new Date();
+        d.setDate(d.getDate() - (days - 1 - i));
+        out.push({
+          date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+          count: dailyBase(),
+        });
+      }
+    } else if (incomingGranularity === "week") {
+      const weeks = Math.max(1, Math.round(months * 4.345));
+      for (let i = 0; i < weeks; i++) {
+        const d = new Date();
+        d.setDate(d.getDate() - (weeks - 1 - i) * 7);
+        out.push({
+          date: `Wk of ${d.toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+          })}`,
+          count: dailyBase() * 7,
+        });
+      }
+    } else {
+      for (let i = 0; i < months; i++) {
+        const d = new Date();
+        d.setMonth(d.getMonth() - (months - 1 - i));
+        out.push({
+          date: `${MONTH_LABELS[d.getMonth()]} '${String(d.getFullYear()).slice(-2)}`,
+          count: dailyBase() * 30,
+        });
+      }
     }
     return out;
   })();
@@ -552,11 +596,12 @@ function buildMetricsForPeriod(months: number, filters: FilterState): PeriodScal
     totalMessagesSent,
     receivedToSentRatio,
     incomingPerDay,
+    incomingGranularity,
   };
 }
 
 // -----------------------------------------------------------------------------
-// Mock ELI+ work order detail rows
+// Mock Maintenance AI work order detail rows
 // -----------------------------------------------------------------------------
 
 const WORK_ORDER_ROWS: WorkOrderRow[] = [
@@ -1174,7 +1219,7 @@ export default function MaintenanceAiDashboardPage() {
     customFrom: "2025-06",
     customTo: "2026-05",
     properties: new Set(PROPERTIES),
-    technicians: new Set(TECHNICIANS),
+    technicians: new Set(ASSIGNED_TO_OPTIONS),
     vendors: new Set(VENDORS),
     floorPlans: new Set(FLOOR_PLANS),
     sources: new Set(WORK_ORDER_SOURCES),
@@ -1223,10 +1268,10 @@ export default function MaintenanceAiDashboardPage() {
       <header className="mb-4">
         <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-foreground">
           <img src="/eli-cube.svg" alt="" width={22} height={22} />
-          ELI+ Maintenance AI — Performance & Impact
+          Maintenance AI — Performance & Impact
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          ELI+ Maintenance agent performance, work order routing, and resolution analytics — mirrors the Domo ELI+ | Maintenance AI report.
+          Maintenance AI agent performance, work order routing, and resolution analytics — mirrors the Domo Maintenance AI report.
         </p>
       </header>
 
@@ -1244,7 +1289,7 @@ export default function MaintenanceAiDashboardPage() {
           />
           <MultiSelect
             label="Assigned to"
-            options={TECHNICIANS}
+            options={ASSIGNED_TO_OPTIONS}
             selected={filters.technicians}
             onChange={(s) => setFilters({ ...filters, technicians: s })}
             searchable
@@ -1310,7 +1355,7 @@ export default function MaintenanceAiDashboardPage() {
           {/* Right: priority counter + stacked bar */}
           <Card className="border-border/60">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Work Order Status Summary (Last 13 Months)</CardTitle>
+              <CardTitle className="text-sm">Work Order Status Summary</CardTitle>
             </CardHeader>
             <CardContent>
               <PriorityCounter
@@ -1431,7 +1476,7 @@ export default function MaintenanceAiDashboardPage() {
               sub="of total units"
             />
             <KpiCard
-              label="ELI+ submitted work orders"
+              label="Maintenance AI submitted work orders"
               value={loading ? "…" : metrics.eliSubmittedWorkOrders.toLocaleString()}
               delta={`+${metrics.eliSubmittedDeltaPct}%`}
               deltaTone="positive"
@@ -1557,7 +1602,7 @@ export default function MaintenanceAiDashboardPage() {
         <div className="mt-3">
           <Card className="border-border/60">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">ELI+ Work Order Detail</CardTitle>
+              <CardTitle className="text-sm">Maintenance AI Work Order Detail</CardTitle>
               <p className="text-xs text-muted-foreground">
                 Maintenance AI–originated work orders. Filter by priority and status; sort by clicking column headers.
               </p>
@@ -1628,7 +1673,13 @@ export default function MaintenanceAiDashboardPage() {
         <div className="mt-3">
           <Card className="border-border/60">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Incoming Messages per Day</CardTitle>
+              <CardTitle className="text-sm">
+                {metrics.incomingGranularity === "day"
+                  ? "Incoming Messages per Day"
+                  : metrics.incomingGranularity === "week"
+                    ? "Incoming Messages per Week"
+                    : "Incoming Messages per Month"}
+              </CardTitle>
             </CardHeader>
             <CardContent>
               {loading ? (
