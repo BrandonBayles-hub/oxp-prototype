@@ -58,7 +58,6 @@ const PERIOD_OPTIONS = [
   { id: "12m", label: "Last 12 Months", months: 12 },
   { id: "2y", label: "Last 2 Years", months: 24 },
   { id: "3y", label: "Last 3 Years", months: 36 },
-  { id: "all", label: "All Time", months: 36 },
 ] as const;
 
 type PeriodId = (typeof PERIOD_OPTIONS)[number]["id"] | "custom";
@@ -704,7 +703,7 @@ function PeriodPicker({
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-20 mt-1 w-[16rem] rounded-md border border-border bg-popover p-1 shadow-lg">
+          <div className="absolute left-0 top-full z-20 mt-1 w-[22rem] max-w-[calc(100vw-2rem)] rounded-md border border-border bg-popover p-2 shadow-lg">
             {PERIOD_OPTIONS.map((opt) => (
               <button
                 key={opt.id}
@@ -734,20 +733,20 @@ function PeriodPicker({
                 Custom Range
               </label>
               {state.periodId === "custom" && (
-                <div className="space-y-2 px-3 pb-2">
-                  <div className="flex items-center gap-2">
+                <div className="space-y-2 px-2 pb-2">
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
                     <input
                       type="month"
                       value={state.customFrom}
                       onChange={(e) => setState({ ...state, customFrom: e.target.value })}
-                      className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
+                      className="min-w-0 rounded-md border border-border bg-background px-2 py-1 text-xs"
                     />
                     <span className="text-xs text-muted-foreground">to</span>
                     <input
                       type="month"
                       value={state.customTo}
                       onChange={(e) => setState({ ...state, customTo: e.target.value })}
-                      className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
+                      className="min-w-0 rounded-md border border-border bg-background px-2 py-1 text-xs"
                     />
                   </div>
                   <button
