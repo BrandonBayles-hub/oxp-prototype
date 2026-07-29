@@ -843,10 +843,10 @@ export function NodeConfigPanel({
             {/* Trigger Configuration */}
             {data.type === "trigger" && <TriggerConfig nodeId={nodeId} data={data} onUpdate={onUpdate} />}
 
-            {/* MCP Tool Selector */}
+            {/* Tool Selector */}
             {(data.type === "action" || (data.type === "trigger" && !data.config?.["event_type"])) && (
               <div>
-                <label className="mb-1 block text-[11px] font-medium text-muted-foreground">MCP Tool</label>
+                <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Tool</label>
                 {currentTool && !showToolPicker ? (
                   <div className="rounded-lg border border-border bg-slate-50 p-2.5">
                     <div className="flex items-center gap-2">
@@ -882,7 +882,7 @@ export function NodeConfigPanel({
                   <div className="rounded-lg border border-border bg-white">
                     <input
                       type="text"
-                      placeholder="Search MCP tools..."
+                      placeholder="Search tools..."
                       className="w-full rounded-t-lg border-b border-border bg-slate-50 px-3 py-2 text-xs focus:outline-none"
                       value={toolSearch}
                       onChange={(e) => setToolSearch(e.target.value)}
@@ -1019,7 +1019,7 @@ export function NodeConfigPanel({
               </div>
             )}
 
-            {/* Pre-defined MCP Filters */}
+            {/* Pre-defined Tool Filters */}
             {currentTool && data.type === "action" && (
               <div>
                 <div className="mb-1.5 flex items-center justify-between">
@@ -1030,7 +1030,7 @@ export function NodeConfigPanel({
                   <span className="text-[9px] text-muted-foreground">LLM-suggested · editable</span>
                 </div>
                 <p className="mb-2 text-[10px] text-muted-foreground">
-                  Filters restrict the data returned by this MCP call, reducing payload size and improving performance.
+                  Filters restrict the data returned by this tool call, reducing payload size and improving performance.
                 </p>
                 <div className="space-y-1.5">
                   {(data.config?.["__filters"] ? JSON.parse(data.config["__filters"]) as Array<{ field: string; operator: string; value: string }> : []).map((f: { field: string; operator: string; value: string }, idx: number) => (

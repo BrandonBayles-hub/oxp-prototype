@@ -741,12 +741,12 @@ type NameStepPhase = "describe" | "generating" | "review";
 
 function buildAgentGenPrompt(): string {
   const mcpList = [
-    "- Leasing MCP: leasing.search_leads, leasing.get_lead, leasing.capture_lead, leasing.update_guest_card, leasing.get_tour_schedule, leasing.schedule_tour, leasing.get_floorplans, leasing.available_units, leasing.get_properties, leasing.get_property, leasing.property_amenities, leasing.property_policies, leasing.fee_catalog",
-    "- Maintenance MCP: maintenance.create_work_order, maintenance.get_work_order, maintenance.update_work_order, maintenance.close_work_order, maintenance.list_work_orders, maintenance.get_problems_catalog, maintenance.dispatch_vendor",
-    "- Accounting MCP: accounting.get_resident_ledger, accounting.post_charge, accounting.waive_fee, accounting.approve_pre_bill, accounting.reject_pre_bill, accounting.get_pre_bill_batch, accounting.post_invoice, accounting.get_invoice",
-    "- Renewals MCP: renewals.get_expiring_leases, renewals.create_renewal_offer, renewals.get_renewal_offer, renewals.get_market_rent, renewals.get_resident_history",
-    "- Communications MCP: comms.send_sms, comms.send_email, comms.reply_message, comms.get_thread, comms.warm_transfer, comms.take_message",
-    "- Residents MCP: residents.get_resident, residents.verify_identity, residents.get_lease, residents.post_note, residents.get_balance",
+    "- Leasing Data & Actions: leasing.search_leads, leasing.get_lead, leasing.capture_lead, leasing.update_guest_card, leasing.get_tour_schedule, leasing.schedule_tour, leasing.get_floorplans, leasing.available_units, leasing.get_properties, leasing.get_property, leasing.property_amenities, leasing.property_policies, leasing.fee_catalog",
+    "- Maintenance Data & Actions: maintenance.create_work_order, maintenance.get_work_order, maintenance.update_work_order, maintenance.close_work_order, maintenance.list_work_orders, maintenance.get_problems_catalog, maintenance.dispatch_vendor",
+    "- Accounting Data & Actions: accounting.get_resident_ledger, accounting.post_charge, accounting.waive_fee, accounting.approve_pre_bill, accounting.reject_pre_bill, accounting.get_pre_bill_batch, accounting.post_invoice, accounting.get_invoice",
+    "- Renewals Data & Actions: renewals.get_expiring_leases, renewals.create_renewal_offer, renewals.get_renewal_offer, renewals.get_market_rent, renewals.get_resident_history",
+    "- Communications Data & Actions: comms.send_sms, comms.send_email, comms.reply_message, comms.get_thread, comms.warm_transfer, comms.take_message",
+    "- Residents Data & Actions: residents.get_resident, residents.verify_identity, residents.get_lease, residents.post_note, residents.get_balance",
   ].join("\n");
 
   return `You are an expert at creating AI agent configurations for Entrata, a property management software platform.
@@ -754,11 +754,11 @@ function buildAgentGenPrompt(): string {
 Given an agent name and a short description of what the agent should do, you must generate:
 1. A comprehensive system prompt for the agent
 2. The appropriate classification level
-3. The MCP tools/skills the agent will need
+3. The tools/skills the agent will need
 4. Relevant data sources
 5. Custom guardrails specific to the agent's function
 
-## Available MCP Tools
+## Available Tools
 ${mcpList}
 
 ## Classification Levels
@@ -924,7 +924,7 @@ function NameStep({ version, patch, nameReadOnly }: { version: AgentVersion; pat
 
     const genSteps = [
       "Understanding your agent's purpose...",
-      "Selecting relevant MCP tools and data sources...",
+      "Selecting relevant tools and data sources...",
       "Writing system prompt...",
       "Configuring guardrails and escalation rules...",
     ];
@@ -970,7 +970,7 @@ function NameStep({ version, patch, nameReadOnly }: { version: AgentVersion; pat
         const cls = isConversational ? "L4" : "L3";
 
         const generatedPrompt = isConversational
-          ? `You are ${version.name}, a conversational AI assistant for Entrata property management.\n\n## Purpose\n${shortDescription}\n\n## Personality & Tone\n- Professional, helpful, and empathetic\n- Match the resident's communication style (formal/casual)\n- Keep responses concise but thorough\n\n## Core Responsibilities\n- Handle the specific task described above\n- Access relevant data through the connected MCP tools\n- Log all interactions for audit purposes\n\n## Conversation Guidelines\n- Greet the user and confirm their identity before sharing account details\n- Ask clarifying questions when the request is ambiguous\n- Summarize actions taken at the end of the conversation\n\n## Boundaries\n- Never provide legal advice or interpret lease terms as legal guidance\n- Do not share information about other residents\n- Escalate to a human when:\n  - The user is upset, frustrated, or threatening\n  - The request involves lease modifications or financial adjustments\n  - You are unsure about the correct answer`
+          ? `You are ${version.name}, a conversational AI assistant for Entrata property management.\n\n## Purpose\n${shortDescription}\n\n## Personality & Tone\n- Professional, helpful, and empathetic\n- Match the resident's communication style (formal/casual)\n- Keep responses concise but thorough\n\n## Core Responsibilities\n- Handle the specific task described above\n- Access relevant data through the connected tools\n- Log all interactions for audit purposes\n\n## Conversation Guidelines\n- Greet the user and confirm their identity before sharing account details\n- Ask clarifying questions when the request is ambiguous\n- Summarize actions taken at the end of the conversation\n\n## Boundaries\n- Never provide legal advice or interpret lease terms as legal guidance\n- Do not share information about other residents\n- Escalate to a human when:\n  - The user is upset, frustrated, or threatening\n  - The request involves lease modifications or financial adjustments\n  - You are unsure about the correct answer`
           : `You are ${version.name}, a workflow automation agent for Entrata property management.\n\n## Purpose\n${shortDescription}\n\n## Core Behavior\n- Execute the assigned task autonomously when triggered\n- Follow the decision rules exactly as configured\n- Log every action taken for audit purposes\n\n## Decision Framework\n- Evaluate each record against the configured criteria\n- Apply the appropriate action based on the evaluation result\n- Skip records that fall outside the scope of this agent\n\n## Escalation Rules\n- Escalate to a human reviewer when:\n  - Data falls outside expected ranges\n  - Multiple conflicting signals are present\n  - The task involves high-sensitivity operations\n\n## Constraints\n- Never modify data outside the scope of this task\n- Always include the reason for each decision in the audit log\n- Process records in order of priority, not arrival time`;
 
         const skillGuess: string[] = [];
@@ -1068,7 +1068,7 @@ function NameStep({ version, patch, nameReadOnly }: { version: AgentVersion; pat
 
   const generatingSteps = [
     "Understanding your agent's purpose...",
-    "Selecting relevant MCP tools and data sources...",
+    "Selecting relevant tools and data sources...",
     "Writing system prompt...",
     "Configuring guardrails and escalation rules...",
   ];
@@ -1128,7 +1128,7 @@ function NameStep({ version, patch, nameReadOnly }: { version: AgentVersion; pat
             Generate Agent Configuration
           </Button>
           <p className="mt-2 text-center text-[11px] text-muted-foreground">
-            AI will write the system prompt, select MCP tools, and configure guardrails based on your description.
+            AI will write the system prompt, select the right tools, and configure guardrails based on your description.
           </p>
         </div>
       </section>
@@ -1301,7 +1301,7 @@ function NameStep({ version, patch, nameReadOnly }: { version: AgentVersion; pat
         </div>
       </div>
 
-      {/* ── Auto-wired MCP Tools summary ── */}
+      {/* ── Auto-wired Tools summary ── */}
       {(version.skillIds ?? []).length > 0 && (
         <div className="mt-5 rounded-lg border border-emerald-200 bg-emerald-50/40 p-4">
           <div className="flex items-center gap-2 mb-2">
@@ -1311,7 +1311,7 @@ function NameStep({ version, patch, nameReadOnly }: { version: AgentVersion; pat
             </h4>
           </div>
           <p className="text-[11px] text-emerald-700 mb-3">
-            These MCP tools were selected based on your agent&apos;s description. You can modify them in the Data &amp; Skills step.
+            These tools were selected based on your agent&apos;s description. You can modify them in the Data &amp; Skills step.
           </p>
           <div className="flex flex-wrap gap-1.5">
             {(version.skillIds ?? []).map((toolId) => {
@@ -2064,7 +2064,7 @@ function DataSkillsStep({
             { role: "system", content: buildCapabilityAnalysisPrompt() },
             {
               role: "user",
-              content: `Analyze this agent prompt and map each capability to the available MCP tools.\n\nAgent prompt:\n${version.prompt}\n\nEnabled MCP servers: ${JSON.stringify(
+              content: `Analyze this agent prompt and map each capability to the available tools.\n\nAgent prompt:\n${version.prompt}\n\nEnabled connectors: ${JSON.stringify(
                 mcpServers.filter((s) => s.enabled).map((s) => ({
                   id: s.id,
                   restrictedToolIds: s.restrictedToolIds,
@@ -2335,7 +2335,7 @@ function DataSkillsStep({
     <section>
       <h2 className="font-heading text-lg text-foreground">Data &amp; Skills</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Connect MCP servers to give your agent access to Entrata data and capabilities. You can restrict access to specific tools within each server.
+        Connect Entrata tools and data sources to give your agent access to the capabilities it needs. You can restrict access to specific tools within each connector.
       </p>
 
       {/* ── Capability Validation Panel ── */}
@@ -2378,7 +2378,7 @@ function DataSkillsStep({
                         {unavailableCaps.length} capabilit{unavailableCaps.length === 1 ? "y" : "ies"} not available yet
                       </p>
                       <p className="mt-0.5 text-[11px] text-amber-800/80">
-                        Your prompt asks for skills Entrata doesn&apos;t have MCP tools for yet.
+                        Your prompt asks for skills Entrata doesn&apos;t have available yet.
                         One action notifies Entrata of the gaps and rewrites your prompt so the agent only uses available skills.
                       </p>
                       <ul className="mt-2 space-y-1">
@@ -2424,10 +2424,10 @@ function DataSkillsStep({
                     <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
                     <div className="flex-1 min-w-0">
                       <p className="text-[13px] font-semibold text-sky-900">
-                        {noAccessCaps.length} capabilit{noAccessCaps.length === 1 ? "y" : "ies"} need an MCP enabled
+                        {noAccessCaps.length} capabilit{noAccessCaps.length === 1 ? "y" : "ies"} need a connector enabled
                       </p>
                       <p className="mt-0.5 text-[11px] text-sky-800/80">
-                        These are available — enable the matching MCP server below to fulfill them.
+                        These are available — enable the matching connector below to fulfill them.
                       </p>
                       <ul className="mt-2 space-y-1">
                         {noAccessCaps.map((cap) => (
@@ -2475,7 +2475,7 @@ function DataSkillsStep({
                 <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50/50 px-3 py-2.5">
                   <CheckCircle2 className="h-4 w-4 text-green-600" />
                   <p className="text-[12px] font-medium text-green-800">
-                    All capabilities in your agent&apos;s prompt are supported by the connected MCP tools.
+                    All capabilities in your agent&apos;s prompt are supported by the connected tools.
                   </p>
                 </div>
               )}
@@ -2493,7 +2493,7 @@ function DataSkillsStep({
           {showCapDetails && capLoading && (
             <div className="border-t border-border px-4 py-6 flex flex-col items-center gap-2">
               <Loader2 className="h-5 w-5 animate-spin text-indigo-500" />
-              <p className="text-[12px] text-muted-foreground">Analyzing agent capabilities against available MCP tools...</p>
+              <p className="text-[12px] text-muted-foreground">Analyzing agent capabilities against available tools...</p>
             </div>
           )}
         </div>
@@ -2515,7 +2515,7 @@ function DataSkillsStep({
                   Remove {pendingDisable.serverName}?
                 </h3>
                 <p className="mt-1 text-[12px] text-muted-foreground">
-                  Turning this MCP off will prevent the agent from doing everything your prompt currently requires:
+                  Turning this connector off will prevent the agent from doing everything your prompt currently requires:
                 </p>
                 <ul className="mt-2 list-disc space-y-1 pl-5 text-[12px] text-foreground">
                   {pendingDisable.caps.map((cap) => (
@@ -2545,7 +2545,7 @@ function DataSkillsStep({
                     Updating prompt…
                   </>
                 ) : (
-                  "Update prompt & remove MCP"
+                  "Update prompt & remove connector"
                 )}
               </button>
             </div>
@@ -2610,9 +2610,9 @@ function DataSkillsStep({
         <div className="flex items-start gap-2 text-[12px] text-indigo-900">
           <Brain className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <div>
-            <p className="font-medium">MCP (Model Context Protocol)</p>
+            <p className="font-medium">Entrata Connectors</p>
             <p className="mt-0.5 text-indigo-800/80">
-              Each MCP server exposes a set of tools the agent can call. Enable a server to grant access, then optionally restrict to specific tools for fine-grained control.
+              Each connector exposes a set of tools the agent can use. Enable a connector to grant access, then optionally restrict to specific tools for more precise control.
             </p>
           </div>
         </div>

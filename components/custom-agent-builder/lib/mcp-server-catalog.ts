@@ -1,9 +1,9 @@
 /**
- * MCP Server catalog for the Agent Builder.
+ * Connector catalog for the Agent Builder.
  *
- * Each MCP server exposes a set of tools via the Model Context Protocol.
- * Authors can enable entire servers or restrict to specific tools within
- * a server for fine-grained access control.
+ * Each connector exposes a set of tools the agent can use.
+ * Authors can enable entire connectors or restrict to specific tools within
+ * a connector for fine-grained access control.
  */
 
 export type DataSensitivity = "standard" | "sensitive" | "restricted";
@@ -35,7 +35,7 @@ export type McpServerDefinition = {
 export const MCP_SERVER_CATALOG: McpServerDefinition[] = [
   {
     id: "mcp.leasing",
-    name: "Leasing MCP",
+    name: "Leasing Data & Actions",
     description: "Full leasing lifecycle — leads, tours, applications, availability, and property info.",
     icon: "Home",
     category: "Leasing",
@@ -73,12 +73,12 @@ export const MCP_SERVER_CATALOG: McpServerDefinition[] = [
       { id: "leasing.fee_catalog", name: "Fee catalog", description: "All recurring and one-time fees with descriptions.", category: "Property", mutates: false, requiresApproval: false },
       { id: "leasing.property_addons", name: "Property add-ons", description: "Optional add-on services (storage, parking, pet rent).", category: "Property", mutates: false, requiresApproval: false },
       { id: "leasing.property_addresses", name: "Property addresses", description: "Physical addresses for the property.", category: "Property", mutates: false, requiresApproval: false },
-      { id: "leasing.search_tools", name: "Search available tools", description: "Discover what tools are available on this MCP server.", category: "Platform", mutates: false, requiresApproval: false },
+      { id: "leasing.search_tools", name: "Search available tools", description: "Discover what tools are available in this connector.", category: "Platform", mutates: false, requiresApproval: false },
     ],
   },
   {
     id: "mcp.maintenance",
-    name: "Maintenance MCP",
+    name: "Maintenance Data & Actions",
     description: "Work orders, vendor dispatch, inspection scheduling, and make-ready tracking.",
     icon: "Wrench",
     category: "Maintenance",
@@ -95,7 +95,7 @@ export const MCP_SERVER_CATALOG: McpServerDefinition[] = [
   },
   {
     id: "mcp.accounting",
-    name: "Accounting MCP",
+    name: "Accounting Data & Actions",
     description: "Ledgers, invoices, payments, pre-bills, and financial reporting.",
     icon: "Calculator",
     category: "Accounting",
@@ -113,7 +113,7 @@ export const MCP_SERVER_CATALOG: McpServerDefinition[] = [
   },
   {
     id: "mcp.renewals",
-    name: "Renewals MCP",
+    name: "Renewals Data & Actions",
     description: "Renewal offers, lease expirations, rent adjustments, and resident retention.",
     icon: "RefreshCw",
     category: "Renewals",
@@ -128,7 +128,7 @@ export const MCP_SERVER_CATALOG: McpServerDefinition[] = [
   },
   {
     id: "mcp.communications",
-    name: "Communications MCP",
+    name: "Communications Data & Actions",
     description: "Send and receive messages across SMS, email, voice, and chat channels.",
     icon: "MessageSquare",
     category: "Communications",
@@ -144,7 +144,7 @@ export const MCP_SERVER_CATALOG: McpServerDefinition[] = [
   },
   {
     id: "mcp.residents",
-    name: "Residents MCP",
+    name: "Residents Data & Actions",
     description: "Resident profiles, lease data, move-in/move-out, and identity verification.",
     icon: "Users",
     category: "Residents",
@@ -160,7 +160,7 @@ export const MCP_SERVER_CATALOG: McpServerDefinition[] = [
 ];
 
 /**
- * Capabilities we know users will ask for but don't yet have MCPs/tools to support.
+ * Capabilities we know users will ask for but don't yet have tools to support.
  * Used by the capability-validation step to clearly communicate gaps.
  */
 export type UnsupportedCapability = {
@@ -177,14 +177,14 @@ export const UNSUPPORTED_CAPABILITIES: UnsupportedCapability[] = [
     label: "Weather data",
     description: "Check current or forecasted weather conditions.",
     category: "External",
-    reason: "No weather API integration exists. Entrata does not have a weather data MCP.",
+    reason: "No weather API integration exists in Entrata today.",
   },
   {
     id: "unsupported.credit_check",
     label: "Credit check / screening",
     description: "Run credit checks or background screenings on applicants.",
     category: "External",
-    reason: "Credit bureau integrations (Experian, TransUnion, Equifax) are not available as MCP tools.",
+    reason: "Credit bureau integrations (Experian, TransUnion, Equifax) are not available in the current tool set.",
   },
   {
     id: "unsupported.package_tracking",
@@ -205,7 +205,7 @@ export const UNSUPPORTED_CAPABILITIES: UnsupportedCapability[] = [
     label: "Smart lock / access control",
     description: "Lock or unlock doors, generate access codes, or manage smart home devices.",
     category: "IoT",
-    reason: "Smart lock and IoT device integrations are not yet available as MCP tools.",
+    reason: "Smart lock and IoT device integrations are not yet available in the current tool set.",
   },
   {
     id: "unsupported.utility_provider",
@@ -247,11 +247,11 @@ export const UNSUPPORTED_CAPABILITIES: UnsupportedCapability[] = [
     label: "Market rent comparisons (external)",
     description: "Pull competitive rent data from external sources like Zillow, Apartments.com, or CoStar.",
     category: "External",
-    reason: "External market data provider integrations are not available. Internal market rent data is available via the Renewals MCP.",
+    reason: "External market data provider integrations are not available. Internal market rent data is available through the renewals tools.",
   },
 ];
 
-/** Flat list of all tools across all MCP servers for search/filter. */
+/** Flat list of all tools across all connectors for search/filter. */
 export function allMcpTools(): Array<McpTool & { serverId: string; serverName: string }> {
   return MCP_SERVER_CATALOG.flatMap((s) =>
     s.tools.map((t) => ({ ...t, serverId: s.id, serverName: s.name }))
@@ -332,9 +332,9 @@ export function buildCapabilityAnalysisPrompt(): string {
 
   return `You are an expert at analyzing AI agent prompts for a property management platform (Entrata).
 
-Given an agent's system prompt, extract every distinct capability or action the agent needs to perform. Then map each capability to either an available MCP tool or mark it as unsupported.
+Given an agent's system prompt, extract every distinct capability or action the agent needs to perform. Then map each capability to either an available tool or mark it as unsupported.
 
-## Available MCP Tools
+## Available Tools
 ${toolList}
 
 ## Known Unsupported Capabilities
@@ -343,11 +343,11 @@ ${unsupportedList}
 ## Rules
 1. Extract EVERY distinct action/capability from the prompt — be thorough
 2. Group related sub-actions under one capability when they clearly belong together
-3. For each capability, determine if an available MCP tool can fulfill it
+3. For each capability, determine if an available tool can fulfill it
 4. If the capability matches a known unsupported item, mark status as "unavailable"
 5. If a tool exists but is not in the agent's enabled servers, mark status as "no_access"
 6. If no tool exists at all, mark status as "unavailable"
-7. Be specific — "Send email to residents" maps to comms.send_email, not just "Communications MCP"
+7. Be specific — "Send email to residents" maps to comms.send_email, not just "Communications Data & Actions"
 8. Include internal prompt capabilities like "analyze data" or "make decisions" as "supported" with toolId "llm.reasoning"
 
 ## Output Format
@@ -360,7 +360,7 @@ Return a JSON object:
       "status": "supported" | "no_access" | "unavailable",
       "toolId": "the.tool.id or null",
       "toolLabel": "Human-readable tool name",
-      "serverName": "Name of the MCP server",
+      "serverName": "Name of the connector",
       "reason": "Why this is unsupported (only for no_access/unavailable)"
     }
   ]
@@ -479,7 +479,7 @@ export function analyzeCapabilitiesLocally(
         id: `cap_${capId++}`,
         capability: "Check weather conditions",
         status: "unavailable",
-        reason: "No weather API integration exists. Entrata does not have a weather data MCP.",
+        reason: "No weather API integration exists in Entrata today.",
       });
     }
   }
