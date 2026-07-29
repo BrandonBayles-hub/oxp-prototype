@@ -256,7 +256,8 @@ const STEPS: StepDef[] = [
   // },
   // Entry Points merged into Triggers step above.
   // { id: "entry-points", label: "Entry Points", icon: ExternalLink, show: () => true },
-  { id: "cost", label: "Cost Forecast", icon: DollarSign, show: () => true },
+  // Cost Forecast temporarily hidden; keep implementation in place for later return.
+  // { id: "cost", label: "Cost Forecast", icon: DollarSign, show: () => true },
   // { id: "review", label: "Review", icon: ClipboardCheck, show: () => true },
 ];
 
@@ -652,7 +653,8 @@ export function AgentBuilderWizard({ agentId, versionNumber, onClose, onAgentCre
             {current?.id === "communication" && <CommunicationStep version={version} patch={patch} />}
             {current?.id === "extraction" && <ExtractionStep version={version} patch={patch} />}
             {/* {current?.id === "escalation" && <EscalationStep version={version} patch={patch} />} */}
-            {current?.id === "cost" && <CostDryRunStep version={version} patch={patch} />}
+            {/* Cost Forecast temporarily hidden; keep implementation in place for later return. */}
+            {/* {current?.id === "cost" && <CostDryRunStep version={version} patch={patch} />} */}
             {/* {current?.id === "review" && <ReviewStep version={version} />} */}
           </div>
 
