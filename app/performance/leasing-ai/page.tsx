@@ -1082,7 +1082,6 @@ const DOMO_TOURS = {
 const LEAD_CAPTURE_METRICS = [
   { key: "sessions", label: "Conversations" },
   { key: "guestCards", label: "Total Guest Cards Created by ELI+" },
-  { key: "guestCardsEli", label: "Leads Managed by ELI+" },
   { key: "toursBooked", label: "Tours Book by ELI+" },
 ] as const;
 
@@ -1267,7 +1266,6 @@ function LeadCaptureSection({ filters, months }: { filters: FiltersState; months
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard label="Conversations" value={totals.sessions.toLocaleString()} sub="selected period" />
         <KpiCard label="Total Guest Cards Created by ELI+" value={totals.guestCards.toLocaleString()} sub="selected period" />
-        <KpiCard label="Leads Managed by ELI+" value={totals.guestCardsEli.toLocaleString()} sub={`${totals.guestCards > 0 ? Math.round((totals.guestCardsEli / totals.guestCards) * 100) : 0}% of all guest cards`} />
         <KpiCard label="Tours Book by ELI+" value={totals.toursBooked.toLocaleString()} sub="selected period" />
       </div>
 
