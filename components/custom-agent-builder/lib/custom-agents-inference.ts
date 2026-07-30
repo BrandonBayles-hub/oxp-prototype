@@ -49,6 +49,34 @@ export function inferEvents(prompt: string): CatalogEvent[] {
   return EVENT_CATALOG.filter((e) => matchKeywords(p, e.keywords));
 }
 
+/**
+ * Strict event matching for AI-seeded triggers.
+ * Requires the suggestion to name the event (label or kebab value as a phrase).
+ * Loose keyword matching (single tokens like "lease") is intentionally NOT used —
+ * that was dumping many unrelated event-bus triggers into the Triggers step.
+ */
+export function inferEventsStrict(suggestion: string): CatalogEvent[] {
+  const lower = suggestion.toLowerCase().replace(/\s+/g, " ").trim();
+  if (!lower) return [];
+
+  const scored = EVENT_CATALOG.map((event) => {
+    const label = event.label.toLowerCase();
+    const valuePhrase = (event.bus?.value ?? event.id.replace(/^evt\.bus\.[^.]+\./, ""))
+      .replace(/-/g, " ")
+      .toLowerCase();
+    let score = 0;
+    if (label.length >= 8 && lower.includes(label)) score = Math.max(score, label.length + 20);
+    if (valuePhrase.length >= 8 && lower.includes(valuePhrase)) {
+      score = Math.max(score, valuePhrase.length + 10);
+    }
+    return { event, score };
+  }).filter((row) => row.score > 0);
+
+  scored.sort((a, b) => b.score - a.score);
+  // One suggestion → at most one best-matching event
+  return scored.length > 0 ? [scored[0].event] : [];
+}
+
 function needsCommsFromTriggers(triggers: Trigger[]): boolean {
   return triggers.some((t) => {
     if (t.kind === "event") {

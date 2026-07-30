@@ -15,6 +15,7 @@ import {
   type AgentVersion,
   type CommunicationCfg,
   type CommunicationChannel,
+  type EvalCase,
   type EscalationAsyncAction,
   type EscalationAsyncHandoff,
   type EscalationDestinationKind,
@@ -67,7 +68,12 @@ import {
   PMC_PROPERTY_RECORDS,
   getPropertyPrimaryEmail,
 } from "../../lib/pmc-identity";
-import { inferEvents, inferFromPrompt, inferSuccessMetrics } from "../../lib/custom-agents-inference";
+import { inferEventsStrict, inferFromPrompt, inferSuccessMetrics } from "../../lib/custom-agents-inference";
+import {
+  confirmSystemAgentOverlaps,
+  buildDelegationDraftLocally,
+  type SystemAgentOverlap,
+} from "../../lib/system-agent-overlap";
 import { formatCurrency } from "../../lib/custom-agents-cost";
 import { DEFAULT_GUARDRAILS } from "../../lib/default-guardrails";
 import {
@@ -127,6 +133,9 @@ import {
   Sliders,
   ChevronDown,
   ChevronUp,
+  ArrowUp,
+  ArrowDown,
+  ListChecks,
   LifeBuoy,
   PhoneForwarded,
   Moon,
@@ -242,11 +251,18 @@ const STEPS: StepDef[] = [
     icon: Radio,
     show: showsCommunicationStep,
   },
+  // Wrap-up temporarily hidden; keep ExtractionStep implementation for later return.
+  // {
+  //   id: "extraction",
+  //   label: "Wrap-up",
+  //   icon: ClipboardList,
+  //   show: isConversationalAgent,
+  // },
   {
-    id: "extraction",
-    label: "Wrap-up",
-    icon: ClipboardList,
-    show: isConversationalAgent,
+    id: "evals",
+    label: "Evals",
+    icon: ListChecks,
+    show: () => true,
   },
   // {
   //   id: "escalation",
@@ -651,7 +667,9 @@ export function AgentBuilderWizard({ agentId, versionNumber, onClose, onAgentCre
             {current?.id === "properties" && <PropertiesStep version={version} patch={patch} />}
             {/* {current?.id === "knowledge" && <KnowledgeStep version={version} patch={patch} />} */}
             {current?.id === "communication" && <CommunicationStep version={version} patch={patch} />}
-            {current?.id === "extraction" && <ExtractionStep version={version} patch={patch} />}
+            {/* Wrap-up temporarily hidden; keep implementation for later return. */}
+            {/* {current?.id === "extraction" && <ExtractionStep version={version} patch={patch} />} */}
+            {current?.id === "evals" && <EvalsStep version={version} patch={patch} />}
             {/* {current?.id === "escalation" && <EscalationStep version={version} patch={patch} />} */}
             {/* Cost Forecast temporarily hidden; keep implementation in place for later return. */}
             {/* {current?.id === "cost" && <CostDryRunStep version={version} patch={patch} />} */}
@@ -781,6 +799,13 @@ Return a JSON object:
   "suggestedTriggers": ["trigger description"]
 }
 
+## suggestedTriggers rules (critical)
+- Only include triggers the author explicitly asked for in their description.
+- If they ask for a schedule (e.g. "daily at 9am"), return ONLY that schedule string — do not invent event-bus triggers.
+- Do not add leasing/application/DocEx event triggers just because the agent's domain mentions leases or move-in.
+- Prefer the smallest correct set. One clear schedule beats a list of guessed events.
+- Good examples: "Daily at 9:00 AM", "When a resident texts about X", "On Lease Marked As Signed" (only if they named that event).
+
 Write a thorough, production-quality system prompt that includes:
 - Agent identity and purpose
 - Core responsibilities and behavior rules
@@ -796,12 +821,23 @@ type GeneratedTriggerSuggestion = {
   unsupported: string[];
 };
 
+const SCHEDULE_RE =
+  /\b(hourly|daily|weekly|monthly|annually|yearly|once|every day|every week|every month|every year|nightly|each night)\b/;
+const INBOUND_RE =
+  /\b(sms|text message|text|email|voice|phone call|call|inbound message|incoming message|reply|respond)\b/;
+
 function inferGeneratedTriggersFromDescriptions(
   suggestions: string[] | undefined,
   prompt: string,
 ): GeneratedTriggerSuggestion {
   const rawSuggestions = (suggestions ?? []).map((s) => s.trim()).filter(Boolean);
-  const inputs = rawSuggestions.length > 0 ? rawSuggestions : [prompt];
+  // Prefer explicit LLM trigger suggestions. Never keyword-scan the full
+  // system prompt for events — that matches dozens of bus topics via tokens
+  // like "lease" / "application".
+  const inputs =
+    rawSuggestions.length > 0
+      ? rawSuggestions
+      : [prompt.split(/[.!?\n]/)[0]?.trim() || prompt].filter(Boolean).slice(0, 3);
   const triggers: Trigger[] = [];
   const unsupported = new Set<string>();
   const seen = new Set<string>();
@@ -815,8 +851,13 @@ function inferGeneratedTriggersFromDescriptions(
   inputs.forEach((source, index) => {
     const lower = source.toLowerCase();
     const idSeed = `ai_${index}_${Math.random().toString(36).slice(2, 8)}`;
+    const isSchedule = SCHEDULE_RE.test(lower);
+    const isInbound = INBOUND_RE.test(lower);
+    // Strict phrase match only — never loose EVENT_CATALOG keyword tokens.
+    const matchedEvents = isSchedule && !/\b(when|on event|event bus|triggered by|whenever)\b/.test(lower)
+      ? []
+      : inferEventsStrict(source);
 
-    const matchedEvents = inferEvents(source);
     matchedEvents.forEach((event, eventIndex) => {
       pushTrigger(
         {
@@ -828,7 +869,7 @@ function inferGeneratedTriggersFromDescriptions(
       );
     });
 
-    if (/\b(sms|text message|text|email|voice|phone call|call|inbound message|incoming message|reply|respond)\b/.test(lower)) {
+    if (isInbound) {
       const channel: "sms" | "email" | "voice" =
         /\b(email)\b/.test(lower) ? "email" : /\b(voice|phone call|call)\b/.test(lower) ? "voice" : "sms";
       pushTrigger(
@@ -841,7 +882,7 @@ function inferGeneratedTriggersFromDescriptions(
       );
     }
 
-    if (/\b(hourly|daily|weekly|monthly|annually|yearly|once|every day|every week|every month|every year|nightly|each night)\b/.test(lower)) {
+    if (isSchedule) {
       let frequency: Extract<Trigger, { kind: "schedule" }>["frequency"] = "daily";
       if (/\b(hourly)\b/.test(lower)) frequency = "hourly";
       else if (/\b(weekly|every week)\b/.test(lower)) frequency = "weekly";
@@ -849,13 +890,24 @@ function inferGeneratedTriggersFromDescriptions(
       else if (/\b(annually|yearly|every year)\b/.test(lower)) frequency = "annually";
       else if (/\b(once)\b/.test(lower)) frequency = "once";
 
+      const timeMatch = lower.match(/\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)\b/i);
+      let timeOfDay = "09:00";
+      if (timeMatch) {
+        let hour = Number(timeMatch[1]);
+        const minute = timeMatch[2] ?? "00";
+        const meridiem = timeMatch[3].replace(/\./g, "").toLowerCase();
+        if (meridiem.startsWith("p") && hour < 12) hour += 12;
+        if (meridiem.startsWith("a") && hour === 12) hour = 0;
+        timeOfDay = `${String(hour).padStart(2, "0")}:${minute}`;
+      }
+
       pushTrigger(
         applyFrequencyDefaults(
           {
             id: `trg_${idSeed}_schedule`,
             kind: "schedule",
             frequency: "daily",
-            timeOfDay: "09:00",
+            timeOfDay,
           },
           frequency,
         ),
@@ -863,12 +915,24 @@ function inferGeneratedTriggersFromDescriptions(
       );
     }
 
-    const supported =
-      matchedEvents.length > 0 ||
-      /\b(sms|text message|text|email|voice|phone call|call|inbound message|incoming message|reply|respond|hourly|daily|weekly|monthly|annually|yearly|once|every day|every week|every month|every year|nightly|each night)\b/.test(lower);
-
+    const supported = matchedEvents.length > 0 || isInbound || isSchedule;
     if (!supported && rawSuggestions.length > 0) unsupported.add(source);
   });
+
+  // If the author's description is schedule-centric and never names a bus event,
+  // drop event triggers the LLM invented from domain vocabulary (lease, application, etc.).
+  const authorLower = prompt.toLowerCase();
+  const authorNamedEvents = inferEventsStrict(prompt);
+  if (
+    SCHEDULE_RE.test(authorLower) &&
+    authorNamedEvents.length === 0 &&
+    !/\b(when|whenever|triggered by|event bus|on event)\b/.test(authorLower)
+  ) {
+    const scheduleOnly = triggers.filter((t) => t.kind === "schedule");
+    if (scheduleOnly.length > 0) {
+      return { triggers: scheduleOnly, unsupported: [...unsupported] };
+    }
+  }
 
   return {
     triggers,
@@ -1272,6 +1336,7 @@ function NameStep({ version, patch, nameReadOnly }: { version: AgentVersion; pat
           placeholder="System prompt will be generated..."
           className="w-full rounded-md border border-border bg-white px-3 py-2 text-sm text-foreground font-mono text-[12px] placeholder:text-muted-foreground focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
         />
+        <SystemAgentOverlapFromPrompt prompt={version.prompt} className="mt-3" />
       </div>
 
       {/* ── Request AI Changes ── */}
@@ -3446,6 +3511,10 @@ function CommunicationStep({ version, patch }: { version: AgentVersion; patch: (
   );
   const comms: CommunicationCfg = version.communication ?? { enabled: false, channels: [] };
   const phoneAssignment: PhoneAssignmentMode = comms.phoneAssignment ?? "same";
+  const [delegationLoading, setDelegationLoading] = useState(false);
+  const delegationSeededRef = useRef(
+    Boolean(version.superAgentDescription?.trim() || version.superAgentRoutingHints?.trim()),
+  );
 
   /** Properties this agent is associated with (ignores the "All properties" sentinel). */
   const associatedProperties = useMemo<string[]>(() => {
@@ -3453,12 +3522,38 @@ function CommunicationStep({ version, patch }: { version: AgentVersion; patch: (
     return version.properties.filter((p) => p !== "All properties");
   }, [version.properties]);
 
+  const [systemOverlaps, setSystemOverlaps] = useState<SystemAgentOverlap[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    const prompt = version.prompt;
+    const description = version.superAgentDescription;
+    const hints = version.superAgentRoutingHints;
+    if (!prompt.trim()) {
+      setSystemOverlaps([]);
+      return;
+    }
+    void confirmSystemAgentOverlaps(prompt, description, hints).then((hits) => {
+      if (!cancelled) setSystemOverlaps(hits);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [version.prompt, version.superAgentDescription, version.superAgentRoutingHints]);
+
+  const channelPriority = useMemo(() => {
+    const enabled = comms.channels;
+    const existing = (comms.channelPriority ?? []).filter((c) => enabled.includes(c));
+    const missing = enabled.filter((c) => !existing.includes(c));
+    return [...existing, ...missing];
+  }, [comms.channels, comms.channelPriority]);
+
   useEffect(() => {
     if (!comms.enabled && inference.needsCommunication) {
       patch({
         communication: {
           enabled: true,
           channels: inference.recommendedChannels,
+          channelPriority: inference.recommendedChannels,
           phoneAssignment: "same",
           phoneBehavior:
             inference.recommendedPhoneBehavior === "none" ? undefined : inference.recommendedPhoneBehavior,
@@ -3507,12 +3602,90 @@ function CommunicationStep({ version, patch }: { version: AgentVersion; patch: (
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [comms.channels.length]);
 
+  useEffect(() => {
+    if (comms.channels.length === 0) return;
+    const next = channelPriority;
+    const prev = comms.channelPriority ?? [];
+    if (next.length === prev.length && next.every((c, i) => c === prev[i])) return;
+    patch({ communication: { ...comms, channelPriority: next } });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [comms.channels.join(",")]);
+
+  const seedSuperAgentDelegation = useCallback(async (force = false) => {
+    if (!force && delegationSeededRef.current) return;
+    if (!force && (version.superAgentDescription?.trim() || version.superAgentRoutingHints?.trim())) {
+      delegationSeededRef.current = true;
+      return;
+    }
+    setDelegationLoading(true);
+    try {
+      let draft = buildDelegationDraftLocally(version.name || "This agent", version.prompt);
+      if (isClientLLMConfigured()) {
+        try {
+          const result = await callClientLLM(
+            [
+              {
+                role: "system",
+                content: `You write Super Agent routing metadata for Entrata custom agents.
+Return JSON only: { "superAgentDescription": string, "superAgentRoutingHints": string }.
+- superAgentDescription: 2–4 sentences describing what the agent does and when Super Agent should route to it.
+- superAgentRoutingHints: comma-separated keywords/topics/question patterns for routing.
+Do not mention system agents by name unless the prompt does.`,
+              },
+              {
+                role: "user",
+                content: `Agent name: ${version.name || "Untitled"}\n\nAgent prompt:\n${version.prompt}`,
+              },
+            ],
+            { temperature: 0.2, maxTokens: 800 },
+          );
+          const parsed = JSON.parse(result.content.match(/\{[\s\S]*\}/)?.[0] ?? result.content);
+          if (parsed.superAgentDescription || parsed.superAgentRoutingHints) {
+            draft = {
+              superAgentDescription: String(parsed.superAgentDescription ?? draft.superAgentDescription),
+              superAgentRoutingHints: String(parsed.superAgentRoutingHints ?? draft.superAgentRoutingHints),
+            };
+          }
+        } catch (err) {
+          console.error("Super Agent delegation LLM seed failed:", err);
+        }
+      }
+      patch({
+        superAgentDescription: draft.superAgentDescription,
+        superAgentRoutingHints: draft.superAgentRoutingHints,
+        superAgentEnabled: true,
+      });
+      delegationSeededRef.current = true;
+    } finally {
+      setDelegationLoading(false);
+    }
+  }, [patch, version.name, version.prompt, version.superAgentDescription, version.superAgentRoutingHints]);
+
+  useEffect(() => {
+    if (comms.channels.length === 0) return;
+    void seedSuperAgentDelegation(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [comms.channels.length > 0]);
+
   const setField = (p: Partial<CommunicationCfg>) => patch({ communication: { ...comms, ...p } });
   const toggleChannel = (ch: CommunicationChannel) => {
     const set = new Set<CommunicationChannel>(comms.channels);
     if (set.has(ch)) set.delete(ch);
     else set.add(ch);
-    setField({ channels: [...set] });
+    const nextChannels = [...set];
+    const nextPriority = [
+      ...(comms.channelPriority ?? []).filter((c) => nextChannels.includes(c)),
+      ...nextChannels.filter((c) => !(comms.channelPriority ?? []).includes(c)),
+    ];
+    setField({ channels: nextChannels, channelPriority: nextPriority });
+  };
+
+  const moveChannelPriority = (index: number, direction: -1 | 1) => {
+    const next = [...channelPriority];
+    const target = index + direction;
+    if (target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target], next[index]];
+    setField({ channelPriority: next });
   };
 
   const setPerPropertyPhone = (propertyName: string, value: string) => {
@@ -3549,6 +3722,10 @@ function CommunicationStep({ version, patch }: { version: AgentVersion; patch: (
         It looks like this agent will send or receive messages. Confirm how it should reach people across each associated property.
       </p>
 
+      {systemOverlaps.length > 0 && (
+        <SystemAgentOverlapBanner overlaps={systemOverlaps} className="mt-4" />
+      )}
+
       {/* ── Channels ── */}
       <div className="mt-5 flex flex-wrap gap-2">
         {CHANNEL_TOGGLE_OPTIONS.map((opt) => {
@@ -3568,6 +3745,49 @@ function CommunicationStep({ version, patch }: { version: AgentVersion; patch: (
           );
         })}
       </div>
+
+      {channelPriority.length > 1 && (
+        <div className="mt-5 rounded-xl border border-border bg-muted/20 p-4">
+          <h3 className="text-sm font-semibold text-foreground">Channel priority</h3>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Rank how this agent should try to reach a resident. Residents who opted out of a channel are skipped automatically.
+          </p>
+          <ol className="mt-3 space-y-1.5">
+            {channelPriority.map((ch, index) => {
+              const label = CHANNEL_TOGGLE_OPTIONS.find((o) => o.value === ch)?.label ?? ch.toUpperCase();
+              return (
+                <li
+                  key={ch}
+                  className="flex items-center gap-2 rounded-lg border border-border bg-white px-3 py-2"
+                >
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-100 text-[10px] font-bold text-indigo-700">
+                    {index + 1}
+                  </span>
+                  <span className="flex-1 text-sm font-medium text-foreground">{label}</span>
+                  <button
+                    type="button"
+                    disabled={index === 0}
+                    onClick={() => moveChannelPriority(index, -1)}
+                    className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
+                    aria-label={`Move ${label} up`}
+                  >
+                    <ArrowUp className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={index === channelPriority.length - 1}
+                    onClick={() => moveChannelPriority(index, 1)}
+                    className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
+                    aria-label={`Move ${label} down`}
+                  >
+                    <ArrowDown className="h-3.5 w-3.5" />
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      )}
 
       {/* Agent persona name, brand source, and voice config are configured
           at the platform level for AI-powered agents. */}
@@ -3826,20 +4046,47 @@ function CommunicationStep({ version, patch }: { version: AgentVersion; patch: (
       {/* ── Super Agent Delegation (auto-shown when any channel is active) ── */}
       {hasAnyChannel && (
         <div className="mt-8 rounded-xl border border-purple-200 bg-purple-50/30 p-5">
-          <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-purple-100 text-purple-700">
-              <Users className="h-4 w-4" />
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-purple-100 text-purple-700">
+                <Users className="h-4 w-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-purple-900">Super Agent Delegation</h3>
+                <p className="text-[11px] text-purple-800/80">
+                  Because this agent has conversational abilities, Entrata&apos;s Super Agent can route relevant questions to it automatically.
+                  We drafted routing details from your prompt — edit them anytime.
+                </p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-sm font-semibold text-purple-900">Super Agent Delegation</h3>
-              <p className="text-[11px] text-purple-800/80">
-                Because this agent has conversational abilities, Entrata&apos;s Super Agent can route relevant questions to it automatically.
-                Describe what this agent does so Super Agent knows when to delegate.
-              </p>
-            </div>
+            <button
+              type="button"
+              disabled={delegationLoading}
+              onClick={() => void seedSuperAgentDelegation(true)}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-purple-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-purple-800 hover:bg-purple-50 disabled:opacity-60"
+            >
+              {delegationLoading ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Generating…
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Regenerate
+                </>
+              )}
+            </button>
           </div>
 
           <div className="mt-4 space-y-4 border-t border-purple-200 pt-4">
+            {delegationLoading && !version.superAgentDescription?.trim() && (
+              <div className="flex items-center gap-2 rounded-md border border-purple-100 bg-white/70 px-3 py-2 text-[12px] text-purple-800">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Drafting Super Agent routing from your prompt…
+              </div>
+            )}
+
             <div>
               <label className="mb-1.5 block text-xs font-medium text-purple-900" htmlFor="super-agent-desc">
                 Agent capability description
@@ -3874,13 +4121,17 @@ function CommunicationStep({ version, patch }: { version: AgentVersion; patch: (
               />
             </div>
 
-            {(!version.superAgentDescription || version.superAgentDescription.trim().length < 20) && (
+            {(!version.superAgentDescription || version.superAgentDescription.trim().length < 20) && !delegationLoading && (
               <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-200 p-2.5">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
                 <p className="text-[11px] text-amber-800">
                   A detailed description helps Super Agent route accurately. Aim for at least a couple sentences describing this agent&apos;s domain and capabilities.
                 </p>
               </div>
+            )}
+
+            {systemOverlaps.length > 0 && (
+              <SystemAgentOverlapBanner overlaps={systemOverlaps} compact />
             )}
           </div>
         </div>
@@ -5362,6 +5613,307 @@ function KnowledgeSourceRow({
         <X className="h-3.5 w-3.5" />
       </button>
     </li>
+  );
+}
+
+/* ─────────── System agent overlap warning ─────────── */
+
+function SystemAgentOverlapFromPrompt({
+  prompt,
+  className,
+}: {
+  prompt: string;
+  className?: string;
+}) {
+  const [overlaps, setOverlaps] = useState<SystemAgentOverlap[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    if (!prompt.trim()) {
+      setOverlaps([]);
+      return;
+    }
+    void confirmSystemAgentOverlaps(prompt).then((hits) => {
+      if (!cancelled) setOverlaps(hits);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [prompt]);
+  if (overlaps.length === 0) return null;
+  return <SystemAgentOverlapBanner overlaps={overlaps} className={className} />;
+}
+
+function SystemAgentOverlapBanner({
+  overlaps,
+  className,
+  compact = false,
+}: {
+  overlaps: SystemAgentOverlap[];
+  className?: string;
+  compact?: boolean;
+}) {
+  if (overlaps.length === 0) return null;
+  const names = overlaps.map((o) => o.systemAgentName).join(", ");
+
+  return (
+    <div className={`rounded-xl border border-amber-200 bg-amber-50/80 p-3 ${className ?? ""}`}>
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-semibold text-amber-950">
+            May conflict with {names}
+          </p>
+          <p className="mt-0.5 text-[11px] text-amber-900/80">
+            This custom agent overlaps with Entrata system agents. Super Agent may send questions here
+            instead of the system agent — review the examples and decide if that&apos;s intentional.
+          </p>
+          <div className={`mt-3 space-y-3 ${compact ? "space-y-2" : ""}`}>
+            {overlaps.map((overlap) => (
+              <div key={overlap.domain} className="rounded-lg border border-amber-200/80 bg-white/70 p-2.5">
+                <p className="text-[12px] font-semibold text-amber-950">{overlap.systemAgentName}</p>
+                <p className="mt-0.5 text-[11px] text-amber-900/80">{overlap.reason}</p>
+                <p className="mt-2 text-[10px] font-semibold uppercase tracking-wider text-amber-800/70">
+                  Example questions that may come here instead
+                </p>
+                <ul className="mt-1 space-y-0.5">
+                  {overlap.exampleQuestions.map((q) => (
+                    <li key={q} className="text-[11px] text-amber-950">
+                      “{q}”
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-[11px] text-amber-900/75">
+            You can keep going — this is a warning, not a blocker. Narrow the prompt or Super Agent
+            routing if you want system agents to keep owning these topics.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────── Step: Evals (LLM pre-populated, editable) ─────────── */
+
+function EvalsStep({
+  version,
+  patch,
+}: {
+  version: AgentVersion;
+  patch: (p: Partial<AgentVersion>) => void;
+}) {
+  const cases = version.evals ?? [];
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [draftInput, setDraftInput] = useState("");
+  const [draftExpected, setDraftExpected] = useState("");
+  const autoStartedRef = useRef(false);
+
+  const generateEvals = useCallback(async (replaceExisting: boolean) => {
+    setGenerating(true);
+    setError(null);
+    try {
+      const { generateEvalsForAgent } = await import("@/lib/eval-generator");
+      const triggerDescriptions = (version.triggers ?? []).map((t) => {
+        if (t.kind === "schedule") return `Schedule: ${formatScheduleTrigger(t)}`;
+        if (t.kind === "inbound_message") return `Inbound message (${t.channel ?? "all channels"})`;
+        return t.kind;
+      });
+      const result = await generateEvalsForAgent({
+        name: version.name || "Untitled Agent",
+        description: version.successDescription || version.name || "Custom agent",
+        type: "ai-powered",
+        classification: version.classification ?? undefined,
+        prompt: version.prompt ?? undefined,
+        guardrails: version.guardrails ?? undefined,
+        structuredGuardrails: version.structuredGuardrails?.map((g) => ({
+          label: g.label,
+          enabled: g.enabled,
+        })),
+        skillIds: version.skillIds?.length ? version.skillIds : undefined,
+        triggers: triggerDescriptions.length > 0 ? triggerDescriptions : undefined,
+        mcpTools: (version.mcpServers ?? [])
+          .filter((s) => s.enabled)
+          .flatMap((s) => s.restrictedToolIds ?? [`${s.name} (all tools)`]),
+      });
+      const mapped: EvalCase[] = result.evals.map((e) => ({
+        id: e.id,
+        input: e.input,
+        expected: e.expected,
+        severity: e.severity,
+        tags: e.tags,
+      }));
+      patch({ evals: replaceExisting ? mapped : [...cases, ...mapped] });
+    } catch (err) {
+      console.error("Wizard eval generation failed:", err);
+      setError("Couldn't generate evals. You can still add cases manually.");
+    } finally {
+      setGenerating(false);
+    }
+  }, [cases, patch, version]);
+
+  useEffect(() => {
+    if (autoStartedRef.current) return;
+    if (cases.length > 0) {
+      autoStartedRef.current = true;
+      return;
+    }
+    if (!version.prompt.trim()) return;
+    autoStartedRef.current = true;
+    void generateEvals(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const removeCase = (id: string) => {
+    patch({ evals: cases.filter((c) => c.id !== id) });
+  };
+
+  const updateCase = (id: string, next: Partial<EvalCase>) => {
+    patch({
+      evals: cases.map((c) => (c.id === id ? { ...c, ...next } : c)),
+    });
+  };
+
+  const addManualCase = () => {
+    if (!draftInput.trim() || !draftExpected.trim()) return;
+    const next: EvalCase = {
+      id: `eval_${Date.now()}`,
+      input: draftInput.trim(),
+      expected: draftExpected.trim(),
+      severity: "major",
+      tags: ["manual"],
+    };
+    patch({ evals: [...cases, next] });
+    setDraftInput("");
+    setDraftExpected("");
+  };
+
+  return (
+    <section>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="font-heading text-lg text-foreground">Evals</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Test cases for this agent. We pre-populate these from your prompt — edit, remove, or add your own before deploying.
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={generating || !version.prompt.trim()}
+          onClick={() => void generateEvals(cases.length === 0)}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-60"
+        >
+          {generating ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Generating…
+            </>
+          ) : (
+            <>
+              <Sparkles className="h-3.5 w-3.5" />
+              {cases.length === 0 ? "Generate evals" : "Add more from prompt"}
+            </>
+          )}
+        </button>
+      </div>
+
+      {error && (
+        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+          {error}
+        </div>
+      )}
+
+      {generating && cases.length === 0 && (
+        <div className="mt-5 flex flex-col items-center gap-2 rounded-xl border border-border bg-muted/20 px-4 py-10">
+          <Loader2 className="h-5 w-5 animate-spin text-indigo-500" />
+          <p className="text-[12px] text-muted-foreground">
+            Generating eval cases for happy paths, edge cases, compliance, and tool usage…
+          </p>
+        </div>
+      )}
+
+      {!generating && cases.length === 0 && (
+        <div className="mt-5 rounded-xl border border-dashed border-border bg-muted/10 px-4 py-8 text-center">
+          <ListChecks className="mx-auto h-5 w-5 text-muted-foreground" />
+          <p className="mt-2 text-sm text-muted-foreground">No evals yet. Generate from your prompt or add one manually below.</p>
+        </div>
+      )}
+
+      {cases.length > 0 && (
+        <div className="mt-5 space-y-3">
+          {cases.map((c, index) => (
+            <div key={c.id} className="rounded-xl border border-border bg-white p-4">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-semibold text-muted-foreground">Case {index + 1}</span>
+                  {c.severity && (
+                    <Badge variant="outline" className="text-[10px] capitalize">{c.severity}</Badge>
+                  )}
+                  {(c.tags ?? []).slice(0, 3).map((tag) => (
+                    <Badge key={tag} className="bg-slate-100 text-slate-700 border-slate-200 text-[10px]">
+                      {tag}
+                    </Badge>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeCase(c.id)}
+                  className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  aria-label="Remove eval"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Input
+              </label>
+              <textarea
+                value={c.input}
+                onChange={(e) => updateCase(c.id, { input: e.target.value })}
+                rows={2}
+                className="mb-3 w-full rounded-md border border-border bg-muted/20 px-2.5 py-1.5 text-[12px] text-foreground focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+              />
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Expected behavior
+              </label>
+              <textarea
+                value={c.expected}
+                onChange={(e) => updateCase(c.id, { expected: e.target.value })}
+                rows={2}
+                className="w-full rounded-md border border-border bg-muted/20 px-2.5 py-1.5 text-[12px] text-foreground focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-6 rounded-xl border border-border bg-muted/10 p-4">
+        <h3 className="text-sm font-semibold text-foreground">Add eval manually</h3>
+        <div className="mt-3 space-y-2">
+          <Input
+            value={draftInput}
+            onChange={(e) => setDraftInput(e.target.value)}
+            placeholder="Resident / user input…"
+          />
+          <Input
+            value={draftExpected}
+            onChange={(e) => setDraftExpected(e.target.value)}
+            placeholder="Expected agent behavior…"
+          />
+          <button
+            type="button"
+            onClick={addManualCase}
+            disabled={!draftInput.trim() || !draftExpected.trim()}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-white px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add eval
+          </button>
+        </div>
+      </div>
+    </section>
   );
 }
 

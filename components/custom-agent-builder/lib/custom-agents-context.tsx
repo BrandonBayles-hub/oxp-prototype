@@ -220,6 +220,14 @@ export type CommunicationCfg = {
   channels: CommunicationChannel[];
 
   /**
+   * Preferred order for reaching a resident when multiple channels are enabled.
+   * Example: `["sms", "email", "voice"]` means try SMS first, then email, then voice.
+   * Residents who opted out of a channel are skipped at runtime; this list is the
+   * agent-level preference. Only channels present in `channels` should appear here.
+   */
+  channelPriority?: CommunicationChannel[];
+
+  /**
    * Whether this agent inherits its brand voice from an existing platform
    * config or defines its own. When `"inherit"`, the agent pulls persona
    * name, tone, language, voice preset, and opening lines from
