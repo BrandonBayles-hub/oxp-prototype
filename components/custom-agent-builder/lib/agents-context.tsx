@@ -164,7 +164,7 @@ const defaultAgentFields = (
   scope: "All properties",
   vaultBinding: "",
   channels: ["Chat", "Portal"],
-  toolsAllowed: ["Entrata MCP"],
+  toolsAllowed: ["Entrata Tools"],
   guardrails: "None",
   conversationCount: 0,
   resolutionRate: "—",
@@ -196,7 +196,7 @@ const defaultAgentFields = (
 
 const INITIAL_AGENTS: Agent[] = [
   // Revenue & Financial Management — autonomous, intelligence, operations
-  { id: "1", ...defaultAgentFields("Revenue & Financial Management", "autonomous", "Payments AI", "Rent, fees, payment questions", { status: "Off", vaultBinding: "SOPs: Payments, Refund policy", channels: ["Chat", "SMS", "Voice"], toolsAllowed: ["Entrata MCP", "Work orders"], systemPrompt: PAYMENTS_SYSTEM_PROMPT, guardrails: PAYMENTS_GUARDRAILS, conversationCount: 42, resolutionRate: "88%", escalationsCount: 5, revenueImpact: "$1.2K", labels: ["Payments"] }) },
+  { id: "1", ...defaultAgentFields("Revenue & Financial Management", "autonomous", "Payments AI", "Rent, fees, payment questions", { status: "Off", vaultBinding: "SOPs: Payments, Refund policy", channels: ["Chat", "SMS", "Voice"], toolsAllowed: ["Entrata Tools", "Work orders"], systemPrompt: PAYMENTS_SYSTEM_PROMPT, guardrails: PAYMENTS_GUARDRAILS, conversationCount: 42, resolutionRate: "88%", escalationsCount: 5, revenueImpact: "$1.2K", labels: ["Payments"] }) },
   // L2 · Operational Efficiency — Revenue & Financial Management (35)
   { id: "100", ...defaultAgentFields("Revenue & Financial Management", "intelligence", "Activate & Sync Templates", "Push changes from a budget template to multiple linked budgets in one operation.", { status: "Active", labels: ["Accounting"] }) },
   { id: "101", ...defaultAgentFields("Revenue & Financial Management", "intelligence", "Advance Period Select All AP Agent", "Select all checkbox automatically in AP period closing module of AP Payment.", { status: "Active", labels: ["Accounting"] }) },
@@ -235,7 +235,7 @@ const INITIAL_AGENTS: Agent[] = [
   { id: "134", ...defaultAgentFields("Revenue & Financial Management", "intelligence", "Unapprove for Payment", "Unapprove selected invoices for payment in bulk, moving them through the AP approval workflow.", { status: "Active", labels: ["Accounting"] }) },
   { id: "3", ...defaultAgentFields("Revenue & Financial Management", "operations", "Payments Operations", "Automated payment processing, reconciliation, and ledger posting. Runs nightly to match payments to charges and flag discrepancies.", { labels: ["Payments"], runsCompleted: 142, lastRunAt: "2026-02-20T03:00:00Z", lastRunStatus: "success", errorCount: 3, avgRunDuration: "4m 12s", schedule: "Daily at 3:00 AM" }) },
   // Leasing & Marketing
-  { id: "4", ...defaultAgentFields("Leasing & Marketing", "autonomous", "Leasing AI", "Tours, applications, lease questions", { status: "Active", scope: "Hillside Living, Jamison Apartments", vaultBinding: "SOPs: Leasing, Fair housing", channels: ["Chat", "SMS", "Voice", "Portal"], toolsAllowed: ["Entrata MCP", "Lease lookup"], systemPrompt: LEASING_SYSTEM_PROMPT, guardrails: LEASING_GUARDRAILS, conversationCount: 89, resolutionRate: "92%", escalationsCount: 7, revenueImpact: "$8.4K", labels: ["Leasing"] }) },
+  { id: "4", ...defaultAgentFields("Leasing & Marketing", "autonomous", "Leasing AI", "Tours, applications, lease questions", { status: "Active", scope: "Hillside Living, Jamison Apartments", vaultBinding: "SOPs: Leasing, Fair housing", channels: ["Chat", "SMS", "Voice", "Portal"], toolsAllowed: ["Entrata Tools", "Lease lookup"], systemPrompt: LEASING_SYSTEM_PROMPT, guardrails: LEASING_GUARDRAILS, conversationCount: 89, resolutionRate: "92%", escalationsCount: 7, revenueImpact: "$8.4K", labels: ["Leasing"] }) },
   // L2 · Operational Efficiency — Leasing & Marketing (22)
   { id: "200", ...defaultAgentFields("Leasing & Marketing", "intelligence", "30-Days Inactive Leads Cancel", "Cancels leads after 30 days of inactivity to keep dashboards organized and up to date.", { status: "Active", labels: ["Leasing"] }) },
   { id: "201", ...defaultAgentFields("Leasing & Marketing", "intelligence", "Approve Applications", "Approve rental applications in bulk, moving qualified applicants through the leasing pipeline.", { status: "Active", labels: ["Leasing"] }) },
@@ -287,7 +287,7 @@ const INITIAL_AGENTS: Agent[] = [
   { id: "321", ...defaultAgentFields("Resident Relations & Retention", "intelligence", "Transfer Move-Out", "Auto-process the move-out side of unit transfers.", { status: "Active", labels: ["Resident relations"] }) },
   { id: "9", ...defaultAgentFields("Resident Relations & Retention", "operations", "Renewal Operations", "Sends renewal offers, generates lease documents, schedules follow-ups, and processes renewal executions.", { labels: ["Resident relations"], runsCompleted: 67, lastRunAt: "2026-02-19T10:00:00Z", lastRunStatus: "success", errorCount: 0, avgRunDuration: "1m 30s", schedule: "Daily at 10:00 AM" }) },
   // Operations & Maintenance
-  { id: "10", ...defaultAgentFields("Operations & Maintenance", "autonomous", "Maintenance AI", "Work orders, follow-up, scheduling", { status: "Off", vaultBinding: "SOPs: Maintenance escalation", channels: ["Chat", "Voice"], toolsAllowed: ["Entrata MCP", "Work orders"], systemPrompt: MAINTENANCE_SYSTEM_PROMPT, guardrails: MAINTENANCE_GUARDRAILS, conversationCount: 78, resolutionRate: "89%", escalationsCount: 8, revenueImpact: "$3.2K", labels: ["Maintenance"] }) },
+  { id: "10", ...defaultAgentFields("Operations & Maintenance", "autonomous", "Maintenance AI", "Work orders, follow-up, scheduling", { status: "Off", vaultBinding: "SOPs: Maintenance escalation", channels: ["Chat", "Voice"], toolsAllowed: ["Entrata Tools", "Work orders"], systemPrompt: MAINTENANCE_SYSTEM_PROMPT, guardrails: MAINTENANCE_GUARDRAILS, conversationCount: 78, resolutionRate: "89%", escalationsCount: 8, revenueImpact: "$3.2K", labels: ["Maintenance"] }) },
   // L2 · Operational Efficiency — Operations & Maintenance (14)
   { id: "400", ...defaultAgentFields("Operations & Maintenance", "intelligence", "Add Baseline Images to Inspections", "Automatically pulls images from the baseline inspection into the current inspection.", { status: "Active", labels: ["Maintenance"] }) },
   { id: "401", ...defaultAgentFields("Operations & Maintenance", "intelligence", "Add Home Warranty Agent", "Enter warranty details for multiple homes at once with consistent information.", { status: "Active", labels: ["Maintenance"] }) },

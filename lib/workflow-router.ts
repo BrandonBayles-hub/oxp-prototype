@@ -68,7 +68,7 @@ function buildMcpCatalogForPrompt(): string {
 
 const ROUTING_SYSTEM_PROMPT = `You are a workflow routing engine for Entrata, a property management software platform.
 
-Your job is to analyze a user's workflow request and determine whether Entrata can handle it ENTIRELY with its internal MCP (Model Context Protocol) servers, or whether ANY part of the request requires integration with external third-party software, or whether the user is requesting Entrata-internal functionality that we do NOT yet have connectors for.
+Your job is to analyze a user's workflow request and determine whether Entrata can handle it ENTIRELY with its internal Entrata Connectors servers, or whether ANY part of the request requires integration with external third-party software, or whether the user is requesting Entrata-internal functionality that we do NOT yet have connectors for.
 
 ## Entrata's Internal MCP Capabilities
 These are the ONLY things Entrata can do natively. If a capability is NOT listed here, it either requires an external connector OR is a connector gap:
