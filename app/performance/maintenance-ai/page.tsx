@@ -26,17 +26,19 @@ import {
 import { cn } from "@/lib/utils";
 import {
   DeltaPill,
+  EscalationsSection,
   ReportFilterBar,
   ReportPageHeader,
   SectionBanner,
   StatCard,
-  createReportFilters,
+  useReportScope,
   legendLabel,
   formatMonthLabel,
   monthsForPeriod,
   CHART_GRID_STROKE,
   STATUS_FILL,
   URGENCY_BADGE,
+  seriesColor,
   seriesColorMap,
   serializeFilters,
   type ExtraFilter,
@@ -325,6 +327,15 @@ interface PeriodScaledMetrics {
   receivedToSentRatio: string;
   incomingPerDay: { date: string; count: number }[];
   incomingGranularity: "day" | "week" | "month";
+
+  // Escalations
+  escalationRate: string;
+  totalEscalations: string;
+  openEscalations: string;
+  resolvedEscalations: string;
+  avgEscalationResolutionDays: string;
+  escalationReasons: { reason: string; count: number }[];
+  escalationResolutionTrend: { month: string; days: number }[];
 }
 
 const BASE_3Y = {
@@ -353,7 +364,18 @@ const BASE_3Y = {
   voiceCount: 592,
   totalMessagesReceived: 18204,
   totalMessagesSent: 16489,
+  totalEscalations: 268,
+  avgEscalationResolutionDays: 3.4,
 } as const;
+
+const BASE_ESCALATION_REASONS = [
+  { reason: "Parts Unavailable", count: 78 },
+  { reason: "Access / Entry Issue", count: 61 },
+  { reason: "Vendor Required", count: 49 },
+  { reason: "Resident Dissatisfied", count: 38 },
+  { reason: "Safety / Emergency", count: 24 },
+  { reason: "Technical Problem", count: 18 },
+];
 
 const SOURCE_PERCENTAGES: Record<WorkOrderSource, number> = {
   "Maintenance AI": 11.0,
@@ -592,6 +614,37 @@ function buildMetricsForPeriod(months: number, filters: ReportFilters): PeriodSc
     return out;
   })();
 
+  // Escalations — derived from the same AI-period scale used for the rest of
+  // the AI impact metrics, so the numbers respond to period/property filters.
+  const escalationRand = seedRand(5150 + months + Math.round(propertyScale * 100));
+  const escalationJitter = () => 1 + (escalationRand() - 0.5) * 0.08;
+  const totalEscalations = Math.max(1, Math.round(BASE_3Y.totalEscalations * aiPeriodScale * escalationJitter()));
+  const openEscalations = Math.max(0, Math.round(totalEscalations * 0.1 * escalationJitter()));
+  const resolvedEscalations = Math.max(0, totalEscalations - openEscalations);
+  const escalationRate = +(12.6 * escalationJitter()).toFixed(1);
+  const avgEscalationResolutionDays = +(
+    BASE_3Y.avgEscalationResolutionDays * escalationJitter()
+  ).toFixed(1);
+  const escalationReasonScale = Math.max(0.05, aiPeriodScale);
+  const escalationReasons = BASE_ESCALATION_REASONS.map((item, i) => ({
+    ...item,
+    count: Math.round(item.count * escalationReasonScale * (1 + (seedRand(6001 + i + months)() - 0.5) * 0.08)),
+  }));
+  const escalationResolutionTrend = (() => {
+    const rand = seedRand(6501 + months);
+    const data: PeriodScaledMetrics["escalationResolutionTrend"] = [];
+    const count = Math.min(months, 13);
+    for (let i = 0; i < count; i++) {
+      const monthOffset = count - 1 - i;
+      const t = i / Math.max(count - 1, 1);
+      const dateRef = new Date();
+      dateRef.setMonth(dateRef.getMonth() - monthOffset);
+      const days = avgEscalationResolutionDays * (1.25 - 0.35 * t) + (rand() - 0.5) * 0.4;
+      data.push({ month: formatMonthLabel(dateRef), days: +Math.max(0.5, days).toFixed(1) });
+    }
+    return data;
+  })();
+
   return {
     openWorkOrders: scaleInt(BASE_3Y.openWorkOrders),
     overdueWorkOrders: scaleInt(BASE_3Y.overdueWorkOrders),
@@ -635,6 +688,14 @@ function buildMetricsForPeriod(months: number, filters: ReportFilters): PeriodSc
     receivedToSentRatio,
     incomingPerDay,
     incomingGranularity,
+
+    escalationRate: `${escalationRate}%`,
+    totalEscalations: totalEscalations.toLocaleString(),
+    openEscalations: openEscalations.toLocaleString(),
+    resolvedEscalations: resolvedEscalations.toLocaleString(),
+    avgEscalationResolutionDays: `${avgEscalationResolutionDays}`,
+    escalationReasons,
+    escalationResolutionTrend,
   };
 }
 
@@ -996,9 +1057,7 @@ function LoadingBanner() {
 // -----------------------------------------------------------------------------
 
 export default function MaintenanceAiDashboardPage() {
-  const [filters, setFilters] = useState<ReportFilters>(() =>
-    createReportFilters(PROPERTIES, MAINTENANCE_EXTRA_DEFAULTS),
-  );
+  const [filters, setFilters] = useReportScope(PROPERTIES, MAINTENANCE_EXTRA_DEFAULTS);
   const [loading, setLoading] = useState(false);
   const [sliceBy, setSliceBy] = useState<SliceDimension>("status");
   const filtersKey = useMemo(
@@ -1335,6 +1394,78 @@ export default function MaintenanceAiDashboardPage() {
           </Card>
         </div>
       </section>
+
+      {/* =========================================================== */}
+      {/* Section 2b — Escalations                                    */}
+      {/* =========================================================== */}
+      <EscalationsSection
+        stats={[
+          {
+            label: "Escalation rate",
+            value: loading ? "…" : metrics.escalationRate,
+            sub: "of AI-originated work orders escalated",
+          },
+          {
+            label: "Total escalations",
+            value: loading ? "…" : metrics.totalEscalations,
+            sub: "escalated to staff",
+          },
+          {
+            label: "Open escalations",
+            value: loading ? "…" : metrics.openEscalations,
+            sub: "pending resolution",
+          },
+          {
+            label: "Resolved",
+            value: loading ? "…" : metrics.resolvedEscalations,
+            sub: "resolved by staff",
+          },
+        ]}
+      >
+        <div className="grid gap-3 lg:grid-cols-2">
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Escalation Reasons</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <Skeleton className="h-[260px] w-full" />
+              ) : (
+                <ChartContainer config={{}} className="!aspect-auto h-[260px] w-full">
+                  <BarChart data={metrics.escalationReasons} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+                    <XAxis dataKey="reason" tickLine={false} axisLine={false} tickMargin={8} angle={-30} textAnchor="end" height={50} interval={0} fontSize={10} />
+                    <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar dataKey="count" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ChartContainer>
+              )}
+            </CardContent>
+          </Card>
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Avg Escalation Resolution Time — Trend</CardTitle>
+              <p className="text-xs text-muted-foreground">Days from escalation created to resolved</p>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <Skeleton className="h-[240px] w-full" />
+              ) : (
+                <ChartContainer config={{}} className="!aspect-auto h-[240px] w-full">
+                  <LineChart data={metrics.escalationResolutionTrend} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+                    <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
+                    <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Line type="monotone" dataKey="days" stroke={seriesColor(0)} strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ChartContainer>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </EscalationsSection>
 
       {/* =========================================================== */}
       {/* Section 3 — Conversational Messaging Analysis               */}

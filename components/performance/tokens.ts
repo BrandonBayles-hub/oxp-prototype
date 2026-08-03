@@ -192,8 +192,17 @@ export interface ReportFilters {
   periodId: PeriodId;
   customFrom: string;
   customTo: string;
-  /** Selected properties. Empty set = none; full set = all. */
+  /**
+   * Properties this page reports on — already intersected with the page's own
+   * portfolio, so it is never empty.
+   */
   properties: Set<string>;
+  /**
+   * The user's raw cross-report property selection, by name. Empty means
+   * "all". Kept separate from `properties` because the selection spans every
+   * agent while `properties` is scoped to the one being viewed.
+   */
+  propertySelection?: Set<string>;
   /** Charts render one portfolio line, or one line per selected property. */
   view: ReportViewMode;
   /** Agent-specific dimensions, keyed by filter id (e.g. "technicians"). */

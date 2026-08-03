@@ -56,3 +56,6 @@ export {
   legendLabel,
   type SeriesKey,
 } from "./chart-legend";
+
+export { useReportScope } from "./use-report-scope";
+export { ReportPropertyFilter, ALL_REPORT_PROPERTIES } from "./report-property-filter";

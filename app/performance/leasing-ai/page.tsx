@@ -21,13 +21,15 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
+  EscalationsSection,
   ReportFilterBar,
   ReportPageHeader,
   SectionBanner,
   StatCard,
-  createReportFilters,
+  useReportScope,
   monthsForPeriod,
   selectionRatio,
+  seriesColor,
   seriesColorMap,
   type ReportFilters,
   type ReportViewMode,
@@ -1436,13 +1438,91 @@ function DomoReplicaSection({ filters, months }: { filters: ReportFilters; month
 }
 
 // -----------------------------------------------------------------------------
+// Escalations section (human resolution outcomes, derived from office
+// escalation volume above — a different concept from "Office Escalations",
+// which tracks handoff-to-office volume, not resolution status)
+// -----------------------------------------------------------------------------
+
+function EscalationsOverviewSection({
+  filters,
+  months,
+  escalationResolutionData,
+}: {
+  filters: ReportFilters;
+  months: number;
+  escalationResolutionData: ReturnType<typeof sliceTrend<MonthlyPoint>>;
+}) {
+  const kpi = useMemo(() => {
+    const periodScale = months / 12;
+    const propertyScale = selectionRatio(filters.properties, PROPERTIES.length);
+    const volume = periodScale * propertyScale;
+
+    const rand = seedRand(9001 + months + filters.properties.size);
+    const drift = () => 1 + (rand() - 0.5) * 0.05;
+
+    const count = (base: number) => Math.round(base * volume * drift()).toLocaleString();
+    const total = Math.round(480 * volume * drift());
+    const open = Math.round(total * 0.11);
+    const resolved = total - open;
+
+    return {
+      escalationRate: `${(10.9 * drift()).toFixed(1)}%`,
+      totalEscalations: total.toLocaleString(),
+      openEscalations: open.toLocaleString(),
+      resolvedEscalations: resolved.toLocaleString(),
+    };
+  }, [months, filters.properties]);
+
+  return (
+    <EscalationsSection
+      stats={[
+        { label: "Escalation rate", value: kpi.escalationRate, delta: "-1.8 pts", deltaTone: "positive", sub: "of AI conversations escalated" },
+        { label: "Total escalations", value: kpi.totalEscalations, sub: "escalated to staff" },
+        { label: "Open escalations", value: kpi.openEscalations, sub: "pending resolution" },
+        { label: "Resolved", value: kpi.resolvedEscalations, delta: "89% resolution", deltaTone: "positive", sub: "resolved by staff" },
+      ]}
+    >
+      <div className="grid gap-3 lg:grid-cols-2">
+        <Card className="border-border/60">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Escalation Reasons</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ChartContainer config={{}} className="!aspect-auto h-[260px] w-full">
+              <BarChart data={escalationReasons} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                <XAxis dataKey="reason" tickLine={false} axisLine={false} tickMargin={8} angle={-30} textAnchor="end" height={50} interval={0} />
+                <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <Bar dataKey="count" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ChartContainer>
+          </CardContent>
+        </Card>
+        <Card className="border-border/60">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Avg Escalation Resolution Time — Trend</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <TrendChart
+              data={escalationResolutionData}
+              view={filters.view}
+              selected={filters.properties}
+              yDomain={filters.view === "global" ? [0, 4] : [0, 5]}
+            />
+          </CardContent>
+        </Card>
+      </div>
+    </EscalationsSection>
+  );
+}
+
+// -----------------------------------------------------------------------------
 // Page
 // -----------------------------------------------------------------------------
 
 export default function LeasingAiDashboardPage() {
-  const [filters, setFilters] = useState<ReportFilters>(() =>
-    createReportFilters(PROPERTIES),
-  );
+  const [filters, setFilters] = useReportScope(PROPERTIES);
 
   const months = useMemo(() => monthsForPeriod(filters.periodId), [filters.periodId]);
 
@@ -1473,6 +1553,12 @@ export default function LeasingAiDashboardPage() {
       <LeadCaptureSection filters={filters} months={months} />
 
       <DomoReplicaSection filters={filters} months={months} />
+
+      <EscalationsOverviewSection
+        filters={filters}
+        months={months}
+        escalationResolutionData={escalationResolutionData}
+      />
 
       {/* ============================================================ */}
       {/* Section 1b — Agent Adoption (DEV-301196)                      */}

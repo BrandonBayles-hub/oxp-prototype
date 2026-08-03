@@ -26,13 +26,14 @@ import {
 import { cn } from "@/lib/utils";
 import {
   DeltaPill,
+  EscalationsSection,
   ReportFilterBar,
   ReportPageHeader,
   ReportSection,
   SectionBanner,
   StatCard,
   StatGrid,
-  createReportFilters,
+  useReportScope,
   monthsForPeriod,
   selectionRatio,
   seriesColorMap,
@@ -536,9 +537,7 @@ function compactCurrency(n: number): string {
 // -----------------------------------------------------------------------------
 
 export default function PaymentsAiDashboardPage() {
-  const [filters, setFilters] = useState<ReportFilters>(() =>
-    createReportFilters(PROPERTIES),
-  );
+  const [filters, setFilters] = useReportScope(PROPERTIES);
   const [loading, setLoading] = useState(false);
   const isFirstRender = useRef(true);
   const filtersKey = useMemo(() => serializeFilters(filters), [filters]);
@@ -1195,53 +1194,47 @@ export default function PaymentsAiDashboardPage() {
       {/* ============================================================ */}
       {/* Section 5 — Escalations                                       */}
       {/* ============================================================ */}
-      <section className="mb-6">
-        <SectionBanner
-          title="Escalations"
-          description="Escalation rate, volume, resolution status, and reasons"
-        />
-
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard
-            label="Escalation rate"
-            value={kpi.escalationRate}
-            delta="-1.8 pts"
-            deltaTone="positive"
-            sub="of AI conversations escalated"
-            action={<NewChip />}
-          />
-          <StatCard label="Total escalations" value={kpi.totalEscalations} sub="escalated to staff" action={<NewChip />} />
-          <StatCard label="Open escalations" value={kpi.openEscalations} sub="pending resolution" action={<NewChip />} />
-          <StatCard
-            label="Resolved"
-            value={kpi.resolvedEscalations}
-            delta="89% resolution"
-            deltaTone="positive"
-            sub="resolved by staff"
-            action={<NewChip />}
-          />
-        </div>
-
-        <div className="mt-3">
-          <Card className="border-border/60">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">
-                <CardTitleRow title="Avg Escalation Resolution Time — Trend" isNew />
-              </CardTitle>
-              <p className="text-xs text-muted-foreground">Days from escalation created to resolved</p>
-            </CardHeader>
-            <CardContent>
-              <TrendChart
-                data={escalationResolutionData}
-                view={filters.view}
-                selected={filters.properties}
-                yDomain={filters.view === "global" ? [0, 6] : [0, 7]}
-              />
-              <PropertyChips state={filters} setState={setFilters} />
-            </CardContent>
-          </Card>
-        </div>
-      </section>
+      <EscalationsSection
+        description="Escalation rate, volume, resolution status, and reasons"
+        stats={[
+          {
+            label: "Escalation rate",
+            value: kpi.escalationRate,
+            delta: "-1.8 pts",
+            deltaTone: "positive",
+            sub: "of AI conversations escalated",
+            action: <NewChip />,
+          },
+          { label: "Total escalations", value: kpi.totalEscalations, sub: "escalated to staff", action: <NewChip /> },
+          { label: "Open escalations", value: kpi.openEscalations, sub: "pending resolution", action: <NewChip /> },
+          {
+            label: "Resolved",
+            value: kpi.resolvedEscalations,
+            delta: "89% resolution",
+            deltaTone: "positive",
+            sub: "resolved by staff",
+            action: <NewChip />,
+          },
+        ]}
+      >
+        <Card className="border-border/60">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">
+              <CardTitleRow title="Avg Escalation Resolution Time — Trend" isNew />
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">Days from escalation created to resolved</p>
+          </CardHeader>
+          <CardContent>
+            <TrendChart
+              data={escalationResolutionData}
+              view={filters.view}
+              selected={filters.properties}
+              yDomain={filters.view === "global" ? [0, 6] : [0, 7]}
+            />
+            <PropertyChips state={filters} setState={setFilters} />
+          </CardContent>
+        </Card>
+      </EscalationsSection>
 
       {/* ============================================================ */}
       {/* Section 6 — Appendix                                          */}

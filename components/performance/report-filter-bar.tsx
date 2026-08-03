@@ -1,10 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { Calendar, ChevronDown, Search, SlidersHorizontal } from "lucide-react";
+import { Calendar, ChevronDown, Filter, Search, SlidersHorizontal, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { ReportPropertyFilter } from "./report-property-filter";
 import {
+  DEFAULT_PERIOD_ID,
   PERIOD_OPTIONS,
   periodLabel,
   type ReportFilters,
@@ -257,6 +259,18 @@ export function MultiSelectFilter({
 // View toggle
 // -----------------------------------------------------------------------------
 
+/**
+ * Segmented control for the chart view.
+ *
+ * Follows the platform's toggle canon (entrata-3.0 `ToggleButtonGroup`): a
+ * quiet recessed well holds the options and the selected segment is an
+ * elevated white chip — never a primary/black button. Selection is a *state*,
+ * not an action, and the near-black treatment this used to carry gave a simple
+ * view filter the visual weight of the page's primary action.
+ *
+ * The well is pinned to h-9 so the control matches the Period and Properties
+ * controls beside it by construction rather than by padding arithmetic.
+ */
 export function ViewToggle({
   view,
   onChange,
@@ -268,7 +282,7 @@ export function ViewToggle({
     <div
       role="group"
       aria-label="Chart view"
-      className="inline-flex h-9 items-center rounded-md border border-border bg-background p-0.5"
+      className="inline-flex h-9 items-center gap-1 rounded-lg border border-input bg-muted px-1"
     >
       {(["global", "perProperty"] as const).map((v) => (
         <button
@@ -277,10 +291,11 @@ export function ViewToggle({
           onClick={() => onChange(v)}
           aria-pressed={view === v}
           className={cn(
-            "rounded px-3 py-1 text-xs font-medium transition-colors",
+            "inline-flex h-7 items-center justify-center gap-2 whitespace-nowrap rounded-md px-3 text-xs font-medium transition-all",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
             view === v
-              ? "bg-foreground text-background"
-              : "text-muted-foreground hover:text-foreground",
+              ? "bg-card text-foreground shadow-sm"
+              : "bg-transparent text-muted-foreground hover:text-foreground",
           )}
         >
           {v === "global" ? "Global View" : "Per-Property"}
@@ -334,15 +349,23 @@ export function ReportFilterBar({
   const setExtra = (id: string, next: Set<string>) =>
     onChange({ ...filters, extras: { ...filters.extras, [id]: next } });
 
-  // Count dimensions narrowed from "all", so the disclosure advertises state
-  // that is otherwise hidden when collapsed.
-  const activeExtras = extraFilters.filter((f) => {
+  const narrowedExtras = extraFilters.filter((f) => {
     const sel = filters.extras[f.id];
     return sel && sel.size !== f.options.length;
-  }).length;
+  });
 
   const propertiesNarrowed = filters.properties.size !== properties.length;
-  const anyNarrowed = propertiesNarrowed || activeExtras > 0;
+  const periodNarrowed = filters.periodId !== DEFAULT_PERIOD_ID;
+  const activeCount =
+    (propertiesNarrowed ? 1 : 0) + (periodNarrowed ? 1 : 0) + narrowedExtras.length;
+
+  const clearAll = () =>
+    onChange({
+      ...filters,
+      periodId: DEFAULT_PERIOD_ID,
+      properties: new Set(properties),
+      extras: Object.fromEntries(extraFilters.map((f) => [f.id, new Set(f.options)])),
+    });
 
   return (
     <div
@@ -357,11 +380,9 @@ export function ReportFilterBar({
       <div className="flex flex-wrap items-center gap-2">
         <PeriodFilter filters={filters} onChange={onChange} />
 
-        <MultiSelectFilter
-          label="Properties"
-          options={properties}
-          selected={filters.properties}
-          onChange={(next) => onChange({ ...filters, properties: next })}
+        <ReportPropertyFilter
+          selected={filters.propertySelection ?? new Set()}
+          onChange={(next) => onChange({ ...filters, propertySelection: next })}
         />
 
         {showViewToggle ? (
@@ -384,30 +405,35 @@ export function ReportFilterBar({
           >
             <SlidersHorizontal className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <span className="text-muted-foreground">More filters</span>
-            {activeExtras > 0 ? (
+            {narrowedExtras.length > 0 ? (
               <span className="rounded-full bg-foreground px-1.5 text-xxs font-semibold text-background">
-                {activeExtras}
+                {narrowedExtras.length}
               </span>
             ) : null}
           </button>
         ) : null}
 
-        {anyNarrowed ? (
-          <button
-            type="button"
-            onClick={() =>
-              onChange({
-                ...filters,
-                properties: new Set(properties),
-                extras: Object.fromEntries(
-                  extraFilters.map((f) => [f.id, new Set(f.options)]),
-                ),
-              })
-            }
-            className="h-9 rounded-md px-2 text-xs font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground"
-          >
-            Reset filters
-          </button>
+        {/* Applied-filter state: a count plus an explicit clear. Without this
+            the only cue that a report is scoped was the control labels
+            themselves, which read the same whether or not anything is applied. */}
+        {activeCount > 0 ? (
+          <div className="ml-auto flex items-center gap-2">
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full bg-status-info px-2 py-0.5 text-xxs font-semibold text-status-info-foreground ring-1 ring-status-info-border"
+              role="status"
+            >
+              <Filter className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              {activeCount} filter{activeCount === 1 ? "" : "s"} applied
+            </span>
+            <button
+              type="button"
+              onClick={clearAll}
+              className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <X className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              Clear filters
+            </button>
+          </div>
         ) : null}
       </div>
 

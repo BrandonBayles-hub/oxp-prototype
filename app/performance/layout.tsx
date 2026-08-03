@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn, isActiveRoute } from "@/lib/utils";
+import { ReportFiltersProvider } from "@/lib/report-filters-context";
 import { BarChart3, Library } from "lucide-react";
 
 const TABS = [
@@ -31,6 +32,7 @@ export default function PerformanceLayout({
   const showTabs = TABS.some((tab) => isActiveRoute(pathname, tab.href, { exact: true }));
 
   return (
+    <ReportFiltersProvider>
     <div>
       {showTabs ? (
         <nav aria-label="Performance sections" className="mb-6 border-b border-border">
@@ -61,5 +63,6 @@ export default function PerformanceLayout({
       ) : null}
       {children}
     </div>
+    </ReportFiltersProvider>
   );
 }

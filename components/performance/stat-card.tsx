@@ -1,45 +1,90 @@
 "use client";
 
 import * as React from "react";
-import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { TONE_TEXT, type Tone } from "./tokens";
+import { TONE_BADGE, type Tone } from "./tokens";
 
 // -----------------------------------------------------------------------------
 // DeltaPill
 // -----------------------------------------------------------------------------
 
+/** Which way the number moved — a fact about the digits, not about meaning. */
+type Direction = "up" | "down" | "flat";
+
+function directionOf(value: string): Direction {
+  const v = value.trim();
+  if (/^[+▲↑]/.test(v)) return "up";
+  if (/^[-−–▼↓]/.test(v)) return "down";
+  return "flat";
+}
+
 /**
- * The trend indicator that sits beside a stat's value.
+ * Resolve a delta to a semantic tone.
  *
- * Was declared four times across the report pages with drifting icon sizes
- * (14px on three pages, 12px on maintenance — the latter off the sanctioned
- * icon scale) and raw emerald-600/rose-600 text that measured 3.77:1 against
- * a 4.5:1 AA requirement. One declaration, semantic tokens, 14px icons.
+ * Colour has to track whether the outcome is GOOD, not whether the number
+ * went up: "avg response time −2 sec" and "late payers −44" are decreases and
+ * both are wins, but colouring by sign paints them red and tells the reader
+ * the opposite of the truth.
+ *
+ * So the metric declares its polarity via `lowerIsBetter`, and the sign only
+ * decides which side of that polarity we're on. `tone` remains available as a
+ * direct override for cases that are neither (a flat or purely informational
+ * delta).
+ */
+function resolveTone(value: string, lowerIsBetter: boolean): Tone {
+  const dir = directionOf(value);
+  if (dir === "flat") return "neutral";
+  const good = lowerIsBetter ? dir === "down" : dir === "up";
+  return good ? "positive" : "negative";
+}
+
+/**
+ * The trend indicator beside a stat's value, rendered as a badge.
+ *
+ * It used to be bare text with a leading icon, which put a dash directly in
+ * front of the number — "— +0.6 pts" reads as a minus sign fighting a plus
+ * sign. A bounded badge makes the delta one self-contained object, so its own
+ * sign is the only sign in it.
+ *
+ * Direction is carried by the arrow as well as the color, so the meaning
+ * survives for readers who can't distinguish the hues. Neutral gets no arrow
+ * at all rather than a dash.
  */
 export function DeltaPill({
   value,
-  tone = "neutral",
+  tone,
+  lowerIsBetter = false,
   className,
 }: {
   value: string;
+  /** Explicit override. Omit and the tone follows the sign + `lowerIsBetter`. */
   tone?: Tone;
+  /**
+   * Set for metrics where a fall is the win — response times, days to
+   * complete, delinquency, cost, late payers.
+   */
+  lowerIsBetter?: boolean;
   className?: string;
 }) {
-  const Icon =
-    tone === "positive" ? ArrowUpRight : tone === "negative" ? ArrowDownRight : Minus;
+  const resolved = tone ?? resolveTone(value, lowerIsBetter);
+  // The arrow reports the DIRECTION the number moved; the colour reports
+  // whether that is good. Keeping them independent means "−2 sec" reads as a
+  // down-arrow in green — an improvement, honestly described.
+  const dir = directionOf(value);
+  const Icon = dir === "up" ? ArrowUpRight : dir === "down" ? ArrowDownRight : null;
 
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-0.5 whitespace-nowrap text-xs font-medium",
-        TONE_TEXT[tone],
+        "inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-full px-1.5 py-0.5 text-xxs font-semibold",
+        TONE_BADGE[resolved],
         className,
       )}
     >
-      <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      {Icon ? <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> : null}
       {value}
     </span>
   );
@@ -80,7 +125,8 @@ export function StatCard({
   label,
   value,
   delta,
-  deltaTone = "neutral",
+  deltaTone,
+  lowerIsBetter,
   sub,
   subItalic,
   action,
@@ -90,7 +136,10 @@ export function StatCard({
   label: string;
   value: React.ReactNode;
   delta?: string;
+  /** Explicit override; usually `lowerIsBetter` is the clearer signal. */
   deltaTone?: Tone;
+  /** True when a decrease is the good outcome (times, costs, delinquency). */
+  lowerIsBetter?: boolean;
   /** Supporting line under the value — units, denominator, scope. */
   sub?: string;
   /** Secondary note, e.g. the arithmetic behind a derived figure. */
@@ -118,7 +167,9 @@ export function StatCard({
           >
             {value}
           </p>
-          {delta ? <DeltaPill value={delta} tone={deltaTone} /> : null}
+          {delta ? (
+            <DeltaPill value={delta} tone={deltaTone} lowerIsBetter={lowerIsBetter} />
+          ) : null}
         </div>
         {sub ? <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p> : null}
         {subItalic ? (

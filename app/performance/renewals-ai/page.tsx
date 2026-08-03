@@ -21,15 +21,17 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } f
 import { cn } from "@/lib/utils";
 import {
   DeltaPill,
+  EscalationsSection,
   ReportFilterBar,
   ReportPageHeader,
   ReportSection,
   SectionBanner,
   StatCard,
   StatGrid,
-  createReportFilters,
+  useReportScope,
   legendLabel,
   monthsForPeriod,
+  seriesColor,
   seriesColorMap,
   serializeFilters,
   type ReportFilters,
@@ -838,9 +840,7 @@ function DeveloperNotes({
 // -----------------------------------------------------------------------------
 
 export default function RenewalsAiDashboardPage() {
-  const [filters, setFilters] = useState<ReportFilters>(() =>
-    createReportFilters(PROPERTIES),
-  );
+  const [filters, setFilters] = useReportScope(PROPERTIES);
   const [loading, setLoading] = useState(false);
   const isFirstRender = useRef(true);
   const filtersKey = useMemo(() => serializeFilters(filters), [filters]);
@@ -1305,41 +1305,36 @@ export default function RenewalsAiDashboardPage() {
       {/* ============================================================ */}
       {/* Section 3 — Escalations                                      */}
       {/* ============================================================ */}
-      <section className="mb-6">
-        <SectionBanner
-          title="Escalations"
-          description="Escalation rate, volume, resolution status, and response times"
-        />
-
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard
-            label="Escalation rate"
-            value={kpi.escalationRate}
-            delta="-1.8 pts"
-            deltaTone="positive"
-            sub="of AI contacts escalated"
-          />
-          <StatCard
-            label="Total escalations · drill in"
-            value={kpi.totalEscalations}
-            sub="escalated to staff"
-            action={
+      <EscalationsSection
+        stats={[
+          {
+            label: "Escalation rate",
+            value: kpi.escalationRate,
+            delta: "-1.8 pts",
+            deltaTone: "positive",
+            sub: "of AI contacts escalated",
+          },
+          {
+            label: "Total escalations · drill in",
+            value: kpi.totalEscalations,
+            sub: "escalated to staff",
+            action: (
               <Link href="/escalations" className="text-xxs font-medium text-foreground underline underline-offset-2 hover:no-underline">
                 Drill in →
               </Link>
-            }
-          />
-          <StatCard label="Open escalations" value={kpi.openEscalations} sub="pending resolution" />
-          <StatCard
-            label="Resolved"
-            value={kpi.resolvedEscalations}
-            delta="89% resolution"
-            deltaTone="positive"
-            sub="resolved by staff"
-          />
-        </div>
-
-        <div className="mt-3 grid gap-3 lg:grid-cols-1">
+            ),
+          },
+          { label: "Open escalations", value: kpi.openEscalations, sub: "pending resolution" },
+          {
+            label: "Resolved",
+            value: kpi.resolvedEscalations,
+            delta: "89% resolution",
+            deltaTone: "positive",
+            sub: "resolved by staff",
+          },
+        ]}
+      >
+        <div className="grid gap-3 lg:grid-cols-1">
           {/* Escalation Reasons is commented out until the escalation reason data source is identified.
           <Card className="border-border/60">
             <CardHeader className="pb-2">
@@ -1352,7 +1347,7 @@ export default function RenewalsAiDashboardPage() {
                   <XAxis dataKey="reason" tickLine={false} axisLine={false} tickMargin={8} angle={-30} textAnchor="end" height={50} interval={0} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="count" fill="#0f172a" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="count" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ChartContainer>
             </CardContent>
@@ -1373,7 +1368,7 @@ export default function RenewalsAiDashboardPage() {
             </CardContent>
           </Card>
         </div>
-      </section>
+      </EscalationsSection>
 
       <DeveloperNotes
         query={developerNotesQuery}
