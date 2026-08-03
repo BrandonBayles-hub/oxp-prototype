@@ -33,13 +33,13 @@ function EliDashboardCard({ slug }: { slug: EliAgentSlug }) {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
                 <h3 className="text-sm font-semibold truncate">{d.title}</h3>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-50 text-cyan-700 shrink-0">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xxs font-semibold rounded-full bg-cyan-50 text-cyan-700 shrink-0">
                   <Sparkles className="h-2.5 w-2.5" />
                   ELI+
                 </span>
               </div>
               <span className={cn(
-                "inline-flex items-center px-2 py-0.5 text-[10px] font-medium rounded-full border capitalize",
+                "inline-flex items-center px-2 py-0.5 text-xxs font-medium rounded-full border capitalize",
                 CATEGORY_COLORS["ai"] || "bg-muted text-muted-foreground",
               )}>
                 AI
@@ -53,11 +53,11 @@ function EliDashboardCard({ slug }: { slug: EliAgentSlug }) {
 
           <div className="flex items-end justify-between gap-4 pt-3 border-t border-[hsl(var(--border))]/60">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <p className="text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
                 {d.headlineKpi.label}
               </p>
               <p className="text-lg font-semibold tracking-tight">{d.headlineKpi.value}</p>
-              <p className="text-[10px] text-muted-foreground">{d.headlineKpi.sub}</p>
+              <p className="text-xxs text-muted-foreground">{d.headlineKpi.sub}</p>
             </div>
             <Sparkline values={getSparklineValues(slug.charCodeAt(7))} className="opacity-60" />
           </div>
@@ -74,7 +74,7 @@ export default function LibraryPage() {
         title={
           <span className="inline-flex items-center gap-2">
             Report Library
-            <span className="rounded-full bg-foreground/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <span className="rounded-full bg-foreground/5 px-2 py-0.5 text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
               v0.5
             </span>
           </span>
@@ -86,7 +86,7 @@ export default function LibraryPage() {
         <div className="flex items-center gap-2 mb-3">
           <Sparkles className="h-4 w-4 text-cyan-600" />
           <h2 className="text-sm font-semibold tracking-tight">ELI+ Agent Impact Dashboards</h2>
-          <span className="rounded-full bg-cyan-50 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-cyan-700">
+          <span className="rounded-full bg-cyan-50 px-2 py-0.5 text-xxs font-semibold uppercase tracking-wider text-cyan-700">
             Live
           </span>
         </div>

@@ -31,7 +31,12 @@ import {
 } from "@/components/ui/chart";
 import { ThumbsUp, ThumbsDown, MessageSquare, CheckCircle, XCircle, Pencil, FileText, ChevronDown, ArrowRight, Calendar, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { DeltaPill, type Tone } from "@/components/performance";
+import {
+  ChartTitleRow,
+  DeltaPill,
+  seriesColor,
+  type Tone,
+} from "@/components/performance";
 import { cn } from "@/lib/utils";
 import { useAgents } from "@/lib/agents-context";
 import { useEscalations } from "@/lib/escalations-context";
@@ -440,7 +445,16 @@ function usePerformanceMetrics(selectedKey: string, isAll: boolean) {
 const conversationsChartConfig = { conversations: { label: "Conversations", color: "hsl(var(--chart-1))" } } satisfies ChartConfig;
 const escalationChartConfig = { escalationRate: { label: "Escalation %", color: "hsl(var(--chart-2))" } } satisfies ChartConfig;
 const agentHumanChartConfig = { agent: { label: "Agent", color: "hsl(var(--chart-1))" }, human: { label: "Human", color: "hsl(var(--chart-2))" } } satisfies ChartConfig;
-const healthChartConfig = { renewal: { label: "Renewal %", color: "hsl(var(--chart-1))" }, occupancy: { label: "Occupancy %", color: "hsl(var(--chart-2))" } } satisfies ChartConfig;
+const healthChartConfig = {
+  renewal: { label: "Renewal %", color: seriesColor(0) },
+  occupancy: { label: "Occupancy %", color: seriesColor(1) },
+} satisfies ChartConfig;
+
+/** Series key for the trend chart — two unlabelled lines are unreadable. */
+const HEALTH_TREND_SERIES = [
+  { label: "Renewal %", color: seriesColor(0) },
+  { label: "Occupancy %", color: seriesColor(1) },
+];
 
 const AI_ONLY_EFFICIENCY_IDS = new Set([
   "agent_accuracy",
@@ -649,7 +663,7 @@ export default function PerformancePage() {
             {perf.assetMetrics.map((m) => (
               <Card key={m.id} className="border-border/60">
                 <CardHeader className="pb-0">
-                  <CardDescription className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+                  <CardDescription className="text-xxs font-semibold uppercase tracking-widest text-muted-foreground">
                     {m.label}
                   </CardDescription>
                 </CardHeader>
@@ -684,15 +698,15 @@ export default function PerformancePage() {
                 </div>
               ))}
             </div>
-            <p className="mb-2 text-xs font-medium tracking-wider text-muted-foreground">Renewal & occupancy trend</p>
+            <ChartTitleRow title="Renewal & occupancy trend" series={HEALTH_TREND_SERIES} />
             <ChartContainer config={healthChartConfig} className="h-[120px] w-full">
               <LineChart data={trendData} margin={{ left: 12, right: 12 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} />
                 <YAxis tickLine={false} axisLine={false} tickMargin={8} width={28} domain={[60, 100]} />
                 <ChartTooltip content={<ChartTooltipContent />} />
-                <Line type="monotone" dataKey="renewal" stroke="hsl(var(--chart-1))" strokeWidth={2} dot={false} name="Renewal %" />
-                <Line type="monotone" dataKey="occupancy" stroke="hsl(var(--chart-2))" strokeWidth={2} dot={false} name="Occupancy %" />
+                <Line type="monotone" dataKey="renewal" stroke={seriesColor(0)} strokeWidth={2} dot={false} name="Renewal %" />
+                <Line type="monotone" dataKey="occupancy" stroke={seriesColor(1)} strokeWidth={2} dot={false} name="Occupancy %" />
               </LineChart>
             </ChartContainer>
           </CardContent>
@@ -723,7 +737,7 @@ export default function PerformancePage() {
                       </CardTitle>
                       <div className="text-right">
                         <p className="text-lg font-bold text-foreground">{chain.value}</p>
-                        <p className="text-[10px] text-muted-foreground">{chain.valueSub}</p>
+                        <p className="text-xxs text-muted-foreground">{chain.valueSub}</p>
                       </div>
                     </div>
                   </CardHeader>
@@ -732,13 +746,13 @@ export default function PerformancePage() {
                       {chain.steps.map((step, idx) => (
                         <div key={step.label} className="flex items-start gap-2">
                           {idx > 0 && (
-                            <ArrowRight className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground/60" />
+                            <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
                           )}
                           {idx === 0 && (
-                            <div className="mt-0.5 h-3 w-3 shrink-0" />
+                            <div className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                           )}
                           <div className="min-w-0">
-                            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{step.label}</p>
+                            <p className="text-xxs font-medium uppercase tracking-wider text-muted-foreground">{step.label}</p>
                             <p className="text-sm text-foreground">{step.detail}</p>
                           </div>
                         </div>
@@ -885,10 +899,10 @@ export default function PerformancePage() {
                     </tr>
                     <tr className="border-b border-border/40">
                       <th className="pb-1.5" />
-                      <th className="pb-1.5 pl-6 pr-2 w-[3.5rem] text-left text-[10px] font-medium text-muted-foreground">AI</th>
-                      <th className="pb-1.5 pr-12 w-[3.5rem] text-left text-[10px] font-medium text-muted-foreground">Human</th>
-                      <th className="pb-1.5 pl-6 pr-2 w-[3.5rem] text-left text-[10px] font-medium text-muted-foreground">AI</th>
-                      <th className="pb-1.5 pr-12 w-[3.5rem] text-left text-[10px] font-medium text-muted-foreground">Human</th>
+                      <th className="pb-1.5 pl-6 pr-2 w-[3.5rem] text-left text-xxs font-medium text-muted-foreground">AI</th>
+                      <th className="pb-1.5 pr-12 w-[3.5rem] text-left text-xxs font-medium text-muted-foreground">Human</th>
+                      <th className="pb-1.5 pl-6 pr-2 w-[3.5rem] text-left text-xxs font-medium text-muted-foreground">AI</th>
+                      <th className="pb-1.5 pr-12 w-[3.5rem] text-left text-xxs font-medium text-muted-foreground">Human</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1165,7 +1179,7 @@ function FeedbackReviewSection() {
                 onClick={() => setFilter(f)}
               >
                 {f === "all" ? "All" : STATUS_LABELS[f].label}
-                {f === "new" && newCount > 0 && <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] text-white">{newCount}</span>}
+                {f === "new" && newCount > 0 && <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xxs text-white">{newCount}</span>}
               </button>
             ))}
           </div>
@@ -1190,8 +1204,8 @@ function FeedbackReviewSection() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-sm font-medium">{item.agentName}</span>
-                          <Badge variant={sl.variant} className="text-[10px]">{sl.label}</Badge>
-                          <span className="text-[10px] text-muted-foreground">
+                          <Badge variant={sl.variant} className="text-xxs">{sl.label}</Badge>
+                          <span className="text-xxs text-muted-foreground">
                             {new Date(item.createdAt).toLocaleString()}
                           </span>
                         </div>
@@ -1202,25 +1216,25 @@ function FeedbackReviewSection() {
                         {item.status === "new" && (
                           <div className="mt-2 flex flex-wrap gap-1.5">
                             <button
-                              className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[10px] font-medium hover:bg-muted/80"
+                              className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xxs font-medium hover:bg-muted/80"
                               onClick={() => updateStatus(item.id, "prompt_updated")}
                             >
                               <Pencil className="h-2.5 w-2.5" /> Edit prompt
                             </button>
                             <button
-                              className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[10px] font-medium hover:bg-muted/80"
+                              className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xxs font-medium hover:bg-muted/80"
                               onClick={() => updateStatus(item.id, "sop_updated")}
                             >
                               <FileText className="h-2.5 w-2.5" /> Update SOP
                             </button>
                             <button
-                              className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[10px] font-medium hover:bg-muted/80"
+                              className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xxs font-medium hover:bg-muted/80"
                               onClick={() => updateStatus(item.id, "reviewed")}
                             >
                               <CheckCircle className="h-2.5 w-2.5" /> Mark reviewed
                             </button>
                             <button
-                              className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[10px] font-medium hover:bg-muted/80"
+                              className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xxs font-medium hover:bg-muted/80"
                               onClick={() => updateStatus(item.id, "dismissed")}
                             >
                               <XCircle className="h-2.5 w-2.5" /> Dismiss

@@ -20,6 +20,7 @@ import {
 } from "recharts";
 import { ArrowDownRight, ArrowLeft, ArrowUpRight, Minus } from "lucide-react";
 import { ConsoleBreadcrumb } from "@/components/eli-console/console-breadcrumb";
+import { TONE_TEXT } from "@/components/performance";
 import { PageHeader } from "@/components/page-header";
 import {
   Card,
@@ -61,12 +62,14 @@ function DeltaChip({
       : delta.direction === "down"
         ? ArrowDownRight
         : Minus;
+  // Semantic tokens rather than raw palette classes: these also clear WCAG AA
+  // at the 12px size deltas render at, where green-600/red-500 did not.
   const color =
     delta.direction === "up"
-      ? "text-green-600"
+      ? TONE_TEXT.positive
       : delta.direction === "down"
-        ? "text-red-500"
-        : "text-muted-foreground";
+        ? TONE_TEXT.negative
+        : TONE_TEXT.neutral;
   return (
     <span
       className={cn(
@@ -74,7 +77,7 @@ function DeltaChip({
         color,
       )}
     >
-      <Icon className="h-3 w-3" />
+      <Icon className="h-3.5 w-3.5" />
       {delta.label}
     </span>
   );
@@ -114,7 +117,7 @@ function KpiTile({
         standalone && "flex h-full flex-col justify-center",
       )}
     >
-      <p className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <p className="truncate text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
         {block.title}
       </p>
       <div className="mt-0.5 flex items-baseline gap-2">
@@ -129,7 +132,7 @@ function KpiTile({
         {block.mockDelta && <DeltaChip delta={block.mockDelta} />}
       </div>
       {block.mockSub && (
-        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+        <p className="mt-0.5 truncate text-xxs text-muted-foreground">
           {block.mockSub}
         </p>
       )}
@@ -161,7 +164,7 @@ function KpiHeroBlock({ block }: { block: DashboardBlock }) {
   return (
     <Card className={cn(WIDTH_CLASS[block.width])}>
       <CardContent className="py-4">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <p className="text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
           {block.title}
         </p>
         <div className="mt-1 flex items-baseline gap-3">
@@ -180,12 +183,14 @@ function KpiHeroBlock({ block }: { block: DashboardBlock }) {
 
 function SectionHeaderBlock({ block }: { block: DashboardBlock }) {
   return (
-    <div className="col-span-12 -mx-1 mt-3 mb-1 rounded bg-neutral-200/60 px-3 py-2">
-      <h3 className="text-lg font-semibold tracking-tight text-neutral-800">
+    <div className="col-span-12 -mx-1 mb-1 mt-3 rounded bg-muted/60 px-3 py-2">
+      <h3 className="text-sm font-semibold tracking-tight text-foreground">
         {block.config.title}
       </h3>
       {block.config.subtitle && (
-        <p className="text-xs text-muted-foreground">{block.config.subtitle}</p>
+        // foreground/70, not muted-foreground: the latter measured 3.76:1 on
+        // this band, under the 4.5:1 AA requirement.
+        <p className="mt-0.5 text-xs text-foreground/70">{block.config.subtitle}</p>
       )}
     </div>
   );
@@ -532,7 +537,7 @@ export function LibraryDashboardView({
       <section className="mb-5">
         <Card>
           <CardContent className="pt-4 pb-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <p className="text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
               {d.headlineKpi.label}
             </p>
             <p className="text-3xl font-bold tracking-tight">

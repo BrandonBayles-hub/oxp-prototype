@@ -49,4 +49,10 @@ export {
 
 export { EscalationsSection, type EscalationStat } from "./escalations-section";
 
-export { LEGEND_PROPS, legendLabel } from "./chart-legend";
+export {
+  ChartTitleRow,
+  LEGEND_PROPS,
+  SeriesKeyLegend,
+  legendLabel,
+  type SeriesKey,
+} from "./chart-legend";

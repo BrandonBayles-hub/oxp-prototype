@@ -647,7 +647,7 @@ function TrendChart({
             />
           </LineChart>
         </ChartContainer>
-        <div className="mt-1 flex items-center justify-center gap-4 text-[11px]">
+        <div className="mt-1 flex items-center justify-center gap-4 text-xxs">
           <span className="inline-flex items-center gap-1.5">
             <span className="h-0.5 w-4 bg-slate-900" />
             <span className="font-medium text-foreground">Current</span>
@@ -717,7 +717,7 @@ function PropertyChips({
             className="text-muted-foreground hover:text-foreground"
             aria-label={`Remove ${p}`}
           >
-            <X className="h-3 w-3" />
+            <X className="h-3.5 w-3.5" />
           </button>
         </span>
       ))}
@@ -821,10 +821,10 @@ function DeveloperNotes({
           <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-foreground">
             Consolidated Sample Query
           </h4>
-          <p className="mb-2 text-[11px] text-muted-foreground">
+          <p className="mb-2 text-xxs text-muted-foreground">
             Rendered for the selected period: {startDate} through {endDate}.
           </p>
-          <pre className="max-h-[28rem] overflow-auto rounded-md border border-border bg-background p-3 text-[11px] leading-relaxed text-foreground">
+          <pre className="max-h-[28rem] overflow-auto rounded-md border border-border bg-background p-3 text-xxs leading-relaxed text-foreground">
             <code>{query}</code>
           </pre>
         </div>
@@ -1174,7 +1174,7 @@ export default function RenewalsAiDashboardPage() {
         <div className="grid gap-3 lg:grid-cols-[minmax(0,0.4fr)_minmax(0,1fr)]">
           <Card className="border-border/60 bg-gradient-to-br from-emerald-50 to-background">
             <CardContent className="px-5 py-4">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <p className="text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
                 Renewal rate lift (AI vs non-AI)
               </p>
               <p className="mt-1 text-4xl font-bold tracking-tight text-foreground">
@@ -1324,7 +1324,7 @@ export default function RenewalsAiDashboardPage() {
             value={kpi.totalEscalations}
             sub="escalated to staff"
             action={
-              <Link href="/escalations" className="text-[10px] font-medium text-foreground underline underline-offset-2 hover:no-underline">
+              <Link href="/escalations" className="text-xxs font-medium text-foreground underline underline-offset-2 hover:no-underline">
                 Drill in →
               </Link>
             }

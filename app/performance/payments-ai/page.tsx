@@ -309,7 +309,7 @@ function PropertyChips({
             className="text-muted-foreground hover:text-foreground"
             aria-label={`Remove ${p}`}
           >
-            <X className="h-3 w-3" />
+            <X className="h-3.5 w-3.5" />
           </button>
         </span>
       ))}
@@ -373,7 +373,7 @@ function TrendChart({
             />
           </LineChart>
         </ChartContainer>
-        <div className="mt-1 flex items-center justify-center gap-4 text-[11px]">
+        <div className="mt-1 flex items-center justify-center gap-4 text-xxs">
           <span className="inline-flex items-center gap-1.5 text-muted-foreground">
             <span className="h-px w-4 border-t border-dashed border-slate-400" />
             Pre-AI Baseline
@@ -989,7 +989,7 @@ export default function PaymentsAiDashboardPage() {
           <Card className="border-border/60 bg-gradient-to-br from-emerald-50 to-background">
             <CardContent className="px-5 py-4">
               <div className="flex items-center gap-2">
-                <p className="flex-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <p className="flex-1 text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
                   Staff hours saved
                 </p>
                 <NewChip />
@@ -1000,7 +1000,7 @@ export default function PaymentsAiDashboardPage() {
               <p className="mt-0.5 text-xs text-muted-foreground">
                 hours saved · +240 vs prior period
               </p>
-              <p className="mt-0.5 text-[11px] italic text-muted-foreground/80">
+              <p className="mt-0.5 text-xxs italic text-muted-foreground/80">
                 18,420 messages × 6 min avg manual handling ÷ 60
               </p>
             </CardContent>

@@ -1170,7 +1170,7 @@ export default function MaintenanceAiDashboardPage() {
         <div className="grid gap-3 lg:grid-cols-[minmax(0,0.4fr)_minmax(0,1fr)]">
           <Card className="border-border/60 bg-gradient-to-br from-emerald-50 to-background">
             <CardContent className="px-5 py-4">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <p className="text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
                 Work Orders Resolved
               </p>
               <p className="mt-1 text-4xl font-bold tracking-tight text-foreground">
@@ -1685,7 +1685,7 @@ function DistributionPanel({
         </div>
       </div>
       <div className="flex flex-col gap-1.5 border-l border-border/60 pl-5">
-        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <p className="mb-1 text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
           Slice by
         </p>
         {SLICE_OPTIONS.map((opt) => (
@@ -1795,7 +1795,7 @@ function EliWorkOrderTable({ rows }: { rows: WorkOrderRow[] }) {
     <div>
       <div className="mb-3 flex flex-wrap items-start gap-4">
         <div className="min-w-[12rem]">
-          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <p className="mb-1.5 text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
             Priority filter
           </p>
           <div className="flex flex-col gap-1">
@@ -1812,7 +1812,7 @@ function EliWorkOrderTable({ rows }: { rows: WorkOrderRow[] }) {
                 />
                 <span
                   className={cn(
-                    "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset",
+                    "inline-flex items-center rounded-full px-2 py-0.5 text-xxs font-medium ring-1 ring-inset",
                     PRIORITY_BADGE[p],
                   )}
                 >
@@ -1823,7 +1823,7 @@ function EliWorkOrderTable({ rows }: { rows: WorkOrderRow[] }) {
           </div>
         </div>
         <div className="min-w-[12rem]">
-          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <p className="mb-1.5 text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
             Status filter
           </p>
           <div className="flex flex-col gap-1">
@@ -1840,7 +1840,7 @@ function EliWorkOrderTable({ rows }: { rows: WorkOrderRow[] }) {
                 />
                 <span
                   className={cn(
-                    "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset",
+                    "inline-flex items-center rounded-full px-2 py-0.5 text-xxs font-medium ring-1 ring-inset",
                     STATUS_BADGE[s],
                   )}
                 >
@@ -1886,7 +1886,7 @@ function EliWorkOrderTable({ rows }: { rows: WorkOrderRow[] }) {
                 <td className="px-3 py-2">
                   <span
                     className={cn(
-                      "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset",
+                      "inline-flex items-center rounded-full px-2 py-0.5 text-xxs font-medium ring-1 ring-inset",
                       PRIORITY_BADGE[r.priority],
                     )}
                   >
@@ -1903,7 +1903,7 @@ function EliWorkOrderTable({ rows }: { rows: WorkOrderRow[] }) {
                 <td className="px-3 py-2">
                   <span
                     className={cn(
-                      "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset",
+                      "inline-flex items-center rounded-full px-2 py-0.5 text-xxs font-medium ring-1 ring-inset",
                       STATUS_BADGE[r.status],
                     )}
                   >

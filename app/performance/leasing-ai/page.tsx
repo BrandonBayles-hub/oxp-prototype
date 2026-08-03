@@ -361,7 +361,7 @@ function TrendChart({
             />
           </LineChart>
         </ChartContainer>
-        <div className="mt-1 flex items-center justify-center gap-4 text-[11px]">
+        <div className="mt-1 flex items-center justify-center gap-4 text-xxs">
           <span className="inline-flex items-center gap-1.5 text-muted-foreground">
             <span className="h-px w-4 border-t border-dashed border-slate-400" />
             Pre-AI Baseline
@@ -435,7 +435,7 @@ function PropertyChips({
             className="text-muted-foreground hover:text-foreground"
             aria-label={`Remove ${p}`}
           >
-            <X className="h-3 w-3" />
+            <X className="h-3.5 w-3.5" />
           </button>
         </span>
       ))}
@@ -994,7 +994,7 @@ function LeadCaptureSection({ filters, months }: { filters: ReportFilters; month
                 </div>
               </div>
             ))}
-            <p className="pt-1 text-[11px] italic text-muted-foreground/80">Conversion shown as % of conversations</p>
+            <p className="pt-1 text-xxs italic text-muted-foreground/80">Conversion shown as % of conversations</p>
           </CardContent>
         </Card>
 
@@ -1494,13 +1494,13 @@ export default function LeasingAiDashboardPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/40">
-                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Agent</th>
-                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Property</th>
-                      <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Emails Sent</th>
-                      <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">SMS Sent</th>
-                      <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Prospects Assisted</th>
-                      <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Resolved Tasks</th>
-                      <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Calls Dialed</th>
+                      <th className="px-4 py-2.5 text-left text-xxs font-semibold uppercase tracking-wider text-muted-foreground">Agent</th>
+                      <th className="px-4 py-2.5 text-left text-xxs font-semibold uppercase tracking-wider text-muted-foreground">Property</th>
+                      <th className="px-4 py-2.5 text-right text-xxs font-semibold uppercase tracking-wider text-muted-foreground">Emails Sent</th>
+                      <th className="px-4 py-2.5 text-right text-xxs font-semibold uppercase tracking-wider text-muted-foreground">SMS Sent</th>
+                      <th className="px-4 py-2.5 text-right text-xxs font-semibold uppercase tracking-wider text-muted-foreground">Prospects Assisted</th>
+                      <th className="px-4 py-2.5 text-right text-xxs font-semibold uppercase tracking-wider text-muted-foreground">Resolved Tasks</th>
+                      <th className="px-4 py-2.5 text-right text-xxs font-semibold uppercase tracking-wider text-muted-foreground">Calls Dialed</th>
                     </tr>
                   </thead>
                   <tbody>
