@@ -8,6 +8,7 @@
 
 export {
   DEFAULT_PERIOD_ID,
+  MONTH_LABELS,
   PERIOD_OPTIONS,
   SERIES_COLORS,
   SERIES_NEUTRAL,
@@ -15,6 +16,8 @@ export {
   TONE_TEXT,
   URGENCY_BADGE,
   createReportFilters,
+  formatMonthLabel,
+  monthLabelsForPeriod,
   monthsForPeriod,
   periodLabel,
   selectionRatio,

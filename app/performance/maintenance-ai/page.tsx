@@ -31,6 +31,7 @@ import {
   SectionBanner,
   StatCard,
   createReportFilters,
+  formatMonthLabel,
   monthsForPeriod,
   URGENCY_BADGE,
   seriesColorMap,
@@ -404,9 +405,9 @@ function buildMetricsForPeriod(months: number, filters: ReportFilters): PeriodSc
       const unassignedRatio = 0.06 + 0.08 * t;
       const labelDate = new Date();
       labelDate.setMonth(labelDate.getMonth() - monthOffset);
-      const label = `${labelDate.getFullYear()}-${String(
-        labelDate.getMonth() + 1,
-      ).padStart(2, "0")}`;
+      // Shared formatter: this chart used ISO "2026-07" while the AI-submitted
+      // chart on the same page used "Jul '26".
+      const label = formatMonthLabel(labelDate);
       data.push({
         label,
         Completed: Math.round(total * completedRatio * adjusted),
@@ -468,9 +469,7 @@ function buildMetricsForPeriod(months: number, filters: ReportFilters): PeriodSc
       const t = monthCount === 1 ? 1 : i / (monthCount - 1);
       const dateRef = new Date();
       dateRef.setMonth(dateRef.getMonth() - (monthCount - 1 - i));
-      const label = `${MONTH_LABELS[dateRef.getMonth()]} '${String(
-        dateRef.getFullYear(),
-      ).slice(-2)}`;
+      const label = formatMonthLabel(dateRef);
       data.push({
         month: label,
         baseline: Math.round(300 + (i % 4) * 12),
@@ -483,7 +482,13 @@ function buildMetricsForPeriod(months: number, filters: ReportFilters): PeriodSc
   const aiOriginOpen = Math.round(BASE_3Y.aiOriginOpen * aiPeriodScale);
   const aiOriginCompleted = Math.round(BASE_3Y.aiOriginCompleted * aiPeriodScale);
   const aiOriginCancelled = Math.round(BASE_3Y.aiOriginCancelled * aiPeriodScale);
-  const aiOriginAvgDays = BASE_3Y.aiOriginAvgDays;
+  // An average shouldn't scale with volume, but it should still reflect the
+  // window being measured — leaving it a pure constant made it the one AI-impact
+  // figure that never moved under the filters.
+  const aiOriginAvgDays = +(
+    BASE_3Y.aiOriginAvgDays *
+    (1 + (seedRand(4242 + months + Math.round(propertyScale * 100))() - 0.5) * 0.12)
+  ).toFixed(1);
   const aiOriginTotal = eliSubmittedWorkOrders;
 
   const aiStatusDistribution = [
@@ -1746,21 +1751,30 @@ function EliWorkOrderTable({ rows }: { rows: WorkOrderRow[] }) {
     setPage(1);
   }
 
-  const COLS: { key: keyof WorkOrderRow; label: string }[] = [
+  /**
+   * Fourteen columns at a hard 1200px minimum made this table scroll
+   * horizontally at every width we support, including 1440 — the triage
+   * columns (priority, status, who) sat off-screen behind a scrollbar.
+   *
+   * `hide` drops the descriptive columns first as width tightens; the
+   * identity + triage columns are always present. Detail that leaves the
+   * table is still reachable by opening the work order.
+   */
+  const COLS: { key: keyof WorkOrderRow; label: string; hide?: string }[] = [
     { key: "id", label: "Work Order ID" },
-    { key: "source", label: "Source" },
+    { key: "source", label: "Source", hide: "hidden lg:table-cell" },
     { key: "property", label: "Property" },
     { key: "unit", label: "Unit" },
-    { key: "resident", label: "Resident Name" },
+    { key: "resident", label: "Resident Name", hide: "hidden lg:table-cell" },
     { key: "priority", label: "Priority" },
-    { key: "category", label: "Category" },
-    { key: "problem", label: "Problem" },
-    { key: "location", label: "Location" },
-    { key: "description", label: "Description" },
+    { key: "category", label: "Category", hide: "hidden xl:table-cell" },
+    { key: "problem", label: "Problem", hide: "hidden 2xl:table-cell" },
+    { key: "location", label: "Location", hide: "hidden 2xl:table-cell" },
+    { key: "description", label: "Description", hide: "hidden 2xl:table-cell" },
     { key: "dateTime", label: "Date and Time" },
     { key: "status", label: "Status" },
-    { key: "assignedTo", label: "Assigned To" },
-    { key: "assignedOn", label: "Assigned On" },
+    { key: "assignedTo", label: "Assigned To", hide: "hidden lg:table-cell" },
+    { key: "assignedOn", label: "Assigned On", hide: "hidden 2xl:table-cell" },
   ];
 
   return (
@@ -1825,13 +1839,16 @@ function EliWorkOrderTable({ rows }: { rows: WorkOrderRow[] }) {
       </div>
 
       <div className="overflow-x-auto rounded-md border border-border">
-        <table className="w-full min-w-[1200px] text-xs">
+        <table className="w-full min-w-[720px] text-xs">
           <thead className="bg-muted/40">
             <tr>
               {COLS.map((col) => (
                 <th
                   key={col.key}
-                  className="cursor-pointer whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground hover:bg-muted/60"
+                  className={cn(
+                    "cursor-pointer whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground hover:bg-muted/60",
+                    col.hide,
+                  )}
                   onClick={() => toggleSort(col.key)}
                 >
                   <span className="inline-flex items-center gap-1">
@@ -1848,10 +1865,10 @@ function EliWorkOrderTable({ rows }: { rows: WorkOrderRow[] }) {
             {pageRows.map((r) => (
               <tr key={r.id} className="border-t border-border/60 align-top">
                 <td className="px-3 py-2 font-mono text-foreground">{r.id}</td>
-                <td className="px-3 py-2">{r.source}</td>
+                <td className="hidden px-3 py-2 lg:table-cell">{r.source}</td>
                 <td className="px-3 py-2 text-foreground">{r.property}</td>
                 <td className="px-3 py-2">{r.unit}</td>
-                <td className="px-3 py-2">{r.resident}</td>
+                <td className="hidden px-3 py-2 lg:table-cell">{r.resident}</td>
                 <td className="px-3 py-2">
                   <span
                     className={cn(
@@ -1862,10 +1879,12 @@ function EliWorkOrderTable({ rows }: { rows: WorkOrderRow[] }) {
                     {r.priority}
                   </span>
                 </td>
-                <td className="px-3 py-2">{r.category}</td>
-                <td className="px-3 py-2">{r.problem}</td>
-                <td className="px-3 py-2">{r.location}</td>
-                <td className="px-3 py-2 max-w-[20rem] text-muted-foreground">{r.description}</td>
+                <td className="hidden px-3 py-2 xl:table-cell">{r.category}</td>
+                <td className="hidden px-3 py-2 2xl:table-cell">{r.problem}</td>
+                <td className="hidden px-3 py-2 2xl:table-cell">{r.location}</td>
+                <td className="hidden max-w-[20rem] px-3 py-2 text-muted-foreground 2xl:table-cell">
+                  {r.description}
+                </td>
                 <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{r.dateTime}</td>
                 <td className="px-3 py-2">
                   <span
@@ -1877,8 +1896,10 @@ function EliWorkOrderTable({ rows }: { rows: WorkOrderRow[] }) {
                     {r.status}
                   </span>
                 </td>
-                <td className="px-3 py-2">{r.assignedTo}</td>
-                <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{r.assignedOn}</td>
+                <td className="hidden px-3 py-2 lg:table-cell">{r.assignedTo}</td>
+                <td className="hidden whitespace-nowrap px-3 py-2 text-muted-foreground 2xl:table-cell">
+                  {r.assignedOn}
+                </td>
               </tr>
             ))}
             {pageRows.length === 0 && (
@@ -1979,25 +2000,78 @@ function AiComponentDonut({ data }: { data: { source: EliSource; count: number }
 }
 
 function ConversationAnalysisTable({ rows }: { rows: MessageLogRow[] }) {
+  /**
+   * Column visibility is declared once and consumed by both the header and the
+   * body, so the two cannot drift out of alignment. Identity, outcome and the
+   * message itself are always present; supporting detail drops first as width
+   * tightens rather than pushing every column behind a horizontal scrollbar.
+   */
+  const COLS: {
+    label: string;
+    hide?: string;
+    className?: string;
+    cell: (r: MessageLogRow) => React.ReactNode;
+  }[] = [
+    {
+      label: "Work Order ID",
+      className: "font-mono text-foreground",
+      cell: (r) => r.woId ?? "\u2014",
+    },
+    {
+      label: "Work Order Created",
+      cell: (r) => (
+        <span
+          className={cn(
+            "inline-flex items-center rounded-full px-2 py-0.5 text-xxs font-medium ring-1 ring-inset",
+            r.woCreated ? URGENCY_BADGE.settled : URGENCY_BADGE.muted,
+          )}
+        >
+          {r.woCreated ? "Yes" : "No"}
+        </span>
+      ),
+    },
+    { label: "Source", hide: "hidden lg:table-cell", cell: (r) => r.source },
+    { label: "Property", className: "text-foreground", cell: (r) => r.property },
+    { label: "Resident", hide: "hidden lg:table-cell", cell: (r) => r.resident },
+    { label: "Direction", cell: (r) => r.direction },
+    {
+      label: "Date and Time",
+      className: "whitespace-nowrap text-muted-foreground",
+      cell: (r) => r.dateTime,
+    },
+    {
+      label: "Message",
+      className: "max-w-[20rem] text-foreground",
+      cell: (r) => r.message,
+    },
+    {
+      label: "Description",
+      hide: "hidden 2xl:table-cell",
+      className: "max-w-[20rem] text-muted-foreground",
+      cell: (r) => r.description,
+    },
+    {
+      label: "Analysis Session ID",
+      hide: "hidden 2xl:table-cell",
+      className: "whitespace-nowrap font-mono text-muted-foreground",
+      cell: (r) => r.sessionId,
+    },
+  ];
+
   return (
     <div className="overflow-x-auto rounded-md border border-border">
-      <table className="w-full min-w-[1200px] text-xs">
+      <table className="w-full min-w-[720px] text-xs">
         <thead className="bg-muted/40">
           <tr>
-            {[
-              "Work Order ID",
-              "Work Order Created",
-              "Source",
-              "Property",
-              "Resident",
-              "Direction",
-              "Date and Time",
-              "Message",
-              "Description",
-              "Analysis Session ID",
-            ].map((h) => (
-              <th key={h} className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">
-                {h}
+            {COLS.map((c) => (
+              <th
+                key={c.label}
+                className={cn(
+                  "whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground",
+                  c.hide,
+                )}
+              >
+                {c.label}
               </th>
             ))}
           </tr>
@@ -2005,27 +2079,11 @@ function ConversationAnalysisTable({ rows }: { rows: MessageLogRow[] }) {
         <tbody>
           {rows.map((r, i) => (
             <tr key={`${r.sessionId}-${i}`} className="border-t border-border/60 align-top">
-              <td className="px-3 py-2 font-mono text-foreground">{r.woId ?? "—"}</td>
-              <td className="px-3 py-2">
-                <span
-                  className={cn(
-                    "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset",
-                    r.woCreated
-                      ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
-                      : "bg-zinc-100 text-zinc-700 ring-zinc-300",
-                  )}
-                >
-                  {r.woCreated ? "Yes" : "No"}
-                </span>
-              </td>
-              <td className="px-3 py-2">{r.source}</td>
-              <td className="px-3 py-2 text-foreground">{r.property}</td>
-              <td className="px-3 py-2">{r.resident}</td>
-              <td className="px-3 py-2">{r.direction}</td>
-              <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{r.dateTime}</td>
-              <td className="max-w-[20rem] px-3 py-2 text-foreground">{r.message}</td>
-              <td className="max-w-[20rem] px-3 py-2 text-muted-foreground">{r.description}</td>
-              <td className="whitespace-nowrap px-3 py-2 font-mono text-muted-foreground">{r.sessionId}</td>
+              {COLS.map((c) => (
+                <td key={c.label} className={cn("px-3 py-2", c.hide, c.className)}>
+                  {c.cell(r)}
+                </td>
+              ))}
             </tr>
           ))}
         </tbody>
@@ -2033,7 +2091,3 @@ function ConversationAnalysisTable({ rows }: { rows: MessageLogRow[] }) {
     </div>
   );
 }
-
-// -----------------------------------------------------------------------------
-// Utility: serialize filter state for change detection
-// -----------------------------------------------------------------------------

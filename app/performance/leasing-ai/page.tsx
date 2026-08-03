@@ -27,6 +27,7 @@ import {
   StatCard,
   createReportFilters,
   monthsForPeriod,
+  selectionRatio,
   seriesColorMap,
   type ReportFilters,
   type ReportViewMode,
@@ -781,22 +782,6 @@ const BETA_ALL = buildAllBeta(BETA_CUSTOMERS);
 // Domo dashboard structure. All numbers are synthetic.
 // -----------------------------------------------------------------------------
 
-const DOMO_ESCALATIONS = {
-  total: 480,
-  pctOfLeads: 10.9,
-  voiceTransferPct: 38.9,
-  voiceTransferCount: 185,
-};
-
-// Four categories sum to ~10,386 to align with the Tours Booked KPI.
-const DOMO_TOURS = {
-  guidedDuring: 3552,
-  guidedOutside: 3152,
-  selfDuring: 1456,
-  selfOutside: 2226,
-  messageSentAfterTour: 842,
-};
-
 // -----------------------------------------------------------------------------
 // Lead Capture & Tours (committed v1 metrics) — daily per-property data
 // -----------------------------------------------------------------------------
@@ -1389,6 +1374,29 @@ function SectionDailyTrendCard({
 // -----------------------------------------------------------------------------
 
 function DomoReplicaSection({ filters, months }: { filters: ReportFilters; months: number }) {
+  const kpi = useMemo(() => {
+    const periodScale = months / 12;
+    const propertyScale = selectionRatio(filters.properties, PROPERTIES.length);
+    const volume = periodScale * propertyScale;
+
+    const rand = seedRand(31415 + months + filters.properties.size);
+    const drift = () => 1 + (rand() - 0.5) * 0.05;
+
+    const count = (base: number) => Math.round(base * volume * drift()).toLocaleString();
+    const rate = (base: number, digits = 1) => `${(base * drift()).toFixed(digits)}%`;
+
+    return {
+      guidedDuring: count(3552),
+      guidedOutside: count(3152),
+      selfDuring: count(1456),
+      selfOutside: count(2226),
+      escalationsTotal: count(480),
+      escalationsPctOfLeads: rate(10.9),
+      voiceTransferPct: rate(38.9),
+      voiceTransferCount: count(185),
+    };
+  }, [months, filters.properties]);
+
   return (
     <section className="mb-6">
       <SectionBanner
@@ -1397,10 +1405,10 @@ function DomoReplicaSection({ filters, months }: { filters: ReportFilters; month
       />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <StatCard label="Guided Tours During Office Hours" value={DOMO_TOURS.guidedDuring.toLocaleString()} sub="guided, during office hours" />
-        <StatCard label="Guided Tours Outside Office Hours" value={DOMO_TOURS.guidedOutside.toLocaleString()} sub="guided, after hours" />
-        <StatCard label="Self Guided Tours During Office Hours" value={DOMO_TOURS.selfDuring.toLocaleString()} sub="self-guided, during office hours" />
-        <StatCard label="Self Guided Tours Outside Office Hours" value={DOMO_TOURS.selfOutside.toLocaleString()} sub="self-guided, after hours" />
+        <StatCard label="Guided Tours During Office Hours" value={kpi.guidedDuring} sub="guided, during office hours" />
+        <StatCard label="Guided Tours Outside Office Hours" value={kpi.guidedOutside} sub="guided, after hours" />
+        <StatCard label="Self Guided Tours During Office Hours" value={kpi.selfDuring} sub="self-guided, during office hours" />
+        <StatCard label="Self Guided Tours Outside Office Hours" value={kpi.selfOutside} sub="self-guided, after hours" />
       </div>
 
       <SectionDailyTrendCard metrics={TOURS_TREND_METRICS} data={toursTrendData} filters={filters} months={months} />
@@ -1413,10 +1421,10 @@ function DomoReplicaSection({ filters, months }: { filters: ReportFilters; month
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="# Office Escalations" value={String(DOMO_ESCALATIONS.total)} sub="escalated to the leasing office" />
-        <StatCard label="Escalations % of Total Leads" value={`${DOMO_ESCALATIONS.pctOfLeads}%`} sub="of all leads" />
-        <StatCard label="Voice Call % Transferred to Office" value={`${DOMO_ESCALATIONS.voiceTransferPct}%`} sub="of voice conversations" />
-        <StatCard label="Voice Calls Transferred to Office" value={String(DOMO_ESCALATIONS.voiceTransferCount)} sub="escalated voice calls" />
+        <StatCard label="# Office Escalations" value={kpi.escalationsTotal} sub="escalated to the leasing office" />
+        <StatCard label="Escalations % of Total Leads" value={kpi.escalationsPctOfLeads} sub="of all leads" />
+        <StatCard label="Voice Call % Transferred to Office" value={kpi.voiceTransferPct} sub="of voice conversations" />
+        <StatCard label="Voice Calls Transferred to Office" value={kpi.voiceTransferCount} sub="escalated voice calls" />
       </div>
 
       <SectionDailyTrendCard metrics={ESCALATIONS_TREND_METRICS} data={escalationsTrendData} filters={filters} months={months} />

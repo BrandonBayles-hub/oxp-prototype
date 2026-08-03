@@ -200,6 +200,36 @@ export function serializeFilters(f: ReportFilters): string {
   });
 }
 
+// -----------------------------------------------------------------------------
+// Time axis
+// -----------------------------------------------------------------------------
+
+export const MONTH_LABELS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+] as const;
+
+/**
+ * One month-label format for every chart in the family.
+ *
+ * Reports previously mixed three formats — bare "Jan", ISO "2026-07", and
+ * "Jul '26" (two of them inside a single page). Bare month names are also
+ * ambiguous on the 2- and 3-year ranges, where the same name appears twice.
+ * Always ascending, oldest → most recent.
+ */
+export function formatMonthLabel(date: Date): string {
+  return `${MONTH_LABELS[date.getMonth()]} '${String(date.getFullYear()).slice(-2)}`;
+}
+
+/** Month labels for the N months ending with the current month, ascending. */
+export function monthLabelsForPeriod(months: number, endingAt = new Date()): string[] {
+  return Array.from({ length: Math.max(1, months) }, (_, i) => {
+    const d = new Date(endingAt);
+    d.setMonth(d.getMonth() - (months - 1 - i));
+    return formatMonthLabel(d);
+  });
+}
+
 /**
  * Fraction of a dimension that is selected, used to scale seeded demo metrics
  * so the numbers actually respond to the filters.
