@@ -523,14 +523,14 @@ function buildMetricsForPeriod(months: number, filters: ReportFilters): PeriodSc
   const aiOriginTotal = eliSubmittedWorkOrders;
 
   const aiStatusDistribution = [
-    { name: "Completed", value: aiOriginCompleted, color: STATUS_FILL.completed },
-    { name: "Cancelled", value: aiOriginCancelled, color: STATUS_FILL.cancelled },
+    { name: "Completed", value: aiOriginCompleted, color: seriesColor(0)},
+    { name: "Cancelled", value: aiOriginCancelled, color: seriesColor(1)},
     {
       name: "In Progress",
       value: Math.round(aiOriginCompleted * 0.18),
-      color: STATUS_FILL.inProgress,
+      color: seriesColor(2),
     },
-    { name: "Open", value: aiOriginOpen, color: STATUS_FILL.open },
+    { name: "Open", value: aiOriginOpen, color: seriesColor(3)},
   ];
 
   // Section 3 — conversational
@@ -555,9 +555,9 @@ function buildMetricsForPeriod(months: number, filters: ReportFilters): PeriodSc
   });
 
   const componentDistribution: { name: string; value: number; color: string }[] = [
-    { name: "SMS", value: smsCount, color: AI_COMPONENT_COLORS.SMS },
-    { name: "Chat", value: chatCount, color: AI_COMPONENT_COLORS.Chat },
-    { name: "Voice", value: voiceCount, color: AI_COMPONENT_COLORS.Voice },
+    { name: "SMS", value: smsCount, color: seriesColor(0)},
+    { name: "Chat", value: chatCount, color: seriesColor(1)},
+    { name: "Voice", value: voiceCount, color: seriesColor(2)},
   ];
 
   const totalMessagesReceived = Math.round(BASE_3Y.totalMessagesReceived * compScale);

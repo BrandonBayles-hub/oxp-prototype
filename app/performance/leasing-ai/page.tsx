@@ -152,11 +152,11 @@ const lostLeadReasons = [
 ];
 
 const leadSourceMix = [
-  { name: "ILS / Listing Sites", value: 38, count: 4012, color: seriesColor(0) },
-  { name: "Property Website", value: 27, count: 2854, color: seriesColor(1) },
-  { name: "Referral", value: 14, count: 1480, color: seriesColor(2) },
-  { name: "Walk-in / Drive-by", value: 11, count: 1162, color: seriesColor(3) },
-  { name: "Paid Search", value: 10, count: 1056, color: seriesColor(4) },
+  { name: "ILS / Listing Sites", value: 38, count: 4012, color: seriesColor(0)},
+  { name: "Property Website", value: 27, count: 2854, color: seriesColor(1)},
+  { name: "Referral", value: 14, count: 1480, color: seriesColor(2)},
+  { name: "Walk-in / Drive-by", value: 11, count: 1162, color: seriesColor(3)},
+  { name: "Paid Search", value: 10, count: 1056, color: seriesColor(4)},
 ];
 
 const leasingFunnel = [
@@ -205,8 +205,8 @@ const escalationReasons = [
 ];
 
 const outreachChannelMix = [
-  { name: "SMS", value: 65, count: 15210, color: seriesColor(0) },
-  { name: "Email", value: 35, count: 8190, color: seriesColor(3) },
+  { name: "SMS", value: 65, count: 15210, color: seriesColor(0)},
+  { name: "Email", value: 35, count: 8190, color: seriesColor(1)},
 ];
 
 // -----------------------------------------------------------------------------
@@ -800,18 +800,18 @@ type LeadCaptureMetricKey = (typeof LEAD_CAPTURE_METRICS)[number]["key"];
 // Lead source is already captured today; channel capture is targeted for
 // phase 1 per engineering grooming (2026-07-09).
 const LEAD_SOURCE_SHARES = [
-  { name: "ILS / Listing Sites", share: 0.38, color: seriesColor(0) },
-  { name: "Property Website", share: 0.27, color: seriesColor(1) },
-  { name: "Referral", share: 0.14, color: seriesColor(2) },
-  { name: "Walk-in / Drive-by", share: 0.11, color: seriesColor(3) },
-  { name: "Paid Search", share: 0.10, color: seriesColor(4) },
+  { name: "ILS / Listing Sites", share: 0.38, color: seriesColor(0)},
+  { name: "Property Website", share: 0.27, color: seriesColor(1)},
+  { name: "Referral", share: 0.14, color: seriesColor(2)},
+  { name: "Walk-in / Drive-by", share: 0.11, color: seriesColor(3)},
+  { name: "Paid Search", share: 0.10, color: seriesColor(4)},
 ];
 
 const LEAD_CHANNEL_SHARES = [
-  { name: "Chat", share: 0.4, color: seriesColor(0) },
-  { name: "SMS", share: 0.28, color: seriesColor(1) },
-  { name: "Email", share: 0.2, color: seriesColor(2) },
-  { name: "Voice", share: 0.12, color: seriesColor(4) },
+  { name: "Chat", share: 0.4, color: seriesColor(0)},
+  { name: "SMS", share: 0.28, color: seriesColor(1)},
+  { name: "Email", share: 0.2, color: seriesColor(2)},
+  { name: "Voice", share: 0.12, color: seriesColor(3)},
 ];
 
 interface LeadCaptureDailyCounts {

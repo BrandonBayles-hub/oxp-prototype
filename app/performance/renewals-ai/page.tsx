@@ -144,11 +144,11 @@ const BASE_NON_RENEWAL_REASONS = [
 ];
 
 const BASE_RENEWAL_INTENT = [
-  { name: "Wants to Renew", value: 64, count: 1842, color: seriesColor(0) },
-  { name: "Considering", value: 14, count: 412, color: SERIES_NEUTRAL },
-  { name: "Does Not Want to Renew", value: 11, count: 318, color: SERIES_NEUTRAL },
-  { name: "Needs Different Unit", value: 4, count: 124, color: "hsl(222 12% 62%)" },
-  { name: "New Lease Questions", value: 6, count: 186, color: "hsl(222 10% 78%)" },
+  { name: "Wants to Renew", value: 64, count: 1842, color: seriesColor(0)},
+  { name: "Considering", value: 14, count: 412, color: seriesColor(1)},
+  { name: "Does Not Want to Renew", value: 11, count: 318, color: seriesColor(2)},
+  { name: "Needs Different Unit", value: 4, count: 124, color: seriesColor(3)},
+  { name: "New Lease Questions", value: 6, count: 186, color: seriesColor(4)},
 ];
 
 const BASE_TERM_LENGTH_VOLUME = [
@@ -182,8 +182,8 @@ const BASE_ESCALATION_REASONS = [
 ];
 
 const BASE_OUTREACH_CHANNEL_MIX = [
-  { name: "SMS", value: 70, count: 12840, color: seriesColor(0) },
-  { name: "Email", value: 30, count: 5580, color: "hsl(222 12% 62%)" },
+  { name: "SMS", value: 70, count: 12840, color: seriesColor(0)},
+  { name: "Email", value: 30, count: 5580, color: seriesColor(1)},
 ];
 
 function buildDeveloperNotesQuery(startDate: string, endDate: string) {

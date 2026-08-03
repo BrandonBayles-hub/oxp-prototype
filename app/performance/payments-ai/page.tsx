@@ -177,14 +177,14 @@ const agingBucketRecovery = [
 ];
 
 const autoResolvedVsEscalated = [
-  { name: "Auto-resolved", value: 8640, color: seriesColor(0) },
-  { name: "Escalated to office", value: 3980, color: "hsl(222 12% 62%)" },
+  { name: "Auto-resolved", value: 8640, color: seriesColor(0)},
+  { name: "Escalated to office", value: 3980, color: seriesColor(1)},
 ];
 
 const scenarioLoad = [
-  { name: "Initial reminders", value: 24180, color: seriesColor(0) },
-  { name: "Delinquency (late)", value: 12420, color: SERIES_NEUTRAL },
-  { name: "Pre-collections (legal)", value: 3260, color: "hsl(222 12% 62%)" },
+  { name: "Initial reminders", value: 24180, color: seriesColor(0)},
+  { name: "Delinquency (late)", value: 12420, color: seriesColor(1)},
+  { name: "Pre-collections (legal)", value: 3260, color: seriesColor(2)},
 ];
 
 const autonomousActionsTaken = [
@@ -202,9 +202,9 @@ const handoffsByScenario = [
 ];
 
 const languagePreference = [
-  { name: "English", value: 84, count: 35476, color: seriesColor(0) },
-  { name: "Spanish", value: 14, count: 5911, color: SERIES_NEUTRAL },
-  { name: "Other", value: 2, count: 793, color: "hsl(222 12% 62%)" },
+  { name: "English", value: 84, count: 35476, color: seriesColor(0)},
+  { name: "Spanish", value: 14, count: 5911, color: seriesColor(1)},
+  { name: "Other", value: 2, count: 793, color: seriesColor(2)},
 ];
 
 const escalationReasons = [
