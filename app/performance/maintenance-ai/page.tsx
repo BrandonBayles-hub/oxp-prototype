@@ -15,8 +15,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Loader2 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Loader2, X } from "lucide-react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   ChartContainer,
   ChartTooltip,
@@ -25,25 +31,26 @@ import {
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
 import {
-  DeltaPill,
+  CHART_GRID_STROKE,
   EscalationsSection,
+  MultiSelectFilter,
   ReportFilterBar,
   ReportPageHeader,
-  SectionBanner,
-  StatCard,
-  useReportScope,
-  legendLabel,
-  formatMonthLabel,
-  monthsForPeriod,
-  CHART_GRID_STROKE,
   STATUS_FILL,
+  SectionBanner,
+  SegmentedToggle,
+  StatCard,
   URGENCY_BADGE,
+  formatMonthLabel,
+  legendLabel,
+  monthsForPeriod,
+  serializeFilters,
   seriesColor,
   seriesColorMap,
-  serializeFilters,
+  useReportScope,
   type ExtraFilter,
-  type Urgency,
   type ReportFilters,
+  type Urgency,
 } from "@/components/performance";
 
 // -----------------------------------------------------------------------------
@@ -51,20 +58,16 @@ import {
 // -----------------------------------------------------------------------------
 
 const PROPERTIES = [
-  "Ashford Crescent Oaks",
-  "Bearkat Cottages",
-  "Courtyard Apartments",
-  "Harvest Peak Heights",
-  "Maverick Trails Apartments",
-  "Stonewater at the Riverbend",
-  "Summerville Station",
-  "Sunset Ridge",
-  "The Landing at Briarcliff",
-  "The Residences at Newbury",
-  "Trails at Corinthian Creek",
-  "Wayfare — Cumberland",
-  "Westland Apts — Bldg 2",
-  "Westland Apts — Bldg 5",
+  "Cedar Hills",
+  "Hillside Living",
+  "Jamison Apartments",
+  "Lakewood",
+  "Maple Court",
+  "Oak Terrace",
+  "Parkview Flats",
+  "Pine Valley",
+  "Summit Ridge",
+  "The Beacon",
 ] as const;
 type Property = (typeof PROPERTIES)[number];
 
@@ -150,20 +153,22 @@ const PRIORITY_BADGE: Record<Priority, string> = {
 };
 
 /**
- * Chart fills for the same ladder, in the same rank order.
+ * Chart fills for the priority ladder.
  *
- * These carry white labels inside the priority bar, so each is dark enough to
- * clear WCAG AA against white at 12px (measured 6.62 / 6.28 / 5.77 / 5.84 /
- * 6.45 against a 4.5:1 requirement).
+ * These sit in the same lightness band as the kit's categorical palette (~42%)
+ * so a priority chart reads as part of the same family. They were briefly
+ * darkened to ~30% so that WHITE text could sit on them inside the summary
+ * header — which turned High and Medium into brown and olive. Contrast is
+ * solved where the text actually lives instead (see the header below, which
+ * now uses the soft badge treatment), leaving these free to be legible colours.
  */
 const PRIORITY_COLOR: Record<Priority, string> = {
-  Emergency: "hsl(357 64% 42%)",
-  High: "hsl(25 85% 33%)",
-  Medium: "hsl(43 90% 27%)",
-  Low: "hsl(222 14% 42%)",
-  Preventative: "hsl(207 65% 36%)",
+  Emergency: "hsl(357 64% 45%)",
+  High: "hsl(25 78% 45%)",
+  Medium: "hsl(43 74% 42%)",
+  Low: "hsl(222 14% 52%)",
+  Preventative: "hsl(207 62% 45%)",
 };
-
 type SliceDimension = "status" | "priority" | "source";
 
 type WorkOrderStatus =
@@ -707,7 +712,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "166836",
     source: "Chat",
-    property: "Summerville Station",
+    property: "Parkview Flats",
     unit: "J-102",
     resident: "David McMurtry",
     priority: "Medium",
@@ -724,7 +729,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "4689",
     source: "SMS",
-    property: "Trails at Corinthian Creek",
+    property: "Cedar Hills",
     unit: "A-205",
     resident: "Jerry Harris",
     priority: "Medium",
@@ -741,7 +746,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "6854571",
     source: "Chat",
-    property: "Stonewater at the Riverbend",
+    property: "Oak Terrace",
     unit: "B-330",
     resident: "Robert Garcia",
     priority: "Medium",
@@ -758,7 +763,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "10237108",
     source: "Chat",
-    property: "Wayfare — Cumberland",
+    property: "Hillside Living",
     unit: "C-1003",
     resident: "Emilee McGuire",
     priority: "High",
@@ -775,7 +780,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "422719",
     source: "Chat",
-    property: "Bearkat Cottages",
+    property: "Hillside Living",
     unit: "3-C",
     resident: "Alex Argueta",
     priority: "Medium",
@@ -791,7 +796,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "6853168",
     source: "SMS",
-    property: "The Residences at Newbury",
+    property: "The Beacon",
     unit: "G-7210",
     resident: "TSeyHaye Preaster",
     priority: "Medium",
@@ -807,7 +812,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "6853166",
     source: "SMS",
-    property: "The Landing at Briarcliff",
+    property: "Summit Ridge",
     unit: "D-401",
     resident: "Barbara Reres",
     priority: "High",
@@ -823,7 +828,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "18217563",
     source: "Chat",
-    property: "Courtyard Apartments",
+    property: "Jamison Apartments",
     unit: "5651-C",
     resident: "Samyra Drawhorn",
     priority: "Medium",
@@ -839,7 +844,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "13443085",
     source: "Chat",
-    property: "Ashford Crescent Oaks",
+    property: "Cedar Hills",
     unit: "E-317",
     resident: "Sara Ali",
     priority: "Low",
@@ -855,7 +860,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "13443086",
     source: "SMS",
-    property: "Ashford Crescent Oaks",
+    property: "Cedar Hills",
     unit: "E-317",
     resident: "Sara Ali",
     priority: "Medium",
@@ -872,7 +877,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "166828",
     source: "Chat",
-    property: "Maverick Trails Apartments",
+    property: "Maple Court",
     unit: "B-221",
     resident: "Tommie Gainey",
     priority: "Medium",
@@ -888,7 +893,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "188204",
     source: "Voice",
-    property: "Westland Apts — Bldg 5",
+    property: "Lakewood",
     unit: "G-934",
     resident: "Sam Rivera",
     priority: "Emergency",
@@ -904,7 +909,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "188205",
     source: "Chat",
-    property: "Harvest Peak Heights",
+    property: "Lakewood",
     unit: "A-1402",
     resident: "Priya Singh",
     priority: "Preventative",
@@ -920,7 +925,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "188210",
     source: "Voice",
-    property: "Sunset Ridge",
+    property: "Pine Valley",
     unit: "C-208",
     resident: "Marcus Allen",
     priority: "Emergency",
@@ -945,7 +950,7 @@ const MESSAGE_LOG_ROWS: MessageLogRow[] = [
     woId: "WO-104821",
     woCreated: true,
     source: "SMS",
-    property: "Westland Apts — Bldg 2",
+    property: "Jamison Apartments",
     resident: "Jordan Lee",
     direction: "Incoming",
     dateTime: "2026-02-26 09:12",
@@ -957,7 +962,7 @@ const MESSAGE_LOG_ROWS: MessageLogRow[] = [
     woId: "WO-104821",
     woCreated: true,
     source: "SMS",
-    property: "Westland Apts — Bldg 2",
+    property: "Jamison Apartments",
     resident: "Maintenance AI",
     direction: "Outgoing",
     dateTime: "2026-02-26 09:13",
@@ -969,7 +974,7 @@ const MESSAGE_LOG_ROWS: MessageLogRow[] = [
     woId: "WO-104902",
     woCreated: true,
     source: "Chat",
-    property: "Westland Apts — Bldg 5",
+    property: "Lakewood",
     resident: "Sam Rivera",
     direction: "Incoming",
     dateTime: "2026-02-25 16:40",
@@ -981,7 +986,7 @@ const MESSAGE_LOG_ROWS: MessageLogRow[] = [
     woId: null,
     woCreated: false,
     source: "Chat",
-    property: "Harvest Peak Heights",
+    property: "Lakewood",
     resident: "Ana Morales",
     direction: "Incoming",
     dateTime: "2026-02-25 11:08",
@@ -993,7 +998,7 @@ const MESSAGE_LOG_ROWS: MessageLogRow[] = [
     woId: null,
     woCreated: false,
     source: "Chat",
-    property: "Harvest Peak Heights",
+    property: "Lakewood",
     resident: "Maintenance AI",
     direction: "Outgoing",
     dateTime: "2026-02-25 11:09",
@@ -1005,7 +1010,7 @@ const MESSAGE_LOG_ROWS: MessageLogRow[] = [
     woId: null,
     woCreated: false,
     source: "Chat",
-    property: "Harvest Peak Heights",
+    property: "Lakewood",
     resident: "Ana Morales",
     direction: "Incoming",
     dateTime: "2026-02-25 11:14",
@@ -1120,7 +1125,7 @@ export default function MaintenanceAiDashboardPage() {
         <div className="grid gap-3 lg:grid-cols-[minmax(0,0.4fr)_minmax(0,1fr)]">
           <Card>
             <CardContent className="px-5 py-4">
-              <p className="text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
+              <p className="text-xxs font-semibold text-muted-foreground">
                 Work Orders Resolved
               </p>
               <p className="mt-1 text-4xl font-bold tracking-tight text-foreground">
@@ -1250,10 +1255,20 @@ export default function MaintenanceAiDashboardPage() {
         <div className="mt-3">
           <Card className="border-border/60">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Work Order Status Distribution</CardTitle>
-              <p className="text-xs text-muted-foreground">
-                AI-origin work orders broken out by workflow status. Slice the pie by priority or source using the controls on the right.
-              </p>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <CardTitle className="text-sm">Work order distribution</CardTitle>
+                  <p className="text-xs text-muted-foreground">
+                    AI-origin work orders, broken out by the selected dimension
+                  </p>
+                </div>
+                <SegmentedToggle
+                  aria-label="Slice distribution by"
+                  value={sliceBy}
+                  onChange={setSliceBy}
+                  options={SLICE_OPTIONS.map((o) => ({ value: o.id, label: o.label }))}
+                />
+              </div>
             </CardHeader>
             <CardContent>
               {loading ? (
@@ -1264,7 +1279,6 @@ export default function MaintenanceAiDashboardPage() {
                   priorityData={metrics.priorityDistribution}
                   sourceData={metrics.componentDistribution}
                   sliceBy={sliceBy}
-                  setSliceBy={setSliceBy}
                 />
               )}
             </CardContent>
@@ -1383,7 +1397,7 @@ export default function MaintenanceAiDashboardPage() {
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <StatCard
-              label="Messages received (SMS + Chat)"
+              label="Messages received (SMS + chat)"
               value={loading ? "…" : metrics.totalMessagesReceived.toLocaleString()}
               sub={`${metrics.smsReceived.toLocaleString()} SMS · ${metrics.chatReceived.toLocaleString()} Chat`}
             />
@@ -1472,81 +1486,95 @@ export default function MaintenanceAiDashboardPage() {
           {/* Left: KPI stack */}
           <div className="grid gap-3">
             <StatCard
-              label="Open Work Orders"
+              label="Open work orders"
               value={loading ? "…" : formatCompact(metrics.openWorkOrders)}
               sub="opened during selected period"
             />
             <StatCard
-              label="Overdue Open Work Orders"
+              label="Overdue open work orders"
               value={loading ? "…" : formatCompact(metrics.overdueWorkOrders)}
               sub="past target completion date"
               deltaTone="negative"
             />
             <StatCard
-              label="Unassigned Open Work Orders"
+              label="Unassigned open work orders"
               value={loading ? "…" : formatCompact(metrics.unassignedWorkOrders)}
               sub="open without an assigned tech"
             />
           </div>
 
-          {/* Right: priority counter + stacked bar */}
+          {/* Status over time — one card, one dimension. Priority moved to
+              its own card below; the two were sharing a title that only
+              described the status chart. */}
           <Card className="border-border/60">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Work Order Status Summary</CardTitle>
+              <CardTitle className="text-sm">Work orders by status over time</CardTitle>
+              <CardDescription className="text-xs">
+                Monthly work order volume, stacked by workflow status
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              <PriorityCounter
-                counts={metrics.priorityCounts}
-                loading={loading}
-              />
-              <div className="mt-4">
-                {loading ? (
-                  <Skeleton className="h-[260px] w-full" />
-                ) : (
-                  <ChartContainer
-                    config={{
-                      Completed: { label: "Completed", color: STATUS_FILL.completed },
-                      Open: { label: "Open", color: STATUS_FILL.open },
-                      Overdue: { label: "Overdue", color: STATUS_FILL.overdue },
-                      Submitted: { label: "Submitted", color: STATUS_FILL.inProgress },
-                      Unassigned: { label: "Unassigned", color: STATUS_FILL.unassigned },
-                    }}
-                    className="!aspect-auto h-[260px] w-full"
+              {loading ? (
+                <Skeleton className="h-[260px] w-full" />
+              ) : (
+                <ChartContainer
+                  config={{
+                    Completed: { label: "Completed", color: STATUS_FILL.completed },
+                    Open: { label: "Open", color: STATUS_FILL.open },
+                    Overdue: { label: "Overdue", color: STATUS_FILL.overdue },
+                    Submitted: { label: "Submitted", color: STATUS_FILL.inProgress },
+                    Unassigned: { label: "Unassigned", color: STATUS_FILL.unassigned },
+                  }}
+                  className="!aspect-auto h-[260px] w-full"
+                >
+                  <BarChart
+                    data={metrics.statusByMonth}
+                    margin={{ left: 8, right: 12, top: 8, bottom: 8 }}
                   >
-                    <BarChart
-                      data={metrics.statusByMonth}
-                      margin={{ left: 8, right: 12, top: 8, bottom: 8 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
-                      <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} />
-                      <YAxis
-                        tickLine={false}
-                        axisLine={false}
-                        tickMargin={8}
-                        width={56}
-                        tickFormatter={(v: number) => formatCompactShort(v)}
-                      />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Bar dataKey="Completed" stackId="a" fill={STATUS_FILL.completed} />
-                      <Bar dataKey="Open" stackId="a" fill={STATUS_FILL.open} />
-                      <Bar dataKey="Overdue" stackId="a" fill={STATUS_FILL.overdue} />
-                      <Bar dataKey="Submitted" stackId="a" fill={STATUS_FILL.inProgress} />
-                      <Bar dataKey="Unassigned" stackId="a" fill={STATUS_FILL.unassigned} />
-                      <Legend
-                        verticalAlign="bottom"
-                        iconType="square"
-                        wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }}
-            formatter={legendLabel}
-          />
-                    </BarChart>
-                  </ChartContainer>
-                )}
-              </div>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+                    <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} />
+                    <YAxis
+                      tickLine={false}
+                      axisLine={false}
+                      tickMargin={8}
+                      width={56}
+                      tickFormatter={(v: number) => formatCompactShort(v)}
+                    />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar dataKey="Completed" stackId="a" fill={STATUS_FILL.completed} />
+                    <Bar dataKey="Open" stackId="a" fill={STATUS_FILL.open} />
+                    <Bar dataKey="Overdue" stackId="a" fill={STATUS_FILL.overdue} />
+                    <Bar dataKey="Submitted" stackId="a" fill={STATUS_FILL.inProgress} />
+                    <Bar dataKey="Unassigned" stackId="a" fill={STATUS_FILL.unassigned} />
+                    <Legend
+                      verticalAlign="bottom"
+                      iconType="circle"
+                      wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }}
+                      formatter={legendLabel}
+                    />
+                  </BarChart>
+                </ChartContainer>
+              )}
             </CardContent>
           </Card>
         </div>
 
         <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Open work orders by priority</CardTitle>
+              <CardDescription className="text-xs">
+                Share of currently open work orders at each priority level
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <Skeleton className="h-[200px] w-full" />
+              ) : (
+                <PriorityDonut counts={metrics.priorityCounts} />
+              )}
+            </CardContent>
+          </Card>
           <Card className="border-border/60">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">Work Orders by Source</CardTitle>
@@ -1583,39 +1611,87 @@ export default function MaintenanceAiDashboardPage() {
 
 const PRIORITY_ORDER: Priority[] = ["Emergency", "High", "Medium", "Low", "Preventative"];
 
-function PriorityCounter({
+/**
+ * Open work orders by priority.
+ *
+ * Was a wide colour-banded strip bolted onto the top of the status-over-time
+ * chart, so one card carried two different dimensions under a title that only
+ * described one of them. Priority is a share-of-a-whole, which this page
+ * already renders as a donut (see SourceDonut) — so it is one now, in its own
+ * card.
+ */
+function PriorityDonut({
   counts,
-  loading,
 }: {
   counts: Record<Priority, number>;
-  loading: boolean;
 }) {
+  const total = PRIORITY_ORDER.reduce((sum, p) => sum + counts[p], 0);
+  const data = PRIORITY_ORDER.map((p) => ({
+    name: p,
+    count: counts[p],
+    value: total > 0 ? +((counts[p] / total) * 100).toFixed(1) : 0,
+  }));
+
   return (
-    <div className="overflow-hidden rounded-md border border-border">
-      <div className="grid grid-cols-[140px_repeat(5,minmax(0,1fr))] bg-slate-900 text-white text-xs">
-        <div className="px-3 py-2 font-medium">Open Work Order Priority</div>
-        {PRIORITY_ORDER.map((p) => (
-          <div
-            key={p}
-            className="px-2 py-2 text-center font-medium uppercase tracking-wide"
-            style={{ backgroundColor: PRIORITY_COLOR[p] }}
-          >
-            {p}
-          </div>
-        ))}
+    <div className="flex flex-wrap items-center gap-6">
+      <div className="h-[200px] w-[200px] shrink-0">
+        <ChartContainer config={{}} className="!aspect-auto h-full w-full">
+          <PieChart>
+            <Pie
+              data={data}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              innerRadius={50}
+              outerRadius={85}
+              paddingAngle={1}
+            >
+              {data.map((d) => (
+                <Cell key={d.name} fill={PRIORITY_COLOR[d.name]} />
+              ))}
+            </Pie>
+            <ChartTooltip
+              content={
+                <ChartTooltipContent
+                  formatter={(value, name, item) => {
+                    const count =
+                      (item?.payload as { count?: number } | undefined)?.count ?? 0;
+                    return (
+                      <div className="flex items-center justify-between gap-4">
+                        <span>{String(name)}</span>
+                        <span className="font-mono tabular-nums">
+                          {value}% · {count.toLocaleString()}
+                        </span>
+                      </div>
+                    );
+                  }}
+                />
+              }
+            />
+          </PieChart>
+        </ChartContainer>
       </div>
-      <div className="grid grid-cols-[140px_repeat(5,minmax(0,1fr))] bg-slate-700 text-white text-xs">
-        <div className="px-3 py-2 font-medium"># Work Orders</div>
-        {PRIORITY_ORDER.map((p) => (
-          <div key={p} className="px-2 py-2 text-center font-semibold tabular-nums">
-            {loading ? "…" : counts[p].toLocaleString()}
+      <div className="min-w-0 flex-1 space-y-1.5">
+        {data.map((d) => (
+          <div key={d.name} className="flex items-center gap-3 text-sm">
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-full"
+              style={{ backgroundColor: PRIORITY_COLOR[d.name] }}
+            />
+            <span className="flex-1 text-foreground">{d.name}</span>
+            <span className="font-semibold tabular-nums text-foreground">
+              {d.value}%
+            </span>
+            <span className="text-xs tabular-nums text-muted-foreground">
+              ({d.count.toLocaleString()})
+            </span>
           </div>
         ))}
       </div>
     </div>
   );
 }
-
 function SourceDonut({
   data,
 }: {
@@ -1744,13 +1820,11 @@ function DistributionPanel({
   priorityData,
   sourceData,
   sliceBy,
-  setSliceBy,
 }: {
   statusData: { name: string; value: number; color: string }[];
   priorityData: { name: string; value: number; color: string }[];
   sourceData: { name: string; value: number; color: string }[];
   sliceBy: SliceDimension;
-  setSliceBy: (s: SliceDimension) => void;
 }) {
   const active =
     sliceBy === "priority"
@@ -1761,7 +1835,7 @@ function DistributionPanel({
   const total = active.reduce((s, d) => s + d.value, 0);
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_180px]">
+    <div>
       <div className="flex flex-col items-center justify-center gap-3 py-2">
         <div className="h-[260px] w-full max-w-[320px]">
           <ChartContainer config={{}} className="!aspect-auto h-full w-full">
@@ -1817,26 +1891,6 @@ function DistributionPanel({
             </span>
           ))}
         </div>
-      </div>
-      <div className="flex flex-col gap-1.5 border-l border-border/60 pl-5">
-        <p className="mb-1 text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
-          Slice by
-        </p>
-        {SLICE_OPTIONS.map((opt) => (
-          <button
-            key={opt.id}
-            type="button"
-            onClick={() => setSliceBy(opt.id)}
-            className={cn(
-              "rounded-md border px-3 py-1.5 text-left text-sm transition-colors",
-              sliceBy === opt.id
-                ? "border-foreground bg-foreground text-background"
-                : "border-border bg-background text-foreground hover:bg-muted/60",
-            )}
-          >
-            {opt.label}
-          </button>
-        ))}
       </div>
     </div>
   );
@@ -1927,63 +1981,43 @@ function EliWorkOrderTable({ rows }: { rows: WorkOrderRow[] }) {
 
   return (
     <div>
-      <div className="mb-3 flex flex-wrap items-start gap-4">
-        <div className="min-w-[12rem]">
-          <p className="mb-1.5 text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
-            Priority filter
-          </p>
-          <div className="flex flex-col gap-1">
-            {PRIORITY_ORDER.map((p) => (
-              <label
-                key={p}
-                className="inline-flex items-center gap-2 text-xs"
-              >
-                <input
-                  type="checkbox"
-                  checked={priorityFilter.has(p)}
-                  onChange={() => togglePriority(p)}
-                  className="h-3.5 w-3.5 rounded border-border"
-                />
-                <span
-                  className={cn(
-                    "inline-flex items-center rounded-full px-2 py-0.5 text-xxs font-medium ring-1 ring-inset",
-                    PRIORITY_BADGE[p],
-                  )}
-                >
-                  {p}
-                </span>
-              </label>
-            ))}
-          </div>
-        </div>
-        <div className="min-w-[12rem]">
-          <p className="mb-1.5 text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
-            Status filter
-          </p>
-          <div className="flex flex-col gap-1">
-            {STATUSES_IN_TABLE.map((s) => (
-              <label
-                key={s}
-                className="inline-flex items-center gap-2 text-xs"
-              >
-                <input
-                  type="checkbox"
-                  checked={statusFilter.has(s)}
-                  onChange={() => toggleStatus(s)}
-                  className="h-3.5 w-3.5 rounded border-border"
-                />
-                <span
-                  className={cn(
-                    "inline-flex items-center rounded-full px-2 py-0.5 text-xxs font-medium ring-1 ring-inset",
-                    STATUS_BADGE[s],
-                  )}
-                >
-                  {s}
-                </span>
-              </label>
-            ))}
-          </div>
-        </div>
+      {/* Filters as a horizontal bar of multi-select menus, matching the
+          page filter bar above and the pattern used across the product. Two
+          always-expanded checkbox columns cost ~10 rows of vertical space
+          above the table they filter, and read as a different kind of control
+          from every other filter on the page. */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <MultiSelectFilter
+          label="Priority"
+          options={PRIORITY_ORDER}
+          selected={priorityFilter}
+          onChange={(next: Set<string>) => setPriorityFilter(next as Set<Priority>)}
+          searchable={false}
+        />
+        <MultiSelectFilter
+          label="Status"
+          options={STATUSES_IN_TABLE}
+          selected={statusFilter}
+          onChange={(next: Set<string>) => setStatusFilter(next as Set<WorkOrderStatus>)}
+          searchable={false}
+        />
+        {priorityFilter.size !== PRIORITY_ORDER.length ||
+        statusFilter.size !== STATUSES_IN_TABLE.length ? (
+          <button
+            type="button"
+            onClick={() => {
+              setPriorityFilter(new Set(PRIORITY_ORDER));
+              setStatusFilter(new Set(STATUSES_IN_TABLE));
+            }}
+            className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <X className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            Reset
+          </button>
+        ) : null}
+        <span className="ml-auto text-xs text-muted-foreground">
+          Showing {filtered.length} of {rows.length} work orders
+        </span>
       </div>
 
       <div className="overflow-x-auto rounded-md border border-border">

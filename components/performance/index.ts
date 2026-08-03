@@ -59,3 +59,5 @@ export {
 
 export { useReportScope } from "./use-report-scope";
 export { ReportPropertyFilter, ALL_REPORT_PROPERTIES } from "./report-property-filter";
+
+export { SegmentedToggle, type SegmentedOption } from "./segmented-toggle";

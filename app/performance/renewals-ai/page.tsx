@@ -800,7 +800,7 @@ function DeveloperNotes({
         </p>
 
         <div>
-          <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-foreground">
+          <h4 className="mb-1 text-xs font-semibold text-foreground">
             Overall Renewal Performance Data Coverage
           </h4>
           <ul className="list-disc space-y-1 pl-5">
@@ -811,7 +811,7 @@ function DeveloperNotes({
         </div>
 
         <div>
-          <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-foreground">
+          <h4 className="mb-1 text-xs font-semibold text-foreground">
             Metrics Not Covered by This Query
           </h4>
           <ul className="list-disc space-y-1 pl-5">
@@ -822,7 +822,7 @@ function DeveloperNotes({
         </div>
 
         <div>
-          <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-foreground">
+          <h4 className="mb-1 text-xs font-semibold text-foreground">
             Consolidated Sample Query
           </h4>
           <p className="mb-2 text-xxs text-muted-foreground">
@@ -969,7 +969,7 @@ export default function RenewalsAiDashboardPage() {
         <div className="grid gap-3 lg:grid-cols-[minmax(0,0.4fr)_minmax(0,1fr)]">
           <Card>
             <CardContent className="px-5 py-4">
-              <p className="text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
+              <p className="text-xxs font-semibold text-muted-foreground">
                 Renewal rate lift (AI vs non-AI)
               </p>
               <p className="mt-1 text-4xl font-bold tracking-tight text-foreground">

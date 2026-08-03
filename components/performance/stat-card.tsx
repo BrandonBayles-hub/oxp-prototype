@@ -153,7 +153,7 @@ export function StatCard({
     <Card className={cn("border-border/60", className)}>
       <CardContent className={cn("h-full", PADDING[size])}>
         <div className="flex items-start justify-between gap-2">
-          <p className="text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
+          <p className="text-xxs font-semibold text-muted-foreground">
             {label}
           </p>
           {action ? <div className="shrink-0">{action}</div> : null}

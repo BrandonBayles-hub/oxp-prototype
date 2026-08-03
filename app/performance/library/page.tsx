@@ -53,7 +53,7 @@ function EliDashboardCard({ slug }: { slug: EliAgentSlug }) {
 
           <div className="flex items-end justify-between gap-4 pt-3 border-t border-[hsl(var(--border))]/60">
             <div>
-              <p className="text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
+              <p className="text-xxs font-semibold text-muted-foreground">
                 {d.headlineKpi.label}
               </p>
               <p className="text-lg font-semibold tracking-tight">{d.headlineKpi.value}</p>

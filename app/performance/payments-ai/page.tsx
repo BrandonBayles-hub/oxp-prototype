@@ -258,7 +258,7 @@ function sliceTrend<T extends { monthIdx: number }>(data: T[], months: number): 
 
 function NewChip() {
   return (
-    <span className="inline-flex shrink-0 items-center rounded-full border border-eli-purple/30 bg-eli-warm-bg px-1.5 py-0.5 text-xxs font-medium uppercase tracking-wider text-eli-warm-bg-foreground">
+    <span className="inline-flex shrink-0 items-center rounded-full border border-eli-purple/30 bg-eli-warm-bg px-1.5 py-0.5 text-xxs font-medium text-eli-warm-bg-foreground">
       New
     </span>
   );
@@ -665,7 +665,7 @@ export default function PaymentsAiDashboardPage() {
           <StatCard label="Total organizations" value={kpi.totalOrganizations} delta="+8" sub="activated" />
           <StatCard label="Total properties" value={kpi.totalProperties} delta="+62" sub="properties" />
           <StatCard label="Total active units" value={kpi.totalActiveUnits} delta="+1,840" sub="units" />
-          <StatCard label="% of rent collected" value={kpi.pctRentCollected} delta="+2.1 pts" sub="collection rate" />
+          <StatCard label="Rent collected" value={kpi.pctRentCollected} delta="+2.1 pts" sub="collection rate" />
         </div>
 
         <div className="mt-3 grid gap-3 lg:grid-cols-2">
@@ -768,24 +768,24 @@ export default function PaymentsAiDashboardPage() {
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
-            label="% Rent collected"
+            label="Rent collected"
             value={kpi.pctRentCollected}
             delta="+2.1 pts"
             sub="of billed rent collected · selected period"
           />
           <StatCard
             label="Total rent collected"
+            action={<NewChip />}
             value={kpi.totalCollected}
             delta="+8%"
             sub="collected this period"
-            action={<NewChip />}
           />
           <StatCard
             label="Total rent charged"
+            action={<NewChip />}
             value={kpi.totalCharged}
             delta="+7%"
             sub="billed this period"
-            action={<NewChip />}
           />
           <StatCard
             lowerIsBetter
@@ -878,7 +878,6 @@ export default function PaymentsAiDashboardPage() {
         <SectionBanner
           title="On-Time Collections Efficacy"
           description="Is the AI actually shifting residents to pay on time?"
-          action={<NewChip />}
         />
 
         <div className="grid gap-3 sm:grid-cols-2">
@@ -887,14 +886,12 @@ export default function PaymentsAiDashboardPage() {
             value={kpi.onTimeRate}
             delta="+2.1 pts"
             sub="of billed rent paid before late fees posted"
-            action={<NewChip />}
           />
           <StatCard
             label="Expected payment date kept rate"
             value={kpi.payDateKeptRate}
             delta="+6.8 pts"
             sub="of AI-captured pay-date commitments honored"
-            action={<NewChip />}
           />
         </div>
 
@@ -985,17 +982,15 @@ export default function PaymentsAiDashboardPage() {
         <SectionBanner
           title="Automation & Staff Time Freed"
           description="What did the AI actually do without a human?"
-          action={<NewChip />}
         />
 
         <div className="grid gap-3 lg:grid-cols-[minmax(0,0.4fr)_minmax(0,1fr)]">
           <Card>
             <CardContent className="px-5 py-4">
               <div className="flex items-center gap-2">
-                <p className="flex-1 text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
+                <p className="flex-1 text-xxs font-semibold text-muted-foreground">
                   Staff hours saved
                 </p>
-                <NewChip />
               </div>
               <p className="mt-1 text-4xl font-bold tracking-tight text-foreground">
                 {loading ? "…" : "1,842"}
@@ -1015,14 +1010,12 @@ export default function PaymentsAiDashboardPage() {
               value={kpi.deflectionRate}
               delta="+4.2 pts"
               sub="of resident payment conversations fully AI-resolved"
-              action={<NewChip />}
             />
             <StatCard
               label="After-hours coverage"
               value={kpi.afterHoursCoverage}
               delta="+2.4 pts"
               sub="of AI interactions handled outside office hours"
-              action={<NewChip />}
             />
           </div>
         </div>
@@ -1207,17 +1200,15 @@ export default function PaymentsAiDashboardPage() {
             delta: "-1.8 pts",
             deltaTone: "positive",
             sub: "of AI conversations escalated",
-            action: <NewChip />,
           },
-          { label: "Total escalations", value: kpi.totalEscalations, sub: "escalated to staff", action: <NewChip /> },
-          { label: "Open escalations", value: kpi.openEscalations, sub: "pending resolution", action: <NewChip /> },
+          { label: "Total escalations", value: kpi.totalEscalations, sub: "escalated to staff" },
+          { label: "Open escalations", value: kpi.openEscalations, sub: "pending resolution" },
           {
             label: "Resolved",
             value: kpi.resolvedEscalations,
             delta: "89% resolution",
             deltaTone: "positive",
             sub: "resolved by staff",
-            action: <NewChip />,
           },
         ]}
       >

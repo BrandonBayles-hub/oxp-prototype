@@ -55,8 +55,13 @@ export function useReportScope(
       if (next.customFrom !== shared.customFrom || next.customTo !== shared.customTo) {
         shared.setCustomRange(next.customFrom, next.customTo);
       }
-      if (next.propertySelection && next.propertySelection !== shared.properties) {
-        shared.setProperties(next.propertySelection);
+      // Compare by content: `clearAll` passes a fresh empty Set, and an
+      // identity check alone would still fire, but a caller reusing the same
+      // Set instance would not. Content comparison covers both.
+      if (next.propertySelection) {
+        const a = [...next.propertySelection].sort().join("\u0000");
+        const b = [...shared.properties].sort().join("\u0000");
+        if (a !== b) shared.setProperties(next.propertySelection);
       }
       setLocal((prev) =>
         prev.view === next.view && prev.extras === next.extras

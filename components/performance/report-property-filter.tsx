@@ -22,8 +22,16 @@ import type { Property } from "@/components/property-filter/PropertyFilter";
  * exactly the id-vs-name mismatch that makes a selection silently match nothing.
  */
 
-/** The two seed portfolios the reports draw from. */
-const CORE_PORTFOLIO = [
+/**
+ * Every property the reports cover.
+ *
+ * All four agents now report on the same portfolio. They previously did not —
+ * Maintenance carried its own 14-property seed set — which meant
+ * "Properties: All" silently described a different portfolio depending on
+ * which agent you were looking at, and a selection made on one agent could not
+ * be honoured on another.
+ */
+export const ALL_REPORT_PROPERTIES = [
   "Cedar Hills",
   "Hillside Living",
   "Jamison Apartments",
@@ -34,64 +42,18 @@ const CORE_PORTFOLIO = [
   "Pine Valley",
   "Summit Ridge",
   "The Beacon",
-] as const;
-
-const MAINTENANCE_PORTFOLIO = [
-  "Ashford Crescent Oaks",
-  "Bearkat Cottages",
-  "Courtyard Apartments",
-  "Harvest Peak Heights",
-  "Maverick Trails Apartments",
-  "Stonewater at the Riverbend",
-  "Summerville Station",
-  "Sunset Ridge",
-  "The Landing at Briarcliff",
-  "The Residences at Newbury",
-  "Trails at Corinthian Creek",
-  "Wayfare — Cumberland",
-  "Westland Apts — Bldg 2",
-  "Westland Apts — Bldg 5",
-] as const;
-
-/**
- * Every property any report can show. The picker offers the union so one
- * selection carries across agents; each page then intersects it with its own
- * list (see `resolveScopedProperties`).
- */
-export const ALL_REPORT_PROPERTIES: readonly string[] = [
-  ...CORE_PORTFOLIO,
-  ...MAINTENANCE_PORTFOLIO,
-];
+] as const satisfies readonly string[];
 
 const leaf = (name: string): Property => ({ id: name, name, type: "property" });
 
 const PROPERTY_LIST: Property[] = [...ALL_REPORT_PROPERTIES].sort().map(leaf);
 
-const BY_PORTFOLIO: Property[] = [
-  {
-    id: "portfolio-core",
-    name: "Core Portfolio",
-    type: "group",
-    count: CORE_PORTFOLIO.length,
-    children: [...CORE_PORTFOLIO].sort().map(leaf),
-  },
-  {
-    id: "portfolio-maintenance",
-    name: "Facilities Portfolio",
-    type: "group",
-    count: MAINTENANCE_PORTFOLIO.length,
-    children: [...MAINTENANCE_PORTFOLIO].sort().map(leaf),
-  },
-];
-
 const REPORT_PROPERTY_DATA: PropertyFilterDataConfig = {
-  dropdownSections: [{ label: "Views", options: ["Property List", "Portfolios"] }],
-  getDataForOption: (option) =>
-    option === "Portfolios" ? BY_PORTFOLIO : PROPERTY_LIST,
+  dropdownSections: [{ label: "Views", options: ["Property List"] }],
+  getDataForOption: () => PROPERTY_LIST,
   flatListOptions: ["Property List"],
   getSearchPlaceholder: () => "Search properties",
-  getSectionTitle: (option) =>
-    option === "Portfolios" ? "Select Portfolios" : "Select Properties",
+  getSectionTitle: () => "Select Properties",
   defaultOption: "Property List",
 };
 

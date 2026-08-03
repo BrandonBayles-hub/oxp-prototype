@@ -974,8 +974,8 @@ function LeadCaptureSection({ filters, months }: { filters: ReportFilters; month
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Conversations" value={totals.sessions.toLocaleString()} sub="selected period" />
-        <StatCard label="Total Guest Cards Created by ELI+" value={totals.guestCards.toLocaleString()} sub="selected period" />
-        <StatCard label="Tours Book by ELI+" value={totals.toursBooked.toLocaleString()} sub="selected period" />
+        <StatCard label="Total guest cards created by ELI+" value={totals.guestCards.toLocaleString()} sub="selected period" />
+        <StatCard label="Tours book by ELI+" value={totals.toursBooked.toLocaleString()} sub="selected period" />
       </div>
 
       <div className="mt-3 grid gap-3 lg:grid-cols-3">
@@ -1192,10 +1192,10 @@ function CommunicationChannelsSection({ filters, months }: { filters: ReportFilt
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Voice Conversations" value={totals.voice.toLocaleString()} sub="selected period" />
-        <StatCard label="SMS Conversations" value={totals.sms.toLocaleString()} sub="selected period" />
-        <StatCard label="Email Conversations" value={totals.email.toLocaleString()} sub="selected period" />
-        <StatCard label="Chat Conversations" value={totals.chat.toLocaleString()} sub="selected period" />
+        <StatCard label="Voice conversations" value={totals.voice.toLocaleString()} sub="selected period" />
+        <StatCard label="SMS conversations" value={totals.sms.toLocaleString()} sub="selected period" />
+        <StatCard label="Email conversations" value={totals.email.toLocaleString()} sub="selected period" />
+        <StatCard label="Chat conversations" value={totals.chat.toLocaleString()} sub="selected period" />
       </div>
 
       <Card className="mt-3 border-border/60">
@@ -1408,10 +1408,10 @@ function DomoReplicaSection({ filters, months }: { filters: ReportFilters; month
       />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <StatCard label="Guided Tours During Office Hours" value={kpi.guidedDuring} sub="guided, during office hours" />
-        <StatCard label="Guided Tours Outside Office Hours" value={kpi.guidedOutside} sub="guided, after hours" />
-        <StatCard label="Self Guided Tours During Office Hours" value={kpi.selfDuring} sub="self-guided, during office hours" />
-        <StatCard label="Self Guided Tours Outside Office Hours" value={kpi.selfOutside} sub="self-guided, after hours" />
+        <StatCard label="Guided tours during office hours" value={kpi.guidedDuring} sub="guided, during office hours" />
+        <StatCard label="Guided tours outside office hours" value={kpi.guidedOutside} sub="guided, after hours" />
+        <StatCard label="Self guided tours during office hours" value={kpi.selfDuring} sub="self-guided, during office hours" />
+        <StatCard label="Self guided tours outside office hours" value={kpi.selfOutside} sub="self-guided, after hours" />
       </div>
 
       <SectionDailyTrendCard metrics={TOURS_TREND_METRICS} data={toursTrendData} filters={filters} months={months} />
@@ -1424,10 +1424,10 @@ function DomoReplicaSection({ filters, months }: { filters: ReportFilters; month
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="# Office Escalations" value={kpi.escalationsTotal} sub="escalated to the leasing office" />
-        <StatCard label="Escalations % of Total Leads" value={kpi.escalationsPctOfLeads} sub="of all leads" />
-        <StatCard label="Voice Call % Transferred to Office" value={kpi.voiceTransferPct} sub="of voice conversations" />
-        <StatCard label="Voice Calls Transferred to Office" value={kpi.voiceTransferCount} sub="escalated voice calls" />
+        <StatCard label="Office escalations" value={kpi.escalationsTotal} sub="escalated to the leasing office" />
+        <StatCard label="Escalations % of total leads" value={kpi.escalationsPctOfLeads} sub="of all leads" />
+        <StatCard label="Voice call % transferred to office" value={kpi.voiceTransferPct} sub="of voice conversations" />
+        <StatCard label="Voice calls transferred to office" value={kpi.voiceTransferCount} sub="escalated voice calls" />
       </div>
 
       <SectionDailyTrendCard metrics={ESCALATIONS_TREND_METRICS} data={escalationsTrendData} filters={filters} months={months} />
@@ -1582,13 +1582,13 @@ export default function LeasingAiDashboardPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/40">
-                      <th className="px-4 py-2.5 text-left text-xxs font-semibold uppercase tracking-wider text-muted-foreground">Agent</th>
-                      <th className="px-4 py-2.5 text-left text-xxs font-semibold uppercase tracking-wider text-muted-foreground">Property</th>
-                      <th className="px-4 py-2.5 text-right text-xxs font-semibold uppercase tracking-wider text-muted-foreground">Emails Sent</th>
-                      <th className="px-4 py-2.5 text-right text-xxs font-semibold uppercase tracking-wider text-muted-foreground">SMS Sent</th>
-                      <th className="px-4 py-2.5 text-right text-xxs font-semibold uppercase tracking-wider text-muted-foreground">Prospects Assisted</th>
-                      <th className="px-4 py-2.5 text-right text-xxs font-semibold uppercase tracking-wider text-muted-foreground">Resolved Tasks</th>
-                      <th className="px-4 py-2.5 text-right text-xxs font-semibold uppercase tracking-wider text-muted-foreground">Calls Dialed</th>
+                      <th className="px-4 py-2.5 text-left text-xxs font-semibold text-muted-foreground">Agent</th>
+                      <th className="px-4 py-2.5 text-left text-xxs font-semibold text-muted-foreground">Property</th>
+                      <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">Emails Sent</th>
+                      <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">SMS Sent</th>
+                      <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">Prospects Assisted</th>
+                      <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">Resolved Tasks</th>
+                      <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">Calls Dialed</th>
                     </tr>
                   </thead>
                   <tbody>

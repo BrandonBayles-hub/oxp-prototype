@@ -671,7 +671,7 @@ export default function PerformancePage() {
             {perf.assetMetrics.map((m) => (
               <Card key={m.id} className="border-border/60">
                 <CardHeader className="pb-0">
-                  <CardDescription className="text-xxs font-semibold uppercase tracking-widest text-muted-foreground">
+                  <CardDescription className="text-xxs font-semibold text-muted-foreground">
                     {m.label}
                   </CardDescription>
                 </CardHeader>
@@ -760,7 +760,7 @@ export default function PerformancePage() {
                             <div className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                           )}
                           <div className="min-w-0">
-                            <p className="text-xxs font-medium uppercase tracking-wider text-muted-foreground">{step.label}</p>
+                            <p className="text-xxs font-medium text-muted-foreground">{step.label}</p>
                             <p className="text-sm text-foreground">{step.detail}</p>
                           </div>
                         </div>

@@ -6,16 +6,7 @@
 "use client";
 
 import { useEffect, useState, useMemo, useRef } from 'react';
-import {
-  Blocks,
-  Building,
-  ChevronDown,
-  ChevronUp,
-  Info,
-  LayoutGrid,
-  Search,
-  Ungroup,
-} from 'lucide-react';
+import { Blocks, Building, Check, ChevronDown, ChevronUp, Info, LayoutGrid, Minus, Search, Ungroup } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
@@ -2141,17 +2132,32 @@ export function PropertyFilter({
               <div className="basis-0 grow text-xs font-medium text-black">
                 Select All ({currentData.length})
               </div>
-              <div
+              {/* Presentational only — the row itself is the checkbox
+                  (role="checkbox" + aria-checked above). Rendering the shadcn
+                  Checkbox here nested a Radix <button> inside this <button>,
+                  which React reports as a hydration error. A span mirrors the
+                  same three states without the nesting. */}
+              <span
                 className="flex h-full w-11 items-center justify-center rounded-xl px-3 py-2 shrink-0"
                 aria-hidden="true"
               >
-                <Checkbox
-                  checked={flatSelectState}
-                  tabIndex={-1}
-                  aria-hidden="true"
-                  className="pointer-events-none rounded-[4px] border-[#C4C4C4] bg-white shadow-[inset_0_0_0_1px_rgba(196,196,196,1)]"
-                />
-              </div>
+                <span
+                  data-state={
+                    flatSelectState === true
+                      ? "checked"
+                      : flatSelectState === "indeterminate"
+                        ? "indeterminate"
+                        : "unchecked"
+                  }
+                  className="pointer-events-none flex h-4 w-4 items-center justify-center rounded-[4px] border border-[#C4C4C4] bg-white text-white data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=indeterminate]:border-primary data-[state=indeterminate]:bg-primary"
+                >
+                  {flatSelectState === true ? (
+                    <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                  ) : flatSelectState === "indeterminate" ? (
+                    <Minus className="h-3.5 w-3.5" strokeWidth={3} />
+                  ) : null}
+                </span>
+              </span>
             </button>
           )}
           <div

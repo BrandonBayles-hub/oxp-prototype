@@ -5,6 +5,7 @@ import { Calendar, ChevronDown, Filter, Search, SlidersHorizontal, X } from "luc
 
 import { cn } from "@/lib/utils";
 import { ReportPropertyFilter } from "./report-property-filter";
+import { SegmentedToggle } from "./segmented-toggle";
 import {
   DEFAULT_PERIOD_ID,
   PERIOD_OPTIONS,
@@ -260,16 +261,8 @@ export function MultiSelectFilter({
 // -----------------------------------------------------------------------------
 
 /**
- * Segmented control for the chart view.
- *
- * Follows the platform's toggle canon (entrata-3.0 `ToggleButtonGroup`): a
- * quiet recessed well holds the options and the selected segment is an
- * elevated white chip — never a primary/black button. Selection is a *state*,
- * not an action, and the near-black treatment this used to carry gave a simple
- * view filter the visual weight of the page's primary action.
- *
- * The well is pinned to h-9 so the control matches the Period and Properties
- * controls beside it by construction rather than by padding arithmetic.
+ * Chart view switch. Uses the shared segmented control so it and the
+ * distribution slicer stay the same control to the user.
  */
 export function ViewToggle({
   view,
@@ -279,31 +272,15 @@ export function ViewToggle({
   onChange: (v: ReportViewMode) => void;
 }) {
   return (
-    <div
-      role="group"
+    <SegmentedToggle
       aria-label="Chart view"
-      className="inline-flex h-9 items-center gap-1 rounded-lg border border-input bg-muted px-1"
-    >
-      {(["global", "perProperty"] as const).map((v) => (
-        <button
-          key={v}
-          type="button"
-          onClick={() => onChange(v)}
-          aria-pressed={view === v}
-          className={cn(
-            "inline-flex h-7 items-center justify-center gap-2 whitespace-nowrap rounded-md px-3 text-xs font-medium transition-all",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-            view === v
-              ? "bg-card text-foreground shadow-sm"
-              // foreground/70, not muted-foreground: on the muted well the
-              // standard muted text measures 4.35:1, just under AA.
-              : "bg-transparent text-foreground/70 hover:text-foreground",
-          )}
-        >
-          {v === "global" ? "Global View" : "Per-Property"}
-        </button>
-      ))}
-    </div>
+      value={view}
+      onChange={onChange}
+      options={[
+        { value: "global", label: "Global View" },
+        { value: "perProperty", label: "Per-Property" },
+      ]}
+    />
   );
 }
 
@@ -359,7 +336,10 @@ export function ReportFilterBar({
     return sel && sel.size !== f.options.length;
   });
 
-  const propertiesNarrowed = filters.properties.size !== properties.length;
+  // Test the SHARED selection, not the page-scoped derivation: the latter is
+  // an intersection, so it can look "narrowed" for reasons the user can't
+  // clear from here.
+  const propertiesNarrowed = (filters.propertySelection?.size ?? 0) > 0;
   const periodNarrowed = filters.periodId !== DEFAULT_PERIOD_ID;
   const activeCount =
     (propertiesNarrowed ? 1 : 0) + (periodNarrowed ? 1 : 0) + narrowedExtras.length;
@@ -368,6 +348,11 @@ export function ReportFilterBar({
     onChange({
       ...filters,
       periodId: DEFAULT_PERIOD_ID,
+      // An empty selection means "all" — and it is `propertySelection` that is
+      // written back to the shared scope. Resetting only `properties` (the
+      // page-scoped derivation) left the real selection untouched, so the
+      // button appeared to do nothing.
+      propertySelection: new Set<string>(),
       properties: new Set(properties),
       extras: Object.fromEntries(extraFilters.map((f) => [f.id, new Set(f.options)])),
     });
