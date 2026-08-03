@@ -19,6 +19,7 @@ import {
   YAxis,
 } from "recharts";
 import { ArrowDownRight, ArrowLeft, ArrowUpRight, Minus } from "lucide-react";
+import { ConsoleBreadcrumb } from "@/components/eli-console/console-breadcrumb";
 import { PageHeader } from "@/components/page-header";
 import {
   Card,
@@ -496,13 +497,16 @@ export function LibraryDashboardView({
 }) {
   return (
     <>
-      <Link
-        href={backHref}
-        className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        {backLabel}
-      </Link>
+      {/* The breadcrumb replaces the old "Back to …" link: it navigates out of
+          the dashboard the same way, and unlike a back link it also says where
+          you are. It is this page's only way back now that the Performance tab
+          strip is limited to the two top-level destinations. */}
+      <ConsoleBreadcrumb
+        root={{ label: "Performance", href: "/performance" }}
+        parents={[{ label: "ELI+ Legacy Library", href: backHref }]}
+        page={d.title}
+        className="mb-3"
+      />
 
       {toolbar}
 

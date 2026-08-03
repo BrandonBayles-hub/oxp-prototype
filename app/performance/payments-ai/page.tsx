@@ -34,6 +34,7 @@ import {
   StatGrid,
   createReportFilters,
   monthsForPeriod,
+  selectionRatio,
   seriesColorMap,
   serializeFilters,
   type ReportFilters,
@@ -565,6 +566,63 @@ export default function PaymentsAiDashboardPage() {
     [months],
   );
 
+  /**
+   * Every headline number on this page was a hardcoded string literal sitting
+   * under a Period/Properties filter, so changing the scope moved the charts
+   * but left all 14 KPIs frozen — the report told the user it had re-scoped
+   * when it had not.
+   *
+   * Volume metrics scale with both the period length and the share of the
+   * portfolio selected; rate metrics stay in their band and only drift, since
+   * a collection *rate* should not balloon just because the window is longer.
+   */
+  const kpi = useMemo(() => {
+    const periodScale = months / 12;
+    const propertyScale = selectionRatio(filters.properties, PROPERTIES.length);
+    const volume = periodScale * propertyScale;
+
+    const rand = seedRand(8888 + months + filters.properties.size);
+    const drift = () => 1 + (rand() - 0.5) * 0.05;
+
+    const count = (base: number) => Math.round(base * volume * drift()).toLocaleString();
+    const rate = (base: number, digits = 1) => `${(base * drift()).toFixed(digits)}%`;
+    const money = (base: number) => {
+      const v = base * volume * drift();
+      return v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(2)}M` : `$${Math.round(v / 1000)}K`;
+    };
+
+    const collectedRate = 94.2 * drift();
+    const charged = 2_540_000 * volume * drift();
+    const collected = charged * (collectedRate / 100);
+    const fmtM = (v: number) => `$${(v / 1_000_000).toFixed(2)}M`;
+
+    return {
+      // Portfolio scope — these follow the property selection, not the period.
+      totalOrganizations: Math.max(1, Math.round(98 * propertyScale)).toLocaleString(),
+      totalProperties: Math.max(1, Math.round(842 * propertyScale)).toLocaleString(),
+      totalActiveUnits: Math.max(1, Math.round(34_120 * propertyScale)).toLocaleString(),
+
+      pctRentCollected: `${collectedRate.toFixed(1)}%`,
+      totalCollected: fmtM(collected),
+      totalCharged: fmtM(charged),
+      collectedVsCharged: `${fmtM(collected)} / ${fmtM(charged)}`,
+      savingsOfficeHours: `$${Math.round(127_840 * volume * drift()).toLocaleString()}`,
+      latePayers: Math.max(0, Math.round(142 * propertyScale * drift())).toLocaleString(),
+      onTimeRate: rate(94.2),
+      payDateKeptRate: rate(82.4),
+      deflectionRate: rate(68.4),
+      afterHoursCoverage: rate(38.6),
+      residentsNoPhone: count(1_842),
+      phoneOptOuts: rate(3.2),
+      emailOptOuts: rate(1.8),
+      totalReminders: count(42_180),
+      escalationRate: rate(12.4),
+      totalEscalations: count(406),
+      openEscalations: count(42),
+      resolvedEscalations: count(364),
+    };
+  }, [months, filters.properties]);
+
   return (
     <div className="-mt-2">
       <ReportPageHeader
@@ -590,24 +648,21 @@ export default function PaymentsAiDashboardPage() {
           description="Activation, collections, and savings headline"
         />
 
-        <Card className="mb-3 border-border/60">
-          <CardContent className="px-4 py-3.5">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              On-time payment rate
-            </p>
-            <div className="mt-1 flex items-baseline gap-2">
-              <p className="text-2xl font-bold tracking-tight text-foreground">94.2%</p>
-              <DeltaPill value="+2.1 pts vs prior" tone="positive" />
-            </div>
-            <p className="mt-0.5 text-xs text-muted-foreground">last 30 days</p>
-          </CardContent>
-        </Card>
+        <StatCard
+          size="hero"
+          className="mb-3"
+          label="On-time payment rate"
+          value={kpi.onTimeRate}
+          delta="+2.1 pts vs prior"
+          deltaTone="positive"
+          sub="selected period"
+        />
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard label="Total organizations" value="98" delta="+8" sub="activated" />
-          <StatCard label="Total properties" value="842" delta="+62" sub="properties" />
-          <StatCard label="Total active units" value="34,120" delta="+1,840" sub="units" />
-          <StatCard label="% of rent collected" value="94.2%" delta="+2.1 pts" sub="collection rate" />
+          <StatCard label="Total organizations" value={kpi.totalOrganizations} delta="+8" sub="activated" />
+          <StatCard label="Total properties" value={kpi.totalProperties} delta="+62" sub="properties" />
+          <StatCard label="Total active units" value={kpi.totalActiveUnits} delta="+1,840" sub="units" />
+          <StatCard label="% of rent collected" value={kpi.pctRentCollected} delta="+2.1 pts" sub="collection rate" />
         </div>
 
         <div className="mt-3 grid gap-3 lg:grid-cols-2">
@@ -629,7 +684,7 @@ export default function PaymentsAiDashboardPage() {
           </Card>
           <StatCard
             label="Rent payments / charges / % collected"
-            value="$2.4M / $2.54M"
+            value={kpi.collectedVsCharged}
             sub="payments vs charges"
           />
         </div>
@@ -641,7 +696,7 @@ export default function PaymentsAiDashboardPage() {
       <section className="mb-6">
         <StatCard
           label="Savings from office hours"
-          value="$127,840"
+          value={kpi.savingsOfficeHours}
           delta="+$18K"
           sub="estimated savings · last 30 days"
         />
@@ -711,27 +766,27 @@ export default function PaymentsAiDashboardPage() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
             label="% Rent collected"
-            value="94.2%"
+            value={kpi.pctRentCollected}
             delta="+2.1 pts"
             sub="of billed rent collected · selected period"
           />
           <StatCard
             label="Total rent collected"
-            value="$2.4M"
+            value={kpi.totalCollected}
             delta="+8%"
             sub="collected this period"
             action={<NewChip />}
           />
           <StatCard
             label="Total rent charged"
-            value="$2.54M"
+            value={kpi.totalCharged}
             delta="+7%"
             sub="billed this period"
             action={<NewChip />}
           />
           <StatCard
             label="Late payers (after grace)"
-            value="142"
+            value={kpi.latePayers}
             delta="-9"
             deltaTone="positive"
             sub="avg per property"
@@ -826,14 +881,14 @@ export default function PaymentsAiDashboardPage() {
         <div className="grid gap-3 sm:grid-cols-2">
           <StatCard
             label="On-time payment rate"
-            value="94.2%"
+            value={kpi.onTimeRate}
             delta="+2.1 pts"
             sub="of billed rent paid before late fees posted"
             action={<NewChip />}
           />
           <StatCard
             label="Expected payment date kept rate"
-            value="82.4%"
+            value={kpi.payDateKeptRate}
             delta="+6.8 pts"
             sub="of AI-captured pay-date commitments honored"
             action={<NewChip />}
@@ -954,14 +1009,14 @@ export default function PaymentsAiDashboardPage() {
           <div className="grid grid-cols-2 gap-3">
             <StatCard
               label="Deflection rate"
-              value="68.4%"
+              value={kpi.deflectionRate}
               delta="+4.2 pts"
               sub="of resident payment conversations fully AI-resolved"
               action={<NewChip />}
             />
             <StatCard
               label="After-hours coverage"
-              value="38.6%"
+              value={kpi.afterHoursCoverage}
               delta="+2.4 pts"
               sub="of AI interactions handled outside office hours"
               action={<NewChip />}
@@ -1093,14 +1148,14 @@ export default function PaymentsAiDashboardPage() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
             label="Residents with no phone"
-            value="1,842"
+            value={kpi.residentsNoPhone}
             sub="no phone on file"
           />
-          <StatCard label="Phone opt-outs" value="3.2%" sub="opt-out rate" />
-          <StatCard label="Email opt-outs" value="1.8%" sub="opt-out rate" />
+          <StatCard label="Phone opt-outs" value={kpi.phoneOptOuts} sub="opt-out rate" />
+          <StatCard label="Email opt-outs" value={kpi.emailOptOuts} sub="opt-out rate" />
           <StatCard
             label="Total reminders sent"
-            value="42,180"
+            value={kpi.totalReminders}
             delta="+12%"
             sub="SMS + email"
           />
@@ -1149,17 +1204,17 @@ export default function PaymentsAiDashboardPage() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
             label="Escalation rate"
-            value="12.4%"
+            value={kpi.escalationRate}
             delta="-1.8 pts"
             deltaTone="positive"
             sub="of AI conversations escalated"
             action={<NewChip />}
           />
-          <StatCard label="Total escalations" value="406" sub="escalated to staff" action={<NewChip />} />
-          <StatCard label="Open escalations" value="42" sub="pending resolution" action={<NewChip />} />
+          <StatCard label="Total escalations" value={kpi.totalEscalations} sub="escalated to staff" action={<NewChip />} />
+          <StatCard label="Open escalations" value={kpi.openEscalations} sub="pending resolution" action={<NewChip />} />
           <StatCard
             label="Resolved"
-            value="364"
+            value={kpi.resolvedEscalations}
             delta="89% resolution"
             deltaTone="positive"
             sub="resolved by staff"
@@ -1198,7 +1253,7 @@ export default function PaymentsAiDashboardPage() {
         />
 
         <div className="mb-3 max-w-xs">
-          <StatCard label="Avg late payers" value="142" sub="per property avg" />
+          <StatCard label="Avg late payers" value={kpi.latePayers} sub="per property avg" />
         </div>
 
         <Card className="border-border/60">
