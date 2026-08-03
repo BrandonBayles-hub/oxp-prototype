@@ -12,6 +12,8 @@ export {
   PERIOD_OPTIONS,
   SERIES_COLORS,
   SERIES_NEUTRAL,
+  STATUS_FILL,
+  CHART_GRID_STROKE,
   TONE_BADGE,
   TONE_TEXT,
   URGENCY_BADGE,
@@ -46,3 +48,5 @@ export {
 } from "./report-filter-bar";
 
 export { EscalationsSection, type EscalationStat } from "./escalations-section";
+
+export { LEGEND_PROPS, legendLabel } from "./chart-legend";

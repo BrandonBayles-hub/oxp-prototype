@@ -31,8 +31,11 @@ import {
   SectionBanner,
   StatCard,
   createReportFilters,
+  legendLabel,
   formatMonthLabel,
   monthsForPeriod,
+  CHART_GRID_STROKE,
+  STATUS_FILL,
   URGENCY_BADGE,
   seriesColorMap,
   serializeFilters,
@@ -144,13 +147,19 @@ const PRIORITY_BADGE: Record<Priority, string> = {
   Preventative: URGENCY_BADGE.info,
 };
 
-/** Chart fills for the same ladder, in the same rank order. */
+/**
+ * Chart fills for the same ladder, in the same rank order.
+ *
+ * These carry white labels inside the priority bar, so each is dark enough to
+ * clear WCAG AA against white at 12px (measured 6.62 / 6.28 / 5.77 / 5.84 /
+ * 6.45 against a 4.5:1 requirement).
+ */
 const PRIORITY_COLOR: Record<Priority, string> = {
   Emergency: "hsl(357 64% 42%)",
-  High: "hsl(25 78% 45%)",
-  Medium: "hsl(43 80% 40%)",
-  Low: "hsl(222 12% 62%)",
-  Preventative: "hsl(207 60% 45%)",
+  High: "hsl(25 85% 33%)",
+  Medium: "hsl(43 90% 27%)",
+  Low: "hsl(222 14% 42%)",
+  Preventative: "hsl(207 65% 36%)",
 };
 
 type SliceDimension = "status" | "priority" | "source";
@@ -492,10 +501,14 @@ function buildMetricsForPeriod(months: number, filters: ReportFilters): PeriodSc
   const aiOriginTotal = eliSubmittedWorkOrders;
 
   const aiStatusDistribution = [
-    { name: "Completed", value: aiOriginCompleted, color: "#22c55e" },
-    { name: "Cancelled", value: aiOriginCancelled, color: "#f43f5e" },
-    { name: "In Progress", value: Math.round(aiOriginCompleted * 0.18), color: "#eab308" },
-    { name: "Open", value: aiOriginOpen, color: "#3b82f6" },
+    { name: "Completed", value: aiOriginCompleted, color: STATUS_FILL.completed },
+    { name: "Cancelled", value: aiOriginCancelled, color: STATUS_FILL.cancelled },
+    {
+      name: "In Progress",
+      value: Math.round(aiOriginCompleted * 0.18),
+      color: STATUS_FILL.inProgress,
+    },
+    { name: "Open", value: aiOriginOpen, color: STATUS_FILL.open },
   ];
 
   // Section 3 — conversational
@@ -1076,11 +1089,11 @@ export default function MaintenanceAiDashboardPage() {
                 ) : (
                   <ChartContainer
                     config={{
-                      Completed: { label: "Completed", color: "#60a5fa" },
-                      Open: { label: "Open", color: "#1e3a8a" },
-                      Overdue: { label: "Overdue", color: "#fb923c" },
-                      Submitted: { label: "Submitted", color: "#a855f7" },
-                      Unassigned: { label: "Unassigned", color: "#334155" },
+                      Completed: { label: "Completed", color: STATUS_FILL.completed },
+                      Open: { label: "Open", color: STATUS_FILL.open },
+                      Overdue: { label: "Overdue", color: STATUS_FILL.overdue },
+                      Submitted: { label: "Submitted", color: STATUS_FILL.inProgress },
+                      Unassigned: { label: "Unassigned", color: STATUS_FILL.unassigned },
                     }}
                     className="!aspect-auto h-[260px] w-full"
                   >
@@ -1088,7 +1101,7 @@ export default function MaintenanceAiDashboardPage() {
                       data={metrics.statusByMonth}
                       margin={{ left: 8, right: 12, top: 8, bottom: 8 }}
                     >
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                       <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} />
                       <YAxis
                         tickLine={false}
@@ -1098,16 +1111,17 @@ export default function MaintenanceAiDashboardPage() {
                         tickFormatter={(v: number) => formatCompactShort(v)}
                       />
                       <ChartTooltip content={<ChartTooltipContent />} />
-                      <Bar dataKey="Completed" stackId="a" fill="#60a5fa" />
-                      <Bar dataKey="Open" stackId="a" fill="#1e3a8a" />
-                      <Bar dataKey="Overdue" stackId="a" fill="#fb923c" />
-                      <Bar dataKey="Submitted" stackId="a" fill="#a855f7" />
-                      <Bar dataKey="Unassigned" stackId="a" fill="#334155" />
+                      <Bar dataKey="Completed" stackId="a" fill={STATUS_FILL.completed} />
+                      <Bar dataKey="Open" stackId="a" fill={STATUS_FILL.open} />
+                      <Bar dataKey="Overdue" stackId="a" fill={STATUS_FILL.overdue} />
+                      <Bar dataKey="Submitted" stackId="a" fill={STATUS_FILL.inProgress} />
+                      <Bar dataKey="Unassigned" stackId="a" fill={STATUS_FILL.unassigned} />
                       <Legend
                         verticalAlign="bottom"
                         iconType="square"
                         wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }}
-                      />
+            formatter={legendLabel}
+          />
                     </BarChart>
                   </ChartContainer>
                 )}
@@ -1223,7 +1237,7 @@ export default function MaintenanceAiDashboardPage() {
                     data={metrics.monthlyAiWoSubmitted}
                     margin={{ left: 8, right: 12, top: 8, bottom: 8 }}
                   >
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                     <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
                     <YAxis
                       tickLine={false}
@@ -1401,7 +1415,7 @@ export default function MaintenanceAiDashboardPage() {
                     data={metrics.incomingPerDay}
                     margin={{ left: 8, right: 12, top: 8, bottom: 8 }}
                   >
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                     <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} />
                     <YAxis
                       tickLine={false}
@@ -1546,7 +1560,7 @@ function AvgDaysBySource({
         layout="vertical"
         margin={{ left: 8, right: 32, top: 8, bottom: 8 }}
       >
-        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e5e7eb" />
+        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={CHART_GRID_STROKE} />
         <XAxis
           type="number"
           tickLine={false}

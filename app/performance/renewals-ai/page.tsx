@@ -28,6 +28,7 @@ import {
   StatCard,
   StatGrid,
   createReportFilters,
+  legendLabel,
   monthsForPeriod,
   seriesColorMap,
   serializeFilters,
@@ -1109,6 +1110,7 @@ export default function RenewalsAiDashboardPage() {
                     verticalAlign="bottom"
                     iconType="circle"
                     wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }}
+                    formatter={legendLabel}
                   />
                 </LineChart>
               </ChartContainer>
@@ -1248,6 +1250,7 @@ export default function RenewalsAiDashboardPage() {
                     verticalAlign="bottom"
                     iconType="circle"
                     wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }}
+                    formatter={legendLabel}
                   />
                 </LineChart>
               </ChartContainer>

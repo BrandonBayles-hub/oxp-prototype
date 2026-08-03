@@ -63,7 +63,9 @@ export const URGENCY_BADGE = {
   info: "bg-status-info text-status-info-foreground ring-1 ring-status-info-border",
   settled:
     "bg-status-success text-status-success-foreground ring-1 ring-status-success-border",
-  muted: "bg-muted text-muted-foreground ring-1 ring-border",
+  // foreground/75 rather than muted-foreground: the standard muted text
+  // measured 4.35:1 on the muted badge surface, just under AA.
+  muted: "bg-muted text-foreground/75 ring-1 ring-border",
 } as const;
 
 export type Urgency = keyof typeof URGENCY_BADGE;
@@ -111,6 +113,36 @@ export function seriesColorMap<T extends string>(keys: readonly T[]): Record<T, 
 
 /** Neutral color for the "current period" reference line/series. */
 export const SERIES_NEUTRAL = "hsl(222 20% 45%)";
+
+/**
+ * Chart fills for lifecycle states, ranked the same way `URGENCY_BADGE` ranks
+ * its badges so a status reads identically whether it appears as a pill or as
+ * a bar.
+ *
+ * This exists because status charts were using raw hex picked per chart: on
+ * one page "Completed" was green in the donut and light blue in the stacked
+ * bar directly beside it, and "Submitted" was purple — a hue reserved for ELI
+ * context.
+ */
+export const STATUS_FILL = {
+  /** Newly arrived, nothing wrong yet. */
+  open: "hsl(207 60% 45%)",
+  /** Being worked. Same hue as open, stepped lighter. */
+  inProgress: "hsl(207 45% 62%)",
+  /** Waiting on something external. */
+  blocked: "hsl(43 80% 40%)",
+  /** Past due — the only state that earns the alarm hue. */
+  overdue: "hsl(357 64% 42%)",
+  /** Finished well. */
+  completed: "hsl(160 45% 35%)",
+  /** Closed without an outcome, or no longer relevant. Recedes. */
+  cancelled: "hsl(222 12% 62%)",
+  /** Awaiting triage/assignment. */
+  unassigned: "hsl(222 20% 45%)",
+} as const;
+
+/** Grid/axis stroke, so charts don't each pick their own gray. */
+export const CHART_GRID_STROKE = "hsl(var(--border))";
 
 // -----------------------------------------------------------------------------
 // Period options — one list for every report
