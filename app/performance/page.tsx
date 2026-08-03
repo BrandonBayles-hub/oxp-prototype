@@ -450,10 +450,16 @@ const healthChartConfig = {
   occupancy: { label: "Occupancy %", color: seriesColor(1) },
 } satisfies ChartConfig;
 
-/** Series key for the trend chart — two unlabelled lines are unreadable. */
+/**
+ * Series key for the trend chart — two unlabelled lines are unreadable.
+ *
+ * Ordered to match how the lines stack on the plot: occupancy runs above
+ * renewal at every realistic value, so listing it first lets the eye map the
+ * top label to the top line without hunting.
+ */
 const HEALTH_TREND_SERIES = [
-  { label: "Renewal %", color: seriesColor(0) },
   { label: "Occupancy %", color: seriesColor(1) },
+  { label: "Renewal %", color: seriesColor(0) },
 ];
 
 const AI_ONLY_EFFICIENCY_IDS = new Set([

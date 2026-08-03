@@ -784,10 +784,10 @@ export default function PaymentsAiDashboardPage() {
             action={<NewChip />}
           />
           <StatCard
+            lowerIsBetter
             label="Late payers (after grace)"
             value={kpi.latePayers}
             delta="-9"
-            deltaTone="positive"
             sub="avg per property"
           />
         </div>

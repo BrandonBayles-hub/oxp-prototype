@@ -1062,10 +1062,10 @@ export default function RenewalsAiDashboardPage() {
 
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <StatCard
+            lowerIsBetter
             label="Avg days to renew"
             value={kpi.avgDaysToRenew}
             delta="-4.9 days"
-            deltaTone="positive"
             sub="days from offer generated to signed"
           />
           <StatCard
@@ -1195,10 +1195,10 @@ export default function RenewalsAiDashboardPage() {
               subItalic="18,420 messages × 6 min avg manual handling ÷ 60"
             />
             <StatCard
+            lowerIsBetter
               label="Avg days to renew (AI)"
               value={kpi.avgDaysAI}
               delta="-4.9 days faster"
-              deltaTone="positive"
               sub="vs 14.1 days without AI"
             />
             <StatCard
@@ -1274,6 +1274,7 @@ export default function RenewalsAiDashboardPage() {
             sub="responded to AI outreach"
           />
           <StatCard
+            lowerIsBetter
             label="Avg AI response time"
             value={kpi.avgAIResponseTime}
             delta="-2 sec"
@@ -1283,6 +1284,7 @@ export default function RenewalsAiDashboardPage() {
 
         <div className="mt-3 grid gap-3 lg:grid-cols-2">
           <StatCard
+            lowerIsBetter
             label="Avg resident response time"
             value={kpi.avgResidentResponseTime}
             delta="-1.4 hrs"
