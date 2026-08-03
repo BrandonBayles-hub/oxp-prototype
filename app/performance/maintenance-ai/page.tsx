@@ -15,15 +15,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import {
-  ArrowLeft,
-  ArrowUpRight,
-  ArrowDownRight,
-  Calendar,
-  ChevronDown,
-  Search,
-  Loader2,
-} from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ChartContainer,
@@ -32,6 +24,21 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
+import {
+  DeltaPill,
+  ReportFilterBar,
+  ReportPageHeader,
+  SectionBanner,
+  StatCard,
+  createReportFilters,
+  monthsForPeriod,
+  URGENCY_BADGE,
+  seriesColorMap,
+  serializeFilters,
+  type ExtraFilter,
+  type Urgency,
+  type ReportFilters,
+} from "@/components/performance";
 
 // -----------------------------------------------------------------------------
 // Static config — illustrative prototype data
@@ -100,57 +107,52 @@ const WORK_ORDER_SOURCES = [
 ] as const;
 type WorkOrderSource = (typeof WORK_ORDER_SOURCES)[number];
 
-const SOURCE_COLORS: Record<WorkOrderSource, string> = {
-  "Maintenance AI": "#a855f7",
-  API: "#475569",
-  "Resident Portal": "#2563eb",
-  Homebody: "#22c55e",
-  "Entrata Web": "#0ea5e9",
-  "Entrata Facilities App": "#f97316",
-};
-
-// Year-to-date span, in months (January through the current month).
-const YTD_MONTHS = new Date().getMonth() + 1;
-
-const PERIOD_OPTIONS = [
-  { id: "3m", label: "Last 3 Months", months: 3 },
-  { id: "6m", label: "Last 6 Months", months: 6 },
-  { id: "12m", label: "Last 12 Months", months: 12 },
-  { id: "2y", label: "Last 2 Years", months: 24 },
-  { id: "3y", label: "Last 3 Years", months: 36 },
-  { id: "ytd", label: "Year To Date", months: YTD_MONTHS },
-] as const;
-type PeriodId = (typeof PERIOD_OPTIONS)[number]["id"] | "custom";
-
-// -----------------------------------------------------------------------------
-// Types
-// -----------------------------------------------------------------------------
-
-type Priority = "Emergency" | "High" | "Medium" | "Low" | "Preventative";
-const PRIORITY_COLOR: Record<Priority, string> = {
-  Emergency: "#ef4444",
-  High: "#f97316",
-  Medium: "#eab308",
-  Low: "#22c55e",
-  Preventative: "#3b82f6",
-};
+const SOURCE_COLORS: Record<WorkOrderSource, string> =
+  seriesColorMap(WORK_ORDER_SOURCES);
 
 type EliSource = "SMS" | "Chat" | "Voice";
 
-const AI_COMPONENT_COLORS: Record<EliSource, string> = {
-  SMS: "#a855f7",
-  Chat: "#0ea5e9",
-  Voice: "#f97316",
+/** ELI channels are categories, not statuses — ordered shared palette. */
+const AI_COMPONENT_COLORS: Record<EliSource, string> = seriesColorMap([
+  "SMS",
+  "Chat",
+  "Voice",
+] as const);
+
+type Priority = "Emergency" | "High" | "Medium" | "Low" | "Preventative";
+
+/**
+ * Priority is an urgency ladder, so its colors must rank monotonically:
+ * breach → warning → info → settled. Previously "Low" was green, which reads
+ * as a completed/good outcome rather than as low urgency, and Emergency/High/
+ * Medium spanned three separate saturated hue families.
+ */
+const PRIORITY_URGENCY: Record<Priority, Urgency> = {
+  Emergency: "breach",
+  High: "warning",
+  Medium: "warning",
+  Low: "muted",
+  Preventative: "info",
+};
+
+const PRIORITY_BADGE: Record<Priority, string> = {
+  Emergency: URGENCY_BADGE.breach,
+  High: URGENCY_BADGE.warning,
+  Medium: URGENCY_BADGE.warning,
+  Low: URGENCY_BADGE.muted,
+  Preventative: URGENCY_BADGE.info,
+};
+
+/** Chart fills for the same ladder, in the same rank order. */
+const PRIORITY_COLOR: Record<Priority, string> = {
+  Emergency: "hsl(357 64% 42%)",
+  High: "hsl(25 78% 45%)",
+  Medium: "hsl(43 80% 40%)",
+  Low: "hsl(222 12% 62%)",
+  Preventative: "hsl(207 60% 45%)",
 };
 
 type SliceDimension = "status" | "priority" | "source";
-const PRIORITY_BADGE: Record<Priority, string> = {
-  Emergency: "bg-red-50 text-red-700 ring-red-200",
-  High: "bg-orange-50 text-orange-700 ring-orange-200",
-  Medium: "bg-amber-50 text-amber-700 ring-amber-200",
-  Low: "bg-green-50 text-green-700 ring-green-200",
-  Preventative: "bg-blue-50 text-blue-700 ring-blue-200",
-};
 
 type WorkOrderStatus =
   | "Open"
@@ -163,16 +165,22 @@ type WorkOrderStatus =
   | "Closed"
   | "Cancelled";
 
+/**
+ * Status is a lifecycle, not a category: in-flight states are informational,
+ * blocked states warn, finished states settle, and closed/cancelled recede.
+ * Previously these nine statuses spanned eight different hue families, so no
+ * single color meant anything.
+ */
 const STATUS_BADGE: Record<WorkOrderStatus, string> = {
-  Open: "bg-sky-50 text-sky-700 ring-sky-200",
-  "In Progress": "bg-amber-50 text-amber-700 ring-amber-200",
-  Scheduled: "bg-indigo-50 text-indigo-700 ring-indigo-200",
-  "Awaiting Parts": "bg-orange-50 text-orange-700 ring-orange-200",
-  Suspended: "bg-zinc-100 text-zinc-700 ring-zinc-300",
-  "Work Completed": "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  Completed: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  Closed: "bg-slate-100 text-slate-700 ring-slate-300",
-  Cancelled: "bg-rose-50 text-rose-700 ring-rose-200",
+  Open: URGENCY_BADGE.info,
+  "In Progress": URGENCY_BADGE.info,
+  Scheduled: URGENCY_BADGE.info,
+  "Awaiting Parts": URGENCY_BADGE.warning,
+  Suspended: URGENCY_BADGE.warning,
+  "Work Completed": URGENCY_BADGE.settled,
+  Completed: URGENCY_BADGE.settled,
+  Closed: URGENCY_BADGE.muted,
+  Cancelled: URGENCY_BADGE.muted,
 };
 
 interface WorkOrderRow {
@@ -205,15 +213,30 @@ interface MessageLogRow {
   sessionId: string;
 }
 
-interface FilterState {
-  periodId: PeriodId;
-  customFrom: string;
-  customTo: string;
-  properties: Set<string>;
-  technicians: Set<string>;
-  vendors: Set<string>;
-  floorPlans: Set<string>;
-  sources: Set<string>;
+/**
+ * Maintenance carries four dimensions the other agents do not. They live in
+ * the shared filter state's `extras` map and render behind the filter bar's
+ * "More filters" disclosure, so the bar keeps the same two primary controls
+ * (Period, Properties) as every other report instead of wrapping onto a
+ * second row.
+ */
+const MAINTENANCE_EXTRA_FILTERS: ExtraFilter[] = [
+  { id: "technicians", label: "Assigned to", options: ASSIGNED_TO_OPTIONS },
+  { id: "vendors", label: "Assigned vendor", options: VENDORS },
+  { id: "floorPlans", label: "Floorplan", options: FLOOR_PLANS },
+  { id: "sources", label: "Work order source", options: WORK_ORDER_SOURCES },
+];
+
+const MAINTENANCE_EXTRA_DEFAULTS = {
+  technicians: ASSIGNED_TO_OPTIONS,
+  vendors: VENDORS,
+  floorPlans: FLOOR_PLANS,
+  sources: WORK_ORDER_SOURCES,
+};
+
+/** Read an extras dimension, defaulting to "everything selected". */
+function extraSet(filters: ReportFilters, id: keyof typeof MAINTENANCE_EXTRA_DEFAULTS): Set<string> {
+  return filters.extras[id] ?? new Set(MAINTENANCE_EXTRA_DEFAULTS[id]);
 }
 
 // -----------------------------------------------------------------------------
@@ -340,16 +363,15 @@ const AVG_DAYS_BY_SOURCE: Record<WorkOrderSource, number> = {
   "Entrata Facilities App": 3.4,
 };
 
-function buildMetricsForPeriod(months: number, filters: FilterState): PeriodScaledMetrics {
+function buildMetricsForPeriod(months: number, filters: ReportFilters): PeriodScaledMetrics {
   const scale = months / 36;
   const propertyScale =
     filters.properties.size === 0
       ? 0
       : filters.properties.size / PROPERTIES.length;
+  const sources = extraSet(filters, "sources");
   const sourceScale =
-    filters.sources.size === 0
-      ? 0
-      : filters.sources.size / WORK_ORDER_SOURCES.length;
+    sources.size === 0 ? 0 : sources.size / WORK_ORDER_SOURCES.length;
 
   const adjusted = Math.max(0.01, scale * propertyScale * sourceScale);
 
@@ -398,9 +420,7 @@ function buildMetricsForPeriod(months: number, filters: FilterState): PeriodScal
     return data;
   })();
 
-  const includedSources = WORK_ORDER_SOURCES.filter((s) =>
-    filters.sources.has(s),
-  );
+  const includedSources = WORK_ORDER_SOURCES.filter((s) => sources.has(s));
   const totalSourcePctIncluded = includedSources.reduce(
     (s, src) => s + SOURCE_PERCENTAGES[src],
     0,
@@ -920,62 +940,6 @@ const MESSAGE_LOG_ROWS: MessageLogRow[] = [
 // Atomic UI
 // -----------------------------------------------------------------------------
 
-type Tone = "positive" | "negative" | "neutral";
-
-function DeltaPill({ value, tone }: { value: string; tone: Tone }) {
-  const Icon = tone === "negative" ? ArrowDownRight : ArrowUpRight;
-  const cls =
-    tone === "positive"
-      ? "text-emerald-600"
-      : tone === "negative"
-        ? "text-rose-600"
-        : "text-muted-foreground";
-  return (
-    <span className={cn("inline-flex items-center gap-0.5 text-xs font-medium", cls)}>
-      <Icon className="h-3 w-3" />
-      {value}
-    </span>
-  );
-}
-
-function KpiCard({
-  label,
-  value,
-  delta,
-  deltaTone = "positive",
-  sub,
-}: {
-  label: string;
-  value: string;
-  delta?: string;
-  deltaTone?: Tone;
-  sub?: string;
-}) {
-  return (
-    <Card className="border-border/60">
-      <CardContent className="px-4 py-3.5">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          {label}
-        </p>
-        <div className="mt-1 flex items-baseline gap-2">
-          <p className="text-2xl font-bold tracking-tight text-foreground">{value}</p>
-          {delta && <DeltaPill value={delta} tone={deltaTone} />}
-        </div>
-        {sub && <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p>}
-      </CardContent>
-    </Card>
-  );
-}
-
-function SectionBanner({ title, description }: { title: string; description: string }) {
-  return (
-    <div className="mb-3 rounded-md bg-muted/60 px-4 py-3">
-      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-      <p className="text-xs text-muted-foreground">{description}</p>
-    </div>
-  );
-}
-
 function formatCompact(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(2)}K`;
@@ -991,206 +955,6 @@ function formatCompactShort(n: number): string {
 // -----------------------------------------------------------------------------
 // Multi-select filter dropdown
 // -----------------------------------------------------------------------------
-
-function MultiSelect({
-  label,
-  options,
-  selected,
-  onChange,
-  width = "11rem",
-  searchable = false,
-}: {
-  label: string;
-  options: readonly string[];
-  selected: Set<string>;
-  onChange: (next: Set<string>) => void;
-  width?: string;
-  searchable?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-
-  const allSelected = selected.size === options.length;
-  const buttonLabel = allSelected
-    ? "All"
-    : selected.size === 0
-      ? "None"
-      : `${selected.size} selected`;
-
-  const filtered = options.filter((o) =>
-    o.toLowerCase().includes(search.toLowerCase()),
-  );
-
-  function toggle(o: string) {
-    const next = new Set(selected);
-    if (next.has(o)) next.delete(o);
-    else next.add(o);
-    onChange(next);
-  }
-
-  function toggleAll() {
-    onChange(allSelected ? new Set() : new Set(options));
-  }
-
-  return (
-    <div className="relative" style={{ minWidth: width }}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="inline-flex w-full items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-sm"
-      >
-        <span className="text-muted-foreground">{label}:</span>
-        <span className="font-semibold text-foreground">{buttonLabel}</span>
-        <ChevronDown className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-20 mt-1 w-[18rem] rounded-md border border-border bg-popover p-2 shadow-lg">
-            {searchable && (
-              <div className="relative mb-2">
-                <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder={`Search ${label.toLowerCase()}...`}
-                  className="w-full rounded-md border border-border bg-background pl-7 pr-2 py-1.5 text-sm"
-                />
-              </div>
-            )}
-            <div className="max-h-[18rem] overflow-y-auto">
-              <label className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  onChange={toggleAll}
-                  className="h-4 w-4 rounded border-border"
-                />
-                <span className="text-sm font-medium">All</span>
-              </label>
-              {filtered.map((o) => (
-                <label
-                  key={o}
-                  className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selected.has(o)}
-                    onChange={() => toggle(o)}
-                    className="h-4 w-4 rounded border-border"
-                  />
-                  <span className="text-sm">{o}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function PeriodPicker({
-  state,
-  setState,
-}: {
-  state: FilterState;
-  setState: (s: FilterState) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const label =
-    state.periodId === "custom"
-      ? "Custom Range"
-      : (PERIOD_OPTIONS.find((p) => p.id === state.periodId)?.label ?? "Last 12 Months");
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          "inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-sm",
-          open ? "border-amber-400 ring-1 ring-amber-200" : "border-border",
-        )}
-      >
-        <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-muted-foreground">Period:</span>
-        <span className="font-semibold text-foreground">{label}</span>
-        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-20 mt-1 w-[16rem] rounded-md border border-border bg-popover p-1 shadow-lg">
-            {PERIOD_OPTIONS.map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => {
-                  setState({ ...state, periodId: opt.id });
-                  setOpen(false);
-                }}
-                className={cn(
-                  "block w-full rounded px-3 py-1.5 text-left text-sm hover:bg-muted",
-                  state.periodId === opt.id && "bg-muted font-medium",
-                )}
-              >
-                {opt.label}
-              </button>
-            ))}
-            <div className="mt-1 border-t border-border pt-2">
-              <label className="flex items-center gap-2 px-3 py-1.5 text-sm">
-                <input
-                  type="checkbox"
-                  checked={state.periodId === "custom"}
-                  onChange={(e) =>
-                    setState({
-                      ...state,
-                      periodId: e.target.checked ? "custom" : "12m",
-                    })
-                  }
-                  className="h-4 w-4 rounded border-border"
-                />
-                Custom Range
-              </label>
-              {state.periodId === "custom" && (
-                <div className="space-y-2 px-3 pb-2">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="month"
-                      value={state.customFrom}
-                      onChange={(e) =>
-                        setState({ ...state, customFrom: e.target.value })
-                      }
-                      className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
-                    />
-                    <span className="text-xs text-muted-foreground">to</span>
-                    <input
-                      type="month"
-                      value={state.customTo}
-                      onChange={(e) =>
-                        setState({ ...state, customTo: e.target.value })
-                      }
-                      className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setOpen(false)}
-                    className="w-full rounded-md bg-foreground py-1.5 text-xs font-medium text-background hover:bg-foreground/90"
-                  >
-                    Apply Custom Range
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
 
 // -----------------------------------------------------------------------------
 // Skeleton — replaces inner content briefly when filters change
@@ -1214,16 +978,9 @@ function LoadingBanner() {
 // -----------------------------------------------------------------------------
 
 export default function MaintenanceAiDashboardPage() {
-  const [filters, setFilters] = useState<FilterState>({
-    periodId: "12m",
-    customFrom: "2025-06",
-    customTo: "2026-05",
-    properties: new Set(PROPERTIES),
-    technicians: new Set(ASSIGNED_TO_OPTIONS),
-    vendors: new Set(VENDORS),
-    floorPlans: new Set(FLOOR_PLANS),
-    sources: new Set(WORK_ORDER_SOURCES),
-  });
+  const [filters, setFilters] = useState<ReportFilters>(() =>
+    createReportFilters(PROPERTIES, MAINTENANCE_EXTRA_DEFAULTS),
+  );
   const [loading, setLoading] = useState(false);
   const [sliceBy, setSliceBy] = useState<SliceDimension>("status");
   const filtersKey = useMemo(
@@ -1244,10 +1001,7 @@ export default function MaintenanceAiDashboardPage() {
   }, [filtersKey]);
 
   const months = useMemo(() => {
-    if (filters.periodId === "custom") return 12;
-    return (
-      PERIOD_OPTIONS.find((p) => p.id === filters.periodId)?.months ?? 12
-    );
+    return monthsForPeriod(filters.periodId);
   }, [filters.periodId]);
 
   const metrics = useMemo(
@@ -1257,68 +1011,17 @@ export default function MaintenanceAiDashboardPage() {
 
   return (
     <div className="-mt-2">
-      <Link
-        href="/performance"
-        className="mb-4 inline-flex items-center gap-1.5 rounded-md border border-border bg-white px-3 py-1.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to Performance
-      </Link>
+      <ReportPageHeader
+        agent="Maintenance AI"
+        description="Work order volume, routing and resolution times, plus the requests ELI+ deflected"
+      />
 
-      <header className="mb-4">
-        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-foreground">
-          <img src="/eli-cube.svg" alt="" width={22} height={22} />
-          Maintenance AI — Performance & Impact
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Maintenance AI agent performance, work order routing, and resolution analytics — mirrors the Domo Maintenance AI report.
-        </p>
-      </header>
-
-      {/* Sticky global filter bar */}
-      <div className="sticky top-0 z-30 -mx-6 mb-5 border-b border-border bg-background/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        <div className="flex flex-wrap items-center gap-2">
-          <PeriodPicker state={filters} setState={setFilters} />
-          <MultiSelect
-            label="Properties"
-            options={PROPERTIES}
-            selected={filters.properties}
-            onChange={(s) => setFilters({ ...filters, properties: s })}
-            searchable
-            width="11rem"
-          />
-          <MultiSelect
-            label="Assigned to"
-            options={ASSIGNED_TO_OPTIONS}
-            selected={filters.technicians}
-            onChange={(s) => setFilters({ ...filters, technicians: s })}
-            searchable
-            width="11rem"
-          />
-          <MultiSelect
-            label="Assigned vendor"
-            options={VENDORS}
-            selected={filters.vendors}
-            onChange={(s) => setFilters({ ...filters, vendors: s })}
-            searchable
-            width="11rem"
-          />
-          <MultiSelect
-            label="Floorplan"
-            options={FLOOR_PLANS}
-            selected={filters.floorPlans}
-            onChange={(s) => setFilters({ ...filters, floorPlans: s })}
-            width="11rem"
-          />
-          <MultiSelect
-            label="Work order source"
-            options={WORK_ORDER_SOURCES}
-            selected={filters.sources}
-            onChange={(s) => setFilters({ ...filters, sources: s })}
-            width="14rem"
-          />
-        </div>
-      </div>
+      <ReportFilterBar
+        filters={filters}
+        onChange={setFilters}
+        properties={PROPERTIES}
+        extraFilters={MAINTENANCE_EXTRA_FILTERS}
+      />
 
       {loading && <LoadingBanner />}
 
@@ -1334,18 +1037,18 @@ export default function MaintenanceAiDashboardPage() {
         <div className="grid gap-3 lg:grid-cols-[minmax(0,0.42fr)_minmax(0,1fr)]">
           {/* Left: KPI stack */}
           <div className="grid gap-3">
-            <KpiCard
+            <StatCard
               label="Open Work Orders"
               value={loading ? "…" : formatCompact(metrics.openWorkOrders)}
               sub="opened during selected period"
             />
-            <KpiCard
+            <StatCard
               label="Overdue Open Work Orders"
               value={loading ? "…" : formatCompact(metrics.overdueWorkOrders)}
               sub="past target completion date"
               deltaTone="negative"
             />
-            <KpiCard
+            <StatCard
               label="Unassigned Open Work Orders"
               value={loading ? "…" : formatCompact(metrics.unassignedWorkOrders)}
               sub="open without an assigned tech"
@@ -1461,28 +1164,28 @@ export default function MaintenanceAiDashboardPage() {
           </Card>
 
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <KpiCard
+            <StatCard
               label="Total units using AI"
               value={loading ? "…" : metrics.totalUnitsUsingAi.toLocaleString()}
               delta={`+${metrics.unitsDeltaAbsolute.toLocaleString()}`}
               deltaTone="positive"
               sub="units on platform"
             />
-            <KpiCard
+            <StatCard
               label="Units AI usage rate"
               value={loading ? "…" : `${metrics.unitsAiUsageRate}%`}
               delta={`+${metrics.unitsAiUsageDelta} pts`}
               deltaTone="positive"
               sub="of total units"
             />
-            <KpiCard
+            <StatCard
               label="Maintenance AI submitted work orders"
               value={loading ? "…" : metrics.eliSubmittedWorkOrders.toLocaleString()}
               delta={`+${metrics.eliSubmittedDeltaPct}%`}
               deltaTone="positive"
               sub="AI-submitted WOs"
             />
-            <KpiCard
+            <StatCard
               label="Work orders deflected"
               value={loading ? "…" : `${metrics.workOrdersDeflectedPct}%`}
               delta={`+${metrics.workOrdersDeflectedDelta} pts`}
@@ -1548,27 +1251,27 @@ export default function MaintenanceAiDashboardPage() {
         </div>
 
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <KpiCard
+          <StatCard
             label="Open work orders"
             value={loading ? "…" : metrics.aiOriginOpen.toLocaleString()}
             sub="AI origin · selected period"
           />
-          <KpiCard
+          <StatCard
             label="Completed work orders"
             value={loading ? "…" : metrics.aiOriginCompleted.toLocaleString()}
             sub="AI origin · selected period"
           />
-          <KpiCard
+          <StatCard
             label="Cancelled work orders"
             value={loading ? "…" : metrics.aiOriginCancelled.toLocaleString()}
             sub="AI origin · selected period"
           />
-          <KpiCard
+          <StatCard
             label="Avg days to complete"
             value={loading ? "…" : `${metrics.aiOriginAvgDays}`}
             sub="Maintenance AI origin"
           />
-          <KpiCard
+          <StatCard
             label="Total work orders"
             value={loading ? "…" : metrics.aiOriginTotal.toLocaleString()}
             sub="Maintenance AI origin"
@@ -1638,17 +1341,17 @@ export default function MaintenanceAiDashboardPage() {
           </Card>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <KpiCard
+            <StatCard
               label="Messages received (SMS + Chat)"
               value={loading ? "…" : metrics.totalMessagesReceived.toLocaleString()}
               sub={`${metrics.smsReceived.toLocaleString()} SMS · ${metrics.chatReceived.toLocaleString()} Chat`}
             />
-            <KpiCard
+            <StatCard
               label="Messages sent (Maintenance AI)"
               value={loading ? "…" : metrics.totalMessagesSent.toLocaleString()}
               sub="AI-authored outbound replies"
             />
-            <KpiCard
+            <StatCard
               label="Received → sent ratio"
               value={loading ? "…" : metrics.receivedToSentRatio}
               sub="messages received per AI reply"
@@ -2334,16 +2037,3 @@ function ConversationAnalysisTable({ rows }: { rows: MessageLogRow[] }) {
 // -----------------------------------------------------------------------------
 // Utility: serialize filter state for change detection
 // -----------------------------------------------------------------------------
-
-function serializeFilters(f: FilterState) {
-  return {
-    periodId: f.periodId,
-    customFrom: f.customFrom,
-    customTo: f.customTo,
-    properties: Array.from(f.properties).sort(),
-    technicians: Array.from(f.technicians).sort(),
-    vendors: Array.from(f.vendors).sort(),
-    floorPlans: Array.from(f.floorPlans).sort(),
-    sources: Array.from(f.sources).sort(),
-  };
-}

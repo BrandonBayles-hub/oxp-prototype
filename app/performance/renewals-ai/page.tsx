@@ -15,10 +15,26 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { ArrowLeft, ArrowUpRight, ArrowDownRight, Calendar, ChevronDown, Loader2, Search, X } from "lucide-react";
+import { ArrowLeft, Loader2, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
+import {
+  DeltaPill,
+  ReportFilterBar,
+  ReportPageHeader,
+  ReportSection,
+  SectionBanner,
+  StatCard,
+  StatGrid,
+  createReportFilters,
+  monthsForPeriod,
+  seriesColorMap,
+  serializeFilters,
+  type ReportFilters,
+  type ReportViewMode,
+  type Tone,
+} from "@/components/performance";
 
 // -----------------------------------------------------------------------------
 // Static config (illustrative prototype data)
@@ -39,28 +55,9 @@ const PROPERTIES = [
 
 type Property = (typeof PROPERTIES)[number];
 
-const PROPERTY_COLORS: Record<Property, string> = {
-  "Cedar Hills": "#3b82f6",
-  "Hillside Living": "#10b981",
-  "Jamison Apartments": "#f59e0b",
-  "Lakewood": "#ef4444",
-  "Maple Court": "#8b5cf6",
-  "Oak Terrace": "#ec4899",
-  "Parkview Flats": "#06b6d4",
-  "Pine Valley": "#84cc16",
-  "Summit Ridge": "#f97316",
-  "The Beacon": "#a855f7",
-};
-
-const PERIOD_OPTIONS = [
-  { id: "3m", label: "Last 3 Months", months: 3 },
-  { id: "6m", label: "Last 6 Months", months: 6 },
-  { id: "12m", label: "Last 12 Months", months: 12 },
-  { id: "2y", label: "Last 2 Years", months: 24 },
-  { id: "3y", label: "Last 3 Years", months: 36 },
-] as const;
-
-type PeriodId = (typeof PERIOD_OPTIONS)[number]["id"] | "custom";
+/** Property series colors come from the shared ordered palette so a given
+ *  property keeps the same color on every report it appears in. */
+const PROPERTY_COLORS: Record<Property, string> = seriesColorMap(PROPERTIES);
 
 // -----------------------------------------------------------------------------
 // Trend data helpers
@@ -556,7 +553,7 @@ function monthValueToSqlDate(value: string) {
   return /^\d{4}-\d{2}$/.test(value) ? `${value}-01` : null;
 }
 
-function getQueryDateRange(filters: FiltersState) {
+function getQueryDateRange(filters: ReportFilters) {
   if (filters.periodId === "custom") {
     const customStart = monthValueToSqlDate(filters.customFrom);
     const customEnd = monthValueToSqlDate(filters.customTo);
@@ -565,7 +562,7 @@ function getQueryDateRange(filters: FiltersState) {
     }
   }
 
-  const months = PERIOD_OPTIONS.find((p) => p.id === filters.periodId)?.months ?? 12;
+  const months = monthsForPeriod(filters.periodId);
   const now = new Date();
   const currentMonth = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1));
   return {
@@ -575,74 +572,11 @@ function getQueryDateRange(filters: FiltersState) {
 }
 
 // -----------------------------------------------------------------------------
-// Atomic UI primitives
+// Page-local UI
+//
+// Stat cards, delta pills, section banners and the filter bar now come from
+// @/components/performance so every ELI+ report shares one specification.
 // -----------------------------------------------------------------------------
-
-type Tone = "positive" | "negative" | "neutral";
-
-function DeltaPill({ value, tone }: { value: string; tone: Tone }) {
-  const Icon = tone === "negative" ? ArrowDownRight : ArrowUpRight;
-  const cls =
-    tone === "positive"
-      ? "text-emerald-600"
-      : tone === "negative"
-      ? "text-rose-600"
-      : "text-muted-foreground";
-  return (
-    <span className={cn("inline-flex items-center gap-0.5 text-xs font-medium", cls)}>
-      <Icon className="h-3 w-3" />
-      {value}
-    </span>
-  );
-}
-
-function KpiCard({
-  label,
-  value,
-  delta,
-  deltaTone = "positive",
-  sub,
-  subItalic,
-  action,
-}: {
-  label: string;
-  value: string;
-  delta?: string;
-  deltaTone?: Tone;
-  sub?: string;
-  subItalic?: string;
-  action?: React.ReactNode;
-}) {
-  return (
-    <Card className="border-border/60">
-      <CardContent className="px-4 py-3.5">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            {label}
-          </p>
-          {action}
-        </div>
-        <div className="mt-1 flex items-baseline gap-2">
-          <p className="text-2xl font-bold tracking-tight text-foreground">{value}</p>
-          {delta && <DeltaPill value={delta} tone={deltaTone} />}
-        </div>
-        {sub && <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p>}
-        {subItalic && (
-          <p className="mt-0.5 text-[11px] italic text-muted-foreground/80">{subItalic}</p>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function SectionBanner({ title, description }: { title: string; description: string }) {
-  return (
-    <div className="mb-3 rounded-md bg-muted/60 px-4 py-3">
-      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-      <p className="text-xs text-muted-foreground">{description}</p>
-    </div>
-  );
-}
 
 function Skeleton({ className }: { className?: string }) {
   return <div className={cn("animate-pulse rounded-md bg-muted", className)} />;
@@ -660,222 +594,13 @@ function LoadingBanner() {
 // -----------------------------------------------------------------------------
 // Filters
 // -----------------------------------------------------------------------------
+// Filters
+//
+// Period / Properties / view-mode controls come from the shared ReportFilterBar
+// so the bar has the same controls, order, defaults and position on every
+// report. Only the property list is page-specific.
+// -----------------------------------------------------------------------------
 
-type ViewMode = "global" | "perProperty";
-
-interface FiltersState {
-  periodId: PeriodId;
-  customFrom: string;
-  customTo: string;
-  selected: Set<Property>;
-  view: ViewMode;
-}
-
-function PeriodPicker({
-  state,
-  setState,
-}: {
-  state: FiltersState;
-  setState: (s: FiltersState) => void;
-}) {
-  const [open, setOpen] = useState(false);
-
-  const label =
-    state.periodId === "custom"
-      ? "Custom Range"
-      : PERIOD_OPTIONS.find((p) => p.id === state.periodId)?.label ?? "Last 12 Months";
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          "inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-sm",
-          open ? "border-amber-400 ring-1 ring-amber-200" : "border-border",
-        )}
-      >
-        <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-muted-foreground">Period:</span>
-        <span className="font-semibold text-foreground">{label}</span>
-        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-20 mt-1 w-[22rem] max-w-[calc(100vw-2rem)] rounded-md border border-border bg-popover p-2 shadow-lg">
-            {PERIOD_OPTIONS.map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => {
-                  setState({ ...state, periodId: opt.id });
-                  setOpen(false);
-                }}
-                className={cn(
-                  "block w-full rounded px-3 py-1.5 text-left text-sm hover:bg-muted",
-                  state.periodId === opt.id && "bg-muted font-medium",
-                )}
-              >
-                {opt.label}
-              </button>
-            ))}
-            <div className="mt-1 border-t border-border pt-2">
-              <label className="flex items-center gap-2 px-3 py-1.5 text-sm">
-                <input
-                  type="checkbox"
-                  checked={state.periodId === "custom"}
-                  onChange={(e) =>
-                    setState({ ...state, periodId: e.target.checked ? "custom" : "12m" })
-                  }
-                  className="h-4 w-4 rounded border-border"
-                />
-                Custom Range
-              </label>
-              {state.periodId === "custom" && (
-                <div className="space-y-2 px-2 pb-2">
-                  <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
-                    <input
-                      type="month"
-                      value={state.customFrom}
-                      onChange={(e) => setState({ ...state, customFrom: e.target.value })}
-                      className="min-w-0 rounded-md border border-border bg-background px-2 py-1 text-xs"
-                    />
-                    <span className="text-xs text-muted-foreground">to</span>
-                    <input
-                      type="month"
-                      value={state.customTo}
-                      onChange={(e) => setState({ ...state, customTo: e.target.value })}
-                      className="min-w-0 rounded-md border border-border bg-background px-2 py-1 text-xs"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setOpen(false)}
-                    className="w-full rounded-md bg-foreground py-1.5 text-xs font-medium text-background hover:bg-foreground/90"
-                  >
-                    Apply Custom Range
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function PropertiesPicker({
-  state,
-  setState,
-}: {
-  state: FiltersState;
-  setState: (s: FiltersState) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-
-  const allSelected = state.selected.size === PROPERTIES.length;
-  const label = allSelected
-    ? "All"
-    : state.selected.size === 0
-    ? "None"
-    : `${state.selected.size} selected`;
-
-  const filtered = PROPERTIES.filter((p) =>
-    p.toLowerCase().includes(search.toLowerCase()),
-  );
-
-  function toggle(p: Property) {
-    const next = new Set(state.selected);
-    if (next.has(p)) next.delete(p);
-    else next.add(p);
-    setState({ ...state, selected: next });
-  }
-
-  function toggleAll() {
-    setState({
-      ...state,
-      selected: allSelected ? new Set() : new Set(PROPERTIES),
-    });
-  }
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-sm"
-      >
-        <span className="text-muted-foreground">Properties:</span>
-        <span className="font-semibold text-foreground">{label}</span>
-        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-20 mt-1 w-[18rem] rounded-md border border-border bg-popover p-2 shadow-lg">
-            <div className="relative mb-2">
-              <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search properties..."
-                className="w-full rounded-md border border-border bg-background pl-7 pr-2 py-1.5 text-sm"
-              />
-            </div>
-            <div className="max-h-[16rem] overflow-y-auto">
-              <label className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  onChange={toggleAll}
-                  className="h-4 w-4 rounded border-border"
-                />
-                <span className="text-sm font-medium">All Properties</span>
-              </label>
-              {filtered.map((p) => (
-                <label key={p} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted">
-                  <input
-                    type="checkbox"
-                    checked={state.selected.has(p)}
-                    onChange={() => toggle(p)}
-                    className="h-4 w-4 rounded border-border"
-                  />
-                  <span className="text-sm">{p}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function ViewToggle({ state, setState }: { state: FiltersState; setState: (s: FiltersState) => void }) {
-  return (
-    <div className="inline-flex rounded-md border border-border bg-background p-0.5">
-      {(["global", "perProperty"] as const).map((v) => (
-        <button
-          key={v}
-          type="button"
-          onClick={() => setState({ ...state, view: v })}
-          className={cn(
-            "rounded px-3 py-1 text-xs font-medium transition-colors",
-            state.view === v
-              ? "bg-foreground text-background"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {v === "global" ? "Global View" : "Per-Property"}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 // -----------------------------------------------------------------------------
 // Trend chart — switches between current portfolio metric vs per-property lines
@@ -889,8 +614,8 @@ function TrendChart({
   height = 240,
 }: {
   data: MonthlyPoint[];
-  view: ViewMode;
-  selected: Set<Property>;
+  view: ReportViewMode;
+  selected: Set<string>;
   yDomain?: [number, number];
   height?: number;
 }) {
@@ -967,11 +692,11 @@ function PropertyChips({
   state,
   setState,
 }: {
-  state: FiltersState;
-  setState: (s: FiltersState) => void;
+  state: ReportFilters;
+  setState: (s: ReportFilters) => void;
 }) {
   if (state.view !== "perProperty") return null;
-  const list = PROPERTIES.filter((p) => state.selected.has(p));
+  const list = PROPERTIES.filter((p) => state.properties.has(p));
   return (
     <div className="mt-3 flex flex-wrap gap-1.5">
       {list.map((p) => (
@@ -984,9 +709,9 @@ function PropertyChips({
           <button
             type="button"
             onClick={() => {
-              const next = new Set(state.selected);
+              const next = new Set(state.properties);
               next.delete(p);
-              setState({ ...state, selected: next });
+              setState({ ...state, properties: next });
             }}
             className="text-muted-foreground hover:text-foreground"
             aria-label={`Remove ${p}`}
@@ -1111,27 +836,13 @@ function DeveloperNotes({
 // Page
 // -----------------------------------------------------------------------------
 
-function serializeFilters(f: FiltersState) {
-  return {
-    periodId: f.periodId,
-    customFrom: f.customFrom,
-    customTo: f.customTo,
-    selected: Array.from(f.selected).sort(),
-    view: f.view,
-  };
-}
-
 export default function RenewalsAiDashboardPage() {
-  const [filters, setFilters] = useState<FiltersState>({
-    periodId: "12m",
-    customFrom: "2025-06",
-    customTo: "2026-05",
-    selected: new Set(PROPERTIES),
-    view: "global",
-  });
+  const [filters, setFilters] = useState<ReportFilters>(() =>
+    createReportFilters(PROPERTIES),
+  );
   const [loading, setLoading] = useState(false);
   const isFirstRender = useRef(true);
-  const filtersKey = useMemo(() => JSON.stringify(serializeFilters(filters)), [filters]);
+  const filtersKey = useMemo(() => serializeFilters(filters), [filters]);
   const queryDateRange = useMemo(() => getQueryDateRange(filters), [filters]);
   const developerNotesQuery = useMemo(
     () => buildDeveloperNotesQuery(queryDateRange.startDate, queryDateRange.endDate),
@@ -1148,10 +859,7 @@ export default function RenewalsAiDashboardPage() {
     return () => clearTimeout(t);
   }, [filtersKey]);
 
-  const months = useMemo(() => {
-    if (filters.periodId === "custom") return 12;
-    return PERIOD_OPTIONS.find((p) => p.id === filters.periodId)?.months ?? 12;
-  }, [filters.periodId]);
+  const months = useMemo(() => monthsForPeriod(filters.periodId), [filters.periodId]);
 
   const renewalRateData = useMemo(() => sliceTrend(renewalRateTrend, months), [months]);
   const totalRenewalsData = useMemo(() => sliceTrend(totalRenewalsTrend, months), [months]);
@@ -1226,31 +934,17 @@ export default function RenewalsAiDashboardPage() {
 
   return (
     <div className="-mt-2">
-      <Link
-        href="/performance"
-        className="mb-4 inline-flex items-center gap-1.5 rounded-md border border-border bg-white px-3 py-1.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to Performance
-      </Link>
+      <ReportPageHeader
+        agent="Renewals AI"
+        description="Renewal rates and revenue impact, plus the time and outreach ELI+ handled"
+      />
 
-      <header className="mb-4">
-        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-foreground">
-          <img src="/eli-cube.svg" alt="" width={22} height={22} />
-          ELI+ Renewals AI — Performance & Impact
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Renewal performance across all properties plus AI-driven time savings, financial impact, and outreach analytics
-        </p>
-      </header>
-
-      <div className="sticky top-0 z-30 -mx-6 mb-5 border-b border-border bg-background/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        <div className="flex flex-wrap items-center gap-2">
-          <PeriodPicker state={filters} setState={setFilters} />
-          <PropertiesPicker state={filters} setState={setFilters} />
-          <ViewToggle state={filters} setState={setFilters} />
-        </div>
-      </div>
+      <ReportFilterBar
+        filters={filters}
+        onChange={setFilters}
+        properties={PROPERTIES}
+        showViewToggle
+      />
 
       {loading && <LoadingBanner />}
 
@@ -1264,14 +958,14 @@ export default function RenewalsAiDashboardPage() {
         />
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <KpiCard
+          <StatCard
             label="Renewal rate"
             value={kpi.renewalRate}
             delta="+4 pts"
             sub="of eligible residents renewed"
           />
-          <KpiCard label="Leases eligible for renewal" value={kpi.eligibleLeases} sub="leases expired during period" />
-          <KpiCard
+          <StatCard label="Leases eligible for renewal" value={kpi.eligibleLeases} sub="leases expired during period" />
+          <StatCard
             label="Renewed residents"
             value={kpi.renewedResidents}
             delta="+14%"
@@ -1288,7 +982,7 @@ export default function RenewalsAiDashboardPage() {
               <TrendChart
                 data={renewalRateData}
                 view={filters.view}
-                selected={filters.selected}
+                selected={filters.properties}
                 yDomain={filters.view === "global" ? [0, 80] : [0, 100]}
               />
               <PropertyChips state={filters} setState={setFilters} />
@@ -1302,7 +996,7 @@ export default function RenewalsAiDashboardPage() {
               <TrendChart
                 data={totalRenewalsData}
                 view={filters.view}
-                selected={filters.selected}
+                selected={filters.properties}
                 yDomain={filters.view === "global" ? [0, 220] : [0, 300]}
               />
               <PropertyChips state={filters} setState={setFilters} />
@@ -1311,19 +1005,19 @@ export default function RenewalsAiDashboardPage() {
         </div>
 
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <KpiCard
+          <StatCard
             label="Avg rent increase at renewal"
             value={kpi.avgRentIncrease}
             delta="+0.6 pts"
             sub="$52 avg monthly increase"
           />
-          <KpiCard
+          <StatCard
             label="Incremental annual revenue"
             value={kpi.incrementalRevenue}
             delta="+$184K"
             sub="from renewal rent increases"
           />
-          <KpiCard
+          <StatCard
             label="Avoided turnover costs"
             value={kpi.avoidedTurnover}
             delta="+$320K"
@@ -1341,7 +1035,7 @@ export default function RenewalsAiDashboardPage() {
               <TrendChart
                 data={rentIncreaseData}
                 view={filters.view}
-                selected={filters.selected}
+                selected={filters.properties}
                 yDomain={filters.view === "global" ? [0, 8] : [0, 8]}
               />
               <PropertyChips state={filters} setState={setFilters} />
@@ -1366,20 +1060,20 @@ export default function RenewalsAiDashboardPage() {
         </div>
 
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <KpiCard
+          <StatCard
             label="Avg days to renew"
             value={kpi.avgDaysToRenew}
             delta="-4.9 days"
             deltaTone="positive"
             sub="days from offer generated to signed"
           />
-          <KpiCard
+          <StatCard
             label="Avg days before lease end"
             value={kpi.avgDaysBeforeLease}
             delta="+12 days"
             sub="days before expiration renewal is finalized"
           />
-          <KpiCard
+          <StatCard
             label="Renewals signed 60+ days early"
             value={kpi.signed60Plus}
             delta="+8 pts"
@@ -1491,21 +1185,21 @@ export default function RenewalsAiDashboardPage() {
           </Card>
 
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-            <KpiCard
+            <StatCard
               label="Staff hours saved"
               value={kpi.staffHoursSaved}
               delta="+240 hrs"
               sub="hours saved by AI automation"
               subItalic="18,420 messages × 6 min avg manual handling ÷ 60"
             />
-            <KpiCard
+            <StatCard
               label="Avg days to renew (AI)"
               value={kpi.avgDaysAI}
               delta="-4.9 days faster"
               deltaTone="positive"
               sub="vs 14.1 days without AI"
             />
-            <KpiCard
+            <StatCard
               label="Fully automated renewals"
               value={kpi.fullyAutomated}
               delta="+8 pts"
@@ -1523,7 +1217,7 @@ export default function RenewalsAiDashboardPage() {
               <TrendChart
                 data={fullyAutomatedData}
                 view={filters.view}
-                selected={filters.selected}
+                selected={filters.properties}
                 yDomain={filters.view === "global" ? [0, 65] : [0, 100]}
               />
               <PropertyChips state={filters} setState={setFilters} />
@@ -1562,21 +1256,21 @@ export default function RenewalsAiDashboardPage() {
         </div>
 
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <KpiCard
+          <StatCard
             label="Total outreach messages"
             value={kpi.totalOutreach}
             delta="+12%"
             sub="AI-sent messages"
           />
-          <KpiCard label="SMS sent" value={kpi.smsSent} delta="+8%" sub="outbound SMS" />
-          <KpiCard label="Emails sent" value={kpi.emailsSent} delta="+18%" sub="outbound emails" />
-          <KpiCard
+          <StatCard label="SMS sent" value={kpi.smsSent} delta="+8%" sub="outbound SMS" />
+          <StatCard label="Emails sent" value={kpi.emailsSent} delta="+18%" sub="outbound emails" />
+          <StatCard
             label="Resident response rate"
             value={kpi.responseRate}
             delta="+2.1 pts"
             sub="responded to AI outreach"
           />
-          <KpiCard
+          <StatCard
             label="Avg AI response time"
             value={kpi.avgAIResponseTime}
             delta="-2 sec"
@@ -1585,7 +1279,7 @@ export default function RenewalsAiDashboardPage() {
         </div>
 
         <div className="mt-3 grid gap-3 lg:grid-cols-2">
-          <KpiCard
+          <StatCard
             label="Avg resident response time"
             value={kpi.avgResidentResponseTime}
             delta="-1.4 hrs"
@@ -1615,14 +1309,14 @@ export default function RenewalsAiDashboardPage() {
         />
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <KpiCard
+          <StatCard
             label="Escalation rate"
             value={kpi.escalationRate}
             delta="-1.8 pts"
             deltaTone="positive"
             sub="of AI contacts escalated"
           />
-          <KpiCard
+          <StatCard
             label="Total escalations · drill in"
             value={kpi.totalEscalations}
             sub="escalated to staff"
@@ -1632,8 +1326,8 @@ export default function RenewalsAiDashboardPage() {
               </Link>
             }
           />
-          <KpiCard label="Open escalations" value={kpi.openEscalations} sub="pending resolution" />
-          <KpiCard
+          <StatCard label="Open escalations" value={kpi.openEscalations} sub="pending resolution" />
+          <StatCard
             label="Resolved"
             value={kpi.resolvedEscalations}
             delta="89% resolution"
@@ -1669,7 +1363,7 @@ export default function RenewalsAiDashboardPage() {
               <TrendChart
                 data={escalationResolutionData}
                 view={filters.view}
-                selected={filters.selected}
+                selected={filters.properties}
                 yDomain={filters.view === "global" ? [0, 4] : [0, 5]}
               />
               <PropertyChips state={filters} setState={setFilters} />

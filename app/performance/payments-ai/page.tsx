@@ -15,16 +15,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import {
-  ArrowLeft,
-  ArrowUpRight,
-  ArrowDownRight,
-  Calendar,
-  ChevronDown,
-  Loader2,
-  Search,
-  X,
-} from "lucide-react";
+import { ArrowLeft, Loader2, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ChartContainer,
@@ -33,6 +24,22 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
+import {
+  DeltaPill,
+  ReportFilterBar,
+  ReportPageHeader,
+  ReportSection,
+  SectionBanner,
+  StatCard,
+  StatGrid,
+  createReportFilters,
+  monthsForPeriod,
+  seriesColorMap,
+  serializeFilters,
+  type ReportFilters,
+  type ReportViewMode,
+  type Tone,
+} from "@/components/performance";
 
 // -----------------------------------------------------------------------------
 // Static config (illustrative prototype data)
@@ -53,29 +60,9 @@ const PROPERTIES = [
 
 type Property = (typeof PROPERTIES)[number];
 
-const PROPERTY_COLORS: Record<Property, string> = {
-  "Cedar Hills": "#3b82f6",
-  "Hillside Living": "#10b981",
-  "Jamison Apartments": "#f59e0b",
-  Lakewood: "#ef4444",
-  "Maple Court": "#8b5cf6",
-  "Oak Terrace": "#ec4899",
-  "Parkview Flats": "#06b6d4",
-  "Pine Valley": "#84cc16",
-  "Summit Ridge": "#f97316",
-  "The Beacon": "#a855f7",
-};
-
-const PERIOD_OPTIONS = [
-  { id: "3m", label: "Last 3 Months", months: 3 },
-  { id: "6m", label: "Last 6 Months", months: 6 },
-  { id: "12m", label: "Last 12 Months", months: 12 },
-  { id: "2y", label: "Last 2 Years", months: 24 },
-  { id: "3y", label: "Last 3 Years", months: 36 },
-  { id: "all", label: "All Time", months: 36 },
-] as const;
-
-type PeriodId = (typeof PERIOD_OPTIONS)[number]["id"] | "custom";
+/** Property series colors come from the shared ordered palette so a given
+ *  property keeps the same color on every report it appears in. */
+const PROPERTY_COLORS: Record<Property, string> = seriesColorMap(PROPERTIES);
 
 // -----------------------------------------------------------------------------
 // Trend data helpers
@@ -264,88 +251,11 @@ function sliceTrend<T extends { monthIdx: number }>(data: T[], months: number): 
 // Atomic UI primitives
 // -----------------------------------------------------------------------------
 
-type Tone = "positive" | "negative" | "neutral";
-
-function DeltaPill({ value, tone }: { value: string; tone: Tone }) {
-  const Icon = tone === "negative" ? ArrowDownRight : ArrowUpRight;
-  const cls =
-    tone === "positive"
-      ? "text-emerald-600"
-      : tone === "negative"
-        ? "text-rose-600"
-        : "text-muted-foreground";
-  return (
-    <span className={cn("inline-flex items-center gap-0.5 text-xs font-medium", cls)}>
-      <Icon className="h-3 w-3" />
-      {value}
-    </span>
-  );
-}
-
 function NewChip() {
   return (
     <span className="inline-flex shrink-0 items-center rounded-full border border-eli-purple/30 bg-eli-warm-bg px-1.5 py-0.5 text-xxs font-medium uppercase tracking-wider text-eli-warm-bg-foreground">
       New
     </span>
-  );
-}
-
-function KpiCard({
-  label,
-  value,
-  delta,
-  deltaTone = "positive",
-  sub,
-  subItalic,
-  isNew,
-}: {
-  label: string;
-  value: string;
-  delta?: string;
-  deltaTone?: Tone;
-  sub?: string;
-  subItalic?: string;
-  isNew?: boolean;
-}) {
-  return (
-    <Card className="border-border/60">
-      <CardContent className="px-4 py-3.5">
-        <div className="flex items-center gap-2">
-          <p className="flex-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            {label}
-          </p>
-          {isNew && <NewChip />}
-        </div>
-        <div className="mt-1 flex items-baseline gap-2">
-          <p className="text-2xl font-bold tracking-tight text-foreground">{value}</p>
-          {delta && <DeltaPill value={delta} tone={deltaTone} />}
-        </div>
-        {sub && <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p>}
-        {subItalic && (
-          <p className="mt-0.5 text-[11px] italic text-muted-foreground/80">{subItalic}</p>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function SectionBanner({
-  title,
-  description,
-  isNew,
-}: {
-  title: string;
-  description: string;
-  isNew?: boolean;
-}) {
-  return (
-    <div className="mb-3 rounded-md bg-muted/60 px-4 py-3">
-      <div className="flex items-center gap-2">
-        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-        {isNew && <NewChip />}
-      </div>
-      <p className="text-xs text-muted-foreground">{description}</p>
-    </div>
   );
 }
 
@@ -367,239 +277,15 @@ function LoadingBanner() {
   );
 }
 
-// -----------------------------------------------------------------------------
-// Filters
-// -----------------------------------------------------------------------------
-
-type ViewMode = "global" | "perProperty";
-
-interface FiltersState {
-  periodId: PeriodId;
-  customFrom: string;
-  customTo: string;
-  selected: Set<Property>;
-  view: ViewMode;
-}
-
-function PeriodPicker({
-  state,
-  setState,
-}: {
-  state: FiltersState;
-  setState: (s: FiltersState) => void;
-}) {
-  const [open, setOpen] = useState(false);
-
-  const label =
-    state.periodId === "custom"
-      ? "Custom Range"
-      : (PERIOD_OPTIONS.find((p) => p.id === state.periodId)?.label ?? "Last 12 Months");
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          "inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-sm",
-          open ? "border-amber-400 ring-1 ring-amber-200" : "border-border",
-        )}
-      >
-        <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-muted-foreground">Period:</span>
-        <span className="font-semibold text-foreground">{label}</span>
-        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-20 mt-1 w-[16rem] rounded-md border border-border bg-popover p-1 shadow-lg">
-            {PERIOD_OPTIONS.map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => {
-                  setState({ ...state, periodId: opt.id });
-                  setOpen(false);
-                }}
-                className={cn(
-                  "block w-full rounded px-3 py-1.5 text-left text-sm hover:bg-muted",
-                  state.periodId === opt.id && "bg-muted font-medium",
-                )}
-              >
-                {opt.label}
-              </button>
-            ))}
-            <div className="mt-1 border-t border-border pt-2">
-              <label className="flex items-center gap-2 px-3 py-1.5 text-sm">
-                <input
-                  type="checkbox"
-                  checked={state.periodId === "custom"}
-                  onChange={(e) =>
-                    setState({ ...state, periodId: e.target.checked ? "custom" : "12m" })
-                  }
-                  className="h-4 w-4 rounded border-border"
-                />
-                Custom Range
-              </label>
-              {state.periodId === "custom" && (
-                <div className="space-y-2 px-3 pb-2">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="month"
-                      value={state.customFrom}
-                      onChange={(e) => setState({ ...state, customFrom: e.target.value })}
-                      className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
-                    />
-                    <span className="text-xs text-muted-foreground">to</span>
-                    <input
-                      type="month"
-                      value={state.customTo}
-                      onChange={(e) => setState({ ...state, customTo: e.target.value })}
-                      className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setOpen(false)}
-                    className="w-full rounded-md bg-foreground py-1.5 text-xs font-medium text-background hover:bg-foreground/90"
-                  >
-                    Apply Custom Range
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function PropertiesPicker({
-  state,
-  setState,
-}: {
-  state: FiltersState;
-  setState: (s: FiltersState) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-
-  const allSelected = state.selected.size === PROPERTIES.length;
-  const label = allSelected
-    ? "All"
-    : state.selected.size === 0
-      ? "None"
-      : `${state.selected.size} selected`;
-
-  const filtered = PROPERTIES.filter((p) => p.toLowerCase().includes(search.toLowerCase()));
-
-  function toggle(p: Property) {
-    const next = new Set(state.selected);
-    if (next.has(p)) next.delete(p);
-    else next.add(p);
-    setState({ ...state, selected: next });
-  }
-
-  function toggleAll() {
-    setState({
-      ...state,
-      selected: allSelected ? new Set() : new Set(PROPERTIES),
-    });
-  }
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-sm"
-      >
-        <span className="text-muted-foreground">Properties:</span>
-        <span className="font-semibold text-foreground">{label}</span>
-        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-20 mt-1 w-[18rem] rounded-md border border-border bg-popover p-2 shadow-lg">
-            <div className="relative mb-2">
-              <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search properties..."
-                className="w-full rounded-md border border-border bg-background pl-7 pr-2 py-1.5 text-sm"
-              />
-            </div>
-            <div className="max-h-[16rem] overflow-y-auto">
-              <label className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  onChange={toggleAll}
-                  className="h-4 w-4 rounded border-border"
-                />
-                <span className="text-sm font-medium">All Properties</span>
-              </label>
-              {filtered.map((p) => (
-                <label key={p} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted">
-                  <input
-                    type="checkbox"
-                    checked={state.selected.has(p)}
-                    onChange={() => toggle(p)}
-                    className="h-4 w-4 rounded border-border"
-                  />
-                  <span className="text-sm">{p}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function ViewToggle({
-  state,
-  setState,
-}: {
-  state: FiltersState;
-  setState: (s: FiltersState) => void;
-}) {
-  return (
-    <div className="inline-flex rounded-md border border-border bg-background p-0.5">
-      {(["global", "perProperty"] as const).map((v) => (
-        <button
-          key={v}
-          type="button"
-          onClick={() => setState({ ...state, view: v })}
-          className={cn(
-            "rounded px-3 py-1 text-xs font-medium transition-colors",
-            state.view === v
-              ? "bg-foreground text-background"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {v === "global" ? "Global View" : "Per-Property"}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 function PropertyChips({
   state,
   setState,
 }: {
-  state: FiltersState;
-  setState: (s: FiltersState) => void;
+  state: ReportFilters;
+  setState: (s: ReportFilters) => void;
 }) {
   if (state.view !== "perProperty") return null;
-  const list = PROPERTIES.filter((p) => state.selected.has(p));
+  const list = PROPERTIES.filter((p) => state.properties.has(p));
   return (
     <div className="mt-3 flex flex-wrap gap-1.5">
       {list.map((p) => (
@@ -615,9 +301,9 @@ function PropertyChips({
           <button
             type="button"
             onClick={() => {
-              const next = new Set(state.selected);
+              const next = new Set(state.properties);
               next.delete(p);
-              setState({ ...state, selected: next });
+              setState({ ...state, properties: next });
             }}
             className="text-muted-foreground hover:text-foreground"
             aria-label={`Remove ${p}`}
@@ -643,8 +329,8 @@ function TrendChart({
   height = 240,
 }: {
   data: MonthlyPoint[];
-  view: ViewMode;
-  selected: Set<Property>;
+  view: ReportViewMode;
+  selected: Set<string>;
   yDomain?: [number, number];
   yTickFormatter?: (v: number) => string;
   height?: number;
@@ -848,27 +534,13 @@ function compactCurrency(n: number): string {
 // Page
 // -----------------------------------------------------------------------------
 
-function serializeFilters(f: FiltersState) {
-  return {
-    periodId: f.periodId,
-    customFrom: f.customFrom,
-    customTo: f.customTo,
-    selected: Array.from(f.selected).sort(),
-    view: f.view,
-  };
-}
-
 export default function PaymentsAiDashboardPage() {
-  const [filters, setFilters] = useState<FiltersState>({
-    periodId: "12m",
-    customFrom: "2025-06",
-    customTo: "2026-05",
-    selected: new Set(PROPERTIES),
-    view: "global",
-  });
+  const [filters, setFilters] = useState<ReportFilters>(() =>
+    createReportFilters(PROPERTIES),
+  );
   const [loading, setLoading] = useState(false);
   const isFirstRender = useRef(true);
-  const filtersKey = useMemo(() => JSON.stringify(serializeFilters(filters)), [filters]);
+  const filtersKey = useMemo(() => serializeFilters(filters), [filters]);
 
   useEffect(() => {
     if (isFirstRender.current) {
@@ -880,10 +552,7 @@ export default function PaymentsAiDashboardPage() {
     return () => clearTimeout(t);
   }, [filtersKey]);
 
-  const months = useMemo(() => {
-    if (filters.periodId === "custom") return 12;
-    return PERIOD_OPTIONS.find((p) => p.id === filters.periodId)?.months ?? 12;
-  }, [filters.periodId]);
+  const months = useMemo(() => monthsForPeriod(filters.periodId), [filters.periodId]);
 
   const pctCollectedData = useMemo(() => sliceTrend(pctRentCollectedTrend, months), [months]);
   const totalCollectedData = useMemo(() => sliceTrend(totalCollectedTrend, months), [months]);
@@ -898,32 +567,17 @@ export default function PaymentsAiDashboardPage() {
 
   return (
     <div className="-mt-2">
-      <Link
-        href="/performance"
-        className="mb-4 inline-flex items-center gap-1.5 rounded-md border border-border bg-white px-3 py-1.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to Performance
-      </Link>
+      <ReportPageHeader
+        agent="Payments AI"
+        description="Collection rates and delinquency recovery, plus the reminders ELI+ handled"
+      />
 
-      <header className="mb-4">
-        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-foreground">
-          <img src="/eli-cube.svg" alt="" width={22} height={22} />
-          ELI+ Payments AI — Performance & Impact
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Collection performance across all properties plus AI-driven time savings, on-time
-          collection lift, and outreach analytics
-        </p>
-      </header>
-
-      <div className="sticky top-0 z-30 -mx-6 mb-5 border-b border-border bg-background/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        <div className="flex flex-wrap items-center gap-2">
-          <PeriodPicker state={filters} setState={setFilters} />
-          <PropertiesPicker state={filters} setState={setFilters} />
-          <ViewToggle state={filters} setState={setFilters} />
-        </div>
-      </div>
+      <ReportFilterBar
+        filters={filters}
+        onChange={setFilters}
+        properties={PROPERTIES}
+        showViewToggle
+      />
 
       {loading && <LoadingBanner />}
 
@@ -950,10 +604,10 @@ export default function PaymentsAiDashboardPage() {
         </Card>
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <KpiCard label="Total organizations" value="98" delta="+8" sub="activated" />
-          <KpiCard label="Total properties" value="842" delta="+62" sub="properties" />
-          <KpiCard label="Total active units" value="34,120" delta="+1,840" sub="units" />
-          <KpiCard label="% of rent collected" value="94.2%" delta="+2.1 pts" sub="collection rate" />
+          <StatCard label="Total organizations" value="98" delta="+8" sub="activated" />
+          <StatCard label="Total properties" value="842" delta="+62" sub="properties" />
+          <StatCard label="Total active units" value="34,120" delta="+1,840" sub="units" />
+          <StatCard label="% of rent collected" value="94.2%" delta="+2.1 pts" sub="collection rate" />
         </div>
 
         <div className="mt-3 grid gap-3 lg:grid-cols-2">
@@ -973,7 +627,7 @@ export default function PaymentsAiDashboardPage() {
               </ChartContainer>
             </CardContent>
           </Card>
-          <KpiCard
+          <StatCard
             label="Rent payments / charges / % collected"
             value="$2.4M / $2.54M"
             sub="payments vs charges"
@@ -985,7 +639,7 @@ export default function PaymentsAiDashboardPage() {
       {/* Savings from Office Hours                                       */}
       {/* ============================================================ */}
       <section className="mb-6">
-        <KpiCard
+        <StatCard
           label="Savings from office hours"
           value="$127,840"
           delta="+$18K"
@@ -1051,31 +705,31 @@ export default function PaymentsAiDashboardPage() {
         <SectionBanner
           title="Overall Collection Performance"
           description="Key collection metrics across all properties — independent of AI usage"
-          isNew
+          action={<NewChip />}
         />
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <KpiCard
+          <StatCard
             label="% Rent collected"
             value="94.2%"
             delta="+2.1 pts"
             sub="of billed rent collected · selected period"
           />
-          <KpiCard
+          <StatCard
             label="Total rent collected"
             value="$2.4M"
             delta="+8%"
             sub="collected this period"
-            isNew
+            action={<NewChip />}
           />
-          <KpiCard
+          <StatCard
             label="Total rent charged"
             value="$2.54M"
             delta="+7%"
             sub="billed this period"
-            isNew
+            action={<NewChip />}
           />
-          <KpiCard
+          <StatCard
             label="Late payers (after grace)"
             value="142"
             delta="-9"
@@ -1095,7 +749,7 @@ export default function PaymentsAiDashboardPage() {
               <TrendChart
                 data={pctCollectedData}
                 view={filters.view}
-                selected={filters.selected}
+                selected={filters.properties}
                 yDomain={filters.view === "global" ? [80, 100] : [80, 100]}
                 yTickFormatter={(v) => `${v}%`}
               />
@@ -1112,7 +766,7 @@ export default function PaymentsAiDashboardPage() {
               <TrendChart
                 data={totalCollectedData}
                 view={filters.view}
-                selected={filters.selected}
+                selected={filters.properties}
                 yDomain={filters.view === "global" ? [1500, 2700] : [1500, 2800]}
                 yTickFormatter={(v) => `$${v}K`}
               />
@@ -1132,7 +786,7 @@ export default function PaymentsAiDashboardPage() {
               <TrendChart
                 data={latePayersData}
                 view={filters.view}
-                selected={filters.selected}
+                selected={filters.properties}
                 yDomain={filters.view === "global" ? [0, 260] : [0, 320]}
               />
               <PropertyChips state={filters} setState={setFilters} />
@@ -1149,7 +803,7 @@ export default function PaymentsAiDashboardPage() {
               <TrendChart
                 data={pctCollectedData}
                 view={filters.view}
-                selected={filters.selected}
+                selected={filters.properties}
                 yDomain={[80, 100]}
                 yTickFormatter={(v) => `${v}%`}
               />
@@ -1166,23 +820,23 @@ export default function PaymentsAiDashboardPage() {
         <SectionBanner
           title="On-Time Collections Efficacy"
           description="Is the AI actually shifting residents to pay on time?"
-          isNew
+          action={<NewChip />}
         />
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <KpiCard
+          <StatCard
             label="On-time payment rate"
             value="94.2%"
             delta="+2.1 pts"
             sub="of billed rent paid before late fees posted"
-            isNew
+            action={<NewChip />}
           />
-          <KpiCard
+          <StatCard
             label="Expected payment date kept rate"
             value="82.4%"
             delta="+6.8 pts"
             sub="of AI-captured pay-date commitments honored"
-            isNew
+            action={<NewChip />}
           />
         </div>
 
@@ -1197,7 +851,7 @@ export default function PaymentsAiDashboardPage() {
               <TrendChart
                 data={onTimeRateData}
                 view={filters.view}
-                selected={filters.selected}
+                selected={filters.properties}
                 yDomain={filters.view === "global" ? [80, 100] : [80, 100]}
                 yTickFormatter={(v) => `${v}%`}
               />
@@ -1273,7 +927,7 @@ export default function PaymentsAiDashboardPage() {
         <SectionBanner
           title="Automation & Staff Time Freed"
           description="What did the AI actually do without a human?"
-          isNew
+          action={<NewChip />}
         />
 
         <div className="grid gap-3 lg:grid-cols-[minmax(0,0.4fr)_minmax(0,1fr)]">
@@ -1298,19 +952,19 @@ export default function PaymentsAiDashboardPage() {
           </Card>
 
           <div className="grid grid-cols-2 gap-3">
-            <KpiCard
+            <StatCard
               label="Deflection rate"
               value="68.4%"
               delta="+4.2 pts"
               sub="of resident payment conversations fully AI-resolved"
-              isNew
+              action={<NewChip />}
             />
-            <KpiCard
+            <StatCard
               label="After-hours coverage"
               value="38.6%"
               delta="+2.4 pts"
               sub="of AI interactions handled outside office hours"
-              isNew
+              action={<NewChip />}
             />
           </div>
         </div>
@@ -1326,7 +980,7 @@ export default function PaymentsAiDashboardPage() {
               <TrendChart
                 data={deflectionData}
                 view={filters.view}
-                selected={filters.selected}
+                selected={filters.properties}
                 yDomain={filters.view === "global" ? [40, 80] : [40, 90]}
                 yTickFormatter={(v) => `${v}%`}
               />
@@ -1343,7 +997,7 @@ export default function PaymentsAiDashboardPage() {
               <TrendChart
                 data={staffHoursData}
                 view={filters.view}
-                selected={filters.selected}
+                selected={filters.properties}
                 yDomain={filters.view === "global" ? [700, 2200] : [700, 2400]}
               />
               <PropertyChips state={filters} setState={setFilters} />
@@ -1437,14 +1091,14 @@ export default function PaymentsAiDashboardPage() {
         />
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <KpiCard
+          <StatCard
             label="Residents with no phone"
             value="1,842"
             sub="no phone on file"
           />
-          <KpiCard label="Phone opt-outs" value="3.2%" sub="opt-out rate" />
-          <KpiCard label="Email opt-outs" value="1.8%" sub="opt-out rate" />
-          <KpiCard
+          <StatCard label="Phone opt-outs" value="3.2%" sub="opt-out rate" />
+          <StatCard label="Email opt-outs" value="1.8%" sub="opt-out rate" />
+          <StatCard
             label="Total reminders sent"
             value="42,180"
             delta="+12%"
@@ -1493,23 +1147,23 @@ export default function PaymentsAiDashboardPage() {
         />
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <KpiCard
+          <StatCard
             label="Escalation rate"
             value="12.4%"
             delta="-1.8 pts"
             deltaTone="positive"
             sub="of AI conversations escalated"
-            isNew
+            action={<NewChip />}
           />
-          <KpiCard label="Total escalations" value="406" sub="escalated to staff" isNew />
-          <KpiCard label="Open escalations" value="42" sub="pending resolution" isNew />
-          <KpiCard
+          <StatCard label="Total escalations" value="406" sub="escalated to staff" action={<NewChip />} />
+          <StatCard label="Open escalations" value="42" sub="pending resolution" action={<NewChip />} />
+          <StatCard
             label="Resolved"
             value="364"
             delta="89% resolution"
             deltaTone="positive"
             sub="resolved by staff"
-            isNew
+            action={<NewChip />}
           />
         </div>
 
@@ -1525,7 +1179,7 @@ export default function PaymentsAiDashboardPage() {
               <TrendChart
                 data={escalationResolutionData}
                 view={filters.view}
-                selected={filters.selected}
+                selected={filters.properties}
                 yDomain={filters.view === "global" ? [0, 6] : [0, 7]}
               />
               <PropertyChips state={filters} setState={setFilters} />
@@ -1544,7 +1198,7 @@ export default function PaymentsAiDashboardPage() {
         />
 
         <div className="mb-3 max-w-xs">
-          <KpiCard label="Avg late payers" value="142" sub="per property avg" />
+          <StatCard label="Avg late payers" value="142" sub="per property avg" />
         </div>
 
         <Card className="border-border/60">

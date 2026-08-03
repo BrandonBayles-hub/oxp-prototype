@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { cn } from "@/lib/utils";
+import { cn, isActiveRoute } from "@/lib/utils";
 import { BarChart3, Library } from "lucide-react";
 
 const TABS = [
@@ -17,10 +17,11 @@ export default function PerformanceLayout({
 }) {
   const pathname = usePathname();
 
-  const isActive = (tab: (typeof TABS)[number]) => {
-    if (tab.exact) return pathname === tab.href;
-    return pathname.startsWith(tab.href);
-  };
+  // Via the shared helper: `trailingSlash: true` makes usePathname() return
+  // "/performance/" against the slash-less href, so the previous bare `===`
+  // never matched and Overview never highlighted.
+  const isActive = (tab: (typeof TABS)[number]) =>
+    isActiveRoute(pathname, tab.href, { exact: tab.exact });
 
   return (
     <div>
@@ -33,8 +34,10 @@ export default function PerformanceLayout({
               <Link
                 key={tab.href}
                 href={tab.href}
+                aria-current={active ? "page" : undefined}
                 className={cn(
                   "inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   active
                     ? "border-foreground text-foreground"
                     : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30",
