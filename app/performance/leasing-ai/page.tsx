@@ -21,16 +21,17 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
+  CHART_GRID_STROKE,
   EscalationsSection,
   ReportFilterBar,
   ReportPageHeader,
   SectionBanner,
   StatCard,
-  useReportScope,
   monthsForPeriod,
   selectionRatio,
   seriesColor,
   seriesColorMap,
+  useReportScope,
   type ReportFilters,
   type ReportViewMode,
 } from "@/components/performance";
@@ -60,14 +61,14 @@ const PROPERTY_COLORS: Record<Property, string> = seriesColorMap(PROPERTIES);
 
 // Vivid categorical palette used to color single-series bar charts and donuts.
 const CHART_PALETTE = [
-  "#3b82f6", // blue
-  "#10b981", // emerald
-  "#f59e0b", // amber
-  "#ef4444", // red
-  "#8b5cf6", // violet
-  "#06b6d4", // cyan
-  "#ec4899", // pink
-  "#84cc16", // lime
+  seriesColor(0), // blue
+  seriesColor(1), // emerald
+  seriesColor(2), // amber
+  seriesColor(5), // red
+  seriesColor(3), // violet
+  seriesColor(4), // cyan
+  seriesColor(5), // pink
+  seriesColor(6), // lime
 ];
 
 // -----------------------------------------------------------------------------
@@ -151,11 +152,11 @@ const lostLeadReasons = [
 ];
 
 const leadSourceMix = [
-  { name: "ILS / Listing Sites", value: 38, count: 4012, color: "#3b82f6" },
-  { name: "Property Website", value: 27, count: 2854, color: "#10b981" },
-  { name: "Referral", value: 14, count: 1480, color: "#f59e0b" },
-  { name: "Walk-in / Drive-by", value: 11, count: 1162, color: "#8b5cf6" },
-  { name: "Paid Search", value: 10, count: 1056, color: "#06b6d4" },
+  { name: "ILS / Listing Sites", value: 38, count: 4012, color: seriesColor(0) },
+  { name: "Property Website", value: 27, count: 2854, color: seriesColor(1) },
+  { name: "Referral", value: 14, count: 1480, color: seriesColor(2) },
+  { name: "Walk-in / Drive-by", value: 11, count: 1162, color: seriesColor(3) },
+  { name: "Paid Search", value: 10, count: 1056, color: seriesColor(4) },
 ];
 
 const leasingFunnel = [
@@ -204,8 +205,8 @@ const escalationReasons = [
 ];
 
 const outreachChannelMix = [
-  { name: "SMS", value: 65, count: 15210, color: "#3b82f6" },
-  { name: "Email", value: 35, count: 8190, color: "#8b5cf6" },
+  { name: "SMS", value: 65, count: 15210, color: seriesColor(0) },
+  { name: "Email", value: 35, count: 8190, color: seriesColor(3) },
 ];
 
 // -----------------------------------------------------------------------------
@@ -249,11 +250,11 @@ const medianResponseTrend  = buildMonthlyTrend(1212,  5.4, 4.6, 3.8, 2.4, 1.2);
 const adoptionScoreTrend   = buildMonthlyTrend(1313, 59, 63, 67, 74, 10);
 
 const adoptionTaskAging = [
-  { bucket: "Due today",  count: 8,  fill: "#f59e0b" },
-  { bucket: "1 day",      count: 12, fill: "#f59e0b" },
-  { bucket: "2–3 days",   count: 14, fill: "#ef4444" },
-  { bucket: "4–7 days",   count: 9,  fill: "#dc2626" },
-  { bucket: "8+ days",    count: 4,  fill: "#991b1b" },
+  { bucket: "Due today",  count: 8,  fill: seriesColor(2) },
+  { bucket: "1 day",      count: 12, fill: seriesColor(2) },
+  { bucket: "2–3 days",   count: 14, fill: seriesColor(5) },
+  { bucket: "4–7 days",   count: 9,  fill: seriesColor(5) },
+  { bucket: "8+ days",    count: 4,  fill: seriesColor(5) },
 ];
 
 const adoptionPropertyRows = [
@@ -329,14 +330,14 @@ function TrendChart({
 }) {
   if (view === "global") {
     const config = {
-      baseline: { label: "Pre-AI Baseline", color: "#cbd5e1" },
-      current: { label: "Current", color: "#2563eb" },
+      baseline: { label: "Pre-AI Baseline", color: "hsl(222 10% 78%)" },
+      current: { label: "Current", color: seriesColor(0) },
     } satisfies ChartConfig;
     return (
       <div>
         <ChartContainer config={config} className="!aspect-auto w-full" style={{ height }}>
           <LineChart data={data} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
             <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
             <YAxis
               tickLine={false}
@@ -349,7 +350,7 @@ function TrendChart({
             <Line
               type="monotone"
               dataKey="baseline"
-              stroke="#cbd5e1"
+              stroke={"hsl(222 10% 78%)"}
               strokeWidth={1.5}
               strokeDasharray="4 4"
               dot={false}
@@ -357,7 +358,7 @@ function TrendChart({
             <Line
               type="monotone"
               dataKey="current"
-              stroke="#2563eb"
+              stroke={seriesColor(0)}
               strokeWidth={2}
               dot={false}
             />
@@ -390,7 +391,7 @@ function TrendChart({
   return (
     <ChartContainer config={config} className="!aspect-auto w-full" style={{ height }}>
       <LineChart data={flat} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
-        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
         <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
         <YAxis tickLine={false} axisLine={false} tickMargin={8} width={32} domain={yDomain ?? [0, "auto"]} />
         <ChartTooltip content={<ChartTooltipContent className="min-w-[14rem]" />} />
@@ -799,18 +800,18 @@ type LeadCaptureMetricKey = (typeof LEAD_CAPTURE_METRICS)[number]["key"];
 // Lead source is already captured today; channel capture is targeted for
 // phase 1 per engineering grooming (2026-07-09).
 const LEAD_SOURCE_SHARES = [
-  { name: "ILS / Listing Sites", share: 0.38, color: "#3b82f6" },
-  { name: "Property Website", share: 0.27, color: "#10b981" },
-  { name: "Referral", share: 0.14, color: "#f59e0b" },
-  { name: "Walk-in / Drive-by", share: 0.11, color: "#8b5cf6" },
-  { name: "Paid Search", share: 0.10, color: "#06b6d4" },
+  { name: "ILS / Listing Sites", share: 0.38, color: seriesColor(0) },
+  { name: "Property Website", share: 0.27, color: seriesColor(1) },
+  { name: "Referral", share: 0.14, color: seriesColor(2) },
+  { name: "Walk-in / Drive-by", share: 0.11, color: seriesColor(3) },
+  { name: "Paid Search", share: 0.10, color: seriesColor(4) },
 ];
 
 const LEAD_CHANNEL_SHARES = [
-  { name: "Chat", share: 0.4, color: "#3b82f6" },
-  { name: "SMS", share: 0.28, color: "#10b981" },
-  { name: "Email", share: 0.2, color: "#f59e0b" },
-  { name: "Voice", share: 0.12, color: "#06b6d4" },
+  { name: "Chat", share: 0.4, color: seriesColor(0) },
+  { name: "SMS", share: 0.28, color: seriesColor(1) },
+  { name: "Email", share: 0.2, color: seriesColor(2) },
+  { name: "Voice", share: 0.12, color: seriesColor(4) },
 ];
 
 interface LeadCaptureDailyCounts {
@@ -959,9 +960,9 @@ function LeadCaptureSection({ filters, months }: { filters: ReportFilters; month
   const channelData = LEAD_CHANNEL_SHARES.map((c) => ({ ...c, count: Math.round(totals.guestCardsEli * c.share) }));
 
   const funnelRows = [
-    { label: "Conversations", count: totals.sessions, color: "#3b82f6", pct: 100 },
-    { label: "Guest Cards Created", count: totals.guestCards, color: "#10b981", pct: totals.sessions > 0 ? Math.round((totals.guestCards / totals.sessions) * 100) : 0 },
-    { label: "Tours Book by ELI+", count: totals.toursBooked, color: "#f59e0b", pct: totals.sessions > 0 ? Math.round((totals.toursBooked / totals.sessions) * 100) : 0 },
+    { label: "Conversations", count: totals.sessions, color: seriesColor(0), pct: 100 },
+    { label: "Guest Cards Created", count: totals.guestCards, color: seriesColor(1), pct: totals.sessions > 0 ? Math.round((totals.guestCards / totals.sessions) * 100) : 0 },
+    { label: "Tours Book by ELI+", count: totals.toursBooked, color: seriesColor(2), pct: totals.sessions > 0 ? Math.round((totals.toursBooked / totals.sessions) * 100) : 0 },
   ];
 
   return (
@@ -1006,11 +1007,11 @@ function LeadCaptureSection({ filters, months }: { filters: ReportFilters; month
           </CardHeader>
           <CardContent>
             <ChartContainer
-              config={{ count: { label: "Guest Cards", color: "#3b82f6" } }}
+              config={{ count: { label: "Guest Cards", color: seriesColor(0) } }}
               className="!aspect-auto h-[200px] w-full"
             >
               <BarChart data={sourceData} layout="vertical" margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e5e7eb" />
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={CHART_GRID_STROKE} />
                 <XAxis type="number" tickLine={false} axisLine={false} tickFormatter={(v) => Number(v).toLocaleString()} />
                 <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} width={118} tick={{ fontSize: 11 }} />
                 <ChartTooltip content={<ChartTooltipContent />} />
@@ -1030,11 +1031,11 @@ function LeadCaptureSection({ filters, months }: { filters: ReportFilters; month
           </CardHeader>
           <CardContent>
             <ChartContainer
-              config={{ count: { label: "Guest Cards", color: "#3b82f6" } }}
+              config={{ count: { label: "Guest Cards", color: seriesColor(0) } }}
               className="!aspect-auto h-[200px] w-full"
             >
               <BarChart data={channelData} margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                 <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} tick={{ fontSize: 11 }} />
                 <YAxis tickLine={false} axisLine={false} tickMargin={8} width={42} tickFormatter={(v) => Number(v).toLocaleString()} />
                 <ChartTooltip content={<ChartTooltipContent />} />
@@ -1072,15 +1073,15 @@ function LeadCaptureSection({ filters, months }: { filters: ReportFilters; month
         </CardHeader>
         <CardContent>
           <ChartContainer
-            config={{ value: { label: metricLabel, color: "#2563eb" } }}
+            config={{ value: { label: metricLabel, color: seriesColor(0) } }}
             className="!aspect-auto h-[280px] w-full"
           >
             <LineChart data={chartData} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
               <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={48} />
               <YAxis tickLine={false} axisLine={false} tickMargin={8} width={42} tickFormatter={(v) => Number(v).toLocaleString()} />
               <ChartTooltip content={<ChartTooltipContent />} />
-              <Line type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="value" stroke={seriesColor(0)} strokeWidth={2} dot={false} />
             </LineChart>
           </ChartContainer>
         </CardContent>
@@ -1220,15 +1221,15 @@ function CommunicationChannelsSection({ filters, months }: { filters: ReportFilt
         </CardHeader>
         <CardContent>
           <ChartContainer
-            config={{ value: { label: metricLabel, color: "#2563eb" } }}
+            config={{ value: { label: metricLabel, color: seriesColor(0) } }}
             className="!aspect-auto h-[280px] w-full"
           >
             <LineChart data={chartData} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
               <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={48} />
               <YAxis tickLine={false} axisLine={false} tickMargin={8} width={42} tickFormatter={(v) => Number(v).toLocaleString()} />
               <ChartTooltip content={<ChartTooltipContent />} />
-              <Line type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="value" stroke={seriesColor(0)} strokeWidth={2} dot={false} />
             </LineChart>
           </ChartContainer>
         </CardContent>
@@ -1355,15 +1356,15 @@ function SectionDailyTrendCard({
       </CardHeader>
       <CardContent>
         <ChartContainer
-          config={{ value: { label: metricLabel, color: "#2563eb" } }}
+          config={{ value: { label: metricLabel, color: seriesColor(0) } }}
           className="!aspect-auto h-[280px] w-full"
         >
           <LineChart data={chartData} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
             <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={48} />
             <YAxis tickLine={false} axisLine={false} tickMargin={8} width={42} tickFormatter={(v) => Number(v).toLocaleString()} />
             <ChartTooltip content={<ChartTooltipContent />} />
-            <Line type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="value" stroke={seriesColor(0)} strokeWidth={2} dot={false} />
           </LineChart>
         </ChartContainer>
       </CardContent>
@@ -1417,8 +1418,8 @@ function DomoReplicaSection({ filters, months }: { filters: ReportFilters; month
 
       <div className="mt-5">
         <SectionBanner
-          title="Escalations"
-          description="Office escalation volume and voice-call transfer rate"
+          title="Office Handoffs"
+          description="Leads and voice calls transferred to the leasing office — distinct from the AI-conversation escalations below"
         />
       </div>
 
@@ -1476,7 +1477,7 @@ function EscalationsOverviewSection({
   return (
     <EscalationsSection
       stats={[
-        { label: "Escalation rate", value: kpi.escalationRate, delta: "-1.8 pts", deltaTone: "positive", sub: "of AI conversations escalated" },
+        { label: "Escalation rate", value: kpi.escalationRate, delta: "-1.8 pts", lowerIsBetter: true, sub: "of AI conversations escalated" },
         { label: "Total escalations", value: kpi.totalEscalations, sub: "escalated to staff" },
         { label: "Open escalations", value: kpi.openEscalations, sub: "pending resolution" },
         { label: "Resolved", value: kpi.resolvedEscalations, delta: "89% resolution", deltaTone: "positive", sub: "resolved by staff" },
@@ -1490,7 +1491,7 @@ function EscalationsOverviewSection({
           <CardContent>
             <ChartContainer config={{}} className="!aspect-auto h-[260px] w-full">
               <BarChart data={escalationReasons} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                 <XAxis dataKey="reason" tickLine={false} axisLine={false} tickMargin={8} angle={-30} textAnchor="end" height={50} interval={0} />
                 <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
                 <ChartTooltip content={<ChartTooltipContent />} />
@@ -1522,7 +1523,7 @@ function EscalationsOverviewSection({
 // -----------------------------------------------------------------------------
 
 export default function LeasingAiDashboardPage() {
-  const [filters, setFilters] = useReportScope(PROPERTIES);
+  const [filters, setFilters, scope] = useReportScope(PROPERTIES);
 
   const months = useMemo(() => monthsForPeriod(filters.periodId), [filters.periodId]);
 
@@ -1547,6 +1548,7 @@ export default function LeasingAiDashboardPage() {
         filters={filters}
         onChange={setFilters}
         properties={PROPERTIES}
+        unmatchedProperties={scope.unmatched}
         showViewToggle
       />
 

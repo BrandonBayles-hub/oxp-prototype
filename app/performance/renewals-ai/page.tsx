@@ -20,8 +20,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
 import {
+  CHART_GRID_STROKE,
   DeltaPill,
   EscalationsSection,
+  SERIES_NEUTRAL,
   ReportFilterBar,
   ReportPageHeader,
   ReportSection,
@@ -142,11 +144,11 @@ const BASE_NON_RENEWAL_REASONS = [
 ];
 
 const BASE_RENEWAL_INTENT = [
-  { name: "Wants to Renew", value: 64, count: 1842, color: "#1f2937" },
-  { name: "Considering", value: 14, count: 412, color: "#4b5563" },
-  { name: "Does Not Want to Renew", value: 11, count: 318, color: "#6b7280" },
-  { name: "Needs Different Unit", value: 4, count: 124, color: "#9ca3af" },
-  { name: "New Lease Questions", value: 6, count: 186, color: "#d1d5db" },
+  { name: "Wants to Renew", value: 64, count: 1842, color: seriesColor(0) },
+  { name: "Considering", value: 14, count: 412, color: SERIES_NEUTRAL },
+  { name: "Does Not Want to Renew", value: 11, count: 318, color: SERIES_NEUTRAL },
+  { name: "Needs Different Unit", value: 4, count: 124, color: "hsl(222 12% 62%)" },
+  { name: "New Lease Questions", value: 6, count: 186, color: "hsl(222 10% 78%)" },
 ];
 
 const BASE_TERM_LENGTH_VOLUME = [
@@ -180,8 +182,8 @@ const BASE_ESCALATION_REASONS = [
 ];
 
 const BASE_OUTREACH_CHANNEL_MIX = [
-  { name: "SMS", value: 70, count: 12840, color: "#1f2937" },
-  { name: "Email", value: 30, count: 5580, color: "#9ca3af" },
+  { name: "SMS", value: 70, count: 12840, color: seriesColor(0) },
+  { name: "Email", value: 30, count: 5580, color: "hsl(222 12% 62%)" },
 ];
 
 function buildDeveloperNotesQuery(startDate: string, endDate: string) {
@@ -624,13 +626,13 @@ function TrendChart({
 }) {
   if (view === "global") {
     const config = {
-      current: { label: "Current", color: "#0f172a" },
+      current: { label: "Current", color: seriesColor(0) },
     } satisfies ChartConfig;
     return (
       <div>
         <ChartContainer config={config} className="!aspect-auto w-full" style={{ height }}>
           <LineChart data={data} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
             <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
             <YAxis
               tickLine={false}
@@ -643,7 +645,7 @@ function TrendChart({
             <Line
               type="monotone"
               dataKey="current"
-              stroke="#0f172a"
+              stroke={seriesColor(0)}
               strokeWidth={2}
               dot={false}
             />
@@ -672,7 +674,7 @@ function TrendChart({
   return (
     <ChartContainer config={config} className="!aspect-auto w-full" style={{ height }}>
       <LineChart data={flat} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
-        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
         <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
         <YAxis tickLine={false} axisLine={false} tickMargin={8} width={32} domain={yDomain ?? [0, "auto"]} />
         <ChartTooltip content={<ChartTooltipContent className="min-w-[14rem]" />} />
@@ -840,7 +842,7 @@ function DeveloperNotes({
 // -----------------------------------------------------------------------------
 
 export default function RenewalsAiDashboardPage() {
-  const [filters, setFilters] = useReportScope(PROPERTIES);
+  const [filters, setFilters, scope] = useReportScope(PROPERTIES);
   const [loading, setLoading] = useState(false);
   const isFirstRender = useRef(true);
   const filtersKey = useMemo(() => serializeFilters(filters), [filters]);
@@ -944,6 +946,7 @@ export default function RenewalsAiDashboardPage() {
         filters={filters}
         onChange={setFilters}
         properties={PROPERTIES}
+        unmatchedProperties={scope.unmatched}
         showViewToggle
       />
 
@@ -952,6 +955,220 @@ export default function RenewalsAiDashboardPage() {
       {/* ============================================================ */}
       {/* Section 1 — Overall Renewal Performance                       */}
       {/* ============================================================ */}
+      
+
+      {/* ============================================================ */}
+      {/* Section 2 — Renewals AI Impact                               */}
+      {/* ============================================================ */}
+      <section className="mb-6">
+        <SectionBanner
+          title="Renewals AI Impact"
+          description="Time savings, automation metrics, and AI-driven value for properties using Renewals AI"
+        />
+
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,0.4fr)_minmax(0,1fr)]">
+          <Card>
+            <CardContent className="px-5 py-4">
+              <p className="text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
+                Renewal rate lift (AI vs non-AI)
+              </p>
+              <p className="mt-1 text-4xl font-bold tracking-tight text-foreground">
+                {loading ? "…" : "+8.2 pts"}
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                AI-managed: 78% vs non-AI: 69.8%
+              </p>
+            </CardContent>
+          </Card>
+
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+            <StatCard
+              label="Staff hours saved"
+              value={kpi.staffHoursSaved}
+              delta="+240 hrs"
+              sub="hours saved by AI automation"
+              subItalic="18,420 messages × 6 min avg manual handling ÷ 60"
+            />
+            <StatCard
+            lowerIsBetter
+              label="Avg days to renew (AI)"
+              value={kpi.avgDaysAI}
+              delta="-4.9 days faster"
+              sub="vs 14.1 days without AI"
+            />
+            <StatCard
+              label="Fully automated renewals"
+              value={kpi.fullyAutomated}
+              delta="+8 pts"
+              sub="renewals completed with zero human intervention"
+            />
+          </div>
+        </div>
+
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Fully Automated Renewals — Trend</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <TrendChart
+                data={fullyAutomatedData}
+                view={filters.view}
+                selected={filters.properties}
+                yDomain={filters.view === "global" ? [0, 65] : [0, 100]}
+              />
+              <PropertyChips state={filters} setState={setFilters} />
+            </CardContent>
+          </Card>
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Resident Engagement Breakdown — Trend</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ChartContainer
+                config={{
+                  "Engaged %": { label: "Engaged %", color: seriesColor(0) },
+                  "No Response %": { label: "No Response %", color: seriesColor(1) },
+                  "Opted Out %": { label: "Opted Out %", color: seriesColor(2) },
+                }}
+                className="!aspect-auto h-[240px] w-full"
+              >
+                <LineChart data={residentEngagement} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+                  <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
+                  <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} domain={[0, 70]} tickFormatter={(v) => `${v}%`} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Line type="monotone" dataKey="Engaged %" stroke={seriesColor(0)} strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="No Response %" stroke={seriesColor(1)} strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="Opted Out %" stroke={seriesColor(2)} strokeWidth={2} dot={false} />
+                  <Legend
+                    verticalAlign="bottom"
+                    iconType="circle"
+                    wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }}
+                    formatter={legendLabel}
+                  />
+                </LineChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <StatCard
+            label="Total outreach messages"
+            value={kpi.totalOutreach}
+            delta="+12%"
+            sub="AI-sent messages"
+          />
+          <StatCard label="SMS sent" value={kpi.smsSent} delta="+8%" sub="outbound SMS" />
+          <StatCard label="Emails sent" value={kpi.emailsSent} delta="+18%" sub="outbound emails" />
+          <StatCard
+            label="Resident response rate"
+            value={kpi.responseRate}
+            delta="+2.1 pts"
+            sub="responded to AI outreach"
+          />
+          <StatCard
+            lowerIsBetter
+            label="Avg AI response time"
+            value={kpi.avgAIResponseTime}
+            delta="-2 sec"
+            sub="from resident message to AI reply"
+          />
+        </div>
+
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <StatCard
+            lowerIsBetter
+            label="Avg resident response time"
+            value={kpi.avgResidentResponseTime}
+            delta="-1.4 hrs"
+            sub="from AI message to resident reply"
+          />
+        </div>
+
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Outreach Channel Mix</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DonutWithLegend data={outreachChannelMix} />
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
+      
+
+      {/* ============================================================ */}
+      {/* Section 3 — Escalations                                      */}
+      {/* ============================================================ */}
+      <EscalationsSection
+        stats={[
+          {
+            label: "Escalation rate",
+            value: kpi.escalationRate,
+            delta: "-1.8 pts",
+            deltaTone: "positive",
+            sub: "of AI contacts escalated",
+          },
+          {
+            label: "Total escalations · drill in",
+            value: kpi.totalEscalations,
+            sub: "escalated to staff",
+            action: (
+              <Link href="/escalations" className="text-xxs font-medium text-foreground underline underline-offset-2 hover:no-underline">
+                Drill in →
+              </Link>
+            ),
+          },
+          { label: "Open escalations", value: kpi.openEscalations, sub: "pending resolution" },
+          {
+            label: "Resolved",
+            value: kpi.resolvedEscalations,
+            delta: "89% resolution",
+            deltaTone: "positive",
+            sub: "resolved by staff",
+          },
+        ]}
+      >
+        <div className="grid gap-3 lg:grid-cols-1">
+          {/* Escalation Reasons is commented out until the escalation reason data source is identified.
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Escalation Reasons</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ChartContainer config={{}} className="!aspect-auto h-[260px] w-full">
+                <BarChart data={escalationReasons} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+                  <XAxis dataKey="reason" tickLine={false} axisLine={false} tickMargin={8} angle={-30} textAnchor="end" height={50} interval={0} />
+                  <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="count" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+          */}
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Avg Escalation Resolution Time — Trend</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <TrendChart
+                data={escalationResolutionData}
+                view={filters.view}
+                selected={filters.properties}
+                yDomain={filters.view === "global" ? [0, 4] : [0, 5]}
+              />
+              <PropertyChips state={filters} setState={setFilters} />
+            </CardContent>
+          </Card>
+        </div>
+      </EscalationsSection>
+
       <section className="mb-6">
         <SectionBanner
           title="Overall Renewal Performance"
@@ -1049,11 +1266,11 @@ export default function RenewalsAiDashboardPage() {
             <CardContent>
               <ChartContainer config={{}} className="!aspect-auto h-[240px] w-full">
                 <BarChart data={rentIncreaseDistribution} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                   <XAxis dataKey="bucket" tickLine={false} axisLine={false} tickMargin={8} angle={-30} textAnchor="end" height={40} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="count" fill="#0f172a" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="count" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ChartContainer>
             </CardContent>
@@ -1090,22 +1307,22 @@ export default function RenewalsAiDashboardPage() {
             <CardContent>
               <ChartContainer
                 config={{
-                  Studio: { label: "Studio", color: "#3b82f6" },
-                  "1 BR": { label: "1 BR", color: "#10b981" },
-                  "2 BR": { label: "2 BR", color: "#f59e0b" },
-                  "3 BR": { label: "3 BR", color: "#ef4444" },
+                  Studio: { label: "Studio", color: seriesColor(0) },
+                  "1 BR": { label: "1 BR", color: seriesColor(1) },
+                  "2 BR": { label: "2 BR", color: seriesColor(2) },
+                  "3 BR": { label: "3 BR", color: seriesColor(5) },
                 }}
                 className="!aspect-auto h-[260px] w-full"
               >
                 <LineChart data={renewalRateByBedrooms} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                   <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} domain={[50, 90]} tickFormatter={(v) => `${v}%`} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Line type="monotone" dataKey="Studio" stroke="#3b82f6" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="1 BR" stroke="#10b981" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="2 BR" stroke="#f59e0b" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="3 BR" stroke="#ef4444" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="Studio" stroke={seriesColor(0)} strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="1 BR" stroke={seriesColor(1)} strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="2 BR" stroke={seriesColor(2)} strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="3 BR" stroke={seriesColor(5)} strokeWidth={2} dot={false} />
                   <Legend
                     verticalAlign="bottom"
                     iconType="circle"
@@ -1123,11 +1340,11 @@ export default function RenewalsAiDashboardPage() {
             <CardContent>
               <ChartContainer config={{}} className="!aspect-auto h-[260px] w-full">
                 <BarChart data={nonRenewalReasons} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                   <XAxis dataKey="reason" tickLine={false} axisLine={false} tickMargin={8} angle={-30} textAnchor="end" height={50} interval={0} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="count" fill="#0f172a" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="count" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ChartContainer>
             </CardContent>
@@ -1150,203 +1367,8 @@ export default function RenewalsAiDashboardPage() {
             <CardContent>
               <ChartContainer config={{}} className="!aspect-auto h-[220px] w-full">
                 <BarChart data={termLengthVolume} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                   <XAxis dataKey="term" tickLine={false} axisLine={false} tickMargin={8} angle={-30} textAnchor="end" height={50} interval={0} />
-                  <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="count" fill="#0f172a" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ChartContainer>
-            </CardContent>
-          </Card>
-        </div>
-      </section>
-
-      {/* ============================================================ */}
-      {/* Section 2 — Renewals AI Impact                               */}
-      {/* ============================================================ */}
-      <section className="mb-6">
-        <SectionBanner
-          title="Renewals AI Impact"
-          description="Time savings, automation metrics, and AI-driven value for properties using Renewals AI"
-        />
-
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,0.4fr)_minmax(0,1fr)]">
-          <Card className="border-border/60 bg-gradient-to-br from-emerald-50 to-background">
-            <CardContent className="px-5 py-4">
-              <p className="text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
-                Renewal rate lift (AI vs non-AI)
-              </p>
-              <p className="mt-1 text-4xl font-bold tracking-tight text-foreground">
-                {loading ? "…" : "+8.2 pts"}
-              </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                AI-managed: 78% vs non-AI: 69.8%
-              </p>
-            </CardContent>
-          </Card>
-
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-            <StatCard
-              label="Staff hours saved"
-              value={kpi.staffHoursSaved}
-              delta="+240 hrs"
-              sub="hours saved by AI automation"
-              subItalic="18,420 messages × 6 min avg manual handling ÷ 60"
-            />
-            <StatCard
-            lowerIsBetter
-              label="Avg days to renew (AI)"
-              value={kpi.avgDaysAI}
-              delta="-4.9 days faster"
-              sub="vs 14.1 days without AI"
-            />
-            <StatCard
-              label="Fully automated renewals"
-              value={kpi.fullyAutomated}
-              delta="+8 pts"
-              sub="renewals completed with zero human intervention"
-            />
-          </div>
-        </div>
-
-        <div className="mt-3 grid gap-3 lg:grid-cols-2">
-          <Card className="border-border/60">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Fully Automated Renewals — Trend</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <TrendChart
-                data={fullyAutomatedData}
-                view={filters.view}
-                selected={filters.properties}
-                yDomain={filters.view === "global" ? [0, 65] : [0, 100]}
-              />
-              <PropertyChips state={filters} setState={setFilters} />
-            </CardContent>
-          </Card>
-          <Card className="border-border/60">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Resident Engagement Breakdown — Trend</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ChartContainer
-                config={{
-                  "Engaged %": { label: "Engaged %", color: "#3b82f6" },
-                  "No Response %": { label: "No Response %", color: "#10b981" },
-                  "Opted Out %": { label: "Opted Out %", color: "#f59e0b" },
-                }}
-                className="!aspect-auto h-[240px] w-full"
-              >
-                <LineChart data={residentEngagement} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                  <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
-                  <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} domain={[0, 70]} tickFormatter={(v) => `${v}%`} />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Line type="monotone" dataKey="Engaged %" stroke="#3b82f6" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="No Response %" stroke="#10b981" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="Opted Out %" stroke="#f59e0b" strokeWidth={2} dot={false} />
-                  <Legend
-                    verticalAlign="bottom"
-                    iconType="circle"
-                    wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }}
-                    formatter={legendLabel}
-                  />
-                </LineChart>
-              </ChartContainer>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <StatCard
-            label="Total outreach messages"
-            value={kpi.totalOutreach}
-            delta="+12%"
-            sub="AI-sent messages"
-          />
-          <StatCard label="SMS sent" value={kpi.smsSent} delta="+8%" sub="outbound SMS" />
-          <StatCard label="Emails sent" value={kpi.emailsSent} delta="+18%" sub="outbound emails" />
-          <StatCard
-            label="Resident response rate"
-            value={kpi.responseRate}
-            delta="+2.1 pts"
-            sub="responded to AI outreach"
-          />
-          <StatCard
-            lowerIsBetter
-            label="Avg AI response time"
-            value={kpi.avgAIResponseTime}
-            delta="-2 sec"
-            sub="from resident message to AI reply"
-          />
-        </div>
-
-        <div className="mt-3 grid gap-3 lg:grid-cols-2">
-          <StatCard
-            lowerIsBetter
-            label="Avg resident response time"
-            value={kpi.avgResidentResponseTime}
-            delta="-1.4 hrs"
-            sub="from AI message to resident reply"
-          />
-        </div>
-
-        <div className="mt-3 grid gap-3 lg:grid-cols-2">
-          <Card className="border-border/60">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Outreach Channel Mix</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <DonutWithLegend data={outreachChannelMix} />
-            </CardContent>
-          </Card>
-        </div>
-      </section>
-
-      {/* ============================================================ */}
-      {/* Section 3 — Escalations                                      */}
-      {/* ============================================================ */}
-      <EscalationsSection
-        stats={[
-          {
-            label: "Escalation rate",
-            value: kpi.escalationRate,
-            delta: "-1.8 pts",
-            deltaTone: "positive",
-            sub: "of AI contacts escalated",
-          },
-          {
-            label: "Total escalations · drill in",
-            value: kpi.totalEscalations,
-            sub: "escalated to staff",
-            action: (
-              <Link href="/escalations" className="text-xxs font-medium text-foreground underline underline-offset-2 hover:no-underline">
-                Drill in →
-              </Link>
-            ),
-          },
-          { label: "Open escalations", value: kpi.openEscalations, sub: "pending resolution" },
-          {
-            label: "Resolved",
-            value: kpi.resolvedEscalations,
-            delta: "89% resolution",
-            deltaTone: "positive",
-            sub: "resolved by staff",
-          },
-        ]}
-      >
-        <div className="grid gap-3 lg:grid-cols-1">
-          {/* Escalation Reasons is commented out until the escalation reason data source is identified.
-          <Card className="border-border/60">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Escalation Reasons</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ChartContainer config={{}} className="!aspect-auto h-[260px] w-full">
-                <BarChart data={escalationReasons} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                  <XAxis dataKey="reason" tickLine={false} axisLine={false} tickMargin={8} angle={-30} textAnchor="end" height={50} interval={0} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <Bar dataKey="count" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
@@ -1354,23 +1376,8 @@ export default function RenewalsAiDashboardPage() {
               </ChartContainer>
             </CardContent>
           </Card>
-          */}
-          <Card className="border-border/60">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Avg Escalation Resolution Time — Trend</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <TrendChart
-                data={escalationResolutionData}
-                view={filters.view}
-                selected={filters.properties}
-                yDomain={filters.view === "global" ? [0, 4] : [0, 5]}
-              />
-              <PropertyChips state={filters} setState={setFilters} />
-            </CardContent>
-          </Card>
         </div>
-      </EscalationsSection>
+      </section>
 
       <DeveloperNotes
         query={developerNotesQuery}

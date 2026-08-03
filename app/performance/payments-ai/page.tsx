@@ -25,8 +25,10 @@ import {
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
 import {
+  CHART_GRID_STROKE,
   DeltaPill,
   EscalationsSection,
+  SERIES_NEUTRAL,
   ReportFilterBar,
   ReportPageHeader,
   ReportSection,
@@ -36,6 +38,7 @@ import {
   useReportScope,
   monthsForPeriod,
   selectionRatio,
+  seriesColor,
   seriesColorMap,
   serializeFilters,
   type ReportFilters,
@@ -174,14 +177,14 @@ const agingBucketRecovery = [
 ];
 
 const autoResolvedVsEscalated = [
-  { name: "Auto-resolved", value: 8640, color: "#1f2937" },
-  { name: "Escalated to office", value: 3980, color: "#9ca3af" },
+  { name: "Auto-resolved", value: 8640, color: seriesColor(0) },
+  { name: "Escalated to office", value: 3980, color: "hsl(222 12% 62%)" },
 ];
 
 const scenarioLoad = [
-  { name: "Initial reminders", value: 24180, color: "#1f2937" },
-  { name: "Delinquency (late)", value: 12420, color: "#4b5563" },
-  { name: "Pre-collections (legal)", value: 3260, color: "#9ca3af" },
+  { name: "Initial reminders", value: 24180, color: seriesColor(0) },
+  { name: "Delinquency (late)", value: 12420, color: SERIES_NEUTRAL },
+  { name: "Pre-collections (legal)", value: 3260, color: "hsl(222 12% 62%)" },
 ];
 
 const autonomousActionsTaken = [
@@ -199,9 +202,9 @@ const handoffsByScenario = [
 ];
 
 const languagePreference = [
-  { name: "English", value: 84, count: 35476, color: "#1f2937" },
-  { name: "Spanish", value: 14, count: 5911, color: "#4b5563" },
-  { name: "Other", value: 2, count: 793, color: "#9ca3af" },
+  { name: "English", value: 84, count: 35476, color: seriesColor(0) },
+  { name: "Spanish", value: 14, count: 5911, color: SERIES_NEUTRAL },
+  { name: "Other", value: 2, count: 793, color: "hsl(222 12% 62%)" },
 ];
 
 const escalationReasons = [
@@ -339,14 +342,14 @@ function TrendChart({
 }) {
   if (view === "global") {
     const config = {
-      baseline: { label: "Pre-AI Baseline", color: "#94a3b8" },
-      current: { label: "Current", color: "#0f172a" },
+      baseline: { label: "Pre-AI Baseline", color: "hsl(222 12% 62%)" },
+      current: { label: "Current", color: seriesColor(0) },
     } satisfies ChartConfig;
     return (
       <div>
         <ChartContainer config={config} className="!aspect-auto w-full" style={{ height }}>
           <LineChart data={data} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
             <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
             <YAxis
               tickLine={false}
@@ -360,7 +363,7 @@ function TrendChart({
             <Line
               type="monotone"
               dataKey="baseline"
-              stroke="#94a3b8"
+              stroke={"hsl(222 12% 62%)"}
               strokeWidth={1.5}
               strokeDasharray="4 4"
               dot={false}
@@ -368,7 +371,7 @@ function TrendChart({
             <Line
               type="monotone"
               dataKey="current"
-              stroke="#0f172a"
+              stroke={seriesColor(0)}
               strokeWidth={2}
               dot={false}
             />
@@ -401,7 +404,7 @@ function TrendChart({
   return (
     <ChartContainer config={config} className="!aspect-auto w-full" style={{ height }}>
       <LineChart data={flat} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
-        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
         <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
         <YAxis
           tickLine={false}
@@ -537,7 +540,7 @@ function compactCurrency(n: number): string {
 // -----------------------------------------------------------------------------
 
 export default function PaymentsAiDashboardPage() {
-  const [filters, setFilters] = useReportScope(PROPERTIES);
+  const [filters, setFilters, scope] = useReportScope(PROPERTIES);
   const [loading, setLoading] = useState(false);
   const isFirstRender = useRef(true);
   const filtersKey = useMemo(() => serializeFilters(filters), [filters]);
@@ -633,6 +636,7 @@ export default function PaymentsAiDashboardPage() {
         filters={filters}
         onChange={setFilters}
         properties={PROPERTIES}
+        unmatchedProperties={scope.unmatched}
         showViewToggle
       />
 
@@ -672,11 +676,11 @@ export default function PaymentsAiDashboardPage() {
             <CardContent>
               <ChartContainer config={{}} className="!aspect-auto h-[240px] w-full">
                 <BarChart data={latePayersMonthlyBar} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                   <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} fontSize={11} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} domain={[0, 260]} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="count" fill="#0f172a" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="count" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ChartContainer>
             </CardContent>
@@ -708,11 +712,11 @@ export default function PaymentsAiDashboardPage() {
             <CardContent>
               <ChartContainer config={{}} className="!aspect-auto h-[200px] w-full">
                 <BarChart data={topTenCollected} margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                   <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={4} fontSize={10} angle={-20} textAnchor="end" height={30} interval={0} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={4} width={36} domain={[0, 100]} tickFormatter={(v) => `${v}%`} fontSize={10} />
                   <ChartTooltip content={<ChartTooltipContent formatter={(v) => `${v}%`} />} />
-                  <Bar dataKey="value" fill="#0f172a" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="value" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ChartContainer>
             </CardContent>
@@ -724,11 +728,11 @@ export default function PaymentsAiDashboardPage() {
             <CardContent>
               <ChartContainer config={{}} className="!aspect-auto h-[200px] w-full">
                 <BarChart data={bottomTenCollected} margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                   <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={4} fontSize={10} angle={-20} textAnchor="end" height={30} interval={0} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={4} width={36} domain={[0, 100]} tickFormatter={(v) => `${v}%`} fontSize={10} />
                   <ChartTooltip content={<ChartTooltipContent formatter={(v) => `${v}%`} />} />
-                  <Bar dataKey="value" fill="#0f172a" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="value" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ChartContainer>
             </CardContent>
@@ -922,11 +926,11 @@ export default function PaymentsAiDashboardPage() {
             <CardContent>
               <ChartContainer config={{}} className="!aspect-auto h-[240px] w-full">
                 <BarChart data={daysToPayDistribution} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                   <XAxis dataKey="bucket" tickLine={false} axisLine={false} tickMargin={8} angle={-20} textAnchor="end" height={40} interval={0} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={8} width={44} tickFormatter={(v) => v.toLocaleString()} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="count" fill="#0f172a" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="count" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ChartContainer>
             </CardContent>
@@ -962,11 +966,11 @@ export default function PaymentsAiDashboardPage() {
             <CardContent>
               <ChartContainer config={{}} className="!aspect-auto h-[220px] w-full">
                 <BarChart data={agingBucketRecovery} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                   <XAxis dataKey="bucket" tickLine={false} axisLine={false} tickMargin={8} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={8} width={48} tickFormatter={compactCurrency} />
                   <ChartTooltip content={<ChartTooltipContent formatter={(v) => compactCurrency(Number(v))} />} />
-                  <Bar dataKey="amount" fill="#0f172a" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="amount" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ChartContainer>
             </CardContent>
@@ -985,7 +989,7 @@ export default function PaymentsAiDashboardPage() {
         />
 
         <div className="grid gap-3 lg:grid-cols-[minmax(0,0.4fr)_minmax(0,1fr)]">
-          <Card className="border-border/60 bg-gradient-to-br from-emerald-50 to-background">
+          <Card>
             <CardContent className="px-5 py-4">
               <div className="flex items-center gap-2">
                 <p className="flex-1 text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -1102,11 +1106,11 @@ export default function PaymentsAiDashboardPage() {
             <CardContent>
               <ChartContainer config={{}} className="!aspect-auto h-[240px] w-full">
                 <BarChart data={autonomousActionsTaken} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                   <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} angle={-15} textAnchor="end" height={40} interval={0} fontSize={11} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={8} width={48} tickFormatter={(v) => v.toLocaleString()} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="value" fill="#0f172a" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="value" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ChartContainer>
             </CardContent>
@@ -1123,11 +1127,11 @@ export default function PaymentsAiDashboardPage() {
             <CardContent>
               <ChartContainer config={{}} className="!aspect-auto h-[220px] w-full">
                 <BarChart data={handoffsByScenario} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                   <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="value" fill="#0f172a" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="value" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ChartContainer>
             </CardContent>
@@ -1168,11 +1172,11 @@ export default function PaymentsAiDashboardPage() {
             <CardContent>
               <ChartContainer config={{}} className="!aspect-auto h-[260px] w-full">
                 <BarChart data={escalationReasons} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                   <XAxis dataKey="reason" tickLine={false} axisLine={false} tickMargin={8} angle={-25} textAnchor="end" height={60} interval={0} fontSize={10} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="count" fill="#0f172a" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="count" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ChartContainer>
             </CardContent>

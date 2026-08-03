@@ -32,7 +32,9 @@ import {
 import { ThumbsUp, ThumbsDown, MessageSquare, CheckCircle, XCircle, Pencil, FileText, ChevronDown, ArrowRight, Calendar, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
+  CHART_GRID_STROKE,
   ChartTitleRow,
+  SERIES_NEUTRAL,
   DeltaPill,
   seriesColor,
   type Tone,
@@ -442,9 +444,9 @@ function usePerformanceMetrics(selectedKey: string, isAll: boolean) {
   }, [agents, items, members, feedbackItems, selectedKey, isAll]);
 }
 
-const conversationsChartConfig = { conversations: { label: "Conversations", color: "hsl(var(--chart-1))" } } satisfies ChartConfig;
-const escalationChartConfig = { escalationRate: { label: "Escalation %", color: "hsl(var(--chart-2))" } } satisfies ChartConfig;
-const agentHumanChartConfig = { agent: { label: "Agent", color: "hsl(var(--chart-1))" }, human: { label: "Human", color: "hsl(var(--chart-2))" } } satisfies ChartConfig;
+const conversationsChartConfig = { conversations: { label: "Conversations", color: seriesColor(0) } } satisfies ChartConfig;
+const escalationChartConfig = { escalationRate: { label: "Escalation %", color: seriesColor(2) } } satisfies ChartConfig;
+const agentHumanChartConfig = { agent: { label: "Agent", color: seriesColor(0) }, human: { label: "Human", color: SERIES_NEUTRAL } } satisfies ChartConfig;
 const healthChartConfig = {
   renewal: { label: "Renewal %", color: seriesColor(0) },
   occupancy: { label: "Occupancy %", color: seriesColor(1) },
@@ -707,7 +709,7 @@ export default function PerformancePage() {
             <ChartTitleRow title="Renewal & occupancy trend" series={HEALTH_TREND_SERIES} />
             <ChartContainer config={healthChartConfig} className="h-[120px] w-full">
               <LineChart data={trendData} margin={{ left: 12, right: 12 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                 <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} />
                 <YAxis tickLine={false} axisLine={false} tickMargin={8} width={28} domain={[60, 100]} />
                 <ChartTooltip content={<ChartTooltipContent />} />
@@ -808,11 +810,11 @@ export default function PerformancePage() {
             <CardContent>
               <ChartContainer config={conversationsChartConfig} className="min-h-[200px] w-full">
                 <AreaChart data={trendData} margin={{ left: 12, right: 12 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                   <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={8} width={28} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Area type="monotone" dataKey="conversations" stroke="hsl(var(--chart-1))" fill="hsl(var(--chart-1))" fillOpacity={0.3} strokeWidth={2} />
+                  <Area type="monotone" dataKey="conversations" stroke={seriesColor(0)} fill={seriesColor(0)} fillOpacity={0.3} strokeWidth={2} />
                 </AreaChart>
               </ChartContainer>
             </CardContent>
@@ -825,11 +827,11 @@ export default function PerformancePage() {
             <CardContent>
               <ChartContainer config={escalationChartConfig} className="min-h-[200px] w-full">
                 <LineChart data={trendData} margin={{ left: 12, right: 12 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                   <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={8} width={28} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Line type="monotone" dataKey="escalationRate" stroke="hsl(var(--chart-2))" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="escalationRate" stroke={seriesColor(2)} strokeWidth={2} dot={false} />
                 </LineChart>
               </ChartContainer>
             </CardContent>
@@ -843,12 +845,12 @@ export default function PerformancePage() {
               <CardContent>
                 <ChartContainer config={agentHumanChartConfig} className="min-h-[200px] w-full">
                   <BarChart data={trendData} margin={{ left: 12, right: 12 }} barGap={2}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                     <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} />
                     <YAxis tickLine={false} axisLine={false} tickMargin={8} width={28} />
                     <ChartTooltip content={<ChartTooltipContent />} />
-                    <Bar dataKey="agent" fill="hsl(var(--chart-1))" radius={[2, 2, 0, 0]} stackId="a" />
-                    <Bar dataKey="human" fill="hsl(var(--chart-2))" radius={[2, 2, 0, 0]} stackId="a" />
+                    <Bar dataKey="agent" fill={seriesColor(0)} radius={[2, 2, 0, 0]} stackId="a" />
+                    <Bar dataKey="human" fill={SERIES_NEUTRAL} radius={[2, 2, 0, 0]} stackId="a" />
                   </BarChart>
                 </ChartContainer>
               </CardContent>

@@ -11,6 +11,8 @@ export interface EscalationStat {
   value: React.ReactNode;
   delta?: string;
   deltaTone?: Tone;
+  /** True when a fall is the win — escalation rate, resolution time. */
+  lowerIsBetter?: boolean;
   sub?: string;
   action?: React.ReactNode;
 }
@@ -55,6 +57,7 @@ export function EscalationsSection({
               value={s.value}
               delta={s.delta}
               deltaTone={s.deltaTone}
+              lowerIsBetter={s.lowerIsBetter}
               sub={s.sub}
               action={s.action}
             />

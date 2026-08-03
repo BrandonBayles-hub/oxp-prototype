@@ -295,7 +295,9 @@ export function ViewToggle({
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
             view === v
               ? "bg-card text-foreground shadow-sm"
-              : "bg-transparent text-muted-foreground hover:text-foreground",
+              // foreground/70, not muted-foreground: on the muted well the
+              // standard muted text measures 4.35:1, just under AA.
+              : "bg-transparent text-foreground/70 hover:text-foreground",
           )}
         >
           {v === "global" ? "Global View" : "Per-Property"}
@@ -335,6 +337,7 @@ export function ReportFilterBar({
   properties,
   extraFilters = [],
   showViewToggle = false,
+  unmatchedProperties = [],
   className,
 }: {
   filters: ReportFilters;
@@ -342,6 +345,8 @@ export function ReportFilterBar({
   properties: readonly string[];
   extraFilters?: ExtraFilter[];
   showViewToggle?: boolean;
+  /** Selected properties this agent has no data for. */
+  unmatchedProperties?: string[];
   className?: string;
 }) {
   const [showMore, setShowMore] = React.useState(false);
@@ -436,6 +441,15 @@ export function ReportFilterBar({
           </div>
         ) : null}
       </div>
+
+      {unmatchedProperties.length > 0 &&
+      unmatchedProperties.length === (filters.propertySelection?.size ?? 0) ? (
+        <p className="mt-2 text-xs text-foreground/70">
+          This agent has no data for{" "}
+          <span className="font-medium">{unmatchedProperties.join(", ")}</span> — showing
+          all of its properties instead.
+        </p>
+      ) : null}
 
       {showMore && extraFilters.length > 0 ? (
         <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/30 p-2">

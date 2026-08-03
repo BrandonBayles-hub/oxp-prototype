@@ -1057,7 +1057,7 @@ function LoadingBanner() {
 // -----------------------------------------------------------------------------
 
 export default function MaintenanceAiDashboardPage() {
-  const [filters, setFilters] = useReportScope(PROPERTIES, MAINTENANCE_EXTRA_DEFAULTS);
+  const [filters, setFilters, scope] = useReportScope(PROPERTIES, MAINTENANCE_EXTRA_DEFAULTS);
   const [loading, setLoading] = useState(false);
   const [sliceBy, setSliceBy] = useState<SliceDimension>("status");
   const filtersKey = useMemo(
@@ -1097,6 +1097,7 @@ export default function MaintenanceAiDashboardPage() {
         filters={filters}
         onChange={setFilters}
         properties={PROPERTIES}
+        unmatchedProperties={scope.unmatched}
         extraFilters={MAINTENANCE_EXTRA_FILTERS}
       />
 
@@ -1105,117 +1106,7 @@ export default function MaintenanceAiDashboardPage() {
       {/* =========================================================== */}
       {/* Section 1 — Overall Work Order Performance                  */}
       {/* =========================================================== */}
-      <section className="mb-6">
-        <SectionBanner
-          title="Overall Work Order Performance"
-          description="Key work order metrics across all submission sources"
-        />
-
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,0.42fr)_minmax(0,1fr)]">
-          {/* Left: KPI stack */}
-          <div className="grid gap-3">
-            <StatCard
-              label="Open Work Orders"
-              value={loading ? "…" : formatCompact(metrics.openWorkOrders)}
-              sub="opened during selected period"
-            />
-            <StatCard
-              label="Overdue Open Work Orders"
-              value={loading ? "…" : formatCompact(metrics.overdueWorkOrders)}
-              sub="past target completion date"
-              deltaTone="negative"
-            />
-            <StatCard
-              label="Unassigned Open Work Orders"
-              value={loading ? "…" : formatCompact(metrics.unassignedWorkOrders)}
-              sub="open without an assigned tech"
-            />
-          </div>
-
-          {/* Right: priority counter + stacked bar */}
-          <Card className="border-border/60">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Work Order Status Summary</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <PriorityCounter
-                counts={metrics.priorityCounts}
-                loading={loading}
-              />
-              <div className="mt-4">
-                {loading ? (
-                  <Skeleton className="h-[260px] w-full" />
-                ) : (
-                  <ChartContainer
-                    config={{
-                      Completed: { label: "Completed", color: STATUS_FILL.completed },
-                      Open: { label: "Open", color: STATUS_FILL.open },
-                      Overdue: { label: "Overdue", color: STATUS_FILL.overdue },
-                      Submitted: { label: "Submitted", color: STATUS_FILL.inProgress },
-                      Unassigned: { label: "Unassigned", color: STATUS_FILL.unassigned },
-                    }}
-                    className="!aspect-auto h-[260px] w-full"
-                  >
-                    <BarChart
-                      data={metrics.statusByMonth}
-                      margin={{ left: 8, right: 12, top: 8, bottom: 8 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
-                      <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} />
-                      <YAxis
-                        tickLine={false}
-                        axisLine={false}
-                        tickMargin={8}
-                        width={56}
-                        tickFormatter={(v: number) => formatCompactShort(v)}
-                      />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Bar dataKey="Completed" stackId="a" fill={STATUS_FILL.completed} />
-                      <Bar dataKey="Open" stackId="a" fill={STATUS_FILL.open} />
-                      <Bar dataKey="Overdue" stackId="a" fill={STATUS_FILL.overdue} />
-                      <Bar dataKey="Submitted" stackId="a" fill={STATUS_FILL.inProgress} />
-                      <Bar dataKey="Unassigned" stackId="a" fill={STATUS_FILL.unassigned} />
-                      <Legend
-                        verticalAlign="bottom"
-                        iconType="square"
-                        wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }}
-            formatter={legendLabel}
-          />
-                    </BarChart>
-                  </ChartContainer>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="mt-3 grid gap-3 lg:grid-cols-2">
-          <Card className="border-border/60">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Work Orders by Source</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <Skeleton className="h-[220px] w-full" />
-              ) : (
-                <SourceDonut data={metrics.bySource} />
-              )}
-            </CardContent>
-          </Card>
-          <Card className="border-border/60">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Average Days to Complete by Source</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <Skeleton className="h-[220px] w-full" />
-              ) : (
-                <AvgDaysBySource data={metrics.avgDaysBySource} />
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </section>
+      
 
       {/* =========================================================== */}
       {/* Section 2 — Maintenance AI Impact                           */}
@@ -1227,7 +1118,7 @@ export default function MaintenanceAiDashboardPage() {
         />
 
         <div className="grid gap-3 lg:grid-cols-[minmax(0,0.4fr)_minmax(0,1fr)]">
-          <Card className="border-border/60 bg-gradient-to-br from-emerald-50 to-background">
+          <Card>
             <CardContent className="px-5 py-4">
               <p className="text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
                 Work Orders Resolved
@@ -1287,8 +1178,8 @@ export default function MaintenanceAiDashboardPage() {
               ) : (
                 <ChartContainer
                   config={{
-                    baseline: { label: "Pre-AI baseline", color: "#cbd5e1" },
-                    current: { label: "Current", color: "#0f172a" },
+                    baseline: { label: "Pre-AI baseline", color: "hsl(222 10% 78%)" },
+                    current: { label: "Current", color: seriesColor(0) },
                   }}
                   className="!aspect-auto h-[240px] w-full"
                 >
@@ -1309,7 +1200,7 @@ export default function MaintenanceAiDashboardPage() {
                     <Line
                       type="monotone"
                       dataKey="baseline"
-                      stroke="#94a3b8"
+                      stroke={"hsl(222 12% 62%)"}
                       strokeWidth={1.5}
                       strokeDasharray="4 4"
                       dot={false}
@@ -1317,7 +1208,7 @@ export default function MaintenanceAiDashboardPage() {
                     <Line
                       type="monotone"
                       dataKey="current"
-                      stroke="#0f172a"
+                      stroke={seriesColor(0)}
                       strokeWidth={2}
                       dot={false}
                     />
@@ -1539,7 +1430,7 @@ export default function MaintenanceAiDashboardPage() {
                 <Skeleton className="h-[200px] w-full" />
               ) : (
                 <ChartContainer
-                  config={{ count: { label: "Incoming messages", color: "#0f172a" } }}
+                  config={{ count: { label: "Incoming messages", color: seriesColor(0) } }}
                   className="!aspect-auto h-[200px] w-full"
                 >
                   <LineChart
@@ -1559,12 +1450,124 @@ export default function MaintenanceAiDashboardPage() {
                     <Line
                       type="monotone"
                       dataKey="count"
-                      stroke="#0f172a"
+                      stroke={seriesColor(0)}
                       strokeWidth={2}
                       dot={{ r: 2 }}
                     />
                   </LineChart>
                 </ChartContainer>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
+      <section className="mb-6">
+        <SectionBanner
+          title="Overall Work Order Performance"
+          description="Key work order metrics across all submission sources"
+        />
+
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,0.42fr)_minmax(0,1fr)]">
+          {/* Left: KPI stack */}
+          <div className="grid gap-3">
+            <StatCard
+              label="Open Work Orders"
+              value={loading ? "…" : formatCompact(metrics.openWorkOrders)}
+              sub="opened during selected period"
+            />
+            <StatCard
+              label="Overdue Open Work Orders"
+              value={loading ? "…" : formatCompact(metrics.overdueWorkOrders)}
+              sub="past target completion date"
+              deltaTone="negative"
+            />
+            <StatCard
+              label="Unassigned Open Work Orders"
+              value={loading ? "…" : formatCompact(metrics.unassignedWorkOrders)}
+              sub="open without an assigned tech"
+            />
+          </div>
+
+          {/* Right: priority counter + stacked bar */}
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Work Order Status Summary</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <PriorityCounter
+                counts={metrics.priorityCounts}
+                loading={loading}
+              />
+              <div className="mt-4">
+                {loading ? (
+                  <Skeleton className="h-[260px] w-full" />
+                ) : (
+                  <ChartContainer
+                    config={{
+                      Completed: { label: "Completed", color: STATUS_FILL.completed },
+                      Open: { label: "Open", color: STATUS_FILL.open },
+                      Overdue: { label: "Overdue", color: STATUS_FILL.overdue },
+                      Submitted: { label: "Submitted", color: STATUS_FILL.inProgress },
+                      Unassigned: { label: "Unassigned", color: STATUS_FILL.unassigned },
+                    }}
+                    className="!aspect-auto h-[260px] w-full"
+                  >
+                    <BarChart
+                      data={metrics.statusByMonth}
+                      margin={{ left: 8, right: 12, top: 8, bottom: 8 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+                      <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} />
+                      <YAxis
+                        tickLine={false}
+                        axisLine={false}
+                        tickMargin={8}
+                        width={56}
+                        tickFormatter={(v: number) => formatCompactShort(v)}
+                      />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Bar dataKey="Completed" stackId="a" fill={STATUS_FILL.completed} />
+                      <Bar dataKey="Open" stackId="a" fill={STATUS_FILL.open} />
+                      <Bar dataKey="Overdue" stackId="a" fill={STATUS_FILL.overdue} />
+                      <Bar dataKey="Submitted" stackId="a" fill={STATUS_FILL.inProgress} />
+                      <Bar dataKey="Unassigned" stackId="a" fill={STATUS_FILL.unassigned} />
+                      <Legend
+                        verticalAlign="bottom"
+                        iconType="square"
+                        wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }}
+            formatter={legendLabel}
+          />
+                    </BarChart>
+                  </ChartContainer>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Work Orders by Source</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <Skeleton className="h-[220px] w-full" />
+              ) : (
+                <SourceDonut data={metrics.bySource} />
+              )}
+            </CardContent>
+          </Card>
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Average Days to Complete by Source</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <Skeleton className="h-[220px] w-full" />
+              ) : (
+                <AvgDaysBySource data={metrics.avgDaysBySource} />
               )}
             </CardContent>
           </Card>

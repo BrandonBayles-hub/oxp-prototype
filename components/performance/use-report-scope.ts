@@ -23,7 +23,7 @@ import { createReportFilters, type ReportFilters } from "./tokens";
 export function useReportScope(
   pageProperties: readonly string[],
   extraDefaults: Record<string, readonly string[]> = {},
-): [ReportFilters, (next: ReportFilters) => void] {
+): [ReportFilters, (next: ReportFilters) => void, { unmatched: string[] }] {
   const shared = useReportFilters();
 
   // View + extras are page-local; seeded once from the page's own defaults.
@@ -67,5 +67,9 @@ export function useReportScope(
     [shared],
   );
 
-  return [filters, setFilters];
+  // Surfaced so the bar can say when a shared selection doesn't apply here.
+  // The agents don't all cover the same portfolio, and silently showing the
+  // full set under a picker that reads "Ashford Crescent Oaks" would be the
+  // report describing a scope it isn't using.
+  return [filters, setFilters, { unmatched: scoped.unmatched }];
 }
