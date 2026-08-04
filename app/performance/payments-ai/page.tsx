@@ -293,7 +293,7 @@ function PropertyChips({
   if (state.view !== "perProperty") return null;
   const list = PROPERTIES.filter((p) => state.properties.has(p));
   return (
-    <div className="-mt-2 mb-5 flex flex-wrap gap-1.5">
+    <div className="mt-3 flex flex-wrap gap-1.5">
       {list.map((p) => (
         <span
           key={p}
@@ -652,8 +652,6 @@ export default function PaymentsAiDashboardPage() {
         showViewToggle
       />
 
-      <PropertyChips state={filters} setState={setFilters} />
-
       {loading && <LoadingBanner />}
 
       {/* ============================================================ */}
@@ -825,6 +823,7 @@ export default function PaymentsAiDashboardPage() {
                 yDomain={filters.view === "global" ? [80, 100] : [80, 100]}
                 yTickFormatter={(v) => `${v}%`}
               />
+              <PropertyChips state={filters} setState={setFilters} />
             </CardContent>
           </Card>
           <Card className="border-border/60">
@@ -841,6 +840,7 @@ export default function PaymentsAiDashboardPage() {
                 yDomain={filters.view === "global" ? [1500, 2700] : [1500, 2800]}
                 yTickFormatter={(v) => `$${v}K`}
               />
+              <PropertyChips state={filters} setState={setFilters} />
             </CardContent>
           </Card>
         </div>
@@ -859,6 +859,7 @@ export default function PaymentsAiDashboardPage() {
                 selected={filters.properties}
                 yDomain={filters.view === "global" ? [0, 260] : [0, 320]}
               />
+              <PropertyChips state={filters} setState={setFilters} />
             </CardContent>
           </Card>
           <Card className="border-border/60">
@@ -876,6 +877,7 @@ export default function PaymentsAiDashboardPage() {
                 yDomain={[80, 100]}
                 yTickFormatter={(v) => `${v}%`}
               />
+              <PropertyChips state={filters} setState={setFilters} />
             </CardContent>
           </Card>
         </div>
@@ -920,6 +922,7 @@ export default function PaymentsAiDashboardPage() {
                 yDomain={filters.view === "global" ? [80, 100] : [80, 100]}
                 yTickFormatter={(v) => `${v}%`}
               />
+              <PropertyChips state={filters} setState={setFilters} />
             </CardContent>
           </Card>
           <Card className="border-border/60">
@@ -1044,6 +1047,7 @@ export default function PaymentsAiDashboardPage() {
                 yDomain={filters.view === "global" ? [40, 80] : [40, 90]}
                 yTickFormatter={(v) => `${v}%`}
               />
+              <PropertyChips state={filters} setState={setFilters} />
             </CardContent>
           </Card>
           <Card className="border-border/60">
@@ -1059,6 +1063,7 @@ export default function PaymentsAiDashboardPage() {
                 selected={filters.properties}
                 yDomain={filters.view === "global" ? [700, 2200] : [700, 2400]}
               />
+              <PropertyChips state={filters} setState={setFilters} />
             </CardContent>
           </Card>
         </div>
@@ -1233,6 +1238,7 @@ export default function PaymentsAiDashboardPage() {
               selected={filters.properties}
               yDomain={filters.view === "global" ? [0, 6] : [0, 7]}
             />
+            <PropertyChips state={filters} setState={setFilters} />
           </CardContent>
         </Card>
       </EscalationsSection>
