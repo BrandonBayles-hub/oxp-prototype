@@ -1006,8 +1006,8 @@ function TemplateSheet({
 
 // ── Terms & Conditions rejection info ─────────────────────────────────────────
 
-// Canonical customer-facing Twilio guidance for A2P 10DLC campaign (incl. T&C) approval.
-const TWILIO_TC_ARTICLE = "https://help.twilio.com/articles/11847054539547-A2P-10DLC-Campaign-Approval-Requirements"
+// Public Twilio doc specifically for Terms & Conditions campaign rejection (A2P 10DLC error 30882).
+const TWILIO_TC_ARTICLE = "https://www.twilio.com/docs/api/errors/30882"
 
 function TermsErrorInfo() {
   return (
@@ -1035,7 +1035,7 @@ function TermsErrorInfo() {
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700">
-          Twilio: A2P 10DLC campaign approval requirements
+          Twilio: Terms &amp; Conditions rejection (A2P 10DLC)
           <ExternalLink className="h-3 w-3" />
         </a>
       </PopoverContent>
@@ -1402,12 +1402,22 @@ function ActionCard({
                 </p>
                 {/* Error well — carrier rejection (Terms & Conditions) */}
                 {showTcError && tcFailReason && (
-                  <div className="mt-1.5 flex items-start gap-1.5 rounded-md border border-red-300 bg-red-50 px-2.5 py-1.5 text-[11px] leading-snug text-red-900">
-                    <span className="min-w-0">
-                      <span className="font-semibold">Carrier rejected this URL.</span>{" "}
-                      {tcFailReason}
-                    </span>
-                    <TermsErrorInfo />
+                  <div className="mt-1.5 rounded-md border border-red-300 bg-red-50 px-2.5 py-1.5 text-[11px] leading-snug text-red-900">
+                    <div className="flex items-start gap-1.5">
+                      <span className="min-w-0">
+                        <span className="font-semibold">Carrier rejected this URL.</span>{" "}
+                        {tcFailReason}
+                      </span>
+                      <TermsErrorInfo />
+                    </div>
+                    <a
+                      href={TWILIO_TC_ARTICLE}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-1 inline-flex items-center gap-1 font-medium text-red-700 underline underline-offset-2 hover:text-red-800">
+                      Learn more at Twilio
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
                   </div>
                 )}
               </div>
