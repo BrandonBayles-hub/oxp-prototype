@@ -1645,9 +1645,9 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
 
         {/* ── Page header ── */}
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Privacy Policies</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Property Websites</h1>
           <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-            Each property needs a carrier-approved privacy policy before a vanity phone number can be assigned.
+            Each property&rsquo;s website needs a carrier-approved privacy policy before a vanity phone number can be assigned.
             Confirm the website and privacy policy URL for each property below.
           </p>
         </div>
