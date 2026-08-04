@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { ELI_DASHBOARD_ORDER, getDashboard } from "@/lib/eli-library";
-import { LibraryDashboardView } from "./dashboard-view";
+import { LibraryDashboardClient } from "./dashboard-client";
 
 export function generateStaticParams() {
   return ELI_DASHBOARD_ORDER.map((slug) => ({ slug }));
@@ -20,5 +20,5 @@ export default async function LibraryDashboardPage({
     notFound();
   }
 
-  return <LibraryDashboardView dashboard={eliDashboard} />;
+  return <LibraryDashboardClient dashboard={eliDashboard} />;
 }

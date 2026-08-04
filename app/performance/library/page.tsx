@@ -2,9 +2,8 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { PageHeader } from "@/components/page-header";
+import { PageTop } from "@/components/app-shell/page-top";
 import {
   ELI_DASHBOARDS,
   ELI_DASHBOARD_ORDER,
@@ -12,10 +11,6 @@ import {
   type EliAgentSlug,
 } from "@/lib/eli-library";
 import { Sparkline } from "@/components/eli-library/sparkline";
-
-const CATEGORY_COLORS: Record<string, string> = {
-  ai: "bg-cyan-50 text-cyan-700 border-cyan-200",
-};
 
 function EliDashboardCard({ slug }: { slug: EliAgentSlug }) {
   const d = ELI_DASHBOARDS[slug];
@@ -33,17 +28,7 @@ function EliDashboardCard({ slug }: { slug: EliAgentSlug }) {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
                 <h3 className="text-sm font-semibold truncate">{d.title}</h3>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xxs font-semibold rounded-full bg-cyan-50 text-cyan-700 shrink-0">
-                  <Sparkles className="h-2.5 w-2.5" />
-                  ELI+
-                </span>
               </div>
-              <span className={cn(
-                "inline-flex items-center px-2 py-0.5 text-xxs font-medium rounded-full border capitalize",
-                CATEGORY_COLORS["ai"] || "bg-muted text-muted-foreground",
-              )}>
-                AI
-              </span>
             </div>
           </div>
 
@@ -70,23 +55,22 @@ function EliDashboardCard({ slug }: { slug: EliAgentSlug }) {
 export default function LibraryPage() {
   return (
     <>
-      <PageHeader
+      <PageTop
         title={
-          <span className="inline-flex items-center gap-2">
-            Report Library
-            <span className="rounded-full bg-foreground/5 px-2 py-0.5 text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
+          <>
+            ELI+ Legacy Library
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xxs font-semibold text-foreground/70">
               v0.5
             </span>
-          </span>
+          </>
         }
         description="Browse dashboards and reports — from ELI+ agent impact to portfolio-wide analytics."
       />
 
       <section className="mb-8">
         <div className="flex items-center gap-2 mb-3">
-          <Sparkles className="h-4 w-4 text-cyan-600" />
           <h2 className="text-sm font-semibold tracking-tight">ELI+ Agent Impact Dashboards</h2>
-          <span className="rounded-full bg-cyan-50 px-2 py-0.5 text-xxs font-semibold uppercase tracking-wider text-cyan-700">
+          <span className="rounded-full bg-status-success px-2 py-0.5 text-xxs font-semibold text-status-success-foreground">
             Live
           </span>
         </div>
