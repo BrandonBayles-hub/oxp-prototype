@@ -29,7 +29,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import { ThumbsUp, ThumbsDown, MessageSquare, CheckCircle, XCircle, Pencil, FileText, ChevronDown, ArrowRight, Calendar, Search } from "lucide-react";
+import { ThumbsUp, ThumbsDown, MessageSquare, CheckCircle, XCircle, Pencil, FileText, ChevronDown, ChevronRight, ArrowRight, Calendar, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   ALL_REPORT_PROPERTIES,
@@ -953,7 +953,8 @@ function AgentImpactCard({
   context?: string;
 }) {
   return (
-    <Card className="relative flex h-full flex-col overflow-hidden border-border/60 transition-colors hover:border-border">
+    <Link href={href} className="group block h-full focus-visible:outline-none">
+    <Card className="relative flex h-full flex-col overflow-hidden border-border/60 transition-all group-hover:border-foreground/20 group-hover:shadow-md group-focus-visible:ring-2 group-focus-visible:ring-ring">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-eli-purple/70 via-eli-pink/60 to-eli-purple/40"
@@ -962,6 +963,14 @@ function AgentImpactCard({
         <div className="flex items-center gap-1.5">
           <img src="/eli-cube.svg" alt="" width={16} height={16} className="shrink-0" />
           <span className="text-sm font-semibold text-foreground">{agent}</span>
+          {/* Visible at rest, not only on hover: an affordance that appears
+              only when the pointer is already over the target tells you
+              nothing before you get there. It advances on hover to confirm
+              the whole card is the link. */}
+          <ChevronRight
+            className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground"
+            aria-hidden
+          />
         </div>
 
         <p className="mt-4 text-3xl font-bold tracking-tight tabular-nums text-foreground">
@@ -974,16 +983,9 @@ function AgentImpactCard({
         {context ? (
           <p className="mt-1 text-xs text-muted-foreground">{context}</p>
         ) : null}
-
-        <Link
-          href={href}
-          className="mt-auto inline-flex w-fit items-center gap-1 pt-4 text-xs font-medium text-foreground underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          View dashboard
-          <ArrowRight className="h-3.5 w-3.5" aria-hidden />
-        </Link>
       </CardContent>
     </Card>
+    </Link>
   );
 }
 
