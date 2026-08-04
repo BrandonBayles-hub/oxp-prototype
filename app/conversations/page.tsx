@@ -3579,6 +3579,7 @@ function ConversationsContent() {
                         <VoicemailPlayer
                           durationSec={msg.voicemail.durationSec}
                           transcript={msg.voicemail.transcript}
+                          turns={msg.voicemail.turns}
                           fromNumber={msg.voicemail.fromNumber}
                           onCallBack={
                             clickToCallEnabled
@@ -5521,6 +5522,7 @@ function ConversationsContent() {
                             key={idx}
                             durationSec={msg.voicemail.durationSec}
                             transcript={msg.voicemail.transcript}
+                            turns={msg.voicemail.turns}
                             fromNumber={msg.voicemail.fromNumber}
                           />
                         );

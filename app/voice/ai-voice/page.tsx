@@ -183,6 +183,63 @@ function voiceSettingsEqual(a: VoiceSettings, b: VoiceSettings): boolean {
   );
 }
 
+function formatVoiceSettingValue(key: keyof VoiceSettings, value: VoiceSettings[keyof VoiceSettings]): string {
+  if (typeof value === "boolean") return value ? "On" : "Off";
+  if (key === "voiceAccent" && typeof value === "string") {
+    return getNova2Voice(value)?.label ?? value;
+  }
+  if (key === "voiceGender" && typeof value === "string") {
+    return value.charAt(0).toUpperCase() + value.slice(1);
+  }
+  if (key === "voiceLanguages" && Array.isArray(value)) {
+    return value.length === 0 ? "None" : [...value].sort().join(", ");
+  }
+  if (key === "maxCallLength" && typeof value === "number") {
+    return `${value} min`;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return "(empty)";
+    return trimmed.length > 60 ? `${trimmed.slice(0, 57)}…` : trimmed;
+  }
+  return String(value);
+}
+
+function describeVoiceSettingsChanges(before: VoiceSettings, after: VoiceSettings): string[] {
+  const labels: Partial<Record<keyof VoiceSettings, string>> = {
+    aiVoiceEnabled: "AI voice",
+    voiceGender: "Voice gender",
+    voiceAccent: "Voice",
+    voiceLanguages: "Languages",
+    autoDetectLanguage: "Auto-detect language",
+    recordAudio: "Record audio (inbound)",
+    generateTranscripts: "Generate transcripts (inbound)",
+    recordAudioOutbound: "Record audio (outbound)",
+    generateTranscriptsOutbound: "Generate transcripts (outbound)",
+    legalDisclosureEnabled: "Legal disclosure",
+    legalDisclosureText: "Inbound disclosure",
+    legalDisclosureTextOutbound: "Outbound disclosure",
+    greeting: "Greeting",
+    holdPhrase: "Hold phrase",
+    maxCallLength: "Max call length",
+    aiDisclosureEnabled: "AI disclosure",
+  };
+
+  const changes: string[] = [];
+  (Object.keys(labels) as (keyof VoiceSettings)[]).forEach((key) => {
+    const prev = before[key];
+    const next = after[key];
+    const same =
+      key === "voiceLanguages"
+        ? [...(prev as string[])].sort().join("\0") === [...(next as string[])].sort().join("\0")
+        : prev === next;
+    if (same) return;
+    const label = labels[key] ?? String(key);
+    changes.push(`${label}: ${formatVoiceSettingValue(key, prev)} → ${formatVoiceSettingValue(key, next)}`);
+  });
+  return changes;
+}
+
 function computeVoiceSelectionMode(
   selectedNames: string[],
   overridesByProperty: Map<string, PropertyOverrideRecord>,
@@ -1029,7 +1086,26 @@ function DefaultVoiceCard({
 }) {
   const [expanded, setExpanded] = useState(true);
   const [editing, setEditing] = useState(false);
+  const [confirmDoneOpen, setConfirmDoneOpen] = useState(false);
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
+  const [pendingChanges, setPendingChanges] = useState<string[]>([]);
+  const editBaselineRef = useRef<VoiceSettings | null>(null);
+
+  const startEditing = () => {
+    editBaselineRef.current = cloneVoiceSettings(settings);
+    setEditing(true);
+  };
+
+  const handleDone = () => {
+    const baseline = editBaselineRef.current;
+    if (!baseline || voiceSettingsEqual(baseline, settings)) {
+      setEditing(false);
+      return;
+    }
+    setPendingChanges(describeVoiceSettingsChanges(baseline, settings));
+    setConfirmDoneOpen(true);
+  };
+
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -1052,9 +1128,9 @@ function DefaultVoiceCard({
           </button>
           <div className="flex items-center gap-1.5">
             {expanded && !editing ? (
-              <Button variant="ghost" size="sm" onClick={() => setEditing(true)} className="gap-1"><Pencil className="h-3.5 w-3.5" /> Edit</Button>
+              <Button variant="ghost" size="sm" onClick={startEditing} className="gap-1"><Pencil className="h-3.5 w-3.5" /> Edit</Button>
             ) : expanded ? (
-              <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>Done</Button>
+              <Button variant="ghost" size="sm" onClick={handleDone}>Done</Button>
             ) : null}
             {expanded && (
               <Button variant="ghost" size="sm" onClick={() => setConfirmResetOpen(true)} className="gap-1 text-muted-foreground hover:text-foreground">
@@ -1069,6 +1145,36 @@ function DefaultVoiceCard({
           <VoiceSettingsEditor settings={settings} editing={editing} onChange={onChange} hideAdvanced={hideAdvanced} hideVoiceSettings={hideVoiceSettings} />
         </CardContent>
       )}
+      <Dialog open={confirmDoneOpen} onOpenChange={setConfirmDoneOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Go live with these changes?</DialogTitle>
+            <DialogDescription>
+              The changes you made will go live immediately for this agent&apos;s default voice.
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="max-h-48 space-y-1.5 overflow-y-auto rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-foreground">
+            {pendingChanges.map((change) => (
+              <li key={change} className="leading-snug">
+                {change}
+              </li>
+            ))}
+          </ul>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDoneOpen(false)}>Cancel</Button>
+            <Button
+              onClick={() => {
+                setEditing(false);
+                setConfirmDoneOpen(false);
+                setPendingChanges([]);
+                editBaselineRef.current = null;
+              }}
+            >
+              Confirm
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={confirmResetOpen} onOpenChange={setConfirmResetOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -1085,6 +1191,8 @@ function DefaultVoiceCard({
                 onReset();
                 setEditing(false);
                 setConfirmResetOpen(false);
+                setPendingChanges([]);
+                editBaselineRef.current = null;
               }}
             >
               <RotateCcw className="h-3.5 w-3.5" /> Reset
