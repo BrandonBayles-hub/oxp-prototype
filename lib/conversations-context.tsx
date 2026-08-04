@@ -63,11 +63,24 @@ export type ThreadActivity =
       callbackNumber?: string;
     };
 
+export type VoicemailTranscriptTurn = {
+  speaker: "ai" | "resident";
+  text: string;
+};
+
 export type VoicemailRef = {
   /** Length of the recording in seconds. */
   durationSec: number;
-  /** AI-generated transcript (rendered inline below the audio player). */
+  /**
+   * Flat AI-generated transcript. Used when `turns` is absent, and as a
+   * compact preview/search string when structured turns are provided.
+   */
   transcript: string;
+  /**
+   * Optional structured call transcript with speaker turns (ELI vs resident).
+   * When present, the voicemail player renders a dialog instead of a monologue.
+   */
+  turns?: VoicemailTranscriptTurn[];
   /**
    * Inbound phone number the voicemail came from (display form, e.g. "+1 (720) 555-5264").
    * Used to render a "Call back" action on the voicemail card.

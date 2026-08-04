@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Pause, Play, Sparkles, Voicemail } from "lucide-react";
+import { ChevronDown, Pause, Play, Sparkles, Voicemail } from "lucide-react";
+import { AiStatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import type { VoicemailTranscriptTurn } from "@/lib/conversations-context";
 
 function formatClock(sec: number): string {
   const safe = Math.max(0, Math.floor(sec));
@@ -15,6 +17,7 @@ function formatClock(sec: number): string {
 type Props = {
   durationSec: number;
   transcript: string;
+  turns?: VoicemailTranscriptTurn[];
   fromNumber?: string;
   onCallBack?: () => void;
 };
@@ -23,11 +26,13 @@ type Props = {
  * Prototype voicemail card: a simulated audio player (no real file) that plays
  * a short synthesized tone via the Web Audio API so the "Play" button produces
  * audible feedback, and animates a progress bar across the stated duration.
- * The AI transcript is rendered inline beneath the player.
+ * The AI transcript sits beneath the player — collapsed to a short summary by
+ * default, expandable to the full ELI ↔ resident dialog when present.
  */
-export function VoicemailPlayer({ durationSec, transcript, fromNumber, onCallBack }: Props) {
+export function VoicemailPlayer({ durationSec, transcript, turns, fromNumber, onCallBack }: Props) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [expanded, setExpanded] = useState(false);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const oscillatorRef = useRef<OscillatorNode | null>(null);
@@ -143,6 +148,9 @@ export function VoicemailPlayer({ durationSec, transcript, fromNumber, onCallBac
   }, [stopAll]);
 
   const progressPct = Math.min(100, (elapsed / Math.max(1, durationSec)) * 100);
+  const hasTurns = Boolean(turns && turns.length > 0);
+  const turnCount = turns?.length ?? 0;
+  const canExpand = hasTurns || transcript.length > 140;
 
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-sm">
@@ -151,11 +159,11 @@ export function VoicemailPlayer({ durationSec, transcript, fromNumber, onCallBac
           <Voicemail className="h-3.5 w-3.5" aria-hidden />
         </span>
         <span className="text-xs font-semibold text-foreground">Voicemail</span>
-        <span className="text-[11px] tabular-nums text-muted-foreground">
+        <span className="text-xxs tabular-nums text-muted-foreground">
           · {formatClock(durationSec)}
         </span>
         {fromNumber ? (
-          <span className="ml-auto font-mono text-[11px] tabular-nums text-muted-foreground">
+          <span className="ml-auto font-mono text-xxs tabular-nums text-muted-foreground">
             {fromNumber}
           </span>
         ) : null}
@@ -194,7 +202,7 @@ export function VoicemailPlayer({ durationSec, transcript, fromNumber, onCallBac
               style={{ width: `${progressPct}%` }}
             />
           </div>
-          <div className="mt-1 flex items-center justify-between text-[10px] tabular-nums text-muted-foreground">
+          <div className="mt-1 flex items-center justify-between text-xxs tabular-nums text-muted-foreground">
             <span>{formatClock(elapsed)}</span>
             <span>-{formatClock(Math.max(0, durationSec - elapsed))}</span>
           </div>
@@ -205,7 +213,7 @@ export function VoicemailPlayer({ durationSec, transcript, fromNumber, onCallBac
             type="button"
             size="sm"
             variant="ghost"
-            className="h-7 px-2 text-[10px]"
+            className="h-7 px-2 text-xxs"
             onClick={handleScrubStart}
           >
             Restart
@@ -213,14 +221,49 @@ export function VoicemailPlayer({ durationSec, transcript, fromNumber, onCallBac
         )}
       </div>
 
-      <div className="border-t border-border bg-background/40 px-3 py-2.5">
-        <div className="mb-1 flex items-center gap-1.5">
-          <Sparkles className="h-3 w-3 shrink-0 text-primary" aria-hidden />
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            AI transcript
-          </span>
+      <div className="border-t border-border px-3 py-2.5">
+        <div className="mb-2 flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+              AI transcript
+            </span>
+          </div>
+          <AiStatusBadge status="ELI Generated" className="ml-auto shrink-0" />
         </div>
-        <p className="text-sm leading-relaxed text-foreground">{transcript}</p>
+
+        {!expanded ? (
+          <p className="text-xs leading-relaxed text-foreground/80 line-clamp-2">{transcript}</p>
+        ) : hasTurns ? (
+          <div className="max-h-52 overflow-y-auto rounded-md border border-border bg-muted/30">
+            <div className="divide-y divide-border/70">
+              {turns!.map((turn, index) => (
+                <TranscriptTurnRow key={`${turn.speaker}-${index}`} turn={turn} />
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs leading-relaxed text-foreground">{transcript}</p>
+        )}
+
+        {canExpand ? (
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            className="mt-2 inline-flex items-center gap-1 text-xxs font-medium text-muted-foreground transition-colors hover:text-foreground"
+            aria-expanded={expanded}
+          >
+            {expanded
+              ? "Show less"
+              : hasTurns
+                ? `Show full transcript · ${turnCount} turns`
+                : "Show full transcript"}
+            <ChevronDown
+              className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-180")}
+              aria-hidden
+            />
+          </button>
+        ) : null}
       </div>
 
       {onCallBack ? (
@@ -236,6 +279,19 @@ export function VoicemailPlayer({ durationSec, transcript, fromNumber, onCallBac
           </Button>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function TranscriptTurnRow({ turn }: { turn: VoicemailTranscriptTurn }) {
+  const isAi = turn.speaker === "ai";
+
+  return (
+    <div className="flex gap-3 px-2.5 py-2">
+      <span className="w-16 shrink-0 pt-px text-xxs font-semibold text-muted-foreground">
+        {isAi ? "ELI" : "Resident"}
+      </span>
+      <p className="min-w-0 flex-1 text-xs leading-relaxed text-foreground">{turn.text}</p>
     </div>
   );
 }
