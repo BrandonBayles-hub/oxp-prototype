@@ -5,7 +5,7 @@ import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { TONE_BADGE, type Tone } from "./tokens";
+import { TONE_BADGE, TYPE, type Tone } from "./tokens";
 
 // -----------------------------------------------------------------------------
 // DeltaPill
@@ -101,10 +101,15 @@ export function DeltaPill({
  */
 export type StatCardSize = "compact" | "default" | "hero";
 
+/**
+ * Three steps, one weight. `hero` was text-4xl (36px), which is larger than
+ * the page title — a number out-shouting the name of the page it sits on. It
+ * now tops out level with the title.
+ */
 const VALUE_SIZE: Record<StatCardSize, string> = {
   compact: "text-xl",
   default: "text-2xl",
-  hero: "text-4xl",
+  hero: "text-3xl",
 };
 
 const PADDING: Record<StatCardSize, string> = {
@@ -171,7 +176,9 @@ export function StatCard({
             <DeltaPill value={delta} tone={deltaTone} lowerIsBetter={lowerIsBetter} />
           ) : null}
         </div>
-        {sub ? <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p> : null}
+        {sub ? (
+          <p className={cn("mt-0.5 text-muted-foreground", TYPE.secondary)}>{sub}</p>
+        ) : null}
         {subItalic ? (
           <p className="mt-0.5 text-xxs italic text-muted-foreground">{subItalic}</p>
         ) : null}

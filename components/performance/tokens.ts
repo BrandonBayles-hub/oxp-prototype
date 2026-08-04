@@ -13,6 +13,60 @@
  */
 
 // -----------------------------------------------------------------------------
+// Type scale — one ladder for every reporting surface
+// -----------------------------------------------------------------------------
+
+/**
+ * The reporting type hierarchy, as named tokens.
+ *
+ * Measured before this existed, the five surfaces rendered: two page-title
+ * sizes (24 and 30), two section-heading sizes (14 and 18), FOUR stat-value
+ * sizes (20/24/30/36) across two weights, and four table-header
+ * size+weight combinations. Nothing was arbitrary-valued — the sizes were all
+ * legal Tailwind tokens — but "legal" is not the same as "one ladder", and a
+ * reader can't tell rank from a set of sizes that overlap between roles.
+ *
+ * The ladder, top to bottom:
+ *
+ *   30/600  page title            PageTop
+ *   30/700  stat value, hero      at most one per section
+ *   24/700  stat value, default   the standard KPI tile
+ *   20/700  stat value, compact   dense rows
+ *   16/600  section heading       SectionBanner
+ *   14/600  card title
+ *   14/400  body, descriptions
+ *   12/400  secondary, sub-labels, table cells
+ *   12/600  table headers
+ *   11/600  stat labels, meta
+ *   11/400  chart axes and legends
+ *
+ * Two rules fall out of it:
+ *  - a stat value never exceeds the page title (36px did, so a number
+ *    out-shouted the name of the page it sat on);
+ *  - every role has exactly ONE size+weight, so rank is legible without
+ *    reading content.
+ */
+export const TYPE = {
+  sectionHeading: "text-base font-semibold",
+  cardTitle: "text-sm font-semibold",
+  body: "text-sm",
+  secondary: "text-xs",
+  label: "text-xxs font-semibold",
+  tableHeader: "text-xs font-semibold",
+  tableCell: "text-xs",
+} as const;
+
+/**
+ * Chart type is set numerically by recharts, so it lives outside Tailwind.
+ *
+ * 12 matches the `text-xs` that `ChartContainer` already puts on its wrapper.
+ * Axes that carry no explicit size inherit that, so any other value here would
+ * make the axes WITH a prop disagree with the axes without one — which is
+ * exactly what was happening (11px on eight axes, 12px on the rest).
+ */
+export const CHART_FONT_SIZE = 12;
+
+// -----------------------------------------------------------------------------
 // Semantic tone — the only sanctioned mapping of meaning to color
 // -----------------------------------------------------------------------------
 

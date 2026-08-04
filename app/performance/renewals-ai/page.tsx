@@ -20,6 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
 import {
+  CHART_FONT_SIZE,
   CHART_GRID_STROKE,
   DeltaPill,
   EscalationsSection,
@@ -985,7 +986,7 @@ export default function RenewalsAiDashboardPage() {
               <p className="text-xxs font-semibold text-muted-foreground">
                 Renewal rate lift (AI vs non-AI)
               </p>
-              <p className="mt-1 text-4xl font-bold tracking-tight text-foreground">
+              <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-foreground">
                 {loading ? "…" : "+8.2 pts"}
               </p>
               <p className="mt-0.5 text-xs text-muted-foreground">
@@ -1056,7 +1057,7 @@ export default function RenewalsAiDashboardPage() {
                   <Legend
                     verticalAlign="bottom"
                     iconType="circle"
-                    wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }}
+                    wrapperStyle={{ fontSize: `${CHART_FONT_SIZE}px`, paddingTop: "6px" }}
                     formatter={legendLabel}
                   />
                 </LineChart>
@@ -1334,7 +1335,7 @@ export default function RenewalsAiDashboardPage() {
                   <Legend
                     verticalAlign="bottom"
                     iconType="circle"
-                    wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }}
+                    wrapperStyle={{ fontSize: `${CHART_FONT_SIZE}px`, paddingTop: "6px" }}
                     formatter={legendLabel}
                   />
                 </LineChart>

@@ -14,7 +14,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { PageHeader } from "@/components/page-header";
+import { PageTop } from "@/components/app-shell/page-top";
 import { ValueYoureMissingBanner } from "@/components/value-youre-missing-banner";
 import {
   Card,
@@ -35,6 +35,8 @@ import {
   ALL_REPORT_PROPERTIES,
   CHART_GRID_STROKE,
   ChartTitleRow,
+  SectionBanner,
+  TYPE,
   DeltaPill,
   ReportFilterBar,
   SERIES_NEUTRAL,
@@ -596,9 +598,10 @@ export default function PerformancePage() {
 
   return (
     <>
-      <PageHeader
+      <PageTop
         title="Performance"
         description="How output is affecting outcome — insights, correlation, and trajectory. Not just BI."
+        divider={false}
       />
 
 
@@ -612,7 +615,7 @@ export default function PerformancePage() {
 
       {showAssetImpact && !isPropertyRole && (
         <section className="mb-8">
-          <h2 className="section-title mb-4">Asset & revenue impact</h2>
+          <SectionBanner title="Asset & revenue impact" />
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {perf.assetMetrics.map((m) => (
               <Card key={m.id} className="border-border/60">
@@ -622,7 +625,7 @@ export default function PerformancePage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="pt-2 pb-5">
-                  <p className="text-4xl font-bold tracking-tight text-foreground">{m.value}</p>
+                  <p className="text-3xl font-bold tracking-tight tabular-nums text-foreground">{m.value}</p>
                   {m.change && (
                     <p className="mt-1 text-sm font-medium text-emerald-600">{m.change}</p>
                   )}
@@ -669,7 +672,7 @@ export default function PerformancePage() {
 
       {!isPropertyRole && (
         <section className="mb-8">
-          <h2 className="section-title mb-4">How AI is driving value</h2>
+          <SectionBanner title="How AI is driving value" />
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             {perf.assetValueChain.map((chain) => {
               if (chain.id === "renewals") {
@@ -727,7 +730,7 @@ export default function PerformancePage() {
       )}
 
       <section className="mb-8">
-        <h2 className="section-title mb-4">Efficiency & capacity</h2>
+        <SectionBanner title="Efficiency & capacity" />
         <div className={`grid gap-4 sm:grid-cols-2 ${isPropertyRole ? "lg:grid-cols-2" : "lg:grid-cols-4"}`}>
           {visibleEfficiency.map((m) => (
             <Card key={m.id} className="border-border/60">
@@ -737,7 +740,7 @@ export default function PerformancePage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="text-xl font-semibold tracking-tight text-foreground">{m.value}</p>
+                <p className="text-xl font-bold tracking-tight tabular-nums text-foreground">{m.value}</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">{m.sub}</p>
               </CardContent>
             </Card>
@@ -746,7 +749,7 @@ export default function PerformancePage() {
       </section>
 
       <section className="mb-8">
-        <h2 className="section-title mb-4">Trends</h2>
+        <SectionBanner title="Trends" />
         <div className={`grid gap-6 ${isPropertyRole ? "lg:grid-cols-2" : "lg:grid-cols-3"}`}>
           <Card className="border-border/60">
             <CardHeader>
@@ -847,27 +850,27 @@ export default function PerformancePage() {
                 <table className="w-full min-w-[500px] text-sm">
                   <thead>
                     <tr className="border-b border-border">
-                      <th className="pb-2 text-left font-medium text-muted-foreground">Type</th>
-                      <th className="pb-2 pl-6 text-left font-medium text-muted-foreground" colSpan={2}>Conversations</th>
-                      <th className="pb-2 pl-6 text-left font-medium text-muted-foreground whitespace-nowrap" colSpan={2}>Resolution rate</th>
+                      <th className="pb-2 text-left text-muted-foreground text-xs font-semibold">Type</th>
+                      <th className="pb-2 pl-6 text-left text-muted-foreground text-xs font-semibold" colSpan={2}>Conversations</th>
+                      <th className="pb-2 pl-6 text-left text-muted-foreground whitespace-nowrap text-xs font-semibold" colSpan={2}>Resolution rate</th>
                     </tr>
                     <tr className="border-b border-border/40">
-                      <th className="pb-1.5" />
-                      <th className="pb-1.5 pl-6 pr-2 w-[3.5rem] text-left text-xxs font-medium text-muted-foreground">AI</th>
-                      <th className="pb-1.5 pr-12 w-[3.5rem] text-left text-xxs font-medium text-muted-foreground">Human</th>
-                      <th className="pb-1.5 pl-6 pr-2 w-[3.5rem] text-left text-xxs font-medium text-muted-foreground">AI</th>
-                      <th className="pb-1.5 pr-12 w-[3.5rem] text-left text-xxs font-medium text-muted-foreground">Human</th>
+                      <th className="pb-1.5 text-xs font-semibold" />
+                      <th className="pb-1.5 pl-6 pr-2 w-[3.5rem] text-left  text-muted-foreground text-xs font-semibold">AI</th>
+                      <th className="pb-1.5 pr-12 w-[3.5rem] text-left  text-muted-foreground text-xs font-semibold">Human</th>
+                      <th className="pb-1.5 pl-6 pr-2 w-[3.5rem] text-left  text-muted-foreground text-xs font-semibold">AI</th>
+                      <th className="pb-1.5 pr-12 w-[3.5rem] text-left  text-muted-foreground text-xs font-semibold">Human</th>
                     </tr>
                   </thead>
                   <tbody>
                     {perf.impactByType.length > 0 ? (
                       perf.impactByType.map((row) => (
                         <tr key={row.agentType} className="border-b border-border/60">
-                          <td className="py-2 font-medium text-foreground">{row.agentType}</td>
-                          <td className="py-2 pl-6 pr-2 text-left text-foreground">{row.conversations}</td>
-                          <td className="py-2 pr-12 text-left text-muted-foreground">{row.humanConversations}</td>
-                          <td className="py-2 pl-6 pr-2 text-left text-foreground">{row.resolutionRate}</td>
-                          <td className="py-2 pr-12 text-left text-muted-foreground">{row.humanResolutionRate}</td>
+                          <td className="py-2 font-medium text-foreground text-xs">{row.agentType}</td>
+                          <td className="py-2 pl-6 pr-2 text-left text-foreground text-xs">{row.conversations}</td>
+                          <td className="py-2 pr-12 text-left text-muted-foreground text-xs">{row.humanConversations}</td>
+                          <td className="py-2 pl-6 pr-2 text-left text-foreground text-xs">{row.resolutionRate}</td>
+                          <td className="py-2 pr-12 text-left text-muted-foreground text-xs">{row.humanResolutionRate}</td>
                         </tr>
                       ))
                     ) : (
@@ -886,7 +889,7 @@ export default function PerformancePage() {
       )}
 
       <section className="mb-8">
-        <h2 className="section-title mb-4">Insights & next steps</h2>
+        <SectionBanner title="Insights & next steps" />
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {perf.outcomeNarratives.map((n) => (
@@ -946,7 +949,7 @@ function AgentImpactCard({
   value: string;
   /** What the number is — kept to a few words so it never wraps to 4 lines. */
   label: string;
-  /** The lift this agent produced, e.g. "+10 pts vs before ELI+". */
+  /** The lift this agent produced, e.g. "+10 pts". */
   delta?: string;
   deltaTone?: Tone;
   /** One short supporting clause. */
@@ -1024,7 +1027,7 @@ function useAgentImpactValues(months: number, propertyRatio: number): AgentImpac
         agent: "Renewals", href: "/performance/renewals-ai",
         value: `${renewalRate.toFixed(0)}%`, label: "Renewal rate",
         delta: `+${(renewalRate - 64).toFixed(0)} pts`, deltaTone: "positive" as Tone,
-        context: "Up from 64% before ELI+",
+        context: "Up from 64% since adding ELI+",
       },
       leasing: {
         agent: "Leasing", href: "/performance/leasing-ai",
@@ -1035,13 +1038,13 @@ function useAgentImpactValues(months: number, propertyRatio: number): AgentImpac
         agent: "Maintenance", href: "/performance/maintenance-ai",
         value: `${days.toFixed(1)}d`, label: "Avg days to complete",
         delta: `${(6.8 - days).toFixed(1)}d faster`, deltaTone: "positive" as Tone,
-        context: "Down from 6.8d before ELI+",
+        context: "Down from 6.8d since adding ELI+",
       },
       payments: {
         agent: "Payments", href: "/performance/payments-ai",
         value: `${collected.toFixed(1)}%`, label: "Rent collected on time",
         delta: `+${(collected - 91).toFixed(1)} pts`, deltaTone: "positive" as Tone,
-        context: "Up from 91.0% before ELI+",
+        context: "Up from 91.0% since adding ELI+",
       },
     };
   }, [months, propertyRatio]);
@@ -1092,7 +1095,7 @@ function FeedbackReviewSection() {
         className="flex w-full items-center justify-between rounded-lg border border-border/60 px-4 py-3 text-left transition-colors hover:bg-muted/30"
       >
         <div className="flex items-center gap-3">
-          <h2 className="section-title">Feedback review</h2>
+          <span className={cn(TYPE.sectionHeading, "text-foreground")}>Feedback review</span>
           <span className="text-sm text-muted-foreground">
             {items.length} total{newCount > 0 && <> &middot; <span className="font-medium text-foreground">{newCount} need review</span></>}
           </span>
