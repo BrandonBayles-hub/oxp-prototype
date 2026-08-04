@@ -431,9 +431,20 @@ function PropertyChips({
           <button
             type="button"
             onClick={() => {
-              const next = new Set(state.properties);
-              next.delete(p);
-              setState({ ...state, properties: next });
+              // Write to `propertySelection`, not `properties`. The latter is
+              // the page-scoped derivation and is recomputed from the shared
+              // selection on every render, so assigning to it was discarded
+              // and the chip's X did nothing.
+              //
+              // An empty selection means "all", so removing the first chip has
+              // to materialise the remaining properties explicitly — otherwise
+              // "all minus one" would round-trip straight back to "all".
+              const current =
+                state.propertySelection && state.propertySelection.size > 0
+                  ? new Set(state.propertySelection)
+                  : new Set<string>(state.properties);
+              current.delete(p);
+              setState({ ...state, propertySelection: current });
             }}
             className="text-muted-foreground hover:text-foreground"
             aria-label={`Remove ${p}`}
