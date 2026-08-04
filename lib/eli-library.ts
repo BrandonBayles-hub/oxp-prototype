@@ -1,3 +1,4 @@
+import { monthLabelsForPeriod } from "@/components/performance/tokens";
 export type EliAgentSlug =
   | "bi-eli-leasing-ai"
   | "bi-eli-renewals-ai"
@@ -37,6 +38,13 @@ export type BlockWidth =
   | "three-quarters";
 
 export interface DashboardBlock {
+  /**
+   * True when a FALL in this metric is the good outcome — days-to-complete,
+   * time-to-lease, cancellations, delinquency, cost. Without it the renderer
+   * can only read direction off the arrow, which paints every decrease red and
+   * reports a win as a loss.
+   */
+  lowerIsBetter?: boolean;
   type: BlockType;
   width: BlockWidth;
   title?: string;
@@ -91,7 +99,15 @@ export interface EliDashboard {
   titleSuffix?: string;
   description: string;
   iconSrc?: string;
-  headlineKpi: { label: string; value: string; sub: string };
+  headlineKpi: {
+    label: string;
+    value: string;
+    sub: string;
+    /** Rendered as a semantic badge beside the value, as on every other card. */
+    delta?: string;
+    /** True when a fall in this metric is the good outcome. */
+    lowerIsBetter?: boolean;
+  };
   blocks: DashboardBlock[];
 }
 
@@ -103,11 +119,16 @@ function seededRandom(seed: number) {
   };
 }
 
+/**
+ * Labels use the shared `Mon 'YY` format and run ascending to the current
+ * month, matching the four agent reports. Bare "Jan"…"Dec" is ambiguous on any
+ * range longer than a year — the same name appears twice — and it was the only
+ * time axis in the family that didn't say which year it meant.
+ */
 function mockTrend(seed: number, base: number, variance: number, points = 12): Array<{ label: string; value: number; baseline?: number }> {
   const rng = seededRandom(seed);
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  return months.slice(0, points).map((m) => ({
-    label: m,
+  return monthLabelsForPeriod(points).map((label) => ({
+    label,
     value: Math.round(base + (rng() - 0.3) * variance),
     baseline: Math.round(base * 0.82 + (rng() - 0.5) * variance * 0.3),
   }));
@@ -138,10 +159,10 @@ const LEASING_AI_BLOCKS: DashboardBlock[] = [
   { type: "kpi-card", width: "half", title: "Email Avg Response Rate", order: 20, config: {}, mockValue: "18.4%", mockSub: "of emails received a reply", mockDelta: { direction: "down", label: "−0.3 pts" } },
   { type: "kpi-card", width: "half", title: "Saved Hours — SMS", order: 21, config: {}, mockValue: "1,284", mockSub: "staff hours saved", mockDelta: { direction: "up", label: "+180 hrs" } },
   { type: "kpi-card", width: "half", title: "Saved Hours — Email", order: 22, config: {}, mockValue: "642", mockSub: "staff hours saved", mockDelta: { direction: "up", label: "+86 hrs" } },
-  { type: "kpi-card", width: "quarter", title: "Phone OptOut Ratio", order: 23, config: {}, mockValue: "2.1%", mockSub: "of contacts", mockDelta: { direction: "down", label: "−0.2 pts" } },
+  { type: "kpi-card", width: "quarter", title: "Phone OptOut Ratio", order: 23, config: {}, mockValue: "2.1%", mockSub: "of contacts", lowerIsBetter: true, mockDelta: { direction: "down", label: "−0.2 pts" } },
   { type: "kpi-card", width: "quarter", title: "Phone OptOuts", order: 24, config: {}, mockValue: "312", mockSub: "total opt-outs" },
   { type: "kpi-card", width: "quarter", title: "Email OptOuts", order: 25, config: {}, mockValue: "186", mockSub: "total opt-outs" },
-  { type: "kpi-card", width: "quarter", title: "Email OptOut Ratio", order: 26, config: {}, mockValue: "1.4%", mockSub: "of contacts", mockDelta: { direction: "down", label: "−0.1 pts" } },
+  { type: "kpi-card", width: "quarter", title: "Email OptOut Ratio", order: 26, config: {}, mockValue: "1.4%", mockSub: "of contacts", lowerIsBetter: true, mockDelta: { direction: "down", label: "−0.1 pts" } },
   { type: "kpi-card", width: "full", title: "Savings from Office Hours", order: 27, config: {}, mockValue: "$186,420", mockSub: "estimated cost savings · last 30 days", mockDelta: { direction: "up", label: "+$24K" } },
   { type: "data-table", width: "full", title: "Savings from Office Hours — Details", order: 28, config: {}, mockRows: [
     { label: "Hillside Living", value: "$42,180" }, { label: "Jamison Apartments", value: "$38,920" },
@@ -173,9 +194,9 @@ const LEASING_AI_BLOCKS: DashboardBlock[] = [
     { label: "Pricing", value: 52 }, { label: "Amenities", value: 38 },
     { label: "Unsubscribed", value: 24 }, { label: "Awaiting Lease", value: 18 },
   ] },
-  { type: "kpi-card", width: "half", title: "Office Escalations", order: 38, config: {}, mockValue: "1,020", mockSub: "total escalations", mockDelta: { direction: "down", label: "−8%" } },
-  { type: "kpi-card", width: "half", title: "Escalations % of Total Leads", order: 39, config: {}, mockValue: "16.7%", mockSub: "escalation rate", mockDelta: { direction: "down", label: "−1.2 pts" } },
-  { type: "kpi-card", width: "half", title: "Voice Calls % Transferred to Office", order: 40, config: {}, mockValue: "24.8%", mockSub: "of voice calls", mockDelta: { direction: "down", label: "−2.1 pts" } },
+  { type: "kpi-card", width: "half", title: "Office Escalations", order: 38, config: {}, mockValue: "1,020", mockSub: "total escalations", lowerIsBetter: true, mockDelta: { direction: "down", label: "−8%" } },
+  { type: "kpi-card", width: "half", title: "Escalations % of Total Leads", order: 39, config: {}, mockValue: "16.7%", mockSub: "escalation rate", lowerIsBetter: true, mockDelta: { direction: "down", label: "−1.2 pts" } },
+  { type: "kpi-card", width: "half", title: "Voice Calls % Transferred to Office", order: 40, config: {}, mockValue: "24.8%", mockSub: "of voice calls", lowerIsBetter: true, mockDelta: { direction: "down", label: "−2.1 pts" } },
   { type: "kpi-card", width: "half", title: "Voice Calls Transferred to Office", order: 41, config: {}, mockValue: "469", mockSub: "total transfers" },
   { type: "kpi-card", width: "half", title: "Guided Tours During Office Hours", order: 42, config: {}, mockValue: "412", mockSub: "tours booked", mockDelta: { direction: "up", label: "+14%" } },
   { type: "kpi-card", width: "half", title: "Guided Tours Outside Office Hours", order: 43, config: {}, mockValue: "200", mockSub: "after-hours tours", mockDelta: { direction: "up", label: "+32%" } },
@@ -251,10 +272,10 @@ const MAINTENANCE_AI_BLOCKS: DashboardBlock[] = [
   { type: "kpi-card", width: "third", title: "Units AI Usage Rate", order: 3, config: {}, mockValue: "64.2%", mockSub: "of total units", mockDelta: { direction: "up", label: "+4.1 pts" } },
   { type: "kpi-card", width: "third", title: "ELI+ Submitted Work Orders", order: 4, config: {}, mockValue: "4,842", mockSub: "AI-submitted WOs", mockDelta: { direction: "up", label: "+18%" } },
   { type: "line-chart", width: "full", title: "Monthly Trends — Work Orders Submitted", order: 5, config: {}, mockTrend: mockTrend(501, 400, 120) },
-  { type: "kpi-card", width: "third", title: "Open Work Orders", order: 6, config: {}, mockValue: "312", mockSub: "currently open", mockDelta: { direction: "down", label: "−14%" } },
+  { type: "kpi-card", width: "third", title: "Open Work Orders", order: 6, config: {}, mockValue: "312", mockSub: "currently open", lowerIsBetter: true, mockDelta: { direction: "down", label: "−14%" } },
   { type: "kpi-card", width: "third", title: "Completed Work Orders", order: 7, config: {}, mockValue: "4,186", mockSub: "completed this period", mockDelta: { direction: "up", label: "+22%" } },
-  { type: "kpi-card", width: "third", title: "Cancelled Work Orders", order: 8, config: {}, mockValue: "344", mockSub: "cancelled", mockDelta: { direction: "down", label: "−6%" } },
-  { type: "kpi-card", width: "full", title: "ELI+ Avg Days to Complete WO", order: 9, config: {}, mockValue: "1.4", mockSub: "days average · vs 2.8 days baseline", mockDelta: { direction: "down", label: "−1.4 days" } },
+  { type: "kpi-card", width: "third", title: "Cancelled Work Orders", order: 8, config: {}, mockValue: "344", mockSub: "cancelled", lowerIsBetter: true, mockDelta: { direction: "down", label: "−6%" } },
+  { type: "kpi-card", width: "full", title: "ELI+ Avg Days to Complete WO", order: 9, config: {}, mockValue: "1.4", mockSub: "days average · vs 2.8 days baseline", lowerIsBetter: true, mockDelta: { direction: "down", label: "−1.4 days" } },
   { type: "donut-chart", width: "full", title: "Work Order Status Distribution", order: 10, config: {}, mockSlices: [
     { label: "Completed", value: 4186 }, { label: "Cancelled", value: 344 },
     { label: "New", value: 142 }, { label: "Awaiting Parts", value: 86 },
@@ -292,7 +313,7 @@ const RENEWALS_AI_BLOCKS: DashboardBlock[] = [
   { type: "line-chart", width: "third", title: "Renewed / Contacted Over Month", order: 5, config: {}, mockTrend: mockTrend(602, 72, 12) },
   { type: "kpi-card", width: "third", title: "3 Month Renewal Ratio", order: 6, config: {}, mockValue: "71.2%", mockSub: "3-month average", mockDelta: { direction: "up", label: "+2.8 pts" } },
   { type: "kpi-card", width: "third", title: "Residents Up for Renewal", order: 7, config: {}, mockValue: "3,264", mockSub: "upcoming renewals" },
-  { type: "kpi-card", width: "third", title: "Avg Days to Renew", order: 8, config: {}, mockValue: "9.2", mockSub: "vs 14.1 baseline", mockDelta: { direction: "down", label: "−4.9 days" } },
+  { type: "kpi-card", width: "third", title: "Avg Days to Renew", order: 8, config: {}, mockValue: "9.2", mockSub: "vs 14.1 baseline", lowerIsBetter: true, mockDelta: { direction: "down", label: "−4.9 days" } },
   { type: "section-header", width: "full", order: 9, config: { title: "Staff Time Saved", subtitle: "Hours saved and reminder volume" } },
   { type: "kpi-card", width: "full", title: "Staff Time Saved (Hours)", order: 10, config: {}, mockValue: "1,842", mockSub: "staff hours saved", mockDelta: { direction: "up", label: "+240 hrs" } },
   { type: "kpi-card", width: "half", title: "Total Reminder Messages", order: 11, config: {}, mockValue: "18,420", mockSub: "messages sent", mockDelta: { direction: "up", label: "+12%" } },
@@ -306,7 +327,7 @@ const RENEWALS_AI_BLOCKS: DashboardBlock[] = [
     { label: "Buying", value: 184 }, { label: "Other", value: 142 },
   ] },
   { type: "section-header", width: "full", order: 18, config: { title: "Escalations", subtitle: "Escalation rate, volume, and resolution status" } },
-  { type: "kpi-card", width: "quarter", title: "Escalation Rate", order: 19, config: {}, mockValue: "12.4%", mockSub: "of contacted", mockDelta: { direction: "down", label: "−1.8 pts" } },
+  { type: "kpi-card", width: "quarter", title: "Escalation Rate", order: 19, config: {}, mockValue: "12.4%", mockSub: "of contacted", lowerIsBetter: true, mockDelta: { direction: "down", label: "−1.8 pts" } },
   { type: "kpi-card", width: "quarter", title: "Total Escalations", order: 20, config: {}, mockValue: "406", mockSub: "escalations" },
   { type: "kpi-card", width: "quarter", title: "Open", order: 21, config: {}, mockValue: "42", mockSub: "open escalations" },
   { type: "kpi-card", width: "quarter", title: "Resolved", order: 22, config: {}, mockValue: "364", mockSub: "resolved", mockDelta: { direction: "up", label: "+89%" } },
@@ -327,7 +348,7 @@ export const ELI_DASHBOARDS: Record<EliAgentSlug, EliDashboard> = {
     titleSuffix: "— Impact",
     description: "ELI+ Leasing AI performance dashboard — layout mirrors the Domo ELI+ | Leasing AI report (14 pages)",
     iconSrc: "/eli-cube.svg",
-    headlineKpi: { label: "Signed leases", value: "1,142", sub: "last 30 days · +18% vs prior" },
+    headlineKpi: { label: "Signed leases", value: "1,142", sub: "last 30 days", delta: "+18%" },
     blocks: LEASING_AI_BLOCKS,
   },
   "bi-eli-payments-ai": {
@@ -336,7 +357,7 @@ export const ELI_DASHBOARDS: Record<EliAgentSlug, EliDashboard> = {
     titleSuffix: "— Impact",
     description: "ELI+ Payments agent performance, collection impact, and delinquency reduction — mirrors the Domo ELI+ | Payments AI report",
     iconSrc: "/eli-cube.svg",
-    headlineKpi: { label: "On-time payment rate", value: "94.2%", sub: "last 30 days · +2.1 pts vs prior" },
+    headlineKpi: { label: "On-time payment rate", value: "94.2%", sub: "last 30 days", delta: "+2.1 pts" },
     blocks: PAYMENTS_AI_BLOCKS,
   },
   "bi-eli-maintenance-ai": {
@@ -354,7 +375,7 @@ export const ELI_DASHBOARDS: Record<EliAgentSlug, EliDashboard> = {
     titleSuffix: "— Impact",
     description: "ELI+ Renewals agent performance, renewal rate impact, and offer analytics — mirrors the Domo ELI+ | Renewals AI report",
     iconSrc: "/eli-cube.svg",
-    headlineKpi: { label: "Renewal rate", value: "74%", sub: "last 30 days · +4 pts vs prior" },
+    headlineKpi: { label: "Renewal rate", value: "74%", sub: "last 30 days", delta: "+4 pts" },
     blocks: RENEWALS_AI_BLOCKS,
   },
 };

@@ -20,6 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
 import {
+  CHART_FONT_SIZE,
   CHART_GRID_STROKE,
   DeltaPill,
   EscalationsSection,
@@ -714,9 +715,20 @@ function PropertyChips({
           <button
             type="button"
             onClick={() => {
-              const next = new Set(state.properties);
-              next.delete(p);
-              setState({ ...state, properties: next });
+              // Write to `propertySelection`, not `properties`. The latter is
+              // the page-scoped derivation and is recomputed from the shared
+              // selection on every render, so assigning to it was discarded
+              // and the chip's X did nothing.
+              //
+              // An empty selection means "all", so removing the first chip has
+              // to materialise the remaining properties explicitly — otherwise
+              // "all minus one" would round-trip straight back to "all".
+              const current =
+                state.propertySelection && state.propertySelection.size > 0
+                  ? new Set(state.propertySelection)
+                  : new Set<string>(state.properties);
+              current.delete(p);
+              setState({ ...state, propertySelection: current });
             }}
             className="text-muted-foreground hover:text-foreground"
             aria-label={`Remove ${p}`}
@@ -972,7 +984,7 @@ export default function RenewalsAiDashboardPage() {
               <p className="text-xxs font-semibold text-muted-foreground">
                 Renewal rate lift (AI vs non-AI)
               </p>
-              <p className="mt-1 text-4xl font-bold tracking-tight text-foreground">
+              <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-foreground">
                 {loading ? "…" : "+8.2 pts"}
               </p>
               <p className="mt-0.5 text-xs text-muted-foreground">
@@ -1044,7 +1056,7 @@ export default function RenewalsAiDashboardPage() {
                   <Legend
                     verticalAlign="bottom"
                     iconType="circle"
-                    wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }}
+                    wrapperStyle={{ fontSize: `${CHART_FONT_SIZE}px`, paddingTop: "6px" }}
                     formatter={legendLabel}
                   />
                 </LineChart>
@@ -1326,7 +1338,7 @@ export default function RenewalsAiDashboardPage() {
                   <Legend
                     verticalAlign="bottom"
                     iconType="circle"
-                    wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }}
+                    wrapperStyle={{ fontSize: `${CHART_FONT_SIZE}px`, paddingTop: "6px" }}
                     formatter={legendLabel}
                   />
                 </LineChart>

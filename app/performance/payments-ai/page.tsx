@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
 import {
+  CHART_FONT_SIZE,
   CHART_GRID_STROKE,
   DeltaPill,
   EscalationsSection,
@@ -258,7 +259,7 @@ function sliceTrend<T extends { monthIdx: number }>(data: T[], months: number): 
 
 function NewChip() {
   return (
-    <span className="inline-flex shrink-0 items-center rounded-full border border-eli-purple/30 bg-eli-warm-bg px-1.5 py-0.5 text-xxs font-medium text-eli-warm-bg-foreground">
+    <span className="inline-flex shrink-0 items-center rounded-full border border-eli-purple/30 bg-eli-warm-bg px-1.5 py-0.5 text-xxs font-semibold text-eli-warm-bg-foreground">
       New
     </span>
   );
@@ -306,9 +307,20 @@ function PropertyChips({
           <button
             type="button"
             onClick={() => {
-              const next = new Set(state.properties);
-              next.delete(p);
-              setState({ ...state, properties: next });
+              // Write to `propertySelection`, not `properties`. The latter is
+              // the page-scoped derivation and is recomputed from the shared
+              // selection on every render, so assigning to it was discarded
+              // and the chip's X did nothing.
+              //
+              // An empty selection means "all", so removing the first chip has
+              // to materialise the remaining properties explicitly — otherwise
+              // "all minus one" would round-trip straight back to "all".
+              const current =
+                state.propertySelection && state.propertySelection.size > 0
+                  ? new Set(state.propertySelection)
+                  : new Set<string>(state.properties);
+              current.delete(p);
+              setState({ ...state, propertySelection: current });
             }}
             className="text-muted-foreground hover:text-foreground"
             aria-label={`Remove ${p}`}
@@ -677,7 +689,7 @@ export default function PaymentsAiDashboardPage() {
               <ChartContainer config={{}} className="!aspect-auto h-[240px] w-full">
                 <BarChart data={latePayersMonthlyBar} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
-                  <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} fontSize={11} />
+                  <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} fontSize={CHART_FONT_SIZE} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} domain={[0, 260]} />
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <Bar dataKey="count" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
@@ -713,8 +725,8 @@ export default function PaymentsAiDashboardPage() {
               <ChartContainer config={{}} className="!aspect-auto h-[200px] w-full">
                 <BarChart data={topTenCollected} margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
-                  <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={4} fontSize={10} angle={-20} textAnchor="end" height={30} interval={0} />
-                  <YAxis tickLine={false} axisLine={false} tickMargin={4} width={36} domain={[0, 100]} tickFormatter={(v) => `${v}%`} fontSize={10} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={4} fontSize={CHART_FONT_SIZE} angle={-20} textAnchor="end" height={30} interval={0} />
+                  <YAxis tickLine={false} axisLine={false} tickMargin={4} width={36} domain={[0, 100]} tickFormatter={(v) => `${v}%`} fontSize={CHART_FONT_SIZE} />
                   <ChartTooltip content={<ChartTooltipContent formatter={(v) => `${v}%`} />} />
                   <Bar dataKey="value" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
                 </BarChart>
@@ -729,8 +741,8 @@ export default function PaymentsAiDashboardPage() {
               <ChartContainer config={{}} className="!aspect-auto h-[200px] w-full">
                 <BarChart data={bottomTenCollected} margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
-                  <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={4} fontSize={10} angle={-20} textAnchor="end" height={30} interval={0} />
-                  <YAxis tickLine={false} axisLine={false} tickMargin={4} width={36} domain={[0, 100]} tickFormatter={(v) => `${v}%`} fontSize={10} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={4} fontSize={CHART_FONT_SIZE} angle={-20} textAnchor="end" height={30} interval={0} />
+                  <YAxis tickLine={false} axisLine={false} tickMargin={4} width={36} domain={[0, 100]} tickFormatter={(v) => `${v}%`} fontSize={CHART_FONT_SIZE} />
                   <ChartTooltip content={<ChartTooltipContent formatter={(v) => `${v}%`} />} />
                   <Bar dataKey="value" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
                 </BarChart>
@@ -992,7 +1004,7 @@ export default function PaymentsAiDashboardPage() {
                   Staff hours saved
                 </p>
               </div>
-              <p className="mt-1 text-4xl font-bold tracking-tight text-foreground">
+              <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-foreground">
                 {loading ? "…" : "1,842"}
               </p>
               <p className="mt-0.5 text-xs text-muted-foreground">
@@ -1100,7 +1112,7 @@ export default function PaymentsAiDashboardPage() {
               <ChartContainer config={{}} className="!aspect-auto h-[240px] w-full">
                 <BarChart data={autonomousActionsTaken} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
-                  <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} angle={-15} textAnchor="end" height={40} interval={0} fontSize={11} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} angle={-15} textAnchor="end" height={40} interval={0} fontSize={CHART_FONT_SIZE} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={8} width={48} tickFormatter={(v) => v.toLocaleString()} />
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <Bar dataKey="value" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
@@ -1166,7 +1178,7 @@ export default function PaymentsAiDashboardPage() {
               <ChartContainer config={{}} className="!aspect-auto h-[260px] w-full">
                 <BarChart data={escalationReasons} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
-                  <XAxis dataKey="reason" tickLine={false} axisLine={false} tickMargin={8} angle={-25} textAnchor="end" height={60} interval={0} fontSize={10} />
+                  <XAxis dataKey="reason" tickLine={false} axisLine={false} tickMargin={8} angle={-25} textAnchor="end" height={60} interval={0} fontSize={CHART_FONT_SIZE} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <Bar dataKey="count" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
@@ -1253,19 +1265,19 @@ export default function PaymentsAiDashboardPage() {
               <table className="w-full min-w-[560px] text-sm">
                 <thead>
                   <tr className="border-b border-border">
-                    <th className="px-2 py-2 text-left font-medium text-muted-foreground">Property</th>
-                    <th className="px-2 py-2 text-right font-medium text-muted-foreground">Charged</th>
-                    <th className="px-2 py-2 text-right font-medium text-muted-foreground">Collected</th>
-                    <th className="px-2 py-2 text-right font-medium text-muted-foreground">% Collected</th>
+                    <th className="px-2 py-2 text-left text-muted-foreground text-xs font-semibold">Property</th>
+                    <th className="px-2 py-2 text-right text-muted-foreground text-xs font-semibold">Charged</th>
+                    <th className="px-2 py-2 text-right text-muted-foreground text-xs font-semibold">Collected</th>
+                    <th className="px-2 py-2 text-right text-muted-foreground text-xs font-semibold">% Collected</th>
                   </tr>
                 </thead>
                 <tbody>
                   {perPropertyCollectionTable.map((r) => (
                     <tr key={r.property} className="border-b border-muted last:border-0">
-                      <td className="px-2 py-1.5 text-foreground">{r.property}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">{r.chargedM}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">{r.collectedM}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums font-medium text-foreground">{r.collected}</td>
+                      <td className="px-2 py-1.5 text-foreground text-xs">{r.property}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground text-xs">{r.chargedM}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground text-xs">{r.collectedM}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums font-medium text-foreground text-xs">{r.collected}</td>
                     </tr>
                   ))}
                 </tbody>

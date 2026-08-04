@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
 import {
+  CHART_FONT_SIZE,
   CHART_GRID_STROKE,
   EscalationsSection,
   MultiSelectFilter,
@@ -1128,7 +1129,7 @@ export default function MaintenanceAiDashboardPage() {
               <p className="text-xxs font-semibold text-muted-foreground">
                 Work Orders Resolved
               </p>
-              <p className="mt-1 text-4xl font-bold tracking-tight text-foreground">
+              <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-foreground">
                 {loading ? "…" : metrics.workOrdersResolved.toLocaleString()}
               </p>
               <p className="mt-0.5 text-xs text-muted-foreground">
@@ -1339,7 +1340,7 @@ export default function MaintenanceAiDashboardPage() {
                 <ChartContainer config={{}} className="!aspect-auto h-[260px] w-full">
                   <BarChart data={metrics.escalationReasons} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
-                    <XAxis dataKey="reason" tickLine={false} axisLine={false} tickMargin={8} angle={-30} textAnchor="end" height={50} interval={0} fontSize={10} />
+                    <XAxis dataKey="reason" tickLine={false} axisLine={false} tickMargin={8} angle={-30} textAnchor="end" height={50} interval={0} fontSize={CHART_FONT_SIZE} />
                     <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
                     <ChartTooltip content={<ChartTooltipContent />} />
                     <Bar dataKey="count" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
@@ -1549,7 +1550,7 @@ export default function MaintenanceAiDashboardPage() {
                     <Legend
                       verticalAlign="bottom"
                       iconType="circle"
-                      wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }}
+                      wrapperStyle={{ fontSize: `${CHART_FONT_SIZE}px`, paddingTop: "6px" }}
                       formatter={legendLabel}
                     />
                   </BarChart>
@@ -2046,40 +2047,40 @@ function EliWorkOrderTable({ rows }: { rows: WorkOrderRow[] }) {
           <tbody>
             {pageRows.map((r) => (
               <tr key={r.id} className="border-t border-border/60 align-top">
-                <td className="px-3 py-2 font-mono text-foreground">{r.id}</td>
-                <td className="hidden px-3 py-2 lg:table-cell">{r.source}</td>
-                <td className="px-3 py-2 text-foreground">{r.property}</td>
-                <td className="px-3 py-2">{r.unit}</td>
-                <td className="hidden px-3 py-2 lg:table-cell">{r.resident}</td>
-                <td className="px-3 py-2">
+                <td className="px-3 py-2 font-mono text-foreground text-xs">{r.id}</td>
+                <td className="hidden px-3 py-2 lg:table-cell text-xs">{r.source}</td>
+                <td className="px-3 py-2 text-foreground text-xs">{r.property}</td>
+                <td className="px-3 py-2 text-xs">{r.unit}</td>
+                <td className="hidden px-3 py-2 lg:table-cell text-xs">{r.resident}</td>
+                <td className="px-3 py-2 text-xs">
                   <span
                     className={cn(
-                      "inline-flex items-center rounded-full px-2 py-0.5 text-xxs font-medium ring-1 ring-inset",
+                      "inline-flex items-center rounded-full px-2 py-0.5 text-xxs font-semibold ring-1 ring-inset",
                       PRIORITY_BADGE[r.priority],
                     )}
                   >
                     {r.priority}
                   </span>
                 </td>
-                <td className="hidden px-3 py-2 xl:table-cell">{r.category}</td>
-                <td className="hidden px-3 py-2 2xl:table-cell">{r.problem}</td>
-                <td className="hidden px-3 py-2 2xl:table-cell">{r.location}</td>
-                <td className="hidden max-w-[20rem] px-3 py-2 text-muted-foreground 2xl:table-cell">
+                <td className="hidden px-3 py-2 xl:table-cell text-xs">{r.category}</td>
+                <td className="hidden px-3 py-2 2xl:table-cell text-xs">{r.problem}</td>
+                <td className="hidden px-3 py-2 2xl:table-cell text-xs">{r.location}</td>
+                <td className="hidden max-w-[20rem] px-3 py-2 text-muted-foreground 2xl:table-cell text-xs">
                   {r.description}
                 </td>
-                <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{r.dateTime}</td>
-                <td className="px-3 py-2">
+                <td className="whitespace-nowrap px-3 py-2 text-muted-foreground text-xs">{r.dateTime}</td>
+                <td className="px-3 py-2 text-xs">
                   <span
                     className={cn(
-                      "inline-flex items-center rounded-full px-2 py-0.5 text-xxs font-medium ring-1 ring-inset",
+                      "inline-flex items-center rounded-full px-2 py-0.5 text-xxs font-semibold ring-1 ring-inset",
                       STATUS_BADGE[r.status],
                     )}
                   >
                     {r.status}
                   </span>
                 </td>
-                <td className="hidden px-3 py-2 lg:table-cell">{r.assignedTo}</td>
-                <td className="hidden whitespace-nowrap px-3 py-2 text-muted-foreground 2xl:table-cell">
+                <td className="hidden px-3 py-2 lg:table-cell text-xs">{r.assignedTo}</td>
+                <td className="hidden whitespace-nowrap px-3 py-2 text-muted-foreground 2xl:table-cell text-xs">
                   {r.assignedOn}
                 </td>
               </tr>
@@ -2204,7 +2205,7 @@ function ConversationAnalysisTable({ rows }: { rows: MessageLogRow[] }) {
       cell: (r) => (
         <span
           className={cn(
-            "inline-flex items-center rounded-full px-2 py-0.5 text-xxs font-medium ring-1 ring-inset",
+            "inline-flex items-center rounded-full px-2 py-0.5 text-xxs font-semibold ring-1 ring-inset",
             r.woCreated ? URGENCY_BADGE.settled : URGENCY_BADGE.muted,
           )}
         >
@@ -2249,7 +2250,7 @@ function ConversationAnalysisTable({ rows }: { rows: MessageLogRow[] }) {
               <th
                 key={c.label}
                 className={cn(
-                  "whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground",
+                  "whitespace-nowrap px-3 py-2 text-left text-xs font-semibold text-muted-foreground",
                   c.hide,
                 )}
               >

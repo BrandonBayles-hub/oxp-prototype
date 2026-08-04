@@ -14,7 +14,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { PageHeader } from "@/components/page-header";
+import { PageTop } from "@/components/app-shell/page-top";
 import { ValueYoureMissingBanner } from "@/components/value-youre-missing-banner";
 import {
   Card,
@@ -29,14 +29,23 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import { ThumbsUp, ThumbsDown, MessageSquare, CheckCircle, XCircle, Pencil, FileText, ChevronDown, ArrowRight, Calendar, Search } from "lucide-react";
+import { ThumbsUp, ThumbsDown, MessageSquare, CheckCircle, XCircle, Pencil, FileText, ChevronDown, ChevronRight, ArrowRight, Calendar, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
+  ALL_REPORT_PROPERTIES,
   CHART_GRID_STROKE,
   ChartTitleRow,
-  SERIES_NEUTRAL,
+  SectionBanner,
+  TYPE,
   DeltaPill,
+  ReportFilterBar,
+  SERIES_NEUTRAL,
+  formatMonthLabel,
+  monthsForPeriod,
+  periodLabel,
+  selectionRatio,
   seriesColor,
+  useReportScope,
   type Tone,
 } from "@/components/performance";
 import { cn } from "@/lib/utils";
@@ -47,28 +56,66 @@ import { useFeedback, type FeedbackStatus } from "@/lib/feedback-context";
 import { useConversations } from "@/lib/conversations-context";
 import { useRole } from "@/lib/role-context";
 
-const PERIODS = ["Last 7 days", "Last 30 days", "Last 90 days"];
+/**
+ * Portfolio health tiles.
+ *
+ * These are rates and averages, so they do NOT scale with the window — a
+ * renewal rate shouldn't double because you asked for twice as long. They do
+ * re-derive under the active scope, because a report that shows byte-identical
+ * portfolio figures for "Cedar Hills, last 3 months" and "all properties, 3
+ * years" is telling the user it re-scoped when it did not.
+ */
+function buildHealthMetrics(months: number, propertyRatio: number) {
+  const rand = seededRandom(311 + months * 7 + Math.round(propertyRatio * 100));
+  const drift = (band: number) => 1 + (rand() - 0.5) * band;
+  const pct = (base: number, d = 1) => `${(base * drift(0.08)).toFixed(d)}%`;
 
-const HEALTH_METRICS = [
-  { id: "renewal", label: "Renewal rate", value: "72%", sub: "vs 68% last period" },
-  { id: "occupancy", label: "Occupancy", value: "94%", sub: "portfolio avg" },
-  { id: "rent_growth", label: "Rent growth", value: "3.2%", sub: "YoY" },
-  { id: "cost_per_lease", label: "Cost per lease", value: "$1,840", sub: "portfolio" },
-  { id: "wo_resolution", label: "Work order resolution", value: "94%", sub: "7d" },
-  { id: "delinquency", label: "Delinquency", value: "2.1%", sub: "portfolio avg" },
-  { id: "turnover", label: "Turnover", value: "38%", sub: "annualized" },
-  { id: "time_to_lease", label: "Time-to-lease", value: "18 days", sub: "avg new lease" },
-  { id: "resident_satisfaction", label: "Resident satisfaction", value: "4.2/5", sub: "survey avg" },
-  { id: "preventative_maint", label: "Preventative maintenance", value: "61%", sub: "of total WOs" },
-];
+  return [
+    { id: "renewal", label: "Renewal rate", value: pct(72, 0), sub: "vs 68% last period" },
+    { id: "occupancy", label: "Occupancy", value: pct(94, 0), sub: "portfolio avg" },
+    { id: "rent_growth", label: "Rent growth", value: pct(3.2), sub: "YoY" },
+    {
+      id: "cost_per_lease",
+      label: "Cost per lease",
+      value: `$${Math.round(1840 * drift(0.12)).toLocaleString()}`,
+      sub: "portfolio",
+    },
+    { id: "wo_resolution", label: "Work order resolution", value: pct(94, 0), sub: "7d" },
+    { id: "delinquency", label: "Delinquency", value: pct(2.1), sub: "portfolio avg" },
+    { id: "turnover", label: "Turnover", value: pct(38, 0), sub: "annualized" },
+    {
+      id: "time_to_lease",
+      label: "Time-to-lease",
+      value: `${Math.round(18 * drift(0.18))} days`,
+      sub: "avg new lease",
+    },
+    {
+      id: "resident_satisfaction",
+      label: "Resident satisfaction",
+      value: `${(4.2 * drift(0.06)).toFixed(1)}/5`,
+      sub: "survey avg",
+    },
+    { id: "preventative_maint", label: "Preventative maintenance", value: pct(61, 0), sub: "of total WOs" },
+  ];
+}
 
-
+/**
+ * Seeded PRNG (Lehmer / MINSTD).
+ *
+ * The generator is warmed up before first use: for any small seed the first
+ * output lands around 0.008 regardless of the seed (1165 -> 0.0091,
+ * 1048 -> 0.0082, 968 -> 0.0076), so whichever value consumed the first draw
+ * was effectively constant. That pinned the Renewals headline at the same
+ * figure under every filter combination while its siblings moved.
+ */
 function seededRandom(seed: number) {
-  let s = seed;
-  return () => {
-    s = (s * 16807 + 0) % 2147483647;
+  let s = (seed % 2147483646) + 1;
+  const next = () => {
+    s = (s * 16807) % 2147483647;
     return (s - 1) / 2147483646;
   };
+  for (let i = 0; i < 8; i++) next();
+  return next;
 }
 
 interface TrendAnchors {
@@ -78,18 +125,26 @@ interface TrendAnchors {
   humanPct: number;
 }
 
-function useTrendData(period: string, anchors: TrendAnchors) {
-  const points = period === "Last 7 days" ? 7 : period === "Last 30 days" ? 30 : 90;
+/**
+ * Monthly trend points for the selected period.
+ *
+ * Was a fixed 7/30/90 *daily* series driven by this page's own period
+ * vocabulary. Now that the overview shares the reports' month-based period
+ * filter, it plots one point per month on the same ascending `Mon 'YY` axis the
+ * four agent reports use — so the time axis means the same thing everywhere.
+ */
+function useTrendData(months: number, anchors: TrendAnchors) {
+  const points = Math.max(2, Math.min(months, 36));
   return useMemo(() => {
     const rand = seededRandom(42 + points);
     const data = [];
     for (let i = points - 1; i >= 0; i--) {
       const d = new Date();
-      d.setDate(d.getDate() - i);
+      d.setMonth(d.getMonth() - i);
       const t = i / Math.max(points - 1, 1);
 
       data.push({
-        date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        date: formatMonthLabel(d),
         fullDate: d.toISOString().slice(0, 10),
         conversations: Math.round(
           anchors.conversations * (0.7 + 0.3 * (1 - t)) + Math.sin(i * 0.5) * 3 + rand() * 4
@@ -116,7 +171,27 @@ function useTrendData(period: string, anchors: TrendAnchors) {
   }, [points, anchors.conversations, anchors.escalationRate, anchors.agentPct, anchors.humanPct]);
 }
 
-function usePerformanceMetrics(selectedKey: string, isAll: boolean) {
+/**
+ * @param propertyRatio Share of the portfolio selected (1 = all).
+ * @param periodMonths  Length of the selected window.
+ *
+ * Volume metrics scale with both; rates are computed as ratios and so stay in
+ * band on their own. Before this, the stat cards ignored the period entirely —
+ * only the trend charts moved — so changing the range appeared to do nothing
+ * to the numbers above them.
+ *
+ * Property scope is applied by real name matching against the agents' scope
+ * strings and the escalation records — the seed data now covers all ten
+ * portfolio properties, so a selection genuinely narrows the underlying set
+ * rather than just rescaling a total. Payments AI stays portfolio-wide, so no
+ * selection can produce an empty page.
+ */
+function usePerformanceMetrics(
+  selectedKey: string,
+  isAll: boolean,
+  propertyRatio: number,
+  periodMonths: number,
+) {
   const { agents } = useAgents();
   const { items } = useEscalations();
   const { members } = useWorkforce();
@@ -134,8 +209,19 @@ function usePerformanceMetrics(selectedKey: string, isAll: boolean) {
 
     const activeAgents = scopedAgents.filter((a) => a.status === "Active");
     const autonomousAgents = scopedAgents.filter((a) => a.type === "autonomous");
-    const totalConversations = autonomousAgents.reduce((s, a) => s + a.conversationCount, 0);
-    const totalEscalations = autonomousAgents.reduce((s, a) => s + a.escalationsCount, 0);
+
+    // Volume scales with the WINDOW only. Property scope is already applied
+    // above by filtering the agent and escalation sets, so also multiplying by
+    // the selected share would count the same narrowing twice.
+    const scale = Math.max(0.01, periodMonths / 12);
+    const scaled = (n: number) => Math.round(n * scale);
+
+    const totalConversations = scaled(
+      autonomousAgents.reduce((s, a) => s + a.conversationCount, 0),
+    );
+    const totalEscalations = scaled(
+      autonomousAgents.reduce((s, a) => s + a.escalationsCount, 0),
+    );
     const escalationRate = totalConversations > 0
       ? Math.round((totalEscalations / totalConversations) * 100)
       : 0;
@@ -153,17 +239,18 @@ function usePerformanceMetrics(selectedKey: string, isAll: boolean) {
       const val = parseFloat(match[1]);
       return s + (a.revenueImpact.includes("K") ? val * 1000 : val);
     }, 0);
-    const totalRevenue = totalRevenueRaw >= 1000
-      ? `$${(totalRevenueRaw / 1000).toFixed(1)}K`
-      : `$${totalRevenueRaw.toFixed(0)}`;
+    const scaledRevenue = totalRevenueRaw * scale;
+    const totalRevenue = scaledRevenue >= 1000
+      ? `$${(scaledRevenue / 1000).toFixed(1)}K`
+      : `$${scaledRevenue.toFixed(0)}`;
 
     const laborDisplacedHrs = Math.round(totalConversations * 0.17);
     const effectiveCapacity = (humanCount + activeAgents.length * 0.8).toFixed(1);
     const unitsPerStaffWithAi = humanCount > 0 ? Math.round((humanCount + activeAgents.length * 0.8) * 10) : 0;
     const unitsPerStaffWithout = humanCount > 0 ? humanCount * 10 : 0;
 
-    const openEscalations = scopedItems.filter((i) => i.status !== "Done").length;
-    const doneEscalations = scopedItems.filter((i) => i.status === "Done").length;
+    const openEscalations = scaled(scopedItems.filter((i) => i.status !== "Done").length);
+    const doneEscalations = scaled(scopedItems.filter((i) => i.status === "Done").length);
     const resolutionRate = scopedItems.length > 0
       ? Math.round((doneEscalations / scopedItems.length) * 100)
       : 0;
@@ -441,7 +528,7 @@ function usePerformanceMetrics(selectedKey: string, isAll: boolean) {
     ];
 
     return { efficiencyMetrics, assetMetrics, impactByType, topAgents, insights, outcomeNarratives, assetValueChain, totalConversations, escalationRate, agentPct, humanPct };
-  }, [agents, items, members, feedbackItems, selectedKey, isAll]);
+  }, [agents, items, members, feedbackItems, selectedKey, isAll, propertyRatio, periodMonths]);
 }
 
 const conversationsChartConfig = { conversations: { label: "Conversations", color: seriesColor(0) } } satisfies ChartConfig;
@@ -464,149 +551,6 @@ const HEALTH_TREND_SERIES = [
   { label: "Renewal %", color: seriesColor(0) },
 ];
 
-const AI_ONLY_EFFICIENCY_IDS = new Set([
-  "agent_accuracy",
-  "agent_vs_human",
-  "labor_displaced",
-  "effective_capacity",
-  "units_with_ai",
-  "units_without_ai",
-]);
-
-function PeriodPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          "inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-sm",
-          open ? "border-primary/50 ring-1 ring-primary/20" : "border-border",
-        )}
-      >
-        <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-muted-foreground">Period:</span>
-        <span className="font-semibold text-foreground">{value}</span>
-        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-20 mt-1 w-[14rem] rounded-md border border-border bg-popover p-1 shadow-lg">
-            {PERIODS.map((opt) => (
-              <button
-                key={opt}
-                type="button"
-                onClick={() => {
-                  onChange(opt);
-                  setOpen(false);
-                }}
-                className={cn(
-                  "block w-full rounded px-3 py-1.5 text-left text-sm hover:bg-muted",
-                  value === opt && "bg-muted font-medium",
-                )}
-              >
-                {opt}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function PropertiesPicker({
-  options,
-  selected,
-  setSelected,
-}: {
-  options: string[];
-  selected: Set<string>;
-  setSelected: (s: Set<string>) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-
-  const allSelected = options.length > 0 && selected.size === options.length;
-  const label =
-    allSelected || selected.size === 0
-      ? "All"
-      : `${selected.size} selected`;
-
-  const filtered = options.filter((p) =>
-    p.toLowerCase().includes(search.toLowerCase()),
-  );
-
-  function toggle(p: string) {
-    const next = new Set(selected);
-    if (next.has(p)) next.delete(p);
-    else next.add(p);
-    setSelected(next);
-  }
-
-  function toggleAll() {
-    setSelected(allSelected ? new Set() : new Set(options));
-  }
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          "inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-sm",
-          open ? "border-primary/50 ring-1 ring-primary/20" : "border-border",
-        )}
-      >
-        <span className="text-muted-foreground">Properties:</span>
-        <span className="font-semibold text-foreground">{label}</span>
-        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-20 mt-1 w-[18rem] rounded-md border border-border bg-popover p-2 shadow-lg">
-            <div className="relative mb-2">
-              <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search properties..."
-                className="w-full rounded-md border border-border bg-background pl-7 pr-2 py-1.5 text-sm"
-              />
-            </div>
-            <div className="max-h-[16rem] overflow-y-auto">
-              <label className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  onChange={toggleAll}
-                  className="h-4 w-4 rounded border-border"
-                />
-                <span className="text-sm font-medium">All Properties</span>
-              </label>
-              {filtered.map((p) => (
-                <label key={p} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted">
-                  <input
-                    type="checkbox"
-                    checked={selected.has(p)}
-                    onChange={() => toggle(p)}
-                    className="h-4 w-4 rounded border-border"
-                  />
-                  <span className="text-sm">{p}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
 export default function PerformancePage() {
   const { role } = useRole();
   const { filteredItems: conversations } = useConversations();
@@ -617,20 +561,27 @@ export default function PerformancePage() {
     return Array.from(set).sort();
   }, [conversations]);
 
-  const [period, setPeriod] = useState("Last 7 days");
-  const [selectedProperties, setSelectedProperties] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    setSelectedProperties((prev) => (prev.size === 0 ? new Set(propertyOptions) : prev));
-  }, [propertyOptions]);
-
-  const allSelected = propertyOptions.length > 0 && selectedProperties.size === propertyOptions.length;
-  const selectedKey = useMemo(
-    () => Array.from(selectedProperties).sort().join("|"),
-    [selectedProperties],
+  // Same scope object the four agent reports read, so a period or property
+  // chosen here is still in effect after clicking through to an agent.
+  const [filters, setFilters] = useReportScope(ALL_REPORT_PROPERTIES);
+  const months = monthsForPeriod(filters.periodId);
+  const propertyRatio = selectionRatio(
+    filters.properties,
+    ALL_REPORT_PROPERTIES.length,
   );
-  const perf = usePerformanceMetrics(selectedKey, allSelected);
-  const trendData = useTrendData(period, {
+
+  const allSelected = (filters.propertySelection?.size ?? 0) === 0;
+  const selectedKey = useMemo(
+    () => [...filters.properties].sort().join("|"),
+    [filters.properties],
+  );
+  const perf = usePerformanceMetrics(selectedKey, allSelected, propertyRatio, months);
+  const healthMetrics = useMemo(
+    () => buildHealthMetrics(months, propertyRatio),
+    [months, propertyRatio],
+  );
+  const agentImpact = useAgentImpactValues(months, propertyRatio);
+  const trendData = useTrendData(months, {
     conversations: perf.totalConversations,
     escalationRate: perf.escalationRate,
     agentPct: perf.agentPct,
@@ -647,26 +598,24 @@ export default function PerformancePage() {
 
   return (
     <>
-      <PageHeader
+      <PageTop
         title="Performance"
         description="How output is affecting outcome — insights, correlation, and trajectory. Not just BI."
+        divider={false}
       />
 
 
       {showValueBanner && !isPropertyRole && <ValueYoureMissingBanner />}
 
-      <div className="mb-6 flex flex-wrap items-center gap-2">
-        <PeriodPicker value={period} onChange={setPeriod} />
-        <PropertiesPicker
-          options={propertyOptions}
-          selected={selectedProperties}
-          setSelected={setSelectedProperties}
-        />
-      </div>
+      <ReportFilterBar
+        filters={filters}
+        onChange={setFilters}
+        properties={ALL_REPORT_PROPERTIES}
+      />
 
       {showAssetImpact && !isPropertyRole && (
         <section className="mb-8">
-          <h2 className="section-title mb-4">Asset & revenue impact</h2>
+          <SectionBanner title="Asset & revenue impact" />
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {perf.assetMetrics.map((m) => (
               <Card key={m.id} className="border-border/60">
@@ -676,7 +625,7 @@ export default function PerformancePage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="pt-2 pb-5">
-                  <p className="text-4xl font-bold tracking-tight text-foreground">{m.value}</p>
+                  <p className="text-3xl font-bold tracking-tight tabular-nums text-foreground">{m.value}</p>
                   {m.change && (
                     <p className="mt-1 text-sm font-medium text-emerald-600">{m.change}</p>
                   )}
@@ -698,7 +647,7 @@ export default function PerformancePage() {
           </CardHeader>
           <CardContent>
             <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-              {HEALTH_METRICS.map((m) => (
+              {healthMetrics.map((m) => (
                 <div key={m.id} className="rounded-lg border border-border/60 bg-muted/40 px-3 py-2.5">
                   <p className="text-xs font-medium tracking-wider text-muted-foreground">{m.label}</p>
                   <p className="mt-1 text-lg font-semibold text-foreground">{m.value}</p>
@@ -723,17 +672,17 @@ export default function PerformancePage() {
 
       {!isPropertyRole && (
         <section className="mb-8">
-          <h2 className="section-title mb-4">How AI is driving value</h2>
+          <SectionBanner title="How AI is driving value" />
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             {perf.assetValueChain.map((chain) => {
               if (chain.id === "renewals") {
-                return <RenewalsImpactCard key={chain.id} />;
+                return <RenewalsImpactCard key={chain.id} scope={agentImpact} />;
               }
               if (chain.id === "leasing") {
-                return <LeasingImpactCard key={chain.id} />;
+                return <LeasingImpactCard key={chain.id} scope={agentImpact} />;
               }
               if (chain.id === "maintenance") {
-                return <MaintenanceImpactCard key={chain.id} />;
+                return <MaintenanceImpactCard key={chain.id} scope={agentImpact} />;
               }
               return (
                 <Card key={chain.id} className={`border-border/60 ${!chain.active ? "opacity-70" : ""}`}>
@@ -775,13 +724,13 @@ export default function PerformancePage() {
                 </Card>
               );
             })}
-            <PaymentsImpactCard />
+            <PaymentsImpactCard scope={agentImpact} />
           </div>
         </section>
       )}
 
       <section className="mb-8">
-        <h2 className="section-title mb-4">Efficiency & capacity</h2>
+        <SectionBanner title="Efficiency & capacity" />
         <div className={`grid gap-4 sm:grid-cols-2 ${isPropertyRole ? "lg:grid-cols-2" : "lg:grid-cols-4"}`}>
           {visibleEfficiency.map((m) => (
             <Card key={m.id} className="border-border/60">
@@ -791,7 +740,7 @@ export default function PerformancePage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="text-xl font-semibold tracking-tight text-foreground">{m.value}</p>
+                <p className="text-xl font-bold tracking-tight tabular-nums text-foreground">{m.value}</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">{m.sub}</p>
               </CardContent>
             </Card>
@@ -800,12 +749,12 @@ export default function PerformancePage() {
       </section>
 
       <section className="mb-8">
-        <h2 className="section-title mb-4">Trends</h2>
+        <SectionBanner title="Trends" />
         <div className={`grid gap-6 ${isPropertyRole ? "lg:grid-cols-2" : "lg:grid-cols-3"}`}>
           <Card className="border-border/60">
             <CardHeader>
               <CardTitle className="text-base">Conversations</CardTitle>
-              <CardDescription>Resolved over time ({period})</CardDescription>
+              <CardDescription>Resolved over time ({periodLabel(filters.periodId)})</CardDescription>
             </CardHeader>
             <CardContent>
               <ChartContainer config={conversationsChartConfig} className="min-h-[200px] w-full">
@@ -901,27 +850,27 @@ export default function PerformancePage() {
                 <table className="w-full min-w-[500px] text-sm">
                   <thead>
                     <tr className="border-b border-border">
-                      <th className="pb-2 text-left font-medium text-muted-foreground">Type</th>
-                      <th className="pb-2 pl-6 text-left font-medium text-muted-foreground" colSpan={2}>Conversations</th>
-                      <th className="pb-2 pl-6 text-left font-medium text-muted-foreground whitespace-nowrap" colSpan={2}>Resolution rate</th>
+                      <th className="pb-2 text-left text-muted-foreground text-xs font-semibold">Type</th>
+                      <th className="pb-2 pl-6 text-left text-muted-foreground text-xs font-semibold" colSpan={2}>Conversations</th>
+                      <th className="pb-2 pl-6 text-left text-muted-foreground whitespace-nowrap text-xs font-semibold" colSpan={2}>Resolution rate</th>
                     </tr>
                     <tr className="border-b border-border/40">
-                      <th className="pb-1.5" />
-                      <th className="pb-1.5 pl-6 pr-2 w-[3.5rem] text-left text-xxs font-medium text-muted-foreground">AI</th>
-                      <th className="pb-1.5 pr-12 w-[3.5rem] text-left text-xxs font-medium text-muted-foreground">Human</th>
-                      <th className="pb-1.5 pl-6 pr-2 w-[3.5rem] text-left text-xxs font-medium text-muted-foreground">AI</th>
-                      <th className="pb-1.5 pr-12 w-[3.5rem] text-left text-xxs font-medium text-muted-foreground">Human</th>
+                      <th className="pb-1.5 text-xs font-semibold" />
+                      <th className="pb-1.5 pl-6 pr-2 w-[3.5rem] text-left  text-muted-foreground text-xs font-semibold">AI</th>
+                      <th className="pb-1.5 pr-12 w-[3.5rem] text-left  text-muted-foreground text-xs font-semibold">Human</th>
+                      <th className="pb-1.5 pl-6 pr-2 w-[3.5rem] text-left  text-muted-foreground text-xs font-semibold">AI</th>
+                      <th className="pb-1.5 pr-12 w-[3.5rem] text-left  text-muted-foreground text-xs font-semibold">Human</th>
                     </tr>
                   </thead>
                   <tbody>
                     {perf.impactByType.length > 0 ? (
                       perf.impactByType.map((row) => (
                         <tr key={row.agentType} className="border-b border-border/60">
-                          <td className="py-2 font-medium text-foreground">{row.agentType}</td>
-                          <td className="py-2 pl-6 pr-2 text-left text-foreground">{row.conversations}</td>
-                          <td className="py-2 pr-12 text-left text-muted-foreground">{row.humanConversations}</td>
-                          <td className="py-2 pl-6 pr-2 text-left text-foreground">{row.resolutionRate}</td>
-                          <td className="py-2 pr-12 text-left text-muted-foreground">{row.humanResolutionRate}</td>
+                          <td className="py-2 font-medium text-foreground text-xs">{row.agentType}</td>
+                          <td className="py-2 pl-6 pr-2 text-left text-foreground text-xs">{row.conversations}</td>
+                          <td className="py-2 pr-12 text-left text-muted-foreground text-xs">{row.humanConversations}</td>
+                          <td className="py-2 pl-6 pr-2 text-left text-foreground text-xs">{row.resolutionRate}</td>
+                          <td className="py-2 pr-12 text-left text-muted-foreground text-xs">{row.humanResolutionRate}</td>
                         </tr>
                       ))
                     ) : (
@@ -940,7 +889,7 @@ export default function PerformancePage() {
       )}
 
       <section className="mb-8">
-        <h2 className="section-title mb-4">Insights & next steps</h2>
+        <SectionBanner title="Insights & next steps" />
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {perf.outcomeNarratives.map((n) => (
@@ -976,21 +925,15 @@ export default function PerformancePage() {
   );
 }
 
-/**
- * AgentImpactCard — one headline stat per agent.
- *
- * These cards previously stacked three multi-part before→after comparisons
- * each. In a 264px column the value block (whitespace-nowrap) won all the
- * space and crushed the label column to as little as 5px, wrapping labels one
- * character per line; row heights ranged 51–145px and the longer agent names
- * pushed "View dashboard" onto a second line. Twelve-ish chunks per card on a
- * page of otherwise glanceable cards read as noise.
- *
- * The card's job is to make someone want to open the dashboard, not to be the
- * dashboard. So: the single most compelling number, a short descriptor, the
- * lift it represents, and the link. Uniform by construction — every card is
- * the same shape, so the four compare at a glance.
- */
+const AI_ONLY_EFFICIENCY_IDS = new Set([
+  "agent_accuracy",
+  "agent_vs_human",
+  "labor_displaced",
+  "effective_capacity",
+  "units_with_ai",
+  "units_without_ai",
+]);
+
 function AgentImpactCard({
   agent,
   href,
@@ -1006,14 +949,15 @@ function AgentImpactCard({
   value: string;
   /** What the number is — kept to a few words so it never wraps to 4 lines. */
   label: string;
-  /** The lift this agent produced, e.g. "+10 pts vs before ELI+". */
+  /** The lift this agent produced, e.g. "+10 pts". */
   delta?: string;
   deltaTone?: Tone;
   /** One short supporting clause. */
   context?: string;
 }) {
   return (
-    <Card className="relative flex h-full flex-col overflow-hidden border-border/60 transition-colors hover:border-border">
+    <Link href={href} className="group block h-full focus-visible:outline-none">
+    <Card className="relative flex h-full flex-col overflow-hidden border-border/60 transition-all group-hover:border-foreground/20 group-hover:shadow-md group-focus-visible:ring-2 group-focus-visible:ring-ring">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-eli-purple/70 via-eli-pink/60 to-eli-purple/40"
@@ -1022,6 +966,14 @@ function AgentImpactCard({
         <div className="flex items-center gap-1.5">
           <img src="/eli-cube.svg" alt="" width={16} height={16} className="shrink-0" />
           <span className="text-sm font-semibold text-foreground">{agent}</span>
+          {/* Visible at rest, not only on hover: an affordance that appears
+              only when the pointer is already over the target tells you
+              nothing before you get there. It advances on hover to confirm
+              the whole card is the link. */}
+          <ChevronRight
+            className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground"
+            aria-hidden
+          />
         </div>
 
         <p className="mt-4 text-3xl font-bold tracking-tight tabular-nums text-foreground">
@@ -1034,16 +986,9 @@ function AgentImpactCard({
         {context ? (
           <p className="mt-1 text-xs text-muted-foreground">{context}</p>
         ) : null}
-
-        <Link
-          href={href}
-          className="mt-auto inline-flex w-fit items-center gap-1 pt-4 text-xs font-medium text-foreground underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          View dashboard
-          <ArrowRight className="h-3.5 w-3.5" aria-hidden />
-        </Link>
       </CardContent>
     </Card>
+    </Link>
   );
 }
 
@@ -1051,59 +996,79 @@ function AgentImpactCard({
  * One headline metric per agent — the number most likely to make someone open
  * the full report. The rest of the detail lives on the agent page.
  */
-function RenewalsImpactCard() {
-  return (
-    <AgentImpactCard
-      agent="Renewals"
-      href="/performance/renewals-ai"
-      value="74%"
-      label="Renewal rate"
-      delta="+10 pts"
-      deltaTone="positive"
-      context="Up from 64% before ELI+"
-    />
-  );
+/**
+ * The four headline agent stats, derived from the active scope.
+ *
+ * These were fixed strings, so the page's most prominent numbers sat under a
+ * filter bar and never moved. Counts scale with the window and the share of
+ * the portfolio; rates and averages only drift, since neither grows because
+ * the range is longer.
+ */
+interface AgentImpactValues {
+  renewals: React.ComponentProps<typeof AgentImpactCard>;
+  leasing: React.ComponentProps<typeof AgentImpactCard>;
+  maintenance: React.ComponentProps<typeof AgentImpactCard>;
+  payments: React.ComponentProps<typeof AgentImpactCard>;
 }
 
-function LeasingImpactCard() {
-  return (
-    <AgentImpactCard
-      agent="Leasing"
-      href="/performance/leasing-ai"
-      value="11,745"
-      label="Tours booked by ELI+"
-      context="From 75,526 conversations this period"
-    />
-  );
+function useAgentImpactValues(months: number, propertyRatio: number): AgentImpactValues {
+  return useMemo(() => {
+    const rand = seededRandom(909 + months * 13 + Math.round(propertyRatio * 100));
+    const drift = (band = 0.06) => 1 + (rand() - 0.5) * band;
+    const volume = Math.max(0.02, (months / 12) * propertyRatio);
+    const count = (base: number) => Math.round(base * volume * drift()).toLocaleString();
+
+    const renewalRate = 74 * drift();
+    const collected = 94.2 * drift();
+    const days = 4.2 * drift(0.1);
+
+    return {
+      renewals: {
+        agent: "Renewals", href: "/performance/renewals-ai",
+        value: `${renewalRate.toFixed(0)}%`, label: "Renewal rate",
+        delta: `+${(renewalRate - 64).toFixed(0)} pts`, deltaTone: "positive" as Tone,
+        context: "Up from 64% since adding ELI+",
+      },
+      leasing: {
+        agent: "Leasing", href: "/performance/leasing-ai",
+        value: count(11745), label: "Tours booked by ELI+",
+        context: `From ${count(75526)} conversations this period`,
+      },
+      maintenance: {
+        agent: "Maintenance", href: "/performance/maintenance-ai",
+        value: `${days.toFixed(1)}d`, label: "Avg days to complete",
+        delta: `${(6.8 - days).toFixed(1)}d faster`, deltaTone: "positive" as Tone,
+        context: "Down from 6.8d since adding ELI+",
+      },
+      payments: {
+        agent: "Payments", href: "/performance/payments-ai",
+        value: `${collected.toFixed(1)}%`, label: "Rent collected on time",
+        delta: `+${(collected - 91).toFixed(1)} pts`, deltaTone: "positive" as Tone,
+        context: "Up from 91.0% since adding ELI+",
+      },
+    };
+  }, [months, propertyRatio]);
 }
 
-function MaintenanceImpactCard() {
-  return (
-    <AgentImpactCard
-      agent="Maintenance"
-      href="/performance/maintenance-ai"
-      value="4.2d"
-      label="Avg days to complete"
-      delta="2.6d faster"
-      deltaTone="positive"
-      context="Down from 6.8d before ELI+"
-    />
-  );
+function RenewalsImpactCard({ scope }: { scope: AgentImpactValues }) {
+  return <AgentImpactCard {...scope.renewals} />;
 }
 
-function PaymentsImpactCard() {
-  return (
-    <AgentImpactCard
-      agent="Payments"
-      href="/performance/payments-ai"
-      value="94.2%"
-      label="Rent collected on time"
-      delta="+3.2 pts"
-      deltaTone="positive"
-      context="Up from 91.0% before ELI+"
-    />
-  );
+
+function LeasingImpactCard({ scope }: { scope: AgentImpactValues }) {
+  return <AgentImpactCard {...scope.leasing} />;
 }
+
+
+function MaintenanceImpactCard({ scope }: { scope: AgentImpactValues }) {
+  return <AgentImpactCard {...scope.maintenance} />;
+}
+
+
+function PaymentsImpactCard({ scope }: { scope: AgentImpactValues }) {
+  return <AgentImpactCard {...scope.payments} />;
+}
+
 
 const STATUS_LABELS: Record<FeedbackStatus, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
   new: { label: "New", variant: "destructive" },
@@ -1130,7 +1095,7 @@ function FeedbackReviewSection() {
         className="flex w-full items-center justify-between rounded-lg border border-border/60 px-4 py-3 text-left transition-colors hover:bg-muted/30"
       >
         <div className="flex items-center gap-3">
-          <h2 className="section-title">Feedback review</h2>
+          <span className={cn(TYPE.sectionHeading, "text-foreground")}>Feedback review</span>
           <span className="text-sm text-muted-foreground">
             {items.length} total{newCount > 0 && <> &middot; <span className="font-medium text-foreground">{newCount} need review</span></>}
           </span>

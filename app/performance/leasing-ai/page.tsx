@@ -21,6 +21,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
+  CHART_FONT_SIZE,
   CHART_GRID_STROKE,
   EscalationsSection,
   ReportFilterBar,
@@ -431,9 +432,20 @@ function PropertyChips({
           <button
             type="button"
             onClick={() => {
-              const next = new Set(state.properties);
-              next.delete(p);
-              setState({ ...state, properties: next });
+              // Write to `propertySelection`, not `properties`. The latter is
+              // the page-scoped derivation and is recomputed from the shared
+              // selection on every render, so assigning to it was discarded
+              // and the chip's X did nothing.
+              //
+              // An empty selection means "all", so removing the first chip has
+              // to materialise the remaining properties explicitly — otherwise
+              // "all minus one" would round-trip straight back to "all".
+              const current =
+                state.propertySelection && state.propertySelection.size > 0
+                  ? new Set(state.propertySelection)
+                  : new Set<string>(state.properties);
+              current.delete(p);
+              setState({ ...state, propertySelection: current });
             }}
             className="text-muted-foreground hover:text-foreground"
             aria-label={`Remove ${p}`}
@@ -1013,7 +1025,7 @@ function LeadCaptureSection({ filters, months }: { filters: ReportFilters; month
               <BarChart data={sourceData} layout="vertical" margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={CHART_GRID_STROKE} />
                 <XAxis type="number" tickLine={false} axisLine={false} tickFormatter={(v) => Number(v).toLocaleString()} />
-                <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} width={118} tick={{ fontSize: 11 }} />
+                <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} width={118} tick={{ fontSize: CHART_FONT_SIZE }} />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 <Bar dataKey="count" radius={[0, 4, 4, 0]}>
                   {sourceData.map((s) => (
@@ -1036,7 +1048,7 @@ function LeadCaptureSection({ filters, months }: { filters: ReportFilters; month
             >
               <BarChart data={channelData} margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
-                <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} tick={{ fontSize: 11 }} />
+                <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} tick={{ fontSize: CHART_FONT_SIZE }} />
                 <YAxis tickLine={false} axisLine={false} tickMargin={8} width={42} tickFormatter={(v) => Number(v).toLocaleString()} />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 <Bar dataKey="count" radius={[4, 4, 0, 0]}>
@@ -1446,10 +1458,12 @@ function DomoReplicaSection({ filters, months }: { filters: ReportFilters; month
 
 function EscalationsOverviewSection({
   filters,
+  setFilters,
   months,
   escalationResolutionData,
 }: {
   filters: ReportFilters;
+  setFilters: (s: ReportFilters) => void;
   months: number;
   escalationResolutionData: ReturnType<typeof sliceTrend<MonthlyPoint>>;
 }) {
@@ -1511,6 +1525,7 @@ function EscalationsOverviewSection({
               selected={filters.properties}
               yDomain={filters.view === "global" ? [0, 4] : [0, 5]}
             />
+            <PropertyChips state={filters} setState={setFilters} />
           </CardContent>
         </Card>
       </div>
@@ -1558,6 +1573,7 @@ export default function LeasingAiDashboardPage() {
 
       <EscalationsOverviewSection
         filters={filters}
+        setFilters={setFilters}
         months={months}
         escalationResolutionData={escalationResolutionData}
       />
@@ -1582,25 +1598,25 @@ export default function LeasingAiDashboardPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/40">
-                      <th className="px-4 py-2.5 text-left text-xxs font-semibold text-muted-foreground">Agent</th>
-                      <th className="px-4 py-2.5 text-left text-xxs font-semibold text-muted-foreground">Property</th>
-                      <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">Emails Sent</th>
-                      <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">SMS Sent</th>
-                      <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">Prospects Assisted</th>
-                      <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">Resolved Tasks</th>
-                      <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">Calls Dialed</th>
+                      <th className="px-4 py-2.5 text-left  text-muted-foreground text-xs font-semibold">Agent</th>
+                      <th className="px-4 py-2.5 text-left  text-muted-foreground text-xs font-semibold">Property</th>
+                      <th className="px-4 py-2.5 text-right  text-muted-foreground text-xs font-semibold">Emails Sent</th>
+                      <th className="px-4 py-2.5 text-right  text-muted-foreground text-xs font-semibold">SMS Sent</th>
+                      <th className="px-4 py-2.5 text-right  text-muted-foreground text-xs font-semibold">Prospects Assisted</th>
+                      <th className="px-4 py-2.5 text-right  text-muted-foreground text-xs font-semibold">Resolved Tasks</th>
+                      <th className="px-4 py-2.5 text-right  text-muted-foreground text-xs font-semibold">Calls Dialed</th>
                     </tr>
                   </thead>
                   <tbody>
                     {agentActivityRows.map((row) => (
                       <tr key={row.agent} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
-                        <td className="px-4 py-2.5 font-medium text-foreground whitespace-nowrap">{row.agent}</td>
-                        <td className="px-4 py-2.5 text-muted-foreground whitespace-nowrap">{row.property}</td>
-                        <td className="px-4 py-2.5 text-right tabular-nums">{row.emailsSent}</td>
-                        <td className="px-4 py-2.5 text-right tabular-nums">{row.smsSent}</td>
-                        <td className="px-4 py-2.5 text-right tabular-nums">{row.prospectsAssisted}</td>
-                        <td className="px-4 py-2.5 text-right tabular-nums">{row.resolvedTasks}</td>
-                        <td className="px-4 py-2.5 text-right tabular-nums">{row.callsDialed}</td>
+                        <td className="px-4 py-2.5 font-medium text-foreground whitespace-nowrap text-xs">{row.agent}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground whitespace-nowrap text-xs">{row.property}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-xs">{row.emailsSent}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-xs">{row.smsSent}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-xs">{row.prospectsAssisted}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-xs">{row.resolvedTasks}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-xs">{row.callsDialed}</td>
                       </tr>
                     ))}
                   </tbody>

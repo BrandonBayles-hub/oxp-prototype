@@ -20,7 +20,13 @@ import {
 } from "recharts";
 import { ArrowDownRight, ArrowLeft, ArrowUpRight, Minus } from "lucide-react";
 import { ConsoleBreadcrumb } from "@/components/eli-console/console-breadcrumb";
-import { TONE_TEXT } from "@/components/performance";
+import {
+  DeltaPill,
+  SectionBanner,
+  StatCard,
+  StatGrid,
+  seriesColor,
+} from "@/components/performance";
 import { PageHeader } from "@/components/page-header";
 import {
   Card,
@@ -38,49 +44,37 @@ import {
 import { cn } from "@/lib/utils";
 import type { EliDashboard, DashboardBlock } from "@/lib/eli-library";
 
-const DONUT_COLORS = [
-  "hsl(var(--foreground))",
-  "hsl(var(--foreground) / 0.65)",
-  "hsl(var(--foreground) / 0.45)",
-  "hsl(var(--foreground) / 0.30)",
-  "hsl(var(--foreground) / 0.20)",
-  "hsl(var(--foreground) / 0.14)",
-  "hsl(var(--foreground) / 0.10)",
-  "hsl(var(--foreground) / 0.07)",
-  "hsl(var(--muted-foreground) / 0.5)",
-  "hsl(var(--muted-foreground) / 0.3)",
-];
+/**
+ * Donut slice colours come from the shared ordered palette.
+ *
+ * This was a ten-step monochrome ramp of foreground alphas ending at 0.07,
+ * so on a ten-slice donut the last five slices were indistinguishable from
+ * each other and nearly invisible against the card.
+ */
+const DONUT_COLORS = Array.from({ length: 10 }, (_, i) => seriesColor(i));
 
 function DeltaChip({
   delta,
+  lowerIsBetter,
 }: {
   delta: NonNullable<DashboardBlock["mockDelta"]>;
+  lowerIsBetter?: boolean;
 }) {
-  const Icon =
+  // Direction is a fact about the number; whether it is GOOD is a property of
+  // the metric. Reading tone off the arrow painted every decrease red, so
+  // "Cancelled work orders -6%" and "Avg days to renew -4.9 days" — both wins —
+  // were reported as losses.
+  // Labels already carry their own sign, and it may be a Unicode minus
+  // (U+2212) rather than an ASCII hyphen. Strip whichever is there before
+  // re-applying one, so a "down" delta doesn't render as "-−0.3 pts".
+  const bare = delta.label.replace(/^[+\-\u2212\u2013]\s*/, "");
+  const signed =
     delta.direction === "up"
-      ? ArrowUpRight
+      ? `+${bare}`
       : delta.direction === "down"
-        ? ArrowDownRight
-        : Minus;
-  // Semantic tokens rather than raw palette classes: these also clear WCAG AA
-  // at the 12px size deltas render at, where green-600/red-500 did not.
-  const color =
-    delta.direction === "up"
-      ? TONE_TEXT.positive
-      : delta.direction === "down"
-        ? TONE_TEXT.negative
-        : TONE_TEXT.neutral;
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-0.5 text-xs font-medium",
-        color,
-      )}
-    >
-      <Icon className="h-3.5 w-3.5" />
-      {delta.label}
-    </span>
-  );
+        ? `\u2212${bare}`
+        : bare;
+  return <DeltaPill value={signed} lowerIsBetter={lowerIsBetter} />;
 }
 
 const WIDTH_CLASS: Record<string, string> = {
@@ -88,20 +82,10 @@ const WIDTH_CLASS: Record<string, string> = {
   half: "col-span-12 sm:col-span-6",
   third: "col-span-12 sm:col-span-6 lg:col-span-4",
   quarter: "col-span-6 sm:col-span-3",
-  fifth: "col-span-6 sm:col-span-4 lg:col-span-2 xl:col-span-[2.4]",
+  fifth: "col-span-6 sm:col-span-4 lg:col-span-2",
   "two-thirds": "col-span-12 lg:col-span-8",
   "three-quarters": "col-span-12 lg:col-span-9",
 };
-
-const SERIES_COLORS = [
-  "hsl(200 65% 45%)",
-  "hsl(280 30% 55%)",
-  "hsl(340 60% 55%)",
-  "hsl(45 85% 55%)",
-  "hsl(160 40% 50%)",
-  "hsl(220 40% 60%)",
-  "hsl(25 75% 55%)",
-];
 
 function KpiTile({
   block,
@@ -111,94 +95,45 @@ function KpiTile({
   standalone?: boolean;
 }) {
   return (
-    <div
-      className={cn(
-        "rounded-lg border border-border bg-card px-3 py-2.5",
-        standalone && "flex h-full flex-col justify-center",
-      )}
-    >
-      <p className="truncate text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
-        {block.title}
-      </p>
-      <div className="mt-0.5 flex items-baseline gap-2">
-        <p
-          className={cn(
-            "font-semibold tracking-tight leading-tight",
-            standalone ? "text-3xl" : "text-xl",
-          )}
-        >
-          {String(block.mockValue ?? "—")}
-        </p>
-        {block.mockDelta && <DeltaChip delta={block.mockDelta} />}
-      </div>
-      {block.mockSub && (
-        <p className="mt-0.5 truncate text-xxs text-muted-foreground">
-          {block.mockSub}
-        </p>
-      )}
-    </div>
+    <StatCard
+      className={cn(standalone && "h-full")}
+      size={standalone ? "hero" : "compact"}
+      label={block.title ?? ""}
+      value={String(block.mockValue ?? "\u2014")}
+      delta={block.mockDelta?.label}
+      lowerIsBetter={block.lowerIsBetter}
+      sub={block.mockSub}
+    />
   );
 }
 
 function KpiRow({ blocks }: { blocks: DashboardBlock[] }) {
-  const cols =
-    blocks.length >= 5
-      ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5"
-      : blocks.length === 4
-        ? "grid-cols-2 lg:grid-cols-4"
-        : blocks.length === 3
-          ? "grid-cols-1 sm:grid-cols-3"
-          : blocks.length === 2
-            ? "grid-cols-1 sm:grid-cols-2"
-            : "grid-cols-1";
+  const columns = blocks.length >= 5 ? 5 : blocks.length === 4 ? 4 : blocks.length === 3 ? 3 : 2;
   return (
-    <div className={cn("col-span-12 grid gap-2", cols)}>
+    <StatGrid columns={columns} className="col-span-12">
       {blocks.map((b) => (
         <KpiTile key={b.order} block={b} />
       ))}
-    </div>
+    </StatGrid>
   );
 }
-
 function KpiHeroBlock({ block }: { block: DashboardBlock }) {
   return (
-    <Card className={cn(WIDTH_CLASS[block.width])}>
-      <CardContent className="py-4">
-        <p className="text-xxs font-semibold uppercase tracking-wider text-muted-foreground">
-          {block.title}
-        </p>
-        <div className="mt-1 flex items-baseline gap-3">
-          <p className="text-3xl font-bold tracking-tight">
-            {String(block.mockValue ?? "—")}
-          </p>
-          {block.mockDelta && <DeltaChip delta={block.mockDelta} />}
-        </div>
-        {block.mockSub && (
-          <p className="text-xs text-muted-foreground">{block.mockSub}</p>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function SectionHeaderBlock({ block }: { block: DashboardBlock }) {
-  return (
-    <div className="col-span-12 -mx-1 mb-1 mt-3 rounded bg-muted/60 px-3 py-2">
-      <h3 className="text-sm font-semibold tracking-tight text-foreground">
-        {block.config.title}
-      </h3>
-      {block.config.subtitle && (
-        // foreground/70, not muted-foreground: the latter measured 3.76:1 on
-        // this band, under the 4.5:1 AA requirement.
-        <p className="mt-0.5 text-xs text-foreground/70">{block.config.subtitle}</p>
-      )}
+    <div className={cn(WIDTH_CLASS[block.width])}>
+      <KpiTile block={block} standalone />
     </div>
   );
 }
-
+function SectionHeaderBlock({ block }: { block: DashboardBlock }) {
+  return (
+    <div className="col-span-12 mt-3">
+      <SectionBanner title={block.config.title} description={block.config.subtitle} />
+    </div>
+  );
+}
 function LineChartBlock({ block }: { block: DashboardBlock }) {
   const chartConfig: ChartConfig = {
-    value: { label: "Current", color: "hsl(var(--foreground))" },
+    value: { label: "Current", color: seriesColor(0) },
     baseline: {
       label: "Baseline",
       color: "hsl(var(--muted-foreground) / 0.3)",
@@ -231,7 +166,7 @@ function LineChartBlock({ block }: { block: DashboardBlock }) {
             <Area
               dataKey="value"
               stroke="var(--color-value)"
-              fill="hsl(var(--foreground) / 0.06)"
+              fill={seriesColor(0)}
               strokeWidth={2}
               dot={false}
               type="monotone"
@@ -261,7 +196,7 @@ function BarChartBlock({ block }: { block: DashboardBlock }) {
   const isCurrency = maxVal >= 100_000;
 
   const chartConfig: ChartConfig = {
-    value: { label: block.title ?? "Value", color: "hsl(var(--foreground))" },
+    value: { label: block.title ?? "Value", color: seriesColor(0) },
   };
 
   return (
@@ -277,7 +212,7 @@ function BarChartBlock({ block }: { block: DashboardBlock }) {
               dataKey="label"
               tickLine={false}
               axisLine={false}
-              fontSize={9}
+              fontSize={10}
               interval={0}
               angle={-30}
               textAnchor="end"
@@ -293,7 +228,7 @@ function BarChartBlock({ block }: { block: DashboardBlock }) {
             <ChartTooltip content={<ChartTooltipContent />} />
             <Bar
               dataKey="value"
-              fill="hsl(var(--foreground) / 0.7)"
+              fill={seriesColor(0)}
               radius={[4, 4, 0, 0]}
             />
           </BarChart>
@@ -513,8 +448,6 @@ export function LibraryDashboardView({
         className="mb-3"
       />
 
-      {toolbar}
-
       <PageHeader
         title={
           <span className="inline-flex items-center gap-2">
@@ -533,6 +466,11 @@ export function LibraryDashboardView({
         }
         description={d.description}
       />
+
+      {/* Below the title, matching where the four agent reports put their bar.
+          Above it the control read as page chrome rather than as the scope the
+          numbers underneath were computed under. */}
+      {toolbar}
 
       <section className="mb-5">
         <Card>

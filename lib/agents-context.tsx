@@ -102,7 +102,11 @@ export type Agent = {
   trendDirection?: "up" | "down" | "flat";
 };
 
-const STORAGE_KEY = "janet-poc-agents-v11";
+// v12: the autonomous agents' `scope` values were spread across all ten
+// portfolio properties. Persisted state from v11 carries the old two-property
+// scopes, so the key is bumped to invalidate it — otherwise anyone who has
+// used the app before (including a demo machine) keeps the stale seed.
+const STORAGE_KEY = "janet-poc-agents-v12";
 
 function seedUsage(name: string, status: string, type: AgentType): { weeklyUsage: number; trendDirection: "up" | "down" | "flat" } {
   let h = 0;
@@ -204,7 +208,7 @@ const INITIAL_AGENTS: Agent[] = [
   { id: "134", ...defaultAgentFields("Revenue & Financial Management", "intelligence", "Unapprove for Payment", "Unapprove selected invoices for payment in bulk, moving them through the AP approval workflow.", { status: "Active", labels: ["Accounting"] }) },
   { id: "3", ...defaultAgentFields("Revenue & Financial Management", "operations", "Payments Operations", "Automated payment processing, reconciliation, and ledger posting. Runs nightly to match payments to charges and flag discrepancies.", { labels: ["Payments"], runsCompleted: 142, lastRunAt: "2026-02-20T03:00:00Z", lastRunStatus: "success", errorCount: 3, avgRunDuration: "4m 12s", schedule: "Daily at 3:00 AM" }) },
   // Leasing & Marketing
-  { id: "4", ...defaultAgentFields("Leasing & Marketing", "autonomous", "Leasing AI", "Tours, applications, lease questions", { status: "Active", scope: "Hillside Living, Jamison Apartments", vaultBinding: "SOPs: Leasing, Fair housing", channels: ["Chat", "SMS", "Portal"], toolsAllowed: ["Entrata Tools", "Lease lookup"], guardrails: "Required-docs: screening policy", conversationCount: 89, resolutionRate: "92%", escalationsCount: 7, revenueImpact: "$8.4K", labels: ["Leasing"] }) },
+  { id: "4", ...defaultAgentFields("Leasing & Marketing", "autonomous", "Leasing AI", "Tours, applications, lease questions", { status: "Active", scope: "Hillside Living, Jamison Apartments, Cedar Hills, Parkview Flats, Summit Ridge", vaultBinding: "SOPs: Leasing, Fair housing", channels: ["Chat", "SMS", "Portal"], toolsAllowed: ["Entrata Tools", "Lease lookup"], guardrails: "Required-docs: screening policy", conversationCount: 89, resolutionRate: "92%", escalationsCount: 7, revenueImpact: "$8.4K", labels: ["Leasing"] }) },
   // L2 · Operational Efficiency — Leasing & Marketing (22)
   { id: "200", ...defaultAgentFields("Leasing & Marketing", "intelligence", "30-Days Inactive Leads Cancel", "Cancels leads after 30 days of inactivity to keep dashboards organized and up to date.", { status: "Active", labels: ["Leasing"] }) },
   { id: "201", ...defaultAgentFields("Leasing & Marketing", "intelligence", "Approve Applications", "Approve rental applications in bulk, moving qualified applicants through the leasing pipeline.", { status: "Active", labels: ["Leasing"] }) },
@@ -230,7 +234,7 @@ const INITIAL_AGENTS: Agent[] = [
   { id: "221", ...defaultAgentFields("Leasing & Marketing", "intelligence", "Update Insurance Enforcement Settings", "From a property's Insurance Enforcement section, open the custom modal to select multiple properties and one setting/value. The agent GETs each property's insurance page in memory, merges the chosen value into the form data, and POSTs to the update API (no dialog or tab reload).", { status: "Active", labels: ["Leasing"] }) },
   { id: "6", ...defaultAgentFields("Leasing & Marketing", "operations", "Leasing Operations", "Processes applications, runs screening, executes leases, and coordinates move-in tasks automatically.", { labels: ["Leasing"], runsCompleted: 89, lastRunAt: "2026-02-20T08:15:00Z", lastRunStatus: "success", errorCount: 1, avgRunDuration: "2m 45s", schedule: "On new application" }) },
   // Resident Relations & Retention
-  { id: "7", ...defaultAgentFields("Resident Relations & Retention", "autonomous", "Renewal AI", "Renewal conversations and retention", { status: "Active", vaultBinding: "SOPs: Renewal, Lease terms", guardrails: "Controlled phrasing (Voice)", conversationCount: 56, resolutionRate: "94%", escalationsCount: 3, revenueImpact: "$5.1K", labels: ["Resident relations"] }) },
+  { id: "7", ...defaultAgentFields("Resident Relations & Retention", "autonomous", "Renewal AI", "Renewal conversations and retention", { status: "Active", scope: "Hillside Living, Lakewood, Maple Court, Oak Terrace, Pine Valley, The Beacon", vaultBinding: "SOPs: Renewal, Lease terms", guardrails: "Controlled phrasing (Voice)", conversationCount: 56, resolutionRate: "94%", escalationsCount: 3, revenueImpact: "$5.1K", labels: ["Resident relations"] }) },
   // L2 · Operational Efficiency — Resident Relations & Retention (22)
   { id: "300", ...defaultAgentFields("Resident Relations & Retention", "intelligence", "Anchor Tenant Bulk Update", "Update anchor tenant designation across multiple tenants in a single action.", { status: "Active", labels: ["Resident relations"] }) },
   { id: "301", ...defaultAgentFields("Resident Relations & Retention", "intelligence", "Annual Revenue Range Bulk Update", "Update the annual revenue range for multiple commercial tenants at once.", { status: "Active", labels: ["Resident relations"] }) },
@@ -256,7 +260,7 @@ const INITIAL_AGENTS: Agent[] = [
   { id: "321", ...defaultAgentFields("Resident Relations & Retention", "intelligence", "Transfer Move-Out", "Auto-process the move-out side of unit transfers.", { status: "Active", labels: ["Resident relations"] }) },
   { id: "9", ...defaultAgentFields("Resident Relations & Retention", "operations", "Renewal Operations", "Sends renewal offers, generates lease documents, schedules follow-ups, and processes renewal executions.", { labels: ["Resident relations"], runsCompleted: 67, lastRunAt: "2026-02-19T10:00:00Z", lastRunStatus: "success", errorCount: 0, avgRunDuration: "1m 30s", schedule: "Daily at 10:00 AM" }) },
   // Operations & Maintenance
-  { id: "10", ...defaultAgentFields("Operations & Maintenance", "autonomous", "Maintenance AI", "Work orders, follow-up, scheduling", { status: "Active", vaultBinding: "SOPs: Maintenance escalation", channels: ["Chat", "Voice"], toolsAllowed: ["Entrata Tools", "Work orders"], conversationCount: 78, resolutionRate: "89%", escalationsCount: 8, revenueImpact: "$3.2K", labels: ["Maintenance"] }) },
+  { id: "10", ...defaultAgentFields("Operations & Maintenance", "autonomous", "Maintenance AI", "Work orders, follow-up, scheduling", { status: "Active", scope: "Cedar Hills, Jamison Apartments, Lakewood, Maple Court, Oak Terrace, Parkview Flats, Summit Ridge", vaultBinding: "SOPs: Maintenance escalation", channels: ["Chat", "Voice"], toolsAllowed: ["Entrata Tools", "Work orders"], conversationCount: 78, resolutionRate: "89%", escalationsCount: 8, revenueImpact: "$3.2K", labels: ["Maintenance"] }) },
   // L2 · Operational Efficiency — Operations & Maintenance (14)
   { id: "400", ...defaultAgentFields("Operations & Maintenance", "intelligence", "Add Baseline Images to Inspections", "Automatically pulls images from the baseline inspection into the current inspection.", { status: "Active", labels: ["Maintenance"] }) },
   { id: "401", ...defaultAgentFields("Operations & Maintenance", "intelligence", "Add Home Warranty Agent", "Enter warranty details for multiple homes at once with consistent information.", { status: "Active", labels: ["Maintenance"] }) },

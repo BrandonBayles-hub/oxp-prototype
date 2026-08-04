@@ -3,6 +3,7 @@
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
+import { TYPE } from "./tokens";
 
 /**
  * The section header used by every report section.
@@ -43,11 +44,11 @@ export function SectionBanner({
       )}
     >
       <div className="min-w-0">
-        <Heading id={id} className="text-sm font-semibold text-foreground">
+        <Heading id={id} className={cn(TYPE.sectionHeading, "text-foreground")}>
           {title}
         </Heading>
         {description ? (
-          <p className="mt-0.5 text-xs text-foreground/70">{description}</p>
+          <p className={cn("mt-0.5 text-foreground/70", TYPE.secondary)}>{description}</p>
         ) : null}
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}
