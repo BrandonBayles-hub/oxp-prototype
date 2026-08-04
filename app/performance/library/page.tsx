@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { cn } from "@/lib/utils";
+import { DeltaPill } from "@/components/performance";
 import { PageTop } from "@/components/app-shell/page-top";
 import {
   ELI_DASHBOARDS,
@@ -16,8 +16,7 @@ function EliDashboardCard({ slug }: { slug: EliAgentSlug }) {
   const d = ELI_DASHBOARDS[slug];
   return (
     <Link href={`/performance/library/${slug}`} className="group">
-      <div className="relative bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl transition-all shadow-sm overflow-hidden hover:border-[hsl(var(--foreground))]/20 hover:shadow-md">
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[hsl(var(--foreground))] via-[hsl(var(--foreground))]/60 to-[hsl(var(--foreground))]/30" />
+      <div className="rounded-xl border border-border bg-card shadow-sm transition-all hover:border-foreground/20 hover:shadow-md">
         <div className="p-5 pt-4">
           <div className="flex items-start gap-3 mb-3">
             <div className="p-2 rounded-lg bg-[hsl(var(--foreground))]/5 shrink-0">
@@ -37,14 +36,26 @@ function EliDashboardCard({ slug }: { slug: EliAgentSlug }) {
           </p>
 
           <div className="flex items-end justify-between gap-4 pt-3 border-t border-[hsl(var(--border))]/60">
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="text-xxs font-semibold text-muted-foreground">
                 {d.headlineKpi.label}
               </p>
-              <p className="text-lg font-semibold tracking-tight">{d.headlineKpi.value}</p>
+              {/* The delta sits on the value's baseline as a semantic badge,
+                  the same shape it takes on every other card in the family. It
+                  used to be plain text buried in the sub-line, where it carried
+                  no colour and read as part of the caption. */}
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                <p className="text-lg font-semibold tracking-tight">{d.headlineKpi.value}</p>
+                {d.headlineKpi.delta ? (
+                  <DeltaPill
+                    value={d.headlineKpi.delta}
+                    lowerIsBetter={d.headlineKpi.lowerIsBetter}
+                  />
+                ) : null}
+              </div>
               <p className="text-xxs text-muted-foreground">{d.headlineKpi.sub}</p>
             </div>
-            <Sparkline values={getSparklineValues(slug.charCodeAt(7))} className="opacity-60" />
+            <Sparkline values={getSparklineValues(slug.charCodeAt(7))} width={56} className="shrink-0" />
           </div>
         </div>
       </div>

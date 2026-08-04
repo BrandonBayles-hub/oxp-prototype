@@ -99,7 +99,15 @@ export interface EliDashboard {
   titleSuffix?: string;
   description: string;
   iconSrc?: string;
-  headlineKpi: { label: string; value: string; sub: string };
+  headlineKpi: {
+    label: string;
+    value: string;
+    sub: string;
+    /** Rendered as a semantic badge beside the value, as on every other card. */
+    delta?: string;
+    /** True when a fall in this metric is the good outcome. */
+    lowerIsBetter?: boolean;
+  };
   blocks: DashboardBlock[];
 }
 
@@ -340,7 +348,7 @@ export const ELI_DASHBOARDS: Record<EliAgentSlug, EliDashboard> = {
     titleSuffix: "— Impact",
     description: "ELI+ Leasing AI performance dashboard — layout mirrors the Domo ELI+ | Leasing AI report (14 pages)",
     iconSrc: "/eli-cube.svg",
-    headlineKpi: { label: "Signed leases", value: "1,142", sub: "last 30 days · +18% vs prior" },
+    headlineKpi: { label: "Signed leases", value: "1,142", sub: "last 30 days", delta: "+18%" },
     blocks: LEASING_AI_BLOCKS,
   },
   "bi-eli-payments-ai": {
@@ -349,7 +357,7 @@ export const ELI_DASHBOARDS: Record<EliAgentSlug, EliDashboard> = {
     titleSuffix: "— Impact",
     description: "ELI+ Payments agent performance, collection impact, and delinquency reduction — mirrors the Domo ELI+ | Payments AI report",
     iconSrc: "/eli-cube.svg",
-    headlineKpi: { label: "On-time payment rate", value: "94.2%", sub: "last 30 days · +2.1 pts vs prior" },
+    headlineKpi: { label: "On-time payment rate", value: "94.2%", sub: "last 30 days", delta: "+2.1 pts" },
     blocks: PAYMENTS_AI_BLOCKS,
   },
   "bi-eli-maintenance-ai": {
@@ -367,7 +375,7 @@ export const ELI_DASHBOARDS: Record<EliAgentSlug, EliDashboard> = {
     titleSuffix: "— Impact",
     description: "ELI+ Renewals agent performance, renewal rate impact, and offer analytics — mirrors the Domo ELI+ | Renewals AI report",
     iconSrc: "/eli-cube.svg",
-    headlineKpi: { label: "Renewal rate", value: "74%", sub: "last 30 days · +4 pts vs prior" },
+    headlineKpi: { label: "Renewal rate", value: "74%", sub: "last 30 days", delta: "+4 pts" },
     blocks: RENEWALS_AI_BLOCKS,
   },
 };

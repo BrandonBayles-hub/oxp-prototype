@@ -24,6 +24,7 @@ export {
   periodLabel,
   selectionRatio,
   seriesColor,
+  seriesColorAlpha,
   seriesColorMap,
   serializeFilters,
   type PeriodId,

@@ -100,6 +100,11 @@ export function seriesColor(index: number): string {
   return SERIES_COLORS[index % SERIES_COLORS.length];
 }
 
+/** The same series colour at a given alpha — for area fills under a line. */
+export function seriesColorAlpha(index: number, alpha: number): string {
+  return seriesColor(index).replace(/\)$/, ` / ${alpha})`);
+}
+
 /** Build a stable name→color map so a given series keeps its color per page. */
 export function seriesColorMap<T extends string>(keys: readonly T[]): Record<T, string> {
   return keys.reduce(
