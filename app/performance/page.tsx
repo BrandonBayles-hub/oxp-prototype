@@ -178,11 +178,11 @@ function useTrendData(months: number, anchors: TrendAnchors) {
  * only the trend charts moved — so changing the range appeared to do nothing
  * to the numbers above them.
  *
- * Scaling by share rather than filtering on exact property names is deliberate:
- * this page's seed data (agents, escalations, workforce) only mentions two of
- * the ten portfolio properties, so an exact-match filter would empty the page
- * for any other selection. Share-scaling is the same model the four agent
- * reports use, so the whole family responds to the filters the same way.
+ * Property scope is applied by real name matching against the agents' scope
+ * strings and the escalation records — the seed data now covers all ten
+ * portfolio properties, so a selection genuinely narrows the underlying set
+ * rather than just rescaling a total. Payments AI stays portfolio-wide, so no
+ * selection can produce an empty page.
  */
 function usePerformanceMetrics(
   selectedKey: string,
@@ -208,8 +208,10 @@ function usePerformanceMetrics(
     const activeAgents = scopedAgents.filter((a) => a.status === "Active");
     const autonomousAgents = scopedAgents.filter((a) => a.type === "autonomous");
 
-    // Volume responds to the active scope; rates below stay ratios.
-    const scale = Math.max(0.01, (periodMonths / 12) * propertyRatio);
+    // Volume scales with the WINDOW only. Property scope is already applied
+    // above by filtering the agent and escalation sets, so also multiplying by
+    // the selected share would count the same narrowing twice.
+    const scale = Math.max(0.01, periodMonths / 12);
     const scaled = (n: number) => Math.round(n * scale);
 
     const totalConversations = scaled(
