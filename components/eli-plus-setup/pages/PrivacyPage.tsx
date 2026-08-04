@@ -11,6 +11,7 @@ import {
   Copy,
   ChevronDown,
   ChevronRight,
+  ChevronLeft,
   Info,
   Loader2,
   X,
@@ -1354,6 +1355,66 @@ function ActionCard({
   )
 }
 
+// ── Empty state when a property search returns no matches ─────────────────────
+
+function NoSearchMatch({ query }: { query: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-white px-5 py-10 flex flex-col items-center text-center gap-2">
+      <Search className="h-6 w-6 text-muted-foreground/40" />
+      <p className="text-sm font-semibold text-foreground">No properties match &ldquo;{query}&rdquo;</p>
+      <p className="text-xs text-muted-foreground">Try a different property name, city, or state.</p>
+    </div>
+  )
+}
+
+// ── Pagination control for the property list under the filter tiles ───────────
+
+function Pagination({ currentPage, totalPages, pageStart, pageSize, total, onPage }: {
+  currentPage: number
+  totalPages: number
+  pageStart: number
+  pageSize: number
+  total: number
+  onPage: (page: number) => void
+}) {
+  const from = pageStart + 1
+  const to = Math.min(pageStart + pageSize, total)
+  const pages = Array.from({ length: totalPages }, (_, i) => i + 1)
+  const navBtn = "inline-flex items-center gap-1 h-8 px-2.5 rounded-md border text-xs font-medium transition-colors"
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+      <p className="text-xs text-muted-foreground">
+        Showing <span className="font-medium text-foreground tabular-nums">{from}–{to}</span> of{" "}
+        <span className="font-medium text-foreground tabular-nums">{total}</span>
+      </p>
+      <div className="flex items-center gap-1">
+        <button type="button" onClick={() => onPage(currentPage - 1)} disabled={currentPage === 1}
+          className={cn(navBtn, currentPage === 1
+            ? "border-border bg-zinc-50 text-muted-foreground/50 cursor-not-allowed"
+            : "border-border bg-white text-foreground hover:bg-zinc-50")}>
+          <ChevronLeft className="h-3.5 w-3.5" />Prev
+        </button>
+        {pages.map(pn => (
+          <button key={pn} type="button" onClick={() => onPage(pn)}
+            aria-current={pn === currentPage ? "page" : undefined}
+            className={cn("h-8 min-w-[2rem] px-2 rounded-md border text-xs font-semibold tabular-nums transition-colors",
+              pn === currentPage
+                ? "border-zinc-900 bg-zinc-900 text-white"
+                : "border-border bg-white text-foreground hover:bg-zinc-50")}>
+            {pn}
+          </button>
+        ))}
+        <button type="button" onClick={() => onPage(currentPage + 1)} disabled={currentPage === totalPages}
+          className={cn(navBtn, currentPage === totalPages
+            ? "border-border bg-zinc-50 text-muted-foreground/50 cursor-not-allowed"
+            : "border-border bg-white text-foreground hover:bg-zinc-50")}>
+          Next<ChevronRight className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BasePageProps) {
@@ -1546,6 +1607,36 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
 
   const verifiedReadyCount = Object.keys(readyToSubmit).length
 
+  // ── Property search + pagination (the list under the filter tiles) ──────────
+  const PAGE_SIZE = 8
+  const [search, setSearch] = useState("")
+  const [page, setPage]     = useState(1)
+
+  const matchesSearch = (p: typeof PROPERTIES[0]) => {
+    const q = search.trim().toLowerCase()
+    if (!q) return true
+    return (
+      p.name.toLowerCase().includes(q) ||
+      p.city.toLowerCase().includes(q) ||
+      p.state.toLowerCase().includes(q)
+    )
+  }
+
+  // Source list for the active filter, narrowed by the search query
+  const searchBase =
+    filterView === "needs-action" ? actionProperties  :
+    filterView === "pending"      ? reviewProperties   :
+    filterView === "approved"     ? approvedProperties :
+                                    PROPERTIES
+  const activeList  = searchBase.filter(matchesSearch)
+  const totalPages  = Math.max(1, Math.ceil(activeList.length / PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const pageStart   = (currentPage - 1) * PAGE_SIZE
+  const pagedList   = activeList.slice(pageStart, pageStart + PAGE_SIZE)
+
+  // Reset to the first page whenever the filter or search query changes
+  useEffect(() => { setPage(1) }, [filterView, search])
+
   return (
     <TooltipProvider delayDuration={200}>
     <div className="flex flex-col min-h-full bg-stone-50">
@@ -1641,19 +1732,45 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
           })}
         </div>
 
+        {/* ── Property search (filters the list under the tiles) ── */}
+        <div className="flex items-center gap-3">
+          <div className="relative flex-1 max-w-md">
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/70" />
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search properties by name, city, or state…"
+              aria-label="Search properties"
+              className="w-full h-9 rounded-lg border border-border bg-white pl-9 pr-8 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
+            />
+            {search && (
+              <button type="button" onClick={() => setSearch("")} aria-label="Clear search"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground/60 hover:text-foreground">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          {search.trim() && (
+            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+              {activeList.length} {activeList.length === 1 ? "match" : "matches"}
+            </span>
+          )}
+        </div>
+
         {/* ── Content area (switches per filter) ── */}
 
         {/* Needs action */}
         {filterView === "needs-action" && (
           <div className="space-y-4">
-            {actionProperties.length > 0 ? (
+            {activeList.length > 0 ? (
               <>
                 <p className="text-sm text-muted-foreground">
                   {failedCount > 0
                     ? `${failedCount} failed carrier review · ${needsActionCount - failedCount} awaiting submission`
                     : `${needsActionCount} ${needsActionCount === 1 ? "property needs" : "properties need"} a privacy policy URL`}
                 </p>
-                {actionProperties.map(prop => (
+                {pagedList.map(prop => (
                   <ActionCard
                     key={prop.id}
                     prop={prop}
@@ -1673,6 +1790,8 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
                   />
                 ))}
               </>
+            ) : actionProperties.length > 0 ? (
+              <NoSearchMatch query={search} />
             ) : (
               <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-5 py-10 flex flex-col items-center text-center gap-3">
                 <CheckCircle2 className="h-8 w-8 text-emerald-500" />
@@ -1697,7 +1816,7 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
                 ? `${reviewCount} ${reviewCount === 1 ? "property" : "properties"} submitted — carrier review typically takes 2–3 business days.`
                 : "No properties are currently in carrier review."}
             </p>
-            {reviewCount > 0 && (
+            {activeList.length > 0 ? (
               <div className="rounded-xl border border-border overflow-hidden bg-white">
                 <table className="w-full text-xs border-separate border-spacing-0">
                   <thead>
@@ -1710,7 +1829,7 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
                     </tr>
                   </thead>
                   <tbody>
-                    {reviewProperties.map(prop => (
+                    {pagedList.map(prop => (
                       <tr key={prop.id} className="bg-white hover:bg-blue-50/30 transition-colors">
                         <td className="px-4 py-3 border-b border-border">
                           <p className="font-medium text-foreground text-xs leading-tight">{prop.name}</p>
@@ -1730,7 +1849,9 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
                   </tbody>
                 </table>
               </div>
-            )}
+            ) : reviewCount > 0 ? (
+              <NoSearchMatch query={search} />
+            ) : null}
           </div>
         )}
 
@@ -1742,7 +1863,7 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
                 ? `${completedCount} ${completedCount === 1 ? "property has" : "properties have"} a carrier-approved privacy policy. Phone number assignment is handled in the Communications tab.`
                 : "No properties have been approved yet."}
             </p>
-            {completedCount > 0 && (
+            {activeList.length > 0 ? (
               <div className="rounded-xl border border-border overflow-hidden bg-white">
                 <table className="w-full text-xs border-separate border-spacing-0">
                   <thead>
@@ -1755,7 +1876,7 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
                     </tr>
                   </thead>
                   <tbody>
-                    {approvedProperties.map(prop => (
+                    {pagedList.map(prop => (
                       <tr key={prop.id} className="bg-white hover:bg-emerald-50/30 transition-colors">
                         <td className="px-4 py-3 border-b border-border">
                           <p className="font-medium text-foreground text-xs leading-tight">{prop.name}</p>
@@ -1775,12 +1896,15 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
                   </tbody>
                 </table>
               </div>
-            )}
+            ) : completedCount > 0 ? (
+              <NoSearchMatch query={search} />
+            ) : null}
           </div>
         )}
 
         {/* All properties */}
         {filterView === "all" && (
+          activeList.length > 0 ? (
           <div className="rounded-xl border border-border overflow-hidden bg-white">
             <div className="overflow-x-auto">
               <table className="w-full text-xs border-separate border-spacing-0">
@@ -1795,7 +1919,7 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
                   </tr>
                 </thead>
                 <tbody>
-                  {PROPERTIES.map(prop => {
+                  {pagedList.map(prop => {
                     const status     = ppStatuses[prop.id] ?? "needs-pp"
                     const ppUrl      = ppUrls[prop.id] ?? ""
                     const websiteUrl = effectiveUrl(prop.id) ?? ""
@@ -1838,6 +1962,21 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
               </table>
             </div>
           </div>
+          ) : (
+            <NoSearchMatch query={search} />
+          )
+        )}
+
+        {/* ── Pagination for the property list under the tiles ── */}
+        {activeList.length > PAGE_SIZE && (
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            pageStart={pageStart}
+            pageSize={PAGE_SIZE}
+            total={activeList.length}
+            onPage={setPage}
+          />
         )}
 
       </div>

@@ -20,7 +20,7 @@ import { Progress } from "@/components/ui/progress"
 
 const SUB_ITEMS = [
   { id: "company"            as PageId, label: "Carrier Compliance",        icon: Building2,       taskIds: [] as string[], indent: false },
-  { id: "privacy"            as PageId, label: "Privacy Policies",          icon: ShieldCheck,     taskIds: [] as string[], indent: false },
+  { id: "privacy"            as PageId, label: "Property Websites",         icon: ShieldCheck,     taskIds: [] as string[], indent: false },
   { id: "email"              as PageId, label: "Email Integration",         icon: Mail,            taskIds: [] as string[], indent: false },
   { id: "ivr-setup"          as PageId, label: "IVR Setup",                 icon: PhoneForwarded,  taskIds: [] as string[], indent: false },
   { id: "communications"     as PageId, label: "Communications",            icon: Phone,           taskIds: [] as string[], indent: false },
