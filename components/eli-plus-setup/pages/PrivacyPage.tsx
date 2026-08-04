@@ -110,6 +110,14 @@ const FAILED_REASONS: Record<string, string> = {
   p30: "The page took too long to respond. Make sure the URL is publicly accessible — not behind a login, password prompt, or firewall — then try again.",
 }
 
+// Carrier rejection reasons for the property's Terms & Conditions URL.
+// Mirrors real carrier feedback (Twilio/TCR error 30882 / brand-match rules):
+// terms that reference a different brand than the registered A2P brand get
+// rejected until the "doing business as" relationship is made explicit.
+const TC_FAILED_REASONS: Record<string, string> = {
+  p6: "Your terms & conditions must match your registered brand name.",
+}
+
 // ── State supplement detection ────────────────────────────────────────────────
 
 const CA_PROPS = PROPERTIES.filter(p => p.state === "CA")
@@ -996,6 +1004,45 @@ function TemplateSheet({
 }
 
 
+// ── Terms & Conditions rejection info ─────────────────────────────────────────
+
+// Canonical customer-facing Twilio guidance for A2P 10DLC campaign (incl. T&C) approval.
+const TWILIO_TC_ARTICLE = "https://help.twilio.com/articles/11847054539547-A2P-10DLC-Campaign-Approval-Requirements"
+
+function TermsErrorInfo() {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="Why were the terms & conditions rejected?"
+          className="inline-flex shrink-0 items-center rounded text-red-600 hover:text-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40 cursor-pointer">
+          <Info className="h-3.5 w-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        side="bottom"
+        align="start"
+        sideOffset={6}
+        collisionPadding={16}
+        className="z-[70] w-[22rem] max-w-[calc(100vw-2rem)] p-4 space-y-2.5">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">Why was this rejected?</p>
+        <p className="text-[11px] text-muted-foreground leading-relaxed">
+          Carriers reject the campaign when your terms &amp; conditions reference a different brand than the one you registered. If you operate this property under another company, your campaign must state the relationship — for example, <span className="font-medium text-foreground">&ldquo;[Company] is doing business as [Property]&rdquo;</span> — and your website and terms &amp; conditions must use the same brand name.
+        </p>
+        <a
+          href={TWILIO_TC_ARTICLE}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700">
+          Twilio: A2P 10DLC campaign approval requirements
+          <ExternalLink className="h-3 w-3" />
+        </a>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 // ── Action card (Zone 1 — always-visible form per property) ──────────────────
 
 interface ActionCardProps {
@@ -1007,6 +1054,8 @@ interface ActionCardProps {
   isMultiUnresolved: boolean
   multiOptions: string[]
   failReason?: string
+  /** Carrier rejection reason for the Terms & Conditions URL (mock/demo). */
+  tcFailReason?: string
   submitted?: boolean
   submittedPpUrl?: string
   onSubmit: (propId: string, website: string, ppUrl: string) => void
@@ -1018,7 +1067,7 @@ interface ActionCardProps {
 
 function ActionCard({
   prop, status, ppUrl, websiteUrl, isMissing, isMultiUnresolved,
-  multiOptions, failReason, submitted, submittedPpUrl,
+  multiOptions, failReason, tcFailReason, submitted, submittedPpUrl,
   onSubmit, onDismiss, onViewPending, onCardReadyChange,
 }: ActionCardProps) {
   const isFailed = status === "failed"
@@ -1030,6 +1079,7 @@ function ActionCard({
   const [multiOpen, setMultiOpen]       = useState(false)
   const [multiQ, setMultiQ]             = useState("")
   const [ppDraft, setPpDraft]           = useState(() => (isFailed ? ppUrl : ""))
+  const [tcDraft, setTcDraft]           = useState("")
   const [verifyStatus, setVerifyStatus] = useState<"idle" | "checking" | "ok" | "fail">("idle")
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -1113,6 +1163,13 @@ function ActionCard({
     verifyStatus === "ok"  ? "border-emerald-500 focus:ring-emerald-500/25" :
     ppInputHasCarrierError ? "border-red-400 focus:ring-red-400/20" :
                              "border-border focus:ring-zinc-900/15",
+  )
+
+  // Terms & Conditions URL — carrier rejection shown until the URL is changed
+  const showTcError = !!(tcFailReason && !tcDraft.trim())
+  const tcBorder = cn(
+    rowInput, "min-w-0",
+    showTcError ? "border-red-400 focus:ring-red-400/20" : "border-border focus:ring-zinc-900/15",
   )
 
   const submitIsPrimary = canSubmit && verifyStatus === "ok"
@@ -1326,6 +1383,33 @@ function ActionCard({
                 <span className="text-xs italic text-muted-foreground/70 truncate">
                   {isMissing ? "Unlocks after website is entered" : "—"}
                 </span>
+              </div>
+            )}
+
+            {/* ── Terms & Conditions URL — sits directly under the privacy policy field ── */}
+            {showPolicyColumn && (
+              <div className="mt-3">
+                <span className={labelCls}>Terms &amp; Conditions URL</span>
+                <input
+                  type="text"
+                  value={tcDraft}
+                  onChange={e => setTcDraft(e.target.value)}
+                  placeholder="https://…/terms-of-use"
+                  className={cn(tcBorder, "w-full")}
+                />
+                <p className="mt-1 text-[11px] leading-snug text-muted-foreground/80">
+                  You can update this URL or fix the page and resubmit.
+                </p>
+                {/* Error well — carrier rejection (Terms & Conditions) */}
+                {showTcError && tcFailReason && (
+                  <div className="mt-1.5 flex items-start gap-1.5 rounded-md border border-red-300 bg-red-50 px-2.5 py-1.5 text-[11px] leading-snug text-red-900">
+                    <span className="min-w-0">
+                      <span className="font-semibold">Carrier rejected this URL.</span>{" "}
+                      {tcFailReason}
+                    </span>
+                    <TermsErrorInfo />
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1781,6 +1865,7 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
                     isMultiUnresolved={MULTI_SITE_IDS.has(prop.id) && !selectedSiteUrl[prop.id]}
                     multiOptions={MULTI_SITE_OPTIONS[prop.id] ?? []}
                     failReason={FAILED_REASONS[prop.id]}
+                    tcFailReason={TC_FAILED_REASONS[prop.id]}
                     submitted={submittedIds.has(prop.id)}
                     submittedPpUrl={submittedUrls[prop.id]}
                     onSubmit={handleCardSubmit}
