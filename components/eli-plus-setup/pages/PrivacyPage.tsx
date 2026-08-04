@@ -115,7 +115,7 @@ const FAILED_REASONS: Record<string, string> = {
 // terms that reference a different brand than the registered A2P brand get
 // rejected until the "doing business as" relationship is made explicit.
 const TC_FAILED_REASONS: Record<string, string> = {
-  p6: "Your terms & conditions must match your registered brand name.",
+  p6: "We couldn't confirm this property belongs to your registered company.",
 }
 
 // ── State supplement detection ────────────────────────────────────────────────
@@ -1028,7 +1028,7 @@ function TermsErrorInfo() {
         className="z-[70] w-[22rem] max-w-[calc(100vw-2rem)] p-4 space-y-2.5">
         <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">Why was this rejected?</p>
         <p className="text-[11px] text-muted-foreground leading-relaxed">
-          Carriers reject the campaign when your terms &amp; conditions reference a different brand than the one you registered. If you operate this property under another company, your campaign must state the relationship — for example, <span className="font-medium text-foreground">&ldquo;[Company] is doing business as [Property]&rdquo;</span> — and your website and terms &amp; conditions must use the same brand name.
+          Carriers must see the connection between your registered (parent) company and this property. When it isn&rsquo;t clear, the campaign is rejected. Close the gap either way: update the campaign description to state the relationship — e.g. <span className="font-medium text-foreground">&ldquo;[Company] is doing business as [Property]&rdquo;</span> — or add your corporate logo to the property website so the campaign clearly maps to your brand.
         </p>
         <a
           href={TWILIO_TC_ARTICLE}
@@ -1410,6 +1410,11 @@ function ActionCard({
                       </span>
                       <TermsErrorInfo />
                     </div>
+                    <p className="mt-1.5 font-medium">Do one of these, then resubmit:</p>
+                    <ul className="mt-0.5 list-disc space-y-0.5 pl-4">
+                      <li>Update the campaign description to name the link — e.g. &ldquo;[Company] is doing business as [Property]&rdquo;.</li>
+                      <li>Or add your corporate logo to the property website so the brand connection is clear.</li>
+                    </ul>
                     <a
                       href={TWILIO_TC_ARTICLE}
                       target="_blank"
