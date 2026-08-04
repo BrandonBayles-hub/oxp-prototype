@@ -703,7 +703,7 @@ function PropertyChips({
   if (state.view !== "perProperty") return null;
   const list = PROPERTIES.filter((p) => state.properties.has(p));
   return (
-    <div className="mt-3 flex flex-wrap gap-1.5">
+    <div className="-mt-2 mb-5 flex flex-wrap gap-1.5">
       {list.map((p) => (
         <span
           key={p}
@@ -961,6 +961,8 @@ export default function RenewalsAiDashboardPage() {
         showViewToggle
       />
 
+      <PropertyChips state={filters} setState={setFilters} />
+
       {loading && <LoadingBanner />}
 
       {/* ============================================================ */}
@@ -1028,7 +1030,6 @@ export default function RenewalsAiDashboardPage() {
                 selected={filters.properties}
                 yDomain={filters.view === "global" ? [0, 65] : [0, 100]}
               />
-              <PropertyChips state={filters} setState={setFilters} />
             </CardContent>
           </Card>
           <Card className="border-border/60">
@@ -1174,7 +1175,6 @@ export default function RenewalsAiDashboardPage() {
                 selected={filters.properties}
                 yDomain={filters.view === "global" ? [0, 4] : [0, 5]}
               />
-              <PropertyChips state={filters} setState={setFilters} />
             </CardContent>
           </Card>
         </div>
@@ -1214,7 +1214,6 @@ export default function RenewalsAiDashboardPage() {
                 selected={filters.properties}
                 yDomain={filters.view === "global" ? [0, 80] : [0, 100]}
               />
-              <PropertyChips state={filters} setState={setFilters} />
             </CardContent>
           </Card>
           <Card className="border-border/60">
@@ -1228,7 +1227,6 @@ export default function RenewalsAiDashboardPage() {
                 selected={filters.properties}
                 yDomain={filters.view === "global" ? [0, 220] : [0, 300]}
               />
-              <PropertyChips state={filters} setState={setFilters} />
             </CardContent>
           </Card>
         </div>
@@ -1267,7 +1265,6 @@ export default function RenewalsAiDashboardPage() {
                 selected={filters.properties}
                 yDomain={filters.view === "global" ? [0, 8] : [0, 8]}
               />
-              <PropertyChips state={filters} setState={setFilters} />
             </CardContent>
           </Card>
           <Card className="border-border/60">

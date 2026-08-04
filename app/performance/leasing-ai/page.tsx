@@ -420,7 +420,7 @@ function PropertyChips({
   if (state.view !== "perProperty") return null;
   const list = PROPERTIES.filter((p) => state.properties.has(p));
   return (
-    <div className="mt-3 flex flex-wrap gap-1.5">
+    <div className="-mt-2 mb-5 flex flex-wrap gap-1.5">
       {list.map((p) => (
         <span
           key={p}
@@ -1562,6 +1562,8 @@ export default function LeasingAiDashboardPage() {
         unmatchedProperties={scope.unmatched}
         showViewToggle
       />
+
+      <PropertyChips state={filters} setState={setFilters} />
 
       <LeadCaptureSection filters={filters} months={months} />
 
