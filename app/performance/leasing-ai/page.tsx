@@ -15,11 +15,26 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { ArrowLeft, ArrowUpRight, ArrowDownRight, Calendar, ChevronDown, Search, X, AlertCircle, CheckCircle2, Clock, Building2, Mail, MessageSquare, Phone, Bot, CalendarClock, MapPin } from "lucide-react";
+import { ArrowLeft, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import {
+  CHART_GRID_STROKE,
+  EscalationsSection,
+  ReportFilterBar,
+  ReportPageHeader,
+  SectionBanner,
+  StatCard,
+  monthsForPeriod,
+  selectionRatio,
+  seriesColor,
+  seriesColorMap,
+  useReportScope,
+  type ReportFilters,
+  type ReportViewMode,
+} from "@/components/performance";
 
 // -----------------------------------------------------------------------------
 // Static config (illustrative prototype data)
@@ -40,41 +55,21 @@ const PROPERTIES = [
 
 type Property = (typeof PROPERTIES)[number];
 
-const PROPERTY_COLORS: Record<Property, string> = {
-  "Cedar Hills": "#3b82f6",
-  "Hillside Living": "#10b981",
-  "Jamison Apartments": "#f59e0b",
-  "Lakewood": "#ef4444",
-  "Maple Court": "#8b5cf6",
-  "Oak Terrace": "#ec4899",
-  "Parkview Flats": "#06b6d4",
-  "Pine Valley": "#84cc16",
-  "Summit Ridge": "#f97316",
-  "The Beacon": "#a855f7",
-};
+/** Property series colors come from the shared ordered palette so a given
+ *  property keeps the same color on every report it appears in. */
+const PROPERTY_COLORS: Record<Property, string> = seriesColorMap(PROPERTIES);
 
 // Vivid categorical palette used to color single-series bar charts and donuts.
 const CHART_PALETTE = [
-  "#3b82f6", // blue
-  "#10b981", // emerald
-  "#f59e0b", // amber
-  "#ef4444", // red
-  "#8b5cf6", // violet
-  "#06b6d4", // cyan
-  "#ec4899", // pink
-  "#84cc16", // lime
+  seriesColor(0), // blue
+  seriesColor(1), // emerald
+  seriesColor(2), // amber
+  seriesColor(5), // red
+  seriesColor(3), // violet
+  seriesColor(4), // cyan
+  seriesColor(5), // pink
+  seriesColor(6), // lime
 ];
-
-const PERIOD_OPTIONS = [
-  { id: "3m", label: "Last 3 Months", months: 3 },
-  { id: "6m", label: "Last 6 Months", months: 6 },
-  { id: "12m", label: "Last 12 Months", months: 12 },
-  { id: "2y", label: "Last 2 Years", months: 24 },
-  { id: "3y", label: "Last 3 Years", months: 36 },
-  { id: "all", label: "All Time", months: 36 },
-] as const;
-
-type PeriodId = (typeof PERIOD_OPTIONS)[number]["id"] | "custom";
 
 // -----------------------------------------------------------------------------
 // Trend data helpers
@@ -157,11 +152,11 @@ const lostLeadReasons = [
 ];
 
 const leadSourceMix = [
-  { name: "ILS / Listing Sites", value: 38, count: 4012, color: "#3b82f6" },
-  { name: "Property Website", value: 27, count: 2854, color: "#10b981" },
-  { name: "Referral", value: 14, count: 1480, color: "#f59e0b" },
-  { name: "Walk-in / Drive-by", value: 11, count: 1162, color: "#8b5cf6" },
-  { name: "Paid Search", value: 10, count: 1056, color: "#06b6d4" },
+  { name: "ILS / Listing Sites", value: 38, count: 4012, color: seriesColor(0)},
+  { name: "Property Website", value: 27, count: 2854, color: seriesColor(1)},
+  { name: "Referral", value: 14, count: 1480, color: seriesColor(2)},
+  { name: "Walk-in / Drive-by", value: 11, count: 1162, color: seriesColor(3)},
+  { name: "Paid Search", value: 10, count: 1056, color: seriesColor(4)},
 ];
 
 const leasingFunnel = [
@@ -210,8 +205,8 @@ const escalationReasons = [
 ];
 
 const outreachChannelMix = [
-  { name: "SMS", value: 65, count: 15210, color: "#3b82f6" },
-  { name: "Email", value: 35, count: 8190, color: "#8b5cf6" },
+  { name: "SMS", value: 65, count: 15210, color: seriesColor(0)},
+  { name: "Email", value: 35, count: 8190, color: seriesColor(1)},
 ];
 
 // -----------------------------------------------------------------------------
@@ -255,11 +250,11 @@ const medianResponseTrend  = buildMonthlyTrend(1212,  5.4, 4.6, 3.8, 2.4, 1.2);
 const adoptionScoreTrend   = buildMonthlyTrend(1313, 59, 63, 67, 74, 10);
 
 const adoptionTaskAging = [
-  { bucket: "Due today",  count: 8,  fill: "#f59e0b" },
-  { bucket: "1 day",      count: 12, fill: "#f59e0b" },
-  { bucket: "2–3 days",   count: 14, fill: "#ef4444" },
-  { bucket: "4–7 days",   count: 9,  fill: "#dc2626" },
-  { bucket: "8+ days",    count: 4,  fill: "#991b1b" },
+  { bucket: "Due today",  count: 8,  fill: seriesColor(2) },
+  { bucket: "1 day",      count: 12, fill: seriesColor(2) },
+  { bucket: "2–3 days",   count: 14, fill: seriesColor(5) },
+  { bucket: "4–7 days",   count: 9,  fill: seriesColor(5) },
+  { bucket: "8+ days",    count: 4,  fill: seriesColor(5) },
 ];
 
 const adoptionPropertyRows = [
@@ -308,282 +303,13 @@ function sliceTrend<T extends { monthIdx: number }>(data: T[], months: number): 
 // Atomic UI primitives
 // -----------------------------------------------------------------------------
 
-type Tone = "positive" | "negative" | "neutral";
-
-function DeltaPill({ value, tone }: { value: string; tone: Tone }) {
-  const Icon = tone === "negative" ? ArrowDownRight : ArrowUpRight;
-  const cls =
-    tone === "positive"
-      ? "text-emerald-600"
-      : tone === "negative"
-      ? "text-rose-600"
-      : "text-muted-foreground";
-  return (
-    <span className={cn("inline-flex items-center gap-0.5 text-xs font-medium", cls)}>
-      <Icon className="h-3 w-3" />
-      {value}
-    </span>
-  );
-}
-
-function KpiCard({
-  label,
-  value,
-  delta,
-  deltaTone = "positive",
-  sub,
-  subItalic,
-  action,
-}: {
-  label: string;
-  value: string;
-  delta?: string;
-  deltaTone?: Tone;
-  sub?: string;
-  subItalic?: string;
-  action?: React.ReactNode;
-}) {
-  return (
-    <Card className="border-border/60">
-      <CardContent className="px-4 py-3.5">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            {label}
-          </p>
-          {action}
-        </div>
-        <div className="mt-1 flex items-baseline gap-2">
-          <p className="text-2xl font-bold tracking-tight text-foreground">{value}</p>
-          {delta && <DeltaPill value={delta} tone={deltaTone} />}
-        </div>
-        {sub && <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p>}
-        {subItalic && (
-          <p className="mt-0.5 text-[11px] italic text-muted-foreground/80">{subItalic}</p>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
 // -----------------------------------------------------------------------------
 // Filters
+//
+// Period / Properties / view-mode controls come from the shared ReportFilterBar
+// so the bar has the same controls, order, defaults and position on every
+// report. Only the property list is page-specific.
 // -----------------------------------------------------------------------------
-
-type ViewMode = "global" | "perProperty";
-
-interface FiltersState {
-  periodId: PeriodId;
-  customFrom: string;
-  customTo: string;
-  selected: Set<Property>;
-  view: ViewMode;
-}
-
-function PeriodPicker({
-  state,
-  setState,
-}: {
-  state: FiltersState;
-  setState: (s: FiltersState) => void;
-}) {
-  const [open, setOpen] = useState(false);
-
-  const label =
-    state.periodId === "custom"
-      ? "Custom Range"
-      : PERIOD_OPTIONS.find((p) => p.id === state.periodId)?.label ?? "Last 12 Months";
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          "inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-sm",
-          open ? "border-amber-400 ring-1 ring-amber-200" : "border-border",
-        )}
-      >
-        <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-muted-foreground">Period:</span>
-        <span className="font-semibold text-foreground">{label}</span>
-        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-20 mt-1 w-[16rem] rounded-md border border-border bg-popover p-1 shadow-lg">
-            {PERIOD_OPTIONS.map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => {
-                  setState({ ...state, periodId: opt.id });
-                  setOpen(false);
-                }}
-                className={cn(
-                  "block w-full rounded px-3 py-1.5 text-left text-sm hover:bg-muted",
-                  state.periodId === opt.id && "bg-muted font-medium",
-                )}
-              >
-                {opt.label}
-              </button>
-            ))}
-            <div className="mt-1 border-t border-border pt-2">
-              <label className="flex items-center gap-2 px-3 py-1.5 text-sm">
-                <input
-                  type="checkbox"
-                  checked={state.periodId === "custom"}
-                  onChange={(e) =>
-                    setState({ ...state, periodId: e.target.checked ? "custom" : "12m" })
-                  }
-                  className="h-4 w-4 rounded border-border"
-                />
-                Custom Range
-              </label>
-              {state.periodId === "custom" && (
-                <div className="space-y-2 px-3 pb-2">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="month"
-                      value={state.customFrom}
-                      onChange={(e) => setState({ ...state, customFrom: e.target.value })}
-                      className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
-                    />
-                    <span className="text-xs text-muted-foreground">to</span>
-                    <input
-                      type="month"
-                      value={state.customTo}
-                      onChange={(e) => setState({ ...state, customTo: e.target.value })}
-                      className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setOpen(false)}
-                    className="w-full rounded-md bg-foreground py-1.5 text-xs font-medium text-background hover:bg-foreground/90"
-                  >
-                    Apply Custom Range
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function PropertiesPicker({
-  state,
-  setState,
-}: {
-  state: FiltersState;
-  setState: (s: FiltersState) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-
-  const allSelected = state.selected.size === PROPERTIES.length;
-  const label = allSelected
-    ? "All"
-    : state.selected.size === 0
-    ? "None"
-    : `${state.selected.size} selected`;
-
-  const filtered = PROPERTIES.filter((p) =>
-    p.toLowerCase().includes(search.toLowerCase()),
-  );
-
-  function toggle(p: Property) {
-    const next = new Set(state.selected);
-    if (next.has(p)) next.delete(p);
-    else next.add(p);
-    setState({ ...state, selected: next });
-  }
-
-  function toggleAll() {
-    setState({
-      ...state,
-      selected: allSelected ? new Set() : new Set(PROPERTIES),
-    });
-  }
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-sm"
-      >
-        <span className="text-muted-foreground">Properties:</span>
-        <span className="font-semibold text-foreground">{label}</span>
-        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-20 mt-1 w-[18rem] rounded-md border border-border bg-popover p-2 shadow-lg">
-            <div className="relative mb-2">
-              <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search properties..."
-                className="w-full rounded-md border border-border bg-background pl-7 pr-2 py-1.5 text-sm"
-              />
-            </div>
-            <div className="max-h-[16rem] overflow-y-auto">
-              <label className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  onChange={toggleAll}
-                  className="h-4 w-4 rounded border-border"
-                />
-                <span className="text-sm font-medium">All Properties</span>
-              </label>
-              {filtered.map((p) => (
-                <label key={p} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted">
-                  <input
-                    type="checkbox"
-                    checked={state.selected.has(p)}
-                    onChange={() => toggle(p)}
-                    className="h-4 w-4 rounded border-border"
-                  />
-                  <span className="text-sm">{p}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function ViewToggle({ state, setState }: { state: FiltersState; setState: (s: FiltersState) => void }) {
-  return (
-    <div className="inline-flex rounded-md border border-border bg-background p-0.5">
-      {(["global", "perProperty"] as const).map((v) => (
-        <button
-          key={v}
-          type="button"
-          onClick={() => setState({ ...state, view: v })}
-          className={cn(
-            "rounded px-3 py-1 text-xs font-medium transition-colors",
-            state.view === v
-              ? "bg-foreground text-background"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {v === "global" ? "Global View" : "Per-Property"}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 // -----------------------------------------------------------------------------
 // Trend chart — switches between baseline+current vs per-property lines
@@ -597,21 +323,21 @@ function TrendChart({
   height = 240,
 }: {
   data: MonthlyPoint[];
-  view: ViewMode;
-  selected: Set<Property>;
+  view: ReportViewMode;
+  selected: Set<string>;
   yDomain?: [number, number];
   height?: number;
 }) {
   if (view === "global") {
     const config = {
-      baseline: { label: "Pre-AI Baseline", color: "#cbd5e1" },
-      current: { label: "Current", color: "#2563eb" },
+      baseline: { label: "Pre-AI Baseline", color: "hsl(222 10% 78%)" },
+      current: { label: "Current", color: seriesColor(0) },
     } satisfies ChartConfig;
     return (
       <div>
         <ChartContainer config={config} className="!aspect-auto w-full" style={{ height }}>
           <LineChart data={data} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
             <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
             <YAxis
               tickLine={false}
@@ -624,7 +350,7 @@ function TrendChart({
             <Line
               type="monotone"
               dataKey="baseline"
-              stroke="#cbd5e1"
+              stroke={"hsl(222 10% 78%)"}
               strokeWidth={1.5}
               strokeDasharray="4 4"
               dot={false}
@@ -632,13 +358,13 @@ function TrendChart({
             <Line
               type="monotone"
               dataKey="current"
-              stroke="#2563eb"
+              stroke={seriesColor(0)}
               strokeWidth={2}
               dot={false}
             />
           </LineChart>
         </ChartContainer>
-        <div className="mt-1 flex items-center justify-center gap-4 text-[11px]">
+        <div className="mt-1 flex items-center justify-center gap-4 text-xxs">
           <span className="inline-flex items-center gap-1.5 text-muted-foreground">
             <span className="h-px w-4 border-t border-dashed border-slate-400" />
             Pre-AI Baseline
@@ -665,7 +391,7 @@ function TrendChart({
   return (
     <ChartContainer config={config} className="!aspect-auto w-full" style={{ height }}>
       <LineChart data={flat} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
-        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
         <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
         <YAxis tickLine={false} axisLine={false} tickMargin={8} width={32} domain={yDomain ?? [0, "auto"]} />
         <ChartTooltip content={<ChartTooltipContent className="min-w-[14rem]" />} />
@@ -688,11 +414,11 @@ function PropertyChips({
   state,
   setState,
 }: {
-  state: FiltersState;
-  setState: (s: FiltersState) => void;
+  state: ReportFilters;
+  setState: (s: ReportFilters) => void;
 }) {
   if (state.view !== "perProperty") return null;
-  const list = PROPERTIES.filter((p) => state.selected.has(p));
+  const list = PROPERTIES.filter((p) => state.properties.has(p));
   return (
     <div className="mt-3 flex flex-wrap gap-1.5">
       {list.map((p) => (
@@ -705,14 +431,14 @@ function PropertyChips({
           <button
             type="button"
             onClick={() => {
-              const next = new Set(state.selected);
+              const next = new Set(state.properties);
               next.delete(p);
-              setState({ ...state, selected: next });
+              setState({ ...state, properties: next });
             }}
             className="text-muted-foreground hover:text-foreground"
             aria-label={`Remove ${p}`}
           >
-            <X className="h-3 w-3" />
+            <X className="h-3.5 w-3.5" />
           </button>
         </span>
       ))}
@@ -1059,22 +785,6 @@ const BETA_ALL = buildAllBeta(BETA_CUSTOMERS);
 // Domo dashboard structure. All numbers are synthetic.
 // -----------------------------------------------------------------------------
 
-const DOMO_ESCALATIONS = {
-  total: 480,
-  pctOfLeads: 10.9,
-  voiceTransferPct: 38.9,
-  voiceTransferCount: 185,
-};
-
-// Four categories sum to ~10,386 to align with the Tours Booked KPI.
-const DOMO_TOURS = {
-  guidedDuring: 3552,
-  guidedOutside: 3152,
-  selfDuring: 1456,
-  selfOutside: 2226,
-  messageSentAfterTour: 842,
-};
-
 // -----------------------------------------------------------------------------
 // Lead Capture & Tours (committed v1 metrics) — daily per-property data
 // -----------------------------------------------------------------------------
@@ -1090,18 +800,18 @@ type LeadCaptureMetricKey = (typeof LEAD_CAPTURE_METRICS)[number]["key"];
 // Lead source is already captured today; channel capture is targeted for
 // phase 1 per engineering grooming (2026-07-09).
 const LEAD_SOURCE_SHARES = [
-  { name: "ILS / Listing Sites", share: 0.38, color: "#3b82f6" },
-  { name: "Property Website", share: 0.27, color: "#10b981" },
-  { name: "Referral", share: 0.14, color: "#f59e0b" },
-  { name: "Walk-in / Drive-by", share: 0.11, color: "#8b5cf6" },
-  { name: "Paid Search", share: 0.10, color: "#06b6d4" },
+  { name: "ILS / Listing Sites", share: 0.38, color: seriesColor(0)},
+  { name: "Property Website", share: 0.27, color: seriesColor(1)},
+  { name: "Referral", share: 0.14, color: seriesColor(2)},
+  { name: "Walk-in / Drive-by", share: 0.11, color: seriesColor(3)},
+  { name: "Paid Search", share: 0.10, color: seriesColor(4)},
 ];
 
 const LEAD_CHANNEL_SHARES = [
-  { name: "Chat", share: 0.4, color: "#3b82f6" },
-  { name: "SMS", share: 0.28, color: "#10b981" },
-  { name: "Email", share: 0.2, color: "#f59e0b" },
-  { name: "Voice", share: 0.12, color: "#06b6d4" },
+  { name: "Chat", share: 0.4, color: seriesColor(0)},
+  { name: "SMS", share: 0.28, color: seriesColor(1)},
+  { name: "Email", share: 0.2, color: seriesColor(2)},
+  { name: "Voice", share: 0.12, color: seriesColor(3)},
 ];
 
 interface LeadCaptureDailyCounts {
@@ -1212,11 +922,11 @@ function TrendGroupingSelect({ value, onChange }: { value: TrendGrouping; onChan
   );
 }
 
-function sumLeadCaptureCounts(days: LeadCaptureDailyPoint[], selected: Set<Property>): LeadCaptureDailyCounts {
+function sumLeadCaptureCounts(days: LeadCaptureDailyPoint[], selected: Set<string>): LeadCaptureDailyCounts {
   const totals: LeadCaptureDailyCounts = { sessions: 0, guestCards: 0, guestCardsEli: 0, toursBooked: 0 };
   for (const day of days) {
     for (const p of selected) {
-      const c = day.perProperty[p];
+      const c = day.perProperty[p as Property];
       totals.sessions += c.sessions;
       totals.guestCards += c.guestCards;
       totals.guestCardsEli += c.guestCardsEli;
@@ -1226,23 +936,23 @@ function sumLeadCaptureCounts(days: LeadCaptureDailyPoint[], selected: Set<Prope
   return totals;
 }
 
-function LeadCaptureSection({ filters, months }: { filters: FiltersState; months: number }) {
+function LeadCaptureSection({ filters, months }: { filters: ReportFilters; months: number }) {
   const [metric, setMetric] = useState<LeadCaptureMetricKey>("guestCards");
   const [grouping, setGrouping] = useState<TrendGrouping>("month");
 
   const days = useMemo(() => sliceLeadCaptureDaily(months), [months]);
-  const totals = useMemo(() => sumLeadCaptureCounts(days, filters.selected), [days, filters.selected]);
+  const totals = useMemo(() => sumLeadCaptureCounts(days, filters.properties), [days, filters.properties]);
 
   const chartData = useMemo(() => {
     const daily = days.map((day) => {
       let value = 0;
-      for (const p of filters.selected) {
-        value += day.perProperty[p][metric];
+      for (const p of filters.properties) {
+        value += day.perProperty[p as Property][metric];
       }
       return { date: day.date, value };
     });
     return groupTrendData(daily, grouping);
-  }, [days, filters.selected, metric, grouping]);
+  }, [days, filters.properties, metric, grouping]);
 
   const metricLabel = LEAD_CAPTURE_METRICS.find((m) => m.key === metric)?.label ?? "";
 
@@ -1250,23 +960,22 @@ function LeadCaptureSection({ filters, months }: { filters: FiltersState; months
   const channelData = LEAD_CHANNEL_SHARES.map((c) => ({ ...c, count: Math.round(totals.guestCardsEli * c.share) }));
 
   const funnelRows = [
-    { label: "Conversations", count: totals.sessions, color: "#3b82f6", pct: 100 },
-    { label: "Guest Cards Created", count: totals.guestCards, color: "#10b981", pct: totals.sessions > 0 ? Math.round((totals.guestCards / totals.sessions) * 100) : 0 },
-    { label: "Tours Book by ELI+", count: totals.toursBooked, color: "#f59e0b", pct: totals.sessions > 0 ? Math.round((totals.toursBooked / totals.sessions) * 100) : 0 },
+    { label: "Conversations", count: totals.sessions, color: seriesColor(0), pct: 100 },
+    { label: "Guest Cards Created", count: totals.guestCards, color: seriesColor(1), pct: totals.sessions > 0 ? Math.round((totals.guestCards / totals.sessions) * 100) : 0 },
+    { label: "Tours Book by ELI+", count: totals.toursBooked, color: seriesColor(2), pct: totals.sessions > 0 ? Math.round((totals.toursBooked / totals.sessions) * 100) : 0 },
   ];
 
   return (
     <section className="mb-6">
-      {/* ---- Lead to Tour ---- */}
-      <div className="mb-3 flex items-center gap-2">
-        <ArrowUpRight className="h-3.5 w-3.5 text-emerald-500" />
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Lead to Tour</p>
-      </div>
+      <SectionBanner
+        title="Lead to Tour"
+        description="Conversations, guest cards, and tours captured by ELI+ during the selected period"
+      />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Conversations" value={totals.sessions.toLocaleString()} sub="selected period" />
-        <KpiCard label="Total Guest Cards Created by ELI+" value={totals.guestCards.toLocaleString()} sub="selected period" />
-        <KpiCard label="Tours Book by ELI+" value={totals.toursBooked.toLocaleString()} sub="selected period" />
+        <StatCard label="Conversations" value={totals.sessions.toLocaleString()} sub="selected period" />
+        <StatCard label="Total guest cards created by ELI+" value={totals.guestCards.toLocaleString()} sub="selected period" />
+        <StatCard label="Tours book by ELI+" value={totals.toursBooked.toLocaleString()} sub="selected period" />
       </div>
 
       <div className="mt-3 grid gap-3 lg:grid-cols-3">
@@ -1288,7 +997,7 @@ function LeadCaptureSection({ filters, months }: { filters: FiltersState; months
                 </div>
               </div>
             ))}
-            <p className="pt-1 text-[11px] italic text-muted-foreground/80">Conversion shown as % of conversations</p>
+            <p className="pt-1 text-xxs italic text-muted-foreground/80">Conversion shown as % of conversations</p>
           </CardContent>
         </Card>
 
@@ -1298,11 +1007,11 @@ function LeadCaptureSection({ filters, months }: { filters: FiltersState; months
           </CardHeader>
           <CardContent>
             <ChartContainer
-              config={{ count: { label: "Guest Cards", color: "#3b82f6" } }}
+              config={{ count: { label: "Guest Cards", color: seriesColor(0) } }}
               className="!aspect-auto h-[200px] w-full"
             >
               <BarChart data={sourceData} layout="vertical" margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e5e7eb" />
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={CHART_GRID_STROKE} />
                 <XAxis type="number" tickLine={false} axisLine={false} tickFormatter={(v) => Number(v).toLocaleString()} />
                 <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} width={118} tick={{ fontSize: 11 }} />
                 <ChartTooltip content={<ChartTooltipContent />} />
@@ -1322,11 +1031,11 @@ function LeadCaptureSection({ filters, months }: { filters: FiltersState; months
           </CardHeader>
           <CardContent>
             <ChartContainer
-              config={{ count: { label: "Guest Cards", color: "#3b82f6" } }}
+              config={{ count: { label: "Guest Cards", color: seriesColor(0) } }}
               className="!aspect-auto h-[200px] w-full"
             >
               <BarChart data={channelData} margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                 <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} tick={{ fontSize: 11 }} />
                 <YAxis tickLine={false} axisLine={false} tickMargin={8} width={42} tickFormatter={(v) => Number(v).toLocaleString()} />
                 <ChartTooltip content={<ChartTooltipContent />} />
@@ -1364,15 +1073,15 @@ function LeadCaptureSection({ filters, months }: { filters: FiltersState; months
         </CardHeader>
         <CardContent>
           <ChartContainer
-            config={{ value: { label: metricLabel, color: "#2563eb" } }}
+            config={{ value: { label: metricLabel, color: seriesColor(0) } }}
             className="!aspect-auto h-[280px] w-full"
           >
             <LineChart data={chartData} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
               <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={48} />
               <YAxis tickLine={false} axisLine={false} tickMargin={8} width={42} tickFormatter={(v) => Number(v).toLocaleString()} />
               <ChartTooltip content={<ChartTooltipContent />} />
-              <Line type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="value" stroke={seriesColor(0)} strokeWidth={2} dot={false} />
             </LineChart>
           </ChartContainer>
         </CardContent>
@@ -1440,7 +1149,7 @@ function sliceCommChannelDaily(months: number): CommChannelDailyPoint[] {
   return commChannelDailyData.slice(LEAD_CAPTURE_TOTAL_DAYS - days);
 }
 
-function CommunicationChannelsSection({ filters, months }: { filters: FiltersState; months: number }) {
+function CommunicationChannelsSection({ filters, months }: { filters: ReportFilters; months: number }) {
   const [metric, setMetric] = useState<CommChannelMetricKey>("voice");
   const [grouping, setGrouping] = useState<TrendGrouping>("month");
 
@@ -1449,8 +1158,8 @@ function CommunicationChannelsSection({ filters, months }: { filters: FiltersSta
   const totals = useMemo(() => {
     const t: CommChannelDailyCounts = { voice: 0, sms: 0, email: 0, chat: 0 };
     for (const day of days) {
-      for (const p of filters.selected) {
-        const c = day.perProperty[p];
+      for (const p of filters.properties) {
+        const c = day.perProperty[p as Property];
         t.voice += c.voice;
         t.sms += c.sms;
         t.email += c.email;
@@ -1458,34 +1167,35 @@ function CommunicationChannelsSection({ filters, months }: { filters: FiltersSta
       }
     }
     return t;
-  }, [days, filters.selected]);
+  }, [days, filters.properties]);
 
   const chartData = useMemo(() => {
     const daily = days.map((day) => {
       let value = 0;
-      for (const p of filters.selected) {
-        value += day.perProperty[p][metric];
+      for (const p of filters.properties) {
+        value += day.perProperty[p as Property][metric];
       }
       return { date: day.date, value };
     });
     return groupTrendData(daily, grouping);
-  }, [days, filters.selected, metric, grouping]);
+  }, [days, filters.properties, metric, grouping]);
 
   const metricLabel = COMM_CHANNEL_METRICS.find((m) => m.key === metric)?.label ?? "";
 
   return (
     <>
-      {/* ---- Communication Channels ---- */}
-      <div className="mb-3 mt-5 flex items-center gap-2">
-        <MessageSquare className="h-3.5 w-3.5 text-emerald-500" />
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Communication Channels</p>
+      <div className="mt-5">
+        <SectionBanner
+          title="Communication Channels"
+          description="Voice, SMS, email, and chat conversations handled by ELI+ during the selected period"
+        />
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Voice Conversations" value={totals.voice.toLocaleString()} sub="selected period" />
-        <KpiCard label="SMS Conversations" value={totals.sms.toLocaleString()} sub="selected period" />
-        <KpiCard label="Email Conversations" value={totals.email.toLocaleString()} sub="selected period" />
-        <KpiCard label="Chat Conversations" value={totals.chat.toLocaleString()} sub="selected period" />
+        <StatCard label="Voice conversations" value={totals.voice.toLocaleString()} sub="selected period" />
+        <StatCard label="SMS conversations" value={totals.sms.toLocaleString()} sub="selected period" />
+        <StatCard label="Email conversations" value={totals.email.toLocaleString()} sub="selected period" />
+        <StatCard label="Chat conversations" value={totals.chat.toLocaleString()} sub="selected period" />
       </div>
 
       <Card className="mt-3 border-border/60">
@@ -1511,15 +1221,15 @@ function CommunicationChannelsSection({ filters, months }: { filters: FiltersSta
         </CardHeader>
         <CardContent>
           <ChartContainer
-            config={{ value: { label: metricLabel, color: "#2563eb" } }}
+            config={{ value: { label: metricLabel, color: seriesColor(0) } }}
             className="!aspect-auto h-[280px] w-full"
           >
             <LineChart data={chartData} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
               <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={48} />
               <YAxis tickLine={false} axisLine={false} tickMargin={8} width={42} tickFormatter={(v) => Number(v).toLocaleString()} />
               <ChartTooltip content={<ChartTooltipContent />} />
-              <Line type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="value" stroke={seriesColor(0)} strokeWidth={2} dot={false} />
             </LineChart>
           </ChartContainer>
         </CardContent>
@@ -1597,7 +1307,7 @@ function SectionDailyTrendCard({
 }: {
   metrics: SectionTrendMetric[];
   data: SectionTrendDailyPoint[];
-  filters: FiltersState;
+  filters: ReportFilters;
   months: number;
 }) {
   const [metric, setMetric] = useState<string>(metrics[0].key);
@@ -1611,14 +1321,14 @@ function SectionDailyTrendCard({
   const chartData = useMemo(() => {
     const daily = days.map((day) => {
       let value = 0;
-      for (const p of filters.selected) {
-        value += day.perProperty[p][metric];
+      for (const p of filters.properties) {
+        value += day.perProperty[p as Property][metric];
       }
       return { date: day.date, value };
     });
     // Round after grouping so low-volume metrics aggregate sensibly.
     return groupTrendData(daily, grouping).map((pt) => ({ ...pt, value: Math.round(pt.value) }));
-  }, [days, filters.selected, metric, grouping]);
+  }, [days, filters.properties, metric, grouping]);
 
   const metricLabel = metrics.find((m) => m.key === metric)?.label ?? "";
 
@@ -1646,15 +1356,15 @@ function SectionDailyTrendCard({
       </CardHeader>
       <CardContent>
         <ChartContainer
-          config={{ value: { label: metricLabel, color: "#2563eb" } }}
+          config={{ value: { label: metricLabel, color: seriesColor(0) } }}
           className="!aspect-auto h-[280px] w-full"
         >
           <LineChart data={chartData} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
             <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={48} />
             <YAxis tickLine={false} axisLine={false} tickMargin={8} width={42} tickFormatter={(v) => Number(v).toLocaleString()} />
             <ChartTooltip content={<ChartTooltipContent />} />
-            <Line type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="value" stroke={seriesColor(0)} strokeWidth={2} dot={false} />
           </LineChart>
         </ChartContainer>
       </CardContent>
@@ -1666,35 +1376,58 @@ function SectionDailyTrendCard({
 // Domo Replica section
 // -----------------------------------------------------------------------------
 
-function DomoReplicaSection({ filters, months }: { filters: FiltersState; months: number }) {
+function DomoReplicaSection({ filters, months }: { filters: ReportFilters; months: number }) {
+  const kpi = useMemo(() => {
+    const periodScale = months / 12;
+    const propertyScale = selectionRatio(filters.properties, PROPERTIES.length);
+    const volume = periodScale * propertyScale;
+
+    const rand = seedRand(31415 + months + filters.properties.size);
+    const drift = () => 1 + (rand() - 0.5) * 0.05;
+
+    const count = (base: number) => Math.round(base * volume * drift()).toLocaleString();
+    const rate = (base: number, digits = 1) => `${(base * drift()).toFixed(digits)}%`;
+
+    return {
+      guidedDuring: count(3552),
+      guidedOutside: count(3152),
+      selfDuring: count(1456),
+      selfOutside: count(2226),
+      escalationsTotal: count(480),
+      escalationsPctOfLeads: rate(10.9),
+      voiceTransferPct: rate(38.9),
+      voiceTransferCount: count(185),
+    };
+  }, [months, filters.properties]);
+
   return (
     <section className="mb-6">
-      {/* ---- Tours ---- */}
-      <div className="mb-3 flex items-center gap-2">
-        <CalendarClock className="h-3.5 w-3.5 text-amber-500" />
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tours</p>
-      </div>
+      <SectionBanner
+        title="Tours"
+        description="Guided and self-guided tour volume, split by office hours"
+      />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <KpiCard label="Guided Tours During Office Hours" value={DOMO_TOURS.guidedDuring.toLocaleString()} sub="guided, during office hours" />
-        <KpiCard label="Guided Tours Outside Office Hours" value={DOMO_TOURS.guidedOutside.toLocaleString()} sub="guided, after hours" />
-        <KpiCard label="Self Guided Tours During Office Hours" value={DOMO_TOURS.selfDuring.toLocaleString()} sub="self-guided, during office hours" />
-        <KpiCard label="Self Guided Tours Outside Office Hours" value={DOMO_TOURS.selfOutside.toLocaleString()} sub="self-guided, after hours" />
+        <StatCard label="Guided tours during office hours" value={kpi.guidedDuring} sub="guided, during office hours" />
+        <StatCard label="Guided tours outside office hours" value={kpi.guidedOutside} sub="guided, after hours" />
+        <StatCard label="Self guided tours during office hours" value={kpi.selfDuring} sub="self-guided, during office hours" />
+        <StatCard label="Self guided tours outside office hours" value={kpi.selfOutside} sub="self-guided, after hours" />
       </div>
 
       <SectionDailyTrendCard metrics={TOURS_TREND_METRICS} data={toursTrendData} filters={filters} months={months} />
 
-      {/* ---- Escalations ---- */}
-      <div className="mb-3 mt-5 flex items-center gap-2">
-        <AlertCircle className="h-3.5 w-3.5 text-rose-500" />
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Escalations</p>
+      <div className="mt-5">
+        <SectionBanner
+          title="Office Handoffs"
+          description="Leads and voice calls transferred to the leasing office — distinct from the AI-conversation escalations below"
+        />
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="# Office Escalations" value={String(DOMO_ESCALATIONS.total)} sub="escalated to the leasing office" />
-        <KpiCard label="Escalations % of Total Leads" value={`${DOMO_ESCALATIONS.pctOfLeads}%`} sub="of all leads" />
-        <KpiCard label="Voice Call % Transferred to Office" value={`${DOMO_ESCALATIONS.voiceTransferPct}%`} sub="of voice conversations" />
-        <KpiCard label="Voice Calls Transferred to Office" value={String(DOMO_ESCALATIONS.voiceTransferCount)} sub="escalated voice calls" />
+        <StatCard label="Office escalations" value={kpi.escalationsTotal} sub="escalated to the leasing office" />
+        <StatCard label="Escalations % of total leads" value={kpi.escalationsPctOfLeads} sub="of all leads" />
+        <StatCard label="Voice call % transferred to office" value={kpi.voiceTransferPct} sub="of voice conversations" />
+        <StatCard label="Voice calls transferred to office" value={kpi.voiceTransferCount} sub="escalated voice calls" />
       </div>
 
       <SectionDailyTrendCard metrics={ESCALATIONS_TREND_METRICS} data={escalationsTrendData} filters={filters} months={months} />
@@ -1706,22 +1439,93 @@ function DomoReplicaSection({ filters, months }: { filters: FiltersState; months
 }
 
 // -----------------------------------------------------------------------------
+// Escalations section (human resolution outcomes, derived from office
+// escalation volume above — a different concept from "Office Escalations",
+// which tracks handoff-to-office volume, not resolution status)
+// -----------------------------------------------------------------------------
+
+function EscalationsOverviewSection({
+  filters,
+  months,
+  escalationResolutionData,
+}: {
+  filters: ReportFilters;
+  months: number;
+  escalationResolutionData: ReturnType<typeof sliceTrend<MonthlyPoint>>;
+}) {
+  const kpi = useMemo(() => {
+    const periodScale = months / 12;
+    const propertyScale = selectionRatio(filters.properties, PROPERTIES.length);
+    const volume = periodScale * propertyScale;
+
+    const rand = seedRand(9001 + months + filters.properties.size);
+    const drift = () => 1 + (rand() - 0.5) * 0.05;
+
+    const count = (base: number) => Math.round(base * volume * drift()).toLocaleString();
+    const total = Math.round(480 * volume * drift());
+    const open = Math.round(total * 0.11);
+    const resolved = total - open;
+
+    return {
+      escalationRate: `${(10.9 * drift()).toFixed(1)}%`,
+      totalEscalations: total.toLocaleString(),
+      openEscalations: open.toLocaleString(),
+      resolvedEscalations: resolved.toLocaleString(),
+    };
+  }, [months, filters.properties]);
+
+  return (
+    <EscalationsSection
+      stats={[
+        { label: "Escalation rate", value: kpi.escalationRate, delta: "-1.8 pts", lowerIsBetter: true, sub: "of AI conversations escalated" },
+        { label: "Total escalations", value: kpi.totalEscalations, sub: "escalated to staff" },
+        { label: "Open escalations", value: kpi.openEscalations, sub: "pending resolution" },
+        { label: "Resolved", value: kpi.resolvedEscalations, delta: "89% resolution", deltaTone: "positive", sub: "resolved by staff" },
+      ]}
+    >
+      <div className="grid gap-3 lg:grid-cols-2">
+        <Card className="border-border/60">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Escalation Reasons</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ChartContainer config={{}} className="!aspect-auto h-[260px] w-full">
+              <BarChart data={escalationReasons} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+                <XAxis dataKey="reason" tickLine={false} axisLine={false} tickMargin={8} angle={-30} textAnchor="end" height={50} interval={0} />
+                <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <Bar dataKey="count" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ChartContainer>
+          </CardContent>
+        </Card>
+        <Card className="border-border/60">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Avg Escalation Resolution Time — Trend</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <TrendChart
+              data={escalationResolutionData}
+              view={filters.view}
+              selected={filters.properties}
+              yDomain={filters.view === "global" ? [0, 4] : [0, 5]}
+            />
+          </CardContent>
+        </Card>
+      </div>
+    </EscalationsSection>
+  );
+}
+
+// -----------------------------------------------------------------------------
 // Page
 // -----------------------------------------------------------------------------
 
 export default function LeasingAiDashboardPage() {
-  const [filters, setFilters] = useState<FiltersState>({
-    periodId: "12m",
-    customFrom: "2025-06",
-    customTo: "2026-05",
-    selected: new Set(PROPERTIES),
-    view: "global",
-  });
+  const [filters, setFilters, scope] = useReportScope(PROPERTIES);
 
-  const months = useMemo(() => {
-    if (filters.periodId === "custom") return 12;
-    return PERIOD_OPTIONS.find((p) => p.id === filters.periodId)?.months ?? 12;
-  }, [filters.periodId]);
+  const months = useMemo(() => monthsForPeriod(filters.periodId), [filters.periodId]);
 
   const conversionRateData = useMemo(() => sliceTrend(conversionRateTrend, months), [months]);
   const signedLeasesData = useMemo(() => sliceTrend(signedLeasesTrend, months), [months]);
@@ -1735,43 +1539,37 @@ export default function LeasingAiDashboardPage() {
 
   return (
     <div className="-mt-2">
-      <Link
-        href="/performance"
-        className="mb-3 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" />
-        Back to Performance
-      </Link>
+      <ReportPageHeader
+        agent="Leasing AI"
+        description="Lead conversion and application throughput, plus the outreach ELI+ handled"
+      />
 
-      <header className="mb-4">
-        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-foreground">
-          <img src="/eli-cube.svg" alt="" width={22} height={22} />
-          ELI+ Leasing AI — Performance & Impact
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Leasing performance across all properties plus AI-driven lead engagement, application throughput, and outreach analytics
-        </p>
-      </header>
-
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        <PeriodPicker state={filters} setState={setFilters} />
-        <PropertiesPicker state={filters} setState={setFilters} />
-        <ViewToggle state={filters} setState={setFilters} />
-      </div>
+      <ReportFilterBar
+        filters={filters}
+        onChange={setFilters}
+        properties={PROPERTIES}
+        unmatchedProperties={scope.unmatched}
+        showViewToggle
+      />
 
       <LeadCaptureSection filters={filters} months={months} />
 
       <DomoReplicaSection filters={filters} months={months} />
 
+      <EscalationsOverviewSection
+        filters={filters}
+        months={months}
+        escalationResolutionData={escalationResolutionData}
+      />
+
       {/* ============================================================ */}
       {/* Section 1b — Agent Adoption (DEV-301196)                      */}
       {/* ============================================================ */}
       <section className="mb-6">
-        {/* ---- Agent Adoption ---- */}
-        <div className="mb-3 flex items-center gap-2">
-          <CheckCircle2 className="h-3.5 w-3.5 text-blue-500" />
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Agent Adoption</p>
-        </div>
+        <SectionBanner
+          title="Agent Adoption"
+          description="Staff outreach activity — emails, SMS, prospects assisted, and resolved tasks by agent"
+        />
 
         {/* Agent activity table */}
         <div className="mb-4">
@@ -1784,13 +1582,13 @@ export default function LeasingAiDashboardPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/40">
-                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Agent</th>
-                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Property</th>
-                      <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Emails Sent</th>
-                      <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">SMS Sent</th>
-                      <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Prospects Assisted</th>
-                      <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Resolved Tasks</th>
-                      <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Calls Dialed</th>
+                      <th className="px-4 py-2.5 text-left text-xxs font-semibold text-muted-foreground">Agent</th>
+                      <th className="px-4 py-2.5 text-left text-xxs font-semibold text-muted-foreground">Property</th>
+                      <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">Emails Sent</th>
+                      <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">SMS Sent</th>
+                      <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">Prospects Assisted</th>
+                      <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">Resolved Tasks</th>
+                      <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">Calls Dialed</th>
                     </tr>
                   </thead>
                   <tbody>

@@ -15,16 +15,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { Loader2, X } from "lucide-react";
 import {
-  ArrowLeft,
-  ArrowUpRight,
-  ArrowDownRight,
-  Calendar,
-  ChevronDown,
-  Search,
-  Loader2,
-} from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   ChartContainer,
   ChartTooltip,
@@ -32,26 +30,44 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
+import {
+  CHART_GRID_STROKE,
+  EscalationsSection,
+  MultiSelectFilter,
+  ReportFilterBar,
+  ReportPageHeader,
+  STATUS_FILL,
+  SectionBanner,
+  SegmentedToggle,
+  StatCard,
+  URGENCY_BADGE,
+  formatMonthLabel,
+  legendLabel,
+  monthsForPeriod,
+  serializeFilters,
+  seriesColor,
+  seriesColorMap,
+  useReportScope,
+  type ExtraFilter,
+  type ReportFilters,
+  type Urgency,
+} from "@/components/performance";
 
 // -----------------------------------------------------------------------------
 // Static config — illustrative prototype data
 // -----------------------------------------------------------------------------
 
 const PROPERTIES = [
-  "Ashford Crescent Oaks",
-  "Bearkat Cottages",
-  "Courtyard Apartments",
-  "Harvest Peak Heights",
-  "Maverick Trails Apartments",
-  "Stonewater at the Riverbend",
-  "Summerville Station",
-  "Sunset Ridge",
-  "The Landing at Briarcliff",
-  "The Residences at Newbury",
-  "Trails at Corinthian Creek",
-  "Wayfare — Cumberland",
-  "Westland Apts — Bldg 2",
-  "Westland Apts — Bldg 5",
+  "Cedar Hills",
+  "Hillside Living",
+  "Jamison Apartments",
+  "Lakewood",
+  "Maple Court",
+  "Oak Terrace",
+  "Parkview Flats",
+  "Pine Valley",
+  "Summit Ridge",
+  "The Beacon",
 ] as const;
 type Property = (typeof PROPERTIES)[number];
 
@@ -100,57 +116,60 @@ const WORK_ORDER_SOURCES = [
 ] as const;
 type WorkOrderSource = (typeof WORK_ORDER_SOURCES)[number];
 
-const SOURCE_COLORS: Record<WorkOrderSource, string> = {
-  "Maintenance AI": "#a855f7",
-  API: "#475569",
-  "Resident Portal": "#2563eb",
-  Homebody: "#22c55e",
-  "Entrata Web": "#0ea5e9",
-  "Entrata Facilities App": "#f97316",
-};
-
-// Year-to-date span, in months (January through the current month).
-const YTD_MONTHS = new Date().getMonth() + 1;
-
-const PERIOD_OPTIONS = [
-  { id: "3m", label: "Last 3 Months", months: 3 },
-  { id: "6m", label: "Last 6 Months", months: 6 },
-  { id: "12m", label: "Last 12 Months", months: 12 },
-  { id: "2y", label: "Last 2 Years", months: 24 },
-  { id: "3y", label: "Last 3 Years", months: 36 },
-  { id: "ytd", label: "Year To Date", months: YTD_MONTHS },
-] as const;
-type PeriodId = (typeof PERIOD_OPTIONS)[number]["id"] | "custom";
-
-// -----------------------------------------------------------------------------
-// Types
-// -----------------------------------------------------------------------------
-
-type Priority = "Emergency" | "High" | "Medium" | "Low" | "Preventative";
-const PRIORITY_COLOR: Record<Priority, string> = {
-  Emergency: "#ef4444",
-  High: "#f97316",
-  Medium: "#eab308",
-  Low: "#22c55e",
-  Preventative: "#3b82f6",
-};
+const SOURCE_COLORS: Record<WorkOrderSource, string> =
+  seriesColorMap(WORK_ORDER_SOURCES);
 
 type EliSource = "SMS" | "Chat" | "Voice";
 
-const AI_COMPONENT_COLORS: Record<EliSource, string> = {
-  SMS: "#a855f7",
-  Chat: "#0ea5e9",
-  Voice: "#f97316",
+/** ELI channels are categories, not statuses — ordered shared palette. */
+const AI_COMPONENT_COLORS: Record<EliSource, string> = seriesColorMap([
+  "SMS",
+  "Chat",
+  "Voice",
+] as const);
+
+type Priority = "Emergency" | "High" | "Medium" | "Low" | "Preventative";
+
+/**
+ * Priority is an urgency ladder, so its colors must rank monotonically:
+ * breach → warning → info → settled. Previously "Low" was green, which reads
+ * as a completed/good outcome rather than as low urgency, and Emergency/High/
+ * Medium spanned three separate saturated hue families.
+ */
+const PRIORITY_URGENCY: Record<Priority, Urgency> = {
+  Emergency: "breach",
+  High: "warning",
+  Medium: "warning",
+  Low: "muted",
+  Preventative: "info",
 };
 
-type SliceDimension = "status" | "priority" | "source";
 const PRIORITY_BADGE: Record<Priority, string> = {
-  Emergency: "bg-red-50 text-red-700 ring-red-200",
-  High: "bg-orange-50 text-orange-700 ring-orange-200",
-  Medium: "bg-amber-50 text-amber-700 ring-amber-200",
-  Low: "bg-green-50 text-green-700 ring-green-200",
-  Preventative: "bg-blue-50 text-blue-700 ring-blue-200",
+  Emergency: URGENCY_BADGE.breach,
+  High: URGENCY_BADGE.warning,
+  Medium: URGENCY_BADGE.warning,
+  Low: URGENCY_BADGE.muted,
+  Preventative: URGENCY_BADGE.info,
 };
+
+/**
+ * Chart fills for the priority ladder.
+ *
+ * These sit in the same lightness band as the kit's categorical palette (~42%)
+ * so a priority chart reads as part of the same family. They were briefly
+ * darkened to ~30% so that WHITE text could sit on them inside the summary
+ * header — which turned High and Medium into brown and olive. Contrast is
+ * solved where the text actually lives instead (see the header below, which
+ * now uses the soft badge treatment), leaving these free to be legible colours.
+ */
+const PRIORITY_COLOR: Record<Priority, string> = {
+  Emergency: "hsl(357 64% 45%)",
+  High: "hsl(25 78% 45%)",
+  Medium: "hsl(43 74% 42%)",
+  Low: "hsl(222 14% 52%)",
+  Preventative: "hsl(207 62% 45%)",
+};
+type SliceDimension = "status" | "priority" | "source";
 
 type WorkOrderStatus =
   | "Open"
@@ -163,16 +182,22 @@ type WorkOrderStatus =
   | "Closed"
   | "Cancelled";
 
+/**
+ * Status is a lifecycle, not a category: in-flight states are informational,
+ * blocked states warn, finished states settle, and closed/cancelled recede.
+ * Previously these nine statuses spanned eight different hue families, so no
+ * single color meant anything.
+ */
 const STATUS_BADGE: Record<WorkOrderStatus, string> = {
-  Open: "bg-sky-50 text-sky-700 ring-sky-200",
-  "In Progress": "bg-amber-50 text-amber-700 ring-amber-200",
-  Scheduled: "bg-indigo-50 text-indigo-700 ring-indigo-200",
-  "Awaiting Parts": "bg-orange-50 text-orange-700 ring-orange-200",
-  Suspended: "bg-zinc-100 text-zinc-700 ring-zinc-300",
-  "Work Completed": "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  Completed: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  Closed: "bg-slate-100 text-slate-700 ring-slate-300",
-  Cancelled: "bg-rose-50 text-rose-700 ring-rose-200",
+  Open: URGENCY_BADGE.info,
+  "In Progress": URGENCY_BADGE.info,
+  Scheduled: URGENCY_BADGE.info,
+  "Awaiting Parts": URGENCY_BADGE.warning,
+  Suspended: URGENCY_BADGE.warning,
+  "Work Completed": URGENCY_BADGE.settled,
+  Completed: URGENCY_BADGE.settled,
+  Closed: URGENCY_BADGE.muted,
+  Cancelled: URGENCY_BADGE.muted,
 };
 
 interface WorkOrderRow {
@@ -205,15 +230,30 @@ interface MessageLogRow {
   sessionId: string;
 }
 
-interface FilterState {
-  periodId: PeriodId;
-  customFrom: string;
-  customTo: string;
-  properties: Set<string>;
-  technicians: Set<string>;
-  vendors: Set<string>;
-  floorPlans: Set<string>;
-  sources: Set<string>;
+/**
+ * Maintenance carries four dimensions the other agents do not. They live in
+ * the shared filter state's `extras` map and render behind the filter bar's
+ * "More filters" disclosure, so the bar keeps the same two primary controls
+ * (Period, Properties) as every other report instead of wrapping onto a
+ * second row.
+ */
+const MAINTENANCE_EXTRA_FILTERS: ExtraFilter[] = [
+  { id: "technicians", label: "Assigned to", options: ASSIGNED_TO_OPTIONS },
+  { id: "vendors", label: "Assigned vendor", options: VENDORS },
+  { id: "floorPlans", label: "Floorplan", options: FLOOR_PLANS },
+  { id: "sources", label: "Work order source", options: WORK_ORDER_SOURCES },
+];
+
+const MAINTENANCE_EXTRA_DEFAULTS = {
+  technicians: ASSIGNED_TO_OPTIONS,
+  vendors: VENDORS,
+  floorPlans: FLOOR_PLANS,
+  sources: WORK_ORDER_SOURCES,
+};
+
+/** Read an extras dimension, defaulting to "everything selected". */
+function extraSet(filters: ReportFilters, id: keyof typeof MAINTENANCE_EXTRA_DEFAULTS): Set<string> {
+  return filters.extras[id] ?? new Set(MAINTENANCE_EXTRA_DEFAULTS[id]);
 }
 
 // -----------------------------------------------------------------------------
@@ -292,6 +332,15 @@ interface PeriodScaledMetrics {
   receivedToSentRatio: string;
   incomingPerDay: { date: string; count: number }[];
   incomingGranularity: "day" | "week" | "month";
+
+  // Escalations
+  escalationRate: string;
+  totalEscalations: string;
+  openEscalations: string;
+  resolvedEscalations: string;
+  avgEscalationResolutionDays: string;
+  escalationReasons: { reason: string; count: number }[];
+  escalationResolutionTrend: { month: string; days: number }[];
 }
 
 const BASE_3Y = {
@@ -320,7 +369,18 @@ const BASE_3Y = {
   voiceCount: 592,
   totalMessagesReceived: 18204,
   totalMessagesSent: 16489,
+  totalEscalations: 268,
+  avgEscalationResolutionDays: 3.4,
 } as const;
+
+const BASE_ESCALATION_REASONS = [
+  { reason: "Parts Unavailable", count: 78 },
+  { reason: "Access / Entry Issue", count: 61 },
+  { reason: "Vendor Required", count: 49 },
+  { reason: "Resident Dissatisfied", count: 38 },
+  { reason: "Safety / Emergency", count: 24 },
+  { reason: "Technical Problem", count: 18 },
+];
 
 const SOURCE_PERCENTAGES: Record<WorkOrderSource, number> = {
   "Maintenance AI": 11.0,
@@ -340,16 +400,15 @@ const AVG_DAYS_BY_SOURCE: Record<WorkOrderSource, number> = {
   "Entrata Facilities App": 3.4,
 };
 
-function buildMetricsForPeriod(months: number, filters: FilterState): PeriodScaledMetrics {
+function buildMetricsForPeriod(months: number, filters: ReportFilters): PeriodScaledMetrics {
   const scale = months / 36;
   const propertyScale =
     filters.properties.size === 0
       ? 0
       : filters.properties.size / PROPERTIES.length;
+  const sources = extraSet(filters, "sources");
   const sourceScale =
-    filters.sources.size === 0
-      ? 0
-      : filters.sources.size / WORK_ORDER_SOURCES.length;
+    sources.size === 0 ? 0 : sources.size / WORK_ORDER_SOURCES.length;
 
   const adjusted = Math.max(0.01, scale * propertyScale * sourceScale);
 
@@ -382,9 +441,9 @@ function buildMetricsForPeriod(months: number, filters: FilterState): PeriodScal
       const unassignedRatio = 0.06 + 0.08 * t;
       const labelDate = new Date();
       labelDate.setMonth(labelDate.getMonth() - monthOffset);
-      const label = `${labelDate.getFullYear()}-${String(
-        labelDate.getMonth() + 1,
-      ).padStart(2, "0")}`;
+      // Shared formatter: this chart used ISO "2026-07" while the AI-submitted
+      // chart on the same page used "Jul '26".
+      const label = formatMonthLabel(labelDate);
       data.push({
         label,
         Completed: Math.round(total * completedRatio * adjusted),
@@ -398,9 +457,7 @@ function buildMetricsForPeriod(months: number, filters: FilterState): PeriodScal
     return data;
   })();
 
-  const includedSources = WORK_ORDER_SOURCES.filter((s) =>
-    filters.sources.has(s),
-  );
+  const includedSources = WORK_ORDER_SOURCES.filter((s) => sources.has(s));
   const totalSourcePctIncluded = includedSources.reduce(
     (s, src) => s + SOURCE_PERCENTAGES[src],
     0,
@@ -448,9 +505,7 @@ function buildMetricsForPeriod(months: number, filters: FilterState): PeriodScal
       const t = monthCount === 1 ? 1 : i / (monthCount - 1);
       const dateRef = new Date();
       dateRef.setMonth(dateRef.getMonth() - (monthCount - 1 - i));
-      const label = `${MONTH_LABELS[dateRef.getMonth()]} '${String(
-        dateRef.getFullYear(),
-      ).slice(-2)}`;
+      const label = formatMonthLabel(dateRef);
       data.push({
         month: label,
         baseline: Math.round(300 + (i % 4) * 12),
@@ -463,14 +518,24 @@ function buildMetricsForPeriod(months: number, filters: FilterState): PeriodScal
   const aiOriginOpen = Math.round(BASE_3Y.aiOriginOpen * aiPeriodScale);
   const aiOriginCompleted = Math.round(BASE_3Y.aiOriginCompleted * aiPeriodScale);
   const aiOriginCancelled = Math.round(BASE_3Y.aiOriginCancelled * aiPeriodScale);
-  const aiOriginAvgDays = BASE_3Y.aiOriginAvgDays;
+  // An average shouldn't scale with volume, but it should still reflect the
+  // window being measured — leaving it a pure constant made it the one AI-impact
+  // figure that never moved under the filters.
+  const aiOriginAvgDays = +(
+    BASE_3Y.aiOriginAvgDays *
+    (1 + (seedRand(4242 + months + Math.round(propertyScale * 100))() - 0.5) * 0.12)
+  ).toFixed(1);
   const aiOriginTotal = eliSubmittedWorkOrders;
 
   const aiStatusDistribution = [
-    { name: "Completed", value: aiOriginCompleted, color: "#22c55e" },
-    { name: "Cancelled", value: aiOriginCancelled, color: "#f43f5e" },
-    { name: "In Progress", value: Math.round(aiOriginCompleted * 0.18), color: "#eab308" },
-    { name: "Open", value: aiOriginOpen, color: "#3b82f6" },
+    { name: "Completed", value: aiOriginCompleted, color: seriesColor(0)},
+    { name: "Cancelled", value: aiOriginCancelled, color: seriesColor(1)},
+    {
+      name: "In Progress",
+      value: Math.round(aiOriginCompleted * 0.18),
+      color: seriesColor(2),
+    },
+    { name: "Open", value: aiOriginOpen, color: seriesColor(3)},
   ];
 
   // Section 3 — conversational
@@ -495,9 +560,9 @@ function buildMetricsForPeriod(months: number, filters: FilterState): PeriodScal
   });
 
   const componentDistribution: { name: string; value: number; color: string }[] = [
-    { name: "SMS", value: smsCount, color: AI_COMPONENT_COLORS.SMS },
-    { name: "Chat", value: chatCount, color: AI_COMPONENT_COLORS.Chat },
-    { name: "Voice", value: voiceCount, color: AI_COMPONENT_COLORS.Voice },
+    { name: "SMS", value: smsCount, color: seriesColor(0)},
+    { name: "Chat", value: chatCount, color: seriesColor(1)},
+    { name: "Voice", value: voiceCount, color: seriesColor(2)},
   ];
 
   const totalMessagesReceived = Math.round(BASE_3Y.totalMessagesReceived * compScale);
@@ -554,6 +619,37 @@ function buildMetricsForPeriod(months: number, filters: FilterState): PeriodScal
     return out;
   })();
 
+  // Escalations — derived from the same AI-period scale used for the rest of
+  // the AI impact metrics, so the numbers respond to period/property filters.
+  const escalationRand = seedRand(5150 + months + Math.round(propertyScale * 100));
+  const escalationJitter = () => 1 + (escalationRand() - 0.5) * 0.08;
+  const totalEscalations = Math.max(1, Math.round(BASE_3Y.totalEscalations * aiPeriodScale * escalationJitter()));
+  const openEscalations = Math.max(0, Math.round(totalEscalations * 0.1 * escalationJitter()));
+  const resolvedEscalations = Math.max(0, totalEscalations - openEscalations);
+  const escalationRate = +(12.6 * escalationJitter()).toFixed(1);
+  const avgEscalationResolutionDays = +(
+    BASE_3Y.avgEscalationResolutionDays * escalationJitter()
+  ).toFixed(1);
+  const escalationReasonScale = Math.max(0.05, aiPeriodScale);
+  const escalationReasons = BASE_ESCALATION_REASONS.map((item, i) => ({
+    ...item,
+    count: Math.round(item.count * escalationReasonScale * (1 + (seedRand(6001 + i + months)() - 0.5) * 0.08)),
+  }));
+  const escalationResolutionTrend = (() => {
+    const rand = seedRand(6501 + months);
+    const data: PeriodScaledMetrics["escalationResolutionTrend"] = [];
+    const count = Math.min(months, 13);
+    for (let i = 0; i < count; i++) {
+      const monthOffset = count - 1 - i;
+      const t = i / Math.max(count - 1, 1);
+      const dateRef = new Date();
+      dateRef.setMonth(dateRef.getMonth() - monthOffset);
+      const days = avgEscalationResolutionDays * (1.25 - 0.35 * t) + (rand() - 0.5) * 0.4;
+      data.push({ month: formatMonthLabel(dateRef), days: +Math.max(0.5, days).toFixed(1) });
+    }
+    return data;
+  })();
+
   return {
     openWorkOrders: scaleInt(BASE_3Y.openWorkOrders),
     overdueWorkOrders: scaleInt(BASE_3Y.overdueWorkOrders),
@@ -597,6 +693,14 @@ function buildMetricsForPeriod(months: number, filters: FilterState): PeriodScal
     receivedToSentRatio,
     incomingPerDay,
     incomingGranularity,
+
+    escalationRate: `${escalationRate}%`,
+    totalEscalations: totalEscalations.toLocaleString(),
+    openEscalations: openEscalations.toLocaleString(),
+    resolvedEscalations: resolvedEscalations.toLocaleString(),
+    avgEscalationResolutionDays: `${avgEscalationResolutionDays}`,
+    escalationReasons,
+    escalationResolutionTrend,
   };
 }
 
@@ -608,7 +712,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "166836",
     source: "Chat",
-    property: "Summerville Station",
+    property: "Parkview Flats",
     unit: "J-102",
     resident: "David McMurtry",
     priority: "Medium",
@@ -625,7 +729,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "4689",
     source: "SMS",
-    property: "Trails at Corinthian Creek",
+    property: "Cedar Hills",
     unit: "A-205",
     resident: "Jerry Harris",
     priority: "Medium",
@@ -642,7 +746,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "6854571",
     source: "Chat",
-    property: "Stonewater at the Riverbend",
+    property: "Oak Terrace",
     unit: "B-330",
     resident: "Robert Garcia",
     priority: "Medium",
@@ -659,7 +763,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "10237108",
     source: "Chat",
-    property: "Wayfare — Cumberland",
+    property: "Hillside Living",
     unit: "C-1003",
     resident: "Emilee McGuire",
     priority: "High",
@@ -676,7 +780,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "422719",
     source: "Chat",
-    property: "Bearkat Cottages",
+    property: "Hillside Living",
     unit: "3-C",
     resident: "Alex Argueta",
     priority: "Medium",
@@ -692,7 +796,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "6853168",
     source: "SMS",
-    property: "The Residences at Newbury",
+    property: "The Beacon",
     unit: "G-7210",
     resident: "TSeyHaye Preaster",
     priority: "Medium",
@@ -708,7 +812,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "6853166",
     source: "SMS",
-    property: "The Landing at Briarcliff",
+    property: "Summit Ridge",
     unit: "D-401",
     resident: "Barbara Reres",
     priority: "High",
@@ -724,7 +828,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "18217563",
     source: "Chat",
-    property: "Courtyard Apartments",
+    property: "Jamison Apartments",
     unit: "5651-C",
     resident: "Samyra Drawhorn",
     priority: "Medium",
@@ -740,7 +844,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "13443085",
     source: "Chat",
-    property: "Ashford Crescent Oaks",
+    property: "Cedar Hills",
     unit: "E-317",
     resident: "Sara Ali",
     priority: "Low",
@@ -756,7 +860,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "13443086",
     source: "SMS",
-    property: "Ashford Crescent Oaks",
+    property: "Cedar Hills",
     unit: "E-317",
     resident: "Sara Ali",
     priority: "Medium",
@@ -773,7 +877,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "166828",
     source: "Chat",
-    property: "Maverick Trails Apartments",
+    property: "Maple Court",
     unit: "B-221",
     resident: "Tommie Gainey",
     priority: "Medium",
@@ -789,7 +893,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "188204",
     source: "Voice",
-    property: "Westland Apts — Bldg 5",
+    property: "Lakewood",
     unit: "G-934",
     resident: "Sam Rivera",
     priority: "Emergency",
@@ -805,7 +909,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "188205",
     source: "Chat",
-    property: "Harvest Peak Heights",
+    property: "Lakewood",
     unit: "A-1402",
     resident: "Priya Singh",
     priority: "Preventative",
@@ -821,7 +925,7 @@ const WORK_ORDER_ROWS: WorkOrderRow[] = [
   {
     id: "188210",
     source: "Voice",
-    property: "Sunset Ridge",
+    property: "Pine Valley",
     unit: "C-208",
     resident: "Marcus Allen",
     priority: "Emergency",
@@ -846,7 +950,7 @@ const MESSAGE_LOG_ROWS: MessageLogRow[] = [
     woId: "WO-104821",
     woCreated: true,
     source: "SMS",
-    property: "Westland Apts — Bldg 2",
+    property: "Jamison Apartments",
     resident: "Jordan Lee",
     direction: "Incoming",
     dateTime: "2026-02-26 09:12",
@@ -858,7 +962,7 @@ const MESSAGE_LOG_ROWS: MessageLogRow[] = [
     woId: "WO-104821",
     woCreated: true,
     source: "SMS",
-    property: "Westland Apts — Bldg 2",
+    property: "Jamison Apartments",
     resident: "Maintenance AI",
     direction: "Outgoing",
     dateTime: "2026-02-26 09:13",
@@ -870,7 +974,7 @@ const MESSAGE_LOG_ROWS: MessageLogRow[] = [
     woId: "WO-104902",
     woCreated: true,
     source: "Chat",
-    property: "Westland Apts — Bldg 5",
+    property: "Lakewood",
     resident: "Sam Rivera",
     direction: "Incoming",
     dateTime: "2026-02-25 16:40",
@@ -882,7 +986,7 @@ const MESSAGE_LOG_ROWS: MessageLogRow[] = [
     woId: null,
     woCreated: false,
     source: "Chat",
-    property: "Harvest Peak Heights",
+    property: "Lakewood",
     resident: "Ana Morales",
     direction: "Incoming",
     dateTime: "2026-02-25 11:08",
@@ -894,7 +998,7 @@ const MESSAGE_LOG_ROWS: MessageLogRow[] = [
     woId: null,
     woCreated: false,
     source: "Chat",
-    property: "Harvest Peak Heights",
+    property: "Lakewood",
     resident: "Maintenance AI",
     direction: "Outgoing",
     dateTime: "2026-02-25 11:09",
@@ -906,7 +1010,7 @@ const MESSAGE_LOG_ROWS: MessageLogRow[] = [
     woId: null,
     woCreated: false,
     source: "Chat",
-    property: "Harvest Peak Heights",
+    property: "Lakewood",
     resident: "Ana Morales",
     direction: "Incoming",
     dateTime: "2026-02-25 11:14",
@@ -919,62 +1023,6 @@ const MESSAGE_LOG_ROWS: MessageLogRow[] = [
 // -----------------------------------------------------------------------------
 // Atomic UI
 // -----------------------------------------------------------------------------
-
-type Tone = "positive" | "negative" | "neutral";
-
-function DeltaPill({ value, tone }: { value: string; tone: Tone }) {
-  const Icon = tone === "negative" ? ArrowDownRight : ArrowUpRight;
-  const cls =
-    tone === "positive"
-      ? "text-emerald-600"
-      : tone === "negative"
-        ? "text-rose-600"
-        : "text-muted-foreground";
-  return (
-    <span className={cn("inline-flex items-center gap-0.5 text-xs font-medium", cls)}>
-      <Icon className="h-3 w-3" />
-      {value}
-    </span>
-  );
-}
-
-function KpiCard({
-  label,
-  value,
-  delta,
-  deltaTone = "positive",
-  sub,
-}: {
-  label: string;
-  value: string;
-  delta?: string;
-  deltaTone?: Tone;
-  sub?: string;
-}) {
-  return (
-    <Card className="border-border/60">
-      <CardContent className="px-4 py-3.5">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          {label}
-        </p>
-        <div className="mt-1 flex items-baseline gap-2">
-          <p className="text-2xl font-bold tracking-tight text-foreground">{value}</p>
-          {delta && <DeltaPill value={delta} tone={deltaTone} />}
-        </div>
-        {sub && <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p>}
-      </CardContent>
-    </Card>
-  );
-}
-
-function SectionBanner({ title, description }: { title: string; description: string }) {
-  return (
-    <div className="mb-3 rounded-md bg-muted/60 px-4 py-3">
-      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-      <p className="text-xs text-muted-foreground">{description}</p>
-    </div>
-  );
-}
 
 function formatCompact(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
@@ -991,206 +1039,6 @@ function formatCompactShort(n: number): string {
 // -----------------------------------------------------------------------------
 // Multi-select filter dropdown
 // -----------------------------------------------------------------------------
-
-function MultiSelect({
-  label,
-  options,
-  selected,
-  onChange,
-  width = "11rem",
-  searchable = false,
-}: {
-  label: string;
-  options: readonly string[];
-  selected: Set<string>;
-  onChange: (next: Set<string>) => void;
-  width?: string;
-  searchable?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-
-  const allSelected = selected.size === options.length;
-  const buttonLabel = allSelected
-    ? "All"
-    : selected.size === 0
-      ? "None"
-      : `${selected.size} selected`;
-
-  const filtered = options.filter((o) =>
-    o.toLowerCase().includes(search.toLowerCase()),
-  );
-
-  function toggle(o: string) {
-    const next = new Set(selected);
-    if (next.has(o)) next.delete(o);
-    else next.add(o);
-    onChange(next);
-  }
-
-  function toggleAll() {
-    onChange(allSelected ? new Set() : new Set(options));
-  }
-
-  return (
-    <div className="relative" style={{ minWidth: width }}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="inline-flex w-full items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-sm"
-      >
-        <span className="text-muted-foreground">{label}:</span>
-        <span className="font-semibold text-foreground">{buttonLabel}</span>
-        <ChevronDown className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-20 mt-1 w-[18rem] rounded-md border border-border bg-popover p-2 shadow-lg">
-            {searchable && (
-              <div className="relative mb-2">
-                <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder={`Search ${label.toLowerCase()}...`}
-                  className="w-full rounded-md border border-border bg-background pl-7 pr-2 py-1.5 text-sm"
-                />
-              </div>
-            )}
-            <div className="max-h-[18rem] overflow-y-auto">
-              <label className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  onChange={toggleAll}
-                  className="h-4 w-4 rounded border-border"
-                />
-                <span className="text-sm font-medium">All</span>
-              </label>
-              {filtered.map((o) => (
-                <label
-                  key={o}
-                  className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selected.has(o)}
-                    onChange={() => toggle(o)}
-                    className="h-4 w-4 rounded border-border"
-                  />
-                  <span className="text-sm">{o}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function PeriodPicker({
-  state,
-  setState,
-}: {
-  state: FilterState;
-  setState: (s: FilterState) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const label =
-    state.periodId === "custom"
-      ? "Custom Range"
-      : (PERIOD_OPTIONS.find((p) => p.id === state.periodId)?.label ?? "Last 12 Months");
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          "inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-sm",
-          open ? "border-amber-400 ring-1 ring-amber-200" : "border-border",
-        )}
-      >
-        <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-muted-foreground">Period:</span>
-        <span className="font-semibold text-foreground">{label}</span>
-        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-20 mt-1 w-[16rem] rounded-md border border-border bg-popover p-1 shadow-lg">
-            {PERIOD_OPTIONS.map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => {
-                  setState({ ...state, periodId: opt.id });
-                  setOpen(false);
-                }}
-                className={cn(
-                  "block w-full rounded px-3 py-1.5 text-left text-sm hover:bg-muted",
-                  state.periodId === opt.id && "bg-muted font-medium",
-                )}
-              >
-                {opt.label}
-              </button>
-            ))}
-            <div className="mt-1 border-t border-border pt-2">
-              <label className="flex items-center gap-2 px-3 py-1.5 text-sm">
-                <input
-                  type="checkbox"
-                  checked={state.periodId === "custom"}
-                  onChange={(e) =>
-                    setState({
-                      ...state,
-                      periodId: e.target.checked ? "custom" : "12m",
-                    })
-                  }
-                  className="h-4 w-4 rounded border-border"
-                />
-                Custom Range
-              </label>
-              {state.periodId === "custom" && (
-                <div className="space-y-2 px-3 pb-2">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="month"
-                      value={state.customFrom}
-                      onChange={(e) =>
-                        setState({ ...state, customFrom: e.target.value })
-                      }
-                      className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
-                    />
-                    <span className="text-xs text-muted-foreground">to</span>
-                    <input
-                      type="month"
-                      value={state.customTo}
-                      onChange={(e) =>
-                        setState({ ...state, customTo: e.target.value })
-                      }
-                      className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setOpen(false)}
-                    className="w-full rounded-md bg-foreground py-1.5 text-xs font-medium text-background hover:bg-foreground/90"
-                  >
-                    Apply Custom Range
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
 
 // -----------------------------------------------------------------------------
 // Skeleton — replaces inner content briefly when filters change
@@ -1214,16 +1062,7 @@ function LoadingBanner() {
 // -----------------------------------------------------------------------------
 
 export default function MaintenanceAiDashboardPage() {
-  const [filters, setFilters] = useState<FilterState>({
-    periodId: "12m",
-    customFrom: "2025-06",
-    customTo: "2026-05",
-    properties: new Set(PROPERTIES),
-    technicians: new Set(ASSIGNED_TO_OPTIONS),
-    vendors: new Set(VENDORS),
-    floorPlans: new Set(FLOOR_PLANS),
-    sources: new Set(WORK_ORDER_SOURCES),
-  });
+  const [filters, setFilters, scope] = useReportScope(PROPERTIES, MAINTENANCE_EXTRA_DEFAULTS);
   const [loading, setLoading] = useState(false);
   const [sliceBy, setSliceBy] = useState<SliceDimension>("status");
   const filtersKey = useMemo(
@@ -1244,10 +1083,7 @@ export default function MaintenanceAiDashboardPage() {
   }, [filtersKey]);
 
   const months = useMemo(() => {
-    if (filters.periodId === "custom") return 12;
-    return (
-      PERIOD_OPTIONS.find((p) => p.id === filters.periodId)?.months ?? 12
-    );
+    return monthsForPeriod(filters.periodId);
   }, [filters.periodId]);
 
   const metrics = useMemo(
@@ -1257,184 +1093,25 @@ export default function MaintenanceAiDashboardPage() {
 
   return (
     <div className="-mt-2">
-      <Link
-        href="/performance"
-        className="mb-4 inline-flex items-center gap-1.5 rounded-md border border-border bg-white px-3 py-1.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to Performance
-      </Link>
+      <ReportPageHeader
+        agent="Maintenance AI"
+        description="Work order volume, routing and resolution times, plus the requests ELI+ deflected"
+      />
 
-      <header className="mb-4">
-        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-foreground">
-          <img src="/eli-cube.svg" alt="" width={22} height={22} />
-          Maintenance AI — Performance & Impact
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Maintenance AI agent performance, work order routing, and resolution analytics — mirrors the Domo Maintenance AI report.
-        </p>
-      </header>
-
-      {/* Sticky global filter bar */}
-      <div className="sticky top-0 z-30 -mx-6 mb-5 border-b border-border bg-background/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        <div className="flex flex-wrap items-center gap-2">
-          <PeriodPicker state={filters} setState={setFilters} />
-          <MultiSelect
-            label="Properties"
-            options={PROPERTIES}
-            selected={filters.properties}
-            onChange={(s) => setFilters({ ...filters, properties: s })}
-            searchable
-            width="11rem"
-          />
-          <MultiSelect
-            label="Assigned to"
-            options={ASSIGNED_TO_OPTIONS}
-            selected={filters.technicians}
-            onChange={(s) => setFilters({ ...filters, technicians: s })}
-            searchable
-            width="11rem"
-          />
-          <MultiSelect
-            label="Assigned vendor"
-            options={VENDORS}
-            selected={filters.vendors}
-            onChange={(s) => setFilters({ ...filters, vendors: s })}
-            searchable
-            width="11rem"
-          />
-          <MultiSelect
-            label="Floorplan"
-            options={FLOOR_PLANS}
-            selected={filters.floorPlans}
-            onChange={(s) => setFilters({ ...filters, floorPlans: s })}
-            width="11rem"
-          />
-          <MultiSelect
-            label="Work order source"
-            options={WORK_ORDER_SOURCES}
-            selected={filters.sources}
-            onChange={(s) => setFilters({ ...filters, sources: s })}
-            width="14rem"
-          />
-        </div>
-      </div>
+      <ReportFilterBar
+        filters={filters}
+        onChange={setFilters}
+        properties={PROPERTIES}
+        unmatchedProperties={scope.unmatched}
+        extraFilters={MAINTENANCE_EXTRA_FILTERS}
+      />
 
       {loading && <LoadingBanner />}
 
       {/* =========================================================== */}
       {/* Section 1 — Overall Work Order Performance                  */}
       {/* =========================================================== */}
-      <section className="mb-6">
-        <SectionBanner
-          title="Overall Work Order Performance"
-          description="Key work order metrics across all submission sources"
-        />
-
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,0.42fr)_minmax(0,1fr)]">
-          {/* Left: KPI stack */}
-          <div className="grid gap-3">
-            <KpiCard
-              label="Open Work Orders"
-              value={loading ? "…" : formatCompact(metrics.openWorkOrders)}
-              sub="opened during selected period"
-            />
-            <KpiCard
-              label="Overdue Open Work Orders"
-              value={loading ? "…" : formatCompact(metrics.overdueWorkOrders)}
-              sub="past target completion date"
-              deltaTone="negative"
-            />
-            <KpiCard
-              label="Unassigned Open Work Orders"
-              value={loading ? "…" : formatCompact(metrics.unassignedWorkOrders)}
-              sub="open without an assigned tech"
-            />
-          </div>
-
-          {/* Right: priority counter + stacked bar */}
-          <Card className="border-border/60">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Work Order Status Summary</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <PriorityCounter
-                counts={metrics.priorityCounts}
-                loading={loading}
-              />
-              <div className="mt-4">
-                {loading ? (
-                  <Skeleton className="h-[260px] w-full" />
-                ) : (
-                  <ChartContainer
-                    config={{
-                      Completed: { label: "Completed", color: "#60a5fa" },
-                      Open: { label: "Open", color: "#1e3a8a" },
-                      Overdue: { label: "Overdue", color: "#fb923c" },
-                      Submitted: { label: "Submitted", color: "#a855f7" },
-                      Unassigned: { label: "Unassigned", color: "#334155" },
-                    }}
-                    className="!aspect-auto h-[260px] w-full"
-                  >
-                    <BarChart
-                      data={metrics.statusByMonth}
-                      margin={{ left: 8, right: 12, top: 8, bottom: 8 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                      <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} />
-                      <YAxis
-                        tickLine={false}
-                        axisLine={false}
-                        tickMargin={8}
-                        width={56}
-                        tickFormatter={(v: number) => formatCompactShort(v)}
-                      />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Bar dataKey="Completed" stackId="a" fill="#60a5fa" />
-                      <Bar dataKey="Open" stackId="a" fill="#1e3a8a" />
-                      <Bar dataKey="Overdue" stackId="a" fill="#fb923c" />
-                      <Bar dataKey="Submitted" stackId="a" fill="#a855f7" />
-                      <Bar dataKey="Unassigned" stackId="a" fill="#334155" />
-                      <Legend
-                        verticalAlign="bottom"
-                        iconType="square"
-                        wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }}
-                      />
-                    </BarChart>
-                  </ChartContainer>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="mt-3 grid gap-3 lg:grid-cols-2">
-          <Card className="border-border/60">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Work Orders by Source</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <Skeleton className="h-[220px] w-full" />
-              ) : (
-                <SourceDonut data={metrics.bySource} />
-              )}
-            </CardContent>
-          </Card>
-          <Card className="border-border/60">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Average Days to Complete by Source</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <Skeleton className="h-[220px] w-full" />
-              ) : (
-                <AvgDaysBySource data={metrics.avgDaysBySource} />
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </section>
+      
 
       {/* =========================================================== */}
       {/* Section 2 — Maintenance AI Impact                           */}
@@ -1446,9 +1123,9 @@ export default function MaintenanceAiDashboardPage() {
         />
 
         <div className="grid gap-3 lg:grid-cols-[minmax(0,0.4fr)_minmax(0,1fr)]">
-          <Card className="border-border/60 bg-gradient-to-br from-emerald-50 to-background">
+          <Card>
             <CardContent className="px-5 py-4">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <p className="text-xxs font-semibold text-muted-foreground">
                 Work Orders Resolved
               </p>
               <p className="mt-1 text-4xl font-bold tracking-tight text-foreground">
@@ -1461,28 +1138,28 @@ export default function MaintenanceAiDashboardPage() {
           </Card>
 
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <KpiCard
+            <StatCard
               label="Total units using AI"
               value={loading ? "…" : metrics.totalUnitsUsingAi.toLocaleString()}
               delta={`+${metrics.unitsDeltaAbsolute.toLocaleString()}`}
               deltaTone="positive"
               sub="units on platform"
             />
-            <KpiCard
+            <StatCard
               label="Units AI usage rate"
               value={loading ? "…" : `${metrics.unitsAiUsageRate}%`}
               delta={`+${metrics.unitsAiUsageDelta} pts`}
               deltaTone="positive"
               sub="of total units"
             />
-            <KpiCard
+            <StatCard
               label="Maintenance AI submitted work orders"
               value={loading ? "…" : metrics.eliSubmittedWorkOrders.toLocaleString()}
               delta={`+${metrics.eliSubmittedDeltaPct}%`}
               deltaTone="positive"
               sub="AI-submitted WOs"
             />
-            <KpiCard
+            <StatCard
               label="Work orders deflected"
               value={loading ? "…" : `${metrics.workOrdersDeflectedPct}%`}
               delta={`+${metrics.workOrdersDeflectedDelta} pts`}
@@ -1506,8 +1183,8 @@ export default function MaintenanceAiDashboardPage() {
               ) : (
                 <ChartContainer
                   config={{
-                    baseline: { label: "Pre-AI baseline", color: "#cbd5e1" },
-                    current: { label: "Current", color: "#0f172a" },
+                    baseline: { label: "Pre-AI baseline", color: "hsl(222 10% 78%)" },
+                    current: { label: "Current", color: seriesColor(0) },
                   }}
                   className="!aspect-auto h-[240px] w-full"
                 >
@@ -1515,7 +1192,7 @@ export default function MaintenanceAiDashboardPage() {
                     data={metrics.monthlyAiWoSubmitted}
                     margin={{ left: 8, right: 12, top: 8, bottom: 8 }}
                   >
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                     <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
                     <YAxis
                       tickLine={false}
@@ -1528,7 +1205,7 @@ export default function MaintenanceAiDashboardPage() {
                     <Line
                       type="monotone"
                       dataKey="baseline"
-                      stroke="#94a3b8"
+                      stroke={"hsl(222 12% 62%)"}
                       strokeWidth={1.5}
                       strokeDasharray="4 4"
                       dot={false}
@@ -1536,7 +1213,7 @@ export default function MaintenanceAiDashboardPage() {
                     <Line
                       type="monotone"
                       dataKey="current"
-                      stroke="#0f172a"
+                      stroke={seriesColor(0)}
                       strokeWidth={2}
                       dot={false}
                     />
@@ -1548,27 +1225,27 @@ export default function MaintenanceAiDashboardPage() {
         </div>
 
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <KpiCard
+          <StatCard
             label="Open work orders"
             value={loading ? "…" : metrics.aiOriginOpen.toLocaleString()}
             sub="AI origin · selected period"
           />
-          <KpiCard
+          <StatCard
             label="Completed work orders"
             value={loading ? "…" : metrics.aiOriginCompleted.toLocaleString()}
             sub="AI origin · selected period"
           />
-          <KpiCard
+          <StatCard
             label="Cancelled work orders"
             value={loading ? "…" : metrics.aiOriginCancelled.toLocaleString()}
             sub="AI origin · selected period"
           />
-          <KpiCard
+          <StatCard
             label="Avg days to complete"
             value={loading ? "…" : `${metrics.aiOriginAvgDays}`}
             sub="Maintenance AI origin"
           />
-          <KpiCard
+          <StatCard
             label="Total work orders"
             value={loading ? "…" : metrics.aiOriginTotal.toLocaleString()}
             sub="Maintenance AI origin"
@@ -1578,10 +1255,20 @@ export default function MaintenanceAiDashboardPage() {
         <div className="mt-3">
           <Card className="border-border/60">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Work Order Status Distribution</CardTitle>
-              <p className="text-xs text-muted-foreground">
-                AI-origin work orders broken out by workflow status. Slice the pie by priority or source using the controls on the right.
-              </p>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <CardTitle className="text-sm">Work order distribution</CardTitle>
+                  <p className="text-xs text-muted-foreground">
+                    AI-origin work orders, broken out by the selected dimension
+                  </p>
+                </div>
+                <SegmentedToggle
+                  aria-label="Slice distribution by"
+                  value={sliceBy}
+                  onChange={setSliceBy}
+                  options={SLICE_OPTIONS.map((o) => ({ value: o.id, label: o.label }))}
+                />
+              </div>
             </CardHeader>
             <CardContent>
               {loading ? (
@@ -1592,7 +1279,6 @@ export default function MaintenanceAiDashboardPage() {
                   priorityData={metrics.priorityDistribution}
                   sourceData={metrics.componentDistribution}
                   sliceBy={sliceBy}
-                  setSliceBy={setSliceBy}
                 />
               )}
             </CardContent>
@@ -1613,6 +1299,78 @@ export default function MaintenanceAiDashboardPage() {
           </Card>
         </div>
       </section>
+
+      {/* =========================================================== */}
+      {/* Section 2b — Escalations                                    */}
+      {/* =========================================================== */}
+      <EscalationsSection
+        stats={[
+          {
+            label: "Escalation rate",
+            value: loading ? "…" : metrics.escalationRate,
+            sub: "of AI-originated work orders escalated",
+          },
+          {
+            label: "Total escalations",
+            value: loading ? "…" : metrics.totalEscalations,
+            sub: "escalated to staff",
+          },
+          {
+            label: "Open escalations",
+            value: loading ? "…" : metrics.openEscalations,
+            sub: "pending resolution",
+          },
+          {
+            label: "Resolved",
+            value: loading ? "…" : metrics.resolvedEscalations,
+            sub: "resolved by staff",
+          },
+        ]}
+      >
+        <div className="grid gap-3 lg:grid-cols-2">
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Escalation Reasons</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <Skeleton className="h-[260px] w-full" />
+              ) : (
+                <ChartContainer config={{}} className="!aspect-auto h-[260px] w-full">
+                  <BarChart data={metrics.escalationReasons} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+                    <XAxis dataKey="reason" tickLine={false} axisLine={false} tickMargin={8} angle={-30} textAnchor="end" height={50} interval={0} fontSize={10} />
+                    <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar dataKey="count" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ChartContainer>
+              )}
+            </CardContent>
+          </Card>
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Avg Escalation Resolution Time — Trend</CardTitle>
+              <p className="text-xs text-muted-foreground">Days from escalation created to resolved</p>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <Skeleton className="h-[240px] w-full" />
+              ) : (
+                <ChartContainer config={{}} className="!aspect-auto h-[240px] w-full">
+                  <LineChart data={metrics.escalationResolutionTrend} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+                    <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
+                    <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Line type="monotone" dataKey="days" stroke={seriesColor(0)} strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ChartContainer>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </EscalationsSection>
 
       {/* =========================================================== */}
       {/* Section 3 — Conversational Messaging Analysis               */}
@@ -1638,17 +1396,17 @@ export default function MaintenanceAiDashboardPage() {
           </Card>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <KpiCard
-              label="Messages received (SMS + Chat)"
+            <StatCard
+              label="Messages received (SMS + chat)"
               value={loading ? "…" : metrics.totalMessagesReceived.toLocaleString()}
               sub={`${metrics.smsReceived.toLocaleString()} SMS · ${metrics.chatReceived.toLocaleString()} Chat`}
             />
-            <KpiCard
+            <StatCard
               label="Messages sent (Maintenance AI)"
               value={loading ? "…" : metrics.totalMessagesSent.toLocaleString()}
               sub="AI-authored outbound replies"
             />
-            <KpiCard
+            <StatCard
               label="Received → sent ratio"
               value={loading ? "…" : metrics.receivedToSentRatio}
               sub="messages received per AI reply"
@@ -1686,14 +1444,14 @@ export default function MaintenanceAiDashboardPage() {
                 <Skeleton className="h-[200px] w-full" />
               ) : (
                 <ChartContainer
-                  config={{ count: { label: "Incoming messages", color: "#0f172a" } }}
+                  config={{ count: { label: "Incoming messages", color: seriesColor(0) } }}
                   className="!aspect-auto h-[200px] w-full"
                 >
                   <LineChart
                     data={metrics.incomingPerDay}
                     margin={{ left: 8, right: 12, top: 8, bottom: 8 }}
                   >
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                     <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} />
                     <YAxis
                       tickLine={false}
@@ -1706,12 +1464,138 @@ export default function MaintenanceAiDashboardPage() {
                     <Line
                       type="monotone"
                       dataKey="count"
-                      stroke="#0f172a"
+                      stroke={seriesColor(0)}
                       strokeWidth={2}
                       dot={{ r: 2 }}
                     />
                   </LineChart>
                 </ChartContainer>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
+      <section className="mb-6">
+        <SectionBanner
+          title="Overall Work Order Performance"
+          description="Key work order metrics across all submission sources"
+        />
+
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,0.42fr)_minmax(0,1fr)]">
+          {/* Left: KPI stack */}
+          <div className="grid gap-3">
+            <StatCard
+              label="Open work orders"
+              value={loading ? "…" : formatCompact(metrics.openWorkOrders)}
+              sub="opened during selected period"
+            />
+            <StatCard
+              label="Overdue open work orders"
+              value={loading ? "…" : formatCompact(metrics.overdueWorkOrders)}
+              sub="past target completion date"
+              deltaTone="negative"
+            />
+            <StatCard
+              label="Unassigned open work orders"
+              value={loading ? "…" : formatCompact(metrics.unassignedWorkOrders)}
+              sub="open without an assigned tech"
+            />
+          </div>
+
+          {/* Status over time — one card, one dimension. Priority moved to
+              its own card below; the two were sharing a title that only
+              described the status chart. */}
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Work orders by status over time</CardTitle>
+              <CardDescription className="text-xs">
+                Monthly work order volume, stacked by workflow status
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <Skeleton className="h-[260px] w-full" />
+              ) : (
+                <ChartContainer
+                  config={{
+                    Completed: { label: "Completed", color: STATUS_FILL.completed },
+                    Open: { label: "Open", color: STATUS_FILL.open },
+                    Overdue: { label: "Overdue", color: STATUS_FILL.overdue },
+                    Submitted: { label: "Submitted", color: STATUS_FILL.inProgress },
+                    Unassigned: { label: "Unassigned", color: STATUS_FILL.unassigned },
+                  }}
+                  className="!aspect-auto h-[260px] w-full"
+                >
+                  <BarChart
+                    data={metrics.statusByMonth}
+                    margin={{ left: 8, right: 12, top: 8, bottom: 8 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+                    <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} />
+                    <YAxis
+                      tickLine={false}
+                      axisLine={false}
+                      tickMargin={8}
+                      width={56}
+                      tickFormatter={(v: number) => formatCompactShort(v)}
+                    />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar dataKey="Completed" stackId="a" fill={STATUS_FILL.completed} />
+                    <Bar dataKey="Open" stackId="a" fill={STATUS_FILL.open} />
+                    <Bar dataKey="Overdue" stackId="a" fill={STATUS_FILL.overdue} />
+                    <Bar dataKey="Submitted" stackId="a" fill={STATUS_FILL.inProgress} />
+                    <Bar dataKey="Unassigned" stackId="a" fill={STATUS_FILL.unassigned} />
+                    <Legend
+                      verticalAlign="bottom"
+                      iconType="circle"
+                      wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }}
+                      formatter={legendLabel}
+                    />
+                  </BarChart>
+                </ChartContainer>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Open work orders by priority</CardTitle>
+              <CardDescription className="text-xs">
+                Share of currently open work orders at each priority level
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <Skeleton className="h-[200px] w-full" />
+              ) : (
+                <PriorityDonut counts={metrics.priorityCounts} />
+              )}
+            </CardContent>
+          </Card>
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Work Orders by Source</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <Skeleton className="h-[220px] w-full" />
+              ) : (
+                <SourceDonut data={metrics.bySource} />
+              )}
+            </CardContent>
+          </Card>
+          <Card className="border-border/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Average Days to Complete by Source</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <Skeleton className="h-[220px] w-full" />
+              ) : (
+                <AvgDaysBySource data={metrics.avgDaysBySource} />
               )}
             </CardContent>
           </Card>
@@ -1727,39 +1611,87 @@ export default function MaintenanceAiDashboardPage() {
 
 const PRIORITY_ORDER: Priority[] = ["Emergency", "High", "Medium", "Low", "Preventative"];
 
-function PriorityCounter({
+/**
+ * Open work orders by priority.
+ *
+ * Was a wide colour-banded strip bolted onto the top of the status-over-time
+ * chart, so one card carried two different dimensions under a title that only
+ * described one of them. Priority is a share-of-a-whole, which this page
+ * already renders as a donut (see SourceDonut) — so it is one now, in its own
+ * card.
+ */
+function PriorityDonut({
   counts,
-  loading,
 }: {
   counts: Record<Priority, number>;
-  loading: boolean;
 }) {
+  const total = PRIORITY_ORDER.reduce((sum, p) => sum + counts[p], 0);
+  const data = PRIORITY_ORDER.map((p) => ({
+    name: p,
+    count: counts[p],
+    value: total > 0 ? +((counts[p] / total) * 100).toFixed(1) : 0,
+  }));
+
   return (
-    <div className="overflow-hidden rounded-md border border-border">
-      <div className="grid grid-cols-[140px_repeat(5,minmax(0,1fr))] bg-slate-900 text-white text-xs">
-        <div className="px-3 py-2 font-medium">Open Work Order Priority</div>
-        {PRIORITY_ORDER.map((p) => (
-          <div
-            key={p}
-            className="px-2 py-2 text-center font-medium uppercase tracking-wide"
-            style={{ backgroundColor: PRIORITY_COLOR[p] }}
-          >
-            {p}
-          </div>
-        ))}
+    <div className="flex flex-wrap items-center gap-6">
+      <div className="h-[200px] w-[200px] shrink-0">
+        <ChartContainer config={{}} className="!aspect-auto h-full w-full">
+          <PieChart>
+            <Pie
+              data={data}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              innerRadius={50}
+              outerRadius={85}
+              paddingAngle={1}
+            >
+              {data.map((d) => (
+                <Cell key={d.name} fill={PRIORITY_COLOR[d.name]} />
+              ))}
+            </Pie>
+            <ChartTooltip
+              content={
+                <ChartTooltipContent
+                  formatter={(value, name, item) => {
+                    const count =
+                      (item?.payload as { count?: number } | undefined)?.count ?? 0;
+                    return (
+                      <div className="flex items-center justify-between gap-4">
+                        <span>{String(name)}</span>
+                        <span className="font-mono tabular-nums">
+                          {value}% · {count.toLocaleString()}
+                        </span>
+                      </div>
+                    );
+                  }}
+                />
+              }
+            />
+          </PieChart>
+        </ChartContainer>
       </div>
-      <div className="grid grid-cols-[140px_repeat(5,minmax(0,1fr))] bg-slate-700 text-white text-xs">
-        <div className="px-3 py-2 font-medium"># Work Orders</div>
-        {PRIORITY_ORDER.map((p) => (
-          <div key={p} className="px-2 py-2 text-center font-semibold tabular-nums">
-            {loading ? "…" : counts[p].toLocaleString()}
+      <div className="min-w-0 flex-1 space-y-1.5">
+        {data.map((d) => (
+          <div key={d.name} className="flex items-center gap-3 text-sm">
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-full"
+              style={{ backgroundColor: PRIORITY_COLOR[d.name] }}
+            />
+            <span className="flex-1 text-foreground">{d.name}</span>
+            <span className="font-semibold tabular-nums text-foreground">
+              {d.value}%
+            </span>
+            <span className="text-xs tabular-nums text-muted-foreground">
+              ({d.count.toLocaleString()})
+            </span>
           </div>
         ))}
       </div>
     </div>
   );
 }
-
 function SourceDonut({
   data,
 }: {
@@ -1838,7 +1770,7 @@ function AvgDaysBySource({
         layout="vertical"
         margin={{ left: 8, right: 32, top: 8, bottom: 8 }}
       >
-        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e5e7eb" />
+        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={CHART_GRID_STROKE} />
         <XAxis
           type="number"
           tickLine={false}
@@ -1888,13 +1820,11 @@ function DistributionPanel({
   priorityData,
   sourceData,
   sliceBy,
-  setSliceBy,
 }: {
   statusData: { name: string; value: number; color: string }[];
   priorityData: { name: string; value: number; color: string }[];
   sourceData: { name: string; value: number; color: string }[];
   sliceBy: SliceDimension;
-  setSliceBy: (s: SliceDimension) => void;
 }) {
   const active =
     sliceBy === "priority"
@@ -1905,7 +1835,7 @@ function DistributionPanel({
   const total = active.reduce((s, d) => s + d.value, 0);
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_180px]">
+    <div>
       <div className="flex flex-col items-center justify-center gap-3 py-2">
         <div className="h-[260px] w-full max-w-[320px]">
           <ChartContainer config={{}} className="!aspect-auto h-full w-full">
@@ -1961,26 +1891,6 @@ function DistributionPanel({
             </span>
           ))}
         </div>
-      </div>
-      <div className="flex flex-col gap-1.5 border-l border-border/60 pl-5">
-        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Slice by
-        </p>
-        {SLICE_OPTIONS.map((opt) => (
-          <button
-            key={opt.id}
-            type="button"
-            onClick={() => setSliceBy(opt.id)}
-            className={cn(
-              "rounded-md border px-3 py-1.5 text-left text-sm transition-colors",
-              sliceBy === opt.id
-                ? "border-foreground bg-foreground text-background"
-                : "border-border bg-background text-foreground hover:bg-muted/60",
-            )}
-          >
-            {opt.label}
-          </button>
-        ))}
       </div>
     </div>
   );
@@ -2043,92 +1953,84 @@ function EliWorkOrderTable({ rows }: { rows: WorkOrderRow[] }) {
     setPage(1);
   }
 
-  const COLS: { key: keyof WorkOrderRow; label: string }[] = [
+  /**
+   * Fourteen columns at a hard 1200px minimum made this table scroll
+   * horizontally at every width we support, including 1440 — the triage
+   * columns (priority, status, who) sat off-screen behind a scrollbar.
+   *
+   * `hide` drops the descriptive columns first as width tightens; the
+   * identity + triage columns are always present. Detail that leaves the
+   * table is still reachable by opening the work order.
+   */
+  const COLS: { key: keyof WorkOrderRow; label: string; hide?: string }[] = [
     { key: "id", label: "Work Order ID" },
-    { key: "source", label: "Source" },
+    { key: "source", label: "Source", hide: "hidden lg:table-cell" },
     { key: "property", label: "Property" },
     { key: "unit", label: "Unit" },
-    { key: "resident", label: "Resident Name" },
+    { key: "resident", label: "Resident Name", hide: "hidden lg:table-cell" },
     { key: "priority", label: "Priority" },
-    { key: "category", label: "Category" },
-    { key: "problem", label: "Problem" },
-    { key: "location", label: "Location" },
-    { key: "description", label: "Description" },
+    { key: "category", label: "Category", hide: "hidden xl:table-cell" },
+    { key: "problem", label: "Problem", hide: "hidden 2xl:table-cell" },
+    { key: "location", label: "Location", hide: "hidden 2xl:table-cell" },
+    { key: "description", label: "Description", hide: "hidden 2xl:table-cell" },
     { key: "dateTime", label: "Date and Time" },
     { key: "status", label: "Status" },
-    { key: "assignedTo", label: "Assigned To" },
-    { key: "assignedOn", label: "Assigned On" },
+    { key: "assignedTo", label: "Assigned To", hide: "hidden lg:table-cell" },
+    { key: "assignedOn", label: "Assigned On", hide: "hidden 2xl:table-cell" },
   ];
 
   return (
     <div>
-      <div className="mb-3 flex flex-wrap items-start gap-4">
-        <div className="min-w-[12rem]">
-          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Priority filter
-          </p>
-          <div className="flex flex-col gap-1">
-            {PRIORITY_ORDER.map((p) => (
-              <label
-                key={p}
-                className="inline-flex items-center gap-2 text-xs"
-              >
-                <input
-                  type="checkbox"
-                  checked={priorityFilter.has(p)}
-                  onChange={() => togglePriority(p)}
-                  className="h-3.5 w-3.5 rounded border-border"
-                />
-                <span
-                  className={cn(
-                    "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset",
-                    PRIORITY_BADGE[p],
-                  )}
-                >
-                  {p}
-                </span>
-              </label>
-            ))}
-          </div>
-        </div>
-        <div className="min-w-[12rem]">
-          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Status filter
-          </p>
-          <div className="flex flex-col gap-1">
-            {STATUSES_IN_TABLE.map((s) => (
-              <label
-                key={s}
-                className="inline-flex items-center gap-2 text-xs"
-              >
-                <input
-                  type="checkbox"
-                  checked={statusFilter.has(s)}
-                  onChange={() => toggleStatus(s)}
-                  className="h-3.5 w-3.5 rounded border-border"
-                />
-                <span
-                  className={cn(
-                    "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset",
-                    STATUS_BADGE[s],
-                  )}
-                >
-                  {s}
-                </span>
-              </label>
-            ))}
-          </div>
-        </div>
+      {/* Filters as a horizontal bar of multi-select menus, matching the
+          page filter bar above and the pattern used across the product. Two
+          always-expanded checkbox columns cost ~10 rows of vertical space
+          above the table they filter, and read as a different kind of control
+          from every other filter on the page. */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <MultiSelectFilter
+          label="Priority"
+          options={PRIORITY_ORDER}
+          selected={priorityFilter}
+          onChange={(next: Set<string>) => setPriorityFilter(next as Set<Priority>)}
+          searchable={false}
+        />
+        <MultiSelectFilter
+          label="Status"
+          options={STATUSES_IN_TABLE}
+          selected={statusFilter}
+          onChange={(next: Set<string>) => setStatusFilter(next as Set<WorkOrderStatus>)}
+          searchable={false}
+        />
+        {priorityFilter.size !== PRIORITY_ORDER.length ||
+        statusFilter.size !== STATUSES_IN_TABLE.length ? (
+          <button
+            type="button"
+            onClick={() => {
+              setPriorityFilter(new Set(PRIORITY_ORDER));
+              setStatusFilter(new Set(STATUSES_IN_TABLE));
+            }}
+            className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <X className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            Reset
+          </button>
+        ) : null}
+        <span className="ml-auto text-xs text-muted-foreground">
+          Showing {filtered.length} of {rows.length} work orders
+        </span>
       </div>
 
       <div className="overflow-x-auto rounded-md border border-border">
-        <table className="w-full min-w-[1200px] text-xs">
+        <table className="w-full min-w-[720px] text-xs">
           <thead className="bg-muted/40">
             <tr>
               {COLS.map((col) => (
                 <th
                   key={col.key}
-                  className="cursor-pointer whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground hover:bg-muted/60"
+                  className={cn(
+                    "cursor-pointer whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground hover:bg-muted/60",
+                    col.hide,
+                  )}
                   onClick={() => toggleSort(col.key)}
                 >
                   <span className="inline-flex items-center gap-1">
@@ -2145,37 +2047,41 @@ function EliWorkOrderTable({ rows }: { rows: WorkOrderRow[] }) {
             {pageRows.map((r) => (
               <tr key={r.id} className="border-t border-border/60 align-top">
                 <td className="px-3 py-2 font-mono text-foreground">{r.id}</td>
-                <td className="px-3 py-2">{r.source}</td>
+                <td className="hidden px-3 py-2 lg:table-cell">{r.source}</td>
                 <td className="px-3 py-2 text-foreground">{r.property}</td>
                 <td className="px-3 py-2">{r.unit}</td>
-                <td className="px-3 py-2">{r.resident}</td>
+                <td className="hidden px-3 py-2 lg:table-cell">{r.resident}</td>
                 <td className="px-3 py-2">
                   <span
                     className={cn(
-                      "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset",
+                      "inline-flex items-center rounded-full px-2 py-0.5 text-xxs font-medium ring-1 ring-inset",
                       PRIORITY_BADGE[r.priority],
                     )}
                   >
                     {r.priority}
                   </span>
                 </td>
-                <td className="px-3 py-2">{r.category}</td>
-                <td className="px-3 py-2">{r.problem}</td>
-                <td className="px-3 py-2">{r.location}</td>
-                <td className="px-3 py-2 max-w-[20rem] text-muted-foreground">{r.description}</td>
+                <td className="hidden px-3 py-2 xl:table-cell">{r.category}</td>
+                <td className="hidden px-3 py-2 2xl:table-cell">{r.problem}</td>
+                <td className="hidden px-3 py-2 2xl:table-cell">{r.location}</td>
+                <td className="hidden max-w-[20rem] px-3 py-2 text-muted-foreground 2xl:table-cell">
+                  {r.description}
+                </td>
                 <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{r.dateTime}</td>
                 <td className="px-3 py-2">
                   <span
                     className={cn(
-                      "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset",
+                      "inline-flex items-center rounded-full px-2 py-0.5 text-xxs font-medium ring-1 ring-inset",
                       STATUS_BADGE[r.status],
                     )}
                   >
                     {r.status}
                   </span>
                 </td>
-                <td className="px-3 py-2">{r.assignedTo}</td>
-                <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{r.assignedOn}</td>
+                <td className="hidden px-3 py-2 lg:table-cell">{r.assignedTo}</td>
+                <td className="hidden whitespace-nowrap px-3 py-2 text-muted-foreground 2xl:table-cell">
+                  {r.assignedOn}
+                </td>
               </tr>
             ))}
             {pageRows.length === 0 && (
@@ -2276,25 +2182,78 @@ function AiComponentDonut({ data }: { data: { source: EliSource; count: number }
 }
 
 function ConversationAnalysisTable({ rows }: { rows: MessageLogRow[] }) {
+  /**
+   * Column visibility is declared once and consumed by both the header and the
+   * body, so the two cannot drift out of alignment. Identity, outcome and the
+   * message itself are always present; supporting detail drops first as width
+   * tightens rather than pushing every column behind a horizontal scrollbar.
+   */
+  const COLS: {
+    label: string;
+    hide?: string;
+    className?: string;
+    cell: (r: MessageLogRow) => React.ReactNode;
+  }[] = [
+    {
+      label: "Work Order ID",
+      className: "font-mono text-foreground",
+      cell: (r) => r.woId ?? "\u2014",
+    },
+    {
+      label: "Work Order Created",
+      cell: (r) => (
+        <span
+          className={cn(
+            "inline-flex items-center rounded-full px-2 py-0.5 text-xxs font-medium ring-1 ring-inset",
+            r.woCreated ? URGENCY_BADGE.settled : URGENCY_BADGE.muted,
+          )}
+        >
+          {r.woCreated ? "Yes" : "No"}
+        </span>
+      ),
+    },
+    { label: "Source", hide: "hidden lg:table-cell", cell: (r) => r.source },
+    { label: "Property", className: "text-foreground", cell: (r) => r.property },
+    { label: "Resident", hide: "hidden lg:table-cell", cell: (r) => r.resident },
+    { label: "Direction", cell: (r) => r.direction },
+    {
+      label: "Date and Time",
+      className: "whitespace-nowrap text-muted-foreground",
+      cell: (r) => r.dateTime,
+    },
+    {
+      label: "Message",
+      className: "max-w-[20rem] text-foreground",
+      cell: (r) => r.message,
+    },
+    {
+      label: "Description",
+      hide: "hidden 2xl:table-cell",
+      className: "max-w-[20rem] text-muted-foreground",
+      cell: (r) => r.description,
+    },
+    {
+      label: "Analysis Session ID",
+      hide: "hidden 2xl:table-cell",
+      className: "whitespace-nowrap font-mono text-muted-foreground",
+      cell: (r) => r.sessionId,
+    },
+  ];
+
   return (
     <div className="overflow-x-auto rounded-md border border-border">
-      <table className="w-full min-w-[1200px] text-xs">
+      <table className="w-full min-w-[720px] text-xs">
         <thead className="bg-muted/40">
           <tr>
-            {[
-              "Work Order ID",
-              "Work Order Created",
-              "Source",
-              "Property",
-              "Resident",
-              "Direction",
-              "Date and Time",
-              "Message",
-              "Description",
-              "Analysis Session ID",
-            ].map((h) => (
-              <th key={h} className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">
-                {h}
+            {COLS.map((c) => (
+              <th
+                key={c.label}
+                className={cn(
+                  "whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground",
+                  c.hide,
+                )}
+              >
+                {c.label}
               </th>
             ))}
           </tr>
@@ -2302,48 +2261,15 @@ function ConversationAnalysisTable({ rows }: { rows: MessageLogRow[] }) {
         <tbody>
           {rows.map((r, i) => (
             <tr key={`${r.sessionId}-${i}`} className="border-t border-border/60 align-top">
-              <td className="px-3 py-2 font-mono text-foreground">{r.woId ?? "—"}</td>
-              <td className="px-3 py-2">
-                <span
-                  className={cn(
-                    "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset",
-                    r.woCreated
-                      ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
-                      : "bg-zinc-100 text-zinc-700 ring-zinc-300",
-                  )}
-                >
-                  {r.woCreated ? "Yes" : "No"}
-                </span>
-              </td>
-              <td className="px-3 py-2">{r.source}</td>
-              <td className="px-3 py-2 text-foreground">{r.property}</td>
-              <td className="px-3 py-2">{r.resident}</td>
-              <td className="px-3 py-2">{r.direction}</td>
-              <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{r.dateTime}</td>
-              <td className="max-w-[20rem] px-3 py-2 text-foreground">{r.message}</td>
-              <td className="max-w-[20rem] px-3 py-2 text-muted-foreground">{r.description}</td>
-              <td className="whitespace-nowrap px-3 py-2 font-mono text-muted-foreground">{r.sessionId}</td>
+              {COLS.map((c) => (
+                <td key={c.label} className={cn("px-3 py-2", c.hide, c.className)}>
+                  {c.cell(r)}
+                </td>
+              ))}
             </tr>
           ))}
         </tbody>
       </table>
     </div>
   );
-}
-
-// -----------------------------------------------------------------------------
-// Utility: serialize filter state for change detection
-// -----------------------------------------------------------------------------
-
-function serializeFilters(f: FilterState) {
-  return {
-    periodId: f.periodId,
-    customFrom: f.customFrom,
-    customTo: f.customTo,
-    properties: Array.from(f.properties).sort(),
-    technicians: Array.from(f.technicians).sort(),
-    vendors: Array.from(f.vendors).sort(),
-    floorPlans: Array.from(f.floorPlans).sort(),
-    sources: Array.from(f.sources).sort(),
-  };
 }

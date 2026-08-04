@@ -31,6 +31,14 @@ import {
 } from "@/components/ui/chart";
 import { ThumbsUp, ThumbsDown, MessageSquare, CheckCircle, XCircle, Pencil, FileText, ChevronDown, ArrowRight, Calendar, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import {
+  CHART_GRID_STROKE,
+  ChartTitleRow,
+  SERIES_NEUTRAL,
+  DeltaPill,
+  seriesColor,
+  type Tone,
+} from "@/components/performance";
 import { cn } from "@/lib/utils";
 import { useAgents } from "@/lib/agents-context";
 import { useEscalations } from "@/lib/escalations-context";
@@ -436,10 +444,25 @@ function usePerformanceMetrics(selectedKey: string, isAll: boolean) {
   }, [agents, items, members, feedbackItems, selectedKey, isAll]);
 }
 
-const conversationsChartConfig = { conversations: { label: "Conversations", color: "hsl(var(--chart-1))" } } satisfies ChartConfig;
-const escalationChartConfig = { escalationRate: { label: "Escalation %", color: "hsl(var(--chart-2))" } } satisfies ChartConfig;
-const agentHumanChartConfig = { agent: { label: "Agent", color: "hsl(var(--chart-1))" }, human: { label: "Human", color: "hsl(var(--chart-2))" } } satisfies ChartConfig;
-const healthChartConfig = { renewal: { label: "Renewal %", color: "hsl(var(--chart-1))" }, occupancy: { label: "Occupancy %", color: "hsl(var(--chart-2))" } } satisfies ChartConfig;
+const conversationsChartConfig = { conversations: { label: "Conversations", color: seriesColor(0) } } satisfies ChartConfig;
+const escalationChartConfig = { escalationRate: { label: "Escalation %", color: seriesColor(2) } } satisfies ChartConfig;
+const agentHumanChartConfig = { agent: { label: "Agent", color: seriesColor(0) }, human: { label: "Human", color: SERIES_NEUTRAL } } satisfies ChartConfig;
+const healthChartConfig = {
+  renewal: { label: "Renewal %", color: seriesColor(0) },
+  occupancy: { label: "Occupancy %", color: seriesColor(1) },
+} satisfies ChartConfig;
+
+/**
+ * Series key for the trend chart — two unlabelled lines are unreadable.
+ *
+ * Ordered to match how the lines stack on the plot: occupancy runs above
+ * renewal at every realistic value, so listing it first lets the eye map the
+ * top label to the top line without hunting.
+ */
+const HEALTH_TREND_SERIES = [
+  { label: "Occupancy %", color: seriesColor(1) },
+  { label: "Renewal %", color: seriesColor(0) },
+];
 
 const AI_ONLY_EFFICIENCY_IDS = new Set([
   "agent_accuracy",
@@ -648,7 +671,7 @@ export default function PerformancePage() {
             {perf.assetMetrics.map((m) => (
               <Card key={m.id} className="border-border/60">
                 <CardHeader className="pb-0">
-                  <CardDescription className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+                  <CardDescription className="text-xxs font-semibold text-muted-foreground">
                     {m.label}
                   </CardDescription>
                 </CardHeader>
@@ -683,15 +706,15 @@ export default function PerformancePage() {
                 </div>
               ))}
             </div>
-            <p className="mb-2 text-xs font-medium tracking-wider text-muted-foreground">Renewal & occupancy trend</p>
+            <ChartTitleRow title="Renewal & occupancy trend" series={HEALTH_TREND_SERIES} />
             <ChartContainer config={healthChartConfig} className="h-[120px] w-full">
               <LineChart data={trendData} margin={{ left: 12, right: 12 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                 <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} />
                 <YAxis tickLine={false} axisLine={false} tickMargin={8} width={28} domain={[60, 100]} />
                 <ChartTooltip content={<ChartTooltipContent />} />
-                <Line type="monotone" dataKey="renewal" stroke="hsl(var(--chart-1))" strokeWidth={2} dot={false} name="Renewal %" />
-                <Line type="monotone" dataKey="occupancy" stroke="hsl(var(--chart-2))" strokeWidth={2} dot={false} name="Occupancy %" />
+                <Line type="monotone" dataKey="renewal" stroke={seriesColor(0)} strokeWidth={2} dot={false} name="Renewal %" />
+                <Line type="monotone" dataKey="occupancy" stroke={seriesColor(1)} strokeWidth={2} dot={false} name="Occupancy %" />
               </LineChart>
             </ChartContainer>
           </CardContent>
@@ -722,7 +745,7 @@ export default function PerformancePage() {
                       </CardTitle>
                       <div className="text-right">
                         <p className="text-lg font-bold text-foreground">{chain.value}</p>
-                        <p className="text-[10px] text-muted-foreground">{chain.valueSub}</p>
+                        <p className="text-xxs text-muted-foreground">{chain.valueSub}</p>
                       </div>
                     </div>
                   </CardHeader>
@@ -731,13 +754,13 @@ export default function PerformancePage() {
                       {chain.steps.map((step, idx) => (
                         <div key={step.label} className="flex items-start gap-2">
                           {idx > 0 && (
-                            <ArrowRight className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground/60" />
+                            <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
                           )}
                           {idx === 0 && (
-                            <div className="mt-0.5 h-3 w-3 shrink-0" />
+                            <div className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                           )}
                           <div className="min-w-0">
-                            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{step.label}</p>
+                            <p className="text-xxs font-medium text-muted-foreground">{step.label}</p>
                             <p className="text-sm text-foreground">{step.detail}</p>
                           </div>
                         </div>
@@ -787,11 +810,11 @@ export default function PerformancePage() {
             <CardContent>
               <ChartContainer config={conversationsChartConfig} className="min-h-[200px] w-full">
                 <AreaChart data={trendData} margin={{ left: 12, right: 12 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                   <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={8} width={28} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Area type="monotone" dataKey="conversations" stroke="hsl(var(--chart-1))" fill="hsl(var(--chart-1))" fillOpacity={0.3} strokeWidth={2} />
+                  <Area type="monotone" dataKey="conversations" stroke={seriesColor(0)} fill={seriesColor(0)} fillOpacity={0.3} strokeWidth={2} />
                 </AreaChart>
               </ChartContainer>
             </CardContent>
@@ -804,11 +827,11 @@ export default function PerformancePage() {
             <CardContent>
               <ChartContainer config={escalationChartConfig} className="min-h-[200px] w-full">
                 <LineChart data={trendData} margin={{ left: 12, right: 12 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                   <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} />
                   <YAxis tickLine={false} axisLine={false} tickMargin={8} width={28} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Line type="monotone" dataKey="escalationRate" stroke="hsl(var(--chart-2))" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="escalationRate" stroke={seriesColor(2)} strokeWidth={2} dot={false} />
                 </LineChart>
               </ChartContainer>
             </CardContent>
@@ -822,12 +845,12 @@ export default function PerformancePage() {
               <CardContent>
                 <ChartContainer config={agentHumanChartConfig} className="min-h-[200px] w-full">
                   <BarChart data={trendData} margin={{ left: 12, right: 12 }} barGap={2}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
                     <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} />
                     <YAxis tickLine={false} axisLine={false} tickMargin={8} width={28} />
                     <ChartTooltip content={<ChartTooltipContent />} />
-                    <Bar dataKey="agent" fill="hsl(var(--chart-1))" radius={[2, 2, 0, 0]} stackId="a" />
-                    <Bar dataKey="human" fill="hsl(var(--chart-2))" radius={[2, 2, 0, 0]} stackId="a" />
+                    <Bar dataKey="agent" fill={seriesColor(0)} radius={[2, 2, 0, 0]} stackId="a" />
+                    <Bar dataKey="human" fill={SERIES_NEUTRAL} radius={[2, 2, 0, 0]} stackId="a" />
                   </BarChart>
                 </ChartContainer>
               </CardContent>
@@ -884,10 +907,10 @@ export default function PerformancePage() {
                     </tr>
                     <tr className="border-b border-border/40">
                       <th className="pb-1.5" />
-                      <th className="pb-1.5 pl-6 pr-2 w-[3.5rem] text-left text-[10px] font-medium text-muted-foreground">AI</th>
-                      <th className="pb-1.5 pr-12 w-[3.5rem] text-left text-[10px] font-medium text-muted-foreground">Human</th>
-                      <th className="pb-1.5 pl-6 pr-2 w-[3.5rem] text-left text-[10px] font-medium text-muted-foreground">AI</th>
-                      <th className="pb-1.5 pr-12 w-[3.5rem] text-left text-[10px] font-medium text-muted-foreground">Human</th>
+                      <th className="pb-1.5 pl-6 pr-2 w-[3.5rem] text-left text-xxs font-medium text-muted-foreground">AI</th>
+                      <th className="pb-1.5 pr-12 w-[3.5rem] text-left text-xxs font-medium text-muted-foreground">Human</th>
+                      <th className="pb-1.5 pl-6 pr-2 w-[3.5rem] text-left text-xxs font-medium text-muted-foreground">AI</th>
+                      <th className="pb-1.5 pr-12 w-[3.5rem] text-left text-xxs font-medium text-muted-foreground">Human</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -953,255 +976,131 @@ export default function PerformancePage() {
   );
 }
 
-type DeltaTone = "emerald" | "blue";
-
-interface BeforeAfterMetric {
-  id: string;
-  kind: "beforeAfter";
-  label: string;
-  sub: string;
-  before: string;
-  after: string;
-  delta: string;
-  deltaTone: DeltaTone;
-}
-
-interface SingleValueMetric {
-  id: string;
-  kind: "single";
-  label: string;
-  sub: string;
-  value: string;
-  valueSub?: string;
-}
-
-type ImpactMetric = BeforeAfterMetric | SingleValueMetric;
-
-interface ImpactCardProps {
-  title: string;
+/**
+ * AgentImpactCard — one headline stat per agent.
+ *
+ * These cards previously stacked three multi-part before→after comparisons
+ * each. In a 264px column the value block (whitespace-nowrap) won all the
+ * space and crushed the label column to as little as 5px, wrapping labels one
+ * character per line; row heights ranged 51–145px and the longer agent names
+ * pushed "View dashboard" onto a second line. Twelve-ish chunks per card on a
+ * page of otherwise glanceable cards read as noise.
+ *
+ * The card's job is to make someone want to open the dashboard, not to be the
+ * dashboard. So: the single most compelling number, a short descriptor, the
+ * lift it represents, and the link. Uniform by construction — every card is
+ * the same shape, so the four compare at a glance.
+ */
+function AgentImpactCard({
+  agent,
+  href,
+  value,
+  label,
+  delta,
+  deltaTone = "positive",
+  context,
+}: {
+  agent: string;
   href: string;
-  metrics: ImpactMetric[];
-}
-
-const DELTA_TONE_CLASS: Record<DeltaTone, string> = {
-  emerald: "bg-emerald-50 text-emerald-700",
-  blue: "bg-blue-50 text-blue-700",
-};
-
-function ImpactCard({ title, href, metrics }: ImpactCardProps) {
+  /** The headline number. */
+  value: string;
+  /** What the number is — kept to a few words so it never wraps to 4 lines. */
+  label: string;
+  /** The lift this agent produced, e.g. "+10 pts vs before ELI+". */
+  delta?: string;
+  deltaTone?: Tone;
+  /** One short supporting clause. */
+  context?: string;
+}) {
   return (
-    <Card className="relative overflow-hidden border-border/60">
+    <Card className="relative flex h-full flex-col overflow-hidden border-border/60 transition-colors hover:border-border">
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-300"
+        className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-eli-purple/70 via-eli-pink/60 to-eli-purple/40"
       />
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-1.5 text-base">
-            <img src="/eli-cube.svg" alt="" width={16} height={16} className="shrink-0" />
-            {title}
-          </CardTitle>
-          <Link
-            href={href}
-            className="inline-flex items-center gap-0.5 text-xs font-medium text-foreground underline underline-offset-2 hover:no-underline"
-          >
-            View dashboard →
-          </Link>
+      <CardContent className="flex flex-1 flex-col px-4 pb-4 pt-5">
+        <div className="flex items-center gap-1.5">
+          <img src="/eli-cube.svg" alt="" width={16} height={16} className="shrink-0" />
+          <span className="text-sm font-semibold text-foreground">{agent}</span>
         </div>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-2">
-          {metrics.map((m) => (
-            <div
-              key={m.id}
-              className="flex items-center justify-between gap-3 rounded-lg bg-muted/50 px-3 py-2.5"
-            >
-              <div className="min-w-0">
-                <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                  {m.label}
-                </p>
-                <p className="text-xs text-muted-foreground">{m.sub}</p>
-              </div>
-              {m.kind === "beforeAfter" ? (
-                <div className="flex items-center gap-2 whitespace-nowrap">
-                  <span className="text-sm text-muted-foreground">{m.before}</span>
-                  <ArrowRight className="h-3 w-3 text-emerald-500" />
-                  <span className="text-sm font-semibold text-foreground">{m.after}</span>
-                  <span
-                    className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${DELTA_TONE_CLASS[m.deltaTone]}`}
-                  >
-                    {m.delta}
-                  </span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 whitespace-nowrap">
-                  <span className="text-sm font-semibold text-foreground">{m.value}</span>
-                  {m.valueSub && (
-                    <span className="text-[10px] text-muted-foreground">{m.valueSub}</span>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
+
+        <p className="mt-4 text-3xl font-bold tracking-tight tabular-nums text-foreground">
+          {value}
+        </p>
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <p className="text-xs font-medium text-foreground/80">{label}</p>
+          {delta ? <DeltaPill value={delta} tone={deltaTone} /> : null}
         </div>
+        {context ? (
+          <p className="mt-1 text-xs text-muted-foreground">{context}</p>
+        ) : null}
+
+        <Link
+          href={href}
+          className="mt-auto inline-flex w-fit items-center gap-1 pt-4 text-xs font-medium text-foreground underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          View dashboard
+          <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+        </Link>
       </CardContent>
     </Card>
   );
 }
 
-const RENEWALS_IMPACT_METRICS: ImpactMetric[] = [
-  {
-    id: "renewal_rate",
-    kind: "beforeAfter",
-    label: "Renewal rate",
-    sub: "before \u2192 after AI",
-    before: "64%",
-    after: "74%",
-    delta: "+10 pts",
-    deltaTone: "emerald",
-  },
-  {
-    id: "days_before_lease_end",
-    kind: "beforeAfter",
-    label: "Days before lease end",
-    sub: "renewal signed earlier",
-    before: "42d",
-    after: "68d",
-    delta: "+26d",
-    deltaTone: "blue",
-  },
-  {
-    id: "fully_automated",
-    kind: "single",
-    label: "Fully automated",
-    sub: "no human intervention",
-    value: "62%",
-    valueSub: "(1,499 of 2,418)",
-  },
-];
-
-const LEASING_IMPACT_METRICS: ImpactMetric[] = [
-  {
-    id: "lead_to_lease",
-    kind: "single",
-    label: "Conversations",
-    sub: "selected period",
-    value: "75,526",
-  },
-  {
-    id: "time_to_lease",
-    kind: "single",
-    label: "Guest Cards Created by ELI+",
-    sub: "selected period",
-    value: "25,755",
-  },
-  {
-    id: "fully_automated_leasing",
-    kind: "single",
-    label: "Tours Booked by ELI+",
-    sub: "selected period",
-    value: "11,745",
-  },
-];
-
+/**
+ * One headline metric per agent — the number most likely to make someone open
+ * the full report. The rest of the detail lives on the agent page.
+ */
 function RenewalsImpactCard() {
   return (
-    <ImpactCard
-      title="Renewals"
+    <AgentImpactCard
+      agent="Renewals"
       href="/performance/renewals-ai"
-      metrics={RENEWALS_IMPACT_METRICS}
+      value="74%"
+      label="Renewal rate"
+      delta="+10 pts"
+      deltaTone="positive"
+      context="Up from 64% before ELI+"
     />
   );
 }
 
 function LeasingImpactCard() {
   return (
-    <ImpactCard
-      title="Leasing"
+    <AgentImpactCard
+      agent="Leasing"
       href="/performance/leasing-ai"
-      metrics={LEASING_IMPACT_METRICS}
+      value="11,745"
+      label="Tours booked by ELI+"
+      context="From 75,526 conversations this period"
     />
   );
 }
-
-const MAINTENANCE_IMPACT_METRICS: ImpactMetric[] = [
-  {
-    id: "wo_completion_time",
-    kind: "beforeAfter",
-    label: "Avg days to complete",
-    sub: "before \u2192 after AI",
-    before: "6.8d",
-    after: "4.2d",
-    delta: "-2.6d",
-    deltaTone: "blue",
-  },
-  {
-    id: "wo_deflected",
-    kind: "beforeAfter",
-    label: "Work orders deflected",
-    sub: "resolved via AI self-service",
-    before: "25.2%",
-    after: "31.4%",
-    delta: "+6.2 pts",
-    deltaTone: "emerald",
-  },
-  {
-    id: "fully_automated_maintenance",
-    kind: "single",
-    label: "Fully automated",
-    sub: "no human intervention",
-    value: "50.4%",
-    valueSub: "(2,438 of 4,842)",
-  },
-];
 
 function MaintenanceImpactCard() {
   return (
-    <ImpactCard
-      title="Maintenance"
+    <AgentImpactCard
+      agent="Maintenance"
       href="/performance/maintenance-ai"
-      metrics={MAINTENANCE_IMPACT_METRICS}
+      value="4.2d"
+      label="Avg days to complete"
+      delta="2.6d faster"
+      deltaTone="positive"
+      context="Down from 6.8d before ELI+"
     />
   );
 }
 
-const PAYMENTS_IMPACT_METRICS: ImpactMetric[] = [
-  {
-    id: "rent_collected",
-    kind: "beforeAfter",
-    label: "% of rent collected",
-    sub: "before \u2192 after AI",
-    before: "91.0%",
-    after: "94.2%",
-    delta: "+3.2 pts",
-    deltaTone: "emerald",
-  },
-  {
-    id: "avg_late_payers",
-    kind: "beforeAfter",
-    label: "Avg late payers / property",
-    sub: "after the grace period",
-    before: "186",
-    after: "142",
-    delta: "-44",
-    deltaTone: "blue",
-  },
-  {
-    id: "fully_automated_payments",
-    kind: "single",
-    label: "Fully automated",
-    sub: "reminders sent without office handoff",
-    value: "89%",
-    valueSub: "(37,580 of 42,180)",
-  },
-];
-
 function PaymentsImpactCard() {
   return (
-    <ImpactCard
-      title="Payments"
+    <AgentImpactCard
+      agent="Payments"
       href="/performance/payments-ai"
-      metrics={PAYMENTS_IMPACT_METRICS}
+      value="94.2%"
+      label="Rent collected on time"
+      delta="+3.2 pts"
+      deltaTone="positive"
+      context="Up from 91.0% before ELI+"
     />
   );
 }
@@ -1288,7 +1187,7 @@ function FeedbackReviewSection() {
                 onClick={() => setFilter(f)}
               >
                 {f === "all" ? "All" : STATUS_LABELS[f].label}
-                {f === "new" && newCount > 0 && <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] text-white">{newCount}</span>}
+                {f === "new" && newCount > 0 && <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xxs text-white">{newCount}</span>}
               </button>
             ))}
           </div>
@@ -1313,8 +1212,8 @@ function FeedbackReviewSection() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-sm font-medium">{item.agentName}</span>
-                          <Badge variant={sl.variant} className="text-[10px]">{sl.label}</Badge>
-                          <span className="text-[10px] text-muted-foreground">
+                          <Badge variant={sl.variant} className="text-xxs">{sl.label}</Badge>
+                          <span className="text-xxs text-muted-foreground">
                             {new Date(item.createdAt).toLocaleString()}
                           </span>
                         </div>
@@ -1325,25 +1224,25 @@ function FeedbackReviewSection() {
                         {item.status === "new" && (
                           <div className="mt-2 flex flex-wrap gap-1.5">
                             <button
-                              className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[10px] font-medium hover:bg-muted/80"
+                              className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xxs font-medium hover:bg-muted/80"
                               onClick={() => updateStatus(item.id, "prompt_updated")}
                             >
                               <Pencil className="h-2.5 w-2.5" /> Edit prompt
                             </button>
                             <button
-                              className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[10px] font-medium hover:bg-muted/80"
+                              className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xxs font-medium hover:bg-muted/80"
                               onClick={() => updateStatus(item.id, "sop_updated")}
                             >
                               <FileText className="h-2.5 w-2.5" /> Update SOP
                             </button>
                             <button
-                              className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[10px] font-medium hover:bg-muted/80"
+                              className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xxs font-medium hover:bg-muted/80"
                               onClick={() => updateStatus(item.id, "reviewed")}
                             >
                               <CheckCircle className="h-2.5 w-2.5" /> Mark reviewed
                             </button>
                             <button
-                              className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[10px] font-medium hover:bg-muted/80"
+                              className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xxs font-medium hover:bg-muted/80"
                               onClick={() => updateStatus(item.id, "dismissed")}
                             >
                               <XCircle className="h-2.5 w-2.5" /> Dismiss
