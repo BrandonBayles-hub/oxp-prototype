@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
@@ -15,22 +16,19 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { ArrowLeft, Loader2, X } from "lucide-react";
+import { ArrowLeft, ChevronRight, Loader2, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
 import {
-  CHART_FONT_SIZE,
   CHART_GRID_STROKE,
-  DeltaPill,
   EscalationsSection,
-  SERIES_NEUTRAL,
   ReportFilterBar,
   ReportPageHeader,
-  ReportSection,
   SectionBanner,
+  SegmentedToggle,
   StatCard,
-  StatGrid,
   useReportScope,
   legendLabel,
   monthsForPeriod,
@@ -39,7 +37,6 @@ import {
   serializeFilters,
   type ReportFilters,
   type ReportViewMode,
-  type Tone,
 } from "@/components/performance";
 
 // -----------------------------------------------------------------------------
@@ -112,6 +109,7 @@ const totalRenewalsTrend = buildMonthlyTrend(202, 200, 215, 100);
 const rentIncreaseTrend = buildMonthlyTrend(303, 4.5, 5.0, 1.5);
 const fullyAutomatedTrend = buildMonthlyTrend(404, 54, 62, 20);
 const escalationResolutionTrend = buildMonthlyTrend(505, 3.0, 3.4, 0.8);
+const aiResponseTimeTrend = buildMonthlyTrend(606, 10, 8, 4);
 
 function buildRenewalRateByBedrooms(monthCount: number) {
   return Array.from({ length: monthCount }, (_, i) => {
@@ -186,6 +184,107 @@ const BASE_OUTREACH_CHANNEL_MIX = [
   { name: "SMS", value: 70, count: 12840, color: seriesColor(0)},
   { name: "Email", value: 30, count: 5580, color: seriesColor(1)},
 ];
+
+type ReportVersion = "original" | "jvm" | "golden";
+type EscalationMode = "rate" | "total" | "open" | "resolved";
+
+const REPORT_VERSION_OPTIONS = [
+  { value: "original", label: "Original" },
+  { value: "jvm", label: "Alpha Launch" },
+  { value: "golden", label: "Golden Prototype" },
+] as const;
+
+const RESPONSE_TIME_BY_BEDROOM = [
+  { bedrooms: "Studio", SMS: 2.3, Email: 6.1, Overall: 3.4 },
+  { bedrooms: "1 BR", SMS: 2.8, Email: 6.7, Overall: 3.9 },
+  { bedrooms: "2 BR", SMS: 3.4, Email: 7.4, Overall: 4.6 },
+  { bedrooms: "3 BR", SMS: 3.9, Email: 8.2, Overall: 5.1 },
+];
+
+const BASE_CONVERSATION_ANALYSIS = [
+  { name: "Easy Renewal", value: 42, count: 1016, color: seriesColor(0) },
+  { name: "Price Concerns", value: 27, count: 653, color: seriesColor(1) },
+  { name: "Wants Larger Unit", value: 12, count: 290, color: seriesColor(2) },
+  { name: "Wants Smaller Unit", value: 8, count: 194, color: seriesColor(3) },
+  { name: "Unhappy with Community", value: 11, count: 266, color: seriesColor(4) },
+];
+
+const ESCALATION_DRILL_INS = [
+  { id: "ESC-1042", property: "Cedar Hills", resident: "Avery P.", status: "Open", reason: "Price Concerns", age: "2h" },
+  { id: "ESC-1041", property: "Oak Terrace", resident: "Mina R.", status: "Resolved", reason: "Wants Larger Unit", age: "4h" },
+  { id: "ESC-1038", property: "The Beacon", resident: "Jonah S.", status: "Resolved", reason: "Lease Terms", age: "7h" },
+  { id: "ESC-1036", property: "Summit Ridge", resident: "Priya K.", status: "Open", reason: "Unhappy with Community", age: "9h" },
+  { id: "ESC-1031", property: "Pine Valley", resident: "Marco L.", status: "Resolved", reason: "Maintenance Concern", age: "1d" },
+  { id: "ESC-1027", property: "Maple Court", resident: "Tess A.", status: "Resolved", reason: "Pricing Exception", age: "2d" },
+  { id: "ESC-1023", property: "Lakewood", resident: "Drew C.", status: "Open", reason: "Needs Human Follow-up", age: "2d" },
+  { id: "ESC-1018", property: "Parkview Flats", resident: "Nora B.", status: "Resolved", reason: "Transfer Request", age: "3d" },
+] as const;
+
+type TradeSlice = "property" | "bedrooms" | "handler";
+
+const TRADE_SLICE_LABEL: Record<TradeSlice, string> = {
+  property: "Property",
+  bedrooms: "Bedroom Count",
+  handler: "Renewal Owner",
+};
+
+const TRADE_OUT_ROWS = [
+  { property: "Cedar Hills", bedrooms: "Studio", handler: "Renewals AI", tradeOut: 4.2, leases: 42 },
+  { property: "Cedar Hills", bedrooms: "1 BR", handler: "Human", tradeOut: 3.8, leases: 52 },
+  { property: "Cedar Hills", bedrooms: "2 BR", handler: "Renewals AI", tradeOut: 4.5, leases: 61 },
+  { property: "Cedar Hills", bedrooms: "3 BR", handler: "Human", tradeOut: 4.0, leases: 31 },
+  { property: "Hillside Living", bedrooms: "Studio", handler: "Human", tradeOut: 4.4, leases: 39 },
+  { property: "Hillside Living", bedrooms: "1 BR", handler: "Renewals AI", tradeOut: 4.9, leases: 126 },
+  { property: "Hillside Living", bedrooms: "2 BR", handler: "Human", tradeOut: 4.1, leases: 63 },
+  { property: "Hillside Living", bedrooms: "3 BR", handler: "Renewals AI", tradeOut: 5.2, leases: 47 },
+  { property: "Jamison Apartments", bedrooms: "Studio", handler: "Renewals AI", tradeOut: 4.8, leases: 45 },
+  { property: "Jamison Apartments", bedrooms: "1 BR", handler: "Human", tradeOut: 5.0, leases: 88 },
+  { property: "Jamison Apartments", bedrooms: "2 BR", handler: "Renewals AI", tradeOut: 5.4, leases: 118 },
+  { property: "Jamison Apartments", bedrooms: "3 BR", handler: "Human", tradeOut: 5.1, leases: 36 },
+  { property: "Lakewood", bedrooms: "Studio", handler: "Renewals AI", tradeOut: 3.3, leases: 28 },
+  { property: "Lakewood", bedrooms: "1 BR", handler: "Human", tradeOut: 3.5, leases: 66 },
+  { property: "Lakewood", bedrooms: "2 BR", handler: "Renewals AI", tradeOut: 3.9, leases: 72 },
+  { property: "Lakewood", bedrooms: "3 BR", handler: "Human", tradeOut: 3.6, leases: 44 },
+  { property: "Maple Court", bedrooms: "Studio", handler: "Human", tradeOut: 4.1, leases: 34 },
+  { property: "Maple Court", bedrooms: "1 BR", handler: "Renewals AI", tradeOut: 4.7, leases: 91 },
+  { property: "Maple Court", bedrooms: "2 BR", handler: "Human", tradeOut: 4.6, leases: 77 },
+  { property: "Maple Court", bedrooms: "3 BR", handler: "Renewals AI", tradeOut: 5.0, leases: 29 },
+  { property: "Oak Terrace", bedrooms: "Studio", handler: "Human", tradeOut: 4.6, leases: 33 },
+  { property: "Oak Terrace", bedrooms: "1 BR", handler: "Renewals AI", tradeOut: 4.9, leases: 84 },
+  { property: "Oak Terrace", bedrooms: "2 BR", handler: "Renewals AI", tradeOut: 5.1, leases: 73 },
+  { property: "Oak Terrace", bedrooms: "3 BR", handler: "Human", tradeOut: 4.8, leases: 27 },
+  { property: "Parkview Flats", bedrooms: "Studio", handler: "Renewals AI", tradeOut: 4.0, leases: 41 },
+  { property: "Parkview Flats", bedrooms: "1 BR", handler: "Human", tradeOut: 4.3, leases: 69 },
+  { property: "Parkview Flats", bedrooms: "2 BR", handler: "Renewals AI", tradeOut: 4.6, leases: 58 },
+  { property: "Parkview Flats", bedrooms: "3 BR", handler: "Human", tradeOut: 4.2, leases: 23 },
+  { property: "Pine Valley", bedrooms: "Studio", handler: "Human", tradeOut: 5.0, leases: 30 },
+  { property: "Pine Valley", bedrooms: "1 BR", handler: "Renewals AI", tradeOut: 5.4, leases: 73 },
+  { property: "Pine Valley", bedrooms: "2 BR", handler: "Human", tradeOut: 5.6, leases: 65 },
+  { property: "Pine Valley", bedrooms: "3 BR", handler: "Renewals AI", tradeOut: 5.8, leases: 58 },
+  { property: "Summit Ridge", bedrooms: "Studio", handler: "Renewals AI", tradeOut: 4.5, leases: 36 },
+  { property: "Summit Ridge", bedrooms: "1 BR", handler: "Human", tradeOut: 4.6, leases: 74 },
+  { property: "Summit Ridge", bedrooms: "2 BR", handler: "Renewals AI", tradeOut: 4.9, leases: 82 },
+  { property: "Summit Ridge", bedrooms: "3 BR", handler: "Human", tradeOut: 4.7, leases: 35 },
+  { property: "The Beacon", bedrooms: "Studio", handler: "Human", tradeOut: 3.4, leases: 39 },
+  { property: "The Beacon", bedrooms: "1 BR", handler: "Renewals AI", tradeOut: 3.7, leases: 71 },
+  { property: "The Beacon", bedrooms: "2 BR", handler: "Human", tradeOut: 3.9, leases: 49 },
+  { property: "The Beacon", bedrooms: "3 BR", handler: "Renewals AI", tradeOut: 4.1, leases: 18 },
+];
+
+const VELOCITY_ROWS = TRADE_OUT_ROWS.map((row, index) => {
+  const bedroomOrder = row.bedrooms === "Studio" ? 0 : row.bedrooms === "1 BR" ? 1 : row.bedrooms === "2 BR" ? 2 : 3;
+  const aiAdjustment = row.handler === "Renewals AI" ? -1.1 : 0.8;
+  const daysToRenew = Math.max(5.8, 10.2 - bedroomOrder * 0.35 + aiAdjustment + (index % 4) * 0.25);
+  const daysBeforeLeaseEnd = Math.round(60 + bedroomOrder * 3.5 - aiAdjustment * 2 + (index % 5) * 2);
+  const signed60Plus = Math.min(86, Math.max(54, 66 + bedroomOrder * 3 - aiAdjustment * 2.5 + (index % 6) * 1.4));
+
+  return {
+    ...row,
+    daysToRenew,
+    daysBeforeLeaseEnd,
+    signed60Plus,
+  };
+});
 
 function buildDeveloperNotesQuery(startDate: string, endDate: string) {
   return `WITH property_months AS (
@@ -617,12 +716,14 @@ function TrendChart({
   view,
   selected,
   yDomain,
+  yTickFormatter,
   height = 240,
 }: {
   data: MonthlyPoint[];
   view: ReportViewMode;
   selected: Set<string>;
   yDomain?: [number, number];
+  yTickFormatter?: (value: number | string) => string;
   height?: number;
 }) {
   if (view === "global") {
@@ -639,8 +740,9 @@ function TrendChart({
               tickLine={false}
               axisLine={false}
               tickMargin={8}
-              width={32}
+              width={yTickFormatter ? 44 : 32}
               domain={yDomain ?? [0, "auto"]}
+              tickFormatter={yTickFormatter}
             />
             <ChartTooltip content={<ChartTooltipContent className="min-w-[12rem]" />} />
             <Line
@@ -677,7 +779,14 @@ function TrendChart({
       <LineChart data={flat} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
         <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
-        <YAxis tickLine={false} axisLine={false} tickMargin={8} width={32} domain={yDomain ?? [0, "auto"]} />
+        <YAxis
+          tickLine={false}
+          axisLine={false}
+          tickMargin={8}
+          width={yTickFormatter ? 44 : 32}
+          domain={yDomain ?? [0, "auto"]}
+          tickFormatter={yTickFormatter}
+        />
         <ChartTooltip content={<ChartTooltipContent className="min-w-[14rem]" />} />
         {visibleProps.map((p) => (
           <Line
@@ -715,20 +824,9 @@ function PropertyChips({
           <button
             type="button"
             onClick={() => {
-              // Write to `propertySelection`, not `properties`. The latter is
-              // the page-scoped derivation and is recomputed from the shared
-              // selection on every render, so assigning to it was discarded
-              // and the chip's X did nothing.
-              //
-              // An empty selection means "all", so removing the first chip has
-              // to materialise the remaining properties explicitly — otherwise
-              // "all minus one" would round-trip straight back to "all".
-              const current =
-                state.propertySelection && state.propertySelection.size > 0
-                  ? new Set(state.propertySelection)
-                  : new Set<string>(state.properties);
-              current.delete(p);
-              setState({ ...state, propertySelection: current });
+              const next = new Set(state.properties);
+              next.delete(p);
+              setState({ ...state, properties: next });
             }}
             className="text-muted-foreground hover:text-foreground"
             aria-label={`Remove ${p}`}
@@ -752,11 +850,31 @@ function DonutWithLegend({
   data: { name: string; value: number; count: number; color: string }[];
   formatRow?: (d: { name: string; value: number; count: number }) => string;
 }) {
+  const config = Object.fromEntries(
+    data.map((item) => [item.name, { label: item.name, color: item.color }]),
+  ) satisfies ChartConfig;
+
   return (
     <div className="flex flex-wrap items-center gap-6">
       <div className="h-[180px] w-[180px] shrink-0">
-        <ChartContainer config={{}} className="!aspect-auto h-full w-full">
+        <ChartContainer config={config} className="!aspect-auto h-full w-full">
           <PieChart>
+            <ChartTooltip
+              content={
+                <ChartTooltipContent
+                  hideLabel
+                  nameKey="name"
+                  formatter={(value, name) => (
+                    <>
+                      <span className="text-muted-foreground">{name}</span>
+                      <span className="font-mono font-medium tabular-nums text-foreground">
+                        {Number(value).toLocaleString()}%
+                      </span>
+                    </>
+                  )}
+                />
+              }
+            />
             <Pie
               data={data}
               dataKey="value"
@@ -789,6 +907,758 @@ function DonutWithLegend({
         ))}
       </div>
     </div>
+  );
+}
+
+function BillboardCard({
+  label,
+  value,
+  sub,
+  active,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Card className={cn("border-border/60", active && "border-foreground/40 shadow-sm")}>
+      <Button
+        type="button"
+        variant="ghost"
+        onClick={onClick}
+        aria-pressed={active}
+        aria-controls="metric-drill-in-view"
+        className="h-full w-full items-stretch justify-start whitespace-normal rounded-md p-0 text-left hover:bg-transparent"
+      >
+        <CardContent className="h-full w-full px-5 py-4">
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+              {label}
+            </p>
+            <span
+              className={cn(
+                "inline-flex h-7 items-center gap-1 rounded-md px-2 text-xxs font-medium",
+                active ? "bg-secondary text-secondary-foreground" : "text-muted-foreground",
+              )}
+            >
+              View details
+              <ChevronRight className="h-3 w-3" />
+            </span>
+          </div>
+          <p className="mt-2 text-4xl font-bold tracking-tight text-foreground">
+            {value}
+          </p>
+          <p className="mt-1 text-xs font-normal text-muted-foreground">{sub}</p>
+        </CardContent>
+      </Button>
+    </Card>
+  );
+}
+
+function SubMetricTile({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+}) {
+  return (
+    <div className="rounded-md border border-border bg-background px-3 py-2.5">
+      <p className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-1 text-xl font-bold tabular-nums text-foreground">{value}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p>
+    </div>
+  );
+}
+
+function BillboardStatCard({
+  label,
+  value,
+  sub,
+  channels,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  channels: { label: string; value: string }[];
+}) {
+  return (
+    <Card className="flex h-full flex-col border-border/60">
+      <CardContent className="flex flex-1 items-center gap-4 px-5 py-4">
+        <div className="min-w-0 flex-1">
+          <p className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+            {label}
+          </p>
+          <p className="mt-2 text-4xl font-bold tracking-tight text-foreground">
+            {value}
+          </p>
+          <p className="mt-1 text-xs font-normal text-muted-foreground">{sub}</p>
+        </div>
+        {channels.length > 0 && (
+          <div className="grid shrink-0 gap-x-4 gap-y-2 border-l border-border pl-4" style={{ gridTemplateColumns: `repeat(${Math.min(channels.length, 3)}, auto)` }}>
+            {channels.map((ch) => (
+              <div key={ch.label} className="flex flex-col items-center">
+                <span className="text-sm font-semibold tabular-nums text-foreground">{ch.value}</span>
+                <span className="text-xxs text-muted-foreground">{ch.label}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function EscalationMetricSelector({
+  mode,
+  onModeChange,
+  metrics,
+}: {
+  mode: EscalationMode;
+  onModeChange: (mode: EscalationMode) => void;
+  metrics: {
+    rate: string;
+    total: string;
+    open: string;
+    resolved: string;
+  };
+}) {
+  const options: { id: EscalationMode; label: string; value: string; sub: string }[] = [
+    { id: "rate", label: "Escalation Rate", value: metrics.rate, sub: "of AI contacts escalated" },
+    { id: "total", label: "Total Escalations", value: metrics.total, sub: "escalated to staff" },
+    { id: "open", label: "Open Escalations", value: metrics.open, sub: "pending resolution" },
+    { id: "resolved", label: "Resolved Escalations", value: metrics.resolved, sub: "resolved by staff" },
+  ];
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {options.map((option) => (
+        <Button
+          key={option.id}
+          type="button"
+          variant="ghost"
+          onClick={() => onModeChange(option.id)}
+          aria-pressed={mode === option.id}
+          className={cn(
+            "h-auto justify-start whitespace-normal rounded-md border px-3 py-3 text-left hover:bg-muted/50",
+            mode === option.id ? "border-foreground/30 bg-muted" : "border-border bg-background",
+          )}
+        >
+          <span className="block">
+            <span className="block text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+              {option.label}
+            </span>
+            <span className="mt-1 block text-xl font-bold tabular-nums text-foreground">
+              {option.value}
+            </span>
+            <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+              {option.sub}
+            </span>
+          </span>
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+function RenewalConversionFunnelCard({
+  rows,
+}: {
+  rows: { label: string; count: number; color: string; pct: number }[];
+}) {
+  return (
+    <Card className="border-border/60">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm">Conversations → Offers Accepted → Leases Signed</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {rows.map((row) => (
+          <div key={row.label}>
+            <div className="mb-1 flex items-center justify-between gap-3 text-xs">
+              <span className="text-muted-foreground">{row.label}</span>
+              <span className="font-semibold tabular-nums text-foreground">
+                {row.count.toLocaleString()}
+                <span className="ml-1 font-normal text-muted-foreground">({row.pct}%)</span>
+              </span>
+            </div>
+            <div className="h-2.5 rounded-full bg-muted">
+              <div className="h-2.5 rounded-full" style={{ width: `${row.pct}%`, backgroundColor: row.color }} />
+            </div>
+          </div>
+        ))}
+        <p className="pt-1 text-xxs italic text-muted-foreground/80">
+          Conversion shown as % of renewal conversations
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ResponseTimeByBedroomChart() {
+  return (
+    <Card className="border-border/60">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm">Resident Response Time by Bedroom Count</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ChartContainer
+          config={{
+            SMS: { label: "SMS", color: seriesColor(0) },
+            Email: { label: "Email", color: seriesColor(1) },
+            Overall: { label: "Overall", color: seriesColor(2) },
+          }}
+          className="!aspect-auto h-[260px] w-full"
+        >
+          <BarChart data={RESPONSE_TIME_BY_BEDROOM} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+            <XAxis dataKey="bedrooms" tickLine={false} axisLine={false} tickMargin={8} />
+            <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} tickFormatter={(v) => `${v}h`} />
+            <ChartTooltip content={<ChartTooltipContent />} />
+            <Bar dataKey="SMS" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
+            <Bar dataKey="Email" fill={seriesColor(1)} radius={[4, 4, 0, 0]} />
+            <Bar dataKey="Overall" fill={seriesColor(2)} radius={[4, 4, 0, 0]} />
+            <Legend
+              verticalAlign="bottom"
+              iconType="circle"
+              wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }}
+              formatter={legendLabel}
+            />
+          </BarChart>
+        </ChartContainer>
+      </CardContent>
+    </Card>
+  );
+}
+
+function escalationConversation(item: (typeof ESCALATION_DRILL_INS)[number]) {
+  const firstName = item.resident.split(" ")[0];
+  return [
+    {
+      speaker: "Renewals AI",
+      text: `Hi ${firstName}, your renewal offer for ${item.property} is ready. I can help review pricing, lease terms, or transfer options.`,
+    },
+    {
+      speaker: item.resident,
+      text: item.reason === "Price Concerns"
+        ? "The renewal increase is higher than I expected. Are there any options to lower the monthly rent?"
+        : item.reason === "Wants Larger Unit" || item.reason === "Transfer Request"
+          ? "I am interested in renewing, but I need to understand whether a different unit is available."
+          : "I need help before I can decide on the renewal offer.",
+    },
+    {
+      speaker: "Renewals AI",
+      text: "I can share the available options and flag this for the onsite team if an exception or human follow-up is needed.",
+    },
+    {
+      speaker: "Renewals AI",
+      text: `Escalated to staff: ${item.reason}. Current status is ${item.status.toLowerCase()}.`,
+    },
+  ];
+}
+
+function EscalationDrillIn({
+  mode,
+  showConversationViewer = false,
+}: {
+  mode: EscalationMode;
+  showConversationViewer?: boolean;
+}) {
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const rows = ESCALATION_DRILL_INS.filter((item) => {
+    if (mode === "open") return item.status === "Open";
+    if (mode === "resolved") return item.status === "Resolved";
+    return true;
+  });
+  const selectedConversation = rows.find((item) => item.id === selectedConversationId) ?? null;
+
+  const title = {
+    rate: "Escalations Included in Rate",
+    total: "Total Escalations",
+    open: "Open Escalations",
+    resolved: "Resolved Escalations",
+  }[mode];
+
+  return (
+    <Card className="border-border/60">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm">{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className={cn("grid gap-3", showConversationViewer && selectedConversation && "lg:grid-cols-[minmax(0,1fr)_minmax(20rem,0.42fr)]")}>
+          <div className="divide-y divide-border rounded-md border border-border">
+            {rows.map((item) => (
+              <div
+                key={item.id}
+                className={cn(
+                  "grid gap-2 px-3 py-2 text-sm",
+                  showConversationViewer
+                    ? "sm:grid-cols-[7rem_1fr_7rem_9rem_4rem_8rem]"
+                    : "sm:grid-cols-[7rem_1fr_8rem_10rem_4rem]",
+                )}
+              >
+                <span className="font-medium text-foreground">{item.id}</span>
+                <span className="text-foreground">{item.resident} · {item.property}</span>
+                <span className="text-muted-foreground">{item.status}</span>
+                <span className="text-muted-foreground">{item.reason}</span>
+                <span className="text-right text-muted-foreground">{item.age}</span>
+                {showConversationViewer ? (
+                  <Button
+                    type="button"
+                    variant={selectedConversationId === item.id ? "secondary" : "outline"}
+                    size="sm"
+                    onClick={() => setSelectedConversationId(item.id)}
+                    className="h-7 justify-center px-2 text-xs"
+                  >
+                    View Conversation
+                  </Button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+
+          {showConversationViewer && selectedConversation ? (
+            <div className="rounded-md border border-border bg-muted/30 px-3 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">
+                    Conversation for {selectedConversation.id}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {selectedConversation.resident} · {selectedConversation.property}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedConversationId(null)}
+                  className="h-7 px-2"
+                  aria-label="Close conversation"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              <div className="mt-3 space-y-2">
+                {escalationConversation(selectedConversation).map((message, index) => (
+                  <div
+                    key={`${message.speaker}-${index}`}
+                    className={cn(
+                      "rounded-md border border-border px-3 py-2 text-xs",
+                      message.speaker === "Renewals AI" ? "bg-background" : "bg-card",
+                    )}
+                  >
+                    <p className="font-semibold text-foreground">{message.speaker}</p>
+                    <p className="mt-1 leading-relaxed text-muted-foreground">{message.text}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function weightedAverage<T extends { leases: number }>(rows: T[], key: keyof T) {
+  const leases = rows.reduce((sum, row) => sum + row.leases, 0);
+  if (!leases) return 0;
+  return rows.reduce((sum, row) => sum + Number(row[key]) * row.leases, 0) / leases;
+}
+
+function CountBarChartCard<T extends Record<string, string | number>>({
+  title,
+  data,
+  xKey,
+  height = 240,
+}: {
+  title: string;
+  data: T[];
+  xKey: keyof T & string;
+  height?: number;
+}) {
+  return (
+    <Card className="border-border/60">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm">{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ChartContainer config={{}} className="!aspect-auto w-full" style={{ height }}>
+          <BarChart data={data} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+            <XAxis dataKey={xKey} tickLine={false} axisLine={false} tickMargin={8} angle={-30} textAnchor="end" height={50} interval={0} />
+            <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
+            <ChartTooltip content={<ChartTooltipContent />} />
+            <Bar dataKey="count" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ChartContainer>
+      </CardContent>
+    </Card>
+  );
+}
+
+function buildVelocitySlices(primary: TradeSlice) {
+  const keyFor = (row: (typeof VELOCITY_ROWS)[number], slice: TradeSlice) => {
+    if (slice === "property") return row.property;
+    if (slice === "bedrooms") return row.bedrooms;
+    return row.handler;
+  };
+
+  const groups = new Map<string, typeof VELOCITY_ROWS>();
+  VELOCITY_ROWS.forEach((row) => {
+    const key = keyFor(row, primary);
+    groups.set(key, [...(groups.get(key) ?? []), row]);
+  });
+
+  return Array.from(groups.entries())
+    .map(([label, rows]) => ({
+      label,
+      leases: rows.reduce((sum, row) => sum + row.leases, 0),
+      daysToRenew: weightedAverage(rows, "daysToRenew"),
+      daysBeforeLeaseEnd: weightedAverage(rows, "daysBeforeLeaseEnd"),
+      signed60Plus: weightedAverage(rows, "signed60Plus"),
+    }))
+    .sort((a, b) => a.daysToRenew - b.daysToRenew);
+}
+
+function VelocityMetricBarList({
+  rows,
+  metric,
+  format,
+  lowerIsBetter = false,
+}: {
+  rows: ReturnType<typeof buildVelocitySlices>;
+  metric: "daysToRenew" | "daysBeforeLeaseEnd" | "signed60Plus";
+  format: (value: number) => string;
+  lowerIsBetter?: boolean;
+}) {
+  const sortedRows = [...rows].sort((a, b) =>
+    lowerIsBetter ? a[metric] - b[metric] : b[metric] - a[metric],
+  );
+  const maxValue = Math.max(...sortedRows.map((row) => row[metric]), 1);
+
+  return (
+    <div className="space-y-2">
+      {sortedRows.map((row, index) => (
+        <div key={row.label} className="rounded-md border border-border bg-background px-3 py-2">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate text-xs font-semibold text-foreground">{row.label}</p>
+              <p className="text-xs text-muted-foreground">{row.leases} leases in selected period</p>
+            </div>
+            <p className="shrink-0 text-xs font-semibold tabular-nums text-foreground">
+              {format(row[metric])}
+            </p>
+          </div>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full"
+              style={{
+                width: `${Math.max(5, (row[metric] / maxValue) * 100)}%`,
+                backgroundColor: seriesColor(index),
+              }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RenewalVelocityDrillIn({
+  primary,
+  onPrimaryChange,
+  metrics,
+}: {
+  primary: TradeSlice;
+  onPrimaryChange: (next: TradeSlice) => void;
+  metrics: {
+    avgDaysToRenew: string;
+    avgDaysBeforeLease: string;
+    signed60Plus: string;
+  };
+}) {
+  const rows = buildVelocitySlices(primary);
+
+  return (
+    <div className="space-y-3">
+      <Card className="border-border/60">
+        <CardHeader className="pb-2">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle className="text-sm">Renewal Velocity</CardTitle>
+            <SegmentedToggle
+              value={primary}
+              onChange={onPrimaryChange}
+              aria-label="Renewal velocity primary slice"
+              options={[
+                { value: "property", label: "Property" },
+                { value: "bedrooms", label: "Bedrooms" },
+                { value: "handler", label: "AI vs Human" },
+              ]}
+            />
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <SubMetricTile label="Avg Days to Renew" value={metrics.avgDaysToRenew} sub="days from offer generated to signed" />
+            <SubMetricTile label="Avg Days Before Lease End" value={metrics.avgDaysBeforeLease} sub="days before expiration renewal is finalized" />
+            <SubMetricTile label="Renewals Signed 60+ Days Early" value={metrics.signed60Plus} sub="of renewals finalized 60+ days before expiry" />
+          </div>
+          <p className="text-xs font-semibold text-muted-foreground">
+            {TRADE_SLICE_LABEL[primary]} comparison for the selected period.
+          </p>
+          <div className="grid gap-3 lg:grid-cols-3">
+            <div className="rounded-md border border-border bg-muted/30 px-3 py-3">
+              <p className="mb-2 text-xxs font-semibold uppercase tracking-wide text-muted-foreground">Avg Days to Renew</p>
+              <VelocityMetricBarList rows={rows} metric="daysToRenew" format={(value) => `${value.toFixed(1)} days`} lowerIsBetter />
+            </div>
+            <div className="rounded-md border border-border bg-muted/30 px-3 py-3">
+              <p className="mb-2 text-xxs font-semibold uppercase tracking-wide text-muted-foreground">Avg Days Before Lease End</p>
+              <VelocityMetricBarList rows={rows} metric="daysBeforeLeaseEnd" format={(value) => `${Math.round(value)} days`} />
+            </div>
+            <div className="rounded-md border border-border bg-muted/30 px-3 py-3">
+              <p className="mb-2 text-xxs font-semibold uppercase tracking-wide text-muted-foreground">Signed 60+ Days Early</p>
+              <VelocityMetricBarList rows={rows} metric="signed60Plus" format={(value) => `${value.toFixed(1)}%`} />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function weightedTradeOut(rows: typeof TRADE_OUT_ROWS) {
+  const leases = rows.reduce((sum, row) => sum + row.leases, 0);
+  if (!leases) return 0;
+  return rows.reduce((sum, row) => sum + row.tradeOut * row.leases, 0) / leases;
+}
+
+function buildTradeOutSlices(primary: TradeSlice) {
+  const keyFor = (row: (typeof TRADE_OUT_ROWS)[number], slice: TradeSlice) => {
+    if (slice === "property") return row.property;
+    if (slice === "bedrooms") return row.bedrooms;
+    return row.handler;
+  };
+
+  const secondarySlices = (["property", "bedrooms", "handler"] as TradeSlice[]).filter((slice) => slice !== primary);
+  const groups = new Map<string, typeof TRADE_OUT_ROWS>();
+  TRADE_OUT_ROWS.forEach((row) => {
+    const key = keyFor(row, primary);
+    groups.set(key, [...(groups.get(key) ?? []), row]);
+  });
+
+  return Array.from(groups.entries())
+    .map(([label, rows]) => ({
+      label,
+      leases: rows.reduce((sum, row) => sum + row.leases, 0),
+      tradeOut: weightedTradeOut(rows),
+      secondary: secondarySlices.map((slice) => {
+        const nested = new Map<string, typeof TRADE_OUT_ROWS>();
+        rows.forEach((row) => {
+          const key = keyFor(row, slice);
+          nested.set(key, [...(nested.get(key) ?? []), row]);
+        });
+        return {
+          label: TRADE_SLICE_LABEL[slice],
+          values: Array.from(nested.entries())
+            .map(([nestedLabel, nestedRows]) => ({
+              label: nestedLabel,
+              tradeOut: weightedTradeOut(nestedRows),
+              leases: nestedRows.reduce((sum, row) => sum + row.leases, 0),
+            }))
+            .sort((a, b) => b.tradeOut - a.tradeOut),
+        };
+      }),
+    }))
+    .sort((a, b) => b.tradeOut - a.tradeOut);
+}
+
+interface TradeOutBarRow {
+  label: string;
+  leases: number;
+  tradeOut: number;
+}
+
+function TradeOutBarList({
+  rows,
+  selectedLabel,
+  onSelect,
+  ariaLabel,
+  renderInlineDetail,
+  compact = false,
+}: {
+  rows: TradeOutBarRow[];
+  selectedLabel?: string | null;
+  onSelect?: (label: string) => void;
+  ariaLabel: string;
+  renderInlineDetail?: (row: TradeOutBarRow) => ReactNode;
+  compact?: boolean;
+}) {
+  const maxTradeOut = Math.max(...rows.map((row) => row.tradeOut), 1);
+
+  return (
+    <div className={cn("space-y-2", compact && "space-y-1.5")} aria-label={ariaLabel}>
+      {rows.map((row, index) => {
+        const isSelected = selectedLabel === row.label;
+        const inlineDetail = isSelected ? renderInlineDetail?.(row) : null;
+        const barWidth = `${Math.max(5, (row.tradeOut / maxTradeOut) * 100)}%`;
+        const content = (
+          <div className="w-full min-w-0">
+            <div className="flex min-w-0 items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className={cn("truncate font-semibold text-foreground", compact ? "text-xs" : "text-sm")}>
+                  {row.label}
+                </p>
+                <p className="text-xs font-normal text-muted-foreground">
+                  {row.leases} leases in selected period
+                </p>
+              </div>
+              <p className={cn("shrink-0 font-semibold tabular-nums text-foreground", compact ? "text-xs" : "text-sm")}>
+                {row.tradeOut.toFixed(1)}%
+              </p>
+            </div>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full"
+                style={{
+                  width: barWidth,
+                  backgroundColor: seriesColor(index),
+                }}
+              />
+            </div>
+          </div>
+        );
+
+        if (onSelect) {
+          return (
+            <div key={row.label} className="space-y-2">
+              <Button
+                type="button"
+                variant={isSelected ? "secondary" : "ghost"}
+                onClick={() => onSelect(row.label)}
+                aria-expanded={Boolean(inlineDetail)}
+                className={cn(
+                  "h-auto w-full justify-start whitespace-normal rounded-md border px-3 py-2.5 text-left",
+                  isSelected ? "border-foreground/20 bg-muted" : "border-border hover:bg-muted/50"
+                )}
+              >
+                {content}
+              </Button>
+              {inlineDetail}
+            </div>
+          );
+        }
+
+        return (
+          <div key={row.label} className="rounded-md border border-border bg-background px-3 py-2">
+            {content}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function TradeOutBreakdownPanel({
+  row,
+  primary,
+}: {
+  row: ReturnType<typeof buildTradeOutSlices>[number];
+  primary: TradeSlice;
+}) {
+  const sliceLabels = row.secondary.map((group) => group.label.toLowerCase()).join(" and ");
+
+  return (
+    <div className="rounded-md border border-border bg-muted/30 px-3 py-3 shadow-inner">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold text-foreground">
+            {row.label} Breakdown
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Compare this {TRADE_SLICE_LABEL[primary].toLowerCase()} by {sliceLabels}.
+          </p>
+        </div>
+        <p className="text-sm font-semibold tabular-nums text-foreground">
+          {row.tradeOut.toFixed(1)}% trade out
+        </p>
+      </div>
+      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        {row.secondary.map((group) => (
+          <div key={group.label} className="rounded-md border border-border bg-background px-3 py-3">
+            <p className="mb-2 text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+              {group.label}
+            </p>
+            <TradeOutBarList
+              rows={group.values}
+              ariaLabel={`${row.label} ${group.label} trade out breakdown`}
+              compact
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TradeOutDrillIn({
+  primary,
+  onPrimaryChange,
+  selectedLabel,
+  onSelectedLabelChange,
+}: {
+  primary: TradeSlice;
+  onPrimaryChange: (next: TradeSlice) => void;
+  selectedLabel: string | null;
+  onSelectedLabelChange: (next: string | null) => void;
+}) {
+  const rows = buildTradeOutSlices(primary);
+
+  return (
+    <Card className="border-border/60">
+      <CardHeader className="pb-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <CardTitle className="text-sm">Trade Out Analysis</CardTitle>
+          <SegmentedToggle
+            value={primary}
+            onChange={(next) => {
+              onPrimaryChange(next);
+              onSelectedLabelChange(null);
+            }}
+            aria-label="Trade out primary slice"
+            options={[
+              { value: "property", label: "Property" },
+              { value: "bedrooms", label: "Bedrooms" },
+              { value: "handler", label: "AI vs Human" },
+            ]}
+          />
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div>
+          <p className="mb-2 text-xs font-semibold text-muted-foreground">
+            {TRADE_SLICE_LABEL[primary]} ranked by trade out, highest to lowest. Select a bar to compare alternate slices inline.
+          </p>
+          <TradeOutBarList
+            rows={rows}
+            selectedLabel={selectedLabel}
+            onSelect={onSelectedLabelChange}
+            ariaLabel={`${TRADE_SLICE_LABEL[primary]} trade out ranking`}
+            renderInlineDetail={(row) => {
+              const expandedRow = rows.find((candidate) => candidate.label === row.label);
+              return expandedRow ? <TradeOutBreakdownPanel row={expandedRow} primary={primary} /> : null;
+            }}
+          />
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -855,6 +1725,7 @@ function DeveloperNotes({
 
 export default function RenewalsAiDashboardPage() {
   const [filters, setFilters, scope] = useReportScope(PROPERTIES);
+  const [reportVersion, setReportVersion] = useState<ReportVersion>("original");
   const [loading, setLoading] = useState(false);
   const isFirstRender = useRef(true);
   const filtersKey = useMemo(() => serializeFilters(filters), [filters]);
@@ -881,6 +1752,7 @@ export default function RenewalsAiDashboardPage() {
   const rentIncreaseData = useMemo(() => sliceTrend(rentIncreaseTrend, months), [months]);
   const fullyAutomatedData = useMemo(() => sliceTrend(fullyAutomatedTrend, months), [months]);
   const escalationResolutionData = useMemo(() => sliceTrend(escalationResolutionTrend, months), [months]);
+  const aiResponseTimeData = useMemo(() => sliceTrend(aiResponseTimeTrend, months), [months]);
 
   const scale = months / 12;
   const rentIncreaseDistribution = useMemo(() => scaleCount(BASE_RENT_INCREASE_DIST, "count", scale, 1001 + months), [scale, months]);
@@ -889,6 +1761,29 @@ export default function RenewalsAiDashboardPage() {
   const escalationReasons = useMemo(() => scaleCount(BASE_ESCALATION_REASONS, "count", scale, 4001 + months), [scale, months]);
   const renewalIntent = useMemo(() => scaleDonut(BASE_RENEWAL_INTENT, scale, 5001 + months), [scale, months]);
   const outreachChannelMix = useMemo(() => scaleDonut(BASE_OUTREACH_CHANNEL_MIX, scale, 6001 + months), [scale, months]);
+  const conversationAnalysis = useMemo(() => scaleDonut(BASE_CONVERSATION_ANALYSIS, scale, 7001 + months), [scale, months]);
+  const renewalConversionFunnel = useMemo(() => {
+    const rand = seedRand(8801 + months);
+    const jitter = () => 1 + (rand() - 0.5) * 0.04;
+    const conversations = Math.round(6120 * scale * jitter());
+    const offersAccepted = Math.round(conversations * 0.48 * jitter());
+    const leasesSigned = Math.round(offersAccepted * 0.84 * jitter());
+    return [
+      { label: "Conversations", count: conversations, color: seriesColor(0), pct: 100 },
+      {
+        label: "Offers Accepted",
+        count: offersAccepted,
+        color: seriesColor(1),
+        pct: conversations > 0 ? Math.round((offersAccepted / conversations) * 100) : 0,
+      },
+      {
+        label: "Leases Signed",
+        count: leasesSigned,
+        color: seriesColor(2),
+        pct: conversations > 0 ? Math.round((leasesSigned / conversations) * 100) : 0,
+      },
+    ];
+  }, [months, scale]);
   const residentEngagement = useMemo(() => buildResidentEngagement(months), [months]);
   const renewalRateByBedrooms = useMemo(() => buildRenewalRateByBedrooms(months), [months]);
 
@@ -907,19 +1802,49 @@ export default function RenewalsAiDashboardPage() {
     const avgDaysToRenew = (9.2 * jitter()).toFixed(1);
     const avgDaysBeforeLease = Math.round(68 * jitter());
     const signed60Plus = (72 * jitter()).toFixed(1);
-    const staffHoursSaved = fmt(1842 * scale * jitter());
     const avgDaysAI = (9.2 * jitter()).toFixed(1);
     const fullyAutomated = (62 * jitter()).toFixed(1);
     const totalOutreach = fmt(18420 * scale * jitter());
     const smsSent = fmt(12840 * scale * jitter());
     const emailsSent = fmt(5580 * scale * jitter());
     const responseRate = (38.4 * jitter()).toFixed(1);
+    const smsResponseRate = (42.8 * jitter()).toFixed(1);
+    const emailResponseRate = (27.6 * jitter()).toFixed(1);
     const avgAIResponseTime = (8 * jitter()).toFixed(0);
     const avgResidentResponseTime = (4.2 * jitter()).toFixed(1);
+    const smsResponseTime = (2.9 * jitter()).toFixed(1);
+    const emailResponseTime = (7.1 * jitter()).toFixed(1);
     const escalationRate = (12.4 * jitter()).toFixed(1);
     const totalEscalations = Math.round(406 * scale * jitter());
     const openEscalations = Math.round(42 * scale * jitter());
     const resolvedEscalations = Math.round(364 * scale * jitter());
+    const optOutRate = (4.1 * jitter()).toFixed(1);
+    const smsOptOutRate = (3.2 * jitter()).toFixed(1);
+    const emailOptOutRate = (5.4 * jitter()).toFixed(1);
+    const smsAIResponseTime = (6 * jitter()).toFixed(0);
+    const emailAIResponseTime = (12 * jitter()).toFixed(0);
+
+    const dayVolumes = [
+      { label: "Mon", count: Math.round(2840 * scale * jitter()) },
+      { label: "Tue", count: Math.round(3120 * scale * jitter()) },
+      { label: "Wed", count: Math.round(2960 * scale * jitter()) },
+      { label: "Thu", count: Math.round(2780 * scale * jitter()) },
+      { label: "Fri", count: Math.round(2540 * scale * jitter()) },
+      { label: "Sat", count: Math.round(1890 * scale * jitter()) },
+      { label: "Sun", count: Math.round(1290 * scale * jitter()) },
+    ].sort((a, b) => b.count - a.count);
+
+    const topHourLabel = "10 AM";
+    const topHourCount = Math.round(2680 * scale * jitter());
+
+    const hourBuckets = [
+      { label: "12a–4a", count: Math.round(820 * scale * jitter()) },
+      { label: "4a–8a", count: Math.round(2140 * scale * jitter()) },
+      { label: "8a–12p", count: Math.round(5890 * scale * jitter()) },
+      { label: "12p–4p", count: Math.round(4320 * scale * jitter()) },
+      { label: "4p–8p", count: Math.round(3180 * scale * jitter()) },
+      { label: "8p–12a", count: Math.round(1070 * scale * jitter()) },
+    ].sort((a, b) => b.count - a.count);
 
     return {
       renewalRate: `${renewalRate}%`,
@@ -931,21 +1856,200 @@ export default function RenewalsAiDashboardPage() {
       avgDaysToRenew,
       avgDaysBeforeLease: String(avgDaysBeforeLease),
       signed60Plus: `${signed60Plus}%`,
-      staffHoursSaved,
       avgDaysAI,
       fullyAutomated: `${fullyAutomated}%`,
       totalOutreach,
       smsSent,
       emailsSent,
       responseRate: `${responseRate}%`,
+      smsResponseRate: `${smsResponseRate}%`,
+      emailResponseRate: `${emailResponseRate}%`,
       avgAIResponseTime: `< ${avgAIResponseTime} sec`,
       avgResidentResponseTime: `${avgResidentResponseTime} hrs`,
+      smsResponseTime: `${smsResponseTime} hrs`,
+      emailResponseTime: `${emailResponseTime} hrs`,
       escalationRate: `${escalationRate}%`,
       totalEscalations: totalEscalations.toLocaleString(),
       openEscalations: String(openEscalations),
       resolvedEscalations: resolvedEscalations.toLocaleString(),
+      optOutRate: `${optOutRate}%`,
+      smsOptOutRate: `${smsOptOutRate}%`,
+      emailOptOutRate: `${emailOptOutRate}%`,
+      smsAIResponseTime: `< ${smsAIResponseTime} sec`,
+      emailAIResponseTime: `< ${emailAIResponseTime} sec`,
+      topDay: dayVolumes[0],
+      dayBreakdown: dayVolumes.slice(1),
+      topHour: { label: topHourLabel, count: topHourCount },
+      hourBuckets,
     };
   }, [months, scale]);
+
+  const tradeOutAverage = weightedTradeOut(TRADE_OUT_ROWS);
+
+  const jvmStats = [
+    // Row 1: Messaging volume
+    {
+      label: "Total Messages",
+      value: kpi.totalOutreach,
+      sub: "SMS and email message volume",
+      channels: [
+        { label: "SMS", value: kpi.smsSent },
+        { label: "Email", value: kpi.emailsSent },
+      ],
+    },
+    {
+      label: "Messages by Day",
+      value: `${kpi.topDay.count.toLocaleString()}`,
+      sub: `peak day: ${kpi.topDay.label}`,
+      channels: kpi.dayBreakdown.map((d) => ({ label: d.label, value: d.count.toLocaleString() })),
+    },
+    {
+      label: "Messages by Hour",
+      value: `${kpi.topHour.count.toLocaleString()}`,
+      sub: `peak hour: ${kpi.topHour.label}`,
+      channels: kpi.hourBuckets.map((h) => ({ label: h.label, value: h.count.toLocaleString() })),
+    },
+    // Row 2: AI performance
+    {
+      label: "Escalation Rate",
+      value: kpi.escalationRate,
+      sub: "of AI contacts escalated",
+      channels: [
+        { label: "Total", value: kpi.totalEscalations },
+        { label: "Open", value: kpi.openEscalations },
+        { label: "Resolved", value: kpi.resolvedEscalations },
+      ],
+    },
+    {
+      label: "Opt Out Rate",
+      value: kpi.optOutRate,
+      sub: "residents who opted out of AI messaging",
+      channels: [
+        { label: "SMS", value: kpi.smsOptOutRate },
+        { label: "Email", value: kpi.emailOptOutRate },
+      ],
+    },
+    {
+      label: "Average Agent Response Time",
+      value: kpi.avgAIResponseTime,
+      sub: "resident message to agent reply",
+      channels: [
+        { label: "SMS", value: kpi.smsAIResponseTime },
+        { label: "Email", value: kpi.emailAIResponseTime },
+      ],
+    },
+    // Row 3: Resident behavior
+    {
+      label: "Resident Response Rate",
+      value: kpi.responseRate,
+      sub: "across all channels",
+      channels: [
+        { label: "SMS", value: kpi.smsResponseRate },
+        { label: "Email", value: kpi.emailResponseRate },
+      ],
+    },
+    {
+      label: "Resident Response Time",
+      value: kpi.avgResidentResponseTime,
+      sub: "median time to reply",
+      channels: [
+        { label: "SMS", value: kpi.smsResponseTime },
+        { label: "Email", value: kpi.emailResponseTime },
+      ],
+    },
+    {
+      label: "Renewal Velocity",
+      value: `${kpi.avgDaysToRenew} days`,
+      sub: "offer to signature",
+      channels: [
+        { label: "Days before lease end", value: `${kpi.avgDaysBeforeLease} days` },
+        { label: "Signed 60+ days early", value: kpi.signed60Plus },
+      ],
+    },
+  ];
+
+  const goldenStats = [
+    // Row 1: Messaging volume
+    {
+      label: "Total Messages",
+      value: kpi.totalOutreach,
+      sub: "SMS and email message volume",
+      channels: [
+        { label: "SMS", value: kpi.smsSent },
+        { label: "Email", value: kpi.emailsSent },
+      ],
+    },
+    {
+      label: "Messages by Day",
+      value: `${kpi.topDay.count.toLocaleString()}`,
+      sub: `peak day: ${kpi.topDay.label}`,
+      channels: kpi.dayBreakdown.map((d) => ({ label: d.label, value: d.count.toLocaleString() })),
+    },
+    {
+      label: "Messages by Hour",
+      value: `${kpi.topHour.count.toLocaleString()}`,
+      sub: `peak hour: ${kpi.topHour.label}`,
+      channels: kpi.hourBuckets.map((h) => ({ label: h.label, value: h.count.toLocaleString() })),
+    },
+    // Row 2: AI performance
+    {
+      label: "Escalation Rate",
+      value: kpi.escalationRate,
+      sub: "of AI contacts escalated",
+      channels: [
+        { label: "Total", value: kpi.totalEscalations },
+        { label: "Open", value: kpi.openEscalations },
+        { label: "Resolved", value: kpi.resolvedEscalations },
+      ],
+    },
+    {
+      label: "Opt Out Rate",
+      value: kpi.optOutRate,
+      sub: "residents who opted out of AI messaging",
+      channels: [
+        { label: "SMS", value: kpi.smsOptOutRate },
+        { label: "Email", value: kpi.emailOptOutRate },
+      ],
+    },
+    {
+      label: "Average Agent Response Time",
+      value: kpi.avgAIResponseTime,
+      sub: "resident message to agent reply",
+      channels: [
+        { label: "SMS", value: kpi.smsAIResponseTime },
+        { label: "Email", value: kpi.emailAIResponseTime },
+      ],
+    },
+    // Row 3: Resident behavior
+    {
+      label: "Resident Response Rate",
+      value: kpi.responseRate,
+      sub: "across all channels",
+      channels: [
+        { label: "SMS", value: kpi.smsResponseRate },
+        { label: "Email", value: kpi.emailResponseRate },
+      ],
+    },
+    {
+      label: "Resident Response Time",
+      value: kpi.avgResidentResponseTime,
+      sub: "median time to reply",
+      channels: [
+        { label: "SMS", value: kpi.smsResponseTime },
+        { label: "Email", value: kpi.emailResponseTime },
+      ],
+    },
+    {
+      label: "Renewal Velocity",
+      value: `${kpi.avgDaysToRenew} days`,
+      sub: "offer to signature",
+      channels: [
+        { label: "Days before lease end", value: `${kpi.avgDaysBeforeLease} days` },
+        { label: "Signed 60+ days early", value: kpi.signed60Plus },
+      ],
+    },
+  ];
+
 
   return (
     <div className="-mt-2">
@@ -959,10 +2063,30 @@ export default function RenewalsAiDashboardPage() {
         onChange={setFilters}
         properties={PROPERTIES}
         unmatchedProperties={scope.unmatched}
-        showViewToggle
+        showViewToggle={reportVersion === "original"}
       />
 
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-card px-4 py-3">
+        <div>
+          <p className="text-xs font-semibold text-foreground">Report Version</p>
+          <p className="text-xxs text-muted-foreground">
+            Switch between the current report, the Alpha Launch scope, and the proposed Golden Prototype.
+          </p>
+        </div>
+        <SegmentedToggle
+          value={reportVersion}
+          onChange={(next) => {
+            setReportVersion(next);
+          }}
+          options={REPORT_VERSION_OPTIONS}
+          aria-label="Renewals AI report version"
+        />
+      </div>
+
       {loading && <LoadingBanner />}
+
+      {reportVersion === "original" ? (
+        <>
 
       {/* ============================================================ */}
       {/* Section 1 — Overall Renewal Performance                       */}
@@ -984,7 +2108,7 @@ export default function RenewalsAiDashboardPage() {
               <p className="text-xxs font-semibold text-muted-foreground">
                 Renewal rate lift (AI vs non-AI)
               </p>
-              <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-foreground">
+              <p className="mt-1 text-4xl font-bold tracking-tight text-foreground">
                 {loading ? "…" : "+8.2 pts"}
               </p>
               <p className="mt-0.5 text-xs text-muted-foreground">
@@ -993,25 +2117,16 @@ export default function RenewalsAiDashboardPage() {
             </CardContent>
           </Card>
 
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-            <StatCard
-              label="Staff hours saved"
-              value={kpi.staffHoursSaved}
-              delta="+240 hrs"
-              sub="hours saved by AI automation"
-              subItalic="18,420 messages × 6 min avg manual handling ÷ 60"
-            />
+          <div className="grid grid-cols-2 gap-3">
             <StatCard
             lowerIsBetter
               label="Avg days to renew (AI)"
               value={kpi.avgDaysAI}
-              delta="-4.9 days faster"
               sub="vs 14.1 days without AI"
             />
             <StatCard
               label="Fully automated renewals"
               value={kpi.fullyAutomated}
-              delta="+8 pts"
               sub="renewals completed with zero human intervention"
             />
           </div>
@@ -1056,7 +2171,7 @@ export default function RenewalsAiDashboardPage() {
                   <Legend
                     verticalAlign="bottom"
                     iconType="circle"
-                    wrapperStyle={{ fontSize: `${CHART_FONT_SIZE}px`, paddingTop: "6px" }}
+                    wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }}
                     formatter={legendLabel}
                   />
                 </LineChart>
@@ -1069,22 +2184,19 @@ export default function RenewalsAiDashboardPage() {
           <StatCard
             label="Total outreach messages"
             value={kpi.totalOutreach}
-            delta="+12%"
             sub="AI-sent messages"
           />
-          <StatCard label="SMS sent" value={kpi.smsSent} delta="+8%" sub="outbound SMS" />
-          <StatCard label="Emails sent" value={kpi.emailsSent} delta="+18%" sub="outbound emails" />
+          <StatCard label="SMS sent" value={kpi.smsSent} sub="outbound SMS" />
+          <StatCard label="Emails sent" value={kpi.emailsSent} sub="outbound emails" />
           <StatCard
             label="Resident response rate"
             value={kpi.responseRate}
-            delta="+2.1 pts"
             sub="responded to AI outreach"
           />
           <StatCard
             lowerIsBetter
             label="Avg AI response time"
             value={kpi.avgAIResponseTime}
-            delta="-2 sec"
             sub="from resident message to AI reply"
           />
         </div>
@@ -1094,7 +2206,6 @@ export default function RenewalsAiDashboardPage() {
             lowerIsBetter
             label="Avg resident response time"
             value={kpi.avgResidentResponseTime}
-            delta="-1.4 hrs"
             sub="from AI message to resident reply"
           />
         </div>
@@ -1121,17 +2232,15 @@ export default function RenewalsAiDashboardPage() {
           {
             label: "Escalation rate",
             value: kpi.escalationRate,
-            delta: "-1.8 pts",
-            deltaTone: "positive",
             sub: "of AI contacts escalated",
           },
           {
-            label: "Total escalations · drill in",
+            label: "Total escalations",
             value: kpi.totalEscalations,
             sub: "escalated to staff",
             action: (
               <Link href="/escalations" className="text-xxs font-medium text-foreground underline underline-offset-2 hover:no-underline">
-                Drill in →
+                View queue →
               </Link>
             ),
           },
@@ -1139,8 +2248,6 @@ export default function RenewalsAiDashboardPage() {
           {
             label: "Resolved",
             value: kpi.resolvedEscalations,
-            delta: "89% resolution",
-            deltaTone: "positive",
             sub: "resolved by staff",
           },
         ]}
@@ -1166,7 +2273,7 @@ export default function RenewalsAiDashboardPage() {
           */}
           <Card className="border-border/60">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Avg Escalation Resolution Time — Trend</CardTitle>
+              <CardTitle className="text-sm">Avg Escalation Resolution Time (Hours) — Trend</CardTitle>
             </CardHeader>
             <CardContent>
               <TrendChart
@@ -1174,6 +2281,7 @@ export default function RenewalsAiDashboardPage() {
                 view={filters.view}
                 selected={filters.properties}
                 yDomain={filters.view === "global" ? [0, 4] : [0, 5]}
+                yTickFormatter={(value) => `${value}h`}
               />
               <PropertyChips state={filters} setState={setFilters} />
             </CardContent>
@@ -1191,14 +2299,12 @@ export default function RenewalsAiDashboardPage() {
           <StatCard
             label="Renewal rate"
             value={kpi.renewalRate}
-            delta="+4 pts"
             sub="of eligible residents renewed"
           />
           <StatCard label="Leases eligible for renewal" value={kpi.eligibleLeases} sub="leases expired during period" />
           <StatCard
             label="Renewed residents"
             value={kpi.renewedResidents}
-            delta="+14%"
             sub="renewed during period"
           />
         </div>
@@ -1238,19 +2344,16 @@ export default function RenewalsAiDashboardPage() {
           <StatCard
             label="Avg rent increase at renewal"
             value={kpi.avgRentIncrease}
-            delta="+0.6 pts"
             sub="$52 avg monthly increase"
           />
           <StatCard
             label="Incremental annual revenue"
             value={kpi.incrementalRevenue}
-            delta="+$184K"
             sub="from renewal rent increases"
           />
           <StatCard
             label="Avoided turnover costs"
             value={kpi.avoidedTurnover}
-            delta="+$320K"
             sub="est. savings from retained residents"
             subItalic="$5,000 avg turnover cost × 428 retained leases"
           />
@@ -1294,19 +2397,16 @@ export default function RenewalsAiDashboardPage() {
             lowerIsBetter
             label="Avg days to renew"
             value={kpi.avgDaysToRenew}
-            delta="-4.9 days"
             sub="days from offer generated to signed"
           />
           <StatCard
             label="Avg days before lease end"
             value={kpi.avgDaysBeforeLease}
-            delta="+12 days"
             sub="days before expiration renewal is finalized"
           />
           <StatCard
             label="Renewals signed 60+ days early"
             value={kpi.signed60Plus}
-            delta="+8 pts"
             sub="of renewals finalized 60+ days before expiry"
           />
         </div>
@@ -1338,7 +2438,7 @@ export default function RenewalsAiDashboardPage() {
                   <Legend
                     verticalAlign="bottom"
                     iconType="circle"
-                    wrapperStyle={{ fontSize: `${CHART_FONT_SIZE}px`, paddingTop: "6px" }}
+                    wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }}
                     formatter={legendLabel}
                   />
                 </LineChart>
@@ -1390,6 +2490,73 @@ export default function RenewalsAiDashboardPage() {
           </Card>
         </div>
       </section>
+        </>
+      ) : null}
+
+      {reportVersion === "jvm" ? (
+        <section className="mb-6">
+          <SectionBanner
+            title="Alpha Launch"
+            description="Launch-scope metrics with per-channel breakdowns: outreach volume, response rates, timing, AI speed, escalations, and opt-outs"
+          />
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {jvmStats.map((stat) => (
+              <BillboardStatCard
+                key={stat.label}
+                label={stat.label}
+                value={loading ? "…" : stat.value}
+                sub={stat.sub}
+                channels={stat.channels}
+              />
+            ))}
+          </div>
+          <div className="mt-3">
+            <RenewalConversionFunnelCard rows={renewalConversionFunnel} />
+          </div>
+        </section>
+      ) : null}
+
+      {reportVersion === "golden" ? (
+        <>
+          <section className="mb-6">
+            <SectionBanner
+              title="Golden Prototype"
+              description="Billboard-first renewal reporting with per-channel breakdowns, trend analysis, and conversation insights"
+            />
+
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {goldenStats.map((stat) => (
+                <BillboardStatCard
+                  key={stat.label}
+                  label={stat.label}
+                  value={loading ? "…" : stat.value}
+                  sub={stat.sub}
+                  channels={stat.channels}
+                />
+              ))}
+            </div>
+            <div className="mt-3">
+              <RenewalConversionFunnelCard rows={renewalConversionFunnel} />
+            </div>
+          </section>
+
+          <section className="mb-6">
+            <SectionBanner
+              title="Renewals AI Conversation Analysis"
+              description="AI-categorized summary of what happened inside resident renewal conversations"
+            />
+            <Card className="border-border/60">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Conversation Category Mix</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <DonutWithLegend data={conversationAnalysis} />
+              </CardContent>
+            </Card>
+          </section>
+        </>
+      ) : null}
 
       <DeveloperNotes
         query={developerNotesQuery}

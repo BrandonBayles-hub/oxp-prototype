@@ -31,7 +31,6 @@ import {
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
 import {
-  CHART_FONT_SIZE,
   CHART_GRID_STROKE,
   EscalationsSection,
   MultiSelectFilter,
@@ -251,6 +250,12 @@ const MAINTENANCE_EXTRA_DEFAULTS = {
   floorPlans: FLOOR_PLANS,
   sources: WORK_ORDER_SOURCES,
 };
+
+const REPORT_VERSION_OPTIONS = [
+  { value: "original", label: "Original" },
+  { value: "jvm", label: "Alpha Launch" },
+  { value: "golden", label: "Golden Prototype" },
+];
 
 /** Read an extras dimension, defaulting to "everything selected". */
 function extraSet(filters: ReportFilters, id: keyof typeof MAINTENANCE_EXTRA_DEFAULTS): Set<string> {
@@ -1065,6 +1070,7 @@ function LoadingBanner() {
 export default function MaintenanceAiDashboardPage() {
   const [filters, setFilters, scope] = useReportScope(PROPERTIES, MAINTENANCE_EXTRA_DEFAULTS);
   const [loading, setLoading] = useState(false);
+  const [reportVersion, setReportVersion] = useState("original");
   const [sliceBy, setSliceBy] = useState<SliceDimension>("status");
   const filtersKey = useMemo(
     () => JSON.stringify(serializeFilters(filters)),
@@ -1092,6 +1098,83 @@ export default function MaintenanceAiDashboardPage() {
     [months, filters],
   );
 
+  const alphaKpi = useMemo(() => {
+    const rand = seedRand(6666 + months);
+    const jitter = () => 1 + (rand() - 0.5) * 0.08;
+    const scale = months / 12;
+    const fmt = (n: number) => Math.round(n).toLocaleString();
+
+    const voiceSent = fmt(3800 * scale * jitter());
+    const chatSent = fmt(5200 * scale * jitter());
+    const smsSent = fmt(7600 * scale * jitter());
+    const totalMessages = fmt((3800 + 5200 + 7600) * scale * jitter());
+
+    const dayVolumes = [
+      { label: "Mon", count: Math.round(2600 * scale * jitter()) },
+      { label: "Tue", count: Math.round(2800 * scale * jitter()) },
+      { label: "Wed", count: Math.round(2700 * scale * jitter()) },
+      { label: "Thu", count: Math.round(2500 * scale * jitter()) },
+      { label: "Fri", count: Math.round(2300 * scale * jitter()) },
+      { label: "Sat", count: Math.round(1800 * scale * jitter()) },
+      { label: "Sun", count: Math.round(1200 * scale * jitter()) },
+    ].sort((a, b) => b.count - a.count);
+
+    const topHourLabel = "10 AM";
+    const topHourCount = Math.round(2500 * scale * jitter());
+
+    const hourBuckets = [
+      { label: "12a–4a", count: Math.round(750 * scale * jitter()) },
+      { label: "4a–8a", count: Math.round(1950 * scale * jitter()) },
+      { label: "8a–12p", count: Math.round(5400 * scale * jitter()) },
+      { label: "12p–4p", count: Math.round(3900 * scale * jitter()) },
+      { label: "4p–8p", count: Math.round(3100 * scale * jitter()) },
+      { label: "8p–12a", count: Math.round(980 * scale * jitter()) },
+    ].sort((a, b) => b.count - a.count);
+
+    return {
+      totalMessages,
+      voiceSent, chatSent, smsSent,
+      topDay: dayVolumes[0],
+      dayBreakdown: dayVolumes.slice(1),
+      topHour: { label: topHourLabel, count: topHourCount },
+      hourBuckets,
+      escalationRate: `${(14.2 * jitter()).toFixed(1)}%`,
+      totalEscalations: fmt(520 * scale * jitter()),
+      openEscalations: String(Math.round(68 * scale * jitter())),
+      resolvedEscalations: fmt(452 * scale * jitter()),
+      optOutRate: `${(2.9 * jitter()).toFixed(1)}%`,
+      voiceOptOut: `${(1.8 * jitter()).toFixed(1)}%`,
+      chatOptOut: `${(2.6 * jitter()).toFixed(1)}%`,
+      smsOptOut: `${(4.2 * jitter()).toFixed(1)}%`,
+      avgAgentResponseTime: `< ${(5 * jitter()).toFixed(0)} sec`,
+      voiceAgentTime: `< ${(3 * jitter()).toFixed(0)} sec`,
+      chatAgentTime: `< ${(4 * jitter()).toFixed(0)} sec`,
+      smsAgentTime: `< ${(8 * jitter()).toFixed(0)} sec`,
+      responseRate: `${(52.4 * jitter()).toFixed(1)}%`,
+      voiceResponseRate: `${(71.2 * jitter()).toFixed(1)}%`,
+      chatResponseRate: `${(58.6 * jitter()).toFixed(1)}%`,
+      smsResponseRate: `${(42.1 * jitter()).toFixed(1)}%`,
+      avgResidentResponseTime: `${(2.4 * jitter()).toFixed(1)} hrs`,
+      voiceResidentTime: `${(0.05 * jitter()).toFixed(2)} hrs`,
+      chatResidentTime: `${(0.8 * jitter()).toFixed(1)} hrs`,
+      smsResidentTime: `${(4.8 * jitter()).toFixed(1)} hrs`,
+      avgResolutionHours: `${(18.4 * jitter()).toFixed(1)} hrs`,
+      firstResponseTime: `${(2.1 * jitter()).toFixed(1)} hrs`,
+    };
+  }, [months]);
+
+  const alphaStats = [
+    { label: "Total Messages", value: alphaKpi.totalMessages, sub: "across all channels", channels: [{ label: "Voice", value: alphaKpi.voiceSent }, { label: "Chat", value: alphaKpi.chatSent }, { label: "SMS", value: alphaKpi.smsSent }] },
+    { label: "Messages by Day", value: `${alphaKpi.topDay.count.toLocaleString()}`, sub: `peak day: ${alphaKpi.topDay.label}`, channels: alphaKpi.dayBreakdown.map((d) => ({ label: d.label, value: d.count.toLocaleString() })) },
+    { label: "Messages by Hour", value: `${alphaKpi.topHour.count.toLocaleString()}`, sub: `peak hour: ${alphaKpi.topHour.label}`, channels: alphaKpi.hourBuckets.map((h) => ({ label: h.label, value: h.count.toLocaleString() })) },
+    { label: "Escalation Rate", value: alphaKpi.escalationRate, sub: "of AI contacts escalated", channels: [{ label: "Total", value: alphaKpi.totalEscalations }, { label: "Open", value: alphaKpi.openEscalations }, { label: "Resolved", value: alphaKpi.resolvedEscalations }] },
+    { label: "Opt Out Rate", value: alphaKpi.optOutRate, sub: "opted out of AI messaging", channels: [{ label: "Voice", value: alphaKpi.voiceOptOut }, { label: "Chat", value: alphaKpi.chatOptOut }, { label: "SMS", value: alphaKpi.smsOptOut }] },
+    { label: "Average Agent Response Time", value: alphaKpi.avgAgentResponseTime, sub: "resident message to agent reply", channels: [{ label: "Voice", value: alphaKpi.voiceAgentTime }, { label: "Chat", value: alphaKpi.chatAgentTime }, { label: "SMS", value: alphaKpi.smsAgentTime }] },
+    { label: "Resident Response Rate", value: alphaKpi.responseRate, sub: "across all channels", channels: [{ label: "Voice", value: alphaKpi.voiceResponseRate }, { label: "Chat", value: alphaKpi.chatResponseRate }, { label: "SMS", value: alphaKpi.smsResponseRate }] },
+    { label: "Resident Response Time", value: alphaKpi.avgResidentResponseTime, sub: "median time to reply", channels: [{ label: "Voice", value: alphaKpi.voiceResidentTime }, { label: "Chat", value: alphaKpi.chatResidentTime }, { label: "SMS", value: alphaKpi.smsResidentTime }] },
+    { label: "Work Order Resolution Speed", value: alphaKpi.avgResolutionHours, sub: "avg hours to resolution", channels: [{ label: "First response", value: alphaKpi.firstResponseTime }] },
+  ];
+
   return (
     <div className="-mt-2">
       <ReportPageHeader
@@ -1107,8 +1190,23 @@ export default function MaintenanceAiDashboardPage() {
         extraFilters={MAINTENANCE_EXTRA_FILTERS}
       />
 
+      <div className="mb-4 flex items-center justify-between gap-4 rounded-lg border border-border px-4 py-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground">Report Version</p>
+          <p className="text-xs text-muted-foreground">Switch between report layout variants</p>
+        </div>
+        <SegmentedToggle
+          aria-label="Report version"
+          value={reportVersion}
+          onChange={setReportVersion}
+          options={REPORT_VERSION_OPTIONS}
+        />
+      </div>
+
       {loading && <LoadingBanner />}
 
+      {reportVersion === "original" ? (
+      <>
       {/* =========================================================== */}
       {/* Section 1 — Overall Work Order Performance                  */}
       {/* =========================================================== */}
@@ -1129,7 +1227,7 @@ export default function MaintenanceAiDashboardPage() {
               <p className="text-xxs font-semibold text-muted-foreground">
                 Work Orders Resolved
               </p>
-              <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-foreground">
+              <p className="mt-1 text-4xl font-bold tracking-tight text-foreground">
                 {loading ? "…" : metrics.workOrdersResolved.toLocaleString()}
               </p>
               <p className="mt-0.5 text-xs text-muted-foreground">
@@ -1340,7 +1438,7 @@ export default function MaintenanceAiDashboardPage() {
                 <ChartContainer config={{}} className="!aspect-auto h-[260px] w-full">
                   <BarChart data={metrics.escalationReasons} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
-                    <XAxis dataKey="reason" tickLine={false} axisLine={false} tickMargin={8} angle={-30} textAnchor="end" height={50} interval={0} fontSize={CHART_FONT_SIZE} />
+                    <XAxis dataKey="reason" tickLine={false} axisLine={false} tickMargin={8} angle={-30} textAnchor="end" height={50} interval={0} fontSize={10} />
                     <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
                     <ChartTooltip content={<ChartTooltipContent />} />
                     <Bar dataKey="count" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
@@ -1550,7 +1648,7 @@ export default function MaintenanceAiDashboardPage() {
                     <Legend
                       verticalAlign="bottom"
                       iconType="circle"
-                      wrapperStyle={{ fontSize: `${CHART_FONT_SIZE}px`, paddingTop: "6px" }}
+                      wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }}
                       formatter={legendLabel}
                     />
                   </BarChart>
@@ -1602,6 +1700,515 @@ export default function MaintenanceAiDashboardPage() {
           </Card>
         </div>
       </section>
+      </>
+      ) : null}
+
+      {(reportVersion === "jvm" || reportVersion === "golden") ? (
+      <>
+        <section className="mb-6">
+          <SectionBanner
+            title={reportVersion === "jvm" ? "Alpha Launch" : "Golden Prototype"}
+            description="Billboard-first metrics with per-channel breakdowns"
+          />
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {alphaStats.map((stat) => (
+              <BillboardStatCard
+                key={stat.label}
+                label={stat.label}
+                value={stat.value}
+                sub={stat.sub}
+                channels={stat.channels}
+              />
+            ))}
+          </div>
+        </section>
+
+        {/* =========================================================== */}
+        {/* Section 2 — Maintenance AI Impact                           */}
+        {/* =========================================================== */}
+        <section className="mb-6">
+          <SectionBanner
+            title="Maintenance AI Impact"
+            description="AI-specific metrics and value for properties using Maintenance AI"
+          />
+
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,0.4fr)_minmax(0,1fr)]">
+            <Card>
+              <CardContent className="px-5 py-4">
+                <p className="text-xxs font-semibold text-muted-foreground">
+                  Work Orders Resolved
+                </p>
+                <p className="mt-1 text-4xl font-bold tracking-tight text-foreground">
+                  {loading ? "…" : metrics.workOrdersResolved.toLocaleString()}
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Last 30 days · {metrics.withinSlaPct}% within SLA
+                </p>
+              </CardContent>
+            </Card>
+
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <StatCard
+                label="Total units using AI"
+                value={loading ? "…" : metrics.totalUnitsUsingAi.toLocaleString()}
+                delta={`+${metrics.unitsDeltaAbsolute.toLocaleString()}`}
+                deltaTone="positive"
+                sub="units on platform"
+              />
+              <StatCard
+                label="Units AI usage rate"
+                value={loading ? "…" : `${metrics.unitsAiUsageRate}%`}
+                delta={`+${metrics.unitsAiUsageDelta} pts`}
+                deltaTone="positive"
+                sub="of total units"
+              />
+              <StatCard
+                label="Maintenance AI submitted work orders"
+                value={loading ? "…" : metrics.eliSubmittedWorkOrders.toLocaleString()}
+                delta={`+${metrics.eliSubmittedDeltaPct}%`}
+                deltaTone="positive"
+                sub="AI-submitted WOs"
+              />
+              <StatCard
+                label="Work orders deflected"
+                value={loading ? "…" : `${metrics.workOrdersDeflectedPct}%`}
+                delta={`+${metrics.workOrdersDeflectedDelta} pts`}
+                deltaTone="positive"
+                sub={`${metrics.workOrdersDeflected.toLocaleString()} deflected · self-service`}
+              />
+            </div>
+          </div>
+
+          <div className="mt-3">
+            <Card className="border-border/60">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Monthly Trends — Work Orders Submitted</CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Baseline (pre-AI) vs Current — hover to compare values for the month.
+                </p>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <Skeleton className="h-[240px] w-full" />
+                ) : (
+                  <ChartContainer
+                    config={{
+                      baseline: { label: "Pre-AI baseline", color: "hsl(222 10% 78%)" },
+                      current: { label: "Current", color: seriesColor(0) },
+                    }}
+                    className="!aspect-auto h-[240px] w-full"
+                  >
+                    <LineChart
+                      data={metrics.monthlyAiWoSubmitted}
+                      margin={{ left: 8, right: 12, top: 8, bottom: 8 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+                      <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
+                      <YAxis
+                        tickLine={false}
+                        axisLine={false}
+                        tickMargin={8}
+                        width={36}
+                        domain={[0, 600]}
+                      />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Line
+                        type="monotone"
+                        dataKey="baseline"
+                        stroke={"hsl(222 12% 62%)"}
+                        strokeWidth={1.5}
+                        strokeDasharray="4 4"
+                        dot={false}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="current"
+                        stroke={seriesColor(0)}
+                        strokeWidth={2}
+                        dot={false}
+                      />
+                    </LineChart>
+                  </ChartContainer>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <StatCard
+              label="Open work orders"
+              value={loading ? "…" : metrics.aiOriginOpen.toLocaleString()}
+              sub="AI origin · selected period"
+            />
+            <StatCard
+              label="Completed work orders"
+              value={loading ? "…" : metrics.aiOriginCompleted.toLocaleString()}
+              sub="AI origin · selected period"
+            />
+            <StatCard
+              label="Cancelled work orders"
+              value={loading ? "…" : metrics.aiOriginCancelled.toLocaleString()}
+              sub="AI origin · selected period"
+            />
+            <StatCard
+              label="Avg days to complete"
+              value={loading ? "…" : `${metrics.aiOriginAvgDays}`}
+              sub="Maintenance AI origin"
+            />
+            <StatCard
+              label="Total work orders"
+              value={loading ? "…" : metrics.aiOriginTotal.toLocaleString()}
+              sub="Maintenance AI origin"
+            />
+          </div>
+
+          <div className="mt-3">
+            <Card className="border-border/60">
+              <CardHeader className="pb-2">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <CardTitle className="text-sm">Work order distribution</CardTitle>
+                    <p className="text-xs text-muted-foreground">
+                      AI-origin work orders, broken out by the selected dimension
+                    </p>
+                  </div>
+                  <SegmentedToggle
+                    aria-label="Slice distribution by"
+                    value={sliceBy}
+                    onChange={setSliceBy}
+                    options={SLICE_OPTIONS.map((o) => ({ value: o.id, label: o.label }))}
+                  />
+                </div>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <Skeleton className="h-[300px] w-full" />
+                ) : (
+                  <DistributionPanel
+                    statusData={metrics.aiStatusDistribution}
+                    priorityData={metrics.priorityDistribution}
+                    sourceData={metrics.componentDistribution}
+                    sliceBy={sliceBy}
+                  />
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="mt-3">
+            <Card className="border-border/60">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Maintenance AI Work Order Detail</CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Maintenance AI–originated work orders. Filter by priority and status; sort by clicking column headers.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <EliWorkOrderTable rows={WORK_ORDER_ROWS} />
+              </CardContent>
+            </Card>
+          </div>
+        </section>
+
+        {/* =========================================================== */}
+        {/* Section 2b — Escalations                                    */}
+        {/* =========================================================== */}
+        <EscalationsSection
+          stats={[
+            {
+              label: "Escalation rate",
+              value: loading ? "…" : metrics.escalationRate,
+              sub: "of AI-originated work orders escalated",
+            },
+            {
+              label: "Total escalations",
+              value: loading ? "…" : metrics.totalEscalations,
+              sub: "escalated to staff",
+            },
+            {
+              label: "Open escalations",
+              value: loading ? "…" : metrics.openEscalations,
+              sub: "pending resolution",
+            },
+            {
+              label: "Resolved",
+              value: loading ? "…" : metrics.resolvedEscalations,
+              sub: "resolved by staff",
+            },
+          ]}
+        >
+          <div className="grid gap-3 lg:grid-cols-2">
+            <Card className="border-border/60">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Escalation Reasons</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <Skeleton className="h-[260px] w-full" />
+                ) : (
+                  <ChartContainer config={{}} className="!aspect-auto h-[260px] w-full">
+                    <BarChart data={metrics.escalationReasons} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+                      <XAxis dataKey="reason" tickLine={false} axisLine={false} tickMargin={8} angle={-30} textAnchor="end" height={50} interval={0} fontSize={10} />
+                      <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Bar dataKey="count" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ChartContainer>
+                )}
+              </CardContent>
+            </Card>
+            <Card className="border-border/60">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Avg Escalation Resolution Time — Trend</CardTitle>
+                <p className="text-xs text-muted-foreground">Days from escalation created to resolved</p>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <Skeleton className="h-[240px] w-full" />
+                ) : (
+                  <ChartContainer config={{}} className="!aspect-auto h-[240px] w-full">
+                    <LineChart data={metrics.escalationResolutionTrend} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+                      <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
+                      <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Line type="monotone" dataKey="days" stroke={seriesColor(0)} strokeWidth={2} dot={false} />
+                    </LineChart>
+                  </ChartContainer>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </EscalationsSection>
+
+        {/* =========================================================== */}
+        {/* Section 3 — Conversational Messaging Analysis               */}
+        {/* =========================================================== */}
+        <section className="mb-6">
+          <SectionBanner
+            title="Conversational Messaging Analysis & Trends"
+            description="Resident interaction volume, AI message handling, and per-day traffic"
+          />
+
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,0.42fr)_minmax(0,1fr)]">
+            <Card className="border-border/60">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Work Orders Created by SMS, Chat, and Voice</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <Skeleton className="h-[200px] w-full" />
+                ) : (
+                  <AiComponentDonut data={metrics.woByAiComponent} />
+                )}
+              </CardContent>
+            </Card>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <StatCard
+                label="Messages received (SMS + chat)"
+                value={loading ? "…" : metrics.totalMessagesReceived.toLocaleString()}
+                sub={`${metrics.smsReceived.toLocaleString()} SMS · ${metrics.chatReceived.toLocaleString()} Chat`}
+              />
+              <StatCard
+                label="Messages sent (Maintenance AI)"
+                value={loading ? "…" : metrics.totalMessagesSent.toLocaleString()}
+                sub="AI-authored outbound replies"
+              />
+              <StatCard
+                label="Received → sent ratio"
+                value={loading ? "…" : metrics.receivedToSentRatio}
+                sub="messages received per AI reply"
+              />
+            </div>
+          </div>
+
+          <div className="mt-3">
+            <Card className="border-border/60">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Conversation Analysis</CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Per-turn detail with source, direction, AI-generated description (when a work order was created), and the analysis session id that ties multi-turn conversations together.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <ConversationAnalysisTable rows={MESSAGE_LOG_ROWS} />
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="mt-3">
+            <Card className="border-border/60">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">
+                  {metrics.incomingGranularity === "day"
+                    ? "Incoming Messages per Day"
+                    : metrics.incomingGranularity === "week"
+                      ? "Incoming Messages per Week"
+                      : "Incoming Messages per Month"}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <Skeleton className="h-[200px] w-full" />
+                ) : (
+                  <ChartContainer
+                    config={{ count: { label: "Incoming messages", color: seriesColor(0) } }}
+                    className="!aspect-auto h-[200px] w-full"
+                  >
+                    <LineChart
+                      data={metrics.incomingPerDay}
+                      margin={{ left: 8, right: 12, top: 8, bottom: 8 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+                      <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} />
+                      <YAxis
+                        tickLine={false}
+                        axisLine={false}
+                        tickMargin={8}
+                        width={36}
+                        domain={[0, "auto"]}
+                      />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Line
+                        type="monotone"
+                        dataKey="count"
+                        stroke={seriesColor(0)}
+                        strokeWidth={2}
+                        dot={{ r: 2 }}
+                      />
+                    </LineChart>
+                  </ChartContainer>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </section>
+
+        <section className="mb-6">
+          <SectionBanner
+            title="Overall Work Order Performance"
+            description="Key work order metrics across all submission sources"
+          />
+
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,0.42fr)_minmax(0,1fr)]">
+            <div className="grid gap-3">
+              <StatCard
+                label="Open work orders"
+                value={loading ? "…" : formatCompact(metrics.openWorkOrders)}
+                sub="opened during selected period"
+              />
+              <StatCard
+                label="Overdue open work orders"
+                value={loading ? "…" : formatCompact(metrics.overdueWorkOrders)}
+                sub="past target completion date"
+                deltaTone="negative"
+              />
+              <StatCard
+                label="Unassigned open work orders"
+                value={loading ? "…" : formatCompact(metrics.unassignedWorkOrders)}
+                sub="open without an assigned tech"
+              />
+            </div>
+
+            <Card className="border-border/60">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Work orders by status over time</CardTitle>
+                <CardDescription className="text-xs">
+                  Monthly work order volume, stacked by workflow status
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <Skeleton className="h-[260px] w-full" />
+                ) : (
+                  <ChartContainer
+                    config={{
+                      Completed: { label: "Completed", color: STATUS_FILL.completed },
+                      Open: { label: "Open", color: STATUS_FILL.open },
+                      Overdue: { label: "Overdue", color: STATUS_FILL.overdue },
+                      Submitted: { label: "Submitted", color: STATUS_FILL.inProgress },
+                      Unassigned: { label: "Unassigned", color: STATUS_FILL.unassigned },
+                    }}
+                    className="!aspect-auto h-[260px] w-full"
+                  >
+                    <BarChart
+                      data={metrics.statusByMonth}
+                      margin={{ left: 8, right: 12, top: 8, bottom: 8 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+                      <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} />
+                      <YAxis
+                        tickLine={false}
+                        axisLine={false}
+                        tickMargin={8}
+                        width={56}
+                        tickFormatter={(v: number) => formatCompactShort(v)}
+                      />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Bar dataKey="Completed" stackId="a" fill={STATUS_FILL.completed} />
+                      <Bar dataKey="Open" stackId="a" fill={STATUS_FILL.open} />
+                      <Bar dataKey="Overdue" stackId="a" fill={STATUS_FILL.overdue} />
+                      <Bar dataKey="Submitted" stackId="a" fill={STATUS_FILL.inProgress} />
+                      <Bar dataKey="Unassigned" stackId="a" fill={STATUS_FILL.unassigned} />
+                      <Legend
+                        verticalAlign="bottom"
+                        iconType="circle"
+                        wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }}
+                        formatter={legendLabel}
+                      />
+                    </BarChart>
+                  </ChartContainer>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+            <Card className="border-border/60">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Open work orders by priority</CardTitle>
+                <CardDescription className="text-xs">
+                  Share of currently open work orders at each priority level
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <Skeleton className="h-[200px] w-full" />
+                ) : (
+                  <PriorityDonut counts={metrics.priorityCounts} />
+                )}
+              </CardContent>
+            </Card>
+            <Card className="border-border/60">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Work Orders by Source</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <Skeleton className="h-[220px] w-full" />
+                ) : (
+                  <SourceDonut data={metrics.bySource} />
+                )}
+              </CardContent>
+            </Card>
+            <Card className="border-border/60">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Average Days to Complete by Source</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <Skeleton className="h-[220px] w-full" />
+                ) : (
+                  <AvgDaysBySource data={metrics.avgDaysBySource} />
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </section>
+      </>
+      ) : null}
     </div>
   );
 }
@@ -2047,40 +2654,40 @@ function EliWorkOrderTable({ rows }: { rows: WorkOrderRow[] }) {
           <tbody>
             {pageRows.map((r) => (
               <tr key={r.id} className="border-t border-border/60 align-top">
-                <td className="px-3 py-2 font-mono text-foreground text-xs">{r.id}</td>
-                <td className="hidden px-3 py-2 lg:table-cell text-xs">{r.source}</td>
-                <td className="px-3 py-2 text-foreground text-xs">{r.property}</td>
-                <td className="px-3 py-2 text-xs">{r.unit}</td>
-                <td className="hidden px-3 py-2 lg:table-cell text-xs">{r.resident}</td>
-                <td className="px-3 py-2 text-xs">
+                <td className="px-3 py-2 font-mono text-foreground">{r.id}</td>
+                <td className="hidden px-3 py-2 lg:table-cell">{r.source}</td>
+                <td className="px-3 py-2 text-foreground">{r.property}</td>
+                <td className="px-3 py-2">{r.unit}</td>
+                <td className="hidden px-3 py-2 lg:table-cell">{r.resident}</td>
+                <td className="px-3 py-2">
                   <span
                     className={cn(
-                      "inline-flex items-center rounded-full px-2 py-0.5 text-xxs font-semibold ring-1 ring-inset",
+                      "inline-flex items-center rounded-full px-2 py-0.5 text-xxs font-medium ring-1 ring-inset",
                       PRIORITY_BADGE[r.priority],
                     )}
                   >
                     {r.priority}
                   </span>
                 </td>
-                <td className="hidden px-3 py-2 xl:table-cell text-xs">{r.category}</td>
-                <td className="hidden px-3 py-2 2xl:table-cell text-xs">{r.problem}</td>
-                <td className="hidden px-3 py-2 2xl:table-cell text-xs">{r.location}</td>
-                <td className="hidden max-w-[20rem] px-3 py-2 text-muted-foreground 2xl:table-cell text-xs">
+                <td className="hidden px-3 py-2 xl:table-cell">{r.category}</td>
+                <td className="hidden px-3 py-2 2xl:table-cell">{r.problem}</td>
+                <td className="hidden px-3 py-2 2xl:table-cell">{r.location}</td>
+                <td className="hidden max-w-[20rem] px-3 py-2 text-muted-foreground 2xl:table-cell">
                   {r.description}
                 </td>
-                <td className="whitespace-nowrap px-3 py-2 text-muted-foreground text-xs">{r.dateTime}</td>
-                <td className="px-3 py-2 text-xs">
+                <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{r.dateTime}</td>
+                <td className="px-3 py-2">
                   <span
                     className={cn(
-                      "inline-flex items-center rounded-full px-2 py-0.5 text-xxs font-semibold ring-1 ring-inset",
+                      "inline-flex items-center rounded-full px-2 py-0.5 text-xxs font-medium ring-1 ring-inset",
                       STATUS_BADGE[r.status],
                     )}
                   >
                     {r.status}
                   </span>
                 </td>
-                <td className="hidden px-3 py-2 lg:table-cell text-xs">{r.assignedTo}</td>
-                <td className="hidden whitespace-nowrap px-3 py-2 text-muted-foreground 2xl:table-cell text-xs">
+                <td className="hidden px-3 py-2 lg:table-cell">{r.assignedTo}</td>
+                <td className="hidden whitespace-nowrap px-3 py-2 text-muted-foreground 2xl:table-cell">
                   {r.assignedOn}
                 </td>
               </tr>
@@ -2205,7 +2812,7 @@ function ConversationAnalysisTable({ rows }: { rows: MessageLogRow[] }) {
       cell: (r) => (
         <span
           className={cn(
-            "inline-flex items-center rounded-full px-2 py-0.5 text-xxs font-semibold ring-1 ring-inset",
+            "inline-flex items-center rounded-full px-2 py-0.5 text-xxs font-medium ring-1 ring-inset",
             r.woCreated ? URGENCY_BADGE.settled : URGENCY_BADGE.muted,
           )}
         >
@@ -2250,7 +2857,7 @@ function ConversationAnalysisTable({ rows }: { rows: MessageLogRow[] }) {
               <th
                 key={c.label}
                 className={cn(
-                  "whitespace-nowrap px-3 py-2 text-left text-xs font-semibold text-muted-foreground",
+                  "whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground",
                   c.hide,
                 )}
               >
@@ -2272,5 +2879,47 @@ function ConversationAnalysisTable({ rows }: { rows: MessageLogRow[] }) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Billboard stat card — version picker sections
+// -----------------------------------------------------------------------------
+
+function BillboardStatCard({
+  label,
+  value,
+  sub,
+  channels,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  channels: { label: string; value: string }[];
+}) {
+  return (
+    <Card className="flex h-full flex-col border-border/60">
+      <CardContent className="flex flex-1 items-center justify-between gap-4 px-5 py-4">
+        <div className="min-w-0 flex-1">
+          <p className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+            {label}
+          </p>
+          <p className="mt-2 text-4xl font-bold tracking-tight text-foreground">
+            {value}
+          </p>
+          <p className="mt-1 text-xs font-normal text-muted-foreground">{sub}</p>
+        </div>
+        {channels.length > 0 && (
+          <div className="grid shrink-0 gap-x-4 gap-y-2 border-l border-border pl-4" style={{ gridTemplateColumns: `repeat(${Math.min(channels.length, 3)}, auto)` }}>
+            {channels.map((ch) => (
+              <div key={ch.label} className="flex flex-col items-center">
+                <span className="text-sm font-semibold tabular-nums text-foreground">{ch.value}</span>
+                <span className="text-xxs text-muted-foreground">{ch.label}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
