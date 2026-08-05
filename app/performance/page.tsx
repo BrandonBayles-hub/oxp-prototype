@@ -29,7 +29,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import { ThumbsUp, ThumbsDown, MessageSquare, CheckCircle, XCircle, Pencil, FileText, ChevronDown, ChevronRight, ArrowRight, Calendar, Search } from "lucide-react";
+import { ThumbsUp, ThumbsDown, MessageSquare, CheckCircle, XCircle, Pencil, FileText, ChevronDown, ChevronRight, ArrowRight, Calendar, Search, Library } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   ALL_REPORT_PROPERTIES,
@@ -600,8 +600,13 @@ export default function PerformancePage() {
     <>
       <PageTop
         title="Performance"
+        // The library moved out of a tab strip and into the action cluster
+        // (Tyler 08/05/2026, matching 3.0) — it's a secondary archive
+        // destination, not a sibling view of this page.
+        linkButtons={[
+          { label: "ELI+ Legacy Library", icon: Library, href: "/performance/library" },
+        ]}
         description="How output is affecting outcome — insights, correlation, and trajectory. Not just BI."
-        divider={false}
       />
 
 

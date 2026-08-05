@@ -67,6 +67,9 @@ export default function LibraryPage() {
   return (
     <>
       <PageTop
+        // With the tab strip gone (Tyler 08/05/2026) the library is a
+        // sub-page, and the breadcrumb is the way back to Performance.
+        crumb={{ root: { label: "Performance", href: "/performance" }, page: "ELI+ Legacy Library" }}
         title={
           <>
             ELI+ Legacy Library
