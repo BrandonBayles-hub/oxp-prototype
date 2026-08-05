@@ -221,9 +221,10 @@ export const PERIOD_OPTIONS = [
   { id: "6m", label: "Last 6 Months", months: 6 },
   { id: "12m", label: "Last 12 Months", months: 12 },
   { id: "ytd", label: "Year To Date", months: YTD_MONTHS },
-  // Tyler 08/05/2026: reporting windows cap at ONE YEAR — "Last 2 Years",
-  // "Last 3 Years" and "All Time" are gone, and a custom range clamps to a
-  // 12-month span (see MAX_CUSTOM_RANGE_MONTHS / clampCustomRange).
+  { id: "2y", label: "Last 2 Years", months: 24 },
+  // Tyler 08/05/2026: reporting windows cap at TWO YEARS — "Last 3 Years"
+  // and "All Time" stay gone, and a custom range clamps to a 24-month span
+  // (see MAX_CUSTOM_RANGE_MONTHS / clampCustomRange).
 ] as const;
 
 export type PeriodId = (typeof PERIOD_OPTIONS)[number]["id"] | "custom";
@@ -232,7 +233,7 @@ export type PeriodId = (typeof PERIOD_OPTIONS)[number]["id"] | "custom";
 export const DEFAULT_PERIOD_ID: PeriodId = "12m";
 
 /** The longest window any report offers — presets and custom alike. */
-export const MAX_CUSTOM_RANGE_MONTHS = 12;
+export const MAX_CUSTOM_RANGE_MONTHS = 24;
 
 /** Whole-month span of a custom range, inclusive of both endpoint months. */
 export function customRangeSpan(from: string, to: string): number {
@@ -243,7 +244,7 @@ export function customRangeSpan(from: string, to: string): number {
 }
 
 /**
- * Clamp a custom range to the one-year cap by moving the end the user did
+ * Clamp a custom range to the two-year cap by moving the end the user did
  * NOT just touch — editing `from` pulls `to` in, and vice versa — so the
  * hand that made the change always wins.
  */
