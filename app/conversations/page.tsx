@@ -112,6 +112,7 @@ import {
   getLinkedConversationsByEscalation,
   isSuperAgentDemoThread,
   isSuperAgent1DemoThread,
+  getEscalationReason,
 } from "@/lib/conversations-context";
 import { useAgents } from "@/lib/agents-context";
 import { useWorkforce } from "@/lib/workforce-context";
@@ -3304,10 +3305,17 @@ function ConversationsContent() {
                           }
 
                           const pausedAgents = isEscalation ? aiAgentsFromLabels(labelsAdded) : [];
+                          const escalationLabel = isEscalation
+                            ? labelsAdded.find((l) => l.includes("Escalation"))
+                            : undefined;
+                          const escalationReason = isEscalation
+                            ? (msg.labelActivity?.reason ??
+                              (escalationLabel ? getEscalationReason(escalationLabel) : undefined))
+                            : undefined;
                           return (
                             <div
                               key={idx}
-                              data-escalation-label={isEscalation ? labelsAdded.find((l) => l.includes("Escalation")) : undefined}
+                              data-escalation-label={escalationLabel}
                               className={cn(
                                 "flex flex-col items-center gap-1 rounded-md border py-2.5 px-3",
                                 isEscalation
@@ -3348,6 +3356,12 @@ function ConversationsContent() {
                                   )}
                                 </p>
                               </div>
+                              {escalationReason && (
+                                <p className="max-w-xl text-center text-xxs leading-relaxed text-orange-800/80 dark:text-orange-200/80">
+                                  <span className="font-semibold text-orange-900/90 dark:text-orange-100/90">Reason: </span>
+                                  {escalationReason}
+                                </p>
+                              )}
                               {pausedAgents.length > 0 && (
                                 <div className="flex items-center gap-1.5 text-[10px] text-orange-700/80 dark:text-orange-300/80">
                                   <PauseCircle className="h-3 w-3 shrink-0 text-orange-500" aria-hidden />
@@ -3685,10 +3699,17 @@ function ConversationsContent() {
                     }
 
                     const pausedAgents = isEscalation ? aiAgentsFromLabels(labelsAdded) : [];
+                    const escalationLabel = isEscalation
+                      ? labelsAdded.find((l) => l.includes("Escalation"))
+                      : undefined;
+                    const escalationReason = isEscalation
+                      ? (msg.labelActivity?.reason ??
+                        (escalationLabel ? getEscalationReason(escalationLabel) : undefined))
+                      : undefined;
                     return (
                       <div
                         key={idx}
-                        data-escalation-label={isEscalation ? labelsAdded.find((l) => l.includes("Escalation")) : undefined}
+                        data-escalation-label={escalationLabel}
                         className={cn(
                           "flex flex-col items-center gap-1 rounded-md border py-2.5 px-3",
                           isEscalation
@@ -3729,6 +3750,12 @@ function ConversationsContent() {
                             )}
                           </p>
                         </div>
+                        {escalationReason && (
+                          <p className="max-w-xl text-center text-xxs leading-relaxed text-orange-800/80 dark:text-orange-200/80">
+                            <span className="font-semibold text-orange-900/90 dark:text-orange-100/90">Reason: </span>
+                            {escalationReason}
+                          </p>
+                        )}
                         {pausedAgents.length > 0 && (
                           <div className="flex items-center gap-1.5 text-[10px] text-orange-700/80 dark:text-orange-300/80">
                             <PauseCircle className="h-3 w-3 shrink-0 text-orange-500" aria-hidden />
@@ -4022,12 +4049,7 @@ function ConversationsContent() {
                         {selected.labels
                           .filter((l) => l.includes("Escalation"))
                           .map((label) => {
-                            const summaryMap: Record<string, string> = {
-                              "Renewals AI Escalation": "Resident is requesting a rate exception on their 12-month renewal offer ($1,850/mo, 3% increase). They've been a tenant for 2 years with on-time payment history and feel the increase is higher than expected.",
-                              "Payments AI Escalation": "Resident's October rent payment ($1,795) was returned due to insufficient funds (employer payroll delay). A $50 late fee was applied. Resident is requesting a late fee waiver given their clean 2-year payment history.",
-                              "Other Escalation": "Resident wants to host a birthday party at the pool area next month (15\u201320 guests, Saturday afternoon). Needs info on reservation process, community guidelines, and any applicable fees.",
-                            };
-                            const summary = summaryMap[label] ?? "AI escalated this topic for staff review.";
+                            const summary = getEscalationReason(label);
                             return (
                               <div
                                 key={label}
@@ -4142,12 +4164,7 @@ function ConversationsContent() {
                       {selected.labels
                         .filter((l) => l.includes("Escalation"))
                         .map((label) => {
-                          const summaryMap: Record<string, string> = {
-                            "Renewals AI Escalation": "Resident is requesting a rate exception on their 12-month renewal offer ($1,850/mo, 3% increase). They've been a tenant for 2 years with on-time payment history and feel the increase is higher than expected.",
-                            "Payments AI Escalation": "Resident's October rent payment ($1,795) was returned due to insufficient funds (employer payroll delay). A $50 late fee was applied. Resident is requesting a late fee waiver given their clean 2-year payment history.",
-                            "Other Escalation": "Resident wants to host a birthday party at the pool area next month (15\u201320 guests, Saturday afternoon). Needs info on reservation process, community guidelines, and any applicable fees.",
-                          };
-                          const summary = summaryMap[label] ?? "AI escalated this topic for staff review.";
+                          const summary = getEscalationReason(label);
                           return (
                             <div
                               key={label}
