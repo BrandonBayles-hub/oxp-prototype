@@ -21,12 +21,12 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
-  CHART_FONT_SIZE,
   CHART_GRID_STROKE,
   EscalationsSection,
   ReportFilterBar,
   ReportPageHeader,
   SectionBanner,
+  SegmentedToggle,
   StatCard,
   monthsForPeriod,
   selectionRatio,
@@ -55,6 +55,14 @@ const PROPERTIES = [
 ] as const;
 
 type Property = (typeof PROPERTIES)[number];
+
+type ReportVersion = "original" | "jvm" | "golden";
+
+const REPORT_VERSION_OPTIONS = [
+  { value: "original", label: "Original" },
+  { value: "jvm", label: "Alpha Launch" },
+  { value: "golden", label: "Golden Prototype" },
+] as const;
 
 /** Property series colors come from the shared ordered palette so a given
  *  property keeps the same color on every report it appears in. */
@@ -432,20 +440,9 @@ function PropertyChips({
           <button
             type="button"
             onClick={() => {
-              // Write to `propertySelection`, not `properties`. The latter is
-              // the page-scoped derivation and is recomputed from the shared
-              // selection on every render, so assigning to it was discarded
-              // and the chip's X did nothing.
-              //
-              // An empty selection means "all", so removing the first chip has
-              // to materialise the remaining properties explicitly — otherwise
-              // "all minus one" would round-trip straight back to "all".
-              const current =
-                state.propertySelection && state.propertySelection.size > 0
-                  ? new Set(state.propertySelection)
-                  : new Set<string>(state.properties);
-              current.delete(p);
-              setState({ ...state, propertySelection: current });
+              const next = new Set(state.properties);
+              next.delete(p);
+              setState({ ...state, properties: next });
             }}
             className="text-muted-foreground hover:text-foreground"
             aria-label={`Remove ${p}`}
@@ -1025,7 +1022,7 @@ function LeadCaptureSection({ filters, months }: { filters: ReportFilters; month
               <BarChart data={sourceData} layout="vertical" margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={CHART_GRID_STROKE} />
                 <XAxis type="number" tickLine={false} axisLine={false} tickFormatter={(v) => Number(v).toLocaleString()} />
-                <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} width={118} tick={{ fontSize: CHART_FONT_SIZE }} />
+                <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} width={118} tick={{ fontSize: 11 }} />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 <Bar dataKey="count" radius={[0, 4, 4, 0]}>
                   {sourceData.map((s) => (
@@ -1048,7 +1045,7 @@ function LeadCaptureSection({ filters, months }: { filters: ReportFilters; month
             >
               <BarChart data={channelData} margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
-                <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} tick={{ fontSize: CHART_FONT_SIZE }} />
+                <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} tick={{ fontSize: 11 }} />
                 <YAxis tickLine={false} axisLine={false} tickMargin={8} width={42} tickFormatter={(v) => Number(v).toLocaleString()} />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 <Bar dataKey="count" radius={[4, 4, 0, 0]}>
@@ -1458,12 +1455,10 @@ function DomoReplicaSection({ filters, months }: { filters: ReportFilters; month
 
 function EscalationsOverviewSection({
   filters,
-  setFilters,
   months,
   escalationResolutionData,
 }: {
   filters: ReportFilters;
-  setFilters: (s: ReportFilters) => void;
   months: number;
   escalationResolutionData: ReturnType<typeof sliceTrend<MonthlyPoint>>;
 }) {
@@ -1525,11 +1520,52 @@ function EscalationsOverviewSection({
               selected={filters.properties}
               yDomain={filters.view === "global" ? [0, 4] : [0, 5]}
             />
-            <PropertyChips state={filters} setState={setFilters} />
           </CardContent>
         </Card>
       </div>
     </EscalationsSection>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Billboard Stat Card (local — uses 2-column max for leasing's 4-channel layout)
+// -----------------------------------------------------------------------------
+
+function BillboardStatCard({
+  label,
+  value,
+  sub,
+  channels,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  channels: { label: string; value: string }[];
+}) {
+  return (
+    <Card className="flex h-full flex-col border-border/60">
+      <CardContent className="flex flex-1 items-center justify-between gap-4 px-5 py-4">
+        <div className="min-w-0 flex-1">
+          <p className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+            {label}
+          </p>
+          <p className="mt-2 text-4xl font-bold tracking-tight text-foreground">
+            {value}
+          </p>
+          <p className="mt-1 text-xs font-normal text-muted-foreground">{sub}</p>
+        </div>
+        {channels.length > 0 && (
+          <div className="grid shrink-0 gap-x-4 gap-y-2 border-l border-border pl-4" style={{ gridTemplateColumns: `repeat(${Math.min(channels.length, 2)}, auto)` }}>
+            {channels.map((ch) => (
+              <div key={ch.label} className="flex flex-col items-center">
+                <span className="text-sm font-semibold tabular-nums text-foreground">{ch.value}</span>
+                <span className="text-xxs text-muted-foreground">{ch.label}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1539,6 +1575,7 @@ function EscalationsOverviewSection({
 
 export default function LeasingAiDashboardPage() {
   const [filters, setFilters, scope] = useReportScope(PROPERTIES);
+  const [reportVersion, setReportVersion] = useState<ReportVersion>("original");
 
   const months = useMemo(() => monthsForPeriod(filters.periodId), [filters.periodId]);
 
@@ -1552,6 +1589,88 @@ export default function LeasingAiDashboardPage() {
   const taskResolutionData = useMemo(() => sliceTrend(taskResolutionTrend, months), [months]);
   const medianResolutionData = useMemo(() => sliceTrend(medianResolutionTrend, months), [months]);
 
+  const alphaKpi = useMemo(() => {
+    const rand = seedRand(5555 + months);
+    const jitter = () => 1 + (rand() - 0.5) * 0.08;
+    const scale = months / 12;
+    const fmt = (n: number) => Math.round(n).toLocaleString();
+
+    const voiceSent = fmt(4200 * scale * jitter());
+    const chatSent = fmt(6800 * scale * jitter());
+    const smsSent = fmt(8400 * scale * jitter());
+    const emailsSent = fmt(3600 * scale * jitter());
+    const totalMessages = fmt((4200 + 6800 + 8400 + 3600) * scale * jitter());
+
+    const dayVolumes = [
+      { label: "Mon", count: Math.round(3200 * scale * jitter()) },
+      { label: "Tue", count: Math.round(3480 * scale * jitter()) },
+      { label: "Wed", count: Math.round(3100 * scale * jitter()) },
+      { label: "Thu", count: Math.round(2950 * scale * jitter()) },
+      { label: "Fri", count: Math.round(2700 * scale * jitter()) },
+      { label: "Sat", count: Math.round(2100 * scale * jitter()) },
+      { label: "Sun", count: Math.round(1470 * scale * jitter()) },
+    ].sort((a, b) => b.count - a.count);
+
+    const topHourLabel = "10 AM";
+    const topHourCount = Math.round(3100 * scale * jitter());
+
+    const hourBuckets = [
+      { label: "12a–4a", count: Math.round(920 * scale * jitter()) },
+      { label: "4a–8a", count: Math.round(2400 * scale * jitter()) },
+      { label: "8a–12p", count: Math.round(6200 * scale * jitter()) },
+      { label: "12p–4p", count: Math.round(4600 * scale * jitter()) },
+      { label: "4p–8p", count: Math.round(3500 * scale * jitter()) },
+      { label: "8p–12a", count: Math.round(1180 * scale * jitter()) },
+    ].sort((a, b) => b.count - a.count);
+
+    return {
+      totalMessages,
+      voiceSent, chatSent, smsSent, emailsSent,
+      topDay: dayVolumes[0],
+      dayBreakdown: dayVolumes.slice(1),
+      topHour: { label: topHourLabel, count: topHourCount },
+      hourBuckets,
+      escalationRate: `${(11.2 * jitter()).toFixed(1)}%`,
+      totalEscalations: fmt(380 * scale * jitter()),
+      openEscalations: String(Math.round(38 * scale * jitter())),
+      resolvedEscalations: fmt(342 * scale * jitter()),
+      optOutRate: `${(3.8 * jitter()).toFixed(1)}%`,
+      voiceOptOut: `${(2.1 * jitter()).toFixed(1)}%`,
+      chatOptOut: `${(3.4 * jitter()).toFixed(1)}%`,
+      smsOptOut: `${(4.2 * jitter()).toFixed(1)}%`,
+      emailOptOut: `${(5.1 * jitter()).toFixed(1)}%`,
+      avgAgentResponseTime: `< ${(6 * jitter()).toFixed(0)} sec`,
+      voiceResponseTime: `< ${(4 * jitter()).toFixed(0)} sec`,
+      chatResponseTime: `< ${(5 * jitter()).toFixed(0)} sec`,
+      smsResponseTime: `< ${(7 * jitter()).toFixed(0)} sec`,
+      emailResponseTime: `< ${(10 * jitter()).toFixed(0)} sec`,
+      responseRate: `${(41.2 * jitter()).toFixed(1)}%`,
+      voiceResponseRate: `${(62.4 * jitter()).toFixed(1)}%`,
+      chatResponseRate: `${(48.1 * jitter()).toFixed(1)}%`,
+      smsResponseRate: `${(38.6 * jitter()).toFixed(1)}%`,
+      emailResponseRate: `${(24.8 * jitter()).toFixed(1)}%`,
+      avgResidentResponseTime: `${(3.8 * jitter()).toFixed(1)} hrs`,
+      voiceResidentTime: `${(0.1 * jitter()).toFixed(1)} hrs`,
+      chatResidentTime: `${(1.2 * jitter()).toFixed(1)} hrs`,
+      smsResidentTime: `${(3.4 * jitter()).toFixed(1)} hrs`,
+      emailResidentTime: `${(8.2 * jitter()).toFixed(1)} hrs`,
+      avgDaysToConvert: `${(4.6 * jitter()).toFixed(1)} days`,
+      conversionRate: `${(32.8 * jitter()).toFixed(1)}%`,
+    };
+  }, [months]);
+
+  const alphaStats = [
+    { label: "Total Messages", value: alphaKpi.totalMessages, sub: "across all channels", channels: [{ label: "Voice", value: alphaKpi.voiceSent }, { label: "Chat", value: alphaKpi.chatSent }, { label: "SMS", value: alphaKpi.smsSent }, { label: "Email", value: alphaKpi.emailsSent }] },
+    { label: "Messages by Day", value: `${alphaKpi.topDay.count.toLocaleString()}`, sub: `peak day: ${alphaKpi.topDay.label}`, channels: alphaKpi.dayBreakdown.map((d) => ({ label: d.label, value: d.count.toLocaleString() })) },
+    { label: "Messages by Hour", value: `${alphaKpi.topHour.count.toLocaleString()}`, sub: `peak hour: ${alphaKpi.topHour.label}`, channels: alphaKpi.hourBuckets.map((h) => ({ label: h.label, value: h.count.toLocaleString() })) },
+    { label: "Escalation Rate", value: alphaKpi.escalationRate, sub: "of AI contacts escalated", channels: [{ label: "Total", value: alphaKpi.totalEscalations }, { label: "Open", value: alphaKpi.openEscalations }, { label: "Resolved", value: alphaKpi.resolvedEscalations }] },
+    { label: "Opt Out Rate", value: alphaKpi.optOutRate, sub: "opted out of AI messaging", channels: [{ label: "Voice", value: alphaKpi.voiceOptOut }, { label: "Chat", value: alphaKpi.chatOptOut }, { label: "SMS", value: alphaKpi.smsOptOut }, { label: "Email", value: alphaKpi.emailOptOut }] },
+    { label: "Average Agent Response Time", value: alphaKpi.avgAgentResponseTime, sub: "prospect message to agent reply", channels: [{ label: "Voice", value: alphaKpi.voiceResponseTime }, { label: "Chat", value: alphaKpi.chatResponseTime }, { label: "SMS", value: alphaKpi.smsResponseTime }, { label: "Email", value: alphaKpi.emailResponseTime }] },
+    { label: "Resident Response Rate", value: alphaKpi.responseRate, sub: "across all channels", channels: [{ label: "Voice", value: alphaKpi.voiceResponseRate }, { label: "Chat", value: alphaKpi.chatResponseRate }, { label: "SMS", value: alphaKpi.smsResponseRate }, { label: "Email", value: alphaKpi.emailResponseRate }] },
+    { label: "Resident Response Time", value: alphaKpi.avgResidentResponseTime, sub: "median time to reply", channels: [{ label: "Voice", value: alphaKpi.voiceResidentTime }, { label: "Chat", value: alphaKpi.chatResidentTime }, { label: "SMS", value: alphaKpi.smsResidentTime }, { label: "Email", value: alphaKpi.emailResidentTime }] },
+    { label: "Lead Conversion Speed", value: alphaKpi.avgDaysToConvert, sub: "average days to signed lease", channels: [{ label: "Conversion rate", value: alphaKpi.conversionRate }] },
+  ];
+
   return (
     <div className="-mt-2">
       <ReportPageHeader
@@ -1564,16 +1683,34 @@ export default function LeasingAiDashboardPage() {
         onChange={setFilters}
         properties={PROPERTIES}
         unmatchedProperties={scope.unmatched}
-        showViewToggle
+        showViewToggle={reportVersion === "original"}
       />
 
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-card px-4 py-3">
+        <div>
+          <p className="text-xs font-semibold text-foreground">Report Version</p>
+          <p className="text-xxs text-muted-foreground">
+            Switch between the current report, the Alpha Launch scope, and the proposed Golden Prototype.
+          </p>
+        </div>
+        <SegmentedToggle
+          value={reportVersion}
+          onChange={(next) => {
+            setReportVersion(next);
+          }}
+          options={REPORT_VERSION_OPTIONS}
+          aria-label="Leasing AI report version"
+        />
+      </div>
+
+      {reportVersion === "original" ? (
+        <>
       <LeadCaptureSection filters={filters} months={months} />
 
       <DomoReplicaSection filters={filters} months={months} />
 
       <EscalationsOverviewSection
         filters={filters}
-        setFilters={setFilters}
         months={months}
         escalationResolutionData={escalationResolutionData}
       />
@@ -1598,25 +1735,25 @@ export default function LeasingAiDashboardPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/40">
-                      <th className="px-4 py-2.5 text-left  text-muted-foreground text-xs font-semibold">Agent</th>
-                      <th className="px-4 py-2.5 text-left  text-muted-foreground text-xs font-semibold">Property</th>
-                      <th className="px-4 py-2.5 text-right  text-muted-foreground text-xs font-semibold">Emails Sent</th>
-                      <th className="px-4 py-2.5 text-right  text-muted-foreground text-xs font-semibold">SMS Sent</th>
-                      <th className="px-4 py-2.5 text-right  text-muted-foreground text-xs font-semibold">Prospects Assisted</th>
-                      <th className="px-4 py-2.5 text-right  text-muted-foreground text-xs font-semibold">Resolved Tasks</th>
-                      <th className="px-4 py-2.5 text-right  text-muted-foreground text-xs font-semibold">Calls Dialed</th>
+                      <th className="px-4 py-2.5 text-left text-xxs font-semibold text-muted-foreground">Agent</th>
+                      <th className="px-4 py-2.5 text-left text-xxs font-semibold text-muted-foreground">Property</th>
+                      <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">Emails Sent</th>
+                      <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">SMS Sent</th>
+                      <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">Prospects Assisted</th>
+                      <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">Resolved Tasks</th>
+                      <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">Calls Dialed</th>
                     </tr>
                   </thead>
                   <tbody>
                     {agentActivityRows.map((row) => (
                       <tr key={row.agent} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
-                        <td className="px-4 py-2.5 font-medium text-foreground whitespace-nowrap text-xs">{row.agent}</td>
-                        <td className="px-4 py-2.5 text-muted-foreground whitespace-nowrap text-xs">{row.property}</td>
-                        <td className="px-4 py-2.5 text-right tabular-nums text-xs">{row.emailsSent}</td>
-                        <td className="px-4 py-2.5 text-right tabular-nums text-xs">{row.smsSent}</td>
-                        <td className="px-4 py-2.5 text-right tabular-nums text-xs">{row.prospectsAssisted}</td>
-                        <td className="px-4 py-2.5 text-right tabular-nums text-xs">{row.resolvedTasks}</td>
-                        <td className="px-4 py-2.5 text-right tabular-nums text-xs">{row.callsDialed}</td>
+                        <td className="px-4 py-2.5 font-medium text-foreground whitespace-nowrap">{row.agent}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground whitespace-nowrap">{row.property}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums">{row.emailsSent}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums">{row.smsSent}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums">{row.prospectsAssisted}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums">{row.resolvedTasks}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums">{row.callsDialed}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1627,6 +1764,84 @@ export default function LeasingAiDashboardPage() {
         </div>
 
       </section>
+        </>
+      ) : null}
+
+      {reportVersion === "jvm" || reportVersion === "golden" ? (
+        <>
+          <section className="mb-6">
+            <SectionBanner
+              title={reportVersion === "jvm" ? "Alpha Launch" : "Golden Prototype"}
+              description="Billboard-first metrics with per-channel breakdowns"
+            />
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {alphaStats.map((stat) => (
+                <BillboardStatCard
+                  key={stat.label}
+                  label={stat.label}
+                  value={stat.value}
+                  sub={stat.sub}
+                  channels={stat.channels}
+                />
+              ))}
+            </div>
+          </section>
+
+          <LeadCaptureSection filters={filters} months={months} />
+
+          <DomoReplicaSection filters={filters} months={months} />
+
+          <EscalationsOverviewSection
+            filters={filters}
+            months={months}
+            escalationResolutionData={escalationResolutionData}
+          />
+
+          <section className="mb-6">
+            <SectionBanner
+              title="Agent Adoption"
+              description="Staff outreach activity — emails, SMS, prospects assisted, and resolved tasks by agent"
+            />
+            <div className="mb-4">
+              <Card className="border-border/60">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Agent Activity</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/40">
+                          <th className="px-4 py-2.5 text-left text-xxs font-semibold text-muted-foreground">Agent</th>
+                          <th className="px-4 py-2.5 text-left text-xxs font-semibold text-muted-foreground">Property</th>
+                          <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">Emails Sent</th>
+                          <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">SMS Sent</th>
+                          <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">Prospects Assisted</th>
+                          <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">Resolved Tasks</th>
+                          <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">Calls Dialed</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {agentActivityRows.map((row) => (
+                          <tr key={row.agent} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
+                            <td className="px-4 py-2.5 font-medium text-foreground whitespace-nowrap">{row.agent}</td>
+                            <td className="px-4 py-2.5 text-muted-foreground whitespace-nowrap">{row.property}</td>
+                            <td className="px-4 py-2.5 text-right tabular-nums">{row.emailsSent}</td>
+                            <td className="px-4 py-2.5 text-right tabular-nums">{row.smsSent}</td>
+                            <td className="px-4 py-2.5 text-right tabular-nums">{row.prospectsAssisted}</td>
+                            <td className="px-4 py-2.5 text-right tabular-nums">{row.resolvedTasks}</td>
+                            <td className="px-4 py-2.5 text-right tabular-nums">{row.callsDialed}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </section>
+        </>
+      ) : null}
 
 
 
