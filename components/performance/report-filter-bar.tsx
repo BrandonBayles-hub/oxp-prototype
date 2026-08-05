@@ -9,6 +9,7 @@ import { SegmentedToggle } from "./segmented-toggle";
 import {
   DEFAULT_PERIOD_ID,
   PERIOD_OPTIONS,
+  clampCustomRange,
   periodLabel,
   type ReportFilters,
   type ReportViewMode,
@@ -135,8 +136,9 @@ export function PeriodFilter({
                     type="month"
                     aria-label="From month"
                     value={filters.customFrom}
+                    max={filters.customTo || undefined}
                     onChange={(e) =>
-                      onChange({ ...filters, customFrom: e.target.value })
+                      onChange({ ...filters, ...clampCustomRange(e.target.value, filters.customTo, "from") })
                     }
                     className="min-w-0 rounded-md border border-border bg-background px-2 py-1 text-xs"
                   />
@@ -145,8 +147,9 @@ export function PeriodFilter({
                     type="month"
                     aria-label="To month"
                     value={filters.customTo}
+                    min={filters.customFrom || undefined}
                     onChange={(e) =>
-                      onChange({ ...filters, customTo: e.target.value })
+                      onChange({ ...filters, ...clampCustomRange(filters.customFrom, e.target.value, "to") })
                     }
                     className="min-w-0 rounded-md border border-border bg-background px-2 py-1 text-xs"
                   />
