@@ -221,15 +221,56 @@ export const PERIOD_OPTIONS = [
   { id: "6m", label: "Last 6 Months", months: 6 },
   { id: "12m", label: "Last 12 Months", months: 12 },
   { id: "ytd", label: "Year To Date", months: YTD_MONTHS },
-  { id: "2y", label: "Last 2 Years", months: 24 },
-  { id: "3y", label: "Last 3 Years", months: 36 },
-  { id: "all", label: "All Time", months: 36 },
+  // Tyler 08/05/2026: reporting windows cap at ONE YEAR — "Last 2 Years",
+  // "Last 3 Years" and "All Time" are gone, and a custom range clamps to a
+  // 12-month span (see MAX_CUSTOM_RANGE_MONTHS / clampCustomRange).
 ] as const;
 
 export type PeriodId = (typeof PERIOD_OPTIONS)[number]["id"] | "custom";
 
 /** The shared default. Every report opens on the same window. */
 export const DEFAULT_PERIOD_ID: PeriodId = "12m";
+
+/** The longest window any report offers — presets and custom alike. */
+export const MAX_CUSTOM_RANGE_MONTHS = 12;
+
+/** Whole-month span of a custom range, inclusive of both endpoint months. */
+export function customRangeSpan(from: string, to: string): number {
+  const [fy, fm] = from.split("-").map(Number);
+  const [ty, tm] = to.split("-").map(Number);
+  if (!fy || !fm || !ty || !tm) return 0;
+  return (ty - fy) * 12 + (tm - fm) + 1;
+}
+
+/**
+ * Clamp a custom range to the one-year cap by moving the end the user did
+ * NOT just touch — editing `from` pulls `to` in, and vice versa — so the
+ * hand that made the change always wins.
+ */
+export function clampCustomRange(
+  from: string,
+  to: string,
+  edited: "from" | "to",
+): { customFrom: string; customTo: string } {
+  const span = customRangeSpan(from, to);
+  if (span <= MAX_CUSTOM_RANGE_MONTHS && span > 0) return { customFrom: from, customTo: to };
+  const shift = (ym: string, months: number): string => {
+    const [y, m] = ym.split("-").map(Number);
+    const total = y * 12 + (m - 1) + months;
+    const ny = Math.floor(total / 12);
+    const nm = (total % 12) + 1;
+    return `${ny}-${String(nm).padStart(2, "0")}`;
+  };
+  if (span <= 0) {
+    // Inverted or unparsable — collapse onto the edited end.
+    return edited === "from"
+      ? { customFrom: from, customTo: from }
+      : { customFrom: to, customTo: to };
+  }
+  return edited === "from"
+    ? { customFrom: from, customTo: shift(from, MAX_CUSTOM_RANGE_MONTHS - 1) }
+    : { customFrom: shift(to, -(MAX_CUSTOM_RANGE_MONTHS - 1)), customTo: to };
+}
 
 export function monthsForPeriod(periodId: PeriodId): number {
   if (periodId === "custom") return 12;

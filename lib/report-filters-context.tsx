@@ -3,6 +3,7 @@
 import * as React from "react";
 
 import {
+  PERIOD_OPTIONS,
   DEFAULT_PERIOD_ID,
   type PeriodId,
 } from "@/components/performance/tokens";
@@ -64,7 +65,14 @@ function readStored(): ReportScope {
       properties?: string[];
     };
     return {
-      periodId: parsed.periodId ?? DEFAULT_SCOPE.periodId,
+      // A previously-stored id the options no longer offer ("2y"/"3y"/"all"
+      // predate the one-year cap) falls back to the default rather than
+      // rendering a filter no control can change.
+      periodId:
+        parsed.periodId === "custom" ||
+        PERIOD_OPTIONS.some((p) => p.id === parsed.periodId)
+          ? (parsed.periodId as PeriodId)
+          : DEFAULT_SCOPE.periodId,
       customFrom: parsed.customFrom ?? DEFAULT_SCOPE.customFrom,
       customTo: parsed.customTo ?? DEFAULT_SCOPE.customTo,
       properties: new Set(parsed.properties ?? []),
