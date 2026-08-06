@@ -1070,7 +1070,7 @@ function LoadingBanner() {
 export default function MaintenanceAiDashboardPage() {
   const [filters, setFilters, scope] = useReportScope(PROPERTIES, MAINTENANCE_EXTRA_DEFAULTS);
   const [loading, setLoading] = useState(false);
-  const [reportVersion, setReportVersion] = useState("original");
+  const [reportVersion, setReportVersion] = useState("jvm");
   const [sliceBy, setSliceBy] = useState<SliceDimension>("status");
   const filtersKey = useMemo(
     () => JSON.stringify(serializeFilters(filters)),
@@ -1159,7 +1159,15 @@ export default function MaintenanceAiDashboardPage() {
       chatResidentTime: `${(0.8 * jitter()).toFixed(1)} hrs`,
       smsResidentTime: `${(4.8 * jitter()).toFixed(1)} hrs`,
       avgResolutionHours: `${(18.4 * jitter()).toFixed(1)} hrs`,
-      firstResponseTime: `${(2.1 * jitter()).toFixed(1)} hrs`,
+      voiceResolutionTime: `${(12.4 * jitter()).toFixed(1)} hrs`,
+      chatResolutionTime: `${(16.8 * jitter()).toFixed(1)} hrs`,
+      smsResolutionTime: `${(20.5 * jitter()).toFixed(1)} hrs`,
+      workOrderVoice: Math.round(240 * scale * jitter()),
+      workOrderChat: Math.round(640 * scale * jitter()),
+      workOrderSms: Math.round(405 * scale * jitter()),
+      emergencyVoice: Math.round(52 * scale * jitter()),
+      emergencyChat: Math.round(74 * scale * jitter()),
+      emergencySms: Math.round(50 * scale * jitter()),
     };
   }, [months]);
 
@@ -1170,9 +1178,9 @@ export default function MaintenanceAiDashboardPage() {
     { label: "Escalation Rate", value: alphaKpi.escalationRate, sub: "of AI contacts escalated", channels: [{ label: "Total", value: alphaKpi.totalEscalations }, { label: "Open", value: alphaKpi.openEscalations }, { label: "Resolved", value: alphaKpi.resolvedEscalations }] },
     { label: "Opt Out Rate", value: alphaKpi.optOutRate, sub: "opted out of AI messaging", channels: [{ label: "Voice", value: alphaKpi.voiceOptOut }, { label: "Chat", value: alphaKpi.chatOptOut }, { label: "SMS", value: alphaKpi.smsOptOut }] },
     { label: "Average Agent Response Time", value: alphaKpi.avgAgentResponseTime, sub: "resident message to agent reply", channels: [{ label: "Voice", value: alphaKpi.voiceAgentTime }, { label: "Chat", value: alphaKpi.chatAgentTime }, { label: "SMS", value: alphaKpi.smsAgentTime }] },
-    { label: "Resident Response Rate", value: alphaKpi.responseRate, sub: "across all channels", channels: [{ label: "Voice", value: alphaKpi.voiceResponseRate }, { label: "Chat", value: alphaKpi.chatResponseRate }, { label: "SMS", value: alphaKpi.smsResponseRate }] },
-    { label: "Resident Response Time", value: alphaKpi.avgResidentResponseTime, sub: "median time to reply", channels: [{ label: "Voice", value: alphaKpi.voiceResidentTime }, { label: "Chat", value: alphaKpi.chatResidentTime }, { label: "SMS", value: alphaKpi.smsResidentTime }] },
-    { label: "Work Order Resolution Speed", value: alphaKpi.avgResolutionHours, sub: "avg hours to resolution", channels: [{ label: "First response", value: alphaKpi.firstResponseTime }] },
+    { label: "Work Orders Created", value: (alphaKpi.workOrderVoice + alphaKpi.workOrderChat + alphaKpi.workOrderSms).toLocaleString(), sub: "of total messages", channels: [{ label: "Voice", value: alphaKpi.workOrderVoice.toLocaleString() }, { label: "Chat", value: alphaKpi.workOrderChat.toLocaleString() }, { label: "SMS", value: alphaKpi.workOrderSms.toLocaleString() }] },
+    { label: "Emergency Work Orders Created", value: (alphaKpi.emergencyVoice + alphaKpi.emergencyChat + alphaKpi.emergencySms).toLocaleString(), sub: "of work orders created", channels: [{ label: "Voice", value: alphaKpi.emergencyVoice.toLocaleString() }, { label: "Chat", value: alphaKpi.emergencyChat.toLocaleString() }, { label: "SMS", value: alphaKpi.emergencySms.toLocaleString() }] },
+    { label: "Average Resolution Time", value: alphaKpi.avgResolutionHours, sub: "avg hours to resolution", channels: [{ label: "Voice", value: alphaKpi.voiceResolutionTime }, { label: "Chat", value: alphaKpi.chatResolutionTime }, { label: "SMS", value: alphaKpi.smsResolutionTime }] },
   ];
 
   return (
@@ -1723,6 +1731,8 @@ export default function MaintenanceAiDashboardPage() {
           </div>
         </section>
 
+        {reportVersion === "golden" && (
+        <>
         {/* =========================================================== */}
         {/* Section 2 — Maintenance AI Impact                           */}
         {/* =========================================================== */}
@@ -2207,6 +2217,8 @@ export default function MaintenanceAiDashboardPage() {
             </Card>
           </div>
         </section>
+        </>
+        )}
       </>
       ) : null}
     </div>
