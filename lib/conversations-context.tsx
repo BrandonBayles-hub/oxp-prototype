@@ -61,6 +61,8 @@ export type ThreadActivity =
       origin?: "voip" | "callback";
       /** Display form of agent's callback number when origin === "callback". */
       callbackNumber?: string;
+      /** Staff-documented direction when logging a call without a live session. */
+      direction?: "inbound" | "outbound";
     };
 
 export type VoicemailTranscriptTurn = {
@@ -1077,7 +1079,9 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
   const filteredItems = useMemo(
     () =>
       items.filter((c) => {
-        if (!clickToCallEnabled && isClickToCallDemoThread(c.id)) return false;
+        // Phone demo threads (missed call / voicemail) surface for Click To Call
+        // or Super Agent 1.0 — SA1 needs those inbox examples without a second toggle.
+        if (!clickToCallEnabled && !superAgent1Enabled && isClickToCallDemoThread(c.id)) return false;
         if (!superAgentEnabled && isSuperAgentDemoThread(c.id)) return false;
         if (!superAgent1Enabled && isSuperAgent1DemoThread(c.id)) return false;
         return matchesRoleProperties(c.property, roleProperties);

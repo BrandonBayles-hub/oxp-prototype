@@ -170,6 +170,8 @@ export function ConversationThreadActivityRow({
       );
       break;
     case "phone_call": {
+      const directionLabel =
+        a.direction === "inbound" ? "incoming" : a.direction === "outbound" ? "outgoing" : null;
       const outcomePhrase =
         a.outcome === "connected"
           ? `completed${a.durationLabel ? ` (${a.durationLabel})` : ""}`
@@ -184,10 +186,24 @@ export function ConversationThreadActivityRow({
       body = (
         <>
           <span className="font-medium text-foreground">{a.actor}</span>
-          {" logged a phone call to "}
-          <span className="font-mono text-[10px] text-foreground/90">{a.phoneNumber}</span>
-          {" · "}
-          <span className="text-muted-foreground">{outcomePhrase}</span>
+          {directionLabel ? (
+            <>
+              {` documented an ${directionLabel} call`}
+              {a.phoneNumber ? (
+                <>
+                  {" with "}
+                  <span className="font-mono text-[10px] text-foreground/90">{a.phoneNumber}</span>
+                </>
+              ) : null}
+            </>
+          ) : (
+            <>
+              {" logged a phone call to "}
+              <span className="font-mono text-[10px] text-foreground/90">{a.phoneNumber}</span>
+              {" · "}
+              <span className="text-muted-foreground">{outcomePhrase}</span>
+            </>
+          )}
           {a.notes.trim() ? (
             <>
               <span className="mt-1 block text-left text-muted-foreground">
