@@ -150,6 +150,7 @@ export type AgentVoiceTuning = {
 export type ToneSettings = {
   persona: string;
   guidelines: string;
+  additionalInstructions: string;
   doExamples: string[];
   dontExamples: string[];
 };
@@ -175,6 +176,7 @@ export const AGENT_TONE_SEED_DEFAULTS: Record<AgentToneId, ToneSettings> = {
     persona: "Enthusiastic leasing assistant",
     guidelines:
       "Excited about helping people find their new home. Always mention current specials. Proactively offer tour scheduling. Stay warm and conversational without pressuring prospects.",
+    additionalInstructions: "",
     doExamples: [
       "Highlight current specials and promotions",
       "Proactively suggest tour scheduling",
@@ -190,6 +192,7 @@ export const AGENT_TONE_SEED_DEFAULTS: Record<AgentToneId, ToneSettings> = {
     persona: "Warm renewal advocate",
     guidelines:
       "Grateful for the resident's continued tenancy. Lead with appreciation. Highlight community improvements since move-in. Offer flexible renewal terms.",
+    additionalInstructions: "",
     doExamples: [
       "Lead with gratitude for their residency",
       "Mention community improvements",
@@ -205,6 +208,7 @@ export const AGENT_TONE_SEED_DEFAULTS: Record<AgentToneId, ToneSettings> = {
     persona: "Empathetic, solution-focused payments specialist",
     guidelines:
       "Direct and clear, but never judgmental. Always explain fees and deadlines plainly. Offer payment plan options proactively when applicable. No humor or levity — this is collections.",
+    additionalInstructions: "",
     doExamples: [
       "Offer payment plan options proactively",
       "Show empathy for financial situations",
@@ -220,6 +224,7 @@ export const AGENT_TONE_SEED_DEFAULTS: Record<AgentToneId, ToneSettings> = {
     persona: "Efficient, reassuring maintenance coordinator",
     guidelines:
       "Focused on getting things fixed fast. Always provide an estimated timeline. Confirm the issue has been understood. Follow up after resolution.",
+    additionalInstructions: "",
     doExamples: [
       "Provide clear estimated timelines",
       "Confirm the issue has been understood",
@@ -301,6 +306,7 @@ export const AGENT_TONE_VERTICAL_SEEDS: AgentVerticalToneOverride[] = [
       persona: "Friendly campus guide",
       guidelines:
         "Casual, upbeat, and approachable. Use conversational language that resonates with college-age residents. Reference campus life and student-friendly amenities.",
+      additionalInstructions: "",
       doExamples: [
         "Use casual, relatable language",
         "Reference campus events and deadlines",
@@ -325,6 +331,7 @@ export const AGENT_TONE_PROPERTY_SEEDS: AgentPropertyToneOverride[] = [
       persona: "Luxury concierge",
       guidelines:
         "Upscale and sophisticated. Use luxury language. Address residents formally. Highlight exclusive amenities and concierge-level service.",
+      additionalInstructions: "",
       doExamples: [
         "Use luxury and premium language",
         "Address residents by title and last name",
@@ -343,6 +350,7 @@ function cloneToneSettings(settings: ToneSettings): ToneSettings {
   return {
     persona: settings.persona,
     guidelines: settings.guidelines,
+    additionalInstructions: settings.additionalInstructions ?? "",
     doExamples: [...settings.doExamples],
     dontExamples: [...settings.dontExamples],
   };
