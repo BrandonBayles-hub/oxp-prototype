@@ -11,7 +11,6 @@ import {
   Copy,
   ChevronDown,
   ChevronRight,
-  ChevronLeft,
   Info,
   Loader2,
   X,
@@ -1466,49 +1465,68 @@ function NoSearchMatch({ query }: { query: string }) {
   )
 }
 
-// ── Pagination control for the property list under the filter tiles ───────────
+// ── Loading state (shown for ~10s when the page mounts) ───────────────────────
 
-function Pagination({ currentPage, totalPages, pageStart, pageSize, total, onPage }: {
-  currentPage: number
-  totalPages: number
-  pageStart: number
-  pageSize: number
-  total: number
-  onPage: (page: number) => void
-}) {
-  const from = pageStart + 1
-  const to = Math.min(pageStart + pageSize, total)
-  const pages = Array.from({ length: totalPages }, (_, i) => i + 1)
-  const navBtn = "inline-flex items-center gap-1 h-8 px-2.5 rounded-md border text-xs font-medium transition-colors"
+function PropertyWebsitesLoading() {
+  const bar = "animate-pulse rounded bg-zinc-200/80"
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-      <p className="text-xs text-muted-foreground">
-        Showing <span className="font-medium text-foreground tabular-nums">{from}–{to}</span> of{" "}
-        <span className="font-medium text-foreground tabular-nums">{total}</span>
-      </p>
-      <div className="flex items-center gap-1">
-        <button type="button" onClick={() => onPage(currentPage - 1)} disabled={currentPage === 1}
-          className={cn(navBtn, currentPage === 1
-            ? "border-border bg-zinc-50 text-muted-foreground/50 cursor-not-allowed"
-            : "border-border bg-white text-foreground hover:bg-zinc-50")}>
-          <ChevronLeft className="h-3.5 w-3.5" />Prev
-        </button>
-        {pages.map(pn => (
-          <button key={pn} type="button" onClick={() => onPage(pn)}
-            aria-current={pn === currentPage ? "page" : undefined}
-            className={cn("h-8 min-w-[2rem] px-2 rounded-md border text-xs font-semibold tabular-nums transition-colors",
-              pn === currentPage
-                ? "border-zinc-900 bg-zinc-900 text-white"
-                : "border-border bg-white text-foreground hover:bg-zinc-50")}>
-            {pn}
-          </button>
-        ))}
-        <button type="button" onClick={() => onPage(currentPage + 1)} disabled={currentPage === totalPages}
-          className={cn(navBtn, currentPage === totalPages
-            ? "border-border bg-zinc-50 text-muted-foreground/50 cursor-not-allowed"
-            : "border-border bg-white text-foreground hover:bg-zinc-50")}>
-          Next<ChevronRight className="h-3.5 w-3.5" />
-        </button>
+    <div className="flex flex-col min-h-full bg-stone-50">
+      <div className="flex-1 p-6 md:p-8">
+        <div className="space-y-5 max-w-5xl">
+
+          {/* Header stays visible while the data loads */}
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Property Websites</h1>
+            <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
+              Each property&rsquo;s website needs a carrier-approved privacy policy before a vanity phone number can be assigned.
+              Confirm the website and privacy policy URL for each property below.
+            </p>
+          </div>
+
+          {/* Spinner + status line */}
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>Hold tight. This can take a few minutes.</span>
+          </div>
+
+          {/* Progress area skeleton */}
+          <div className="space-y-1.5">
+            <div className={cn(bar, "h-3 w-56")} />
+            <div className={cn(bar, "h-1.5 w-full rounded-full")} />
+          </div>
+
+          {/* Filter row skeleton (four tiles) */}
+          <div className="grid grid-cols-4 gap-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className={cn(bar, "h-16 rounded-lg")} />
+            ))}
+          </div>
+
+          {/* Search bar skeleton */}
+          <div className={cn(bar, "h-10 w-full rounded-md")} />
+
+          {/* One property card skeleton */}
+          <div className="rounded-xl border border-border bg-white p-5 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className={cn(bar, "h-4 w-40")} />
+              <div className={cn(bar, "h-4 w-16 rounded-full")} />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <div className={cn(bar, "h-3 w-24")} />
+                <div className={cn(bar, "h-9 w-full rounded-md")} />
+              </div>
+              <div className="space-y-2">
+                <div className={cn(bar, "h-3 w-24")} />
+                <div className={cn(bar, "h-9 w-full rounded-md")} />
+              </div>
+              <div className="space-y-2 pt-4">
+                <div className={cn(bar, "h-9 w-full rounded-md")} />
+              </div>
+            </div>
+          </div>
+
+        </div>
       </div>
     </div>
   )
@@ -1706,10 +1724,15 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
 
   const verifiedReadyCount = Object.keys(readyToSubmit).length
 
-  // ── Property search + pagination (the list under the filter tiles) ──────────
-  const PAGE_SIZE = 8
+  // ── Property search (the list under the filter tiles) ───────────────────────
   const [search, setSearch] = useState("")
-  const [page, setPage]     = useState(1)
+
+  // Show a loading state for 10s when the page mounts (tab opened), then reveal content
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    const t = setTimeout(() => setLoading(false), 10000)
+    return () => clearTimeout(t)
+  }, [])
 
   const matchesSearch = (p: typeof PROPERTIES[0]) => {
     const q = search.trim().toLowerCase()
@@ -1721,20 +1744,15 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
     )
   }
 
-  // Source list for the active filter, narrowed by the search query
+  // Source list for the active filter, narrowed by the search query (full list, no paging)
   const searchBase =
     filterView === "needs-action" ? actionProperties  :
     filterView === "pending"      ? reviewProperties   :
     filterView === "approved"     ? approvedProperties :
                                     PROPERTIES
   const activeList  = searchBase.filter(matchesSearch)
-  const totalPages  = Math.max(1, Math.ceil(activeList.length / PAGE_SIZE))
-  const currentPage = Math.min(page, totalPages)
-  const pageStart   = (currentPage - 1) * PAGE_SIZE
-  const pagedList   = activeList.slice(pageStart, pageStart + PAGE_SIZE)
 
-  // Reset to the first page whenever the filter or search query changes
-  useEffect(() => { setPage(1) }, [filterView, search])
+  if (loading) return <PropertyWebsitesLoading />
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -1869,7 +1887,7 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
                     ? `${failedCount} failed carrier review · ${needsActionCount - failedCount} awaiting submission`
                     : `${needsActionCount} ${needsActionCount === 1 ? "property needs" : "properties need"} a privacy policy URL`}
                 </p>
-                {pagedList.map(prop => (
+                {activeList.map(prop => (
                   <ActionCard
                     key={prop.id}
                     prop={prop}
@@ -1929,7 +1947,7 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
                     </tr>
                   </thead>
                   <tbody>
-                    {pagedList.map(prop => (
+                    {activeList.map(prop => (
                       <tr key={prop.id} className="bg-white hover:bg-blue-50/30 transition-colors">
                         <td className="px-4 py-3 border-b border-border">
                           <p className="font-medium text-foreground text-xs leading-tight">{prop.name}</p>
@@ -1976,7 +1994,7 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
                     </tr>
                   </thead>
                   <tbody>
-                    {pagedList.map(prop => (
+                    {activeList.map(prop => (
                       <tr key={prop.id} className="bg-white hover:bg-emerald-50/30 transition-colors">
                         <td className="px-4 py-3 border-b border-border">
                           <p className="font-medium text-foreground text-xs leading-tight">{prop.name}</p>
@@ -2019,7 +2037,7 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
                   </tr>
                 </thead>
                 <tbody>
-                  {pagedList.map(prop => {
+                  {activeList.map(prop => {
                     const status     = ppStatuses[prop.id] ?? "needs-pp"
                     const ppUrl      = ppUrls[prop.id] ?? ""
                     const websiteUrl = effectiveUrl(prop.id) ?? ""
@@ -2065,18 +2083,6 @@ export function PrivacyPage({ navigate, onComplete, onActionCountChange }: BaseP
           ) : (
             <NoSearchMatch query={search} />
           )
-        )}
-
-        {/* ── Pagination for the property list under the tiles ── */}
-        {activeList.length > PAGE_SIZE && (
-          <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            pageStart={pageStart}
-            pageSize={PAGE_SIZE}
-            total={activeList.length}
-            onPage={setPage}
-          />
         )}
 
       </div>
