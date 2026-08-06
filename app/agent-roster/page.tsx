@@ -5433,6 +5433,7 @@ function AgentToneSection({
     const settings: ToneSettings = {
       persona: draftPersona.trim(),
       guidelines: draftGuidelines.trim(),
+      additionalInstructions: propOvr?.settings.additionalInstructions ?? "",
       doExamples: draftDos.map((d) => d.trim()).filter(Boolean),
       dontExamples: draftDonts.map((d) => d.trim()).filter(Boolean),
     };
