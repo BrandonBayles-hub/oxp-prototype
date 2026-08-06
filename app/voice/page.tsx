@@ -130,6 +130,7 @@ type PropertyOverrideRecord = Omit<AgentPropertyToneOverride, "agentId"> & { ver
 const EMPTY_TONE: ToneSettings = {
   persona: "",
   guidelines: "",
+  additionalInstructions: "",
   doExamples: [],
   dontExamples: [],
 };
@@ -230,6 +231,7 @@ function isCustomized(current: ToneSettings, seed: ToneSettings): boolean {
   return (
     current.persona !== seed.persona ||
     current.guidelines !== seed.guidelines ||
+    (current.additionalInstructions ?? "") !== (seed.additionalInstructions ?? "") ||
     JSON.stringify(current.doExamples) !== JSON.stringify(seed.doExamples) ||
     JSON.stringify(current.dontExamples) !== JSON.stringify(seed.dontExamples)
   );
@@ -1295,6 +1297,8 @@ function PropertyOverrideCard({
  * Tone editor (shared form for default + overrides)
  * ─────────────────────────────────────────── */
 
+const ADDITIONAL_INSTRUCTIONS_MAX = 1200;
+
 function ToneEditor({
   settings,
   editing,
@@ -1305,6 +1309,8 @@ function ToneEditor({
   onChange: (next: ToneSettings) => void;
 }) {
   const update = (patch: Partial<ToneSettings>) => onChange({ ...settings, ...patch });
+  const instructionsValue = settings.additionalInstructions ?? "";
+  const charCount = instructionsValue.length;
 
   if (!editing) {
     return (
@@ -1316,6 +1322,10 @@ function ToneEditor({
         <div>
           <p className="text-xs font-medium text-muted-foreground">Agent tone guidelines</p>
           <p className="mt-1 whitespace-pre-wrap text-foreground">{settings.guidelines || <span className="italic text-muted-foreground">Not set</span>}</p>
+        </div>
+        <div>
+          <p className="text-xs font-medium text-muted-foreground">Additional instructions</p>
+          <p className="mt-1 whitespace-pre-wrap text-foreground">{instructionsValue || <span className="italic text-muted-foreground">Not set</span>}</p>
         </div>
       </div>
     );
@@ -1342,6 +1352,32 @@ function ToneEditor({
           className="input-base !h-auto min-h-[140px] resize-y text-sm"
           placeholder="e.g. Direct and clear, but never judgmental..."
         />
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">Additional instructions</label>
+        <textarea
+          value={instructionsValue}
+          onChange={(e) => {
+            if (e.target.value.length <= ADDITIONAL_INSTRUCTIONS_MAX) {
+              update({ additionalInstructions: e.target.value });
+            }
+          }}
+          rows={6}
+          className="input-base !h-auto min-h-[140px] resize-y text-sm"
+          placeholder="Add any extra instructions the AI agent should follow..."
+          maxLength={ADDITIONAL_INSTRUCTIONS_MAX}
+        />
+        <div className="mt-1.5 flex items-start justify-between gap-4">
+          <p className="text-[11px] text-muted-foreground">
+            These instructions supplement Entrata's default behavior. Complex or conflicting instructions may not always be followed as expected.
+          </p>
+          <p className={cn(
+            "shrink-0 text-[11px] tabular-nums",
+            charCount >= ADDITIONAL_INSTRUCTIONS_MAX ? "text-red-500" : "text-muted-foreground",
+          )}>
+            {charCount.toLocaleString()}/{ADDITIONAL_INSTRUCTIONS_MAX.toLocaleString()}
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -1691,6 +1727,7 @@ function cloneToneSettingsForDialog(settings: ToneSettings): ToneSettings {
   return {
     persona: settings.persona,
     guidelines: settings.guidelines,
+    additionalInstructions: settings.additionalInstructions ?? "",
     doExamples: [...settings.doExamples],
     dontExamples: [...settings.dontExamples],
   };
@@ -1700,6 +1737,7 @@ function tonesEqual(a: ToneSettings, b: ToneSettings): boolean {
   return (
     a.persona === b.persona &&
     a.guidelines === b.guidelines &&
+    (a.additionalInstructions ?? "") === (b.additionalInstructions ?? "") &&
     a.doExamples.length === b.doExamples.length &&
     a.doExamples.every((entry, idx) => entry === b.doExamples[idx]) &&
     a.dontExamples.length === b.dontExamples.length &&
