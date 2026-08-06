@@ -1369,7 +1369,7 @@ function ToneEditor({
         />
         <div className="mt-1.5 flex items-start justify-between gap-4">
           <p className="text-[11px] text-muted-foreground">
-            These instructions supplement Entrata's default behavior. Complex or conflicting instructions may not always be followed as expected.
+            These instructions supplement Entrata&apos;s default behavior. Complex or conflicting instructions may not always be followed as expected.
           </p>
           <p className={cn(
             "shrink-0 text-[11px] tabular-nums",
