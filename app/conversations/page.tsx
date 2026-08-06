@@ -61,6 +61,7 @@ import {
   CircleHelp,
   Beaker,
   PhoneIncoming,
+  PhoneOutgoing,
   User,
   UserCheck,
   UserX,
@@ -112,7 +113,9 @@ import {
   getLinkedConversationsByEscalation,
   isSuperAgentDemoThread,
   isSuperAgent1DemoThread,
+  isClickToCallDemoThread,
   getEscalationReason,
+  DEFAULT_CONVERSATION_ACTIVITY_ACTOR,
 } from "@/lib/conversations-context";
 import { useAgents } from "@/lib/agents-context";
 import { useWorkforce } from "@/lib/workforce-context";
@@ -259,6 +262,36 @@ function formatClickToCallDisplayPhone(residentPhone: string): string {
   }
   return residentPhone;
 }
+
+/**
+ * Click-to-call / SA1 phone demo threads that are missed-call or voicemail only.
+ * These use a Resolve dropdown to document a call/note instead of a plain resolve.
+ */
+function isPhoneDocumentResolveThread(c: ConversationItem): boolean {
+  if (!isClickToCallDemoThread(c.id)) return false;
+  return c.messages.some((m) => m.type === "missed_call" || m.type === "voicemail");
+}
+
+function phoneNumberFromDemoThread(c: ConversationItem): string {
+  for (let i = c.messages.length - 1; i >= 0; i--) {
+    const m = c.messages[i];
+    if (m.voicemail?.fromNumber) return m.voicemail.fromNumber;
+    if (m.missedCall?.fromNumber) return m.missedCall.fromNumber;
+  }
+  return "";
+}
+
+type PhoneDocumentKind = "incoming" | "outgoing" | "other";
+
+type ResidentProfileActivityEntry = {
+  id: string;
+  kind: PhoneDocumentKind;
+  notes: string;
+  actor: string;
+  timestamp: string;
+  conversationId: string;
+  phoneNumber?: string;
+};
 
 function handoffAssigneeLabel(assignee: string, isHuman: (a: string) => boolean): string {
   if (assignee === CONVERSATION_UNASSIGNED_ASSIGNEE) return "Unassigned";
@@ -858,6 +891,8 @@ function ConversationsContent() {
     superAgent1Enabled,
     toggleSuperAgent1Enabled,
   } = useConversationsDemo();
+  /** Call controls + phone demo threads (missed/voicemail) for Click To Call or Super Agent 1.0. */
+  const phoneDemoEnabled = clickToCallEnabled || superAgent1Enabled;
   const [callSystemPanelOpen, setCallSystemPanelOpen] = useState(false);
 
   const clickToCallAssigneeOptions = useMemo(() => {
@@ -1225,6 +1260,12 @@ function ConversationsContent() {
   const [escalationPickerSelections, setEscalationPickerSelections] = useState<Set<string>>(new Set());
   const [sa1ResolvePickerOpen, setSa1ResolvePickerOpen] = useState(false);
   const [sa1ResolveSelections, setSa1ResolveSelections] = useState<Set<string>>(new Set());
+  const [phoneDocumentKind, setPhoneDocumentKind] = useState<PhoneDocumentKind | null>(null);
+  const [phoneDocumentNotes, setPhoneDocumentNotes] = useState("");
+  const [profileMainTab, setProfileMainTab] = useState("Financial");
+  const [residentProfileActivity, setResidentProfileActivity] = useState<
+    Record<string, ResidentProfileActivityEntry[]>
+  >({});
   const chatTextareaRef = useRef<HTMLTextAreaElement>(null);
   /** Entrata profile “current inbox” composer — same draft/inputMode as main, separate ref for @mentions. */
   const profilePanelInboxComposerRef = useRef<HTMLTextAreaElement>(null);
@@ -3038,7 +3079,7 @@ function ConversationsContent() {
                     </Popover>
                     );
                   })()}
-                  {clickToCallEnabled && (
+                  {phoneDemoEnabled && (
                     <Button
                       type="button"
                       variant="outline"
@@ -3087,24 +3128,58 @@ function ConversationsContent() {
                     </PopoverContent>
                   </Popover>
                   {isSuperAgentDemoThread(selected.id) && aiActivated ? null : selected.status === "open" ? (
-                    <Button
-                      size="sm"
-                      className="h-8 gap-1.5 px-3 text-xs"
-                      onClick={() => {
-                        if (isSuperAgent1DemoThread(selected.id)) {
-                          const escalations = selected.labels.filter((l) => l.includes("Escalation"));
-                          if (escalations.length > 0) {
-                            setSa1ResolveSelections(new Set());
-                            setSa1ResolvePickerOpen(true);
-                            return;
+                    isPhoneDocumentResolveThread(selected) ? (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button size="sm" className="h-8 gap-1.5 px-3 text-xs">
+                            <Check className="h-3.5 w-3.5" />
+                            Resolve
+                            <ChevronDown className="h-3.5 w-3.5 opacity-80" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56">
+                          <DropdownMenuItem
+                            className="gap-2"
+                            onSelect={() => {
+                              setPhoneDocumentNotes("");
+                              setPhoneDocumentKind("incoming");
+                            }}
+                          >
+                            <PhoneIncoming className="h-3.5 w-3.5" />
+                            Document incoming call
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="gap-2"
+                            onSelect={() => {
+                              setPhoneDocumentNotes("");
+                              setPhoneDocumentKind("outgoing");
+                            }}
+                          >
+                            <PhoneOutgoing className="h-3.5 w-3.5" />
+                            Document outgoing call
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    ) : (
+                      <Button
+                        size="sm"
+                        className="h-8 gap-1.5 px-3 text-xs"
+                        onClick={() => {
+                          if (isSuperAgent1DemoThread(selected.id)) {
+                            const escalations = selected.labels.filter((l) => l.includes("Escalation"));
+                            if (escalations.length > 0) {
+                              setSa1ResolveSelections(new Set());
+                              setSa1ResolvePickerOpen(true);
+                              return;
+                            }
                           }
-                        }
-                        resolveConversation(selected.id, MY_INBOX_ASSIGNEE);
-                      }}
-                    >
-                      <Check className="h-3.5 w-3.5" />
-                      Resolve
-                    </Button>
+                          resolveConversation(selected.id, MY_INBOX_ASSIGNEE);
+                        }}
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                        Resolve
+                      </Button>
+                    )
                   ) : (
                     <Button
                       size="sm"
@@ -3573,7 +3648,7 @@ function ConversationsContent() {
                           attemptCount={msg.missedCall.attemptCount}
                           rangForSec={msg.missedCall.rangForSec}
                           onCallBack={
-                            clickToCallEnabled
+                            phoneDemoEnabled
                               ? () => beginClickToCallForConversation(selected)
                               : undefined
                           }
@@ -3596,7 +3671,7 @@ function ConversationsContent() {
                           turns={msg.voicemail.turns}
                           fromNumber={msg.voicemail.fromNumber}
                           onCallBack={
-                            clickToCallEnabled
+                            phoneDemoEnabled
                               ? () => beginClickToCallForConversation(selected)
                               : undefined
                           }
@@ -4480,6 +4555,120 @@ function ConversationsContent() {
                 </Dialog>
               )}
 
+              {/* Document call / other note for missed-call & voicemail demo threads */}
+              <Dialog
+                open={phoneDocumentKind !== null && !!selected}
+                onOpenChange={(open) => {
+                  if (!open) {
+                    setPhoneDocumentKind(null);
+                    setPhoneDocumentNotes("");
+                  }
+                }}
+              >
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>
+                      {phoneDocumentKind === "incoming"
+                        ? "Document incoming call"
+                        : phoneDocumentKind === "outgoing"
+                          ? "Document outgoing call"
+                          : "Other note"}
+                    </DialogTitle>
+                    <DialogDescription>
+                      Once you log the notes, they will be posted to this conversation and the resident profile Activity Log, and this conversation will be resolved.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <textarea
+                    value={phoneDocumentNotes}
+                    onChange={(e) => setPhoneDocumentNotes(e.target.value)}
+                    rows={4}
+                    className="input-base min-h-[96px] resize-y text-sm"
+                    placeholder={
+                      phoneDocumentKind === "other"
+                        ? "Write a note…"
+                        : "What was discussed on the call?"
+                    }
+                    autoFocus
+                  />
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setPhoneDocumentKind(null);
+                        setPhoneDocumentNotes("");
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={!phoneDocumentNotes.trim() || !selected || !phoneDocumentKind}
+                      onClick={() => {
+                        if (!selected || !phoneDocumentKind) return;
+                        const notes = phoneDocumentNotes.trim();
+                        const timestamp = new Date()
+                          .toLocaleString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                            hour12: true,
+                            timeZoneName: "short",
+                          })
+                          .replace(",", " ·");
+                        const phoneNumber = phoneNumberFromDemoThread(selected);
+
+                        if (phoneDocumentKind === "other") {
+                          addMessage(selected.id, {
+                            role: "staff",
+                            text: notes,
+                            timestamp,
+                            type: "private_note",
+                            privateNoteAuthor: MY_INBOX_ASSIGNEE,
+                          });
+                        } else {
+                          recordThreadActivity(selected.id, {
+                            kind: "phone_call",
+                            actor: DEFAULT_CONVERSATION_ACTIVITY_ACTOR,
+                            phoneNumber: phoneNumber || "Unknown",
+                            outcome: "connected",
+                            notes,
+                            direction: phoneDocumentKind === "incoming" ? "inbound" : "outbound",
+                          });
+                        }
+
+                        const entry: ResidentProfileActivityEntry = {
+                          id: `pa-${Date.now()}`,
+                          kind: phoneDocumentKind,
+                          notes,
+                          actor: MY_INBOX_ASSIGNEE,
+                          timestamp,
+                          conversationId: selected.id,
+                          phoneNumber: phoneNumber || undefined,
+                        };
+                        setResidentProfileActivity((prev) => ({
+                          ...prev,
+                          [selected.resident]: [entry, ...(prev[selected.resident] ?? [])],
+                        }));
+                        setProfileMainTab("Activity Log");
+                        resolveConversation(selected.id, MY_INBOX_ASSIGNEE);
+                        setPhoneDocumentKind(null);
+                        setPhoneDocumentNotes("");
+                        toast.success(
+                          phoneDocumentKind === "other"
+                            ? "Note saved to conversation and profile Activity Log"
+                            : "Call documented on conversation and profile Activity Log"
+                        );
+                      }}
+                    >
+                      Save & resolve
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
               {/* Input box */}
               <div className="px-5 pb-4">
                 <div
@@ -4699,6 +4888,7 @@ function ConversationsContent() {
           setProfileModalOpen(false);
           setProfilePanelInboxOpen(false);
           setProfileResidentOverride(null);
+          setProfileMainTab("Financial");
         };
         return (
         <div className="fixed inset-0 z-[60] flex">
@@ -4789,11 +4979,13 @@ function ConversationsContent() {
               </div>
               {/* Profile tabs */}
               <div className="flex items-center gap-0 border-b border-gray-200 bg-[#f5f5f5] px-2 shrink-0">
-                {["Financial", "Household", "Lease", "Utilities", "Documents", "Maintenance", "Activity Log"].map((tab, i) => (
+                {["Financial", "Household", "Lease", "Utilities", "Documents", "Maintenance", "Activity Log"].map((tab) => (
                   <button
                     key={tab}
+                    type="button"
+                    onClick={() => setProfileMainTab(tab)}
                     className={`px-3 py-2 text-[11px] font-medium transition-colors rounded-t ${
-                      i === 0
+                      profileMainTab === tab
                         ? "bg-white text-[#c0392b] border border-gray-200 border-b-white -mb-px relative z-10"
                         : "text-gray-500 hover:text-gray-700 hover:bg-gray-100"
                     }`}
@@ -4802,6 +4994,59 @@ function ConversationsContent() {
                   </button>
                 ))}
               </div>
+              {profileMainTab === "Activity Log" ? (
+                <div className="flex flex-1 min-h-0 flex-col overflow-hidden bg-white">
+                  <div className="border-b border-gray-200 px-5 py-3">
+                    <p className="text-[13px] font-semibold text-gray-900">Activity Log</p>
+                    <p className="mt-0.5 text-[11px] text-gray-500">
+                      Staff-documented calls and notes for {profileResidentName}
+                    </p>
+                  </div>
+                  <div className="flex-1 overflow-y-auto px-5 py-4">
+                    {(residentProfileActivity[profileResidentName] ?? []).length === 0 ? (
+                      <p className="text-[12px] text-gray-400 italic">No activity logged yet.</p>
+                    ) : (
+                      <ul className="space-y-3">
+                        {(residentProfileActivity[profileResidentName] ?? []).map((entry) => (
+                          <li
+                            key={entry.id}
+                            className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2.5"
+                          >
+                            <div className="flex items-center gap-2">
+                              {entry.kind === "incoming" ? (
+                                <PhoneIncoming className="h-3.5 w-3.5 text-gray-500" />
+                              ) : entry.kind === "outgoing" ? (
+                                <PhoneOutgoing className="h-3.5 w-3.5 text-gray-500" />
+                              ) : (
+                                <StickyNote className="h-3.5 w-3.5 text-amber-600" />
+                              )}
+                              <span className="text-[11px] font-semibold text-gray-800">
+                                {entry.kind === "incoming"
+                                  ? "Incoming call"
+                                  : entry.kind === "outgoing"
+                                    ? "Outgoing call"
+                                    : "Note"}
+                              </span>
+                              <span className="ml-auto text-[10px] text-gray-400">{entry.timestamp}</span>
+                            </div>
+                            <p className="mt-1 text-[11px] text-gray-600">
+                              <span className="font-medium text-gray-800">{entry.actor}</span>
+                              {entry.phoneNumber ? (
+                                <>
+                                  {" · "}
+                                  <span className="font-mono">{entry.phoneNumber}</span>
+                                </>
+                              ) : null}
+                            </p>
+                            <p className="mt-1.5 text-[12px] leading-relaxed text-gray-800">{entry.notes}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              ) : (
+              <>
               {/* Sub-tabs */}
               <div className="flex items-center gap-0 border-b border-gray-200 bg-white px-3 shrink-0">
                 {["Ledger", "Recurring Charges and Credits", "One Time Charges and Credits", "Recurring Payments", "MoneyGram", "Customer Invoices", "Payment Methods"].map((tab, i) => (
@@ -4899,6 +5144,8 @@ function ConversationsContent() {
                   </div>
                 </div>
               </div>
+              </>
+              )}
             </div>
 
             {/* MIDDLE: Quick View sidebar — full height from top to bottom */}
@@ -5037,7 +5284,7 @@ function ConversationsContent() {
                         : `${profilePanelThreads[openThreadIdx]?.property}: ${profilePanelThreads[openThreadIdx]?.type}`}
                     </p>
                   </div>
-                  {clickToCallEnabled && (
+                  {phoneDemoEnabled && (
                     <button
                       type="button"
                       title="Call primary number"
@@ -5454,7 +5701,7 @@ function ConversationsContent() {
                       )}
                     </p>
                   </div>
-                  {clickToCallEnabled && (
+                  {phoneDemoEnabled && (
                     <button
                       type="button"
                       title="Call primary number"
@@ -5820,7 +6067,7 @@ function ConversationsContent() {
                     </span>
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
-                    {clickToCallEnabled && (
+                    {phoneDemoEnabled && (
                       <button
                         type="button"
                         title="Call primary number"
@@ -6771,7 +7018,7 @@ function CommunicationsDemoControl({
             <div className="min-w-0 flex-1">
               <p className="text-[12px] font-semibold leading-tight text-foreground">Super Agent 1.0</p>
               <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
-                Normal composer with resolve button
+                Resolve flow plus missed-call and voicemail examples
               </p>
             </div>
             <Switch

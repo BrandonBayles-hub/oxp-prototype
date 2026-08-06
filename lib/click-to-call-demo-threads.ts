@@ -1,9 +1,11 @@
 import type { ConversationItem } from "@/lib/conversations-context";
 
 /**
- * Prototype threads that show up only when the "Click To Call" demo toggle is on.
- * They illustrate inbound phone activity: missed calls and a voicemail with an
- * AI transcript. They are intentionally labeled as a plain `Lead` / `Resident`
+ * Prototype threads for inbound phone activity: missed calls and voicemails
+ * with an AI transcript. Shown when either the "Click To Call" or
+ * "Super Agent 1.0" Communications Demo Control toggle is on.
+ *
+ * They are intentionally labeled as a plain `Lead` / `Resident`
  * (no `*Escalation` label) — the purple `Phone` channel chip is enough to
  * signal the medium, and the inbox-level "needs staff callback" rule keeps
  * them surfaced until staff actually responds.
