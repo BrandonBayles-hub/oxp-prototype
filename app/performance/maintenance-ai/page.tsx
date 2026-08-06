@@ -2910,17 +2910,18 @@ function BillboardStatCard({
   channels: { label: string; value: string }[];
 }) {
   return (
-    <Card className="flex h-full flex-col border-border/60">
-      <CardContent className="flex flex-1 items-center justify-between gap-4 px-5 py-4">
-        <div className="min-w-0 flex-1">
-          <p className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+    <Card className="h-full min-h-[126px] border-border/60">
+      <CardContent className="flex h-full flex-col px-5 py-3">
+        <p className="whitespace-nowrap text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
             {label}
-          </p>
-          <p className="mt-2 text-4xl font-bold tracking-tight text-foreground">
-            {value}
-          </p>
-          <p className="mt-1 text-xs font-normal text-muted-foreground">{sub}</p>
-        </div>
+        </p>
+        <div className="mt-2 flex min-h-0 flex-1 items-end justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <p className="whitespace-nowrap text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
+              {value}
+            </p>
+            <p className="mt-1 whitespace-nowrap text-xs font-normal text-muted-foreground">{sub}</p>
+          </div>
         {channels.length > 0 && (
           <div className="grid shrink-0 gap-x-4 gap-y-2 border-l border-border pl-4" style={{ gridTemplateColumns: `repeat(${Math.min(channels.length, 3)}, auto)` }}>
             {channels.map((ch) => (
@@ -2931,6 +2932,7 @@ function BillboardStatCard({
             ))}
           </div>
         )}
+        </div>
       </CardContent>
     </Card>
   );
