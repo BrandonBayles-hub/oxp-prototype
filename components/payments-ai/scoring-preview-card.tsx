@@ -15,9 +15,8 @@ import {
 import { cn } from "@/lib/utils";
 
 const BAND_LABELS: Record<ScoreBand, string> = {
-  good: "Good standing",
-  moderate: "Moderate risk",
-  poor: "High risk",
+  low: "Low Risk",
+  high: "High Risk",
 };
 
 const ACTION_LABELS: Record<EligibilityAction, string> = {
@@ -27,8 +26,7 @@ const ACTION_LABELS: Record<EligibilityAction, string> = {
 
 type Props = {
   factors: EligibilityFactors;
-  thresholdModerate: number;
-  thresholdPoor: number;
+  highRiskThreshold: number;
   scenarioLabel: string;
   scenarioRules: Record<ScoreBand, EligibilityAction>;
   className?: string;
@@ -36,8 +34,7 @@ type Props = {
 
 export function ScoringPreviewCard({
   factors,
-  thresholdModerate,
-  thresholdPoor,
+  highRiskThreshold,
   scenarioLabel,
   scenarioRules,
   className,
@@ -50,10 +47,9 @@ export function ScoringPreviewCard({
       computeEligibilityScore(
         profile.signals,
         factors,
-        thresholdModerate,
-        thresholdPoor,
+        highRiskThreshold,
       ),
-    [profile, factors, thresholdModerate, thresholdPoor],
+    [profile, factors, highRiskThreshold],
   );
 
   const action = resolveEligibilityAction(result.band, scenarioRules);
@@ -147,7 +143,7 @@ export function ScoringPreviewCard({
       </div>
 
       <p className="mt-2 text-[11px] text-muted-foreground">
-        Band: score &lt; {thresholdModerate} → Good · ≥ {thresholdModerate} → Moderate · ≥ {thresholdPoor} → Poor.
+        Band: score &lt; {highRiskThreshold} → Low Risk · score ≥ {highRiskThreshold} → High Risk.
       </p>
     </div>
   );

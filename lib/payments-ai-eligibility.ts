@@ -11,9 +11,8 @@
  *
  *   subScore_i = ramp_i(signal_i)                       (0–100)
  *   composite  = Σ (weight_i × subScore_i) / Σ weight_i (enabled factors)
- *   band       = "poor"     if composite ≥ thresholdPoor
- *              | "moderate" if composite ≥ thresholdModerate
- *              | "good"     otherwise
+ *   band       = "high" if composite ≥ highRiskThreshold
+ *              | "low"  otherwise
  *   action     = eligibilityRules[scenario][band]
  *
  * Both the severity ramp values (per factor) and the factor weights are
@@ -42,7 +41,7 @@ export type EligibilityFactor = {
 
 export type EligibilityFactors = Record<EligibilityFactorKey, EligibilityFactor>;
 
-export type ScoreBand = "good" | "moderate" | "poor";
+export type ScoreBand = "low" | "high";
 
 export type EligibilityAction = "continue" | "skip";
 
@@ -64,7 +63,7 @@ export type PreviewProfileId =
   | "good_payer"
   | "one_failure"
   | "chronic_late"
-  | "poor_band";
+  | "high_risk";
 
 export type PreviewProfile = {
   id: PreviewProfileId;
@@ -93,8 +92,8 @@ export const SCORING_PREVIEW_PROFILES: PreviewProfile[] = [
     signals: { latePayments12Mo: 4, paymentFailures12Mo: 2, leaseViolations12Mo: 1 },
   },
   {
-    id: "poor_band",
-    label: "Poor band",
+    id: "high_risk",
+    label: "High-risk profile",
     description: "Chronic delinquency and multiple lease violations",
     signals: { latePayments12Mo: 8, paymentFailures12Mo: 4, leaseViolations12Mo: 3 },
   },
@@ -183,8 +182,7 @@ export type ScoringResult = {
 export function computeEligibilityScore(
   signals: ResidentSignals,
   factors: EligibilityFactors,
-  thresholdModerate: number,
-  thresholdPoor: number,
+  highRiskThreshold: number,
 ): ScoringResult {
   const keys: EligibilityFactorKey[] = ["latePayments", "paymentFailures", "violations"];
   const contributions: FactorContribution[] = [];
@@ -208,9 +206,7 @@ export function computeEligibilityScore(
   const rawScore = totalWeight > 0 ? weightedSum / totalWeight : 0;
   const score = Math.round(Math.max(0, Math.min(100, rawScore)));
 
-  let band: ScoreBand = "good";
-  if (score >= thresholdPoor) band = "poor";
-  else if (score >= thresholdModerate) band = "moderate";
+  const band: ScoreBand = score >= highRiskThreshold ? "high" : "low";
 
   return { score, band, contributions, totalWeight };
 }
