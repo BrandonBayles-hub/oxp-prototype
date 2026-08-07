@@ -78,8 +78,6 @@ import {
 type ScenarioId = "initial" | "late" | "legal"
 type OffsetAnchor = "rent_due" | "late_fees" | "eviction" | "move_out"
 type OffsetDir =
-  | "before_due"
-  | "after_due"
   | "on_charges_posted"
   | "before_fees"
   | "after_fees"
@@ -87,7 +85,6 @@ type OffsetDir =
   | "before_eviction"
   | "after_eviction"
   | "on_notice"
-  | "after_charges_due"
   | "day_of_month"
   | "after_moveout"
   | "after_fmo"
@@ -96,7 +93,7 @@ type Recipients = "primary" | "primary_guarantors" | "guarantors" | "all_respons
 type DayKey = "sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat"
 type ToneId = "friendly" | "professional" | "student-casual"
 type EligibilityAction = "continue" | "skip"
-type ScoreBand = "good" | "moderate" | "poor"
+type ScoreBand = "low" | "high"
 
 type PropertyContextView = ReturnType<typeof toPropertyContext>
 
@@ -105,9 +102,8 @@ function propertyContextFromResolved(resolved: ResolvedPropertySettings): Proper
 }
 
 const SCORE_BANDS: { id: ScoreBand; label: string; description: string }[] = [
-  { id: "good", label: "Good standing", description: "Residents with a strong payment history and few risk signals." },
-  { id: "moderate", label: "Moderate risk", description: "Some late payments or minor issues; outreach may be tuned down." },
-  { id: "poor", label: "High risk", description: "Chronic delinquency, returns, or violations; often skip nudges and let legal notices run." },
+  { id: "low", label: "Low Risk", description: "Residents whose composite score is below the configured High Risk threshold." },
+  { id: "high", label: "High Risk", description: "Residents whose composite score meets or exceeds the configured High Risk threshold." },
 ]
 
 const ELIGIBILITY_ACTIONS: { value: EligibilityAction; label: string }[] = [
@@ -183,8 +179,8 @@ const WEEKDAYS_ONLY: DayFlags = { sun: false, mon: true, tue: true, wed: true, t
 const SCENARIO_CADENCE: Record<ScenarioId, CadenceConfig> = {
   initial: {
     badge: { label: "One-time", cls: "bg-sky-100 text-sky-800" },
-    offsetValue: 3,
-    offsetDir: "before_due",
+    offsetValue: 1,
+    offsetDir: "day_of_month",
     offsetAnchor: "rent_due",
     repeatOn: false,
     repeatInterval: 7,
@@ -217,8 +213,8 @@ const SCENARIO_CADENCE: Record<ScenarioId, CadenceConfig> = {
   },
   legal: {
     badge: { label: "Notice · 5-day", cls: "bg-rose-100 text-rose-800" },
-    offsetValue: 16,
-    offsetDir: "after_charges_due",
+    offsetValue: 1,
+    offsetDir: "after_fmo",
     offsetAnchor: "eviction",
     repeatOn: true,
     repeatInterval: 5,
@@ -235,14 +231,34 @@ const SCENARIO_CADENCE: Record<ScenarioId, CadenceConfig> = {
   },
 }
 
-const OFFSET_ANCHORS: Record<OffsetAnchor, { options: { value: OffsetDir; label: string }[]; help: string }> = {
+type OffsetOption = {
+  value: OffsetDir
+  label: string
+  fixedOffsetValue?: number
+}
+
+const RENT_REMINDER_MONTH_DAYS: OffsetOption[] = Array.from({ length: 31 }, (_, index) => {
+  const day = index + 1
+  return {
+    value: "day_of_month",
+    fixedOffsetValue: day,
+    label: `${day}${ordinalSuffix(day)} of the Month`,
+  }
+})
+
+function offsetOptionValue(option: OffsetOption): string {
+  return option.fixedOffsetValue == null
+    ? option.value
+    : `${option.value}:${option.fixedOffsetValue}`
+}
+
+const OFFSET_ANCHORS: Record<OffsetAnchor, { options: OffsetOption[]; help: string }> = {
   rent_due: {
     options: [
-      { value: "before_due", label: "days before rent due" },
-      { value: "after_due", label: "days after rent due" },
+      ...RENT_REMINDER_MONTH_DAYS,
       { value: "on_charges_posted", label: "when charges are posted" },
     ],
-    help: "When the first message fires, relative to the rent due date. Choose “when charges are posted” to fire the moment the resident’s charges hit the ledger.",
+    help: "Choose a fixed calendar day from the 1st through the 31st, or choose “when charges are posted” to fire the moment the resident’s charges hit the ledger.",
   },
   late_fees: {
     options: [
@@ -254,10 +270,9 @@ const OFFSET_ANCHORS: Record<OffsetAnchor, { options: { value: OffsetDir; label:
   },
   eviction: {
     options: [
-      { value: "after_charges_due", label: "days after charges are due" },
-      { value: "day_of_month", label: "day of the month" },
+      { value: "after_fmo", label: "Days After Financial Move Out" },
     ],
-    help: "When the first message fires for Pre-Collections. “Days after charges are due” counts from the rent due date; “day of the month” fires on a fixed calendar day.",
+    help: "When the first Pre-Collections message fires, measured from the resident’s Financial Move Out date.",
   },
   move_out: {
     options: [
@@ -269,8 +284,6 @@ const OFFSET_ANCHORS: Record<OffsetAnchor, { options: { value: OffsetDir; label:
 }
 
 const OFFSET_PHRASE: Record<OffsetDir, string> = {
-  before_due: "days before due",
-  after_due: "days after due",
   on_charges_posted: "when charges are posted",
   before_fees: "days before late fees post",
   after_fees: "days after late fees post",
@@ -278,10 +291,9 @@ const OFFSET_PHRASE: Record<OffsetDir, string> = {
   before_eviction: "days before pre-collections",
   after_eviction: "days after pre-collections",
   on_notice: "when put on notice",
-  after_charges_due: "days after charges are due",
-  day_of_month: "day of the month",
+  day_of_month: "of the Month",
   after_moveout: "days after move-out",
-  after_fmo: "days after FMO",
+  after_fmo: "Days After Financial Move Out",
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -315,6 +327,7 @@ type JourneyEventKey =
 type JourneyAnchors = Record<JourneyEventKey, number> & {
   chargesPostedStart: number
   chargesPostedEnd: number
+  rentDueCalendarDay: number
 }
 
 /** Convert a day-of-prior-month (1..31) to a signed offset relative to rent
@@ -341,6 +354,7 @@ function deriveJourneyAnchors(resolved: ResolvedPropertySettings): JourneyAnchor
     chargesPosted: chargesPostedStart,
     chargesPostedStart,
     chargesPostedEnd,
+    rentDueCalendarDay: resolved.rentDueDay,
     rentDue,
     firstDelinquencyNotice,
     lateFees,
@@ -368,9 +382,6 @@ function anchorDayForDir(dir: OffsetDir, a: JourneyAnchors): number {
   switch (dir) {
     case "on_charges_posted":
       return a.chargesPostedStart
-    case "before_due":
-    case "after_due":
-      return a.rentDue
     case "before_fees":
     case "after_fees":
     case "on_late_fees":
@@ -379,7 +390,6 @@ function anchorDayForDir(dir: OffsetDir, a: JourneyAnchors): number {
     case "after_eviction":
     case "on_notice":
       return a.eviction
-    case "after_charges_due":
     case "day_of_month":
       return a.rentDue
     case "after_moveout":
@@ -398,23 +408,18 @@ function firstMessageDay(
   const anchor = anchorDayForDir(s.offsetDir, a)
   const clamp = (d: number) => clampToAxis(d, a)
   switch (s.offsetDir) {
-    case "before_due":
     case "before_fees":
     case "before_eviction":
       return clamp(anchor - s.offsetValue)
-    case "after_due":
     case "after_fees":
     case "after_eviction":
-    case "after_charges_due":
     case "after_moveout":
     case "after_fmo":
       return clamp(anchor + s.offsetValue)
     case "day_of_month":
-      // "day_of_month" interprets offsetValue as day-of-cycle (1..31). On the
-      // signed axis, day-of-cycle N corresponds to (N - rentDueDay) relative
-      // to rent due. Property defaults have rentDue = 1st, so day N = day
-      // (N - 1) on the axis.
-      return clamp(s.offsetValue - 1)
+      // Calendar day N is projected relative to the property's configured
+      // rent-due day, which is day 0 on the shared axis.
+      return clamp(s.offsetValue - a.rentDueCalendarDay)
     case "on_charges_posted":
     case "on_late_fees":
     case "on_notice":
@@ -584,8 +589,7 @@ interface PanelState extends ScenarioSettings {
     paymentFailures: { enabled: boolean; weight: number; severity: [number, number, number, number] }
     violations: { enabled: boolean; weight: number; severity: [number, number, number, number] }
   }
-  eligibilityThresholdModerate: number
-  eligibilityThresholdPoor: number
+  eligibilityThresholdHighRisk: number
   eligibilityRules: Record<ScenarioId, Record<ScoreBand, EligibilityAction>>
   // Context-aware timing rules — ELI+ always reads payment history and prior
   // staff / Payments AI conversations; these rules tune what to do with them.
@@ -612,9 +616,9 @@ interface PanelState extends ScenarioSettings {
 
 function makeEligibilityRulesDefault(): Record<ScenarioId, Record<ScoreBand, EligibilityAction>> {
   return {
-    initial: { good: "skip", moderate: "continue", poor: "skip" },
-    late: { good: "continue", moderate: "continue", poor: "skip" },
-    legal: { good: "skip", moderate: "skip", poor: "skip" },
+    initial: { low: "continue", high: "skip" },
+    late: { low: "continue", high: "skip" },
+    legal: { low: "skip", high: "skip" },
   }
 }
 
@@ -687,14 +691,15 @@ const MESSAGING_KEYS: (keyof ScenarioSettings)[] = [
   "smsCustomText",
 ]
 const DELIVERY_DEFAULT_KEYS: (keyof PanelState)[] = ["defaultSendOnHolidays"]
+const IDENTITY_KEYS: (keyof PanelState)[] = ["agentDisplayName"]
 const REPAYMENT_KEYS: (keyof PanelState)[] = [
   "repaymentOfferAllowed", "repaymentOfferEnabled", "repaymentRequireGoodStanding", "repaymentMinBalance", "repaymentMaxBalance",
   "repaymentStartMonth", "planMaxMonthsAutomated", "planRequireApprovalAmount",
   "planAllowExceedLeaseEnd", "planAllowWithActiveAgreement",
 ]
 const ELIGIBILITY_KEYS: (keyof PanelState)[] = [
-  "eligibilityEnabled", "eligibilityFactors", "eligibilityThresholdModerate",
-  "eligibilityThresholdPoor", "eligibilityRules",
+  "eligibilityEnabled", "eligibilityFactors", "eligibilityThresholdHighRisk",
+  "eligibilityRules",
 ]
 const CONTEXT_OUTREACH_KEYS: (keyof PanelState)[] = [
   "escalateExpectedPayDate", "escalateExpectedPayDateThresholdDays",
@@ -718,6 +723,7 @@ function computeChangedSections(a: PanelState, b: PanelState): string[] {
   const panelKeysDiffer = (keys: (keyof PanelState)[]) =>
     keys.some((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]))
 
+  if (panelKeysDiffer(IDENTITY_KEYS)) out.push("Agent identity")
   if (scenarioKeysDiffer(CADENCE_KEYS) || panelKeysDiffer(DELIVERY_DEFAULT_KEYS)) out.push("Cadence")
   if (scenarioKeysDiffer(MESSAGING_KEYS)) out.push("Custom text")
   if (panelKeysDiffer(REPAYMENT_KEYS)) out.push("Repayment agreements")
@@ -757,9 +763,9 @@ function formatDays(d: DayFlags): string {
 }
 
 const OFFSET_ANCHOR_LABELS: Record<OffsetAnchor, string> = {
-  rent_due: "Rent due date",
+  rent_due: "Calendar day / charges posted",
   late_fees: "Late fees post",
-  eviction: "Charges due (Pre-Collections)",
+  eviction: "Financial Move Out",
   move_out: "Move-out",
 }
 const CHANNEL_LABELS: Record<ChannelPref, string> = {
@@ -778,9 +784,8 @@ const ELIGIBILITY_ACTION_LABELS: Record<EligibilityAction, string> = {
   skip: "Skip outreach",
 }
 const SCORE_BAND_LABELS: Record<ScoreBand, string> = {
-  good: "Good",
-  moderate: "Moderate",
-  poor: "Poor",
+  low: "Low Risk",
+  high: "High Risk",
 }
 const ELIGIBILITY_FACTOR_LABELS: Record<keyof PanelState["eligibilityFactors"], string> = {
   latePayments: "Late payments",
@@ -827,6 +832,7 @@ const PANEL_FIELD_META: {
     format: (v: PanelState[K]) => string
   }
 } = {
+  agentDisplayName:               { scope: "Agent identity",     label: "Agent name",                                             format: (v) => v.trim() || "(not set)" },
   defaultSendOnHolidays:          { scope: "Cadence",            label: "Send on federal holidays",                              format: yesNo },
   // Payment actions — repayment agreements
   repaymentOfferAllowed:          { scope: "Payment actions",    label: "Allow ELI+ to offer repayment agreements",              format: yesNo },
@@ -845,8 +851,7 @@ const PANEL_FIELD_META: {
   setupRecurringPayments:         { scope: "Payment actions",    label: "Allow ELI+ to set up recurring payments",               format: yesNo },
   // Resident eligibility
   eligibilityEnabled:             { scope: "Resident eligibility", label: "Score model",                                         format: enabledLabel },
-  eligibilityThresholdModerate:   { scope: "Resident eligibility", label: "Moderate score threshold",                            format: (v) => `${v}` },
-  eligibilityThresholdPoor:       { scope: "Resident eligibility", label: "Poor score threshold",                                format: (v) => `${v}` },
+  eligibilityThresholdHighRisk:   { scope: "Resident eligibility", label: "High Risk score threshold",                           format: (v) => `${v}` },
   // Context awareness
   escalateExpectedPayDate:        { scope: "Context awareness",  label: "Escalate near expected pay date",                       format: yesNo },
   escalateExpectedPayDateThresholdDays: { scope: "Context awareness", label: "Expected pay date window",                         format: (v) => `${v} day${v === 1 ? "" : "s"}` },
@@ -863,6 +868,7 @@ const PANEL_FIELD_META: {
 /** Order of scopes in the confirmation dialog. Any scope not listed appears
  *  after these, in first-seen order. */
 const SCOPE_ORDER: string[] = [
+  "Agent identity",
   "Cadence",
   "Custom text",
   "Payment actions",
@@ -1022,8 +1028,7 @@ function makeInitialState(): PanelState {
       paymentFailures: { enabled: true, weight: 35, severity: [40, 65, 85, 100] },
       violations: { enabled: true, weight: 25, severity: [50, 80, 100, 100] },
     },
-    eligibilityThresholdModerate: 35,
-    eligibilityThresholdPoor: 65,
+    eligibilityThresholdHighRisk: 65,
     eligibilityRules: makeEligibilityRulesDefault(),
     escalateExpectedPayDate: true,
     escalateExpectedPayDateThresholdDays: 7,
@@ -1099,14 +1104,20 @@ export function PaymentsAISettingsPanel({
   const [confirmOpen, setConfirmOpen] = useState(false)
 
   const dirty = useMemo(() => JSON.stringify(state) !== JSON.stringify(pristine), [state, pristine])
+  const identityValid = state.agentDisplayName.trim().length > 0
 
   const update = <K extends keyof PanelState>(key: K, value: PanelState[K]) =>
     setState((s) => ({ ...s, [key]: value }))
 
   // Fold the in-flight scenario edits into the store so change detection sees
-  // the current selection's edits.
+  // the current selection's edits. Normalize the customer-facing identity
+  // before it is saved or included in a bulk-edit diff.
   const syncedState = useMemo(
-    () => ({ ...state, scenarioStore: { ...state.scenarioStore, [state.scenario]: extractScenarioSettings(state) } }),
+    () => ({
+      ...state,
+      agentDisplayName: state.agentDisplayName.trim(),
+      scenarioStore: { ...state.scenarioStore, [state.scenario]: extractScenarioSettings(state) },
+    }),
     [state],
   )
 
@@ -1246,6 +1257,11 @@ export function PaymentsAISettingsPanel({
             <div className="space-y-6">
               {detailTab === "guardrails" && (
                 <>
+                  <AgentIdentitySection
+                    state={state}
+                    update={update}
+                  />
+
                   <CadenceSection
                     state={state}
                     update={update}
@@ -1329,7 +1345,15 @@ export function PaymentsAISettingsPanel({
       </div>
 
       {/* Sticky footer */}
-      <FooterActionBar dirty={dirty} onSave={handleSave} onDiscard={handleDiscard} bulkMode={bulkMode} bulkCount={bulkCount} />
+      <FooterActionBar
+        dirty={dirty}
+        onSave={handleSave}
+        onDiscard={handleDiscard}
+        bulkMode={bulkMode}
+        bulkCount={bulkCount}
+        saveDisabled={!identityValid}
+        validationMessage={!identityValid ? "Enter an agent name before saving." : undefined}
+      />
 
       {/* Bulk-edit confirmation dialog — appears when the PM clicks
           "Apply to N properties" so they can review each change before
@@ -1507,6 +1531,55 @@ function SectionShell({
         </div>
       )}
     </section>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Agent identity — property-wide customer-facing name used on first contact.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function AgentIdentitySection({
+  state,
+  update,
+}: {
+  state: PanelState
+  update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
+}) {
+  const configuredName = state.agentDisplayName.trim()
+  const invalid = configuredName.length === 0
+
+  return (
+    <SectionShell
+      icon={UserCheck}
+      title="Agent Identity"
+      description="Set the customer-facing name Payments AI uses to introduce itself on the first outbound SMS, voice call, or email in each conversation."
+    >
+      <div className="max-w-xl">
+          <label htmlFor="payments-ai-agent-name" className="text-sm font-medium text-foreground">
+            Agent name
+          </label>
+          <Input
+            id="payments-ai-agent-name"
+            value={state.agentDisplayName}
+            onChange={(event) => update("agentDisplayName", event.target.value)}
+            placeholder="For example, Frank"
+            maxLength={40}
+            aria-invalid={invalid}
+            aria-describedby="payments-ai-agent-name-help"
+            className={cn("mt-2", invalid && "border-rose-400 focus-visible:ring-rose-300")}
+          />
+          <div id="payments-ai-agent-name-help" className="mt-1.5 flex items-start justify-between gap-3 text-xs">
+            <p className={invalid ? "text-rose-600" : "text-muted-foreground"}>
+              {invalid
+                ? "Enter a name before saving."
+                : "Used once at the start of each outbound SMS, voice, and email conversation."}
+            </p>
+            <span className="shrink-0 text-muted-foreground">
+              {state.agentDisplayName.length}/40
+            </span>
+          </div>
+      </div>
+    </SectionShell>
   )
 }
 
@@ -2041,7 +2114,12 @@ function JourneyOverlapWarning({
 /** One-line cadence summary for a scenario, shown under each rail item. */
 function scenarioCadenceSummary(s: ScenarioSettings): string {
   const phrase = OFFSET_PHRASE[s.offsetDir] ?? "days"
-  const opener = s.offsetDir === "on_charges_posted" ? phrase : `${s.offsetValue} ${phrase}`
+  const opener =
+    s.offsetDir === "on_charges_posted"
+      ? phrase
+      : s.offsetDir === "day_of_month"
+        ? `${s.offsetValue}${ordinalSuffix(s.offsetValue)} ${phrase}`
+        : `${s.offsetValue} ${phrase}`
   if (!s.repeatOn) return `${opener} · one-time`
   return `${opener} · every ${s.repeatInterval}d`
 }
@@ -2520,11 +2598,19 @@ function CadenceSection({
 }) {
   const anchor = OFFSET_ANCHORS[state.offsetAnchor]
   const scenarioCadence = SCENARIO_CADENCE[state.scenario]
+  const selectedOffsetOption =
+    anchor.options.find(
+      (option) =>
+        option.value === state.offsetDir &&
+        (option.fixedOffsetValue == null || option.fixedOffsetValue === state.offsetValue),
+    ) ?? anchor.options[0]
+  const selectedOffsetOptionValue = offsetOptionValue(selectedOffsetOption)
   // Event-driven triggers fire on a ledger event — there is no day count to apply.
   const isEventTrigger =
     state.offsetDir === "on_charges_posted" ||
     state.offsetDir === "on_late_fees" ||
     state.offsetDir === "on_notice"
+  const isFixedCalendarDay = selectedOffsetOption.fixedOffsetValue != null
 
   // Constraint (item 3): a scenario's repeats can't bleed into the next journey
   // stage. Compute the ceiling day and how many sends actually fit before it.
@@ -2532,7 +2618,7 @@ function CadenceSection({
   const ceilingDay = useMemo(() => nextStepStart(state.scenario, anchors), [state.scenario, anchors])
   const projectedDays = useMemo(
     () => projectSendDays(state, state.scenario, anchors),
-    [state.offsetValue, state.offsetDir, state.repeatOn, state.repeatInterval, state.maxAttempts, state.scenario, anchors],
+    [state, anchors],
   )
   const lastDay = projectedDays[projectedDays.length - 1]
   // The user asked for more repeats than fit before the next stage.
@@ -2615,7 +2701,7 @@ function CadenceSection({
               />
             </div>
             <div className="mt-1.5 flex gap-2">
-              {!isEventTrigger && (
+              {!isEventTrigger && !isFixedCalendarDay && (
                 <Input
                   type="number"
                   min={0}
@@ -2626,15 +2712,24 @@ function CadenceSection({
                 />
               )}
               <Select
-                value={state.offsetDir}
-                onValueChange={(v) => update("offsetDir", v as OffsetDir)}
+                value={selectedOffsetOptionValue}
+                onValueChange={(value) => {
+                  const option = anchor.options.find(
+                    (candidate) => offsetOptionValue(candidate) === value,
+                  )
+                  if (!option) return
+                  update("offsetDir", option.value)
+                  if (option.fixedOffsetValue != null) {
+                    update("offsetValue", option.fixedOffsetValue)
+                  }
+                }}
               >
                 <SelectTrigger className="flex-1">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {anchor.options.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
+                    <SelectItem key={offsetOptionValue(opt)} value={offsetOptionValue(opt)}>
                       {opt.label}
                     </SelectItem>
                   ))}
@@ -2916,8 +3011,8 @@ const CHANGE_LOG_ENTRIES: ChangeLogEntry[] = [
     scope: "Cadence",
     scenario: "late",
     setting: "First message offset",
-    oldValue: "3 days after rent due",
-    newValue: "5 days after rent due",
+    oldValue: "3 days after late fees post",
+    newValue: "5 days after late fees post",
   },
   {
     id: "cl-3",
@@ -3314,7 +3409,7 @@ function ResidentEligibilitySection({
               layout="stack"
               title="Score factors"
               description="Property-wide signals that contribute to a resident risk score."
-              hint="Toggle each factor on or off and set its weight. Higher combined scores push residents into moderate or poor bands."
+              hint="Toggle each factor on or off and set its weight. Higher combined scores move residents toward the High Risk band."
             >
               <div className="divide-y divide-border/40">
                 {factorEntries.map((f) => {
@@ -3347,25 +3442,19 @@ function ResidentEligibilitySection({
             <GuardrailRule
               layout="row"
               title="Band thresholds"
-              description="Score at which a resident enters the Moderate and Poor bands. Everything below Moderate is Good."
+              description="Score at which a resident enters the High Risk band. Scores below this threshold are Low Risk."
             >
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                <span className="text-muted-foreground">Moderate ≥</span>
+                <span className="text-muted-foreground">
+                  Low Risk &lt; {state.eligibilityThresholdHighRisk}
+                </span>
+                <span className="text-muted-foreground">· High Risk ≥</span>
                 <Input
                   type="number"
                   min={0}
                   max={100}
-                  value={state.eligibilityThresholdModerate}
-                  onChange={(e) => update("eligibilityThresholdModerate", Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
-                  className="h-7 w-14 text-xs"
-                />
-                <span className="text-muted-foreground">· Poor ≥</span>
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={state.eligibilityThresholdPoor}
-                  onChange={(e) => update("eligibilityThresholdPoor", Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                  value={state.eligibilityThresholdHighRisk}
+                  onChange={(e) => update("eligibilityThresholdHighRisk", Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
                   className="h-7 w-14 text-xs"
                 />
               </div>
@@ -3438,7 +3527,7 @@ function ResidentEligibilitySection({
                     </table>
                   </div>
                   <p className="mt-1.5 px-1 text-[11px] text-muted-foreground">
-                    Higher values push residents toward the Moderate and Poor bands faster. Between count breakpoints the ramp interpolates linearly.
+                    Higher values push residents toward the High Risk band faster. Between count breakpoints the ramp interpolates linearly.
                   </p>
                 </div>
               )}
@@ -3499,8 +3588,7 @@ function ResidentEligibilitySection({
 
             <ScoringPreviewCard
               factors={state.eligibilityFactors}
-              thresholdModerate={state.eligibilityThresholdModerate}
-              thresholdPoor={state.eligibilityThresholdPoor}
+              highRiskThreshold={state.eligibilityThresholdHighRisk}
               scenarioLabel={SCENARIOS.find((s) => s.id === activeScenario)?.shortLabel ?? "Scenario"}
               scenarioRules={state.eligibilityRules[activeScenario]}
             />
@@ -3636,12 +3724,16 @@ function FooterActionBar({
   onDiscard,
   bulkMode = false,
   bulkCount = 0,
+  saveDisabled = false,
+  validationMessage,
 }: {
   dirty: boolean
   onSave: () => void
   onDiscard: () => void
   bulkMode?: boolean
   bulkCount?: number
+  saveDisabled?: boolean
+  validationMessage?: string
 }) {
   return (
     <footer
@@ -3652,7 +3744,11 @@ function FooterActionBar({
     >
       <div className="mx-auto flex max-w-3xl items-center justify-between">
         <div className="text-xs">
-          {dirty ? (
+          {validationMessage ? (
+            <span className="font-medium text-rose-700">
+              <AlertTriangle className="mr-1 inline h-3.5 w-3.5" /> {validationMessage}
+            </span>
+          ) : dirty ? (
             <span className="font-medium text-amber-900">
               <AlertTriangle className="mr-1 inline h-3.5 w-3.5" /> Unsaved changes; won&apos;t take effect until saved.
             </span>
@@ -3664,7 +3760,7 @@ function FooterActionBar({
           <Button variant="ghost" size="sm" onClick={onDiscard} disabled={!dirty}>
             {bulkMode ? "Reset" : "Discard"}
           </Button>
-          <Button size="sm" onClick={onSave} disabled={!dirty}>
+          <Button size="sm" onClick={onSave} disabled={!dirty || saveDisabled}>
             {bulkMode ? `Apply to ${bulkCount} ${bulkCount === 1 ? "property" : "properties"}` : "Save changes"}
           </Button>
         </div>
