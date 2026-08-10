@@ -984,6 +984,46 @@ type MetricTooltip = {
   engineering: string;
 };
 
+function MetricInfoPopover({
+  label,
+  tooltip,
+}: {
+  label: string;
+  tooltip: MetricTooltip;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex shrink-0 text-muted-foreground/60 transition-colors hover:text-muted-foreground"
+          aria-label={`About ${label}`}
+        >
+          <Info className="h-3.5 w-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-96 space-y-3 p-3 text-xs leading-relaxed text-popover-foreground"
+        side="top"
+        align="start"
+      >
+        <div>
+          <p className="mb-1 text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+            What this shows
+          </p>
+          <p>{tooltip.customer}</p>
+        </div>
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5">
+          <p className="mb-1 text-xxs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+            Engineering notes — do not show to customers
+          </p>
+          <p className="text-foreground/90">{tooltip.engineering}</p>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function BillboardStatCard({
   label,
   value,
@@ -1005,29 +1045,7 @@ function BillboardStatCard({
             <p className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
               {label}
             </p>
-            {tooltip && (
-              <Popover>
-                <PopoverTrigger asChild>
-                  <button type="button" className="inline-flex shrink-0 text-muted-foreground/60 hover:text-muted-foreground transition-colors" aria-label={`About ${label}`}>
-                    <Info className="h-3.5 w-3.5" />
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent className="w-96 space-y-3 p-3 text-xs leading-relaxed text-popover-foreground" side="top" align="start">
-                  <div>
-                    <p className="mb-1 text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
-                      What this shows
-                    </p>
-                    <p>{tooltip.customer}</p>
-                  </div>
-                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5">
-                    <p className="mb-1 text-xxs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
-                      Engineering notes — do not show to customers
-                    </p>
-                    <p className="text-foreground/90">{tooltip.engineering}</p>
-                  </div>
-                </PopoverContent>
-              </Popover>
-            )}
+            {tooltip && <MetricInfoPopover label={label} tooltip={tooltip} />}
           </div>
           <p className="mt-2 text-4xl font-bold tracking-tight text-foreground">
             {value}
@@ -1112,6 +1130,13 @@ function EscalationMetricSelector({
   );
 }
 
+const RENEWAL_CONVERSION_FUNNEL_TOOLTIP: MetricTooltip = {
+  customer:
+    "Shows how renewal conversations move from talking with Renewals AI, to accepting a renewal offer, to signing the renewal lease. Conversations is the starting group. Offers Accepted and Leases Signed are shown as counts and as a percentage of those conversations.",
+  engineering:
+    "Denominator (Conversations) = unique residents that Renewals AI had a conversation with in the filtered time period and properties — this is the Conversations number in the chart. Offers Accepted numerator = residents from that conversation cohort who accepted their renewal offer, regardless of whether Renewals AI accepted on their behalf or the resident accepted through the portal or another path. Leases Signed numerator = residents from that same conversation cohort who signed their renewal lease, regardless of signing method. Percentages are Offers Accepted ÷ Conversations and Leases Signed ÷ Conversations.",
+};
+
 function RenewalConversionFunnelCard({
   rows,
 }: {
@@ -1120,7 +1145,13 @@ function RenewalConversionFunnelCard({
   return (
     <Card className="border-border/60">
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm">Conversations → Offers Accepted → Leases Signed</CardTitle>
+        <CardTitle className="flex items-center gap-1.5 text-sm">
+          Conversations → Offers Accepted → Leases Signed
+          <MetricInfoPopover
+            label="Conversations → Offers Accepted → Leases Signed"
+            tooltip={RENEWAL_CONVERSION_FUNNEL_TOOLTIP}
+          />
+        </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         {rows.map((row) => (
