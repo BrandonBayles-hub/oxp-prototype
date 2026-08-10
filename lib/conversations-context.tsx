@@ -376,36 +376,6 @@ function buildThreadActivityMessage(activity: ThreadActivity): ConversationMessa
 
 const INITIAL: ConversationItem[] = [
   {
-    id: "lc-21",
-    resident: "Jordan Lee",
-    unit: null,
-    preview: "Is Saturday at 2pm OK for a tour? I can do Sunday too if that wor...",
-    agent: "Staff",
-    time: "just now",
-    contactType: "Lead",
-    property: "Hillside Living",
-    channel: "SMS",
-    assignee: "Abe Kashiwagi",
-    staffRespondentIsExternalAgent: true,
-    labels: ["Lead"],
-    status: "open",
-    hasUnread: true,
-    messages: [
-      {
-        role: "staff",
-        text: "Hi Jordan — thanks for your interest in Hillside Living. I’ve sent the floor plan you asked for. Let me know when you’d like to tour.",
-        timestamp: "Apr 1 2026 · 4:12pm MST",
-        type: "message",
-      },
-      {
-        role: "resident",
-        text: "Is Saturday at 2pm OK for a tour? I can do Sunday too if that works better.",
-        timestamp: "Apr 1 2026 · 4:18pm MST",
-        type: "message",
-      },
-    ],
-  },
-  {
     id: "lc-22",
     resident: "Nina Ortiz",
     unit: "Unit 445",
@@ -1020,7 +990,6 @@ const SUPER_AGENT_1_DEMO_THREADS: ConversationItem[] = [
     contactType: "Resident",
     property: "Hillside Living",
     channel: "SMS",
-    additionalChannels: ["Voice"],
     assignee: "ELI+ Super Agent",
     labels: ["ELI Conversation", "Maintenance AI 1 Escalation", "Maintenance AI 2 Escalation"],
     escalationId: "esc-super1-jordan-01",

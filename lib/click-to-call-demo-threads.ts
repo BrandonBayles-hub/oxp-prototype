@@ -25,7 +25,6 @@ export const CLICK_TO_CALL_DEMO_THREADS: ConversationItem[] = [
     contactType: "Lead",
     property: "Hillside Living",
     channel: "Voice",
-    additionalChannels: ["SMS"],
     assignee: "Unassigned",
     labels: ["Lead"],
     status: "open",

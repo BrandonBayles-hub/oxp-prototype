@@ -706,10 +706,7 @@ function isPrimaryAiLaneConversation(c: ConversationItem): boolean {
  * other inbound (e.g. lead) threads. Unread always counts as needing staff attention.
  */
 function matchesThreadListEscalatedFilter(c: ConversationItem): boolean {
-  if (c.status !== "open") return false;
-  if (isSuperAgentDemoThread(c.id) && c.labels.some((l) => l.includes("Escalation"))) return true;
-  if (c.hasUnread) return true;
-  return !isWaitingOnResidentPublicReply(c);
+  return c.status === "open";
 }
 
 /**
@@ -854,20 +851,9 @@ function conversationMatchesThreadListChannel(
   return false;
 }
 
-/** Open Threads: open only; unread, @mention in a private note, or unattended. Resolved threads never appear here. */
+/** Open Threads: all open conversations stay visible regardless of read/reply state. */
 function conversationMatchesAllThreadsInbox(c: ConversationItem): boolean {
-  if (c.status !== "open") return false;
-  if (
-    (isSuperAgentDemoThread(c.id) || isSuperAgent1DemoThread(c.id)) &&
-    c.labels.some((l) => l.includes("Escalation"))
-  ) {
-    return true;
-  }
-  return (
-    c.hasUnread ||
-    conversationHasCurrentUserPrivateNoteMention(c) ||
-    isConversationUnattended(c)
-  );
+  return c.status === "open";
 }
 
 function isPublicThreadMessageForUnreadCount(m: ConversationMessage): boolean {
@@ -2120,8 +2106,7 @@ function ConversationsContent() {
 
     // Super Agent 1.0: staff selected escalation(s) to reply to. This is purely a context
     // affordance — the message itself is the public reply. We do NOT remove escalation labels
-    // or resolve the conversation. We just track which escalations have been replied to; once
-    // every escalation on the thread has at least one reply, the thread is hidden from the list.
+    // or resolve the conversation. We track which escalations have been replied to for UI state.
     if (
       isSuperAgent1DemoThread(selected.id) &&
       inputMode === "message" &&
@@ -2131,16 +2116,6 @@ function ConversationsContent() {
       const replied = new Set(sa1RepliedEscalationsRef.current.get(conversationId) ?? []);
       for (const esc of selectedEscalationTypes) replied.add(esc);
       sa1RepliedEscalationsRef.current.set(conversationId, replied);
-
-      const allEscalations = selected.labels.filter((l) => l.includes("Escalation"));
-      const allCovered = allEscalations.length > 0 && allEscalations.every((l) => replied.has(l));
-      if (allCovered) {
-        setSa1HiddenConversationIds((prev) => {
-          const next = new Set(prev);
-          next.add(conversationId);
-          return next;
-        });
-      }
 
       setSelectedEscalationTypes(new Set());
       superAgentSelectionsRef.current.set(conversationId, new Set());
@@ -4949,7 +4924,7 @@ function ConversationsContent() {
                                   >
                                     {isSelected && <Check className="h-2.5 w-2.5 stroke-[3]" />}
                                   </span>
-                                  {label.replace(" Escalation", "").replace(/\s+\d+$/, "").replace(/\s+\d+$/, "")}
+                                  {label.replace(" Escalation", "").replace(/\s+\d+$/, "")}
                                 </button>
                                 <EscalationIdHint
                                   conversationId={selected.id}
