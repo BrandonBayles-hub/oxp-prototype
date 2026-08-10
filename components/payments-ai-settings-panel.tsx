@@ -2991,12 +2991,21 @@ function LockedStopChip({ label }: { label: string }) {
    Change log section — property-wide audit trail of Payments AI setting edits
    ══════════════════════════════════════════════════════════════════════════ */
 
+type ChangeLogSettingBlock =
+  | "Agent Identity"
+  | "Cadence"
+  | "Custom Text"
+  | "Payment Actions"
+  | "Resident Eligibility"
+  | "Context Awareness"
+  | "Stop Conditions"
+
 type ChangeLogEntry = {
   id: string
   timestamp: string
-  user: { name: string; role: string }
-  scope: "Cadence" | "Custom text" | "Guardrails"
-  /** Present for scenario-scoped changes. Omitted for property-wide settings. */
+  user: { name: string; username: string }
+  scope: ChangeLogSettingBlock
+  /** Scenario badges are shown only for Cadence settings. */
   scenario?: ScenarioId
   setting: string
   oldValue: string
@@ -3005,61 +3014,70 @@ type ChangeLogEntry = {
 
 const CHANGE_LOG_ENTRIES: ChangeLogEntry[] = [
   {
+    id: "cl-1",
+    timestamp: "2026-07-03T14:42:00-06:00",
+    user: { name: "Melissa Ortega", username: "mortega" },
+    scope: "Cadence",
+    scenario: "initial",
+    setting: "Initial Context",
+    oldValue: "1st of the Month",
+    newValue: "When charges are posted",
+  },
+  {
     id: "cl-2",
     timestamp: "2026-06-30T11:08:00-06:00",
-    user: { name: "James Kim", role: "Property Manager" },
+    user: { name: "James Kim", username: "jakim" },
     scope: "Cadence",
     scenario: "late",
-    setting: "First message offset",
-    oldValue: "3 days after late fees post",
-    newValue: "5 days after late fees post",
+    setting: "Delivery Window",
+    oldValue: "8:00 AM – 8:00 PM",
+    newValue: "8:00 AM – 9:00 PM",
   },
   {
     id: "cl-3",
     timestamp: "2026-06-28T09:17:00-06:00",
-    user: { name: "Priya Shah", role: "AR Analyst" },
-    scope: "Guardrails",
-    setting: "Escalate expected payment date threshold",
-    oldValue: "10 or more days after rent is due",
-    newValue: "7 or more days after rent is due",
+    user: { name: "Priya Shah", username: "pshah" },
+    scope: "Cadence",
+    scenario: "legal",
+    setting: "Enable Pre-Collections",
+    oldValue: "Disabled",
+    newValue: "Enabled",
   },
   {
     id: "cl-4",
     timestamp: "2026-06-27T16:55:00-06:00",
-    user: { name: "Melissa Ortega", role: "Regional Manager" },
-    scope: "Guardrails",
-    setting: "Tool-call failure cap",
-    oldValue: "5 consecutive failures",
-    newValue: "3 consecutive failures",
+    user: { name: "Melissa Ortega", username: "mortega" },
+    scope: "Custom Text",
+    setting: "Enable Rent Reminder Custom Text",
+    oldValue: "Disabled",
+    newValue: "Enabled",
   },
   {
     id: "cl-5",
     timestamp: "2026-06-25T13:24:00-06:00",
-    user: { name: "James Kim", role: "Property Manager" },
-    scope: "Custom text",
-    scenario: "initial",
-    setting: "Intro message",
-    oldValue: "Hi {resident_first_name}, this is a friendly reminder your rent is due soon.",
-    newValue: "Hi {resident_first_name} — your rent for {month} is due on the {rent_due_day}. Let me know if you'd like help paying.",
+    user: { name: "James Kim", username: "jakim" },
+    scope: "Custom Text",
+    setting: "Rent Reminder Email Subject",
+    oldValue: "Your rent is due soon",
+    newValue: "A reminder about your upcoming rent payment",
   },
   {
     id: "cl-6",
     timestamp: "2026-06-24T10:03:00-06:00",
-    user: { name: "Priya Shah", role: "AR Analyst" },
-    scope: "Guardrails",
-    setting: "Repayment agreements — max months (automated)",
-    oldValue: "3 months",
-    newValue: "4 months",
+    user: { name: "Priya Shah", username: "pshah" },
+    scope: "Payment Actions",
+    setting: "Allow ELI+ to offer repayment agreements",
+    oldValue: "Disabled",
+    newValue: "Enabled",
   },
   {
-    id: "cl-8",
+    id: "cl-7",
     timestamp: "2026-06-20T08:12:00-06:00",
-    user: { name: "James Kim", role: "Property Manager" },
-    scope: "Cadence",
-    scenario: "late",
-    setting: "Quiet hours",
-    oldValue: "8:00 PM – 8:00 AM",
-    newValue: "9:00 PM – 8:00 AM",
+    user: { name: "James Kim", username: "jakim" },
+    scope: "Stop Conditions",
+    setting: "Pause sequence when resident shares an expected payment date",
+    oldValue: "Disabled",
+    newValue: "Enabled",
   },
 ]
 
@@ -3067,20 +3085,18 @@ function formatChangeLogTimestamp(iso: string): string {
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return iso
   const dateStr = date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
-  const timeStr = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+  const timeStr = date.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  })
   return `${dateStr} · ${timeStr}`
 }
 
-const CHANGE_LOG_SCOPE_STYLES: Record<ChangeLogEntry["scope"], string> = {
-  "Cadence": "bg-sky-100 text-sky-800",
-  "Custom text": "bg-violet-100 text-violet-800",
-  "Guardrails": "bg-emerald-100 text-emerald-800",
-}
-
-const CHANGE_LOG_SCENARIO_STYLES: Record<ScenarioId, string> = {
-  initial: "bg-sky-50 text-sky-700 ring-1 ring-sky-200",
-  late: "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
-  legal: "bg-rose-50 text-rose-700 ring-1 ring-rose-200",
+function formatChangeLogSetting(entry: ChangeLogEntry): string {
+  if (entry.scope !== "Cadence" || !entry.scenario) return entry.setting
+  const cadenceName = SCENARIOS.find((scenario) => scenario.id === entry.scenario)?.shortLabel
+  return cadenceName ? `${cadenceName}: ${entry.setting}` : entry.setting
 }
 
 function ChangeLogSection({ propertyName }: { propertyName: string }) {
@@ -3106,31 +3122,13 @@ function ChangeLogSection({ propertyName }: { propertyName: string }) {
             {CHANGE_LOG_ENTRIES.map((entry) => (
               <tr key={entry.id} className="align-top">
                 <td className="px-3 py-3">
-                  <div className="text-sm font-medium text-foreground">{entry.setting}</div>
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    <span
-                      className={cn(
-                        "inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                        CHANGE_LOG_SCOPE_STYLES[entry.scope],
-                      )}
-                    >
-                      {entry.scope}
-                    </span>
-                    {entry.scenario && entry.scope !== "Guardrails" && (
-                      <span
-                        className={cn(
-                          "inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                          CHANGE_LOG_SCENARIO_STYLES[entry.scenario],
-                        )}
-                      >
-                        {SCENARIOS.find((s) => s.id === entry.scenario)?.shortLabel ?? entry.scenario}
-                      </span>
-                    )}
+                  <div className="text-sm font-medium text-foreground">
+                    {formatChangeLogSetting(entry)}
                   </div>
                 </td>
                 <td className="whitespace-nowrap px-3 py-3">
                   <div className="text-sm font-medium text-foreground">{entry.user.name}</div>
-                  <div className="text-[11px] text-muted-foreground">{entry.user.role}</div>
+                  <div className="text-[11px] text-muted-foreground">{entry.user.username}</div>
                 </td>
                 <td className="whitespace-nowrap px-3 py-3 text-xs text-muted-foreground tabular-nums">
                   {formatChangeLogTimestamp(entry.timestamp)}
@@ -3146,9 +3144,6 @@ function ChangeLogSection({ propertyName }: { propertyName: string }) {
           </tbody>
         </table>
       </div>
-      <p className="mt-3 text-[11px] text-muted-foreground">
-        Prototype data — a production change log will pull from the same audit stream that powers Entrata&apos;s other admin activity logs.
-      </p>
     </SectionShell>
   )
 }
