@@ -969,7 +969,7 @@ function ProfilePanelConversationActionsMenu({
                       }}
                     >
                       <Check className={cn("h-3.5 w-3.5 shrink-0", applied ? "opacity-100" : "opacity-0")} />
-                      <span className="truncate">{label}</span>
+                      <span className="truncate">{label.replace(/\s+\d+(?=\s+Escalation)/, "")}</span>
                     </button>
                   );
                 })}
@@ -3368,7 +3368,7 @@ function ConversationsContent() {
                                     : "border-border"
                                 )}
                               >
-                                {label}
+                                {label.replace(/\s+\d+(?=\s+Escalation)/, "")}
                               </Badge>
                               {label.includes("Escalation") && (
                                 <EscalationIdHint conversationId={selected.id} label={label} />
@@ -3425,7 +3425,7 @@ function ConversationsContent() {
                                 }}
                               >
                                 <Check className={cn("h-3.5 w-3.5 shrink-0", applied ? "opacity-100 text-emerald-500" : "opacity-0")} />
-                                <span className="truncate">{label}</span>
+                                <span className="truncate">{label.replace(/\s+\d+(?=\s+Escalation)/, "")}</span>
                               </button>
                             );
                           })}
