@@ -15,7 +15,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Loader2, X } from "lucide-react";
+import { Info, Loader2, X } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -29,6 +29,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import {
   CHART_GRID_STROKE,
@@ -1067,10 +1068,26 @@ function LoadingBanner() {
 // Page
 // -----------------------------------------------------------------------------
 
+type MetricTooltip = {
+  customer: string;
+  engineering: string;
+};
+
+/** Distribute `total` across `weights` so the parts always sum exactly to `total`. */
+function distributeCounts(total: number, weights: number[]): number[] {
+  const weightSum = weights.reduce((sum, weight) => sum + weight, 0) || 1;
+  const counts = weights.map((weight) => Math.floor((total * weight) / weightSum));
+  let remainder = total - counts.reduce((sum, count) => sum + count, 0);
+  for (let i = 0; remainder > 0; i += 1, remainder -= 1) {
+    counts[i % counts.length] += 1;
+  }
+  return counts;
+}
+
 export default function MaintenanceAiDashboardPage() {
   const [filters, setFilters, scope] = useReportScope(PROPERTIES, MAINTENANCE_EXTRA_DEFAULTS);
   const [loading, setLoading] = useState(false);
-  const [reportVersion, setReportVersion] = useState("jvm");
+  const [reportVersion, setReportVersion] = useState("original");
   const [sliceBy, setSliceBy] = useState<SliceDimension>("status");
   const filtersKey = useMemo(
     () => JSON.stringify(serializeFilters(filters)),
@@ -1104,32 +1121,31 @@ export default function MaintenanceAiDashboardPage() {
     const scale = months / 12;
     const fmt = (n: number) => Math.round(n).toLocaleString();
 
-    const voiceSent = fmt(3800 * scale * jitter());
-    const chatSent = fmt(5200 * scale * jitter());
-    const smsSent = fmt(7600 * scale * jitter());
-    const totalMessages = fmt((3800 + 5200 + 7600) * scale * jitter());
+    const totalMessagesCount = Math.round(16600 * scale * jitter());
+    const [voiceCount, chatCount, smsCount] = distributeCounts(
+      totalMessagesCount,
+      [3800, 5200, 7600],
+    );
+    const totalMessages = totalMessagesCount.toLocaleString();
+    const voiceSent = voiceCount.toLocaleString();
+    const chatSent = chatCount.toLocaleString();
+    const smsSent = smsCount.toLocaleString();
 
-    const dayVolumes = [
-      { label: "Mon", count: Math.round(2600 * scale * jitter()) },
-      { label: "Tue", count: Math.round(2800 * scale * jitter()) },
-      { label: "Wed", count: Math.round(2700 * scale * jitter()) },
-      { label: "Thu", count: Math.round(2500 * scale * jitter()) },
-      { label: "Fri", count: Math.round(2300 * scale * jitter()) },
-      { label: "Sat", count: Math.round(1800 * scale * jitter()) },
-      { label: "Sun", count: Math.round(1200 * scale * jitter()) },
-    ].sort((a, b) => b.count - a.count);
+    const dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const dayCounts = distributeCounts(totalMessagesCount, [2600, 2800, 2700, 2500, 2300, 1800, 1200]);
+    const dayVolumes = dayLabels
+      .map((label, index) => ({ label, count: dayCounts[index] }))
+      .sort((a, b) => b.count - a.count);
 
+    const hourBucketLabels = ["12a–4a", "4a–8a", "8a–12p", "12p–4p", "4p–8p", "8p–12a"];
+    const hourBucketCounts = distributeCounts(totalMessagesCount, [750, 1950, 5400, 3900, 3100, 980]);
+    const hourBuckets = hourBucketLabels
+      .map((label, index) => ({ label, count: hourBucketCounts[index] }))
+      .sort((a, b) => b.count - a.count);
+
+    // Peak hour sits inside the busiest 4-hour bucket (approx 45% of that bucket).
     const topHourLabel = "10 AM";
-    const topHourCount = Math.round(2500 * scale * jitter());
-
-    const hourBuckets = [
-      { label: "12a–4a", count: Math.round(750 * scale * jitter()) },
-      { label: "4a–8a", count: Math.round(1950 * scale * jitter()) },
-      { label: "8a–12p", count: Math.round(5400 * scale * jitter()) },
-      { label: "12p–4p", count: Math.round(3900 * scale * jitter()) },
-      { label: "4p–8p", count: Math.round(3100 * scale * jitter()) },
-      { label: "8p–12a", count: Math.round(980 * scale * jitter()) },
-    ].sort((a, b) => b.count - a.count);
+    const topHourCount = Math.max(1, Math.round(hourBuckets[0].count * 0.45));
 
     return {
       totalMessages,
@@ -1150,37 +1166,166 @@ export default function MaintenanceAiDashboardPage() {
       voiceAgentTime: `< ${(3 * jitter()).toFixed(0)} sec`,
       chatAgentTime: `< ${(4 * jitter()).toFixed(0)} sec`,
       smsAgentTime: `< ${(8 * jitter()).toFixed(0)} sec`,
-      responseRate: `${(52.4 * jitter()).toFixed(1)}%`,
-      voiceResponseRate: `${(71.2 * jitter()).toFixed(1)}%`,
-      chatResponseRate: `${(58.6 * jitter()).toFixed(1)}%`,
-      smsResponseRate: `${(42.1 * jitter()).toFixed(1)}%`,
-      avgResidentResponseTime: `${(2.4 * jitter()).toFixed(1)} hrs`,
-      voiceResidentTime: `${(0.05 * jitter()).toFixed(2)} hrs`,
-      chatResidentTime: `${(0.8 * jitter()).toFixed(1)} hrs`,
-      smsResidentTime: `${(4.8 * jitter()).toFixed(1)} hrs`,
+      workOrdersCreated: fmt(1280 * scale * jitter()),
+      voiceWorkOrders: fmt(240 * scale * jitter()),
+      chatWorkOrders: fmt(620 * scale * jitter()),
+      smsWorkOrders: fmt(420 * scale * jitter()),
+      emergencyWorkOrders: fmt(172 * scale * jitter()),
+      voiceEmergency: fmt(52 * scale * jitter()),
+      chatEmergency: fmt(72 * scale * jitter()),
+      smsEmergency: fmt(48 * scale * jitter()),
       avgResolutionHours: `${(18.4 * jitter()).toFixed(1)} hrs`,
-      voiceResolutionTime: `${(12.4 * jitter()).toFixed(1)} hrs`,
-      chatResolutionTime: `${(16.8 * jitter()).toFixed(1)} hrs`,
-      smsResolutionTime: `${(20.5 * jitter()).toFixed(1)} hrs`,
-      workOrderVoice: Math.round(240 * scale * jitter()),
-      workOrderChat: Math.round(640 * scale * jitter()),
-      workOrderSms: Math.round(405 * scale * jitter()),
-      emergencyVoice: Math.round(52 * scale * jitter()),
-      emergencyChat: Math.round(74 * scale * jitter()),
-      emergencySms: Math.round(50 * scale * jitter()),
+      voiceResolutionHours: `${(12.3 * jitter()).toFixed(1)} hrs`,
+      chatResolutionHours: `${(16.8 * jitter()).toFixed(1)} hrs`,
+      smsResolutionHours: `${(20.7 * jitter()).toFixed(1)} hrs`,
     };
   }, [months]);
 
+  const METRIC_TOOLTIPS = {
+    totalMessages: {
+      customer: "Total messages sent by this agent for the filtered time period and properties.",
+      engineering:
+        "Each message sent by super agent is tagged by super agent to the originating sub-agent(s). If a single message was triggered by multiple sub-agents, it counts toward each sub-agent. Make sure we can break down the metric by communication channel since that is also displayed.",
+    },
+    messagesByDay: {
+      customer: "How many messages this agent sent on each day of the week for the filtered time period and properties.",
+      engineering:
+        "Count messages tagged to this sub-agent, grouped by day-of-week of send time (using each property's local timezone). The seven day counts MUST sum exactly to Total Messages Sent for the same filter scope (sub-agent + period + properties).",
+    },
+    messagesByHour: {
+      customer:
+        "How many messages this agent sent during each part of the day for the filtered time period and properties. Times use each property's local timezone.",
+      engineering:
+        "Bucket message send timestamps into 4-hour windows using each property's local timezone (so 3:55 PM Mountain and 3:55 PM Central both land in 12p–4p). The six bucket counts MUST sum exactly to Total Messages Sent for the same filter scope (sub-agent + period + properties).",
+    },
+    escalationRate: {
+      customer: "The percentage of conversations with this agent that needed a team member to step in.",
+      engineering:
+        "Nexus escalations only — count only escalations in Nexus where a human needs to get involved. Formula: conversations with ≥1 such escalation ÷ total conversations for this sub-agent in the filter scope. A conversation with multiple escalations counts once. Also surface total / open / resolved escalation counts for the same scope.",
+    },
+    optOutRate: {
+      customer:
+        "How often residents opted out of messaging after hearing from this agent. We only count an opt-out when this agent sent the most recent message to that resident in the 48 hours before they opted out.",
+      engineering:
+        "Find STOP/opt-out events (SMS or email). For each, look up ONLY the most recent agent message sent to that resident within the prior 48 hours. Attribute the opt-out ONLY to the sub-agent(s) tagged on that most recent message. If no agent message exists in that window, exclude the opt-out. Break down by channel.",
+    },
+    agentResponseTime: {
+      customer: "On average, how long it takes residents to get a reply after they message this agent.",
+      engineering:
+        "Measure per conversational turn. For each resident message → agent reply pair, compute elapsed time until the resident actually receives the reply (not when the sub-agent handed the reply to super agent). If a conversation goes back and forth 10 times, include all 10 response times in the average. Exclude turns where a blocking escalation was created (human takes over). Exclude resident messages that have not yet received an agent response — those turns cannot be measured and must not be included in the average.",
+    },
+    workOrdersCreated: {
+      customer:
+        "How many work orders this agent created for residents during the filtered time period and properties, broken down by the channel where the request came in.",
+      engineering:
+        "Count work orders created by Maintenance AI (or attributed to this sub-agent) in filter scope. Break down by inbound channel of the resident request that led to work-order creation (Voice / Chat / SMS). Do not double-count a single work order across channels.",
+    },
+    emergencyWorkOrders: {
+      customer:
+        "How many of the work orders this agent created were marked as emergency priority, broken down by channel.",
+      engineering:
+        "Subset of Work Orders Created where priority = Emergency (or equivalent emergency flag). Denominator context for the sub-label is Work Orders Created in the same filter scope. Break down by inbound channel. Emergency counts by channel MUST sum to the headline emergency total.",
+    },
+    avgResolutionTime: {
+      customer:
+        "On average, how long it takes for work orders created with this agent's help to be fully resolved.",
+      engineering:
+        "Average elapsed time from work-order creation timestamp to resolution/closed timestamp for work orders in filter scope that are resolved. Break down by inbound channel of the originating request. Exclude still-open work orders from the average.",
+    },
+  } as const satisfies Record<string, MetricTooltip>;
+
   const alphaStats = [
-    { label: "Total Messages", value: alphaKpi.totalMessages, sub: "across all channels", channels: [{ label: "Voice", value: alphaKpi.voiceSent }, { label: "Chat", value: alphaKpi.chatSent }, { label: "SMS", value: alphaKpi.smsSent }] },
-    { label: "Messages by Day", value: `${alphaKpi.topDay.count.toLocaleString()}`, sub: `peak day: ${alphaKpi.topDay.label}`, channels: alphaKpi.dayBreakdown.map((d) => ({ label: d.label, value: d.count.toLocaleString() })) },
-    { label: "Messages by Hour", value: `${alphaKpi.topHour.count.toLocaleString()}`, sub: `peak hour: ${alphaKpi.topHour.label}`, channels: alphaKpi.hourBuckets.map((h) => ({ label: h.label, value: h.count.toLocaleString() })) },
-    { label: "Escalation Rate", value: alphaKpi.escalationRate, sub: "of AI contacts escalated", channels: [{ label: "Total", value: alphaKpi.totalEscalations }, { label: "Open", value: alphaKpi.openEscalations }, { label: "Resolved", value: alphaKpi.resolvedEscalations }] },
-    { label: "Opt Out Rate", value: alphaKpi.optOutRate, sub: "opted out of AI messaging", channels: [{ label: "Voice", value: alphaKpi.voiceOptOut }, { label: "Chat", value: alphaKpi.chatOptOut }, { label: "SMS", value: alphaKpi.smsOptOut }] },
-    { label: "Average Agent Response Time", value: alphaKpi.avgAgentResponseTime, sub: "resident message to agent reply", channels: [{ label: "Voice", value: alphaKpi.voiceAgentTime }, { label: "Chat", value: alphaKpi.chatAgentTime }, { label: "SMS", value: alphaKpi.smsAgentTime }] },
-    { label: "Work Orders Created", value: (alphaKpi.workOrderVoice + alphaKpi.workOrderChat + alphaKpi.workOrderSms).toLocaleString(), sub: "of total messages", channels: [{ label: "Voice", value: alphaKpi.workOrderVoice.toLocaleString() }, { label: "Chat", value: alphaKpi.workOrderChat.toLocaleString() }, { label: "SMS", value: alphaKpi.workOrderSms.toLocaleString() }] },
-    { label: "Emergency Work Orders Created", value: (alphaKpi.emergencyVoice + alphaKpi.emergencyChat + alphaKpi.emergencySms).toLocaleString(), sub: "of work orders created", channels: [{ label: "Voice", value: alphaKpi.emergencyVoice.toLocaleString() }, { label: "Chat", value: alphaKpi.emergencyChat.toLocaleString() }, { label: "SMS", value: alphaKpi.emergencySms.toLocaleString() }] },
-    { label: "Average Resolution Time", value: alphaKpi.avgResolutionHours, sub: "avg hours to resolution", channels: [{ label: "Voice", value: alphaKpi.voiceResolutionTime }, { label: "Chat", value: alphaKpi.chatResolutionTime }, { label: "SMS", value: alphaKpi.smsResolutionTime }] },
+    {
+      label: "Total Messages Sent",
+      value: alphaKpi.totalMessages,
+      sub: "across all channels",
+      tooltip: METRIC_TOOLTIPS.totalMessages,
+      channels: [
+        { label: "Voice", value: alphaKpi.voiceSent },
+        { label: "Chat", value: alphaKpi.chatSent },
+        { label: "SMS", value: alphaKpi.smsSent },
+      ],
+    },
+    {
+      label: "Messages Sent by Day",
+      value: `${alphaKpi.topDay.count.toLocaleString()}`,
+      sub: `peak day: ${alphaKpi.topDay.label}`,
+      tooltip: METRIC_TOOLTIPS.messagesByDay,
+      channels: alphaKpi.dayBreakdown.map((d) => ({ label: d.label, value: d.count.toLocaleString() })),
+    },
+    {
+      label: "Messages Sent by Hour",
+      value: `${alphaKpi.topHour.count.toLocaleString()}`,
+      sub: `peak hour: ${alphaKpi.topHour.label}`,
+      tooltip: METRIC_TOOLTIPS.messagesByHour,
+      channels: alphaKpi.hourBuckets.map((h) => ({ label: h.label, value: h.count.toLocaleString() })),
+    },
+    {
+      label: "Escalation Rate",
+      value: alphaKpi.escalationRate,
+      sub: "of AI contacts escalated",
+      tooltip: METRIC_TOOLTIPS.escalationRate,
+      channels: [
+        { label: "Total", value: alphaKpi.totalEscalations },
+        { label: "Open", value: alphaKpi.openEscalations },
+        { label: "Resolved", value: alphaKpi.resolvedEscalations },
+      ],
+    },
+    {
+      label: "Opt Out Rate",
+      value: alphaKpi.optOutRate,
+      sub: "opted out of AI messaging",
+      tooltip: METRIC_TOOLTIPS.optOutRate,
+      channels: [
+        { label: "Voice", value: alphaKpi.voiceOptOut },
+        { label: "Chat", value: alphaKpi.chatOptOut },
+        { label: "SMS", value: alphaKpi.smsOptOut },
+      ],
+    },
+    {
+      label: "Average Agent Response Time",
+      value: alphaKpi.avgAgentResponseTime,
+      sub: "resident message to agent reply",
+      tooltip: METRIC_TOOLTIPS.agentResponseTime,
+      channels: [
+        { label: "Voice", value: alphaKpi.voiceAgentTime },
+        { label: "Chat", value: alphaKpi.chatAgentTime },
+        { label: "SMS", value: alphaKpi.smsAgentTime },
+      ],
+    },
+    {
+      label: "Work Orders Created",
+      value: alphaKpi.workOrdersCreated,
+      sub: "of total messages",
+      tooltip: METRIC_TOOLTIPS.workOrdersCreated,
+      channels: [
+        { label: "Voice", value: alphaKpi.voiceWorkOrders },
+        { label: "Chat", value: alphaKpi.chatWorkOrders },
+        { label: "SMS", value: alphaKpi.smsWorkOrders },
+      ],
+    },
+    {
+      label: "Emergency Work Orders Created",
+      value: alphaKpi.emergencyWorkOrders,
+      sub: "of work orders created",
+      tooltip: METRIC_TOOLTIPS.emergencyWorkOrders,
+      channels: [
+        { label: "Voice", value: alphaKpi.voiceEmergency },
+        { label: "Chat", value: alphaKpi.chatEmergency },
+        { label: "SMS", value: alphaKpi.smsEmergency },
+      ],
+    },
+    {
+      label: "Average Resolution Time",
+      value: alphaKpi.avgResolutionHours,
+      sub: "avg hours to resolution",
+      tooltip: METRIC_TOOLTIPS.avgResolutionTime,
+      channels: [
+        { label: "Voice", value: alphaKpi.voiceResolutionHours },
+        { label: "Chat", value: alphaKpi.chatResolutionHours },
+        { label: "SMS", value: alphaKpi.smsResolutionHours },
+      ],
+    },
   ];
 
   return (
@@ -1198,10 +1343,15 @@ export default function MaintenanceAiDashboardPage() {
         extraFilters={MAINTENANCE_EXTRA_FILTERS}
       />
 
-      <div className="mb-4 flex items-center justify-between gap-4 rounded-lg border border-border px-4 py-3">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-foreground">Report Version</p>
-          <p className="text-xs text-muted-foreground">Switch between report layout variants</p>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-dashed border-amber-500/50 bg-amber-500/5 px-4 py-3">
+        <div>
+          <p className="text-xxs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+            Developer tool — do not ship to customers
+          </p>
+          <p className="text-xs font-semibold text-foreground">Report Version</p>
+          <p className="text-xxs text-muted-foreground">
+            Prototype-only switch between Original, Alpha Launch, and Golden Prototype layouts.
+          </p>
         </div>
         <SegmentedToggle
           aria-label="Report version"
@@ -1714,10 +1864,6 @@ export default function MaintenanceAiDashboardPage() {
       {(reportVersion === "jvm" || reportVersion === "golden") ? (
       <>
         <section className="mb-6">
-          <SectionBanner
-            title={reportVersion === "jvm" ? "Alpha Launch" : "Golden Prototype"}
-            description="Billboard-first metrics with per-channel breakdowns"
-          />
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {alphaStats.map((stat) => (
               <BillboardStatCard
@@ -1726,13 +1872,12 @@ export default function MaintenanceAiDashboardPage() {
                 value={stat.value}
                 sub={stat.sub}
                 channels={stat.channels}
+                tooltip={stat.tooltip}
               />
             ))}
           </div>
         </section>
 
-        {reportVersion === "golden" && (
-        <>
         {/* =========================================================== */}
         {/* Section 2 — Maintenance AI Impact                           */}
         {/* =========================================================== */}
@@ -2217,8 +2362,6 @@ export default function MaintenanceAiDashboardPage() {
             </Card>
           </div>
         </section>
-        </>
-        )}
       </>
       ) : null}
     </div>
@@ -2903,25 +3046,51 @@ function BillboardStatCard({
   value,
   sub,
   channels,
+  tooltip,
 }: {
   label: string;
   value: string;
   sub: string;
   channels: { label: string; value: string }[];
+  tooltip?: MetricTooltip;
 }) {
   return (
-    <Card className="h-full min-h-[126px] border-border/60">
-      <CardContent className="flex h-full flex-col px-5 py-3">
-        <p className="whitespace-nowrap text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
-            {label}
-        </p>
-        <div className="mt-2 flex min-h-0 flex-1 items-end justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <p className="whitespace-nowrap text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-              {value}
+    <Card className="flex h-full flex-col border-border/60">
+      <CardContent className="flex flex-1 items-center gap-4 px-5 py-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <p className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+              {label}
             </p>
-            <p className="mt-1 whitespace-nowrap text-xs font-normal text-muted-foreground">{sub}</p>
+            {tooltip && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button type="button" className="inline-flex shrink-0 text-muted-foreground/60 hover:text-muted-foreground transition-colors" aria-label={`About ${label}`}>
+                    <Info className="h-3.5 w-3.5" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-96 space-y-3 p-3 text-xs leading-relaxed text-popover-foreground" side="top" align="start">
+                  <div>
+                    <p className="mb-1 text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+                      What this shows
+                    </p>
+                    <p>{tooltip.customer}</p>
+                  </div>
+                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5">
+                    <p className="mb-1 text-xxs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                      Engineering notes — do not show to customers
+                    </p>
+                    <p className="text-foreground/90">{tooltip.engineering}</p>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
           </div>
+          <p className="mt-2 text-4xl font-bold tracking-tight text-foreground">
+            {value}
+          </p>
+          <p className="mt-1 text-xs font-normal text-muted-foreground">{sub}</p>
+        </div>
         {channels.length > 0 && (
           <div className="grid shrink-0 gap-x-4 gap-y-2 border-l border-border pl-4" style={{ gridTemplateColumns: `repeat(${Math.min(channels.length, 3)}, auto)` }}>
             {channels.map((ch) => (
@@ -2932,7 +3101,6 @@ function BillboardStatCard({
             ))}
           </div>
         )}
-        </div>
       </CardContent>
     </Card>
   );
