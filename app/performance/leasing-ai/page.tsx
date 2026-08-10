@@ -24,11 +24,13 @@ import { cn } from "@/lib/utils";
 import {
   CHART_GRID_STROKE,
   EscalationsSection,
+  MetricTrendDrillIn,
   ReportFilterBar,
   ReportPageHeader,
   SectionBanner,
   SegmentedToggle,
   StatCard,
+  buildSeededMetricTrend,
   monthsForPeriod,
   selectionRatio,
   seriesColor,
@@ -1543,15 +1545,32 @@ function BillboardStatCard({
   sub,
   channels,
   tooltip,
+  onSelect,
 }: {
   label: string;
   value: string;
   sub: string;
   channels: { label: string; value: string }[];
   tooltip?: MetricTooltip;
+  onSelect?: () => void;
 }) {
   return (
-    <Card className="flex h-full flex-col border-border/60">
+    <Card
+      className={`flex h-full flex-col border-border/60 ${onSelect ? "cursor-pointer transition-colors hover:border-foreground/30 hover:bg-muted/20" : ""}`}
+      onClick={onSelect}
+      role={onSelect ? "button" : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      onKeyDown={
+        onSelect
+          ? (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onSelect();
+              }
+            }
+          : undefined
+      }
+    >
       <CardContent className="flex flex-1 items-center justify-between gap-4 px-5 py-4">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
@@ -1559,27 +1578,29 @@ function BillboardStatCard({
               {label}
             </p>
             {tooltip && (
-              <Popover>
-                <PopoverTrigger asChild>
-                  <button type="button" className="inline-flex shrink-0 text-muted-foreground/60 hover:text-muted-foreground transition-colors">
-                    <Info className="h-3.5 w-3.5" />
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent className="w-96 space-y-3 p-3 text-xs leading-relaxed text-popover-foreground" side="top" align="start">
-                  <div>
-                    <p className="mb-1 text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
-                      What this shows
-                    </p>
-                    <p>{tooltip.customer}</p>
-                  </div>
-                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5">
-                    <p className="mb-1 text-xxs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
-                      Engineering notes — do not show to customers
-                    </p>
-                    <p className="text-foreground/90">{tooltip.engineering}</p>
-                  </div>
-                </PopoverContent>
-              </Popover>
+              <span onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button type="button" className="inline-flex shrink-0 text-muted-foreground/60 hover:text-muted-foreground transition-colors">
+                      <Info className="h-3.5 w-3.5" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-96 space-y-3 p-3 text-xs leading-relaxed text-popover-foreground" side="top" align="start">
+                    <div>
+                      <p className="mb-1 text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+                        What this shows
+                      </p>
+                      <p>{tooltip.customer}</p>
+                    </div>
+                    <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5">
+                      <p className="mb-1 text-xxs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                        Engineering notes — do not show to customers
+                      </p>
+                      <p className="text-foreground/90">{tooltip.engineering}</p>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </span>
             )}
           </div>
           <p className="mt-2 text-4xl font-bold tracking-tight text-foreground">
@@ -1620,6 +1641,7 @@ function distributeCounts(total: number, weights: number[]): number[] {
 export default function LeasingAiDashboardPage() {
   const [filters, setFilters, scope] = useReportScope(PROPERTIES);
   const [reportVersion, setReportVersion] = useState<ReportVersion>("original");
+  const [goldenDrillIn, setGoldenDrillIn] = useState<string | null>(null);
 
   const months = useMemo(() => monthsForPeriod(filters.periodId), [filters.periodId]);
 
@@ -1768,6 +1790,122 @@ export default function LeasingAiDashboardPage() {
     { label: "Lead Conversion Speed", value: alphaKpi.avgDaysToConvert, sub: "average days to signed lease", tooltip: METRIC_TOOLTIPS.leadConversionSpeed, channels: [{ label: "Conversion rate", value: alphaKpi.conversionRate }] },
   ];
 
+  const goldenDrillConfigs = useMemo(() => {
+    const configs: Record<
+      string,
+      {
+        title: string;
+        description: string;
+        currentValue: string;
+        unitSuffix?: string;
+        series: { key: string; label: string; color: string; points: ReturnType<typeof buildSeededMetricTrend> }[];
+      }
+    > = {};
+
+    const add = (
+      label: string,
+      opts: {
+        description: string;
+        currentValue: string;
+        unitSuffix?: string;
+        start: number;
+        end: number;
+        integer?: boolean;
+        seed?: string;
+      },
+    ) => {
+      configs[label] = {
+        title: label,
+        description: opts.description,
+        currentValue: opts.currentValue,
+        unitSuffix: opts.unitSuffix,
+        series: [
+          {
+            key: "value",
+            label,
+            color: seriesColor(0),
+            points: buildSeededMetricTrend({
+              seed: opts.seed ?? `leasing-${label}`,
+              months,
+              start: opts.start,
+              end: opts.end,
+              integer: opts.integer,
+            }),
+          },
+        ],
+      };
+    };
+
+    add("Total Messages Sent", {
+      description: "Total messages sent by Leasing AI over the selected period.",
+      currentValue: alphaKpi.totalMessages,
+      start: 1800,
+      end: 3200,
+      integer: true,
+    });
+    add("Messages Sent by Day", {
+      description: "Peak weekday message volume over the selected period.",
+      currentValue: `${alphaKpi.topDay.count.toLocaleString()} (${alphaKpi.topDay.label})`,
+      start: 2100,
+      end: 3480,
+      integer: true,
+    });
+    add("Messages Sent by Hour", {
+      description: "Peak hour message volume over the selected period.",
+      currentValue: `${alphaKpi.topHour.count.toLocaleString()} (${alphaKpi.topHour.label})`,
+      start: 900,
+      end: 1600,
+      integer: true,
+    });
+    add("Escalation Rate", {
+      description: "Share of conversations that needed a human in Nexus.",
+      currentValue: alphaKpi.escalationRate,
+      unitSuffix: "%",
+      start: 13,
+      end: 10,
+    });
+    add("Opt Out Rate", {
+      description: "Opt-out rate attributed to Leasing AI over time.",
+      currentValue: alphaKpi.optOutRate,
+      unitSuffix: "%",
+      start: 5.2,
+      end: 3.8,
+    });
+    add("Average Agent Response Time", {
+      description: "Average agent response time (seconds) across answered turns.",
+      currentValue: alphaKpi.avgAgentResponseTime,
+      unitSuffix: "sec",
+      start: 10,
+      end: 6,
+      integer: true,
+    });
+    add("Resident Response Rate Within 48 Hours", {
+      description: "Share of proactive outreach messages that got a reply within 48 hours.",
+      currentValue: alphaKpi.responseRate,
+      unitSuffix: "%",
+      start: 32,
+      end: 41,
+    });
+    add("Resident Response Time", {
+      description: "Average resident reply time among the 48-hour responder cohort.",
+      currentValue: alphaKpi.avgResidentResponseTime,
+      unitSuffix: "hrs",
+      start: 5.2,
+      end: 3.8,
+    });
+    add("Lead Conversion Speed", {
+      description: "Average days from first Leasing AI engagement to signed lease.",
+      currentValue: alphaKpi.avgDaysToConvert,
+      unitSuffix: "days",
+      start: 6.5,
+      end: 4.6,
+    });
+
+    return configs;
+  }, [months, alphaKpi]);
+
+  const activeGoldenDrill = goldenDrillIn ? goldenDrillConfigs[goldenDrillIn] : null;
+
   return (
     <div className="-mt-2">
       <ReportPageHeader
@@ -1797,6 +1935,7 @@ export default function LeasingAiDashboardPage() {
           value={reportVersion}
           onChange={(next) => {
             setReportVersion(next);
+            setGoldenDrillIn(null);
           }}
           options={REPORT_VERSION_OPTIONS}
           aria-label="Leasing AI report version"
@@ -1867,7 +2006,7 @@ export default function LeasingAiDashboardPage() {
         </>
       ) : null}
 
-      {reportVersion === "jvm" || reportVersion === "golden" ? (
+      {reportVersion === "jvm" ? (
         <>
           <section className="mb-6">
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -1937,6 +2076,96 @@ export default function LeasingAiDashboardPage() {
               </Card>
             </div>
           </section>
+        </>
+      ) : null}
+
+      {reportVersion === "golden" ? (
+        <>
+          {activeGoldenDrill ? (
+            <MetricTrendDrillIn
+              title={activeGoldenDrill.title}
+              description={activeGoldenDrill.description}
+              currentValue={activeGoldenDrill.currentValue}
+              unitSuffix={activeGoldenDrill.unitSuffix}
+              series={activeGoldenDrill.series}
+              onBack={() => setGoldenDrillIn(null)}
+            />
+          ) : (
+            <>
+              <section className="mb-6">
+                <p className="mb-3 text-xs text-muted-foreground">
+                  Click any metric card to open its trend over the selected period.
+                </p>
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {alphaStats.map((stat) => (
+                    <BillboardStatCard
+                      key={stat.label}
+                      label={stat.label}
+                      value={stat.value}
+                      sub={stat.sub}
+                      channels={stat.channels}
+                      tooltip={stat.tooltip}
+                      onSelect={() => setGoldenDrillIn(stat.label)}
+                    />
+                  ))}
+                </div>
+              </section>
+
+              <LeadCaptureSection filters={filters} months={months} />
+
+              <DomoReplicaSection filters={filters} months={months} />
+
+              <EscalationsOverviewSection
+                filters={filters}
+                months={months}
+                escalationResolutionData={escalationResolutionData}
+              />
+
+              <section className="mb-6">
+                <SectionBanner
+                  title="Agent Adoption"
+                  description="Staff outreach activity — emails, SMS, prospects assisted, and resolved tasks by agent"
+                />
+                <div className="mb-4">
+                  <Card className="border-border/60">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">Agent Activity</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-border bg-muted/40">
+                              <th className="px-4 py-2.5 text-left text-xxs font-semibold text-muted-foreground">Agent</th>
+                              <th className="px-4 py-2.5 text-left text-xxs font-semibold text-muted-foreground">Property</th>
+                              <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">Emails Sent</th>
+                              <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">SMS Sent</th>
+                              <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">Prospects Assisted</th>
+                              <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">Resolved Tasks</th>
+                              <th className="px-4 py-2.5 text-right text-xxs font-semibold text-muted-foreground">Calls Dialed</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {agentActivityRows.map((row) => (
+                              <tr key={row.agent} className="border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors">
+                                <td className="px-4 py-2.5 font-medium text-foreground whitespace-nowrap">{row.agent}</td>
+                                <td className="px-4 py-2.5 text-muted-foreground whitespace-nowrap">{row.property}</td>
+                                <td className="px-4 py-2.5 text-right tabular-nums">{row.emailsSent}</td>
+                                <td className="px-4 py-2.5 text-right tabular-nums">{row.smsSent}</td>
+                                <td className="px-4 py-2.5 text-right tabular-nums">{row.prospectsAssisted}</td>
+                                <td className="px-4 py-2.5 text-right tabular-nums">{row.resolvedTasks}</td>
+                                <td className="px-4 py-2.5 text-right tabular-nums">{row.callsDialed}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </section>
+            </>
+          )}
         </>
       ) : null}
 

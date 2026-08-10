@@ -25,11 +25,13 @@ import { cn } from "@/lib/utils";
 import {
   CHART_GRID_STROKE,
   EscalationsSection,
+  MetricTrendDrillIn,
   ReportFilterBar,
   ReportPageHeader,
   SectionBanner,
   SegmentedToggle,
   StatCard,
+  buildSeededMetricTrend,
   useReportScope,
   legendLabel,
   monthsForPeriod,
@@ -984,62 +986,109 @@ type MetricTooltip = {
   engineering: string;
 };
 
+function MetricInfoPopover({
+  label,
+  tooltip,
+}: {
+  label: string;
+  tooltip: MetricTooltip;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex shrink-0 text-muted-foreground/60 transition-colors hover:text-muted-foreground"
+          aria-label={`About ${label}`}
+        >
+          <Info className="h-3.5 w-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-96 space-y-3 p-3 text-xs leading-relaxed text-popover-foreground"
+        side="top"
+        align="start"
+      >
+        <div>
+          <p className="mb-1 text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+            What this shows
+          </p>
+          <p>{tooltip.customer}</p>
+        </div>
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5">
+          <p className="mb-1 text-xxs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+            Engineering notes — do not show to customers
+          </p>
+          <p className="text-foreground/90">{tooltip.engineering}</p>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function BillboardStatCard({
   label,
   value,
   sub,
   channels,
   tooltip,
+  onSelect,
 }: {
   label: string;
   value: string;
   sub: string;
   channels: { label: string; value: string }[];
   tooltip?: MetricTooltip;
+  onSelect?: () => void;
 }) {
+  const hasChannels = channels.length > 0;
   return (
-    <Card className="flex h-full flex-col border-border/60">
-      <CardContent className="flex flex-1 items-center gap-4 px-5 py-4">
+    <Card
+      className={`flex h-full flex-col border-border/60 ${onSelect ? "cursor-pointer transition-colors hover:border-foreground/30 hover:bg-muted/20" : ""}`}
+      onClick={onSelect}
+      role={onSelect ? "button" : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      onKeyDown={
+        onSelect
+          ? (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onSelect();
+              }
+            }
+          : undefined
+      }
+    >
+      <CardContent
+        className={`flex flex-1 gap-3 px-5 py-4 ${
+          hasChannels ? "flex-col sm:flex-row sm:items-center sm:gap-4" : "items-center"
+        }`}
+      >
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <p className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
               {label}
             </p>
             {tooltip && (
-              <Popover>
-                <PopoverTrigger asChild>
-                  <button type="button" className="inline-flex shrink-0 text-muted-foreground/60 hover:text-muted-foreground transition-colors" aria-label={`About ${label}`}>
-                    <Info className="h-3.5 w-3.5" />
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent className="w-96 space-y-3 p-3 text-xs leading-relaxed text-popover-foreground" side="top" align="start">
-                  <div>
-                    <p className="mb-1 text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
-                      What this shows
-                    </p>
-                    <p>{tooltip.customer}</p>
-                  </div>
-                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5">
-                    <p className="mb-1 text-xxs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
-                      Engineering notes — do not show to customers
-                    </p>
-                    <p className="text-foreground/90">{tooltip.engineering}</p>
-                  </div>
-                </PopoverContent>
-              </Popover>
+              <span onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+                <MetricInfoPopover label={label} tooltip={tooltip} />
+              </span>
             )}
           </div>
-          <p className="mt-2 text-4xl font-bold tracking-tight text-foreground">
+          <p className="mt-2 text-3xl font-bold tracking-tight text-foreground tabular-nums sm:text-4xl">
             {value}
           </p>
           <p className="mt-1 text-xs font-normal text-muted-foreground">{sub}</p>
         </div>
-        {channels.length > 0 && (
-          <div className="grid shrink-0 gap-x-4 gap-y-2 border-l border-border pl-4" style={{ gridTemplateColumns: `repeat(${Math.min(channels.length, 3)}, auto)` }}>
+        {hasChannels && (
+          <div
+            className="grid w-full shrink-0 gap-x-3 gap-y-2 border-border sm:w-auto sm:border-l sm:pl-4"
+            style={{ gridTemplateColumns: `repeat(${Math.min(channels.length, 3)}, minmax(0, 1fr))` }}
+          >
             {channels.map((ch) => (
-              <div key={ch.label} className="flex flex-col items-center">
+              <div key={ch.label} className="min-w-0 flex flex-col items-center text-center">
                 <span className="text-sm font-semibold tabular-nums text-foreground">{ch.value}</span>
-                <span className="text-xxs text-muted-foreground">{ch.label}</span>
+                <span className="text-xxs leading-tight text-muted-foreground">{ch.label}</span>
               </div>
             ))}
           </div>
@@ -1112,15 +1161,47 @@ function EscalationMetricSelector({
   );
 }
 
+const RENEWAL_CONVERSION_FUNNEL_TOOLTIP: MetricTooltip = {
+  customer:
+    "Shows how renewal conversations move from talking with Renewals AI, to accepting a renewal offer, to signing the renewal lease. Conversations is the starting group. Offers Accepted and Leases Signed are shown as counts and as a percentage of those conversations.",
+  engineering:
+    "Denominator (Conversations) = unique residents that Renewals AI had a conversation with in the filtered time period and properties — this is the Conversations number in the chart. Offers Accepted numerator = residents from that conversation cohort who accepted their renewal offer, regardless of whether Renewals AI accepted on their behalf or the resident accepted through the portal or another path. Leases Signed numerator = residents from that same conversation cohort who signed their renewal lease, regardless of signing method. Percentages are Offers Accepted ÷ Conversations and Leases Signed ÷ Conversations.",
+};
+
 function RenewalConversionFunnelCard({
   rows,
+  onSelect,
 }: {
   rows: { label: string; count: number; color: string; pct: number }[];
+  onSelect?: () => void;
 }) {
   return (
-    <Card className="border-border/60">
+    <Card
+      className={`border-border/60 ${onSelect ? "cursor-pointer transition-colors hover:border-foreground/30 hover:bg-muted/20" : ""}`}
+      onClick={onSelect}
+      role={onSelect ? "button" : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      onKeyDown={
+        onSelect
+          ? (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onSelect();
+              }
+            }
+          : undefined
+      }
+    >
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm">Conversations → Offers Accepted → Leases Signed</CardTitle>
+        <CardTitle className="flex items-center gap-1.5 text-sm">
+          Conversations → Offers Accepted → Leases Signed
+          <span onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+            <MetricInfoPopover
+              label="Conversations → Offers Accepted → Leases Signed"
+              tooltip={RENEWAL_CONVERSION_FUNNEL_TOOLTIP}
+            />
+          </span>
+        </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         {rows.map((row) => (
@@ -1139,6 +1220,7 @@ function RenewalConversionFunnelCard({
         ))}
         <p className="pt-1 text-xxs italic text-muted-foreground/80">
           Conversion shown as % of renewal conversations
+          {onSelect ? " · Click to view trend" : ""}
         </p>
       </CardContent>
     </Card>
@@ -1770,6 +1852,7 @@ function DeveloperNotes({
 export default function RenewalsAiDashboardPage() {
   const [filters, setFilters, scope] = useReportScope(PROPERTIES);
   const [reportVersion, setReportVersion] = useState<ReportVersion>("original");
+  const [goldenDrillIn, setGoldenDrillIn] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const isFirstRender = useRef(true);
   const filtersKey = useMemo(() => serializeFilters(filters), [filters]);
@@ -1974,9 +2057,9 @@ export default function RenewalsAiDashboardPage() {
     },
     renewalVelocity: {
       customer:
-        "On average, how many days it takes from when a renewal offer goes out until the resident signs.",
+        "For residents who talked with Renewals AI about their renewal and then signed, how long it usually takes from offer to signature — and how far ahead of lease end they sign.",
       engineering:
-        "Average days between renewal-offer generation/send and lease-signature (or equivalent completion event) for renewals in filter scope. Supporting breakdowns: average days before lease end at signature, and count/% of renewals signed 60+ days before lease end.",
+        "Dataset = residents who had some interaction with Renewals AI about their renewal in the filter scope. Among those residents who signed their renewal lease: (1) Offer to signature = average elapsed time from renewal-offer generation to lease signature. (2) Days before lease end = average of (lease end date − signing date). (3) Signed 60+ days early = percentage of those signing residents whose (lease end date − signing date) is ≥ 60 days.",
     },
   } as const satisfies Record<string, MetricTooltip>;
 
@@ -2061,17 +2144,159 @@ export default function RenewalsAiDashboardPage() {
     },
     {
       label: "Renewal Velocity",
-      value: `${kpi.avgDaysToRenew} days`,
-      sub: "offer to signature",
+      value: kpi.avgDaysToRenew,
+      sub: "avg days · offer to signature",
       tooltip: METRIC_TOOLTIPS.renewalVelocity,
       channels: [
-        { label: "Days before lease end", value: `${kpi.avgDaysBeforeLease} days` },
+        { label: "Days before lease end", value: `${kpi.avgDaysBeforeLease}d` },
         { label: "Signed 60+ days early", value: kpi.signed60Plus },
       ],
     },
   ];
 
   const goldenStats = jvmStats;
+
+  const goldenDrillConfigs = useMemo(() => {
+    const configs: Record<
+      string,
+      {
+        title: string;
+        description: string;
+        currentValue: string;
+        unitSuffix?: string;
+        series: { key: string; label: string; color: string; points: ReturnType<typeof buildSeededMetricTrend> }[];
+      }
+    > = {};
+
+    const add = (
+      label: string,
+      opts: {
+        description: string;
+        currentValue: string;
+        unitSuffix?: string;
+        start: number;
+        end: number;
+        integer?: boolean;
+        seed?: string;
+      },
+    ) => {
+      configs[label] = {
+        title: label,
+        description: opts.description,
+        currentValue: opts.currentValue,
+        unitSuffix: opts.unitSuffix,
+        series: [
+          {
+            key: "value",
+            label,
+            color: seriesColor(0),
+            points: buildSeededMetricTrend({
+              seed: opts.seed ?? `renewals-${label}`,
+              months,
+              start: opts.start,
+              end: opts.end,
+              integer: opts.integer,
+            }),
+          },
+        ],
+      };
+    };
+
+    add("Total Messages Sent", {
+      description: "Total messages sent by Renewals AI over the selected period.",
+      currentValue: kpi.totalOutreach,
+      start: 1200,
+      end: 2100,
+      integer: true,
+    });
+    add("Messages Sent by Day", {
+      description: "Peak weekday message volume over the selected period.",
+      currentValue: `${kpi.topDay.count.toLocaleString()} (${kpi.topDay.label})`,
+      start: 180,
+      end: 320,
+      integer: true,
+    });
+    add("Messages Sent by Hour", {
+      description: "Peak hour message volume over the selected period.",
+      currentValue: `${kpi.topHour.count.toLocaleString()} (${kpi.topHour.label})`,
+      start: 140,
+      end: 280,
+      integer: true,
+    });
+    add("Escalation Rate", {
+      description: "Share of conversations that needed a human in Nexus.",
+      currentValue: kpi.escalationRate,
+      unitSuffix: "%",
+      start: 15.2,
+      end: 11.4,
+    });
+    add("Opt Out Rate", {
+      description: "Opt-out rate attributed to Renewals AI over time.",
+      currentValue: kpi.optOutRate,
+      unitSuffix: "%",
+      start: 5.1,
+      end: 3.8,
+    });
+    add("Average Agent Response Time", {
+      description: "Average agent response time (seconds) across answered turns.",
+      currentValue: kpi.avgAIResponseTime,
+      unitSuffix: "sec",
+      start: 11,
+      end: 7,
+      integer: true,
+    });
+    add("Resident Response Rate Within 48 Hours", {
+      description: "Share of proactive outreach messages that got a reply within 48 hours.",
+      currentValue: kpi.responseRate,
+      unitSuffix: "%",
+      start: 32,
+      end: 41,
+    });
+    add("Resident Response Time", {
+      description: "Average resident reply time among the 48-hour responder cohort.",
+      currentValue: kpi.avgResidentResponseTime,
+      unitSuffix: "hrs",
+      start: 5.2,
+      end: 3.8,
+    });
+    add("Renewal Velocity", {
+      description: "Average days from offer generation to signature for Renewals AI–touched residents who signed.",
+      currentValue: `${kpi.avgDaysToRenew} days`,
+      unitSuffix: "days",
+      start: 12.4,
+      end: 8.6,
+    });
+
+    const conversations = buildSeededMetricTrend({
+      seed: "renewals-funnel-conversations",
+      months,
+      start: 420,
+      end: 610,
+      integer: true,
+    });
+    const offers = conversations.map((point, i) => ({
+      month: point.month,
+      value: Math.round(point.value * (0.58 + (i / Math.max(conversations.length - 1, 1)) * 0.08)),
+    }));
+    const signed = offers.map((point, i) => ({
+      month: point.month,
+      value: Math.round(point.value * (0.72 + (i / Math.max(offers.length - 1, 1)) * 0.06)),
+    }));
+    configs["Conversations → Offers Accepted → Leases Signed"] = {
+      title: "Conversations → Offers Accepted → Leases Signed",
+      description: "Monthly funnel volumes for unique Renewals AI conversation residents.",
+      currentValue: `${renewalConversionFunnel[0].count.toLocaleString()} conversations`,
+      series: [
+        { key: "conversations", label: "Conversations", color: seriesColor(0), points: conversations },
+        { key: "offers", label: "Offers Accepted", color: seriesColor(1), points: offers },
+        { key: "signed", label: "Leases Signed", color: seriesColor(2), points: signed },
+      ],
+    };
+
+    return configs;
+  }, [months, kpi, renewalConversionFunnel]);
+
+  const activeGoldenDrill = goldenDrillIn ? goldenDrillConfigs[goldenDrillIn] : null;
 
   return (
     <div className="-mt-2">
@@ -2102,6 +2327,7 @@ export default function RenewalsAiDashboardPage() {
           value={reportVersion}
           onChange={(next) => {
             setReportVersion(next);
+            setGoldenDrillIn(null);
           }}
           options={REPORT_VERSION_OPTIONS}
           aria-label="Renewals AI report version"
@@ -2540,24 +2766,43 @@ export default function RenewalsAiDashboardPage() {
 
       {reportVersion === "golden" ? (
         <>
-          <section className="mb-6">
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {goldenStats.map((stat) => (
-                <BillboardStatCard
-                  key={stat.label}
-                  label={stat.label}
-                  value={loading ? "…" : stat.value}
-                  sub={stat.sub}
-                  channels={stat.channels}
-                  tooltip={stat.tooltip}
+          {activeGoldenDrill ? (
+            <MetricTrendDrillIn
+              title={activeGoldenDrill.title}
+              description={activeGoldenDrill.description}
+              currentValue={activeGoldenDrill.currentValue}
+              unitSuffix={activeGoldenDrill.unitSuffix}
+              series={activeGoldenDrill.series}
+              onBack={() => setGoldenDrillIn(null)}
+            />
+          ) : (
+            <section className="mb-6">
+              <p className="mb-3 text-xs text-muted-foreground">
+                Click any metric card to open its trend over the selected period.
+              </p>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {goldenStats.map((stat) => (
+                  <BillboardStatCard
+                    key={stat.label}
+                    label={stat.label}
+                    value={loading ? "…" : stat.value}
+                    sub={stat.sub}
+                    channels={stat.channels}
+                    tooltip={stat.tooltip}
+                    onSelect={() => setGoldenDrillIn(stat.label)}
+                  />
+                ))}
+              </div>
+              <div className="mt-3">
+                <RenewalConversionFunnelCard
+                  rows={renewalConversionFunnel}
+                  onSelect={() => setGoldenDrillIn("Conversations → Offers Accepted → Leases Signed")}
                 />
-              ))}
-            </div>
-            <div className="mt-3">
-              <RenewalConversionFunnelCard rows={renewalConversionFunnel} />
-            </div>
-          </section>
+              </div>
+            </section>
+          )}
 
+          {!activeGoldenDrill ? (
           <section className="mb-6">
             <SectionBanner
               title="Renewals AI Conversation Analysis"
@@ -2572,6 +2817,7 @@ export default function RenewalsAiDashboardPage() {
               </CardContent>
             </Card>
           </section>
+          ) : null}
         </>
       ) : null}
 

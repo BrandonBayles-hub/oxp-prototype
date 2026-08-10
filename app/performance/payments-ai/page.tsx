@@ -29,6 +29,7 @@ import {
   CHART_GRID_STROKE,
   DeltaPill,
   EscalationsSection,
+  MetricTrendDrillIn,
   SERIES_NEUTRAL,
   ReportFilterBar,
   ReportPageHeader,
@@ -37,6 +38,7 @@ import {
   SegmentedToggle,
   StatCard,
   StatGrid,
+  buildSeededMetricTrend,
   useReportScope,
   monthsForPeriod,
   selectionRatio,
@@ -570,15 +572,32 @@ function BillboardStatCard({
   sub,
   channels,
   tooltip,
+  onSelect,
 }: {
   label: string;
   value: string;
   sub: string;
   channels: { label: string; value: string }[];
   tooltip?: MetricTooltip;
+  onSelect?: () => void;
 }) {
   return (
-    <Card className="flex h-full flex-col border-border/60">
+    <Card
+      className={`flex h-full flex-col border-border/60 ${onSelect ? "cursor-pointer transition-colors hover:border-foreground/30 hover:bg-muted/20" : ""}`}
+      onClick={onSelect}
+      role={onSelect ? "button" : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      onKeyDown={
+        onSelect
+          ? (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onSelect();
+              }
+            }
+          : undefined
+      }
+    >
       <CardContent className="flex flex-1 items-center justify-between gap-4 px-5 py-4">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
@@ -588,7 +607,12 @@ function BillboardStatCard({
             {tooltip && (
               <Popover>
                 <PopoverTrigger asChild>
-                  <button type="button" className="inline-flex shrink-0 text-muted-foreground/60 hover:text-muted-foreground transition-colors">
+                  <button
+                    type="button"
+                    className="inline-flex shrink-0 text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => event.stopPropagation()}
+                  >
                     <Info className="h-3.5 w-3.5" />
                   </button>
                 </PopoverTrigger>
@@ -636,6 +660,7 @@ function BillboardStatCard({
 export default function PaymentsAiDashboardPage() {
   const [filters, setFilters, scope] = useReportScope(PROPERTIES);
   const [reportVersion, setReportVersion] = useState<ReportVersion>("original");
+  const [goldenDrillIn, setGoldenDrillIn] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const isFirstRender = useRef(true);
   const filtersKey = useMemo(() => serializeFilters(filters), [filters]);
@@ -916,6 +941,122 @@ export default function PaymentsAiDashboardPage() {
     },
   ];
 
+  const goldenDrillConfigs = useMemo(() => {
+    const configs: Record<
+      string,
+      {
+        title: string;
+        description: string;
+        currentValue: string;
+        unitSuffix?: string;
+        series: { key: string; label: string; color: string; points: ReturnType<typeof buildSeededMetricTrend> }[];
+      }
+    > = {};
+
+    const add = (
+      label: string,
+      opts: {
+        description: string;
+        currentValue: string;
+        unitSuffix?: string;
+        start: number;
+        end: number;
+        integer?: boolean;
+        seed?: string;
+      },
+    ) => {
+      configs[label] = {
+        title: label,
+        description: opts.description,
+        currentValue: opts.currentValue,
+        unitSuffix: opts.unitSuffix,
+        series: [
+          {
+            key: "value",
+            label,
+            color: seriesColor(0),
+            points: buildSeededMetricTrend({
+              seed: opts.seed ?? `payments-${label}`,
+              months,
+              start: opts.start,
+              end: opts.end,
+              integer: opts.integer,
+            }),
+          },
+        ],
+      };
+    };
+
+    add("Total Messages Sent", {
+      description: "Total messages sent by Payments AI over the selected period.",
+      currentValue: alphaKpi.totalMessages,
+      start: 9800,
+      end: 14200,
+      integer: true,
+    });
+    add("Messages Sent by Day", {
+      description: "Peak weekday message volume over the selected period.",
+      currentValue: `${alphaKpi.topDay.count.toLocaleString()} (${alphaKpi.topDay.label})`,
+      start: 1600,
+      end: 2500,
+      integer: true,
+    });
+    add("Messages Sent by Hour", {
+      description: "Peak hour message volume over the selected period.",
+      currentValue: `${alphaKpi.topHour.count.toLocaleString()} (${alphaKpi.topHour.label})`,
+      start: 900,
+      end: 1600,
+      integer: true,
+    });
+    add("Escalation Rate", {
+      description: "Share of conversations that needed a human in Nexus.",
+      currentValue: alphaKpi.escalationRate,
+      unitSuffix: "%",
+      start: 14.8,
+      end: 11.2,
+    });
+    add("Opt Out Rate", {
+      description: "Opt-out rate attributed to Payments AI over time.",
+      currentValue: alphaKpi.optOutRate,
+      unitSuffix: "%",
+      start: 4.1,
+      end: 2.9,
+    });
+    add("Average Agent Response Time", {
+      description: "Average agent response time (seconds) across answered turns.",
+      currentValue: alphaKpi.avgAgentResponseTime,
+      unitSuffix: "sec",
+      start: 11,
+      end: 6,
+      integer: true,
+    });
+    add("Resident Response Rate Within 48 Hours", {
+      description: "Share of proactive outreach messages that got a reply within 48 hours.",
+      currentValue: alphaKpi.responseRate,
+      unitSuffix: "%",
+      start: 28,
+      end: 38,
+    });
+    add("Resident Response Time", {
+      description: "Average resident reply time among the 48-hour responder cohort.",
+      currentValue: alphaKpi.avgResidentResponseTime,
+      unitSuffix: "hrs",
+      start: 6.4,
+      end: 4.6,
+    });
+    add("Payment Collection Speed", {
+      description: "On-time payment rate for residents touched by Payments AI outreach.",
+      currentValue: alphaKpi.onTimeRate,
+      unitSuffix: "%",
+      start: 91.2,
+      end: 95.4,
+    });
+
+    return configs;
+  }, [months, alphaKpi]);
+
+  const activeGoldenDrill = goldenDrillIn ? goldenDrillConfigs[goldenDrillIn] : null;
+
   return (
     <div className="-mt-2">
       <ReportPageHeader
@@ -945,6 +1086,7 @@ export default function PaymentsAiDashboardPage() {
           value={reportVersion}
           onChange={(next) => {
             setReportVersion(next);
+            setGoldenDrillIn(null);
           }}
           options={REPORT_VERSION_OPTIONS}
           aria-label="Payments AI report version"
@@ -1598,7 +1740,7 @@ export default function PaymentsAiDashboardPage() {
         </>
       ) : null}
 
-      {(reportVersion === "jvm" || reportVersion === "golden") ? (
+      {reportVersion === "jvm" ? (
         <>
           {loading && <LoadingBanner />}
 
@@ -2060,6 +2202,488 @@ export default function PaymentsAiDashboardPage() {
             metrics. Baseline represents pre-AI performance for comparison. All metrics reflect the
             selected time period.
           </p>
+        </>
+      ) : null}
+
+      {reportVersion === "golden" ? (
+        <>
+          {activeGoldenDrill ? (
+            <MetricTrendDrillIn
+              title={activeGoldenDrill.title}
+              description={activeGoldenDrill.description}
+              currentValue={activeGoldenDrill.currentValue}
+              unitSuffix={activeGoldenDrill.unitSuffix}
+              series={activeGoldenDrill.series}
+              onBack={() => setGoldenDrillIn(null)}
+            />
+          ) : (
+            <>
+              {loading && <LoadingBanner />}
+
+              <section className="mb-6">
+                <p className="mb-3 text-xs text-muted-foreground">
+                  Click any metric card to open its trend over the selected period.
+                </p>
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {alphaStats.map((stat) => (
+                    <BillboardStatCard
+                      key={stat.label}
+                      label={stat.label}
+                      value={stat.value}
+                      sub={stat.sub}
+                      channels={stat.channels}
+                      tooltip={stat.tooltip}
+                      onSelect={() => setGoldenDrillIn(stat.label)}
+                    />
+                  ))}
+                </div>
+              </section>
+
+              {/* Existing sections from Original below the billboard cards */}
+              <section className="mb-6">
+                <SectionBanner
+                  title="ELI+ Metrics Dashboard"
+                  description="Activation, collections, and savings headline"
+                />
+
+                <StatCard
+                  size="hero"
+                  className="mb-3"
+                  label="On-time payment rate"
+                  value={kpi.onTimeRate}
+                  delta="+2.1 pts vs prior"
+                  deltaTone="positive"
+                  sub="selected period"
+                />
+
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <StatCard label="Total organizations" value={kpi.totalOrganizations} delta="+8" sub="activated" />
+                  <StatCard label="Total properties" value={kpi.totalProperties} delta="+62" sub="properties" />
+                  <StatCard label="Total active units" value={kpi.totalActiveUnits} delta="+1,840" sub="units" />
+                  <StatCard label="Rent collected" value={kpi.pctRentCollected} delta="+2.1 pts" sub="collection rate" />
+                </div>
+
+                <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                  <Card className="border-border/60">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">Late Payers (After Grace Period)</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ChartContainer config={{}} className="!aspect-auto h-[240px] w-full">
+                        <BarChart data={latePayersMonthlyBar} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+                          <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} fontSize={11} />
+                          <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} domain={[0, 260]} />
+                          <ChartTooltip content={<ChartTooltipContent />} />
+                          <Bar dataKey="count" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ChartContainer>
+                    </CardContent>
+                  </Card>
+                  <StatCard
+                    label="Rent payments / charges / % collected"
+                    value={kpi.collectedVsCharged}
+                    sub="payments vs charges"
+                  />
+                </div>
+              </section>
+
+              <section className="mb-6">
+                <StatCard
+                  label="Savings from office hours"
+                  value={kpi.savingsOfficeHours}
+                  delta="+$18K"
+                  sub="estimated savings · last 30 days"
+                />
+
+                <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                  <Card className="border-border/60">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">Top 10 — % Collected</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ChartContainer config={{}} className="!aspect-auto h-[200px] w-full">
+                        <BarChart data={topTenCollected} margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+                          <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={4} fontSize={10} angle={-20} textAnchor="end" height={30} interval={0} />
+                          <YAxis tickLine={false} axisLine={false} tickMargin={4} width={36} domain={[0, 100]} tickFormatter={(v) => `${v}%`} fontSize={10} />
+                          <ChartTooltip content={<ChartTooltipContent formatter={(v) => `${v}%`} />} />
+                          <Bar dataKey="value" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ChartContainer>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-border/60">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">Bottom 10 — % Collected</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ChartContainer config={{}} className="!aspect-auto h-[200px] w-full">
+                        <BarChart data={bottomTenCollected} margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+                          <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={4} fontSize={10} angle={-20} textAnchor="end" height={30} interval={0} />
+                          <YAxis tickLine={false} axisLine={false} tickMargin={4} width={36} domain={[0, 100]} tickFormatter={(v) => `${v}%`} fontSize={10} />
+                          <ChartTooltip content={<ChartTooltipContent formatter={(v) => `${v}%`} />} />
+                          <Bar dataKey="value" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ChartContainer>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Card className="mt-3 border-border/60">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Savings from Office Hours — Details</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="divide-y divide-border">
+                      {savingsFromOfficeHoursDetails.map((row) => (
+                        <div key={row.property} className="flex items-center justify-between py-2 text-sm first:pt-0 last:pb-0">
+                          <span className="text-foreground">{row.property}</span>
+                          <span className="tabular-nums font-medium text-foreground">{row.amount}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </section>
+
+              <section className="mb-6">
+                <SectionBanner
+                  title="Overall Collection Performance"
+                  description="Key collection metrics across all properties — independent of AI usage"
+                  action={<NewChip />}
+                />
+
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <StatCard label="Rent collected" value={kpi.pctRentCollected} delta="+2.1 pts" sub="of billed rent collected · selected period" />
+                  <StatCard label="Total rent collected" action={<NewChip />} value={kpi.totalCollected} delta="+8%" sub="collected this period" />
+                  <StatCard label="Total rent charged" action={<NewChip />} value={kpi.totalCharged} delta="+7%" sub="billed this period" />
+                  <StatCard lowerIsBetter label="Late payers (after grace)" value={kpi.latePayers} delta="-9" sub="avg per property" />
+                </div>
+
+                <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                  <Card className="border-border/60">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm"><CardTitleRow title="% Rent Collected — Monthly Trend" isNew /></CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <TrendChart data={pctCollectedData} view={filters.view} selected={filters.properties} yDomain={filters.view === "global" ? [80, 100] : [80, 100]} yTickFormatter={(v) => `${v}%`} />
+                      <PropertyChips state={filters} setState={setFilters} />
+                    </CardContent>
+                  </Card>
+                  <Card className="border-border/60">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm"><CardTitleRow title="Total Rent Collected — Monthly Trend" isNew /></CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <TrendChart data={totalCollectedData} view={filters.view} selected={filters.properties} yDomain={filters.view === "global" ? [1500, 2700] : [1500, 2800]} yTickFormatter={(v) => `$${v}K`} />
+                      <PropertyChips state={filters} setState={setFilters} />
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                  <Card className="border-border/60">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm"><CardTitleRow title="Late Payers (After Grace) — Monthly Trend" isNew /></CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <TrendChart data={latePayersData} view={filters.view} selected={filters.properties} yDomain={filters.view === "global" ? [0, 260] : [0, 320]} />
+                      <PropertyChips state={filters} setState={setFilters} />
+                    </CardContent>
+                  </Card>
+                  <Card className="border-border/60">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm"><CardTitleRow title="Collection Rate Comparison" isNew /></CardTitle>
+                      <p className="text-xs text-muted-foreground">Current vs. baseline (pre-AI) for selected period</p>
+                    </CardHeader>
+                    <CardContent>
+                      <TrendChart data={pctCollectedData} view={filters.view} selected={filters.properties} yDomain={[80, 100]} yTickFormatter={(v) => `${v}%`} />
+                      <PropertyChips state={filters} setState={setFilters} />
+                    </CardContent>
+                  </Card>
+                </div>
+              </section>
+
+              <section className="mb-6">
+                <SectionBanner title="On-Time Collections Efficacy" description="Is the AI actually shifting residents to pay on time?" />
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <StatCard label="On-time payment rate" value={kpi.onTimeRate} delta="+2.1 pts" sub="of billed rent paid before late fees posted" />
+                  <StatCard label="Expected payment date kept rate" value={kpi.payDateKeptRate} delta="+6.8 pts" sub="of AI-captured pay-date commitments honored" />
+                </div>
+
+                <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                  <Card className="border-border/60">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm"><CardTitleRow title="On-Time Payment Rate — Monthly Trend" isNew /></CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <TrendChart data={onTimeRateData} view={filters.view} selected={filters.properties} yDomain={filters.view === "global" ? [80, 100] : [80, 100]} yTickFormatter={(v) => `${v}%`} />
+                      <PropertyChips state={filters} setState={setFilters} />
+                    </CardContent>
+                  </Card>
+                  <Card className="border-border/60">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm"><CardTitleRow title="Days-to-Pay Distribution" isNew /></CardTitle>
+                      <p className="text-xs text-muted-foreground">Days after rent due date until payment posted</p>
+                    </CardHeader>
+                    <CardContent>
+                      <ChartContainer config={{}} className="!aspect-auto h-[240px] w-full">
+                        <BarChart data={daysToPayDistribution} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+                          <XAxis dataKey="bucket" tickLine={false} axisLine={false} tickMargin={8} angle={-20} textAnchor="end" height={40} interval={0} />
+                          <YAxis tickLine={false} axisLine={false} tickMargin={8} width={44} tickFormatter={(v) => v.toLocaleString()} />
+                          <ChartTooltip content={<ChartTooltipContent />} />
+                          <Bar dataKey="count" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ChartContainer>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="mt-3">
+                  <Card className="border-border/60">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm"><CardTitleRow title="First-Payment Recovery Funnel" isNew /></CardTitle>
+                      <p className="text-xs text-muted-foreground">Charges posted → AI reminder → engagement → paid within 7 days</p>
+                    </CardHeader>
+                    <CardContent>
+                      <FunnelChart stages={firstPaymentRecoveryFunnel} />
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="mt-3">
+                  <Card className="border-border/60">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm"><CardTitleRow title="Aging Bucket Recovery ($ recovered)" isNew /></CardTitle>
+                      <p className="text-xs text-muted-foreground">Delinquent balances the AI helped bring current, by aging bucket</p>
+                    </CardHeader>
+                    <CardContent>
+                      <ChartContainer config={{}} className="!aspect-auto h-[220px] w-full">
+                        <BarChart data={agingBucketRecovery} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+                          <XAxis dataKey="bucket" tickLine={false} axisLine={false} tickMargin={8} />
+                          <YAxis tickLine={false} axisLine={false} tickMargin={8} width={48} tickFormatter={compactCurrency} />
+                          <ChartTooltip content={<ChartTooltipContent formatter={(v) => compactCurrency(Number(v))} />} />
+                          <Bar dataKey="amount" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ChartContainer>
+                    </CardContent>
+                  </Card>
+                </div>
+              </section>
+
+              <section className="mb-6">
+                <SectionBanner title="Automation & Staff Time Freed" description="What did the AI actually do without a human?" />
+
+                <div className="grid gap-3 lg:grid-cols-[minmax(0,0.4fr)_minmax(0,1fr)]">
+                  <Card>
+                    <CardContent className="px-5 py-4">
+                      <div className="flex items-center gap-2">
+                        <p className="flex-1 text-xxs font-semibold text-muted-foreground">Staff hours saved</p>
+                      </div>
+                      <p className="mt-1 text-4xl font-bold tracking-tight text-foreground">{loading ? "…" : "1,842"}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">hours saved · +240 vs prior period</p>
+                      <p className="mt-0.5 text-xxs italic text-muted-foreground/80">18,420 messages × 6 min avg manual handling ÷ 60</p>
+                    </CardContent>
+                  </Card>
+                  <div className="grid grid-cols-2 gap-3">
+                    <StatCard label="Deflection rate" value={kpi.deflectionRate} delta="+4.2 pts" sub="of resident payment conversations fully AI-resolved" />
+                    <StatCard label="After-hours coverage" value={kpi.afterHoursCoverage} delta="+2.4 pts" sub="of AI interactions handled outside office hours" />
+                  </div>
+                </div>
+
+                <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                  <Card className="border-border/60">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm"><CardTitleRow title="Deflection Rate — Monthly Trend" isNew /></CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <TrendChart data={deflectionData} view={filters.view} selected={filters.properties} yDomain={filters.view === "global" ? [40, 80] : [40, 90]} yTickFormatter={(v) => `${v}%`} />
+                      <PropertyChips state={filters} setState={setFilters} />
+                    </CardContent>
+                  </Card>
+                  <Card className="border-border/60">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm"><CardTitleRow title="Staff Hours Saved — Monthly Trend" isNew /></CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <TrendChart data={staffHoursData} view={filters.view} selected={filters.properties} yDomain={filters.view === "global" ? [700, 2200] : [700, 2400]} />
+                      <PropertyChips state={filters} setState={setFilters} />
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                  <Card className="border-border/60">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm"><CardTitleRow title="Auto-Resolved vs. Escalated" isNew /></CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <DonutWithLegend data={autoResolvedVsEscalated.map((d) => ({ ...d, count: d.value }))} />
+                    </CardContent>
+                  </Card>
+                  <Card className="border-border/60">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm"><CardTitleRow title="Scenario Load Distribution" isNew /></CardTitle>
+                      <p className="text-xs text-muted-foreground">Where the AI is spending its time across initial / late / legal cadences</p>
+                    </CardHeader>
+                    <CardContent>
+                      <DonutWithLegend data={scenarioLoad.map((d) => ({ ...d, count: d.value }))} />
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="mt-3">
+                  <Card className="border-border/60">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm"><CardTitleRow title="Autonomous Actions Taken by Type" isNew /></CardTitle>
+                      <p className="text-xs text-muted-foreground">Actions the AI executed without a human — maps to the guardrails in Payments AI Settings</p>
+                    </CardHeader>
+                    <CardContent>
+                      <ChartContainer config={{}} className="!aspect-auto h-[240px] w-full">
+                        <BarChart data={autonomousActionsTaken} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+                          <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} angle={-15} textAnchor="end" height={40} interval={0} fontSize={11} />
+                          <YAxis tickLine={false} axisLine={false} tickMargin={8} width={48} tickFormatter={(v) => v.toLocaleString()} />
+                          <ChartTooltip content={<ChartTooltipContent />} />
+                          <Bar dataKey="value" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ChartContainer>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="mt-3">
+                  <Card className="border-border/60">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm"><CardTitleRow title="Handoffs to Office by Scenario" isNew /></CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ChartContainer config={{}} className="!aspect-auto h-[220px] w-full">
+                        <BarChart data={handoffsByScenario} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+                          <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} />
+                          <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
+                          <ChartTooltip content={<ChartTooltipContent />} />
+                          <Bar dataKey="value" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ChartContainer>
+                    </CardContent>
+                  </Card>
+                </div>
+              </section>
+
+              <section className="mb-6">
+                <SectionBanner title="Messaging" description="Reminder volume, response rates, and opt-outs" />
+
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <StatCard label="Residents with no phone" value={kpi.residentsNoPhone} sub="no phone on file" />
+                  <StatCard label="Phone opt-outs" value={kpi.phoneOptOuts} sub="opt-out rate" />
+                  <StatCard label="Email opt-outs" value={kpi.emailOptOuts} sub="opt-out rate" />
+                  <StatCard label="Total reminders sent" value={kpi.totalReminders} delta="+12%" sub="SMS + email" />
+                </div>
+
+                <div className="mt-3">
+                  <Card className="border-border/60">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">Office Escalation Reasons</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ChartContainer config={{}} className="!aspect-auto h-[260px] w-full">
+                        <BarChart data={escalationReasons} margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
+                          <XAxis dataKey="reason" tickLine={false} axisLine={false} tickMargin={8} angle={-25} textAnchor="end" height={60} interval={0} fontSize={10} />
+                          <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} />
+                          <ChartTooltip content={<ChartTooltipContent />} />
+                          <Bar dataKey="count" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ChartContainer>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="mt-3">
+                  <Card className="border-border/60">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">Language Preference</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <DonutWithLegend data={languagePreference} />
+                    </CardContent>
+                  </Card>
+                </div>
+              </section>
+
+              <EscalationsSection
+                description="Escalation rate, volume, resolution status, and reasons"
+                stats={[
+                  { label: "Escalation rate", value: kpi.escalationRate, delta: "-1.8 pts", deltaTone: "positive", sub: "of AI conversations escalated" },
+                  { label: "Total escalations", value: kpi.totalEscalations, sub: "escalated to staff" },
+                  { label: "Open escalations", value: kpi.openEscalations, sub: "pending resolution" },
+                  { label: "Resolved", value: kpi.resolvedEscalations, delta: "89% resolution", deltaTone: "positive", sub: "resolved by staff" },
+                ]}
+              >
+                <Card className="border-border/60">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm"><CardTitleRow title="Avg Escalation Resolution Time — Trend" isNew /></CardTitle>
+                    <p className="text-xs text-muted-foreground">Days from escalation created to resolved</p>
+                  </CardHeader>
+                  <CardContent>
+                    <TrendChart data={escalationResolutionData} view={filters.view} selected={filters.properties} yDomain={filters.view === "global" ? [0, 6] : [0, 7]} />
+                    <PropertyChips state={filters} setState={setFilters} />
+                  </CardContent>
+                </Card>
+              </EscalationsSection>
+
+              <section className="mb-6">
+                <SectionBanner title="Appendix" description="Detailed property-level and daily breakdowns" />
+
+                <div className="mb-3 max-w-xs">
+                  <StatCard label="Avg late payers" value={kpi.latePayers} sub="per property avg" />
+                </div>
+
+                <Card className="border-border/60">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Rent Payments / Charges / % Collected</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[560px] text-sm">
+                        <thead>
+                          <tr className="border-b border-border">
+                            <th className="px-2 py-2 text-left font-medium text-muted-foreground">Property</th>
+                            <th className="px-2 py-2 text-right font-medium text-muted-foreground">Charged</th>
+                            <th className="px-2 py-2 text-right font-medium text-muted-foreground">Collected</th>
+                            <th className="px-2 py-2 text-right font-medium text-muted-foreground">% Collected</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {perPropertyCollectionTable.map((r) => (
+                            <tr key={r.property} className="border-b border-muted last:border-0">
+                              <td className="px-2 py-1.5 text-foreground">{r.property}</td>
+                              <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">{r.chargedM}</td>
+                              <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">{r.collectedM}</td>
+                              <td className="px-2 py-1.5 text-right tabular-nums font-medium text-foreground">{r.collected}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              </section>
+
+              <p className="mb-4 mt-2 border-t border-border pt-3 text-xs text-muted-foreground">
+                This is a prototype dashboard. Data is illustrative and does not reflect live property
+                metrics. Baseline represents pre-AI performance for comparison. All metrics reflect the
+                selected time period.
+              </p>
+            </>
+          )}
         </>
       ) : null}
 
