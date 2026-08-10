@@ -1041,6 +1041,7 @@ function BillboardStatCard({
   tooltip?: MetricTooltip;
   onSelect?: () => void;
 }) {
+  const hasChannels = channels.length > 0;
   return (
     <Card
       className={`flex h-full flex-col border-border/60 ${onSelect ? "cursor-pointer transition-colors hover:border-foreground/30 hover:bg-muted/20" : ""}`}
@@ -1058,7 +1059,11 @@ function BillboardStatCard({
           : undefined
       }
     >
-      <CardContent className="flex flex-1 items-center gap-4 px-5 py-4">
+      <CardContent
+        className={`flex flex-1 gap-3 px-5 py-4 ${
+          hasChannels ? "flex-col sm:flex-row sm:items-center sm:gap-4" : "items-center"
+        }`}
+      >
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <p className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -1070,17 +1075,20 @@ function BillboardStatCard({
               </span>
             )}
           </div>
-          <p className="mt-2 text-4xl font-bold tracking-tight text-foreground">
+          <p className="mt-2 text-3xl font-bold tracking-tight text-foreground tabular-nums sm:text-4xl">
             {value}
           </p>
           <p className="mt-1 text-xs font-normal text-muted-foreground">{sub}</p>
         </div>
-        {channels.length > 0 && (
-          <div className="grid shrink-0 gap-x-4 gap-y-2 border-l border-border pl-4" style={{ gridTemplateColumns: `repeat(${Math.min(channels.length, 3)}, auto)` }}>
+        {hasChannels && (
+          <div
+            className="grid w-full shrink-0 gap-x-3 gap-y-2 border-border sm:w-auto sm:border-l sm:pl-4"
+            style={{ gridTemplateColumns: `repeat(${Math.min(channels.length, 3)}, minmax(0, 1fr))` }}
+          >
             {channels.map((ch) => (
-              <div key={ch.label} className="flex flex-col items-center">
+              <div key={ch.label} className="min-w-0 flex flex-col items-center text-center">
                 <span className="text-sm font-semibold tabular-nums text-foreground">{ch.value}</span>
-                <span className="text-xxs text-muted-foreground">{ch.label}</span>
+                <span className="text-xxs leading-tight text-muted-foreground">{ch.label}</span>
               </div>
             ))}
           </div>
@@ -2136,11 +2144,11 @@ export default function RenewalsAiDashboardPage() {
     },
     {
       label: "Renewal Velocity",
-      value: `${kpi.avgDaysToRenew} days`,
-      sub: "offer to signature",
+      value: kpi.avgDaysToRenew,
+      sub: "avg days · offer to signature",
       tooltip: METRIC_TOOLTIPS.renewalVelocity,
       channels: [
-        { label: "Days before lease end", value: `${kpi.avgDaysBeforeLease} days` },
+        { label: "Days before lease end", value: `${kpi.avgDaysBeforeLease}d` },
         { label: "Signed 60+ days early", value: kpi.signed60Plus },
       ],
     },
