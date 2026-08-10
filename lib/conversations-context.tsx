@@ -153,6 +153,8 @@ export type ConversationItem = {
   contactType: string;
   property: string;
   channel: string;
+  /** Additional communication channels used in this thread (e.g. Voice added to SMS thread). */
+  additionalChannels?: string[];
   /** When `channel` is Email, shown as the thread subject in the conversation panel. */
   emailSubject?: string;
   /**
@@ -953,6 +955,10 @@ export const ESCALATION_REASON_BY_LABEL: Record<string, string> = {
     "Resident's October rent payment ($1,795) was returned due to insufficient funds (employer payroll delay). A $50 late fee was applied. Resident is requesting a late fee waiver given their clean 2-year payment history.",
   "Other Escalation":
     "Resident wants to host a birthday party at the pool area next month (15–20 guests, Saturday afternoon). Needs info on reservation process, community guidelines, and any applicable fees.",
+  "Maintenance AI 1 Escalation":
+    "Resident asked when a technician will arrive for dishwasher work order #48219 (submitted last week). Maintenance AI could not confirm a schedule from available data and escalated for staff to check the queue.",
+  "Maintenance AI 2 Escalation":
+    "While still waiting on the dishwasher update, resident reported a separate issue — A/C not blowing cold air. Maintenance AI escalated so staff can open or prioritize a second work order independent of #48219.",
 };
 
 export function getEscalationReason(label: string): string {
@@ -1008,27 +1014,80 @@ const SUPER_AGENT_1_DEMO_THREADS: ConversationItem[] = [
     id: "sa1-1",
     resident: "Jordan Lee",
     unit: "Unit 312",
-    preview: "Thanks, just let me know about all of that when you can.",
+    preview: "Thanks — just keep me posted on both when you can.",
     agent: "AI Super Agent",
     time: "5m ago",
     contactType: "Resident",
     property: "Hillside Living",
     channel: "SMS",
+    additionalChannels: ["Voice"],
     assignee: "ELI+ Super Agent",
-    labels: ["AI Conversation", "Renewals AI Escalation", "Payments AI Escalation"],
+    labels: ["ELI Conversation", "Maintenance AI 1 Escalation", "Maintenance AI 2 Escalation"],
     escalationId: "esc-super1-jordan-01",
     status: "open",
     hasUnread: true,
     messages: [
-      { role: "agent", text: "Hi Jordan! This is Hillside Living's AI assistant. How can I help you today?", timestamp: "Sep 18 2025 \u00b7 9:00am MST", type: "message" },
-      { role: "resident", text: "Hey! I have a couple things going on. My lease is up next month and I got the renewal offer, but the new rate seems high \u2014 is there any flexibility on pricing? I\u2019ve been here two years and always pay on time.", timestamp: "Sep 18 2025 \u00b7 9:01am MST", type: "message" },
-      { role: "agent", text: "Thanks for reaching out, Jordan! I can see your renewal offer is for $1,850/mo (a 3% increase from your current $1,795/mo). I appreciate you being such a great tenant for 2 years!\n\nRate adjustments on renewal offers do require approval from our team. Let me flag this so they can review your request for a possible exception.", timestamp: "Sep 18 2025 \u00b7 9:02am MST", type: "message" },
-      { role: "staff", text: "", timestamp: "Sep 18 2025 \u00b7 9:02am MST", type: "handoff" },
-      { role: "staff", text: "", timestamp: "Sep 18 2025 \u00b7 9:02am MST", type: "label_activity", labelActivity: { actor: "ELI+ Super Agent", labelsAdded: ["Renewals AI Escalation"], action: "added", reason: ESCALATION_REASON_BY_LABEL["Renewals AI Escalation"] } },
-      { role: "resident", text: "Ok thanks. Also, my October rent payment bounced \u2014 my employer had a payroll delay. I see a $50 late fee on my account now. Is there any way to get that waived since it wasn\u2019t really my fault?", timestamp: "Sep 18 2025 \u00b7 9:04am MST", type: "message" },
-      { role: "agent", text: "I understand, Jordan. I can see the returned payment for October ($1,795) and the $50 late fee that was applied. Given your clean 2-year payment history, this is a good case for a waiver \u2014 but I\u2019ll need our team to approve that.\n\nLet me escalate this so they can review the late fee waiver request.", timestamp: "Sep 18 2025 \u00b7 9:05am MST", type: "message" },
-      { role: "staff", text: "", timestamp: "Sep 18 2025 \u00b7 9:05am MST", type: "label_activity", labelActivity: { actor: "ELI+ Super Agent", labelsAdded: ["Payments AI Escalation"], action: "added", reason: ESCALATION_REASON_BY_LABEL["Payments AI Escalation"] } },
-      { role: "resident", text: "Thanks, just let me know about all of that when you can.", timestamp: "Sep 18 2025 \u00b7 9:06am MST", type: "message" },
+      {
+        role: "agent",
+        text: "Hi Jordan! This is Hillside Living's AI assistant. How can I help you today?",
+        timestamp: "Sep 18 2025 · 9:00am MST",
+        type: "message",
+      },
+      {
+        role: "resident",
+        text: "Hey — I submitted a work order last week for my dishwasher (WO #48219) and still haven't heard when someone is coming. Any update on timing?",
+        timestamp: "Sep 18 2025 · 9:01am MST",
+        type: "message",
+      },
+      {
+        role: "agent",
+        text: "Thanks for checking in, Jordan. I can see work order #48219 for the dishwasher in Unit 312, but I don't have a confirmed technician window in my system yet.\n\nI'm escalating this so our maintenance team can pull the schedule and get you a real ETA.",
+        timestamp: "Sep 18 2025 · 9:02am MST",
+        type: "message",
+      },
+      { role: "staff", text: "", timestamp: "Sep 18 2025 · 9:02am MST", type: "handoff" },
+      {
+        role: "staff",
+        text: "",
+        timestamp: "Sep 18 2025 · 9:02am MST",
+        type: "label_activity",
+        labelActivity: {
+          actor: "ELI+ Super Agent",
+          labelsAdded: ["Maintenance AI 1 Escalation"],
+          action: "added",
+          reason: ESCALATION_REASON_BY_LABEL["Maintenance AI 1 Escalation"],
+        },
+      },
+      {
+        role: "resident",
+        text: "Ok thanks. While I have you — the A/C in my unit isn't blowing cold either. It got warm this afternoon. Can someone look at that too? That's separate from the dishwasher.",
+        timestamp: "Sep 18 2025 · 9:04am MST",
+        type: "message",
+      },
+      {
+        role: "agent",
+        text: "Got it — that's a second issue from the dishwasher work order. I'll escalate the A/C problem on its own so maintenance can open or prioritize a separate ticket without delaying your dishwasher follow-up.",
+        timestamp: "Sep 18 2025 · 9:05am MST",
+        type: "message",
+      },
+      {
+        role: "staff",
+        text: "",
+        timestamp: "Sep 18 2025 · 9:05am MST",
+        type: "label_activity",
+        labelActivity: {
+          actor: "ELI+ Super Agent",
+          labelsAdded: ["Maintenance AI 2 Escalation"],
+          action: "added",
+          reason: ESCALATION_REASON_BY_LABEL["Maintenance AI 2 Escalation"],
+        },
+      },
+      {
+        role: "resident",
+        text: "Thanks — just keep me posted on both when you can.",
+        timestamp: "Sep 18 2025 · 9:06am MST",
+        type: "message",
+      },
     ],
   },
 ];
