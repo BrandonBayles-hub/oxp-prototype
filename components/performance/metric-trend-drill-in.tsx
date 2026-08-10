@@ -6,6 +6,7 @@ import { Area, AreaChart, CartesianGrid, Legend, Line, LineChart, XAxis, YAxis }
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
+import { ExportCsvButton } from "@/components/performance/export-csv-button";
 import { CHART_GRID_STROKE, monthLabelsForPeriod, seriesColor } from "@/components/performance/tokens";
 import { legendLabel } from "@/components/performance/chart-legend";
 
@@ -61,6 +62,61 @@ export function buildSeededMetricTrend({
   });
 }
 
+/**
+ * Multi-series monthly trends for categorical breakdowns (e.g. day-of-week or
+ * hour buckets). Each category scales with its weight so the peak category
+ * ends near `peakEnd`.
+ */
+export function buildWeightedCategoryTrends({
+  seedPrefix,
+  months,
+  categories,
+  totalStart,
+  totalEnd,
+}: {
+  seedPrefix: string;
+  months: number;
+  categories: { label: string; weight: number }[];
+  totalStart: number;
+  totalEnd: number;
+}): MetricTrendSeries[] {
+  const weightSum = categories.reduce((sum, c) => sum + c.weight, 0) || 1;
+  return categories.map((category, index) => {
+    const share = category.weight / weightSum;
+    return {
+      key: category.label.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+      label: category.label,
+      color: seriesColor(index),
+      points: buildSeededMetricTrend({
+        seed: `${seedPrefix}-${category.label}`,
+        months,
+        start: Math.max(1, totalStart * share),
+        end: Math.max(1, totalEnd * share),
+        integer: true,
+      }),
+    };
+  });
+}
+
+export const DAY_OF_WEEK_TREND_WEIGHTS = [
+  { label: "Mon", weight: 2840 },
+  { label: "Tue", weight: 3120 },
+  { label: "Wed", weight: 2960 },
+  { label: "Thu", weight: 2780 },
+  { label: "Fri", weight: 2540 },
+  { label: "Sat", weight: 1890 },
+  { label: "Sun", weight: 1290 },
+] as const;
+
+export const HOUR_BUCKET_TREND_WEIGHTS = [
+  { label: "12a–4a", weight: 820 },
+  { label: "4a–8a", weight: 2140 },
+  { label: "8a–12p", weight: 5890 },
+  { label: "12p–4p", weight: 4320 },
+  { label: "4p–8p", weight: 3180 },
+  { label: "8p–12a", weight: 1070 },
+] as const;
+
 function formatTick(value: number, suffix?: string) {
   if (suffix === "%") return `${value}%`;
   if (suffix === "sec") return `${value}s`;
@@ -77,6 +133,7 @@ export function MetricTrendDrillIn({
   unitSuffix,
   series,
   onBack,
+  onExport,
 }: {
   title: string;
   description?: string;
@@ -84,6 +141,8 @@ export function MetricTrendDrillIn({
   unitSuffix?: string;
   series: MetricTrendSeries[];
   onBack: () => void;
+  /** Optional raw conversation-level CSV export for Golden Prototype. */
+  onExport?: () => void;
 }) {
   const primary = series[0];
   const multi = series.length > 1;
@@ -104,10 +163,13 @@ export function MetricTrendDrillIn({
   return (
     <section className="mb-6 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Button type="button" variant="outline" size="sm" onClick={onBack} className="gap-1.5">
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Back to dashboard
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={onBack} className="gap-1.5">
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Back to dashboard
+          </Button>
+          {onExport ? <ExportCsvButton onExport={onExport} label="Export raw CSV" /> : null}
+        </div>
         {currentValue ? (
           <p className="text-sm text-muted-foreground">
             Current period: <span className="font-semibold text-foreground">{currentValue}</span>

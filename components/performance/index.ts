@@ -68,6 +68,12 @@ export { SegmentedToggle, type SegmentedOption } from "./segmented-toggle";
 export {
   MetricTrendDrillIn,
   buildSeededMetricTrend,
+  buildWeightedCategoryTrends,
+  DAY_OF_WEEK_TREND_WEIGHTS,
+  HOUR_BUCKET_TREND_WEIGHTS,
   type MetricTrendPoint,
   type MetricTrendSeries,
 } from "./metric-trend-drill-in";
+
+export { ExportCsvButton } from "./export-csv-button";
+export { downloadCsv, exportAgentMetricCsv, type AgentKey } from "./metric-export";

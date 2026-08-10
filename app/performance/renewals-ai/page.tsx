@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import {
   CHART_GRID_STROKE,
   EscalationsSection,
+  ExportCsvButton,
   MetricTrendDrillIn,
   ReportFilterBar,
   ReportPageHeader,
@@ -32,6 +33,10 @@ import {
   SegmentedToggle,
   StatCard,
   buildSeededMetricTrend,
+  buildWeightedCategoryTrends,
+  DAY_OF_WEEK_TREND_WEIGHTS,
+  HOUR_BUCKET_TREND_WEIGHTS,
+  exportAgentMetricCsv,
   useReportScope,
   legendLabel,
   monthsForPeriod,
@@ -184,8 +189,9 @@ const BASE_ESCALATION_REASONS = [
 ];
 
 const BASE_OUTREACH_CHANNEL_MIX = [
-  { name: "SMS", value: 70, count: 12840, color: seriesColor(0)},
-  { name: "Email", value: 30, count: 5580, color: seriesColor(1)},
+  { name: "SMS", value: 55, count: 10131, color: seriesColor(0)},
+  { name: "Chat", value: 20, count: 3684, color: seriesColor(1)},
+  { name: "Email", value: 25, count: 4605, color: seriesColor(2)},
 ];
 
 type ReportVersion = "original" | "jvm" | "golden";
@@ -198,10 +204,10 @@ const REPORT_VERSION_OPTIONS = [
 ] as const;
 
 const RESPONSE_TIME_BY_BEDROOM = [
-  { bedrooms: "Studio", SMS: 2.3, Email: 6.1, Overall: 3.4 },
-  { bedrooms: "1 BR", SMS: 2.8, Email: 6.7, Overall: 3.9 },
-  { bedrooms: "2 BR", SMS: 3.4, Email: 7.4, Overall: 4.6 },
-  { bedrooms: "3 BR", SMS: 3.9, Email: 8.2, Overall: 5.1 },
+  { bedrooms: "Studio", SMS: 2.3, Chat: 3.1, Email: 6.1, Overall: 3.4 },
+  { bedrooms: "1 BR", SMS: 2.8, Chat: 3.6, Email: 6.7, Overall: 3.9 },
+  { bedrooms: "2 BR", SMS: 3.4, Chat: 4.2, Email: 7.4, Overall: 4.6 },
+  { bedrooms: "3 BR", SMS: 3.9, Chat: 4.8, Email: 8.2, Overall: 5.1 },
 ];
 
 const BASE_CONVERSATION_ANALYSIS = [
@@ -617,7 +623,7 @@ const overallMetricCoverage = [
 
 const missingOverallMetrics = [
   "Renewal rate lift (AI vs non-AI) still needs an AI-managed indicator for the renewal interval or offer.",
-  "Staff hours saved, total outreach messages, SMS sent, emails sent, outreach channel mix, resident response rate, average AI response time, and average resident response time need Renewals AI messaging/conversation event sources.",
+  "Staff hours saved, total outreach messages, SMS sent, chat sent, emails sent, outreach channel mix, resident response rate, average AI response time, and average resident response time need Renewals AI messaging/conversation event sources.",
   "Fully automated renewals and resident engagement breakdown need an automation/human-intervention marker plus outreach response disposition data.",
   "Escalation rate, total escalations, open escalations, resolved escalations, and average escalation resolution time need Renewals AI escalation records or conversation escalation events.",
   "Escalation Reasons is intentionally commented out until we identify the escalation reason data source.",
@@ -1031,20 +1037,25 @@ function BillboardStatCard({
   value,
   sub,
   channels,
+  stackChannels = false,
   tooltip,
   onSelect,
+  onExport,
 }: {
   label: string;
   value: string;
   sub: string;
   channels: { label: string; value: string }[];
+  stackChannels?: boolean;
   tooltip?: MetricTooltip;
   onSelect?: () => void;
+  onExport?: () => void;
 }) {
-  const hasChannels = channels.length > 0;
+  const channelColumns = Math.min(channels.length, 3);
+  const singleChannelRow = !stackChannels && channels.length > 0 && channels.length <= channelColumns;
   return (
     <Card
-      className={`flex h-full flex-col border-border/60 ${onSelect ? "cursor-pointer transition-colors hover:border-foreground/30 hover:bg-muted/20" : ""}`}
+      className={`billboard-stat flex h-full flex-col border-border/60 ${onSelect ? "cursor-pointer transition-colors hover:border-foreground/30 hover:bg-muted/20" : ""}`}
       onClick={onSelect}
       role={onSelect ? "button" : undefined}
       tabIndex={onSelect ? 0 : undefined}
@@ -1059,40 +1070,68 @@ function BillboardStatCard({
           : undefined
       }
     >
-      <CardContent
-        className={`flex flex-1 gap-3 px-5 py-4 ${
-          hasChannels ? "flex-col sm:flex-row sm:items-center sm:gap-4" : "items-center"
-        }`}
-      >
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <p className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
-              {label}
-            </p>
-            {tooltip && (
-              <span onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
-                <MetricInfoPopover label={label} tooltip={tooltip} />
-              </span>
-            )}
-          </div>
-          <p className="mt-2 text-3xl font-bold tracking-tight text-foreground tabular-nums sm:text-4xl">
-            {value}
+      <CardContent className="flex flex-1 flex-col gap-1 p-0 px-5 py-3">
+        <div className="flex items-center gap-1.5">
+          <p className="min-w-0 flex-1 text-xxs font-semibold uppercase tracking-wide text-muted-foreground leading-none">
+            {label}
           </p>
-          <p className="mt-1 text-xs font-normal text-muted-foreground">{sub}</p>
+          {tooltip && (
+            <span className="shrink-0" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+              <MetricInfoPopover label={label} tooltip={tooltip} />
+            </span>
+          )}
+          {onExport ? (
+            <span className="shrink-0">
+              <ExportCsvButton onExport={onExport} size="icon" label={`Export ${label} CSV`} />
+            </span>
+          ) : null}
         </div>
-        {hasChannels && (
-          <div
-            className="grid w-full shrink-0 gap-x-3 gap-y-2 border-border sm:w-auto sm:border-l sm:pl-4"
-            style={{ gridTemplateColumns: `repeat(${Math.min(channels.length, 3)}, minmax(0, 1fr))` }}
-          >
-            {channels.map((ch) => (
-              <div key={ch.label} className="min-w-0 flex flex-col items-center text-center">
-                <span className="text-sm font-semibold tabular-nums text-foreground">{ch.value}</span>
-                <span className="text-xxs leading-tight text-muted-foreground">{ch.label}</span>
-              </div>
-            ))}
+        <div className={channels.length > 0 ? "billboard-stat__metrics" : "min-w-0"}>
+          <div className="min-w-0">
+            <p className="billboard-stat__value text-foreground">{value}</p>
+            <p className="mt-1 text-xs font-normal leading-snug text-muted-foreground">{sub}</p>
           </div>
-        )}
+          {channels.length > 0 && (
+            <div className={`billboard-stat__channels ${singleChannelRow || stackChannels ? "items-center" : "items-start"}`}>
+              <div
+                className={
+                  stackChannels
+                    ? "flex flex-col justify-center gap-2.5"
+                    : "billboard-stat__channel-grid content-start"
+                }
+                style={
+                  stackChannels
+                    ? undefined
+                    : ({ ["--billboard-cols"]: String(channelColumns) } as Record<string, string>)
+                }
+              >
+                {channels.map((ch) => (
+                  <div
+                    key={ch.label}
+                    className={
+                      stackChannels
+                        ? "flex flex-col items-start text-left"
+                        : "flex min-w-0 flex-col items-center text-center"
+                    }
+                  >
+                    <span className="whitespace-nowrap text-sm font-semibold tabular-nums text-foreground">
+                      {ch.value}
+                    </span>
+                    <span
+                      className={
+                        stackChannels
+                          ? "text-xxs leading-tight text-muted-foreground"
+                          : "max-w-[4.5rem] text-xxs leading-tight text-muted-foreground"
+                      }
+                    >
+                      {ch.label}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
@@ -1171,9 +1210,11 @@ const RENEWAL_CONVERSION_FUNNEL_TOOLTIP: MetricTooltip = {
 function RenewalConversionFunnelCard({
   rows,
   onSelect,
+  onExport,
 }: {
   rows: { label: string; count: number; color: string; pct: number }[];
   onSelect?: () => void;
+  onExport?: () => void;
 }) {
   return (
     <Card
@@ -1201,6 +1242,15 @@ function RenewalConversionFunnelCard({
               tooltip={RENEWAL_CONVERSION_FUNNEL_TOOLTIP}
             />
           </span>
+          {onExport ? (
+            <span className="ml-auto shrink-0">
+              <ExportCsvButton
+                onExport={onExport}
+                size="icon"
+                label="Export Conversations → Offers Accepted → Leases Signed CSV"
+              />
+            </span>
+          ) : null}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -1237,8 +1287,9 @@ function ResponseTimeByBedroomChart() {
         <ChartContainer
           config={{
             SMS: { label: "SMS", color: seriesColor(0) },
-            Email: { label: "Email", color: seriesColor(1) },
-            Overall: { label: "Overall", color: seriesColor(2) },
+            Chat: { label: "Chat", color: seriesColor(1) },
+            Email: { label: "Email", color: seriesColor(2) },
+            Overall: { label: "Overall", color: seriesColor(3) },
           }}
           className="!aspect-auto h-[260px] w-full"
         >
@@ -1248,8 +1299,9 @@ function ResponseTimeByBedroomChart() {
             <YAxis tickLine={false} axisLine={false} tickMargin={8} width={36} tickFormatter={(v) => `${v}h`} />
             <ChartTooltip content={<ChartTooltipContent />} />
             <Bar dataKey="SMS" fill={seriesColor(0)} radius={[4, 4, 0, 0]} />
-            <Bar dataKey="Email" fill={seriesColor(1)} radius={[4, 4, 0, 0]} />
-            <Bar dataKey="Overall" fill={seriesColor(2)} radius={[4, 4, 0, 0]} />
+            <Bar dataKey="Chat" fill={seriesColor(1)} radius={[4, 4, 0, 0]} />
+            <Bar dataKey="Email" fill={seriesColor(2)} radius={[4, 4, 0, 0]} />
+            <Bar dataKey="Overall" fill={seriesColor(3)} radius={[4, 4, 0, 0]} />
             <Legend
               verticalAlign="bottom"
               iconType="circle"
@@ -1851,7 +1903,7 @@ function DeveloperNotes({
 
 export default function RenewalsAiDashboardPage() {
   const [filters, setFilters, scope] = useReportScope(PROPERTIES);
-  const [reportVersion, setReportVersion] = useState<ReportVersion>("original");
+  const [reportVersion, setReportVersion] = useState<ReportVersion>("jvm");
   const [goldenDrillIn, setGoldenDrillIn] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const isFirstRender = useRef(true);
@@ -1932,17 +1984,22 @@ export default function RenewalsAiDashboardPage() {
     const avgDaysAI = (9.2 * jitter()).toFixed(1);
     const fullyAutomated = (62 * jitter()).toFixed(1);
     const totalOutreachCount = Math.round(18420 * scale * jitter());
-    const smsCount = Math.round(totalOutreachCount * 0.697);
-    const emailCount = totalOutreachCount - smsCount;
+    const [smsCount, chatCount, emailCount] = distributeCounts(
+      totalOutreachCount,
+      [0.55, 0.2, 0.25],
+    );
     const totalOutreach = totalOutreachCount.toLocaleString();
     const smsSent = smsCount.toLocaleString();
+    const chatSent = chatCount.toLocaleString();
     const emailsSent = emailCount.toLocaleString();
     const responseRate = (38.4 * jitter()).toFixed(1);
     const smsResponseRate = (42.8 * jitter()).toFixed(1);
+    const chatResponseRate = (36.1 * jitter()).toFixed(1);
     const emailResponseRate = (27.6 * jitter()).toFixed(1);
     const avgAIResponseTime = (8 * jitter()).toFixed(0);
     const avgResidentResponseTime = (4.2 * jitter()).toFixed(1);
     const smsResponseTime = (2.9 * jitter()).toFixed(1);
+    const chatResponseTime = (4.5 * jitter()).toFixed(1);
     const emailResponseTime = (7.1 * jitter()).toFixed(1);
     const escalationRate = (12.4 * jitter()).toFixed(1);
     const totalEscalations = Math.round(406 * scale * jitter());
@@ -1950,8 +2007,10 @@ export default function RenewalsAiDashboardPage() {
     const resolvedEscalations = Math.round(364 * scale * jitter());
     const optOutRate = (4.1 * jitter()).toFixed(1);
     const smsOptOutRate = (3.2 * jitter()).toFixed(1);
+    const chatOptOutRate = (3.8 * jitter()).toFixed(1);
     const emailOptOutRate = (5.4 * jitter()).toFixed(1);
     const smsAIResponseTime = (6 * jitter()).toFixed(0);
+    const chatAIResponseTime = (7 * jitter()).toFixed(0);
     const emailAIResponseTime = (12 * jitter()).toFixed(0);
 
     const dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -1984,13 +2043,16 @@ export default function RenewalsAiDashboardPage() {
       fullyAutomated: `${fullyAutomated}%`,
       totalOutreach,
       smsSent,
+      chatSent,
       emailsSent,
       responseRate: `${responseRate}%`,
       smsResponseRate: `${smsResponseRate}%`,
+      chatResponseRate: `${chatResponseRate}%`,
       emailResponseRate: `${emailResponseRate}%`,
       avgAIResponseTime: `< ${avgAIResponseTime} sec`,
       avgResidentResponseTime: `${avgResidentResponseTime} hrs`,
       smsResponseTime: `${smsResponseTime} hrs`,
+      chatResponseTime: `${chatResponseTime} hrs`,
       emailResponseTime: `${emailResponseTime} hrs`,
       escalationRate: `${escalationRate}%`,
       totalEscalations: totalEscalations.toLocaleString(),
@@ -1998,8 +2060,10 @@ export default function RenewalsAiDashboardPage() {
       resolvedEscalations: resolvedEscalations.toLocaleString(),
       optOutRate: `${optOutRate}%`,
       smsOptOutRate: `${smsOptOutRate}%`,
+      chatOptOutRate: `${chatOptOutRate}%`,
       emailOptOutRate: `${emailOptOutRate}%`,
       smsAIResponseTime: `< ${smsAIResponseTime} sec`,
+      chatAIResponseTime: `< ${chatAIResponseTime} sec`,
       emailAIResponseTime: `< ${emailAIResponseTime} sec`,
       topDay: dayVolumes[0],
       dayBreakdown: dayVolumes.slice(1),
@@ -2017,15 +2081,16 @@ export default function RenewalsAiDashboardPage() {
         "Each message sent by super agent is tagged by super agent to the originating sub-agent(s). If a single message was triggered by multiple sub-agents, it counts toward each sub-agent. Make sure we can break down the metric by communication channel since that is also displayed.",
     },
     messagesByDay: {
-      customer: "How many messages this agent sent on each day of the week for the filtered time period and properties.",
+      customer:
+        "Which day of the week this agent sent the most messages, plus how the rest of the week compares, for the filtered time period and properties.",
       engineering:
-        "Count messages tagged to this sub-agent, grouped by day-of-week of send time (using each property's local timezone). The seven day counts MUST sum exactly to Total Messages Sent for the same filter scope (sub-agent + period + properties).",
+        "Count messages tagged to this sub-agent, grouped by day-of-week of send time (using each property's local timezone). The headline is the peak weekday (label + count). The seven day counts MUST sum exactly to Total Messages Sent for the same filter scope (sub-agent + period + properties).",
     },
     messagesByHour: {
       customer:
-        "How many messages this agent sent during each part of the day for the filtered time period and properties. Times use each property's local timezone.",
+        "Which hour of the day this agent sent the most messages, plus volume by time-of-day window, for the filtered time period and properties. Times use each property's local timezone.",
       engineering:
-        "Bucket message send timestamps into 4-hour windows using each property's local timezone (so 3:55 PM Mountain and 3:55 PM Central both land in 12p–4p). The six bucket counts MUST sum exactly to Total Messages Sent for the same filter scope (sub-agent + period + properties).",
+        "Bucket message send timestamps into 4-hour windows using each property's local timezone (so 3:55 PM Mountain and 3:55 PM Central both land in 12p–4p). The headline is the single peak hour within the busiest window. The six bucket counts MUST sum exactly to Total Messages Sent for the same filter scope (sub-agent + period + properties).",
     },
     escalationRate: {
       customer: "The percentage of conversations with this agent that needed a team member to step in.",
@@ -2036,7 +2101,7 @@ export default function RenewalsAiDashboardPage() {
       customer:
         "How often residents opted out of messaging after hearing from this agent. We only count an opt-out when this agent sent the most recent message to that resident in the 48 hours before they opted out.",
       engineering:
-        "Find STOP/opt-out events (SMS or email). For each, look up ONLY the most recent agent message sent to that resident within the prior 48 hours. Attribute the opt-out ONLY to the sub-agent(s) tagged on that most recent message. If no agent message exists in that window, exclude the opt-out. Break down by channel.",
+        "Find STOP/opt-out events (SMS, chat, or email). For each, look up ONLY the most recent agent message sent to that resident within the prior 48 hours. Attribute the opt-out ONLY to the sub-agent(s) tagged on that most recent message. If no agent message exists in that window, exclude the opt-out. Break down by channel.",
     },
     agentResponseTime: {
       customer: "On average, how long it takes residents to get a reply after they message this agent.",
@@ -2047,13 +2112,13 @@ export default function RenewalsAiDashboardPage() {
       customer:
         "When this agent reaches out first (for example, a renewal offer or follow-up), how often the resident replies within 48 hours.",
       engineering:
-        "Denominator = proactive outreach messages initiated by this sub-agent in filter scope. Numerator = those that received ≥1 resident reply within 48 hours of the outreach. Break down by channel of the proactive message.",
+        "Denominator = proactive outreach messages initiated by this sub-agent in filter scope. Numerator = those that received ≥1 resident reply within 48 hours of the outreach. Break down by SMS and Email only (Chat and Voice are excluded from this metric's channel split).",
     },
     residentResponseTime: {
       customer:
         "For residents who replied within 48 hours of a proactive message from this agent, the average time it took them to reply.",
       engineering:
-        "Uses the same dataset as Resident Response Rate Within 48 Hours (proactive outreach messages that received a resident reply within 48 hours). Compute the average (not median) elapsed time from delivery of the proactive message to the resident's reply. This value must never exceed 48 hours because the cohort is limited to replies within that window. Break down by channel.",
+        "Uses the same dataset as Resident Response Rate Within 48 Hours (proactive outreach messages that received a resident reply within 48 hours). Compute the average (not median) elapsed time from delivery of the proactive message to the resident's reply. This value must never exceed 48 hours because the cohort is limited to replies within that window. Break down by SMS and Email only (Chat and Voice are excluded from this metric's channel split).",
     },
     renewalVelocity: {
       customer:
@@ -2068,24 +2133,25 @@ export default function RenewalsAiDashboardPage() {
     {
       label: "Total Messages Sent",
       value: kpi.totalOutreach,
-      sub: "SMS and email message volume",
+      sub: "across all channels",
       tooltip: METRIC_TOOLTIPS.totalMessages,
       channels: [
         { label: "SMS", value: kpi.smsSent },
+        { label: "Chat", value: kpi.chatSent },
         { label: "Email", value: kpi.emailsSent },
       ],
     },
     {
       label: "Messages Sent by Day",
-      value: `${kpi.topDay.count.toLocaleString()}`,
-      sub: `peak day: ${kpi.topDay.label}`,
+      value: kpi.topDay.label,
+      sub: `${kpi.topDay.count.toLocaleString()} messages · peak day`,
       tooltip: METRIC_TOOLTIPS.messagesByDay,
       channels: kpi.dayBreakdown.map((d) => ({ label: d.label, value: d.count.toLocaleString() })),
     },
     {
       label: "Messages Sent by Hour",
-      value: `${kpi.topHour.count.toLocaleString()}`,
-      sub: `peak hour: ${kpi.topHour.label}`,
+      value: kpi.topHour.label,
+      sub: `${kpi.topHour.count.toLocaleString()} messages · peak hour`,
       tooltip: METRIC_TOOLTIPS.messagesByHour,
       channels: kpi.hourBuckets.map((h) => ({ label: h.label, value: h.count.toLocaleString() })),
     },
@@ -2114,10 +2180,11 @@ export default function RenewalsAiDashboardPage() {
     {
       label: "Average Agent Response Time",
       value: kpi.avgAIResponseTime,
-      sub: "resident message to agent reply",
+      sub: "resident msg → agent reply",
       tooltip: METRIC_TOOLTIPS.agentResponseTime,
       channels: [
         { label: "SMS", value: kpi.smsAIResponseTime },
+        { label: "Chat", value: kpi.chatAIResponseTime },
         { label: "Email", value: kpi.emailAIResponseTime },
       ],
     },
@@ -2125,7 +2192,7 @@ export default function RenewalsAiDashboardPage() {
     {
       label: "Resident Response Rate Within 48 Hours",
       value: kpi.responseRate,
-      sub: "across all channels",
+      sub: "SMS and email outreach",
       tooltip: METRIC_TOOLTIPS.residentResponseRate,
       channels: [
         { label: "SMS", value: kpi.smsResponseRate },
@@ -2135,7 +2202,7 @@ export default function RenewalsAiDashboardPage() {
     {
       label: "Resident Response Time",
       value: kpi.avgResidentResponseTime,
-      sub: "average time to reply",
+      sub: "average time to reply · SMS & email",
       tooltip: METRIC_TOOLTIPS.residentResponseTime,
       channels: [
         { label: "SMS", value: kpi.smsResponseTime },
@@ -2145,10 +2212,10 @@ export default function RenewalsAiDashboardPage() {
     {
       label: "Renewal Velocity",
       value: kpi.avgDaysToRenew,
-      sub: "avg days · offer to signature",
+      sub: "avg days to signature",
       tooltip: METRIC_TOOLTIPS.renewalVelocity,
       channels: [
-        { label: "Days before lease end", value: `${kpi.avgDaysBeforeLease}d` },
+        { label: "Avg days before lease end", value: `${kpi.avgDaysBeforeLease}d` },
         { label: "Signed 60+ days early", value: kpi.signed60Plus },
       ],
     },
@@ -2209,20 +2276,32 @@ export default function RenewalsAiDashboardPage() {
       end: 2100,
       integer: true,
     });
-    add("Messages Sent by Day", {
-      description: "Peak weekday message volume over the selected period.",
-      currentValue: `${kpi.topDay.count.toLocaleString()} (${kpi.topDay.label})`,
-      start: 180,
-      end: 320,
-      integer: true,
-    });
-    add("Messages Sent by Hour", {
-      description: "Peak hour message volume over the selected period.",
-      currentValue: `${kpi.topHour.count.toLocaleString()} (${kpi.topHour.label})`,
-      start: 140,
-      end: 280,
-      integer: true,
-    });
+    configs["Messages Sent by Day"] = {
+      title: "Messages Sent by Day",
+      description:
+        "Monthly message volume by day of week. The current peak weekday is called out above; compare how each weekday trends across the selected period.",
+      currentValue: `Peak day: ${kpi.topDay.label} · ${kpi.topDay.count.toLocaleString()} messages`,
+      series: buildWeightedCategoryTrends({
+        seedPrefix: "renewals-messages-by-day",
+        months,
+        categories: [...DAY_OF_WEEK_TREND_WEIGHTS],
+        totalStart: 9200,
+        totalEnd: 18420,
+      }),
+    };
+    configs["Messages Sent by Hour"] = {
+      title: "Messages Sent by Hour",
+      description:
+        "Monthly message volume by 4-hour window (property-local time). The current peak hour is called out above; lines show each time-of-day bucket over the selected period.",
+      currentValue: `Peak hour: ${kpi.topHour.label} · ${kpi.topHour.count.toLocaleString()} messages`,
+      series: buildWeightedCategoryTrends({
+        seedPrefix: "renewals-messages-by-hour",
+        months,
+        categories: [...HOUR_BUCKET_TREND_WEIGHTS],
+        totalStart: 9200,
+        totalEnd: 18420,
+      }),
+    };
     add("Escalation Rate", {
       description: "Share of conversations that needed a human in Nexus.",
       currentValue: kpi.escalationRate,
@@ -2431,13 +2510,14 @@ export default function RenewalsAiDashboardPage() {
           </Card>
         </div>
 
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           <StatCard
             label="Total outreach messages"
             value={kpi.totalOutreach}
             sub="AI-sent messages"
           />
           <StatCard label="SMS sent" value={kpi.smsSent} sub="outbound SMS" />
+          <StatCard label="Chat sent" value={kpi.chatSent} sub="outbound chat" />
           <StatCard label="Emails sent" value={kpi.emailsSent} sub="outbound emails" />
           <StatCard
             label="Resident response rate"
@@ -2754,6 +2834,7 @@ export default function RenewalsAiDashboardPage() {
                 value={loading ? "…" : stat.value}
                 sub={stat.sub}
                 channels={stat.channels}
+                stackChannels={stat.label === "Renewal Velocity"}
                 tooltip={stat.tooltip}
               />
             ))}
@@ -2774,11 +2855,14 @@ export default function RenewalsAiDashboardPage() {
               unitSuffix={activeGoldenDrill.unitSuffix}
               series={activeGoldenDrill.series}
               onBack={() => setGoldenDrillIn(null)}
+              onExport={() =>
+                exportAgentMetricCsv({ agent: "renewals", metric: activeGoldenDrill.title })
+              }
             />
           ) : (
             <section className="mb-6">
               <p className="mb-3 text-xs text-muted-foreground">
-                Click any metric card to open its trend over the selected period.
+                Click any metric card to open its trend. Export conversation-level CSV from inside each drill-in.
               </p>
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {goldenStats.map((stat) => (
@@ -2788,6 +2872,7 @@ export default function RenewalsAiDashboardPage() {
                     value={loading ? "…" : stat.value}
                     sub={stat.sub}
                     channels={stat.channels}
+                    stackChannels={stat.label === "Renewal Velocity"}
                     tooltip={stat.tooltip}
                     onSelect={() => setGoldenDrillIn(stat.label)}
                   />
