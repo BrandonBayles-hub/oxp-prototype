@@ -64,3 +64,10 @@ export { useReportScope } from "./use-report-scope";
 export { ReportPropertyFilter, ALL_REPORT_PROPERTIES } from "./report-property-filter";
 
 export { SegmentedToggle, type SegmentedOption } from "./segmented-toggle";
+
+export {
+  MetricTrendDrillIn,
+  buildSeededMetricTrend,
+  type MetricTrendPoint,
+  type MetricTrendSeries,
+} from "./metric-trend-drill-in";
