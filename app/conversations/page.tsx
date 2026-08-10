@@ -9,6 +9,8 @@ import {
   useRef,
   useState,
   type Dispatch,
+  type KeyboardEvent,
+  type MouseEvent,
   type SetStateAction,
 } from "react";
 import Link from "next/link";
@@ -59,6 +61,8 @@ import {
   Link2,
   SlidersHorizontal,
   CircleHelp,
+  Copy,
+  Info,
   Beaker,
   PhoneIncoming,
   PhoneOutgoing,
@@ -229,8 +233,19 @@ const ESCALATION_LABEL_TO_AGENT: Record<string, string> = {
   "Renewals AI Escalation": "Renewals AI",
   "Payments AI Escalation": "Payments AI",
 };
+
+/**
+ * Maps an escalation label to its AI agent, including numbered same-type escalations
+ * (e.g. "Maintenance AI 1 Escalation" / "Maintenance AI 2 Escalation" → "Maintenance AI").
+ */
 function aiAgentFromEscalationLabel(label: string): string | null {
-  return ESCALATION_LABEL_TO_AGENT[label] ?? null;
+  const direct = ESCALATION_LABEL_TO_AGENT[label];
+  if (direct) return direct;
+  const m = label.match(
+    /^(Leasing AI|Maintenance AI|Renewal AI|Renewals AI|Payments AI)(?: \d+)? Escalation$/
+  );
+  if (!m) return null;
+  return m[1] === "Renewal AI" ? "Renewals AI" : m[1];
 }
 /** Resolve a list of unique paused/resumed AI agents from a list of escalation labels. */
 function aiAgentsFromLabels(labels: string[]): string[] {
@@ -240,6 +255,190 @@ function aiAgentsFromLabels(labels: string[]): string[] {
     if (a && !out.includes(a)) out.push(a);
   }
   return out;
+}
+
+type ThreadCardLabelChip =
+  | { kind: "plain"; label: string }
+  | { kind: "escalation"; labels: string[]; displayLabel: string };
+
+/**
+ * Collapse same-agent escalations on the thread list card into one chip + count
+ * (e.g. Maintenance AI 1 + 2 → "Maintenance AI Escalation" with count 2).
+ * Underlying labels stay intact for reply / resolve.
+ */
+function collapseLabelsForThreadCard(labels: string[]): ThreadCardLabelChip[] {
+  const chips: ThreadCardLabelChip[] = [];
+  const agentGroupIndex = new Map<string, number>();
+
+  for (const label of labels) {
+    if (!label.endsWith("Escalation")) {
+      chips.push({ kind: "plain", label });
+      continue;
+    }
+    const agent = aiAgentFromEscalationLabel(label);
+    if (!agent) {
+      chips.push({ kind: "escalation", labels: [label], displayLabel: label.replace(/\s+\d+(?=\s+Escalation)/, "") });
+      continue;
+    }
+    const existing = agentGroupIndex.get(agent);
+    if (existing === undefined) {
+      agentGroupIndex.set(agent, chips.length);
+      chips.push({
+        kind: "escalation",
+        labels: [label],
+        displayLabel: `${agent} Escalation`,
+      });
+    } else {
+      const chip = chips[existing];
+      if (chip.kind === "escalation") chip.labels.push(label);
+    }
+  }
+  return chips;
+}
+
+/** Seeded per-escalation instance IDs for demo threads (stable, copyable). */
+const SEEDED_ESCALATION_INSTANCE_IDS: Record<string, Record<string, string>> = {
+  "sa1-1": {
+    "Maintenance AI 1 Escalation": "ESC-JL-MAINT-001",
+    "Maintenance AI 2 Escalation": "ESC-JL-MAINT-002",
+  },
+  "sa-1": {
+    "Renewals AI Escalation": "ESC-MR-REN-001",
+    "Payments AI Escalation": "ESC-MR-PAY-001",
+    "Other Escalation": "ESC-MR-OTH-001",
+  },
+  "lc-3": {
+    "Leasing AI Escalation": "ESC-AS-LEASE-001",
+  },
+  "lc-20": {
+    "Renewals AI Escalation": "ESC-AS-REN-001",
+  },
+};
+
+function getEscalationInstanceId(conversationId: string, label: string): string {
+  const seeded = SEEDED_ESCALATION_INSTANCE_IDS[conversationId]?.[label];
+  if (seeded) return seeded;
+  const slug = label
+    .replace(/\s+Escalation$/i, "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  const conv = conversationId.toUpperCase().replace(/[^A-Z0-9]+/g, "-");
+  return `ESC-${conv}-${slug || "TOPIC"}`;
+}
+
+/**
+ * Hover tip next to an escalation label showing its unique escalation ID + copy.
+ * Super Agent 1.0 threads only. Uses a non-button trigger so it can sit inside
+ * thread-list row buttons. Pass `labels` to show multiple IDs (collapsed same-agent group).
+ */
+function EscalationIdHint({
+  conversationId,
+  label,
+  labels: labelsProp,
+  className,
+  iconClassName,
+}: {
+  conversationId: string;
+  label?: string;
+  labels?: string[];
+  className?: string;
+  iconClassName?: string;
+}) {
+  const labels = labelsProp ?? (label ? [label] : []);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const copyId = (e: MouseEvent | KeyboardEvent, escalationId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    void navigator.clipboard.writeText(escalationId).then(() => {
+      setCopiedId(escalationId);
+      toast.success("Escalation ID copied");
+      window.setTimeout(() => setCopiedId(null), 1500);
+    });
+  };
+
+  if (!isSuperAgent1DemoThread(conversationId) || labels.length === 0) return null;
+
+  const title = labels.length === 1 ? "Escalation ID" : "Escalation IDs";
+
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            role="button"
+            tabIndex={0}
+            aria-label={
+              labels.length === 1
+                ? `Show escalation ID for ${labels[0]}`
+                : `Show escalation IDs (${labels.length})`
+            }
+            className={cn(
+              "inline-flex shrink-0 items-center justify-center rounded-sm text-current/70 outline-none transition-colors hover:text-current focus-visible:ring-1 focus-visible:ring-ring",
+              className
+            )}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                e.stopPropagation();
+              }
+            }}
+          >
+            <Info className={cn("h-3 w-3", iconClassName)} aria-hidden />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent
+          side="top"
+          className="z-[220] max-w-[300px] p-2.5"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="space-y-2">
+            <p className="text-xxs font-medium uppercase tracking-wide text-muted-foreground">
+              {title}
+            </p>
+            {labels.map((escLabel) => {
+              const escalationId = getEscalationInstanceId(conversationId, escLabel);
+              const shortName = escLabel.replace(/\s+Escalation$/i, "").replace(/\s+\d+$/, "");
+              return (
+                <div key={escLabel} className="space-y-1">
+                  {labels.length > 1 && (
+                    <p className="text-xxs font-medium text-foreground">{shortName}</p>
+                  )}
+                  <div className="flex items-center gap-1.5">
+                    <code className="min-w-0 flex-1 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                      {escalationId}
+                    </code>
+                    <button
+                      type="button"
+                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border bg-background text-foreground transition-colors hover:bg-muted"
+                      aria-label={`Copy escalation ID ${escalationId}`}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={(e) => copyId(e, escalationId)}
+                    >
+                      {copiedId === escalationId ? (
+                        <Check className="h-3.5 w-3.5 text-emerald-600" aria-hidden />
+                      ) : (
+                        <Copy className="h-3.5 w-3.5" aria-hidden />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            <p className="text-xxs text-muted-foreground">Click the copy icon to copy an ID.</p>
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 }
 
 /** Logged-in user for the My Inbox tab (human assignee name). */
@@ -419,6 +618,7 @@ const AI_ACTIVATION_OPT_IN_LABELS = new Set([
   "Renewal AI",
   "Renewals AI",
   "AI Conversation",
+  "ELI Conversation",
 ]);
 
 /**
@@ -467,7 +667,7 @@ function computeSa1AiState(c: ConversationItem, manualOn: boolean): Sa1AiState {
   const hasResidentProfileBlock = c.labels.includes(SA1_RESIDENT_PROFILE_BLOCK_LABEL);
   const hasSuperAgentBlock = c.labels.includes(SA1_SUPER_AGENT_BLOCK_LABEL);
   const blockedSubAgents = SA1_KNOWN_SUB_AGENTS.filter((a) =>
-    c.labels.includes(`${a} Escalation`),
+    c.labels.some((l) => aiAgentFromEscalationLabel(l) === a)
   );
   let kind: Sa1AiStateKind;
   if (hasResidentProfileBlock) kind = "off-profile";
@@ -506,10 +706,7 @@ function isPrimaryAiLaneConversation(c: ConversationItem): boolean {
  * other inbound (e.g. lead) threads. Unread always counts as needing staff attention.
  */
 function matchesThreadListEscalatedFilter(c: ConversationItem): boolean {
-  if (c.status !== "open") return false;
-  if (isSuperAgentDemoThread(c.id) && c.labels.some((l) => l.includes("Escalation"))) return true;
-  if (c.hasUnread) return true;
-  return !isWaitingOnResidentPublicReply(c);
+  return c.status === "open";
 }
 
 /**
@@ -545,21 +742,118 @@ type SidebarFilter =
   | { type: "live-ai-hillside" };
 
 type ThreadListConvoTypeFilter = "escalated" | "liveAi";
+type ThreadListDateRangePreset = "today" | "last7" | "last30" | "custom";
+type ThreadListChannelFilter = "email" | "sms" | "voice";
 
-/** Open Threads: open only; unread, @mention in a private note, or unattended. Resolved threads never appear here. */
-function conversationMatchesAllThreadsInbox(c: ConversationItem): boolean {
-  if (c.status !== "open") return false;
-  if (
-    (isSuperAgentDemoThread(c.id) || isSuperAgent1DemoThread(c.id)) &&
-    c.labels.some((l) => l.includes("Escalation"))
-  ) {
-    return true;
-  }
-  return (
-    c.hasUnread ||
-    conversationHasCurrentUserPrivateNoteMention(c) ||
-    isConversationUnattended(c)
+const THREAD_LIST_DATE_RANGE_OPTIONS: {
+  value: ThreadListDateRangePreset;
+  label: string;
+}[] = [
+  { value: "today", label: "Today" },
+  { value: "last7", label: "Last 7 days" },
+  { value: "last30", label: "Last 30 days" },
+  { value: "custom", label: "Custom Date Range" },
+];
+
+function startOfLocalDay(d: Date): number {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+function endOfLocalDay(d: Date): number {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999).getTime();
+}
+
+function parseYmdLocal(ymd: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim());
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]) - 1;
+  const d = Number(m[3]);
+  const date = new Date(y, mo, d);
+  if (date.getFullYear() !== y || date.getMonth() !== mo || date.getDate() !== d) return null;
+  return date;
+}
+
+function formatYmdShort(ymd: string): string {
+  const d = parseYmdLocal(ymd);
+  if (!d) return ymd;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/** Approximate last-activity ms from relative list time, else latest message timestamp. */
+function conversationActivityMs(c: ConversationItem, now = Date.now()): number {
+  const t = c.time.trim().toLowerCase();
+  if (t === "just now" || t === "now") return now;
+  const rel = t.match(
+    /^(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|wk|wks|week|weeks)\s*ago$/
   );
+  if (rel) {
+    const n = Number(rel[1]);
+    const u = rel[2];
+    const mult =
+      u.startsWith("m") && !u.startsWith("mo")
+        ? 60_000
+        : u.startsWith("h")
+          ? 3_600_000
+          : u.startsWith("d")
+            ? 86_400_000
+            : 7 * 86_400_000;
+    return now - n * mult;
+  }
+  let latest = 0;
+  for (const msg of c.messages) {
+    const raw = msg.timestamp?.replace(/\s+(MST|MDT|PST|PDT|EST|EDT|CST|CDT|UTC|GMT)\b/gi, "");
+    const ms = parseThreadMessageTimestamp(raw);
+    if (ms > latest) latest = ms;
+  }
+  return latest || now;
+}
+
+function conversationMatchesThreadListDateRange(
+  c: ConversationItem,
+  preset: ThreadListDateRangePreset,
+  customFrom: string,
+  customTo: string
+): boolean {
+  const activity = conversationActivityMs(c);
+  const now = new Date();
+  if (preset === "today") {
+    return activity >= startOfLocalDay(now) && activity <= endOfLocalDay(now);
+  }
+  if (preset === "last7") {
+    const start = startOfLocalDay(
+      new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6)
+    );
+    return activity >= start && activity <= endOfLocalDay(now);
+  }
+  if (preset === "last30") {
+    const start = startOfLocalDay(
+      new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29)
+    );
+    return activity >= start && activity <= endOfLocalDay(now);
+  }
+  const fromDate = customFrom ? parseYmdLocal(customFrom) : null;
+  const toDate = customTo ? parseYmdLocal(customTo) : null;
+  if (!fromDate && !toDate) return true;
+  const from = fromDate ? startOfLocalDay(fromDate) : Number.NEGATIVE_INFINITY;
+  const to = toDate ? endOfLocalDay(toDate) : Number.POSITIVE_INFINITY;
+  return activity >= from && activity <= to;
+}
+
+function conversationMatchesThreadListChannel(
+  c: ConversationItem,
+  channels: Set<ThreadListChannelFilter>
+): boolean {
+  const ch = c.channel;
+  if (channels.has("email") && ch === "Email") return true;
+  if (channels.has("sms") && ch === "SMS") return true;
+  if (channels.has("voice") && (ch === "Phone" || ch === "Voice" || ch === "phone")) return true;
+  return false;
+}
+
+/** Open Threads: all open conversations stay visible regardless of read/reply state. */
+function conversationMatchesAllThreadsInbox(c: ConversationItem): boolean {
+  return c.status === "open";
 }
 
 function isPublicThreadMessageForUnreadCount(m: ConversationMessage): boolean {
@@ -724,14 +1018,14 @@ function ConversationListChannelChip({ channel }: { channel: string }) {
       </span>
     );
   }
-  if (channel === "Phone") {
+  if (channel === "Phone" || channel === "Voice") {
     return (
       <span
         className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-purple-200 bg-purple-50 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-purple-800 dark:border-purple-900/60 dark:bg-purple-950/50 dark:text-purple-200"
-        aria-label="Phone thread"
+        aria-label="Voice thread"
       >
         <PhoneCall className="h-3 w-3 shrink-0 opacity-80" aria-hidden />
-        Phone
+        Voice
       </span>
     );
   }
@@ -944,7 +1238,17 @@ function ConversationsContent() {
   );
   /** `null` = all properties (default). */
   const [threadListPropertyKeys, setThreadListPropertyKeys] = useState<Set<string> | null>(null);
-  const [threadListCompletedFilter, setThreadListCompletedFilter] = useState<"active" | "completed">("active");
+  const [threadListStatusFilters, setThreadListStatusFilters] = useState<Set<"active" | "completed">>(
+    () => new Set(["active"])
+  );
+  const [threadListDateRange, setThreadListDateRange] =
+    useState<ThreadListDateRangePreset>("last30");
+  const [threadListCustomDateFrom, setThreadListCustomDateFrom] = useState("");
+  const [threadListCustomDateTo, setThreadListCustomDateTo] = useState("");
+  /** `null` = all channels (default). */
+  const [threadListChannels, setThreadListChannels] = useState<Set<ThreadListChannelFilter> | null>(
+    null
+  );
 
   const isEscalationLabel = (label: string) => label.endsWith("Escalation");
 
@@ -958,24 +1262,85 @@ function ConversationsContent() {
     threadListPropertyKeys !== null ||
     threadListConvoTypes.size !== 1 ||
     !threadListConvoTypes.has("escalated") ||
-    threadListCompletedFilter !== "active";
+    threadListStatusFilters.size !== 1 ||
+    !threadListStatusFilters.has("active") ||
+    threadListDateRange !== "last30" ||
+    Boolean(threadListCustomDateFrom) ||
+    Boolean(threadListCustomDateTo) ||
+    threadListChannels !== null;
 
   const threadListConvoSummary = useMemo(() => {
     const parts: string[] = [];
     if (threadListConvoTypes.has("escalated")) parts.push("Escalated");
     if (threadListConvoTypes.has("liveAi")) parts.push("Non-Escalated");
     if (parts.length === 0) return "None selected";
-    return parts.join(", ");
+    if (parts.length === 1) return parts[0];
+    return "Conversation Type";
   }, [threadListConvoTypes]);
 
+  const threadListConvoTypeCount = threadListConvoTypes.size;
+
   const threadListPropertySummary = useMemo(() => {
-    if (threadListPropertyKeys === null) return "All properties";
+    if (threadListPropertyKeys === null) return "Properties";
     const n = threadListPropertyKeys.size;
     if (n === 0) return "No properties";
-    if (n === allConversationPropertyNames.length) return "All properties";
-    if (n <= 2) return [...threadListPropertyKeys].sort((a, b) => a.localeCompare(b)).join(", ");
-    return `${n} properties`;
+    if (n === allConversationPropertyNames.length) return "Properties";
+    if (n === 1) return [...threadListPropertyKeys][0];
+    return "Properties";
   }, [threadListPropertyKeys, allConversationPropertyNames]);
+
+  const threadListPropertyCount =
+    threadListPropertyKeys === null ? 0 : threadListPropertyKeys.size;
+
+  const threadListStatusSummary = useMemo(() => {
+    const parts: string[] = [];
+    if (threadListStatusFilters.has("active")) parts.push("Open");
+    if (threadListStatusFilters.has("completed")) parts.push("Closed");
+    if (parts.length === 0) return "None selected";
+    if (parts.length === 1) return parts[0];
+    return "Status";
+  }, [threadListStatusFilters]);
+
+  const threadListStatusCount = threadListStatusFilters.size;
+
+  const threadListDateRangeSummary = useMemo(() => {
+    if (threadListDateRange === "custom") {
+      if (threadListCustomDateFrom && threadListCustomDateTo) {
+        return `${formatYmdShort(threadListCustomDateFrom)} – ${formatYmdShort(threadListCustomDateTo)}`;
+      }
+      if (threadListCustomDateFrom) return `From ${formatYmdShort(threadListCustomDateFrom)}`;
+      if (threadListCustomDateTo) return `Through ${formatYmdShort(threadListCustomDateTo)}`;
+      return "Custom Date Range";
+    }
+    return (
+      THREAD_LIST_DATE_RANGE_OPTIONS.find((o) => o.value === threadListDateRange)?.label ??
+      "Date Range"
+    );
+  }, [threadListDateRange, threadListCustomDateFrom, threadListCustomDateTo]);
+
+  const threadListChannelSummary = useMemo(() => {
+    if (threadListChannels === null) return "Communication Channel";
+    const parts: string[] = [];
+    if (threadListChannels.has("email")) parts.push("Email");
+    if (threadListChannels.has("sms")) parts.push("SMS");
+    if (threadListChannels.has("voice")) parts.push("Voice");
+    if (parts.length === 0) return "None selected";
+    if (parts.length === 1) return parts[0];
+    return "Communication Channel";
+  }, [threadListChannels]);
+
+  const threadListChannelCount = threadListChannels === null ? 0 : threadListChannels.size;
+
+  const toggleThreadListChannel = (channel: ThreadListChannelFilter) => {
+    setThreadListChannels((prev) => {
+      const all: ThreadListChannelFilter[] = ["email", "sms", "voice"];
+      const base = prev === null ? new Set(all) : new Set(prev);
+      if (base.has(channel)) base.delete(channel);
+      else base.add(channel);
+      if (base.size === all.length) return null;
+      return base;
+    });
+  };
 
   const toggleThreadListProperty = (propertyName: string) => {
     setThreadListPropertyKeys((prev) => {
@@ -1118,20 +1483,48 @@ function ConversationsContent() {
   }, [threadListConvoFiltered, threadListPropertyKeys]);
 
   const threadListCompletedFiltered = useMemo(() => {
-    if (threadListCompletedFilter === "active") return threadListFiltered.filter((c) => c.status === "open");
-    return threadListFiltered.filter((c) => c.status === "resolved");
-  }, [threadListFiltered, threadListCompletedFilter]);
+    if (threadListStatusFilters.size === 0) return [];
+    return threadListFiltered.filter((c) => {
+      if (threadListStatusFilters.has("active") && c.status === "open") return true;
+      if (threadListStatusFilters.has("completed") && c.status === "resolved") return true;
+      return false;
+    });
+  }, [threadListFiltered, threadListStatusFilters]);
+
+  const threadListChannelFiltered = useMemo(() => {
+    if (threadListChannels === null) return threadListCompletedFiltered;
+    if (threadListChannels.size === 0) return [];
+    return threadListCompletedFiltered.filter((c) =>
+      conversationMatchesThreadListChannel(c, threadListChannels)
+    );
+  }, [threadListCompletedFiltered, threadListChannels]);
+
+  const threadListDateFiltered = useMemo(() => {
+    return threadListChannelFiltered.filter((c) =>
+      conversationMatchesThreadListDateRange(
+        c,
+        threadListDateRange,
+        threadListCustomDateFrom,
+        threadListCustomDateTo
+      )
+    );
+  }, [
+    threadListChannelFiltered,
+    threadListDateRange,
+    threadListCustomDateFrom,
+    threadListCustomDateTo,
+  ]);
 
   const filtered = useMemo(() => {
-    if (!searchQuery.trim()) return threadListCompletedFiltered;
+    if (!searchQuery.trim()) return threadListDateFiltered;
     const q = searchQuery.toLowerCase();
-    return threadListCompletedFiltered.filter(
+    return threadListDateFiltered.filter(
       (c) =>
         c.resident.toLowerCase().includes(q) ||
         c.preview.toLowerCase().includes(q) ||
         c.labels.some((l) => l.toLowerCase().includes(q))
     );
-  }, [threadListCompletedFiltered, searchQuery]);
+  }, [threadListDateFiltered, searchQuery]);
 
   const myInboxUnreadCount = useMemo(
     () =>
@@ -1187,6 +1580,18 @@ function ConversationsContent() {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [selected?.messages.length]);
+
+  const scrollToEscalationLabel = useCallback((label: string) => {
+    if (!scrollRef.current) return;
+    const el = scrollRef.current.querySelector(
+      `[data-escalation-label="${CSS.escape(label)}"]`
+    );
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("ring-2", "ring-orange-400", "ring-offset-2");
+      setTimeout(() => el.classList.remove("ring-2", "ring-orange-400", "ring-offset-2"), 1500);
+    }
+  }, []);
 
   // Clear escalation error when switching conversations (but preserve selections for super agent)
   const superAgentSelectionsRef = useRef<Map<string, Set<string>>>(new Map());
@@ -1251,8 +1656,8 @@ function ConversationsContent() {
     [buildEmailComposerSignatureDraft, parkCaretAtStart]
   );
   const [selectedEscalationTypes, setSelectedEscalationTypes] = useState<Set<string>>(new Set());
-  const [superAgentNoteOpen, setSuperAgentNoteOpen] = useState(false);
-  const [superAgentNoteDraft, setSuperAgentNoteDraft] = useState("");
+  const [privateNoteModalOpen, setPrivateNoteModalOpen] = useState(false);
+  const [privateNoteModalDraft, setPrivateNoteModalDraft] = useState("");
   const [escalationError, setEscalationError] = useState(false);
   const [escalationSummaryOpen, setEscalationSummaryOpen] = useState(false);
   const [contextDetailOpenIdx, setContextDetailOpenIdx] = useState<number | null>(null);
@@ -1606,6 +2011,51 @@ function ConversationsContent() {
     syncPrivateNoteMentionFromTextarea(e.target);
   };
 
+  const openPrivateNoteModal = () => {
+    setInputMode("message");
+    setPrivateNoteMention(null);
+    setPrivateNoteModalDraft("");
+    setPrivateNoteModalOpen(true);
+  };
+
+  const submitPrivateNoteFromModal = () => {
+    if (!selected || !privateNoteModalDraft.trim()) return;
+    const notes = privateNoteModalDraft.trim();
+    const timestamp = new Date()
+      .toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+        timeZoneName: "short",
+      })
+      .replace(",", " ·");
+    addMessage(selected.id, {
+      role: "staff",
+      text: notes,
+      timestamp,
+      type: "private_note",
+      privateNoteAuthor: MY_INBOX_ASSIGNEE,
+    });
+    const entry: ResidentProfileActivityEntry = {
+      id: `pa-${Date.now()}`,
+      kind: "other",
+      notes,
+      actor: MY_INBOX_ASSIGNEE,
+      timestamp,
+      conversationId: selected.id,
+    };
+    setResidentProfileActivity((prev) => ({
+      ...prev,
+      [selected.resident]: [entry, ...(prev[selected.resident] ?? [])],
+    }));
+    setPrivateNoteModalDraft("");
+    setPrivateNoteModalOpen(false);
+    toast.success("Private note saved to conversation and profile Activity Log");
+  };
+
   const handleSend = () => {
     if (!draft.trim() || !selected) return;
     if (isSuperAgentDemoThread(selected.id) && aiActivated && inputMode === "message" && selectedEscalationTypes.size === 0) {
@@ -1656,8 +2106,7 @@ function ConversationsContent() {
 
     // Super Agent 1.0: staff selected escalation(s) to reply to. This is purely a context
     // affordance — the message itself is the public reply. We do NOT remove escalation labels
-    // or resolve the conversation. We just track which escalations have been replied to; once
-    // every escalation on the thread has at least one reply, the thread is hidden from the list.
+    // or resolve the conversation. We track which escalations have been replied to for UI state.
     if (
       isSuperAgent1DemoThread(selected.id) &&
       inputMode === "message" &&
@@ -1667,16 +2116,6 @@ function ConversationsContent() {
       const replied = new Set(sa1RepliedEscalationsRef.current.get(conversationId) ?? []);
       for (const esc of selectedEscalationTypes) replied.add(esc);
       sa1RepliedEscalationsRef.current.set(conversationId, replied);
-
-      const allEscalations = selected.labels.filter((l) => l.includes("Escalation"));
-      const allCovered = allEscalations.length > 0 && allEscalations.every((l) => replied.has(l));
-      if (allCovered) {
-        setSa1HiddenConversationIds((prev) => {
-          const next = new Set(prev);
-          next.add(conversationId);
-          return next;
-        });
-      }
 
       setSelectedEscalationTypes(new Set());
       superAgentSelectionsRef.current.set(conversationId, new Set());
@@ -1736,7 +2175,7 @@ function ConversationsContent() {
           "Other Escalation": `About the pool party — great news! You're welcome to reserve the pool area for your birthday. Here's what you need to know:\n\n• Reservations can be made up to 30 days in advance at the leasing office\n• For groups over 10, there's a refundable $100 deposit\n• Pool hours for private events are 10am–8pm on weekends\n• Please review the community pool guidelines posted at the pool entrance\n\nWould you like me to help you pick a date and get the reservation started?`,
         };
         const parts = escalationsResolved.map((esc) =>
-          aiResponseMap[esc] ?? `I've addressed the ${esc.replace(" Escalation", "").toLowerCase()} topic based on the team's guidance.`
+          aiResponseMap[esc] ?? `I've addressed the ${esc.replace(" Escalation", "").replace(/\s+\d+$/, "").toLowerCase()} topic based on the team's guidance.`
         );
         const combinedText = escalationsResolved.length > 1
           ? `Hi Marcus! I have updates on your questions.\n\n${parts.join("\n\n")}\n\nLet me know if there's anything else I can help with!`
@@ -2072,71 +2511,225 @@ function ConversationsContent() {
 
       {/* ===== CONVERSATION LIST ===== */}
       <div className={cn("flex w-[340px] shrink-0 flex-col border-r border-border bg-card", callSystemPanelOpen && "hidden")}>
-        {/* Tabs bar + thread list filters */}
-        <div className="space-y-2 px-3 py-2">
-          <div className="flex items-center gap-1.5">
-            <Tabs value={inboxTab} onValueChange={setInboxTab} className="min-w-0 flex-1">
-              <TabsList className="h-9 w-full">
-                <TabsTrigger value="mine" className="flex-1 gap-1.5 px-1.5 text-xs">
-                  My Inbox
-                  {myInboxUnreadCount > 0 && (
-                    <Badge variant="destructive" className="h-5 min-w-5 justify-center px-1.5 text-[10px]">
-                      {myInboxUnreadCount}
-                    </Badge>
-                  )}
-                </TabsTrigger>
-                <TabsTrigger value="unassigned" className="flex-1 px-1.5 text-xs">
-                  Unassigned
-                </TabsTrigger>
-                <TabsTrigger value="all" className="flex-1 px-1.5 text-xs">
-                  All
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-            <Button
-              type="button"
-              variant={threadListFiltersOpen || threadFiltersAreNonDefault ? "secondary" : "ghost"}
-              size="icon"
-              className="relative h-9 w-9 shrink-0"
-              aria-label="More thread filters"
-              aria-expanded={threadListFiltersOpen}
-              onClick={() => setThreadListFiltersOpen((open) => !open)}
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-              {threadFiltersAreNonDefault && (
-                <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
-              )}
-            </Button>
-          </div>
+        {/* Tabs bar */}
+        <div className="px-3 py-2">
+          <Tabs value={inboxTab} onValueChange={setInboxTab} className="w-full">
+            <TabsList className="h-9 w-full">
+              <TabsTrigger value="mine" className="flex-1 gap-1.5 px-1.5 text-xs">
+                My Inbox
+                {myInboxUnreadCount > 0 && (
+                  <Badge variant="destructive" className="h-5 min-w-5 justify-center px-1.5 text-[10px]">
+                    {myInboxUnreadCount}
+                  </Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="unassigned" className="flex-1 px-1.5 text-xs">
+                Unassigned
+              </TabsTrigger>
+              <TabsTrigger value="all" className="flex-1 px-1.5 text-xs">
+                All
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
 
-          {threadListFiltersOpen && (
-            <div className="space-y-2.5 rounded-lg border border-border bg-muted/30 p-2.5">
+        {/* Search + floating filters */}
+        <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search Threads"
+              className="h-8 pl-8 text-xs"
+            />
+          </div>
+          <Popover open={threadListFiltersOpen} onOpenChange={setThreadListFiltersOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant={threadListFiltersOpen || threadFiltersAreNonDefault ? "secondary" : "ghost"}
+                size="icon"
+                className="relative h-8 w-8 shrink-0"
+                aria-label="Thread filters"
+                aria-expanded={threadListFiltersOpen}
+              >
+                <SlidersHorizontal className="h-4 w-4" />
+                {threadFiltersAreNonDefault && (
+                  <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              side="bottom"
+              sideOffset={6}
+              className="w-72 space-y-3 p-3"
+              onOpenAutoFocus={(e) => e.preventDefault()}
+            >
+              <TooltipProvider delayDuration={200}>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold text-foreground">Filters</p>
+                {threadFiltersAreNonDefault && (
+                  <button
+                    type="button"
+                    className="text-xxs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                    onClick={() => {
+                      setThreadListConvoTypes(new Set(["escalated"]));
+                      setThreadListPropertyKeys(null);
+                      setThreadListStatusFilters(new Set(["active"]));
+                      setThreadListDateRange("last30");
+                      setThreadListCustomDateFrom("");
+                      setThreadListCustomDateTo("");
+                      setThreadListChannels(null);
+                    }}
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+
+              {/* Properties */}
               <div className="space-y-1.5">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Conversations filter
-                </p>
-                <Popover>
+                <div className="flex items-center gap-1">
+                  <p className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Properties
+                  </p>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        className="rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label="About Properties filter"
+                      >
+                        <CircleHelp className="h-3.5 w-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left" className="z-[220] max-w-[240px] text-xs leading-snug">
+                      Limit the thread list to one or more properties. Leave All properties selected to
+                      include every property in your inbox.
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <Popover modal>
                   <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 w-full justify-between gap-2 px-2 text-xs font-normal"
+                    <button
+                      type="button"
+                      className={cn(
+                        "flex h-8 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/50",
+                        threadListPropertyKeys !== null && "border-primary/40"
+                      )}
                     >
-                      <span className="truncate">{threadListConvoSummary}</span>
-                      <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
-                    </Button>
+                      <span className="truncate">{threadListPropertySummary}</span>
+                      {threadListPropertyCount > 1 && (
+                        <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1.5 text-xxs font-semibold leading-none text-primary-foreground">
+                          {threadListPropertyCount}
+                        </span>
+                      )}
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                    </button>
                   </PopoverTrigger>
                   <PopoverContent
-                    className="w-[var(--radix-popover-trigger-width)] max-h-[min(320px,70vh)] overflow-y-auto p-2"
+                    className="z-[200] w-[var(--radix-popover-trigger-width)] max-h-[min(280px,50vh)] overflow-y-auto p-2"
                     align="start"
                     sideOffset={4}
                   >
-                    <TooltipProvider delayDuration={200}>
-                      <p className="mb-2 text-[10px] font-medium text-muted-foreground">
-                        Select one or both
+                    <div className="space-y-1">
+                      <label className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-accent/60">
+                        <Checkbox
+                          className="mt-0.5"
+                          checked={threadListPropertyKeys === null}
+                          onCheckedChange={(c) => {
+                            if (c === "indeterminate") return;
+                            if (c) setThreadListPropertyKeys(null);
+                            else setThreadListPropertyKeys(new Set());
+                          }}
+                        />
+                        <span className="text-xs leading-snug text-foreground">All properties</span>
+                      </label>
+                      <div className="my-1 h-px bg-border" />
+                      {allConversationPropertyNames.map((prop) => {
+                        const propChecked =
+                          threadListPropertyKeys === null || threadListPropertyKeys.has(prop);
+                        return (
+                          <label
+                            key={prop}
+                            className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-accent/60"
+                          >
+                            <Checkbox
+                              className="mt-0.5"
+                              checked={propChecked}
+                              onCheckedChange={(c) => {
+                                if (c === "indeterminate") return;
+                                const shouldCheck = c === true;
+                                if (shouldCheck !== propChecked) toggleThreadListProperty(prop);
+                              }}
+                            />
+                            <span className="text-xs leading-snug text-foreground">{prop}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Conversation Type */}
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1">
+                  <p className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Conversation Type
+                  </p>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        className="rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label="About Conversation Type filter"
+                      >
+                        <CircleHelp className="h-3.5 w-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left" className="z-[220] max-w-[240px] space-y-1.5 text-xs leading-snug">
+                      <p>
+                        Escalated: when the lead or resident conversation is waiting on staff to reply or
+                        resolve.
                       </p>
-                      <div className="space-y-2">
-                        <div className="flex items-start gap-1.5 rounded-md px-1 py-0.5 hover:bg-accent/60">
+                      <p>
+                        Non-Escalated: when the lead or resident conversation is being taken care of by
+                        ELI+ and needs no escalation or intervention.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <Popover modal>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className={cn(
+                        "flex h-8 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/50",
+                        (threadListConvoTypeCount !== 1 || !threadListConvoTypes.has("escalated")) &&
+                          "border-primary/40"
+                      )}
+                    >
+                      <span className="truncate">{threadListConvoSummary}</span>
+                      {threadListConvoTypeCount > 1 && (
+                        <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1.5 text-xxs font-semibold leading-none text-primary-foreground">
+                          {threadListConvoTypeCount}
+                        </span>
+                      )}
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="z-[200] w-[var(--radix-popover-trigger-width)] p-2"
+                    align="start"
+                    sideOffset={4}
+                  >
+                      <div className="space-y-1">
+                        <div className="flex items-start gap-1.5 rounded-md px-1 py-1 hover:bg-accent/60">
                           <Checkbox
                             id="thread-filter-escalated"
                             className="mt-0.5 shrink-0"
@@ -2153,28 +2746,29 @@ function ConversationsContent() {
                           />
                           <label
                             htmlFor="thread-filter-escalated"
-                            className="min-w-0 flex-1 cursor-pointer text-xs font-normal leading-snug text-foreground"
+                            className="min-w-0 flex-1 cursor-pointer text-xs leading-snug text-foreground"
                           >
-                            Escalated conversations
+                            Escalated
                           </label>
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <button
                                 type="button"
-                                className="mt-0.5 shrink-0 rounded-sm text-muted-foreground outline-none ring-offset-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                                aria-label="What counts as Escalated conversations"
+                                tabIndex={-1}
+                                className="mt-0.5 shrink-0 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                                aria-label="What counts as Escalated"
                               >
                                 <CircleHelp className="h-3.5 w-3.5" />
                               </button>
                             </TooltipTrigger>
-                            <TooltipContent side="left" className="max-w-[240px] text-xs leading-snug">
+                            <TooltipContent side="left" className="z-[220] max-w-[240px] text-xs leading-snug">
                               Open, unresolved threads where the lead or resident is waiting on staff next on
                               the public thread: includes unread messages and threads whose last public
                               message is from the lead or resident (not staff or the AI).
                             </TooltipContent>
                           </Tooltip>
                         </div>
-                        <div className="flex items-start gap-1.5 rounded-md px-1 py-0.5 hover:bg-accent/60">
+                        <div className="flex items-start gap-1.5 rounded-md px-1 py-1 hover:bg-accent/60">
                           <Checkbox
                             id="thread-filter-live-ai"
                             className="mt-0.5 shrink-0"
@@ -2191,7 +2785,7 @@ function ConversationsContent() {
                           />
                           <label
                             htmlFor="thread-filter-live-ai"
-                            className="min-w-0 flex-1 cursor-pointer text-xs font-normal leading-snug text-foreground"
+                            className="min-w-0 flex-1 cursor-pointer text-xs leading-snug text-foreground"
                           >
                             Non-Escalated
                           </label>
@@ -2199,13 +2793,14 @@ function ConversationsContent() {
                             <TooltipTrigger asChild>
                               <button
                                 type="button"
-                                className="mt-0.5 shrink-0 rounded-sm text-muted-foreground outline-none ring-offset-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                                tabIndex={-1}
+                                className="mt-0.5 shrink-0 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                                 aria-label="What counts as Non-Escalated"
                               >
                                 <CircleHelp className="h-3.5 w-3.5" />
                               </button>
                             </TooltipTrigger>
-                            <TooltipContent side="left" className="max-w-[240px] text-xs leading-snug">
+                            <TooltipContent side="left" className="z-[220] max-w-[240px] text-xs leading-snug">
                               Threads where the last public message is from staff or the AI (waiting on the
                               lead or resident next), plus primary ELI AI lanes that do not carry an escalation
                               label.
@@ -2213,116 +2808,276 @@ function ConversationsContent() {
                           </Tooltip>
                         </div>
                       </div>
-                    </TooltipProvider>
                   </PopoverContent>
                 </Popover>
               </div>
 
+              {/* Status */}
               <div className="space-y-1.5">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Properties filter
-                </p>
-                <Popover>
+                <div className="flex items-center gap-1">
+                  <p className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Status
+                  </p>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        className="rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label="About Status filter"
+                      >
+                        <CircleHelp className="h-3.5 w-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left" className="z-[220] max-w-[240px] text-xs leading-snug">
+                      Open shows active threads still in progress. Closed shows conversations that have
+                      already been resolved. Select both to include every status.
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <Popover modal>
                   <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 w-full justify-between gap-2 px-2 text-xs font-normal"
+                    <button
+                      type="button"
+                      className={cn(
+                        "flex h-8 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/50",
+                        (threadListStatusCount !== 1 || !threadListStatusFilters.has("active")) &&
+                          "border-primary/40"
+                      )}
                     >
-                      <span className="truncate">{threadListPropertySummary}</span>
-                      <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
-                    </Button>
+                      <span className="truncate">{threadListStatusSummary}</span>
+                      {threadListStatusCount > 1 && (
+                        <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1.5 text-xxs font-semibold leading-none text-primary-foreground">
+                          {threadListStatusCount}
+                        </span>
+                      )}
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                    </button>
                   </PopoverTrigger>
                   <PopoverContent
-                    className="w-[var(--radix-popover-trigger-width)] max-h-[min(320px,70vh)] overflow-y-auto p-2"
+                    className="z-[200] w-[var(--radix-popover-trigger-width)] p-2"
                     align="start"
                     sideOffset={4}
                   >
-                    <p className="mb-2 text-[10px] font-medium text-muted-foreground">Properties</p>
-                    <div className="space-y-2">
-                      <div className="flex items-start gap-2 rounded-md px-1 py-0.5 hover:bg-accent/60">
+                    <div className="space-y-1">
+                      <label className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-accent/60">
                         <Checkbox
-                          id="thread-filter-prop-all"
                           className="mt-0.5"
-                          checked={threadListPropertyKeys === null}
+                          checked={threadListStatusFilters.has("active")}
                           onCheckedChange={(c) => {
                             if (c === "indeterminate") return;
-                            if (c) setThreadListPropertyKeys(null);
-                            else setThreadListPropertyKeys(new Set());
+                            setThreadListStatusFilters((prev) => {
+                              const next = new Set(prev);
+                              if (c) next.add("active");
+                              else next.delete("active");
+                              return next;
+                            });
                           }}
                         />
-                        <label
-                          htmlFor="thread-filter-prop-all"
-                          className="cursor-pointer text-xs font-normal leading-snug text-foreground"
-                        >
-                          All properties
-                        </label>
-                      </div>
-                      <div className="my-1 h-px bg-border" />
-                      {allConversationPropertyNames.map((prop) => {
-                        const propChecked =
-                          threadListPropertyKeys === null || threadListPropertyKeys.has(prop);
+                        <span className="text-xs leading-snug text-foreground">Open</span>
+                      </label>
+                      <label className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-accent/60">
+                        <Checkbox
+                          className="mt-0.5"
+                          checked={threadListStatusFilters.has("completed")}
+                          onCheckedChange={(c) => {
+                            if (c === "indeterminate") return;
+                            setThreadListStatusFilters((prev) => {
+                              const next = new Set(prev);
+                              if (c) next.add("completed");
+                              else next.delete("completed");
+                              return next;
+                            });
+                          }}
+                        />
+                        <span className="text-xs leading-snug text-foreground">Closed</span>
+                      </label>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Date Range */}
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1">
+                  <p className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Date Range
+                  </p>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        className="rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label="About Date Range filter"
+                      >
+                        <CircleHelp className="h-3.5 w-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left" className="z-[220] max-w-[240px] text-xs leading-snug">
+                      Limit threads by when they were last active. Custom Date Range lets you pick a
+                      start and end date.
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <Popover modal>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className={cn(
+                        "flex h-8 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/50",
+                        threadListDateRange !== "last30" && "border-primary/40"
+                      )}
+                    >
+                      <span className="truncate">{threadListDateRangeSummary}</span>
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="z-[200] w-[var(--radix-popover-trigger-width)] p-2"
+                    align="start"
+                    sideOffset={4}
+                    onOpenAutoFocus={(e) => e.preventDefault()}
+                  >
+                    <div role="listbox" aria-label="Date range" className="space-y-1">
+                      {THREAD_LIST_DATE_RANGE_OPTIONS.map((opt) => {
+                        const selected = threadListDateRange === opt.value;
                         return (
-                          <div
-                            key={prop}
-                            className="flex items-start gap-2 rounded-md px-1 py-0.5 hover:bg-accent/60"
+                          <button
+                            key={opt.value}
+                            type="button"
+                            role="option"
+                            aria-selected={selected}
+                            className="flex w-full cursor-pointer items-center gap-2 rounded-md px-1 py-1.5 text-left hover:bg-accent/60"
+                            onClick={() => {
+                              setThreadListDateRange(opt.value);
+                              if (opt.value !== "custom") {
+                                setThreadListCustomDateFrom("");
+                                setThreadListCustomDateTo("");
+                              }
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                "h-3.5 w-3.5 shrink-0",
+                                selected ? "opacity-100" : "opacity-0"
+                              )}
+                              aria-hidden
+                            />
+                            <span className="text-xs leading-snug text-foreground">{opt.label}</span>
+                          </button>
+                        );
+                      })}
+                      {threadListDateRange === "custom" && (
+                        <div className="mt-1 space-y-2 border-t border-border pt-2">
+                          <label className="block space-y-1 px-1">
+                            <span className="text-xxs font-medium text-muted-foreground">From</span>
+                            <Input
+                              type="date"
+                              value={threadListCustomDateFrom}
+                              onChange={(e) => setThreadListCustomDateFrom(e.target.value)}
+                              className="h-8 text-xs"
+                            />
+                          </label>
+                          <label className="block space-y-1 px-1">
+                            <span className="text-xxs font-medium text-muted-foreground">To</span>
+                            <Input
+                              type="date"
+                              value={threadListCustomDateTo}
+                              onChange={(e) => setThreadListCustomDateTo(e.target.value)}
+                              min={threadListCustomDateFrom || undefined}
+                              className="h-8 text-xs"
+                            />
+                          </label>
+                        </div>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Communication Channel */}
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1">
+                  <p className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Communication Channel
+                  </p>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        className="rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label="About Communication Channel filter"
+                      >
+                        <CircleHelp className="h-3.5 w-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left" className="z-[220] max-w-[240px] text-xs leading-snug">
+                      Limit the thread list to Email, SMS, and/or Voice (phone) conversations. Leave all
+                      selected to include every channel.
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <Popover modal>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className={cn(
+                        "flex h-8 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/50",
+                        threadListChannels !== null && "border-primary/40"
+                      )}
+                    >
+                      <span className="truncate">{threadListChannelSummary}</span>
+                      {threadListChannelCount > 1 && (
+                        <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1.5 text-xxs font-semibold leading-none text-primary-foreground">
+                          {threadListChannelCount}
+                        </span>
+                      )}
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="z-[200] w-[var(--radix-popover-trigger-width)] p-2"
+                    align="start"
+                    sideOffset={4}
+                    onOpenAutoFocus={(e) => e.preventDefault()}
+                  >
+                    <div className="space-y-1">
+                      {(
+                        [
+                          { id: "email" as const, label: "Email" },
+                          { id: "sms" as const, label: "SMS" },
+                          { id: "voice" as const, label: "Voice" },
+                        ] as const
+                      ).map((opt) => {
+                        const checked =
+                          threadListChannels === null || threadListChannels.has(opt.id);
+                        return (
+                          <label
+                            key={opt.id}
+                            className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-accent/60"
                           >
                             <Checkbox
-                              id={`thread-filter-prop-${prop}`}
                               className="mt-0.5"
-                              checked={propChecked}
+                              checked={checked}
                               onCheckedChange={(c) => {
                                 if (c === "indeterminate") return;
                                 const shouldCheck = c === true;
-                                if (shouldCheck !== propChecked) toggleThreadListProperty(prop);
+                                if (shouldCheck !== checked) toggleThreadListChannel(opt.id);
                               }}
                             />
-                            <label
-                              htmlFor={`thread-filter-prop-${prop}`}
-                              className="cursor-pointer text-xs font-normal leading-snug text-foreground"
-                            >
-                              {prop}
-                            </label>
-                          </div>
+                            <span className="text-xs leading-snug text-foreground">{opt.label}</span>
+                          </label>
                         );
                       })}
                     </div>
                   </PopoverContent>
                 </Popover>
               </div>
-
-              <div className="space-y-1.5">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Conversation filter
-                </p>
-                <Select
-                  value={threadListCompletedFilter}
-                  onValueChange={(v) => setThreadListCompletedFilter(v as "active" | "completed")}
-                >
-                  <SelectTrigger className="h-8 w-full text-xs font-normal">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="active">Open (Active Conversation)</SelectItem>
-                    <SelectItem value="completed">Closed (Completed Conversation)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Search + actions */}
-        <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search Threads"
-              className="h-8 pl-8 text-xs"
-            />
-          </div>
+              </TooltipProvider>
+            </PopoverContent>
+          </Popover>
         </div>
 
         {/* List */}
@@ -2431,6 +3186,9 @@ function ConversationsContent() {
                             )}
                           </span>
                           <ConversationListChannelChip channel={convo.channel} />
+                          {convo.additionalChannels?.map((ch) => (
+                            <ConversationListChannelChip key={ch} channel={ch} />
+                          ))}
                         </div>
                       <div className="flex items-center justify-between gap-2">
                         {convo.additionalResidents && convo.additionalResidents.length > 0 ? (
@@ -2453,15 +3211,43 @@ function ConversationsContent() {
                       <p className={cn("truncate text-xs", convo.hasUnread ? "text-foreground" : "text-muted-foreground")}>{convo.preview}</p>
                       {convo.labels.length > 0 && (
                         <div className="mt-0.5 flex flex-wrap gap-1">
-                          {convo.labels.map((label) => (
-                            <Badge
-                              key={label}
-                              variant={isEscalationLabel(label) ? "destructive" : "secondary"}
-                              className="h-auto px-1.5 py-0 text-[10px]"
-                            >
-                              {label}
-                            </Badge>
-                          ))}
+                          {collapseLabelsForThreadCard(convo.labels).map((chip) => {
+                            if (chip.kind === "plain") {
+                              return (
+                                <Badge
+                                  key={chip.label}
+                                  variant="secondary"
+                                  className="h-auto px-1.5 py-0 text-[10px]"
+                                >
+                                  {chip.label}
+                                </Badge>
+                              );
+                            }
+                            const count = chip.labels.length;
+                            return (
+                              <span
+                                key={chip.displayLabel}
+                                className="inline-flex items-center gap-0.5"
+                              >
+                                <Badge
+                                  variant="destructive"
+                                  className="h-auto gap-1 px-1.5 py-0 text-[10px]"
+                                >
+                                  {chip.displayLabel}
+                                  {count > 1 && (
+                                    <span className="inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-destructive-foreground/20 px-1 text-[9px] font-semibold leading-none text-destructive-foreground">
+                                      {count}
+                                    </span>
+                                  )}
+                                </Badge>
+                                <EscalationIdHint
+                                  conversationId={convo.id}
+                                  labels={chip.labels}
+                                  className="text-destructive"
+                                />
+                              </span>
+                            );
+                          })}
                         </div>
                       )}
                       </button>
@@ -2572,17 +3358,22 @@ function ConversationsContent() {
                       <div className="max-h-48 overflow-y-auto p-2 space-y-1">
                         {selected.labels.map((label) => (
                           <div key={label} className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-muted/60">
-                            <Badge
-                              variant={label.includes("Escalation") ? "destructive" : "outline"}
-                              className={cn(
-                                "gap-1 rounded-md text-xs font-normal",
-                                label.includes("Escalation")
-                                  ? "border-sky-200 bg-sky-50 text-sky-700"
-                                  : "border-border"
+                            <span className="inline-flex min-w-0 items-center gap-0.5">
+                              <Badge
+                                variant={label.includes("Escalation") ? "destructive" : "outline"}
+                                className={cn(
+                                  "gap-1 rounded-md text-xs font-normal",
+                                  label.includes("Escalation")
+                                    ? "border-sky-200 bg-sky-50 text-sky-700"
+                                    : "border-border"
+                                )}
+                              >
+                                {label}
+                              </Badge>
+                              {label.includes("Escalation") && (
+                                <EscalationIdHint conversationId={selected.id} label={label} />
                               )}
-                            >
-                              {label}
-                            </Badge>
+                            </span>
                             <button
                               type="button"
                               onClick={() => removeLabel(selected.id, label)}
@@ -2910,7 +3701,8 @@ function ConversationsContent() {
                                   type="button"
                                   onClick={() => {
                                     const missing = SA1_KNOWN_SUB_AGENTS.filter(
-                                      (a) => !selected.labels.includes(`${a} Escalation`)
+                                      (a) =>
+                                        !selected.labels.some((l) => aiAgentFromEscalationLabel(l) === a)
                                     );
                                     if (missing.length > 0) {
                                       for (const a of missing) {
@@ -2920,8 +3712,10 @@ function ConversationsContent() {
                                         description: "Every known AI sub-agent is now blocked on this thread.",
                                       });
                                     } else {
-                                      for (const a of SA1_KNOWN_SUB_AGENTS) {
-                                        removeLabel(selected.id, `${a} Escalation`);
+                                      for (const l of [...selected.labels]) {
+                                        if (aiAgentFromEscalationLabel(l)) {
+                                          removeLabel(selected.id, l);
+                                        }
                                       }
                                       toast.success("Sub-agent blocks cleared", {
                                         description: "All known AI sub-agents are back on.",
@@ -2930,7 +3724,9 @@ function ConversationsContent() {
                                   }}
                                   className="rounded border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:bg-muted"
                                 >
-                                  {SA1_KNOWN_SUB_AGENTS.every((a) => selected.labels.includes(`${a} Escalation`))
+                                  {SA1_KNOWN_SUB_AGENTS.every((a) =>
+                                    selected.labels.some((l) => aiAgentFromEscalationLabel(l) === a)
+                                  )
                                     ? "Clear all sub-agent blocks"
                                     : "Block all sub-agents"}
                                 </button>
@@ -3317,8 +4113,13 @@ function ConversationsContent() {
                                 selected.staffRespondentIsExternalAgent
                               )}
                                 {escalationLabel && (
-                                  <span className="ml-1.5 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200">
+                                  <span className="ml-1.5 inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200">
                                     {escalationLabel}
+                                    <EscalationIdHint
+                                      conversationId={selected.id}
+                                      label={escalationLabel}
+                                      className="text-orange-800 dark:text-orange-200"
+                                    />
                                   </span>
                                 )}
                                 {" · "}{msg.timestamp}
@@ -3348,8 +4149,15 @@ function ConversationsContent() {
                                     {labelsAdded.map((label, i) => (
                                       <span key={label}>
                                         {i > 0 && <span className="text-emerald-600">{" & "}</span>}
-                                        <span className="inline-flex items-center rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+                                        <span className="inline-flex items-center gap-0.5 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
                                           {label}
+                                          {label.includes("Escalation") && (
+                                            <EscalationIdHint
+                                              conversationId={selected.id}
+                                              label={label}
+                                              className="text-emerald-800 dark:text-emerald-200"
+                                            />
+                                          )}
                                         </span>
                                       </span>
                                     ))}
@@ -3392,7 +4200,7 @@ function ConversationsContent() {
                               key={idx}
                               data-escalation-label={escalationLabel}
                               className={cn(
-                                "flex flex-col items-center gap-1 rounded-md border py-2.5 px-3",
+                                "flex flex-col items-center gap-1 rounded-md border py-2.5 px-3 transition-all",
                                 isEscalation
                                   ? "border-orange-200 bg-orange-50/80 dark:border-orange-900/50 dark:bg-orange-950/20"
                                   : "border-dashed border-border/70 bg-muted/25"
@@ -3414,12 +4222,19 @@ function ConversationsContent() {
                                     <span key={label}>
                                       {i > 0 && ", "}
                                       <span className={cn(
-                                        "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold",
+                                        "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold",
                                         isEscalation
                                           ? "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200"
                                           : "font-medium text-foreground"
                                       )}>
-                                        {label}
+                                        {label.replace(" Escalation", "").replace(/\s+\d+$/, "")}
+                                        {isEscalation && (
+                                          <EscalationIdHint
+                                            conversationId={selected.id}
+                                            label={label}
+                                            className="text-orange-800 dark:text-orange-200"
+                                          />
+                                        )}
                                       </span>
                                     </span>
                                   ))}
@@ -3527,7 +4342,12 @@ function ConversationsContent() {
                                     key={esc}
                                     className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
                                   >
-                                    Replying to {esc.replace(" Escalation", "")}
+                                    Replying to {esc.replace(" Escalation", "").replace(/\s+\d+$/, "")}
+                                    <EscalationIdHint
+                                      conversationId={selected.id}
+                                      label={esc}
+                                      className="text-blue-700 dark:text-blue-300"
+                                    />
                                   </span>
                                 ))}
                               </div>
@@ -3701,8 +4521,15 @@ function ConversationsContent() {
                               {labelsAdded.map((label, i) => (
                                 <span key={label}>
                                   {i > 0 && <span className="text-emerald-600">{" & "}</span>}
-                                  <span className="inline-flex items-center rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+                                  <span className="inline-flex items-center gap-0.5 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
                                     {label}
+                                    {label.includes("Escalation") && (
+                                      <EscalationIdHint
+                                        conversationId={selected.id}
+                                        label={label}
+                                        className="text-emerald-800 dark:text-emerald-200"
+                                      />
+                                    )}
                                   </span>
                                 </span>
                               ))}
@@ -3742,8 +4569,15 @@ function ConversationsContent() {
                               {labelsAdded.map((label, i) => (
                                 <span key={label}>
                                   {i > 0 && <span className="text-emerald-600">{" & "}</span>}
-                                  <span className="inline-flex items-center rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+                                  <span className="inline-flex items-center gap-0.5 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
                                     {label}
+                                    {label.includes("Escalation") && (
+                                      <EscalationIdHint
+                                        conversationId={selected.id}
+                                        label={label}
+                                        className="text-emerald-800 dark:text-emerald-200"
+                                      />
+                                    )}
                                   </span>
                                 </span>
                               ))}
@@ -3786,7 +4620,7 @@ function ConversationsContent() {
                         key={idx}
                         data-escalation-label={escalationLabel}
                         className={cn(
-                          "flex flex-col items-center gap-1 rounded-md border py-2.5 px-3",
+                          "flex flex-col items-center gap-1 rounded-md border py-2.5 px-3 transition-all",
                           isEscalation
                             ? "border-orange-200 bg-orange-50/80 dark:border-orange-900/50 dark:bg-orange-950/20"
                             : "border-dashed border-border/70 bg-muted/25"
@@ -3808,12 +4642,19 @@ function ConversationsContent() {
                               <span key={label}>
                                 {i > 0 && ", "}
                                 <span className={cn(
-                                  "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold",
+                                  "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold",
                                   isEscalation
                                     ? "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200"
                                     : "font-medium text-foreground"
                                 )}>
-                                  {label}
+                                  {label.replace(" Escalation", "").replace(/\s+\d+$/, "")}
+                                  {isEscalation && (
+                                    <EscalationIdHint
+                                      conversationId={selected.id}
+                                      label={label}
+                                      className="text-orange-800 dark:text-orange-200"
+                                    />
+                                  )}
                                 </span>
                               </span>
                             ))}
@@ -3931,7 +4772,12 @@ function ConversationsContent() {
                                 key={esc}
                                 className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-medium text-white ring-1 ring-inset ring-white/30"
                               >
-                                Replying to {esc.replace(" Escalation", "")}
+                                Replying to {esc.replace(" Escalation", "").replace(/\s+\d+$/, "")}
+                                <EscalationIdHint
+                                  conversationId={selected.id}
+                                  label={esc}
+                                  className="text-white/90"
+                                />
                               </span>
                             ))}
                           </div>
@@ -3967,13 +4813,10 @@ function ConversationsContent() {
                     Message
                   </Button>
                   <Button
-                    variant={inputMode === "private_note" ? "secondary" : "ghost"}
+                    variant="ghost"
                     size="sm"
-                    className={cn(
-                      "gap-1.5 rounded-full text-xs",
-                      inputMode === "private_note" && "bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300"
-                    )}
-                    onClick={() => setInputMode("private_note")}
+                    className="gap-1.5 rounded-full text-xs"
+                    onClick={openPrivateNoteModal}
                   >
                     <StickyNote className="h-3.5 w-3.5" />
                     Private Note
@@ -4045,43 +4888,54 @@ function ConversationsContent() {
                           {sa1Escalations.map((label) => {
                             const isSelected = selectedEscalationTypes.has(label);
                             return (
-                              <button
-                                key={label}
-                                type="button"
-                                onClick={() => {
-                                  setSelectedEscalationTypes((prev) => {
-                                    const next = new Set(prev);
-                                    if (next.has(label)) next.delete(label);
-                                    else next.add(label);
-                                    if (selected) superAgentSelectionsRef.current.set(selected.id, next);
-                                    return next;
-                                  });
-                                  setEscalationError(false);
-                                  chatTextareaRef.current?.focus();
-                                }}
-                                className={cn(
-                                  "flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-all",
-                                  isSelected
-                                    ? "border-orange-500 bg-orange-500 text-white shadow-sm dark:border-orange-400 dark:bg-orange-500"
-                                    : isError
-                                      ? "border-red-400 bg-white text-red-700 animate-pulse dark:border-red-600 dark:bg-card dark:text-red-300"
-                                      : "border-orange-300 bg-white text-orange-800 hover:border-orange-500 hover:bg-orange-100/60 dark:border-orange-700 dark:bg-card dark:text-orange-200 dark:hover:bg-orange-950/40"
-                                )}
-                              >
-                                <span
+                              <span key={label} className="inline-flex items-center gap-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedEscalationTypes((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(label)) next.delete(label);
+                                      else next.add(label);
+                                      if (selected) superAgentSelectionsRef.current.set(selected.id, next);
+                                      return next;
+                                    });
+                                    setEscalationError(false);
+                                    scrollToEscalationLabel(label);
+                                    chatTextareaRef.current?.focus();
+                                  }}
                                   className={cn(
-                                    "flex h-3 w-3 shrink-0 items-center justify-center rounded-sm border",
+                                    "flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-all",
                                     isSelected
-                                      ? "border-white bg-white text-orange-600"
+                                      ? "border-orange-500 bg-orange-500 text-white shadow-sm dark:border-orange-400 dark:bg-orange-500"
                                       : isError
-                                        ? "border-red-400"
-                                        : "border-orange-400"
+                                        ? "border-red-400 bg-white text-red-700 animate-pulse dark:border-red-600 dark:bg-card dark:text-red-300"
+                                        : "border-orange-300 bg-white text-orange-800 hover:border-orange-500 hover:bg-orange-100/60 dark:border-orange-700 dark:bg-card dark:text-orange-200 dark:hover:bg-orange-950/40"
                                   )}
                                 >
-                                  {isSelected && <Check className="h-2.5 w-2.5 stroke-[3]" />}
-                                </span>
-                                {label.replace(" Escalation", "")}
-                              </button>
+                                  <span
+                                    className={cn(
+                                      "flex h-3 w-3 shrink-0 items-center justify-center rounded-sm border",
+                                      isSelected
+                                        ? "border-white bg-white text-orange-600"
+                                        : isError
+                                          ? "border-red-400"
+                                          : "border-orange-400"
+                                    )}
+                                  >
+                                    {isSelected && <Check className="h-2.5 w-2.5 stroke-[3]" />}
+                                  </span>
+                                  {label.replace(" Escalation", "").replace(/\s+\d+$/, "")}
+                                </button>
+                                <EscalationIdHint
+                                  conversationId={selected.id}
+                                  label={label}
+                                  className={
+                                    isError
+                                      ? "text-red-700 dark:text-red-300"
+                                      : "text-orange-800 dark:text-orange-200"
+                                  }
+                                />
+                              </span>
                             );
                           })}
                           {selectedCount > 0 && (
@@ -4132,8 +4986,13 @@ function ConversationsContent() {
                               >
                                 <div className="flex items-center gap-1.5 mb-1">
                                   <span className="text-[11px] font-bold text-orange-800 dark:text-orange-200">
-                                    {label.replace(" Escalation", "")}
+                                    {label.replace(" Escalation", "").replace(/\s+\d+$/, "")}
                                   </span>
+                                  <EscalationIdHint
+                                    conversationId={selected.id}
+                                    label={label}
+                                    className="text-orange-800 dark:text-orange-200"
+                                  />
                                 </div>
                                 <p className="text-[11px] leading-relaxed text-foreground/80">
                                   {summary}
@@ -4152,7 +5011,7 @@ function ConversationsContent() {
                         <div className="flex items-center gap-1.5">
                           <button
                             type="button"
-                            onClick={() => setSuperAgentNoteOpen(true)}
+                            onClick={openPrivateNoteModal}
                             className="flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[10px] font-semibold text-amber-700 shadow-sm transition-all hover:bg-amber-100 hover:shadow-md dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
                           >
                             <StickyNote className="h-3 w-3" />
@@ -4168,45 +5027,51 @@ function ConversationsContent() {
                           </button>
                         </div>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         {selected.labels
                           .filter((l) => l.includes("Escalation"))
                           .map((label) => {
                             const isSelected = selectedEscalationTypes.has(label);
                             return (
-                              <button
-                                key={label}
-                                type="button"
-                                onClick={() => {
-                                  setSelectedEscalationTypes((prev) => {
-                                    const next = new Set(prev);
-                                    if (next.has(label)) next.delete(label);
-                                    else next.add(label);
-                                    if (selected) superAgentSelectionsRef.current.set(selected.id, next);
-                                    return next;
-                                  });
-                                  setEscalationError(false);
-                                  chatTextareaRef.current?.focus();
-                                }}
-                                className={cn(
-                                  "flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-all",
-                                  isSelected
-                                    ? "border-orange-400 bg-orange-50 text-orange-800 ring-1 ring-orange-400 dark:border-orange-600 dark:bg-orange-950/30 dark:text-orange-200"
-                                    : escalationError
-                                      ? "border-red-400 bg-red-50 text-red-700 ring-1 ring-red-300 animate-pulse dark:border-red-600 dark:bg-red-950/20 dark:text-red-300"
-                                      : "border-border bg-background text-muted-foreground hover:border-orange-300 hover:bg-orange-50/50 hover:text-orange-700"
-                                )}
-                              >
-                                <span className={cn(
-                                  "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
-                                  isSelected
-                                    ? "border-orange-500 bg-orange-500 text-white"
-                                    : "border-muted-foreground/30"
-                                )}>
-                                  {isSelected && <Check className="h-2.5 w-2.5" />}
-                                </span>
-                                {label.replace(" Escalation", "")}
-                              </button>
+                              <span key={label} className="inline-flex items-center gap-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedEscalationTypes((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(label)) next.delete(label);
+                                      else next.add(label);
+                                      if (selected) superAgentSelectionsRef.current.set(selected.id, next);
+                                      return next;
+                                    });
+                                    setEscalationError(false);
+                                    chatTextareaRef.current?.focus();
+                                  }}
+                                  className={cn(
+                                    "flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-all",
+                                    isSelected
+                                      ? "border-orange-400 bg-orange-50 text-orange-800 ring-1 ring-orange-400 dark:border-orange-600 dark:bg-orange-950/30 dark:text-orange-200"
+                                      : escalationError
+                                        ? "border-red-400 bg-red-50 text-red-700 ring-1 ring-red-300 animate-pulse dark:border-red-600 dark:bg-red-950/20 dark:text-red-300"
+                                        : "border-border bg-background text-muted-foreground hover:border-orange-300 hover:bg-orange-50/50 hover:text-orange-700"
+                                  )}
+                                >
+                                  <span className={cn(
+                                    "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                                    isSelected
+                                      ? "border-orange-500 bg-orange-500 text-white"
+                                      : "border-muted-foreground/30"
+                                  )}>
+                                    {isSelected && <Check className="h-2.5 w-2.5" />}
+                                  </span>
+                                  {label.replace(" Escalation", "").replace(/\s+\d+$/, "")}
+                                </button>
+                                <EscalationIdHint
+                                  conversationId={selected.id}
+                                  label={label}
+                                  className="text-orange-800 dark:text-orange-200"
+                                />
+                              </span>
                             );
                           })}
                       </div>
@@ -4247,8 +5112,13 @@ function ConversationsContent() {
                             >
                               <div className="flex items-center gap-1.5 mb-1">
                                 <span className="text-[11px] font-bold text-orange-800 dark:text-orange-200">
-                                  {label.replace(" Escalation", "")}
+                                  {label.replace(" Escalation", "").replace(/\s+\d+$/, "")}
                                 </span>
+                                <EscalationIdHint
+                                  conversationId={selected.id}
+                                  label={label}
+                                  className="text-orange-800 dark:text-orange-200"
+                                />
                               </div>
                               <p className="text-[11px] leading-relaxed text-foreground/80">
                                 {summary}
@@ -4265,10 +5135,10 @@ function ConversationsContent() {
               {selected && isSuperAgent1DemoThread(selected.id) && inputMode === "message" && escalationSummaryOpen && (() => {
                 const escalations = selected.labels.filter((l) => l.includes("Escalation"));
                 const actionMap: Record<string, string> = {
-                  "Renewals AI Escalation":
-                    "Decide on the rate exception for the 12-month renewal offer ($1,850/mo, a 3% increase from $1,795). Resident is asking you to reconsider given 2 years of on-time payments.",
-                  "Payments AI Escalation":
-                    "Decide on the $50 late-fee waiver from the October returned payment (employer payroll delay). Clean 2-year history, one-time event.",
+                  "Maintenance AI 1 Escalation":
+                    "Confirm technician ETA for dishwasher work order #48219 and reply with a schedule window.",
+                  "Maintenance AI 2 Escalation":
+                    "Open or prioritize a separate A/C work order (not blowing cold) and reply independently of the dishwasher ticket.",
                 };
                 return (
                   <div className="px-5 pb-2">
@@ -4288,7 +5158,10 @@ function ConversationsContent() {
                     <div className="space-y-3 rounded-b-lg border border-t-0 border-blue-200 bg-white p-3.5 dark:border-blue-900/50 dark:bg-card">
                       <p className="text-[13px] leading-relaxed text-foreground/80">
                         <span className="font-semibold text-foreground">{selected.resident}</span>
-                        {selected.unit ? ` (${selected.unit}, ${selected.property})` : ` (${selected.property})`} — a 2-year tenant with on-time payment history — reached out about their upcoming renewal and an October payment issue. The AI handled the routine questions and confirmed a teammate would follow up on the {escalations.length === 1 ? "item" : `${escalations.length} items`} below.
+                        {selected.unit ? ` (${selected.unit}, ${selected.property})` : ` (${selected.property})`}{" "}
+                        asked Maintenance AI about an existing dishwasher work order, then reported a separate A/C
+                        issue while that first escalation was still open. The AI escalated each topic on its own so
+                        staff can reply to and resolve them independently — even though both are Maintenance AI.
                       </p>
                       {escalations.length > 0 && (
                         <div className="space-y-2 rounded-md border-l-[3px] border-l-orange-400 bg-orange-50/50 px-3 py-2.5 dark:bg-orange-950/10">
@@ -4299,8 +5172,14 @@ function ConversationsContent() {
                             const action = actionMap[label] ?? "Review the conversation and respond on this escalation.";
                             return (
                               <div key={label} className="flex gap-2">
-                                <span className="shrink-0 text-[13px] font-semibold text-orange-700 dark:text-orange-300">
-                                  {label.replace(" Escalation", "")}:
+                                <span className="inline-flex shrink-0 items-center gap-0.5 text-[13px] font-semibold text-orange-700 dark:text-orange-300">
+                                  {label.replace(" Escalation", "").replace(/\s+\d+$/, "")}
+                                  <EscalationIdHint
+                                    conversationId={selected.id}
+                                    label={label}
+                                    className="text-orange-700 dark:text-orange-300"
+                                  />
+                                  :
                                 </span>
                                 <span className="text-[13px] leading-relaxed text-foreground/80">
                                   {action}
@@ -4315,62 +5194,59 @@ function ConversationsContent() {
                 );
               })()}
 
-              {/* Private Note modal for Super Agent */}
-              {selected && isSuperAgentDemoThread(selected.id) && (
-                <Dialog open={superAgentNoteOpen} onOpenChange={setSuperAgentNoteOpen}>
-                  <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                      <DialogTitle>Private Note</DialogTitle>
-                      <DialogDescription>
-                        Add an internal note visible only to your team.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-3 pt-2">
-                      <textarea
-                        value={superAgentNoteDraft}
-                        onChange={(e) => setSuperAgentNoteDraft(e.target.value)}
-                        placeholder="Write a private note…"
-                        rows={4}
-                        className="w-full resize-none rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-400 dark:border-amber-800 dark:bg-amber-900/20"
-                      />
-                      <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="sm" onClick={() => setSuperAgentNoteOpen(false)}>
-                          Cancel
-                        </Button>
-                        <Button
-                          size="sm"
-                          className="bg-amber-600 hover:bg-amber-700 text-white"
-                          disabled={!superAgentNoteDraft.trim()}
-                          onClick={() => {
-                            if (superAgentNoteDraft.trim() && selected) {
-                              addMessage(selected.id, {
-                                role: "staff",
-                                text: superAgentNoteDraft.trim(),
-                                timestamp: new Date().toLocaleString("en-US", {
-                                  month: "short",
-                                  day: "numeric",
-                                  year: "numeric",
-                                  hour: "numeric",
-                                  minute: "2-digit",
-                                  hour12: true,
-                                  timeZoneName: "short",
-                                }),
-                                type: "private_note",
-                                privateNoteAuthor: MY_INBOX_ASSIGNEE,
-                              });
-                              setSuperAgentNoteDraft("");
-                              setSuperAgentNoteOpen(false);
-                            }
-                          }}
-                        >
-                          <StickyNote className="h-3.5 w-3.5 mr-1.5" />
-                          Add Note
-                        </Button>
-                      </div>
-                    </div>
-                  </DialogContent>
-                </Dialog>
-              )}
+              {/* Private Note modal — posts to thread + resident Activity Log */}
+              <Dialog
+                open={privateNoteModalOpen && !!selected}
+                onOpenChange={(open) => {
+                  setPrivateNoteModalOpen(open);
+                  if (!open) setPrivateNoteModalDraft("");
+                }}
+              >
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Private Note</DialogTitle>
+                    <DialogDescription>
+                      Internal notes are visible only to your team on this conversation. They will also
+                      appear on the resident profile Activity Log.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-3 pt-1">
+                    <textarea
+                      value={privateNoteModalDraft}
+                      onChange={(e) => setPrivateNoteModalDraft(e.target.value)}
+                      placeholder="Write a private note…"
+                      rows={4}
+                      className="w-full resize-none rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-400 dark:border-amber-800 dark:bg-amber-900/20"
+                      autoFocus
+                    />
+                    <p className="text-xxs leading-snug text-muted-foreground">
+                      This note stays private to staff and will also be logged on the Activity Log for{" "}
+                      {selected?.resident ?? "this resident"}.
+                    </p>
+                    <DialogFooter>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setPrivateNoteModalOpen(false);
+                          setPrivateNoteModalDraft("");
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="bg-amber-600 text-white hover:bg-amber-700"
+                        disabled={!privateNoteModalDraft.trim() || !selected}
+                        onClick={submitPrivateNoteFromModal}
+                      >
+                        <StickyNote className="mr-1.5 h-3.5 w-3.5" />
+                        Add Note
+                      </Button>
+                    </DialogFooter>
+                  </div>
+                </DialogContent>
+              </Dialog>
 
               {/* Escalation picker modal for Super Agent */}
               {selected && isSuperAgentDemoThread(selected.id) && (
@@ -4415,7 +5291,14 @@ function ConversationsContent() {
                                 {isSelected && <Check className="h-3 w-3" />}
                               </span>
                               <span className={cn("h-2 w-2 rounded-full shrink-0", isSelected ? "bg-orange-500" : "bg-muted-foreground/30")} />
-                              {label.replace(" Escalation", "")}
+                              <span className="inline-flex min-w-0 flex-1 items-center gap-1">
+                                <span className="truncate">{label.replace(" Escalation", "").replace(/\s+\d+$/, "")}</span>
+                                <EscalationIdHint
+                                  conversationId={selected.id}
+                                  label={label}
+                                  className="text-orange-800"
+                                />
+                              </span>
                             </button>
                           );
                         })}
@@ -4505,7 +5388,14 @@ function ConversationsContent() {
                                 {isSelected && <Check className="h-3 w-3" />}
                               </span>
                               <span className={cn("h-2 w-2 rounded-full shrink-0", isSelected ? "bg-emerald-500" : "bg-muted-foreground/30")} />
-                              {label.replace(" Escalation", "")}
+                              <span className="inline-flex min-w-0 flex-1 items-center gap-1">
+                                <span className="truncate">{label.replace(" Escalation", "").replace(/\s+\d+$/, "")}</span>
+                                <EscalationIdHint
+                                  conversationId={selected.id}
+                                  label={label}
+                                  className="text-emerald-800"
+                                />
+                              </span>
                             </button>
                           );
                         })}
@@ -5025,7 +5915,7 @@ function ConversationsContent() {
                                   ? "Incoming call"
                                   : entry.kind === "outgoing"
                                     ? "Outgoing call"
-                                    : "Note"}
+                                    : "Private Note"}
                               </span>
                               <span className="ml-auto text-[10px] text-gray-400">{entry.timestamp}</span>
                             </div>
@@ -5922,14 +6812,10 @@ function ConversationsContent() {
                       Message
                     </Button>
                     <Button
-                      variant={inputMode === "private_note" ? "secondary" : "ghost"}
+                      variant="ghost"
                       size="sm"
-                      className={cn(
-                        "gap-1.5 rounded-full text-[11px] h-7",
-                        inputMode === "private_note" &&
-                          "bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300"
-                      )}
-                      onClick={() => setInputMode("private_note")}
+                      className="gap-1.5 rounded-full text-[11px] h-7"
+                      onClick={openPrivateNoteModal}
                     >
                       <StickyNote className="h-3 w-3" />
                       Private Note
