@@ -2598,7 +2598,7 @@ function DeterministicBuilderModal({
                   ? `Edit "${forkFrom!.name}" v${forkFrom!.activeVersion}`
                   : isForking
                     ? `New Version of "${forkFrom!.name}"`
-                    : "Build Deterministic Workflow"}
+                    : "Build AI-Built Workflow"}
               </h2>
               <p className="text-[11px] text-muted-foreground">
                 {isEditing
@@ -4648,84 +4648,63 @@ export default function AgentBuilderPage() {
               <div className="flex flex-1 items-center justify-center px-6">
                 {(() => {
                   const freeRemaining = FREE_AGENT_LIMIT - freeAgentsUsed;
-                  const deterministicNeedsUpgrade = !isContracted && freeRemaining <= 0;
-                  const launchUpgrade = () => {
-                    setModalOpen(false);
-                    setContractStep("properties");
-                    setContractState({ ...INITIAL_CONTRACT_STATE, selectedPropertyIds: [...contractedPropertyIds] });
-                    setShowContractFlow(true);
-                  };
                   return (
                     <div className="grid max-w-2xl grid-cols-2 gap-5">
                       <button
                         type="button"
-                        onClick={() => {
-                          if (deterministicNeedsUpgrade) {
-                            launchUpgrade();
-                          } else {
-                            setModalStep({ kind: "deterministic" });
-                          }
-                        }}
-                        className={`group flex flex-col items-start rounded-xl border-2 border-border bg-white p-5 text-left transition-all ${deterministicNeedsUpgrade ? "opacity-80" : "hover:border-emerald-400 hover:shadow-lg"}`}
+                        onClick={() => setModalStep({ kind: "deterministic" })}
+                        className="group flex flex-col items-start rounded-xl border-2 border-border bg-white p-5 text-left transition-all hover:border-emerald-400 hover:shadow-lg"
                       >
                         <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100">
                           <Workflow className="h-6 w-6" />
                         </div>
                         <div className="flex items-center gap-2">
-                          <h3 className="text-base font-semibold text-foreground">Deterministic Workflow</h3>
-                          {deterministicNeedsUpgrade && <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-[9px]"><Crown className="mr-0.5 h-2.5 w-2.5" /> Requires upgrade</Badge>}
+                          <h3 className="text-base font-semibold text-foreground">AI-Built Workflow</h3>
                         </div>
                         <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-                          Predictable, rule-based automation. AI builds the logic once, then it runs the same way every time.
+                          AI builds a fixed workflow from your description. Once created, every run follows the same steps—predictable and consistent.
                         </p>
                         {!isContracted && (
-                          <div className={`mt-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ${freeRemaining > 0 ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+                          <div className={`mt-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ${freeRemaining > 0 ? "bg-emerald-50 text-emerald-700" : "bg-muted text-muted-foreground"}`}>
                             <Gift className="h-3 w-3" />
                             {freeRemaining > 0
-                              ? `${freeRemaining} of ${FREE_AGENT_LIMIT} free agents remaining`
-                              : `${FREE_AGENT_LIMIT} of ${FREE_AGENT_LIMIT} free agents used — upgrade for more`}
+                              ? `${freeRemaining} of ${FREE_AGENT_LIMIT} free workflows remaining`
+                              : `${FREE_AGENT_LIMIT} of ${FREE_AGENT_LIMIT} free workflows used`}
                           </div>
                         )}
                         <ul className="mt-3 space-y-1.5 text-[12px] text-muted-foreground">
                           <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-600" /> Same output every run</li>
-                          <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-600" /> No LLM cost per execution</li>
+                          <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-600" /> Lower cost than AI Agents</li>
                           <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-600" /> Ideal for regulated processes</li>
                           <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-600" /> Test in sandbox, promote to live</li>
                         </ul>
                         <span className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-700">
-                          <Code2 className="h-3 w-3" /> Best for: automations, compliance, scheduled tasks
+                          <Code2 className="h-3 w-3" /> Best for: processes that must run identically every time
                         </span>
                       </button>
 
                       <button
                         type="button"
-                        onClick={() => {
-                          if (isContracted) {
-                            setModalStep({ kind: "ai-powered" });
-                          } else {
-                            launchUpgrade();
-                          }
-                        }}
-                        className={`group flex flex-col items-start rounded-xl border-2 border-border bg-white p-5 text-left transition-all ${isContracted ? "hover:border-indigo-400 hover:shadow-lg" : "opacity-80"}`}
+                        onClick={() => setModalStep({ kind: "ai-powered" })}
+                        className="group flex flex-col items-start rounded-xl border-2 border-border bg-white p-5 text-left transition-all hover:border-indigo-400 hover:shadow-lg"
                       >
                         <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 group-hover:bg-indigo-100">
                           <BrainCircuit className="h-6 w-6" />
                         </div>
                         <div className="flex items-center gap-2">
-                          <h3 className="text-base font-semibold text-foreground">AI-Powered Agent</h3>
-                          {!isContracted && <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-[9px]"><Crown className="mr-0.5 h-2.5 w-2.5" /> Requires upgrade</Badge>}
+                          <h3 className="text-base font-semibold text-foreground">AI Agent</h3>
                         </div>
                         <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-                          Adaptive, LLM-driven intelligence. The agent reasons through each situation differently based on context.
+                          Uses AI while it runs—so it can converse, analyze, notify, and adapt to each situation to drive the right outcome.
                         </p>
                         <ul className="mt-3 space-y-1.5 text-[12px] text-muted-foreground">
                           <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-600" /> Handles nuanced scenarios</li>
-                          <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-600" /> Natural language conversations</li>
+                          <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-600" /> Analyzes and acts on context</li>
                           <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-600" /> Adapts to new situations</li>
                           <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-600" /> Full guardrail protection</li>
                         </ul>
                         <span className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-3 py-1 text-[11px] font-semibold text-indigo-700">
-                          <BrainCircuit className="h-3 w-3" /> Best for: conversations, complex decisions, resident interactions
+                          <BrainCircuit className="h-3 w-3" /> Best for: conversations, analysis, and work that needs judgment
                         </span>
                       </button>
                     </div>
@@ -4761,7 +4740,7 @@ export default function AgentBuilderPage() {
                         ? modalStep.forkMode === "edit"
                           ? `Edit "${modalStep.forkFrom.name}" v${modalStep.forkFrom.activeVersion}`
                           : `New Version of "${modalStep.forkFrom.name}"`
-                        : "Build AI-Powered Agent"}
+                        : "Build AI Agent"}
                     </h2>
                     <p className="text-[11px] text-muted-foreground">
                       {modalStep.forkFrom
