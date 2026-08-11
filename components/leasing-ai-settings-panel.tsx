@@ -52,7 +52,7 @@ import {
    Conversation modes
    ══════════════════════════════════════════════════════════════════════════ */
 
-type ConversationModeId = "maximize-tour" | "maximize-application"
+type ConversationModeId = "maximize-tour" | "maximize-application" | "maximize-guest-card"
 
 interface ConversationMode {
   id: ConversationModeId
@@ -81,6 +81,15 @@ const CONVERSATION_MODES: ConversationMode[] = [
     cadenceLabel: "Application Mode cadence",
     conversionGoal: "drive_applications",
     requiresConventionalNoAffordable: true,
+  },
+  {
+    id: "maximize-guest-card",
+    name: "Maximize Guest Card Mode",
+    description:
+      "The bot proactively gathers the prospect’s contact details, preferences, and move-in timing to complete a guest card before offering next steps.",
+    cadenceLabel: "Guest Card Mode cadence",
+    conversionGoal: "answer_questions",
+    requiresConventionalNoAffordable: false,
   },
 ]
 
