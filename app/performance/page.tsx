@@ -29,7 +29,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import { ThumbsUp, ThumbsDown, MessageSquare, CheckCircle, XCircle, Pencil, FileText, ChevronDown, ChevronRight, ArrowRight, Calendar, Search, Library } from "lucide-react";
+import { ThumbsUp, ThumbsDown, MessageSquare, CheckCircle, XCircle, Pencil, FileText, ChevronDown, ChevronRight, Calendar, Search, Library } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   ALL_REPORT_PROPERTIES,
@@ -37,8 +37,8 @@ import {
   ChartTitleRow,
   SectionBanner,
   TYPE,
-  DeltaPill,
   ReportFilterBar,
+  SegmentedToggle,
   SERIES_NEUTRAL,
   formatMonthLabel,
   monthsForPeriod,
@@ -46,8 +46,15 @@ import {
   selectionRatio,
   seriesColor,
   useReportScope,
-  type Tone,
 } from "@/components/performance";
+
+type ReportVersion = "original" | "jvm" | "golden";
+
+const REPORT_VERSION_OPTIONS = [
+  { value: "original", label: "Original" },
+  { value: "jvm", label: "Alpha Launch" },
+  { value: "golden", label: "Golden Prototype" },
+] as const;
 import { cn } from "@/lib/utils";
 import { useAgents } from "@/lib/agents-context";
 import { useEscalations } from "@/lib/escalations-context";
@@ -555,6 +562,8 @@ export default function PerformancePage() {
   const { role } = useRole();
   const { filteredItems: conversations } = useConversations();
   const isPropertyRole = role === "property";
+  const [reportVersion, setReportVersion] = useState<ReportVersion>("jvm");
+  const isAlphaLaunch = reportVersion === "jvm";
 
   const propertyOptions = useMemo(() => {
     const set = new Set(conversations.map((c) => c.property));
@@ -580,7 +589,7 @@ export default function PerformancePage() {
     () => buildHealthMetrics(months, propertyRatio),
     [months, propertyRatio],
   );
-  const agentImpact = useAgentImpactValues(months, propertyRatio);
+  const agentImpact = useAgentImpactValues();
   const trendData = useTrendData(months, {
     conversations: perf.totalConversations,
     escalationRate: perf.escalationRate,
@@ -618,7 +627,25 @@ export default function PerformancePage() {
         properties={ALL_REPORT_PROPERTIES}
       />
 
-      {showAssetImpact && !isPropertyRole && (
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-dashed border-amber-500/50 bg-amber-500/5 px-4 py-3">
+        <div>
+          <p className="text-xxs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+            Developer tool — do not ship to customers
+          </p>
+          <p className="text-xs font-semibold text-foreground">Report Version</p>
+          <p className="text-xxs text-muted-foreground">
+            Prototype-only switch between Original, Alpha Launch, and Golden Prototype layouts.
+          </p>
+        </div>
+        <SegmentedToggle
+          value={reportVersion}
+          onChange={setReportVersion}
+          options={REPORT_VERSION_OPTIONS}
+          aria-label="Performance report version"
+        />
+      </div>
+
+      {!isAlphaLaunch && showAssetImpact && !isPropertyRole && (
         <section className="mb-8">
           <SectionBanner title="Asset & revenue impact" />
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -644,6 +671,7 @@ export default function PerformancePage() {
         </section>
       )}
 
+      {!isAlphaLaunch && (
       <section className="mb-8">
         <Card className="border-border/60">
           <CardHeader>
@@ -674,66 +702,22 @@ export default function PerformancePage() {
           </CardContent>
         </Card>
       </section>
+      )}
 
-      {!isPropertyRole && (
+      {(isAlphaLaunch || !isPropertyRole) && (
         <section className="mb-8">
           <SectionBanner title="How AI is driving value" />
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            {perf.assetValueChain.map((chain) => {
-              if (chain.id === "renewals") {
-                return <RenewalsImpactCard key={chain.id} scope={agentImpact} />;
-              }
-              if (chain.id === "leasing") {
-                return <LeasingImpactCard key={chain.id} scope={agentImpact} />;
-              }
-              if (chain.id === "maintenance") {
-                return <MaintenanceImpactCard key={chain.id} scope={agentImpact} />;
-              }
-              return (
-                <Card key={chain.id} className={`border-border/60 ${!chain.active ? "opacity-70" : ""}`}>
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="flex items-center gap-1.5 text-base">
-                        {chain.active && <img src="/eli-cube.svg" alt="" width={16} height={16} className="shrink-0" />}
-                        {chain.area}
-                      </CardTitle>
-                      <div className="text-right">
-                        <p className="text-lg font-bold text-foreground">{chain.value}</p>
-                        <p className="text-xxs text-muted-foreground">{chain.valueSub}</p>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      {chain.steps.map((step, idx) => (
-                        <div key={step.label} className="flex items-start gap-2">
-                          {idx > 0 && (
-                            <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-                          )}
-                          {idx === 0 && (
-                            <div className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                          )}
-                          <div className="min-w-0">
-                            <p className="text-xxs font-medium text-muted-foreground">{step.label}</p>
-                            <p className="text-sm text-foreground">{step.detail}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    {!chain.active && (
-                      <Link href="/agent-roster" className="mt-3 inline-block text-xs font-medium text-foreground underline hover:no-underline">
-                        Enable in Agent Roster →
-                      </Link>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })}
+            <LeasingImpactCard scope={agentImpact} />
             <PaymentsImpactCard scope={agentImpact} />
+            <MaintenanceImpactCard scope={agentImpact} />
+            <RenewalsImpactCard scope={agentImpact} />
           </div>
         </section>
       )}
 
+      {!isAlphaLaunch && (
+      <>
       <section className="mb-8">
         <SectionBanner title="Efficiency & capacity" />
         <div className={`grid gap-4 sm:grid-cols-2 ${isPropertyRole ? "lg:grid-cols-2" : "lg:grid-cols-4"}`}>
@@ -926,6 +910,8 @@ export default function PerformancePage() {
       </section>
 
       {!isPropertyRole && <FeedbackReviewSection />}
+      </>
+      )}
     </>
   );
 }
@@ -942,23 +928,12 @@ const AI_ONLY_EFFICIENCY_IDS = new Set([
 function AgentImpactCard({
   agent,
   href,
-  value,
-  label,
-  delta,
-  deltaTone = "positive",
-  context,
+  blurb,
 }: {
   agent: string;
   href: string;
-  /** The headline number. */
-  value: string;
-  /** What the number is — kept to a few words so it never wraps to 4 lines. */
-  label: string;
-  /** The lift this agent produced, e.g. "+10 pts". */
-  delta?: string;
-  deltaTone?: Tone;
-  /** One short supporting clause. */
-  context?: string;
+  /** Short description of what the agent report covers — no headline KPI. */
+  blurb: string;
 }) {
   return (
     <Link href={href} className="group block h-full focus-visible:outline-none">
@@ -981,34 +956,16 @@ function AgentImpactCard({
           />
         </div>
 
-        <p className="mt-4 text-3xl font-bold tracking-tight tabular-nums text-foreground">
-          {value}
+        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{blurb}</p>
+        <p className="mt-auto pt-4 text-xs font-medium text-foreground/80 transition-colors group-hover:text-foreground">
+          View report →
         </p>
-        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-          <p className="text-xs font-medium text-foreground/80">{label}</p>
-          {delta ? <DeltaPill value={delta} tone={deltaTone} /> : null}
-        </div>
-        {context ? (
-          <p className="mt-1 text-xs text-muted-foreground">{context}</p>
-        ) : null}
       </CardContent>
     </Card>
     </Link>
   );
 }
 
-/**
- * One headline metric per agent — the number most likely to make someone open
- * the full report. The rest of the detail lives on the agent page.
- */
-/**
- * The four headline agent stats, derived from the active scope.
- *
- * These were fixed strings, so the page's most prominent numbers sat under a
- * filter bar and never moved. Counts scale with the window and the share of
- * the portfolio; rates and averages only drift, since neither grows because
- * the range is longer.
- */
 interface AgentImpactValues {
   renewals: React.ComponentProps<typeof AgentImpactCard>;
   leasing: React.ComponentProps<typeof AgentImpactCard>;
@@ -1016,43 +973,32 @@ interface AgentImpactValues {
   payments: React.ComponentProps<typeof AgentImpactCard>;
 }
 
-function useAgentImpactValues(months: number, propertyRatio: number): AgentImpactValues {
-  return useMemo(() => {
-    const rand = seededRandom(909 + months * 13 + Math.round(propertyRatio * 100));
-    const drift = (band = 0.06) => 1 + (rand() - 0.5) * band;
-    const volume = Math.max(0.02, (months / 12) * propertyRatio);
-    const count = (base: number) => Math.round(base * volume * drift()).toLocaleString();
-
-    const renewalRate = 74 * drift();
-    const collected = 94.2 * drift();
-    const days = 4.2 * drift(0.1);
-
-    return {
+function useAgentImpactValues(): AgentImpactValues {
+  return useMemo(
+    () => ({
       renewals: {
-        agent: "Renewals", href: "/performance/renewals-ai",
-        value: `${renewalRate.toFixed(0)}%`, label: "Renewal rate",
-        delta: `+${(renewalRate - 64).toFixed(0)} pts`, deltaTone: "positive" as Tone,
-        context: "Up from 64% since adding ELI+",
+        agent: "Renewals",
+        href: "/performance/renewals-ai",
+        blurb: "Renewal rates, outreach volume, and AI-driven retention impact.",
       },
       leasing: {
-        agent: "Leasing", href: "/performance/leasing-ai",
-        value: count(11745), label: "Tours booked by ELI+",
-        context: `From ${count(75526)} conversations this period`,
+        agent: "Leasing",
+        href: "/performance/leasing-ai",
+        blurb: "Lead conversion, tours, and prospect outreach handled by AI.",
       },
       maintenance: {
-        agent: "Maintenance", href: "/performance/maintenance-ai",
-        value: `${days.toFixed(1)}d`, label: "Avg days to complete",
-        delta: `${(6.8 - days).toFixed(1)}d faster`, deltaTone: "positive" as Tone,
-        context: "Down from 6.8d since adding ELI+",
+        agent: "Maintenance",
+        href: "/performance/maintenance-ai",
+        blurb: "Work-order triage, resolution speed, and resident request handling.",
       },
       payments: {
-        agent: "Payments", href: "/performance/payments-ai",
-        value: `${collected.toFixed(1)}%`, label: "Rent collected on time",
-        delta: `+${(collected - 91).toFixed(1)} pts`, deltaTone: "positive" as Tone,
-        context: "Up from 91.0% since adding ELI+",
+        agent: "Payments",
+        href: "/performance/payments-ai",
+        blurb: "Collection rates, reminders, and delinquency recovery by AI.",
       },
-    };
-  }, [months, propertyRatio]);
+    }),
+    [],
+  );
 }
 
 function RenewalsImpactCard({ scope }: { scope: AgentImpactValues }) {

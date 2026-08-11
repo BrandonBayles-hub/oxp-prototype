@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import {
   CHART_GRID_STROKE,
   EscalationsSection,
+  ExportCsvButton,
   MetricTrendDrillIn,
   ReportFilterBar,
   ReportPageHeader,
@@ -31,6 +32,10 @@ import {
   SegmentedToggle,
   StatCard,
   buildSeededMetricTrend,
+  buildWeightedCategoryTrends,
+  DAY_OF_WEEK_TREND_WEIGHTS,
+  HOUR_BUCKET_TREND_WEIGHTS,
+  exportAgentMetricCsv,
   monthsForPeriod,
   selectionRatio,
   seriesColor,
@@ -1546,6 +1551,7 @@ function BillboardStatCard({
   channels,
   tooltip,
   onSelect,
+  onExport,
 }: {
   label: string;
   value: string;
@@ -1553,10 +1559,13 @@ function BillboardStatCard({
   channels: { label: string; value: string }[];
   tooltip?: MetricTooltip;
   onSelect?: () => void;
+  onExport?: () => void;
 }) {
+  const channelColumns = Math.min(channels.length, 2);
+  const singleChannelRow = channels.length > 0 && channels.length <= channelColumns;
   return (
     <Card
-      className={`flex h-full flex-col border-border/60 ${onSelect ? "cursor-pointer transition-colors hover:border-foreground/30 hover:bg-muted/20" : ""}`}
+      className={`billboard-stat flex h-full flex-col border-border/60 ${onSelect ? "cursor-pointer transition-colors hover:border-foreground/30 hover:bg-muted/20" : ""}`}
       onClick={onSelect}
       role={onSelect ? "button" : undefined}
       tabIndex={onSelect ? 0 : undefined}
@@ -1571,53 +1580,63 @@ function BillboardStatCard({
           : undefined
       }
     >
-      <CardContent className="flex flex-1 items-center justify-between gap-4 px-5 py-4">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <p className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
-              {label}
-            </p>
-            {tooltip && (
-              <span onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <button type="button" className="inline-flex shrink-0 text-muted-foreground/60 hover:text-muted-foreground transition-colors">
-                      <Info className="h-3.5 w-3.5" />
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-96 space-y-3 p-3 text-xs leading-relaxed text-popover-foreground" side="top" align="start">
-                    <div>
-                      <p className="mb-1 text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
-                        What this shows
-                      </p>
-                      <p>{tooltip.customer}</p>
-                    </div>
-                    <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5">
-                      <p className="mb-1 text-xxs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
-                        Engineering notes — do not show to customers
-                      </p>
-                      <p className="text-foreground/90">{tooltip.engineering}</p>
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </span>
-            )}
-          </div>
-          <p className="mt-2 text-4xl font-bold tracking-tight text-foreground">
-            {value}
+      <CardContent className="flex flex-1 flex-col gap-1 p-0 px-5 py-3">
+        <div className="flex items-center gap-1.5">
+          <p className="min-w-0 flex-1 text-xxs font-semibold uppercase tracking-wide text-muted-foreground leading-none">
+            {label}
           </p>
-          <p className="mt-1 text-xs font-normal text-muted-foreground">{sub}</p>
+          {tooltip && (
+            <span className="shrink-0" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button type="button" className="inline-flex shrink-0 text-muted-foreground/60 hover:text-muted-foreground transition-colors">
+                    <Info className="h-3.5 w-3.5" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-96 space-y-3 p-3 text-xs leading-relaxed text-popover-foreground" side="top" align="start">
+                  <div>
+                    <p className="mb-1 text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+                      What this shows
+                    </p>
+                    <p>{tooltip.customer}</p>
+                  </div>
+                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5">
+                    <p className="mb-1 text-xxs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                      Engineering notes — do not show to customers
+                    </p>
+                    <p className="text-foreground/90">{tooltip.engineering}</p>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </span>
+          )}
+          {onExport ? (
+            <span className="shrink-0">
+              <ExportCsvButton onExport={onExport} size="icon" label={`Export ${label} CSV`} />
+            </span>
+          ) : null}
         </div>
-        {channels.length > 0 && (
-          <div className="grid shrink-0 gap-x-4 gap-y-2 border-l border-border pl-4" style={{ gridTemplateColumns: `repeat(${Math.min(channels.length, 2)}, auto)` }}>
-            {channels.map((ch) => (
-              <div key={ch.label} className="flex flex-col items-center">
-                <span className="text-sm font-semibold tabular-nums text-foreground">{ch.value}</span>
-                <span className="text-xxs text-muted-foreground">{ch.label}</span>
-              </div>
-            ))}
+        <div className={channels.length > 0 ? "billboard-stat__metrics" : "min-w-0"}>
+          <div className="min-w-0">
+            <p className="billboard-stat__value text-foreground">{value}</p>
+            <p className="mt-1 text-xs font-normal leading-snug text-muted-foreground">{sub}</p>
           </div>
-        )}
+          {channels.length > 0 && (
+            <div className={`billboard-stat__channels ${singleChannelRow ? "items-center" : "items-start"}`}>
+              <div
+                className="billboard-stat__channel-grid content-start"
+                style={{ ["--billboard-cols"]: String(channelColumns) } as Record<string, string>}
+              >
+                {channels.map((ch) => (
+                  <div key={ch.label} className="flex min-w-0 flex-col items-center text-center">
+                    <span className="whitespace-nowrap text-sm font-semibold tabular-nums text-foreground">{ch.value}</span>
+                    <span className="max-w-[4.5rem] text-xxs leading-tight text-muted-foreground">{ch.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
@@ -1640,7 +1659,7 @@ function distributeCounts(total: number, weights: number[]): number[] {
 
 export default function LeasingAiDashboardPage() {
   const [filters, setFilters, scope] = useReportScope(PROPERTIES);
-  const [reportVersion, setReportVersion] = useState<ReportVersion>("original");
+  const [reportVersion, setReportVersion] = useState<ReportVersion>("jvm");
   const [goldenDrillIn, setGoldenDrillIn] = useState<string | null>(null);
 
   const months = useMemo(() => monthsForPeriod(filters.periodId), [filters.periodId]);
@@ -1729,18 +1748,19 @@ export default function LeasingAiDashboardPage() {
     totalMessages: {
       customer: "Total messages sent by this agent for the filtered time period and properties.",
       engineering:
-        "Each message sent by super agent is tagged by super agent to the originating sub-agent(s). If a single message was triggered by multiple sub-agents, it counts toward each sub-agent. Make sure we can break down the metric by communication channel since that is also displayed.",
+        "Each message sent by super agent is tagged by super agent to the originating sub-agent(s). If a single message was triggered by multiple sub-agents, it counts toward each sub-agent. Make sure we can break down the metric by communication channel since that is also displayed. Voice is counted differently from text channels: each completed voice conversation counts as exactly one message (not per turn/utterance), because voice is not tracked at the same message/turn granularity as SMS, chat, or email.",
     },
     messagesByDay: {
-      customer: "How many messages this agent sent on each day of the week for the filtered time period and properties.",
+      customer:
+        "Which day of the week this agent sent the most messages, plus how the rest of the week compares, for the filtered time period and properties.",
       engineering:
-        "Count messages tagged to this sub-agent, grouped by day-of-week of send time (using each property's local timezone). The seven day counts MUST sum exactly to Total Messages Sent for the same filter scope (sub-agent + period + properties).",
+        "Count messages tagged to this sub-agent, grouped by day-of-week of send time (using each property's local timezone). The headline is the peak weekday (label + count). The seven day counts MUST sum exactly to Total Messages Sent for the same filter scope (sub-agent + period + properties). Voice conversations count as one message each.",
     },
     messagesByHour: {
       customer:
-        "How many messages this agent sent during each part of the day for the filtered time period and properties. Times use each property's local timezone.",
+        "Which hour of the day this agent sent the most messages, plus volume by time-of-day window, for the filtered time period and properties. Times use each property's local timezone.",
       engineering:
-        "Bucket message send timestamps into 4-hour windows using each property's local timezone (so 3:55 PM Mountain and 3:55 PM Central both land in 12p–4p). The six bucket counts MUST sum exactly to Total Messages Sent for the same filter scope (sub-agent + period + properties).",
+        "Bucket message send timestamps into 4-hour windows using each property's local timezone (so 3:55 PM Mountain and 3:55 PM Central both land in 12p–4p). The headline is the single peak hour within the busiest window. The six bucket counts MUST sum exactly to Total Messages Sent for the same filter scope (sub-agent + period + properties). Voice conversations count as one message each.",
     },
     escalationRate: {
       customer: "The percentage of conversations with this agent that needed a team member to step in.",
@@ -1762,13 +1782,13 @@ export default function LeasingAiDashboardPage() {
       customer:
         "When this agent reaches out first (for example, a tour confirmation or application follow-up), how often the resident replies within 48 hours.",
       engineering:
-        "Denominator = proactive outreach messages initiated by this sub-agent in filter scope. Numerator = those that received ≥1 resident reply within 48 hours of the outreach. Break down by channel of the proactive message.",
+        "Denominator = proactive outreach messages initiated by this sub-agent in filter scope. Numerator = those that received ≥1 resident reply within 48 hours of the outreach. Break down by SMS and Email only (Chat and Voice are excluded from this metric's channel split).",
     },
     residentResponseTime: {
       customer:
         "For residents who replied within 48 hours of a proactive message from this agent, the average time it took them to reply.",
       engineering:
-        "Uses the same dataset as Resident Response Rate Within 48 Hours (proactive outreach messages that received a resident reply within 48 hours). Compute the average (not median) elapsed time from delivery of the proactive message to the resident's reply. This value must never exceed 48 hours because the cohort is limited to replies within that window. Break down by channel.",
+        "Uses the same dataset as Resident Response Rate Within 48 Hours (proactive outreach messages that received a resident reply within 48 hours). Compute the average (not median) elapsed time from delivery of the proactive message to the resident's reply. This value must never exceed 48 hours because the cohort is limited to replies within that window. Break down by SMS and Email only (Chat and Voice are excluded from this metric's channel split).",
     },
     leadConversionSpeed: {
       customer:
@@ -1780,13 +1800,13 @@ export default function LeasingAiDashboardPage() {
 
   const alphaStats = [
     { label: "Total Messages Sent", value: alphaKpi.totalMessages, sub: "across all channels", tooltip: METRIC_TOOLTIPS.totalMessages, channels: [{ label: "Voice", value: alphaKpi.voiceSent }, { label: "Chat", value: alphaKpi.chatSent }, { label: "SMS", value: alphaKpi.smsSent }, { label: "Email", value: alphaKpi.emailsSent }] },
-    { label: "Messages Sent by Day", value: `${alphaKpi.topDay.count.toLocaleString()}`, sub: `peak day: ${alphaKpi.topDay.label}`, tooltip: METRIC_TOOLTIPS.messagesByDay, channels: alphaKpi.dayBreakdown.map((d) => ({ label: d.label, value: d.count.toLocaleString() })) },
-    { label: "Messages Sent by Hour", value: `${alphaKpi.topHour.count.toLocaleString()}`, sub: `peak hour: ${alphaKpi.topHour.label}`, tooltip: METRIC_TOOLTIPS.messagesByHour, channels: alphaKpi.hourBuckets.map((h) => ({ label: h.label, value: h.count.toLocaleString() })) },
+    { label: "Messages Sent by Day", value: alphaKpi.topDay.label, sub: `${alphaKpi.topDay.count.toLocaleString()} messages · peak day`, tooltip: METRIC_TOOLTIPS.messagesByDay, channels: alphaKpi.dayBreakdown.map((d) => ({ label: d.label, value: d.count.toLocaleString() })) },
+    { label: "Messages Sent by Hour", value: alphaKpi.topHour.label, sub: `${alphaKpi.topHour.count.toLocaleString()} messages · peak hour`, tooltip: METRIC_TOOLTIPS.messagesByHour, channels: alphaKpi.hourBuckets.map((h) => ({ label: h.label, value: h.count.toLocaleString() })) },
     { label: "Escalation Rate", value: alphaKpi.escalationRate, sub: "of AI contacts escalated", tooltip: METRIC_TOOLTIPS.escalationRate, channels: [{ label: "Total", value: alphaKpi.totalEscalations }, { label: "Open", value: alphaKpi.openEscalations }, { label: "Resolved", value: alphaKpi.resolvedEscalations }] },
-    { label: "Opt Out Rate", value: alphaKpi.optOutRate, sub: "opted out of AI messaging", tooltip: METRIC_TOOLTIPS.optOutRate, channels: [{ label: "Voice", value: alphaKpi.voiceOptOut }, { label: "Chat", value: alphaKpi.chatOptOut }, { label: "SMS", value: alphaKpi.smsOptOut }, { label: "Email", value: alphaKpi.emailOptOut }] },
+    { label: "Opt Out Rate", value: alphaKpi.optOutRate, sub: "opted out of AI messaging", tooltip: METRIC_TOOLTIPS.optOutRate, channels: [{ label: "Voice", value: alphaKpi.voiceOptOut }, { label: "SMS", value: alphaKpi.smsOptOut }, { label: "Email", value: alphaKpi.emailOptOut }] },
     { label: "Average Agent Response Time", value: alphaKpi.avgAgentResponseTime, sub: "prospect message to agent reply", tooltip: METRIC_TOOLTIPS.agentResponseTime, channels: [{ label: "Voice", value: alphaKpi.voiceResponseTime }, { label: "Chat", value: alphaKpi.chatResponseTime }, { label: "SMS", value: alphaKpi.smsResponseTime }, { label: "Email", value: alphaKpi.emailResponseTime }] },
-    { label: "Resident Response Rate Within 48 Hours", value: alphaKpi.responseRate, sub: "across all channels", tooltip: METRIC_TOOLTIPS.residentResponseRate, channels: [{ label: "Voice", value: alphaKpi.voiceResponseRate }, { label: "Chat", value: alphaKpi.chatResponseRate }, { label: "SMS", value: alphaKpi.smsResponseRate }, { label: "Email", value: alphaKpi.emailResponseRate }] },
-    { label: "Resident Response Time", value: alphaKpi.avgResidentResponseTime, sub: "average time to reply", tooltip: METRIC_TOOLTIPS.residentResponseTime, channels: [{ label: "Voice", value: alphaKpi.voiceResidentTime }, { label: "Chat", value: alphaKpi.chatResidentTime }, { label: "SMS", value: alphaKpi.smsResidentTime }, { label: "Email", value: alphaKpi.emailResidentTime }] },
+    { label: "Resident Response Rate Within 48 Hours", value: alphaKpi.responseRate, sub: "SMS and email outreach", tooltip: METRIC_TOOLTIPS.residentResponseRate, channels: [{ label: "SMS", value: alphaKpi.smsResponseRate }, { label: "Email", value: alphaKpi.emailResponseRate }] },
+    { label: "Resident Response Time", value: alphaKpi.avgResidentResponseTime, sub: "average time to reply · SMS & email", tooltip: METRIC_TOOLTIPS.residentResponseTime, channels: [{ label: "SMS", value: alphaKpi.smsResidentTime }, { label: "Email", value: alphaKpi.emailResidentTime }] },
     { label: "Lead Conversion Speed", value: alphaKpi.avgDaysToConvert, sub: "average days to signed lease", tooltip: METRIC_TOOLTIPS.leadConversionSpeed, channels: [{ label: "Conversion rate", value: alphaKpi.conversionRate }] },
   ];
 
@@ -1843,20 +1863,32 @@ export default function LeasingAiDashboardPage() {
       end: 3200,
       integer: true,
     });
-    add("Messages Sent by Day", {
-      description: "Peak weekday message volume over the selected period.",
-      currentValue: `${alphaKpi.topDay.count.toLocaleString()} (${alphaKpi.topDay.label})`,
-      start: 2100,
-      end: 3480,
-      integer: true,
-    });
-    add("Messages Sent by Hour", {
-      description: "Peak hour message volume over the selected period.",
-      currentValue: `${alphaKpi.topHour.count.toLocaleString()} (${alphaKpi.topHour.label})`,
-      start: 900,
-      end: 1600,
-      integer: true,
-    });
+    configs["Messages Sent by Day"] = {
+      title: "Messages Sent by Day",
+      description:
+        "Monthly message volume by day of week. The current peak weekday is called out above; compare how each weekday trends across the selected period.",
+      currentValue: `Peak day: ${alphaKpi.topDay.label} · ${alphaKpi.topDay.count.toLocaleString()} messages`,
+      series: buildWeightedCategoryTrends({
+        seedPrefix: "leasing-messages-by-day",
+        months,
+        categories: [...DAY_OF_WEEK_TREND_WEIGHTS],
+        totalStart: 14000,
+        totalEnd: 24000,
+      }),
+    };
+    configs["Messages Sent by Hour"] = {
+      title: "Messages Sent by Hour",
+      description:
+        "Monthly message volume by 4-hour window (property-local time). The current peak hour is called out above; lines show each time-of-day bucket over the selected period.",
+      currentValue: `Peak hour: ${alphaKpi.topHour.label} · ${alphaKpi.topHour.count.toLocaleString()} messages`,
+      series: buildWeightedCategoryTrends({
+        seedPrefix: "leasing-messages-by-hour",
+        months,
+        categories: [...HOUR_BUCKET_TREND_WEIGHTS],
+        totalStart: 14000,
+        totalEnd: 24000,
+      }),
+    };
     add("Escalation Rate", {
       description: "Share of conversations that needed a human in Nexus.",
       currentValue: alphaKpi.escalationRate,
@@ -2089,12 +2121,15 @@ export default function LeasingAiDashboardPage() {
               unitSuffix={activeGoldenDrill.unitSuffix}
               series={activeGoldenDrill.series}
               onBack={() => setGoldenDrillIn(null)}
+              onExport={() =>
+                exportAgentMetricCsv({ agent: "leasing", metric: activeGoldenDrill.title })
+              }
             />
           ) : (
             <>
               <section className="mb-6">
                 <p className="mb-3 text-xs text-muted-foreground">
-                  Click any metric card to open its trend over the selected period.
+                  Click any metric card to open its trend. Export conversation-level CSV from inside each drill-in.
                 </p>
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                   {alphaStats.map((stat) => (
