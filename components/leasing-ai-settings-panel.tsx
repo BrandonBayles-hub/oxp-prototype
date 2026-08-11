@@ -182,10 +182,21 @@ function normalizeTourPriority(raw: string[] | undefined): TourType[] {
 
 type ConversationStart = "affordable_first" | "market_first"
 
+type AffordableProgramType = "hud" | "tax_credit" | "home" | "public_housing" | "rural_development"
+
+const AFFORDABLE_PROGRAM_TYPES: Array<{ value: AffordableProgramType; label: string }> = [
+  { value: "hud", label: "HUD" },
+  { value: "tax_credit", label: "Tax Credit" },
+  { value: "home", label: "HOME" },
+  { value: "public_housing", label: "Public Housing" },
+  { value: "rural_development", label: "Rural Development" },
+]
+
 interface AffordableSettings {
-  householdIncome: string
-  householdSize: string
+  programType: AffordableProgramType
+  affordablePrograms: AffordableProgram[]
   vouchersAccepted: boolean
+  disabilityRequirement: boolean
   // Terminology controls
   programDisplayName: string
   avoidTerms: string
@@ -199,8 +210,38 @@ interface AffordableSettings {
   ageRestricted: boolean
   minimumAge: string
   ageQuestionWording: string
+  fullStudentSection: boolean
   // Required documentation
   requiredDocuments: string[]
+}
+
+interface AffordableProgram {
+  programType: AffordableProgramType
+  incomeLimits: string[]
+  vouchersAccepted: boolean
+  disabilityRequirement: boolean
+  programDisplayName: string
+  avoidTerms: string
+  approvedPhrase: string
+  outcomeMessages: Record<string, string>
+  incomeMargin: string
+  marginAction: "needs_review" | "handoff" | "soft_message"
+  ageRestricted: boolean
+  minimumAge: string
+  ageQuestionWording: string
+  fullStudentSection: boolean
+  requiredDocuments: string[]
+  postQualificationGoals: PreQualGoal[]
+}
+
+const PROGRAM_PERSON_LABELS = Array.from({ length: 10 }, (_, index) => `${index + 1} person`)
+
+function blankIncomeLimits() {
+  return PROGRAM_PERSON_LABELS.map(() => "")
+}
+
+function affordableProgramLabel(programType: AffordableProgramType) {
+  return AFFORDABLE_PROGRAM_TYPES.find((type) => type.value === programType)?.label ?? programType
 }
 
 type PreQualResult =
@@ -327,6 +368,32 @@ const DEFAULT_PREQUAL_GOALS: PreQualGoal[] = [
   { result: "in_progress",           tour: "none",     application: "none",     waitlist: "none",     offerMarketRate: false },
 ]
 
+const DEFAULT_OUTCOME_MESSAGES = {
+  over_income: "Based on what you shared, your estimated income may be above the limit for this affordable unit. Final eligibility is determined during the application review.",
+  under_income: "Based on the information provided, you may not meet the initial income criteria for this program. Final eligibility is determined through the formal application and compliance review.",
+}
+
+function makeDefaultAffordableProgram(programType: AffordableProgramType): AffordableProgram {
+  return {
+    programType,
+    incomeLimits: blankIncomeLimits(),
+    vouchersAccepted: false,
+    disabilityRequirement: false,
+    programDisplayName: "",
+    avoidTerms: "",
+    approvedPhrase: "",
+    outcomeMessages: { ...DEFAULT_OUTCOME_MESSAGES },
+    incomeMargin: "",
+    marginAction: "needs_review",
+    ageRestricted: false,
+    minimumAge: "",
+    ageQuestionWording: "",
+    fullStudentSection: false,
+    requiredDocuments: ["Government-issued ID", "4 most recent pay stubs", "Bank statements"],
+    postQualificationGoals: DEFAULT_PREQUAL_GOALS.map((goal) => ({ ...goal })),
+  }
+}
+
 
 /* ══════════════════════════════════════════════════════════════════════════
    Property mock-data shim
@@ -413,14 +480,16 @@ function makeDefaultState(agentDisplayLabel = "Leasing AI"): PanelState {
     affordableFlowEnabled: false,
     conversationStart: "market_first",
     affordableSettings: {
-      householdIncome: "", householdSize: "", vouchersAccepted: false,
+      programType: "hud",
+      affordablePrograms: [],
+      vouchersAccepted: false, disabilityRequirement: false,
       programDisplayName: "", avoidTerms: "", approvedPhrase: "",
       outcomeMessages: {
         over_income: "Based on what you shared, your estimated income may be above the limit for this affordable unit. Final eligibility is determined during the application review.",
         under_income: "Based on the information provided, you may not meet the initial income criteria for this program. Final eligibility is determined through the formal application and compliance review.",
       },
       incomeMargin: "", marginAction: "needs_review",
-      ageRestricted: false, minimumAge: "", ageQuestionWording: "",
+      ageRestricted: false, minimumAge: "", ageQuestionWording: "", fullStudentSection: false,
       requiredDocuments: ["Government-issued ID", "4 most recent pay stubs", "Bank statements"],
     },
     preQualGoals: DEFAULT_PREQUAL_GOALS,
@@ -468,9 +537,28 @@ export function LeasingAISettingsPanel({
         external_agent_guided_tour_link?: string
         prequalification_enabled?: boolean
         conversation_start?: string
-        household_income?: string
-        household_size?: string
         vouchers_accepted?: boolean
+        disability_requirement?: boolean
+        full_student_section?: boolean
+        program_type?: string
+        affordable_programs?: Array<{
+          program_type?: string
+          income_limits?: unknown
+          vouchers_accepted?: boolean
+          disability_requirement?: boolean
+          program_display_name?: string
+          avoid_terms?: string
+          approved_phrase?: string
+          outcome_messages?: Record<string, string>
+          income_margin?: string
+          margin_action?: string
+          age_restricted?: boolean
+          minimum_age?: string
+          age_question_wording?: string
+          full_student_section?: boolean
+          required_documents?: string[]
+          post_qualification_goals?: Array<{ result: string; tour: string; application: string; waitlist?: string; offer_market_rate: boolean }>
+        }>
         prequalification_criteria?: {
           income?: { enabled?: boolean; multiplier?: number | string }
           credit?: { enabled?: boolean; min_score?: number | string }
@@ -490,9 +578,44 @@ export function LeasingAISettingsPanel({
           conversationStart: (data.conversation_start as ConversationStart) ?? "market_first",
           affordableSettings: {
             ...defaults.affordableSettings,
-            householdIncome: data.household_income ?? "",
-            householdSize: data.household_size ?? "",
+            programType: AFFORDABLE_PROGRAM_TYPES.some((type) => type.value === data.program_type)
+              ? data.program_type as AffordableProgramType
+              : defaults.affordableSettings.programType,
+            affordablePrograms: (data.affordable_programs ?? []).flatMap((program) => {
+              const programType = program.program_type as AffordableProgramType
+              if (!AFFORDABLE_PROGRAM_TYPES.some((type) => type.value === programType)) return []
+              const defaultsForProgram = makeDefaultAffordableProgram(programType)
+              const incomeLimits = Array.isArray(program.income_limits)
+                ? program.income_limits.slice(0, PROGRAM_PERSON_LABELS.length).map((value) => String(value ?? ""))
+                : blankIncomeLimits()
+              return [{
+                ...defaultsForProgram,
+                incomeLimits: [...incomeLimits, ...blankIncomeLimits()].slice(0, PROGRAM_PERSON_LABELS.length),
+                vouchersAccepted: Boolean(program.vouchers_accepted),
+                disabilityRequirement: Boolean(program.disability_requirement),
+                programDisplayName: program.program_display_name ?? "",
+                avoidTerms: program.avoid_terms ?? "",
+                approvedPhrase: program.approved_phrase ?? "",
+                outcomeMessages: { ...defaultsForProgram.outcomeMessages, ...(program.outcome_messages ?? {}) },
+                incomeMargin: program.income_margin ?? "",
+                marginAction: (program.margin_action as AffordableProgram["marginAction"]) ?? defaultsForProgram.marginAction,
+                ageRestricted: Boolean(program.age_restricted),
+                minimumAge: program.minimum_age ?? "",
+                ageQuestionWording: program.age_question_wording ?? "",
+                fullStudentSection: Boolean(program.full_student_section),
+                requiredDocuments: program.required_documents ?? defaultsForProgram.requiredDocuments,
+                postQualificationGoals: program.post_qualification_goals?.map((goal) => ({
+                  result: goal.result as PreQualResult,
+                  tour: goal.tour as TourGoal,
+                  application: goal.application as ApplicationGoal,
+                  waitlist: (goal.waitlist as TourGoal) ?? "none",
+                  offerMarketRate: Boolean(goal.offer_market_rate),
+                })) ?? defaultsForProgram.postQualificationGoals,
+              }]
+            }),
             vouchersAccepted: Boolean(data.vouchers_accepted),
+            disabilityRequirement: Boolean(data.disability_requirement),
+            fullStudentSection: Boolean(data.full_student_section),
           },
         }
         if (data.prequalification_criteria) {
@@ -571,6 +694,7 @@ export function LeasingAISettingsPanel({
 
   const syncToBackend = useCallback((s: PanelState) => {
     const activeMode = CONVERSATION_MODES.find((m) => m.id === s.conversationMode)
+    const activeAffordableProgram = s.affordableSettings.affordablePrograms.find((program) => program.programType === s.affordableSettings.programType)
     fetch(`${CHATBOT_API}/sales-mode`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -585,9 +709,30 @@ export function LeasingAISettingsPanel({
         external_agent_guided_tour_link: s.externalAgentGuidedTourLink.trim() || undefined,
         prequalification_enabled: s.preQualEnabled,
         conversation_start: s.preQualEnabled ? s.conversationStart : undefined,
-        household_income: s.preQualEnabled ? s.affordableSettings.householdIncome : undefined,
-        household_size: s.preQualEnabled ? s.affordableSettings.householdSize : undefined,
-        vouchers_accepted: s.preQualEnabled ? s.affordableSettings.vouchersAccepted : undefined,
+        program_type: s.preQualEnabled ? s.affordableSettings.programType : undefined,
+        affordable_programs: s.preQualEnabled
+          ? s.affordableSettings.affordablePrograms.map((program) => ({
+              program_type: program.programType,
+              income_limits: program.incomeLimits,
+              vouchers_accepted: program.vouchersAccepted,
+              disability_requirement: program.disabilityRequirement,
+              program_display_name: program.programDisplayName,
+              avoid_terms: program.avoidTerms,
+              approved_phrase: program.approvedPhrase,
+              outcome_messages: program.outcomeMessages,
+              income_margin: program.incomeMargin,
+              margin_action: program.marginAction,
+              age_restricted: program.ageRestricted,
+              minimum_age: program.minimumAge,
+              age_question_wording: program.ageQuestionWording,
+              full_student_section: program.fullStudentSection,
+              required_documents: program.requiredDocuments,
+              post_qualification_goals: program.postQualificationGoals.map((goal) => ({ result: goal.result, tour: goal.tour, application: goal.application, waitlist: goal.waitlist, offer_market_rate: goal.offerMarketRate })),
+            }))
+          : [],
+        vouchers_accepted: s.preQualEnabled ? activeAffordableProgram?.vouchersAccepted : undefined,
+        disability_requirement: s.preQualEnabled ? activeAffordableProgram?.disabilityRequirement : undefined,
+        full_student_section: s.preQualEnabled ? activeAffordableProgram?.fullStudentSection : undefined,
         prequalification_criteria: s.preQualEnabled
           ? {
               income: { enabled: s.incomeEnabled, multiplier: s.incomeEnabled ? Number(s.incomeMultiplier) : undefined },
@@ -605,7 +750,7 @@ export function LeasingAISettingsPanel({
             ]
           : [],
         prequalification_goals: s.preQualEnabled
-          ? s.preQualGoals.map((g) => ({ result: g.result, tour: g.tour, application: g.application, waitlist: g.waitlist, offer_market_rate: g.offerMarketRate }))
+          ? (activeAffordableProgram?.postQualificationGoals ?? s.preQualGoals).map((g) => ({ result: g.result, tour: g.tour, application: g.application, waitlist: g.waitlist, offer_market_rate: g.offerMarketRate }))
           : [],
       }),
     })
@@ -1594,28 +1739,59 @@ function SectionAffordable({ state, update, setState }: {
   update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
   setState: React.Dispatch<React.SetStateAction<PanelState>>
 }) {
-  // ── Post-qualification goals helpers ──
-  const goalFor = (result: PreQualResult): PreQualGoal =>
-    state.preQualGoals.find((g) => g.result === result) ?? { result, tour: "none", application: "none", waitlist: "none", offerMarketRate: false }
-
-  const setGoalField = (result: PreQualResult, patch: Partial<PreQualGoal>) => {
-    const exists = state.preQualGoals.some((g) => g.result === result)
-    const next = exists
-      ? state.preQualGoals.map((g) => (g.result === result ? { ...g, ...patch } : g))
-      : [...state.preQualGoals, { ...goalFor(result), ...patch }]
-    update("preQualGoals", next)
-  }
-
   // ── Affordable settings shorthand ──
   const aff = state.affordableSettings
   const setAff = (patch: Partial<AffordableSettings>) =>
     setState((s) => ({ ...s, affordableSettings: { ...s.affordableSettings, ...patch } }))
+  const selectedProgram = aff.affordablePrograms.find((program) => program.programType === aff.programType)
+  const [programDraft, setProgramDraft] = useState<AffordableProgram>(() => selectedProgram ?? makeDefaultAffordableProgram(aff.programType))
+
+  useEffect(() => {
+    setProgramDraft(selectedProgram ?? makeDefaultAffordableProgram(aff.programType))
+  }, [aff.programType, aff.affordablePrograms])
+
+  const setProgramField = <K extends keyof AffordableProgram>(key: K, value: AffordableProgram[K]) => {
+    setProgramDraft((draft) => ({ ...draft, [key]: value }))
+  }
+
+  // ── Post-qualification goals are stored on the selected program ──
+  const goalFor = (result: PreQualResult): PreQualGoal =>
+    programDraft.postQualificationGoals.find((g) => g.result === result) ?? { result, tour: "none", application: "none", waitlist: "none", offerMarketRate: false }
+
+  const setGoalField = (result: PreQualResult, patch: Partial<PreQualGoal>) => {
+    const exists = programDraft.postQualificationGoals.some((g) => g.result === result)
+    const next = exists
+      ? programDraft.postQualificationGoals.map((g) => (g.result === result ? { ...g, ...patch } : g))
+      : [...programDraft.postQualificationGoals, { ...goalFor(result), ...patch }]
+    setProgramField("postQualificationGoals", next)
+  }
+
+  const saveProgram = () => {
+    const nextProgram: AffordableProgram = { ...programDraft, programType: aff.programType }
+    const nextPrograms = selectedProgram
+      ? aff.affordablePrograms.map((program) => (program.programType === aff.programType ? nextProgram : program))
+      : [...aff.affordablePrograms, nextProgram]
+    setAff({ affordablePrograms: nextPrograms })
+  }
+
+  const moveProgram = (index: number, direction: -1 | 1) => {
+    const nextIndex = index + direction
+    if (nextIndex < 0 || nextIndex >= aff.affordablePrograms.length) return
+    const nextPrograms = [...aff.affordablePrograms]
+    const [moved] = nextPrograms.splice(index, 1)
+    nextPrograms.splice(nextIndex, 0, moved)
+    setAff({ affordablePrograms: nextPrograms })
+  }
+
+  const removeProgram = (programType: AffordableProgramType) => {
+    setAff({ affordablePrograms: aff.affordablePrograms.filter((program) => program.programType !== programType) })
+  }
 
   return (
     <SectionShell
       icon={Home}
       title="Affordable qualification"
-      description="Configure affordable-specific settings: income limits, household size, vouchers, conversation opener, and post-qualification actions."
+      description="Configure affordable program inputs, eligibility requirements, compliance messaging, documentation, and post-qualification actions."
       headerAction={
         <label className="flex cursor-pointer items-center gap-2">
           <span className="text-[11px] font-medium text-muted-foreground">
@@ -1632,48 +1808,157 @@ function SectionAffordable({ state, update, setState }: {
         <div className="flex items-start gap-2 rounded-lg border border-dashed border-border bg-zinc-50/40 px-3 py-3">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <p className="text-[11px] text-muted-foreground">
-            Affordable qualification is off. Toggle on to configure income limits, household size, vouchers,
+            Affordable qualification is off. Toggle on to configure program inputs, eligibility requirements,
             terminology, compliance messaging, and affordable post-qualification actions.
           </p>
         </div>
       ) : (
               <div className="space-y-5">
+                {/* Program input */}
+                <div className="rounded-lg border border-border bg-zinc-50/40 p-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-foreground">Program Type</label>
+                    <Select value={aff.programType} onValueChange={(value) => setAff({ programType: value as AffordableProgramType })}>
+                      <SelectTrigger className="h-8 bg-white text-xs">
+                        <SelectValue placeholder="Select a program type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {AFFORDABLE_PROGRAM_TYPES.map((type) => (
+                          <SelectItem key={type.value} value={type.value} className="text-xs">
+                            {type.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[10px] text-muted-foreground">Select the affordable program that these qualification inputs apply to.</p>
+                  </div>
+                </div>
+
+                {/* Affordable program input grid */}
+                <div className="space-y-2 border-t border-border pt-4">
+                  <div className="flex items-end justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-medium text-foreground">Program inputs</p>
+                      <p className="text-[10px] text-muted-foreground">Enter the income limit for each household size, then save this program.</p>
+                    </div>
+                    <Button size="sm" className="h-7 shrink-0 text-[11px]" onClick={saveProgram}>
+                      <Plus className="mr-1 h-3 w-3" />{selectedProgram ? "Update program" : "Save program"}
+                    </Button>
+                  </div>
+                  <div className="overflow-x-auto rounded-lg border border-border bg-white">
+                    <table className="w-full min-w-[900px] table-fixed text-xs">
+                      <thead>
+                        <tr className="border-b border-border bg-zinc-50/60">
+                          {PROGRAM_PERSON_LABELS.map((label) => (
+                            <th key={label} className="px-2 py-2 text-center text-[10px] font-semibold normal-case text-muted-foreground">
+                              {label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          {programDraft.incomeLimits.map((value, index) => (
+                            <td key={PROGRAM_PERSON_LABELS[index]} className="p-1.5">
+                              <Input
+                                value={value}
+                                onChange={(event) => {
+                                  const next = [...programDraft.incomeLimits]
+                                  next[index] = event.target.value
+                                  setProgramField("incomeLimits", next)
+                                }}
+                                placeholder="Input"
+                                aria-label={`${PROGRAM_PERSON_LABELS[index]} income limit`}
+                                className="h-8 px-2 text-xs"
+                              />
+                            </td>
+                          ))}
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Saved program priority list */}
+                <div className="space-y-2 border-t border-border pt-4">
+                  <div>
+                    <p className="text-xs font-medium text-foreground">Affordable Programs</p>
+                    <p className="text-[10px] text-muted-foreground">Programs are offered in this order. Use the arrows to dynamically prioritize them.</p>
+                  </div>
+                  {aff.affordablePrograms.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-border px-3 py-3 text-[11px] text-muted-foreground">
+                      Saved programs will appear here.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {aff.affordablePrograms.map((program, index) => (
+                        <div key={program.programType} className="flex items-center gap-2 rounded-lg border border-border bg-white px-3 py-2">
+                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-100 text-[10px] font-semibold text-muted-foreground">{index + 1}</span>
+                          <span className="flex-1 text-xs font-medium text-foreground">{affordableProgramLabel(program.programType)}</span>
+                          <span className="text-[10px] text-muted-foreground">{program.incomeLimits.filter(Boolean).length}/10 inputs</span>
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-sm" onClick={() => moveProgram(index, -1)} disabled={index === 0} aria-label={`Move ${affordableProgramLabel(program.programType)} up`}>
+                            ↑
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-sm" onClick={() => moveProgram(index, 1)} disabled={index === aff.affordablePrograms.length - 1} aria-label={`Move ${affordableProgramLabel(program.programType)} down`}>
+                            ↓
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive" onClick={() => removeProgram(program.programType)} aria-label={`Remove ${affordableProgramLabel(program.programType)}`}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 {/* Eligibility settings */}
-                <div className="space-y-2">
+                <div className="space-y-2 border-t border-border pt-4">
                   <p className="text-xs font-medium text-foreground">Eligibility settings</p>
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-foreground">Household income limit</label>
-                      <Input value={aff.householdIncome} onChange={(e) => setAff({ householdIncome: e.target.value })} placeholder="e.g. $68,000 or 60% AMI" className="h-8 text-xs" />
-                      <p className="text-[10px] text-muted-foreground">Max income by household size or AMI band.</p>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-foreground">Household size</label>
-                      <Input value={aff.householdSize} onChange={(e) => setAff({ householdSize: e.target.value })} placeholder="e.g. Max 4 per unit" className="h-8 text-xs" />
-                      <p className="text-[10px] text-muted-foreground">Occupancy limit or household size rule.</p>
-                    </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
                     <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-white p-3 hover:border-zinc-400">
-                      <Checkbox checked={aff.vouchersAccepted} onCheckedChange={(v) => setAff({ vouchersAccepted: v === true })} className="mt-0.5" />
+                      <Checkbox checked={programDraft.vouchersAccepted} onCheckedChange={(v) => setProgramField("vouchersAccepted", v === true)} className="mt-0.5" />
                       <div>
                         <p className="text-xs font-medium text-foreground">Vouchers accepted</p>
                         <p className="text-[10px] text-muted-foreground">Voucher holders may bypass income rejection.</p>
                       </div>
                     </label>
+                    <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-white p-3 hover:border-zinc-400">
+                      <Checkbox checked={programDraft.disabilityRequirement} onCheckedChange={(v) => setProgramField("disabilityRequirement", v === true)} className="mt-0.5" />
+                      <div>
+                        <p className="text-xs font-medium text-foreground">Disability Requirement</p>
+                        <p className="text-[10px] text-muted-foreground">Require a qualifying disability for this program.</p>
+                      </div>
+                    </label>
                   </div>
                 </div>
 
-                {/* Adjustable income margin */}
-                <div className="space-y-2 border-t border-border pt-4">
-                  <p className="text-xs font-medium text-foreground">Adjustable income margin</p>
-                  <p className="text-[10px] text-muted-foreground">Apply a buffer around income thresholds. Borderline prospects are routed to review instead of a hard qualified/unqualified answer.</p>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-foreground">Qualification margin</label>
-                      <Input value={aff.incomeMargin} onChange={(e) => setAff({ incomeMargin: e.target.value })} placeholder="e.g. 5%" className="h-8 text-xs" />
-                      <p className="text-[10px] text-muted-foreground">Prospects within this margin are treated as borderline.</p>
+                {/* Tax Credit-only settings */}
+                {aff.programType === "tax_credit" && (
+                  <div className="space-y-3 border-t border-border pt-4">
+                    <div>
+                      <p className="text-xs font-medium text-foreground">Tax Credit Only</p>
+                      <p className="text-[10px] text-muted-foreground">These inputs apply only to Tax Credit programs.</p>
                     </div>
+                    <div className="space-y-2">
+                      <p className="text-xs font-medium text-foreground">Adjustable income margin</p>
+                      <p className="text-[10px] text-muted-foreground">Apply a buffer around income thresholds. Borderline prospects are routed to review instead of a hard qualified/unqualified answer.</p>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-foreground">Qualification margin</label>
+                          <Input value={programDraft.incomeMargin} onChange={(e) => setProgramField("incomeMargin", e.target.value)} placeholder="e.g. 5%" className="h-8 text-xs" />
+                          <p className="text-[10px] text-muted-foreground">Prospects within this margin are treated as borderline.</p>
+                        </div>
+                      </div>
+                    </div>
+                    <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-white p-3 hover:border-zinc-400">
+                      <Checkbox checked={programDraft.fullStudentSection} onCheckedChange={(v) => setProgramField("fullStudentSection", v === true)} className="mt-0.5" />
+                      <div>
+                        <p className="text-xs font-medium text-foreground">Full Student Section</p>
+                        <p className="text-[10px] text-muted-foreground">Apply the full-time student rule when evaluating Tax Credit eligibility.</p>
+                      </div>
+                    </label>
                   </div>
-                </div>
+                )}
 
                 {/* Age requirement (optional) */}
                 <div className="space-y-2 border-t border-border pt-4">
@@ -1682,17 +1967,17 @@ function SectionAffordable({ state, update, setState }: {
                       <p className="text-xs font-medium text-foreground">Age requirement</p>
                       <p className="text-[10px] text-muted-foreground">Enable for age-restricted communities (e.g. senior housing).</p>
                     </div>
-                    <Checkbox checked={aff.ageRestricted} onCheckedChange={(v) => setAff({ ageRestricted: v === true })} />
+                    <Checkbox checked={programDraft.ageRestricted} onCheckedChange={(v) => setProgramField("ageRestricted", v === true)} />
                   </div>
-                  {aff.ageRestricted && (
+                  {programDraft.ageRestricted && (
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div className="space-y-1">
                         <label className="text-xs font-medium text-foreground">Minimum age</label>
-                        <Input value={aff.minimumAge} onChange={(e) => setAff({ minimumAge: e.target.value })} placeholder="e.g. 62" className="h-8 text-xs" />
+                        <Input value={programDraft.minimumAge} onChange={(e) => setProgramField("minimumAge", e.target.value)} placeholder="e.g. 62" className="h-8 text-xs" />
                       </div>
                       <div className="space-y-1">
                         <label className="text-xs font-medium text-foreground">Question wording</label>
-                        <Input value={aff.ageQuestionWording} onChange={(e) => setAff({ ageQuestionWording: e.target.value })} placeholder="e.g. Does at least one household member meet the 62+ age requirement?" className="h-8 text-xs" />
+                        <Input value={programDraft.ageQuestionWording} onChange={(e) => setProgramField("ageQuestionWording", e.target.value)} placeholder="e.g. Does at least one household member meet the 62+ age requirement?" className="h-8 text-xs" />
                       </div>
                     </div>
                   )}
@@ -1705,15 +1990,15 @@ function SectionAffordable({ state, update, setState }: {
                   <div className="grid gap-3 sm:grid-cols-3">
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-foreground">Program display name</label>
-                      <Input value={aff.programDisplayName} onChange={(e) => setAff({ programDisplayName: e.target.value })} placeholder="e.g. Essential Housing" className="h-8 text-xs" />
+                      <Input value={programDraft.programDisplayName} onChange={(e) => setProgramField("programDisplayName", e.target.value)} placeholder="e.g. Essential Housing" className="h-8 text-xs" />
                     </div>
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-foreground">Avoid these terms</label>
-                      <Input value={aff.avoidTerms} onChange={(e) => setAff({ avoidTerms: e.target.value })} placeholder="e.g. low-income, subsidized" className="h-8 text-xs" />
+                      <Input value={programDraft.avoidTerms} onChange={(e) => setProgramField("avoidTerms", e.target.value)} placeholder="e.g. low-income, subsidized" className="h-8 text-xs" />
                     </div>
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-foreground">Approved phrase</label>
-                      <Input value={aff.approvedPhrase} onChange={(e) => setAff({ approvedPhrase: e.target.value })} placeholder="e.g. income-restricted apartment homes" className="h-8 text-xs" />
+                      <Input value={programDraft.approvedPhrase} onChange={(e) => setProgramField("approvedPhrase", e.target.value)} placeholder="e.g. income-restricted apartment homes" className="h-8 text-xs" />
                     </div>
                   </div>
                 </div>
@@ -1729,8 +2014,8 @@ function SectionAffordable({ state, update, setState }: {
                           {outcome === "over_income" ? "Over-income explanation" : "Under-income explanation"}
                         </label>
                         <textarea
-                          value={aff.outcomeMessages[outcome] ?? ""}
-                          onChange={(e) => setAff({ outcomeMessages: { ...aff.outcomeMessages, [outcome]: e.target.value } })}
+                          value={programDraft.outcomeMessages[outcome] ?? ""}
+                          onChange={(e) => setProgramField("outcomeMessages", { ...programDraft.outcomeMessages, [outcome]: e.target.value })}
                           placeholder="Enter compliance-approved messaging for this outcome..."
                           className="w-full rounded-md border border-border bg-white px-3 py-2 text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-zinc-400"
                           rows={3}
@@ -1745,19 +2030,19 @@ function SectionAffordable({ state, update, setState }: {
                   <p className="text-xs font-medium text-foreground">Required documentation</p>
                   <p className="text-[10px] text-muted-foreground">Documents the prospect may need for the application or certification. ELI+ shares this checklist after qualification or when the prospect asks how to apply.</p>
                   <div className="space-y-2">
-                    {aff.requiredDocuments.map((doc, i) => (
+                    {programDraft.requiredDocuments.map((doc, i) => (
                       <div key={i} className="flex items-center gap-2">
                         <Input
                           value={doc}
                           onChange={(e) => {
-                            const next = [...aff.requiredDocuments]
+                            const next = [...programDraft.requiredDocuments]
                             next[i] = e.target.value
-                            setAff({ requiredDocuments: next })
+                            setProgramField("requiredDocuments", next)
                           }}
                           className="h-8 flex-1 text-xs"
                         />
                         <button
-                          onClick={() => setAff({ requiredDocuments: aff.requiredDocuments.filter((_, idx) => idx !== i) })}
+                          onClick={() => setProgramField("requiredDocuments", programDraft.requiredDocuments.filter((_, idx) => idx !== i))}
                           className="text-muted-foreground hover:text-destructive transition-colors"
                           aria-label={`Remove document ${i + 1}`}
                         >
@@ -1766,7 +2051,7 @@ function SectionAffordable({ state, update, setState }: {
                       </div>
                     ))}
                     <Button size="sm" variant="ghost" className="h-7 text-[11px]"
-                      onClick={() => setAff({ requiredDocuments: [...aff.requiredDocuments, ""] })}>
+                      onClick={() => setProgramField("requiredDocuments", [...programDraft.requiredDocuments, ""])}>
                       <Plus className="mr-1 h-3 w-3" />Add document
                     </Button>
                   </div>

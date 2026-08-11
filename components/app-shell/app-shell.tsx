@@ -22,12 +22,13 @@ const FULL_BLEED_ROUTES = [
   "/conversations",
   "/entrata-experts",
   "/entrata-experts-setup",
+  "/activity-log",
 ];
 const NAV_ONLY_ROUTES = ["/escalations/settings", "/communications-setup/custom-email", "/communications-setup/phone-numbers"];
 // Routes whose own internal nav replaces the OXP main sidebar entirely (e.g.
 // Entrata Experts uses its ExpertsRail as the sole left-column nav, with a
 // "← OXP Studio" back affordance in the rail's header to pop back here).
-const NO_SIDEBAR_ROUTES = ["/setup-wizard", "/entrata-experts"];
+const NO_SIDEBAR_ROUTES = ["/setup-wizard", "/entrata-experts", "/activity-log"];
 
 /**
  * Match a route prefix safely. Returns true when `pathname` is exactly `r` or
