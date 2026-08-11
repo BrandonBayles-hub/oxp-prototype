@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Variant Pick — Agent Adoption Dashboard</title>
+  <style>
+    :root {
+      --vp-bg: #0f172a;
+      --vp-bg-elev: #1e293b;
+      --vp-panel: #ffffff;
+      --vp-panel-muted: #f8fafc;
+      --vp-border: #e2e8f0;
+      --vp-border-strong: #cbd5e1;
+      --vp-text: #0f172a;
+      --vp-text-muted: #64748b;
+      --vp-text-inverse: #f8fafc;
+      --vp-radius-sm: 4px;
+      --vp-radius: 8px;
+      --vp-radius-lg: 12px;
+      --vp-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.1);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif; font-size: 14px; line-height: 1.5; color: var(--vp-text); background: var(--vp-panel-muted); }
+    .vp-header { position: sticky; top: 0; z-index: 100; background: var(--vp-bg); color: var(--vp-text-inverse); padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+    .vp-header-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .vp-app-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: rgba(248,250,252,0.7); margin-bottom: 2px; }
+    .vp-app-chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #10b981; }
+    .vp-feature { font-size: 12px; font-weight: 500; color: rgba(248,250,252,0.6); font-family: ui-monospace, "SF Mono", Menlo, Monaco, monospace; }
+    .vp-title { font-size: 16px; font-weight: 600; color: var(--vp-text-inverse); margin: 0; }
+    .vp-title em { font-style: normal; color: #ffffff; }
+    .vp-toc { display: flex; gap: 8px; flex-shrink: 0; }
+    .vp-toc a { display: inline-flex; align-items: center; justify-content: center; min-width: 40px; height: 32px; padding: 0 12px; border-radius: var(--vp-radius-sm); background: rgba(255,255,255,0.08); color: var(--vp-text-inverse); text-decoration: none; font-size: 13px; font-weight: 600; transition: background 0.15s; }
+    .vp-toc a:hover { background: rgba(255,255,255,0.15); }
+    .vp-body { max-width: 1100px; margin: 0 auto; padding: 32px; display: flex; flex-direction: column; gap: 32px; }
+    .vp-variant { background: var(--vp-panel); border: 1px solid var(--vp-border); border-radius: var(--vp-radius-lg); box-shadow: var(--vp-shadow); overflow: hidden; }
+    .vp-variant-header { padding: 20px 24px; border-bottom: 1px solid var(--vp-border); display: flex; align-items: flex-start; gap: 16px; }
+    .vp-letter { flex-shrink: 0; width: 40px; height: 40px; border-radius: var(--vp-radius); background: var(--vp-text); color: var(--vp-text-inverse); display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; }
+    .vp-variant-title { flex: 1; min-width: 0; }
+    .vp-direction-name { font-size: 18px; font-weight: 600; color: var(--vp-text); margin: 0 0 4px 0; }
+    .vp-rationale { font-size: 13px; color: var(--vp-text-muted); margin: 0; }
+    .vp-meta { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 24px; background: var(--vp-panel-muted); border-bottom: 1px solid var(--vp-border); }
+    .vp-chip { display: inline-flex; align-items: baseline; gap: 6px; padding: 4px 10px; background: var(--vp-panel); border: 1px solid var(--vp-border); border-radius: var(--vp-radius-sm); font-size: 12px; }
+    .vp-chip-label { font-weight: 600; color: var(--vp-text); text-transform: uppercase; letter-spacing: 0.02em; font-size: 10px; }
+    .vp-chip-value { color: var(--vp-text-muted); }
+    .vp-mockup { padding: 24px; background: var(--vp-panel-muted); }
+    .vp-footer { padding: 12px 24px; background: var(--vp-panel); border-top: 1px solid var(--vp-border); font-size: 13px; color: var(--vp-text-muted); }
+    .vp-footer kbd { display: inline-block; padding: 2px 8px; background: var(--vp-panel-muted); border: 1px solid var(--vp-border-strong); border-bottom-width: 2px; border-radius: var(--vp-radius-sm); font-family: ui-monospace, "SF Mono", Menlo, Monaco, monospace; font-size: 12px; font-weight: 600; color: var(--vp-text); }
+
+    /* Mock kit */
+    .mockup-frame { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
+    .mockup-chrome { background: #f1f5f9; border-bottom: 1px solid #e2e8f0; padding: 8px 12px; display: flex; align-items: center; gap: 6px; }
+    .chrome-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .chrome-dot-r { background: #fc8181; } .chrome-dot-y { background: #f6ad55; } .chrome-dot-g { background: #68d391; }
+    .chrome-url { flex: 1; background: #fff; border: 1px solid #e2e8f0; border-radius: 4px; padding: 3px 10px; font-size: 11px; color: #94a3b8; margin-left: 8px; font-family: ui-monospace, monospace; }
+    .mockup-body { padding: 0; }
+    .mock-nav { background: #1e293b; padding: 0 24px; display: flex; align-items: center; gap: 0; height: 48px; }
+    .mock-nav-item { color: rgba(255,255,255,0.5); font-size: 12px; padding: 0 14px; height: 48px; display: flex; align-items: center; border-bottom: 2px solid transparent; }
+    .mock-nav-item.active { color: #fff; border-bottom-color: #fff; }
+    .mock-topbar { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; }
+    .mock-page-title { font-size: 18px; font-weight: 700; color: #0f172a; margin: 0; }
+    .mock-subtitle { font-size: 12px; color: #94a3b8; margin-top: 1px; }
+    .mock-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; }
+    .badge-gray { background: #f1f5f9; color: #475569; } .badge-green { background: #dcfce7; color: #15803d; } .badge-amber { background: #fef3c7; color: #b45309; } .badge-red { background: #fee2e2; color: #b91c1c; }
+    .mock-btn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; cursor: default; user-select: none; }
+    .btn-primary { background: #0f172a; color: #fff; } .btn-outline { background: #fff; color: #374151; border: 1px solid #e2e8f0; } .btn-ghost { background: transparent; color: #6b7280; }
+    .mock-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; }
+    .mock-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding-bottom: 8px; margin-bottom: 12px; border-bottom: 1px solid #f1f5f9; }
+    .mock-card-title { font-size: 13px; font-weight: 600; color: #0f172a; }
+    .mock-card-meta { font-size: 11px; color: #94a3b8; }
+    .mock-toolbar { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; }
+    .mock-filter-chip { display: inline-flex; align-items: center; gap: 4px; background: #fff; border: 1px solid #e2e8f0; border-radius: 999px; padding: 4px 10px; font-size: 12px; color: #374151; cursor: default; user-select: none; }
+    .mock-filter-chip.active { background: #0f172a; border-color: #0f172a; color: #fff; }
+    .mock-table { border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; background: #fff; }
+    .mock-table-head { display: grid; gap: 8px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; padding: 8px 12px; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
+    .mock-table-row { display: grid; gap: 8px; align-items: center; padding: 10px 12px; font-size: 12px; color: #0f172a; border-bottom: 1px solid #f1f5f9; }
+    .mock-table-row:last-child { border-bottom: 0; }
+    .mock-table-row .meta { color: #64748b; font-size: 11px; }
+    .mock-stat { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
+    .mock-stat-label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
+    .mock-stat-value { font-size: 18px; font-weight: 700; color: #0f172a; }
+    .mock-stat-delta { font-size: 11px; }
+    .mock-stat-delta.up { color: #15803d; } .mock-stat-delta.down { color: #b91c1c; } .mock-stat-delta.warn { color: #b45309; }
+    .mock-section-label { font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 8px; }
+    .mock-divider { height: 1px; background: #e2e8f0; margin: 12px 0; }
+    .mock-empty { background: #fff; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 24px; text-align: center; font-size: 12px; color: #64748b; }
+    .mock-chart-area { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; display: flex; align-items: flex-end; gap: 4px; padding: 10px 10px 0; height: 70px; }
+    .mock-bar { border-radius: 3px 3px 0 0; min-width: 10px; }
+    .bar-teal { background: #0d9488; } .bar-coral { background: #f87171; } .bar-amber { background: #f59e0b; }
+    .mock-line-area { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px; height: 60px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #94a3b8; }
+    .mock-score-ring { width: 56px; height: 56px; border-radius: 50%; border: 5px solid #0d9488; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .mock-score-value { font-size: 16px; font-weight: 700; color: #0f172a; }
+    .vp-replan { max-width: 1100px; margin: 0 auto 32px auto; padding: 16px 24px; background: #fef3c7; border: 1px solid #fcd34d; border-radius: var(--vp-radius); font-size: 13px; color: #78350f; }
+  </style>
+</head>
+<body>
+  <header class="vp-header">
+    <div class="vp-header-left">
+      <span class="vp-app-chip">Entrata · Leasing AI</span>
+      <h1 class="vp-title">Pick a direction for <em>Agent Adoption Dashboard</em></h1>
+      <span class="vp-feature">agent-adoption-dashboard</span>
+    </div>
+    <nav class="vp-toc">
+      <a href="#variant-a">A</a>
+      <a href="#variant-b">B</a>
+      <a href="#variant-c">C</a>
+    </nav>
+  </header>
+
+  <main class="vp-body">
+
+    <!-- ═══ VARIANT A ═══ -->
+    <section class="vp-variant" id="variant-a">
+      <div class="vp-variant-header">
+        <div class="vp-letter">A</div>
+        <div class="vp-variant-title">
+          <h2 class="vp-direction-name">Score-Led Summary</h2>
+          <p class="vp-rationale">Adoption Score ring dominates the top row, making health status instantly readable; supporting KPI cards fan out in a 4-column grid below, with charts and tables lower.</p>
+        </div>
+      </div>
+      <div class="vp-meta">
+        <span class="vp-chip"><span class="vp-chip-label">Layout</span><span class="vp-chip-value">Score hero + 4-col KPI grid + 2-col charts + full-width tables</span></span>
+        <span class="vp-chip"><span class="vp-chip-label">Density</span><span class="vp-chip-value">comfortable</span></span>
+        <span class="vp-chip"><span class="vp-chip-label">Interaction</span><span class="vp-chip-value">Click score ring to expand breakdown; click KPI card to drill down</span></span>
+        <span class="vp-chip"><span class="vp-chip-label">Accent</span><span class="vp-chip-value">chart-teal for strong, chart-amber for watch, error for at-risk</span></span>
+      </div>
+      <div class="vp-mockup">
+        <div class="mockup-frame">
+          <div class="mockup-chrome">
+            <div class="chrome-dot chrome-dot-r"></div><div class="chrome-dot chrome-dot-y"></div><div class="chrome-dot chrome-dot-g"></div>
+            <div class="chrome-url">app.entrata.com / leasing-ai / adoption</div>
+          </div>
+          <div class="mockup-body">
+            <div class="mock-nav">
+              <div class="mock-nav-item">Dashboard</div>
+              <div class="mock-nav-item">Conversations</div>
+              <div class="mock-nav-item active">Adoption</div>
+              <div class="mock-nav-item">Journey</div>
+              <div class="mock-nav-item">Config</div>
+            </div>
+            <div class="mock-topbar">
+              <div>
+                <div class="mock-page-title">Agent Adoption</div>
+                <div class="mock-subtitle">Human engagement &amp; task follow-through · Last 30 days</div>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <div class="mock-filter-chip">📅 Last 30 days</div>
+                <div class="mock-filter-chip">All properties</div>
+                <div class="mock-btn btn-outline">⬇ Export CSV</div>
+              </div>
+            </div>
+
+            <div style="padding:20px 24px;background:#f8fafc;border-bottom:1px solid #e2e8f0;">
+              <!-- Score hero row -->
+              <div style="display:flex;align-items:center;gap:20px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:20px;margin-bottom:16px;">
+                <div class="mock-score-ring" style="border-color:#0d9488;width:72px;height:72px;border-width:6px;">
+                  <div style="text-align:center;"><div class="mock-score-value" style="font-size:22px;">74</div><div style="font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;">Score</div></div>
+                </div>
+                <div style="flex:1;">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                    <div style="font-size:15px;font-weight:700;color:#0f172a;">Agent Adoption Score</div>
+                    <div class="mock-badge badge-amber">Watch</div>
+                  </div>
+                  <div style="font-size:12px;color:#64748b;">Portfolio avg 74 · ▲ +3 vs prior period · 2 properties need attention</div>
+                  <div style="display:flex;gap:24px;margin-top:10px;">
+                    <div style="font-size:11px;color:#64748b;">Task completion <span style="color:#0f172a;font-weight:600;">82%</span></div>
+                    <div style="font-size:11px;color:#64748b;">Follow-up rate <span style="color:#b45309;font-weight:600;">68%</span></div>
+                    <div style="font-size:11px;color:#64748b;">Median time <span style="color:#0f172a;font-weight:600;">2.4 hrs</span></div>
+                    <div style="font-size:11px;color:#64748b;">Active usage <span style="color:#0f172a;font-weight:600;">91%</span></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 4-col KPI grid -->
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;">
+                <div class="mock-stat"><div class="mock-stat-label">Emails Sent</div><div class="mock-stat-value">1,247</div><div class="mock-stat-delta up">▲ +12% vs prior</div></div>
+                <div class="mock-stat"><div class="mock-stat-label">SMS Sent</div><div class="mock-stat-value">843</div><div class="mock-stat-delta down">▼ −3%</div></div>
+                <div class="mock-stat"><div class="mock-stat-label">Calls Dialed</div><div class="mock-stat-value">291</div><div class="mock-stat-delta up">▲ +8%</div></div>
+                <div class="mock-stat"><div class="mock-stat-label">Overdue Tasks</div><div class="mock-stat-value" style="color:#b91c1c;">47</div><div class="mock-stat-delta down">▲ +14 vs prior</div></div>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;">
+                <div class="mock-stat"><div class="mock-stat-label">Task Completion</div><div class="mock-stat-value">82%</div><div class="mock-stat-delta up">▲ +2%</div></div>
+                <div class="mock-stat"><div class="mock-stat-label">Follow-Up Rate</div><div class="mock-stat-value">68%</div><div class="mock-stat-delta warn">⚠ Below 75% target</div></div>
+                <div class="mock-stat"><div class="mock-stat-label">Median Response</div><div class="mock-stat-value">2.4 hrs</div><div class="mock-stat-delta up">▲ vs 3.1 SLA</div></div>
+                <div class="mock-stat"><div class="mock-stat-label">Assisted Prospects</div><div class="mock-stat-value">312</div><div class="mock-stat-delta up">71% coverage</div></div>
+              </div>
+
+              <!-- 2-col charts -->
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+                <div class="mock-card">
+                  <div class="mock-card-header"><div class="mock-card-title">Outbound Activity Over Time</div><div class="mock-card-meta">Email / SMS / Calls</div></div>
+                  <div class="mock-chart-area" style="height:80px;">
+                    <div class="mock-bar bar-teal" style="height:60%;flex:1;"></div>
+                    <div class="mock-bar bar-teal" style="height:70%;flex:1;"></div>
+                    <div class="mock-bar bar-teal" style="height:55%;flex:1;"></div>
+                    <div class="mock-bar bar-teal" style="height:80%;flex:1;"></div>
+                    <div class="mock-bar bar-teal" style="height:75%;flex:1;"></div>
+                    <div class="mock-bar bar-teal" style="height:85%;flex:1;"></div>
+                    <div class="mock-bar bar-teal" style="height:90%;flex:1;"></div>
+                  </div>
+                </div>
+                <div class="mock-card">
+                  <div class="mock-card-header"><div class="mock-card-title">Task Aging Buckets</div><div class="mock-card-meta">47 overdue</div></div>
+                  <div class="mock-chart-area" style="height:80px;">
+                    <div class="mock-bar bar-amber" style="height:30%;flex:1.5;" title="Due today"></div>
+                    <div class="mock-bar bar-coral" style="height:50%;flex:1;" title="1 day"></div>
+                    <div class="mock-bar bar-coral" style="height:70%;flex:1.5;" title="2-3 days"></div>
+                    <div class="mock-bar" style="height:85%;flex:1;background:#b91c1c;" title="4-7 days"></div>
+                    <div class="mock-bar" style="height:40%;flex:1;background:#7f1d1d;" title="8+ days"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Property table -->
+              <div class="mock-section-label">Property Comparison</div>
+              <div class="mock-table">
+                <div class="mock-table-head" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr 1fr 80px;">
+                  <div>Property</div><div>Score</div><div>Follow-Up</div><div>Task Rate</div><div>Median Time</div><div>Emails</div><div>Overdue</div><div>Status</div>
+                </div>
+                <div class="mock-table-row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr 1fr 80px;">
+                  <div><div>Riverside Apartments</div><div class="meta">Southwest · 14 agents</div></div>
+                  <div style="font-weight:600;">81</div><div>74%</div><div>88%</div><div>1.8 hrs</div><div>312</div><div>9</div>
+                  <div><div class="mock-badge badge-green">Strong</div></div>
+                </div>
+                <div class="mock-table-row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr 1fr 80px;">
+                  <div><div>Oak Ridge Townhomes</div><div class="meta">Southwest · 8 agents</div></div>
+                  <div style="font-weight:600;">68</div><div>61%</div><div>79%</div><div>3.2 hrs</div><div>187</div><div>21</div>
+                  <div><div class="mock-badge badge-amber">Watch</div></div>
+                </div>
+                <div class="mock-table-row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr 1fr 80px;">
+                  <div><div>Harbor View Complex</div><div class="meta">Northwest · 11 agents</div></div>
+                  <div style="font-weight:600;">44</div><div>48%</div><div>61%</div><div>5.7 hrs</div><div>98</div><div>17</div>
+                  <div><div class="mock-badge badge-red">Coaching</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="vp-footer">Pick this direction? Reply <kbd>A</kbd> in the terminal.</div>
+    </section>
+
+    <!-- ═══ VARIANT B ═══ -->
+    <section class="vp-variant" id="variant-b">
+      <div class="vp-variant-header">
+        <div class="vp-letter">B</div>
+        <div class="vp-variant-title">
+          <h2 class="vp-direction-name">Engagement vs Follow-Through Split</h2>
+          <p class="vp-rationale">Two-column middle section separates outbound engagement (volume metrics) from task/handoff follow-through (quality metrics) — helping managers instantly see which half of the loop is broken.</p>
+        </div>
+      </div>
+      <div class="vp-meta">
+        <span class="vp-chip"><span class="vp-chip-label">Layout</span><span class="vp-chip-value">3-col summary row + 2-col split (engagement | follow-through) + full-width tables</span></span>
+        <span class="vp-chip"><span class="vp-chip-label">Density</span><span class="vp-chip-value">compact</span></span>
+        <span class="vp-chip"><span class="vp-chip-label">Interaction</span><span class="vp-chip-value">Section tabs toggle between Engagement / Follow-Through / Comparison views</span></span>
+        <span class="vp-chip"><span class="vp-chip-label">Accent</span><span class="vp-chip-value">chart-teal left column, chart-coral right column to visually anchor the split</span></span>
+      </div>
+      <div class="vp-mockup">
+        <div class="mockup-frame">
+          <div class="mockup-chrome">
+            <div class="chrome-dot chrome-dot-r"></div><div class="chrome-dot chrome-dot-y"></div><div class="chrome-dot chrome-dot-g"></div>
+            <div class="chrome-url">app.entrata.com / leasing-ai / adoption</div>
+          </div>
+          <div class="mockup-body">
+            <div class="mock-nav">
+              <div class="mock-nav-item">Dashboard</div>
+              <div class="mock-nav-item">Conversations</div>
+              <div class="mock-nav-item active">Adoption</div>
+              <div class="mock-nav-item">Journey</div>
+              <div class="mock-nav-item">Config</div>
+            </div>
+            <div class="mock-topbar">
+              <div>
+                <div class="mock-page-title">Agent Adoption</div>
+                <div class="mock-subtitle">Last 30 days · Southwest Region</div>
+              </div>
+              <div style="display:flex;gap:8px;">
+                <div class="mock-filter-chip active">📅 30 days</div>
+                <div class="mock-filter-chip">Region ▾</div>
+                <div class="mock-filter-chip">Agent ▾</div>
+                <div class="mock-btn btn-outline">Export</div>
+              </div>
+            </div>
+
+            <div style="padding:16px 24px;background:#f8fafc;border-bottom:1px solid #e2e8f0;">
+              <!-- Summary strip: 3 big numbers -->
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">
+                <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px;display:flex;align-items:center;gap:14px;">
+                  <div class="mock-score-ring" style="border-color:#0d9488;">
+                    <div class="mock-score-value">74</div>
+                  </div>
+                  <div><div style="font-size:13px;font-weight:600;color:#0f172a;">Adoption Score</div><div class="mock-badge badge-amber" style="margin-top:4px;">Watch</div></div>
+                </div>
+                <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px;">
+                  <div class="mock-stat-label">Human Follow-Up Rate</div>
+                  <div style="display:flex;align-items:baseline;gap:6px;margin-top:4px;"><div style="font-size:24px;font-weight:700;color:#b45309;">68%</div><div style="font-size:11px;color:#b45309;">⚠ Below 75% target</div></div>
+                  <div style="font-size:11px;color:#94a3b8;margin-top:2px;">▼ −4% vs prior period</div>
+                </div>
+                <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px;">
+                  <div class="mock-stat-label">Task Completion Rate</div>
+                  <div style="display:flex;align-items:baseline;gap:6px;margin-top:4px;"><div style="font-size:24px;font-weight:700;color:#15803d;">82%</div><div style="font-size:11px;color:#15803d;">✓ Above 80% target</div></div>
+                  <div style="font-size:11px;color:#94a3b8;margin-top:2px;">▲ +2% vs prior period</div>
+                </div>
+              </div>
+
+              <!-- Two-column split -->
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+                <!-- Left: Engagement -->
+                <div>
+                  <div class="mock-section-label" style="color:#0d9488;border-bottom:2px solid #0d9488;padding-bottom:4px;margin-bottom:10px;">Outbound Engagement</div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;">
+                    <div class="mock-stat"><div class="mock-stat-label">Emails</div><div class="mock-stat-value" style="font-size:16px;">1,247</div><div class="mock-stat-delta up">+12%</div></div>
+                    <div class="mock-stat"><div class="mock-stat-label">SMS</div><div class="mock-stat-value" style="font-size:16px;">843</div><div class="mock-stat-delta down">−3%</div></div>
+                    <div class="mock-stat"><div class="mock-stat-label">Calls</div><div class="mock-stat-value" style="font-size:16px;">291</div><div class="mock-stat-delta up">+8%</div></div>
+                  </div>
+                  <div class="mock-card" style="padding:10px 12px;">
+                    <div class="mock-card-title" style="margin-bottom:6px;">Activity by Channel · Trend</div>
+                    <div class="mock-chart-area" style="height:72px;">
+                      <div class="mock-bar bar-teal" style="height:65%;flex:1;"></div>
+                      <div class="mock-bar bar-teal" style="height:75%;flex:1;"></div>
+                      <div class="mock-bar bar-teal" style="height:60%;flex:1;"></div>
+                      <div class="mock-bar bar-teal" style="height:80%;flex:1;"></div>
+                      <div class="mock-bar bar-teal" style="height:70%;flex:1;"></div>
+                      <div class="mock-bar bar-teal" style="height:90%;flex:1;"></div>
+                    </div>
+                  </div>
+                  <div class="mock-stat" style="margin-top:8px;"><div class="mock-stat-label">Assisted Prospects</div><div style="display:flex;align-items:baseline;gap:6px;"><div class="mock-stat-value" style="font-size:16px;">312</div><div style="font-size:11px;color:#64748b;">/ 439 active (71%)</div></div></div>
+                </div>
+
+                <!-- Right: Follow-through -->
+                <div>
+                  <div class="mock-section-label" style="color:#f87171;border-bottom:2px solid #f87171;padding-bottom:4px;margin-bottom:10px;">Handoff &amp; Task Follow-Through</div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+                    <div class="mock-stat"><div class="mock-stat-label">Overdue Tasks</div><div class="mock-stat-value" style="font-size:16px;color:#b91c1c;">47</div><div class="mock-stat-delta down">+14 vs prior</div></div>
+                    <div class="mock-stat"><div class="mock-stat-label">Median Response</div><div class="mock-stat-value" style="font-size:16px;">2.4 hrs</div><div class="mock-stat-delta up">vs 3.1 SLA</div></div>
+                  </div>
+                  <div class="mock-card" style="padding:10px 12px;">
+                    <div class="mock-card-title" style="margin-bottom:6px;">Task Aging</div>
+                    <div class="mock-chart-area" style="height:72px;">
+                      <div style="display:flex;flex-direction:column;gap:3px;width:100%;">
+                        <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:#64748b;"><div style="width:40px;flex-shrink:0;">Today</div><div style="flex:1;background:#fef3c7;height:12px;border-radius:3px;"></div><div style="width:20px;text-align:right;">8</div></div>
+                        <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:#64748b;"><div style="width:40px;flex-shrink:0;">1 day</div><div style="width:60%;background:#fde68a;height:12px;border-radius:3px;"></div><div style="width:20px;text-align:right;">12</div></div>
+                        <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:#64748b;"><div style="width:40px;flex-shrink:0;">2–3 d</div><div style="width:70%;background:#f87171;height:12px;border-radius:3px;"></div><div style="width:20px;text-align:right;">14</div></div>
+                        <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:#64748b;"><div style="width:40px;flex-shrink:0;">4–7 d</div><div style="width:55%;background:#b91c1c;height:12px;border-radius:3px;"></div><div style="width:20px;text-align:right;">9</div></div>
+                        <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:#64748b;"><div style="width:40px;flex-shrink:0;">8+ d</div><div style="width:20%;background:#7f1d1d;height:12px;border-radius:3px;"></div><div style="width:20px;text-align:right;">4</div></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Property table (compact) -->
+              <div class="mock-section-label">Property Comparison</div>
+              <div class="mock-table">
+                <div class="mock-table-head" style="grid-template-columns:2fr 1fr 1fr 1fr 80px;">
+                  <div>Property</div><div>Score</div><div>Follow-Up</div><div>Overdue</div><div>Status</div>
+                </div>
+                <div class="mock-table-row" style="grid-template-columns:2fr 1fr 1fr 1fr 80px;">
+                  <div>Riverside Apartments</div><div>81</div><div>74%</div><div>9</div><div><div class="mock-badge badge-green">Strong</div></div>
+                </div>
+                <div class="mock-table-row" style="grid-template-columns:2fr 1fr 1fr 1fr 80px;">
+                  <div>Oak Ridge Townhomes</div><div>68</div><div>61%</div><div>21</div><div><div class="mock-badge badge-amber">Watch</div></div>
+                </div>
+                <div class="mock-table-row" style="grid-template-columns:2fr 1fr 1fr 1fr 80px;">
+                  <div>Harbor View Complex</div><div>44</div><div>48%</div><div>17</div><div><div class="mock-badge badge-red">Coaching</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="vp-footer">Pick this direction? Reply <kbd>B</kbd> in the terminal.</div>
+    </section>
+
+    <!-- ═══ VARIANT C ═══ -->
+    <section class="vp-variant" id="variant-c">
+      <div class="vp-variant-header">
+        <div class="vp-letter">C</div>
+        <div class="vp-variant-title">
+          <h2 class="vp-direction-name">Portfolio Table First</h2>
+          <p class="vp-rationale">Summary strip stays minimal; the property comparison table dominates — designed for regional managers who skip straight to ranking and only want the detail panel when they spot an outlier.</p>
+        </div>
+      </div>
+      <div class="vp-meta">
+        <span class="vp-chip"><span class="vp-chip-label">Layout</span><span class="vp-chip-value">Slim 5-card KPI strip + full-width sortable table + slide-in detail panel on row click</span></span>
+        <span class="vp-chip"><span class="vp-chip-label">Density</span><span class="vp-chip-value">compact</span></span>
+        <span class="vp-chip"><span class="vp-chip-label">Interaction</span><span class="vp-chip-value">Click any table row → slide-in panel with that property's full metric breakdown and charts</span></span>
+        <span class="vp-chip"><span class="vp-chip-label">Accent</span><span class="vp-chip-value">Status badges carry all color weight; panel header uses chart-teal accent on entity name</span></span>
+      </div>
+      <div class="vp-mockup">
+        <div class="mockup-frame">
+          <div class="mockup-chrome">
+            <div class="chrome-dot chrome-dot-r"></div><div class="chrome-dot chrome-dot-y"></div><div class="chrome-dot chrome-dot-g"></div>
+            <div class="chrome-url">app.entrata.com / leasing-ai / adoption</div>
+          </div>
+          <div class="mockup-body">
+            <div class="mock-nav">
+              <div class="mock-nav-item">Dashboard</div>
+              <div class="mock-nav-item">Conversations</div>
+              <div class="mock-nav-item active">Adoption</div>
+              <div class="mock-nav-item">Journey</div>
+              <div class="mock-nav-item">Config</div>
+            </div>
+            <div class="mock-topbar">
+              <div>
+                <div class="mock-page-title">Agent Adoption</div>
+                <div class="mock-subtitle">12 properties · Southwest Region · Last 30 days</div>
+              </div>
+              <div style="display:flex;gap:8px;">
+                <div class="mock-filter-chip">📅 30 days ▾</div>
+                <div class="mock-filter-chip">Region ▾</div>
+                <div class="mock-filter-chip">Channel ▾</div>
+                <div class="mock-btn btn-outline">Export</div>
+              </div>
+            </div>
+
+            <div style="padding:14px 24px 0;background:#f8fafc;">
+              <!-- Slim KPI strip -->
+              <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px;">
+                <div class="mock-stat" style="padding:10px 12px;">
+                  <div class="mock-stat-label">Avg Score</div>
+                  <div style="display:flex;align-items:center;gap:8px;">
+                    <div class="mock-stat-value" style="font-size:20px;">74</div>
+                    <div class="mock-badge badge-amber">Watch</div>
+                  </div>
+                </div>
+                <div class="mock-stat" style="padding:10px 12px;"><div class="mock-stat-label">Follow-Up Rate</div><div class="mock-stat-value" style="font-size:20px;color:#b45309;">68%</div></div>
+                <div class="mock-stat" style="padding:10px 12px;"><div class="mock-stat-label">Task Completion</div><div class="mock-stat-value" style="font-size:20px;color:#15803d;">82%</div></div>
+                <div class="mock-stat" style="padding:10px 12px;"><div class="mock-stat-label">Overdue Tasks</div><div class="mock-stat-value" style="font-size:20px;color:#b91c1c;">47</div></div>
+                <div class="mock-stat" style="padding:10px 12px;"><div class="mock-stat-label">Median Response</div><div class="mock-stat-value" style="font-size:20px;">2.4 hrs</div></div>
+              </div>
+
+              <!-- Full-width table + side panel layout -->
+              <div style="display:grid;grid-template-columns:1fr 360px;gap:16px;padding-bottom:16px;">
+                <div>
+                  <div class="mock-toolbar" style="margin-bottom:10px;">
+                    <div class="mock-filter-chip active">All statuses</div>
+                    <div class="mock-filter-chip">At Risk only</div>
+                    <div class="mock-filter-chip">Watch only</div>
+                    <div style="flex:1;"></div>
+                    <div style="font-size:11px;color:#64748b;">Sort: Score ↑</div>
+                  </div>
+                  <div class="mock-table">
+                    <div class="mock-table-head" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr 80px;">
+                      <div>Property ↕</div><div>Score ↑</div><div>Follow-Up</div><div>Tasks</div><div>Overdue</div><div>Status</div>
+                    </div>
+                    <div class="mock-table-row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr 80px;background:#eff6ff;">
+                      <div><div style="font-weight:600;">Riverside Apartments</div><div class="meta">14 agents</div></div><div style="font-weight:700;">81</div><div>74%</div><div>88%</div><div>9</div>
+                      <div><div class="mock-badge badge-green">Strong</div></div>
+                    </div>
+                    <div class="mock-table-row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr 80px;">
+                      <div><div>Sunset Ridge</div><div class="meta">10 agents</div></div><div>77</div><div>70%</div><div>84%</div><div>11</div>
+                      <div><div class="mock-badge badge-green">Strong</div></div>
+                    </div>
+                    <div class="mock-table-row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr 80px;">
+                      <div><div>Oak Ridge Townhomes</div><div class="meta">8 agents</div></div><div>68</div><div>61%</div><div>79%</div><div>21</div>
+                      <div><div class="mock-badge badge-amber">Watch</div></div>
+                    </div>
+                    <div class="mock-table-row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr 80px;">
+                      <div><div>Harbor View Complex</div><div class="meta">11 agents</div></div><div>44</div><div>48%</div><div>61%</div><div>17</div>
+                      <div><div class="mock-badge badge-red">Coaching</div></div>
+                    </div>
+                    <div class="mock-table-row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr 80px;">
+                      <div><div>Maple Court</div><div class="meta">6 agents</div></div><div>32</div><div>41%</div><div>55%</div><div>23</div>
+                      <div><div class="mock-badge badge-red" style="background:#fee2e2;color:#7f1d1d;">At Risk</div></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Detail panel (slide-in on row click) -->
+                <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
+                  <div style="padding:14px 16px;background:#0f172a;color:#fff;">
+                    <div style="font-size:13px;font-weight:600;color:#5eead4;">Riverside Apartments</div>
+                    <div style="display:flex;align-items:center;gap:8px;margin-top:2px;"><div style="font-size:22px;font-weight:700;">81</div><div class="mock-badge badge-green">Strong Adoption</div></div>
+                  </div>
+                  <div style="padding:12px 14px;">
+                    <div class="mock-section-label" style="margin-bottom:8px;">Key Metrics</div>
+                    <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;">
+                      <div style="display:flex;justify-content:space-between;"><span style="color:#64748b;">Human Follow-Up Rate</span><span style="font-weight:600;">74%</span></div>
+                      <div style="display:flex;justify-content:space-between;"><span style="color:#64748b;">Task Completion Rate</span><span style="font-weight:600;color:#15803d;">88%</span></div>
+                      <div style="display:flex;justify-content:space-between;"><span style="color:#64748b;">Median Response Time</span><span style="font-weight:600;">1.8 hrs</span></div>
+                      <div style="display:flex;justify-content:space-between;"><span style="color:#64748b;">Assisted Prospects</span><span style="font-weight:600;">78%</span></div>
+                      <div style="display:flex;justify-content:space-between;"><span style="color:#64748b;">Active Usage Days</span><span style="font-weight:600;">24/30</span></div>
+                    </div>
+                    <div class="mock-divider"></div>
+                    <div class="mock-section-label" style="margin-bottom:6px;">Overdue Tasks (9)</div>
+                    <div style="font-size:11px;color:#64748b;background:#fef2f2;border-radius:6px;padding:8px;">
+                      3 tour follow-ups · 4 handoff responses · 2 application tasks
+                    </div>
+                    <div class="mock-divider"></div>
+                    <div class="mock-btn btn-primary" style="width:100%;justify-content:center;margin-top:2px;">View agent breakdown →</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="vp-footer">Pick this direction? Reply <kbd>C</kbd> in the terminal.</div>
+    </section>
+
+  </main>
+
+  <div class="vp-replan">
+    None of these feel right? Reply <kbd>None — replan</kbd> to revise the plan and regenerate.
+  </div>
+</body>
+</html>

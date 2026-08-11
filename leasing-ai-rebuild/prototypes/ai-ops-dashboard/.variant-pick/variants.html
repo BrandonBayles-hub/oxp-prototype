@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Variant Pick — AI Ops Dashboard</title>
+  <style>
+    :root {
+      --vp-bg: #0f172a;
+      --vp-bg-elev: #1e293b;
+      --vp-panel: #ffffff;
+      --vp-panel-muted: #f8fafc;
+      --vp-border: #e2e8f0;
+      --vp-border-strong: #cbd5e1;
+      --vp-text: #0f172a;
+      --vp-text-muted: #64748b;
+      --vp-text-inverse: #f8fafc;
+      --vp-radius-sm: 4px;
+      --vp-radius: 8px;
+      --vp-radius-lg: 12px;
+      --vp-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.1);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+      font-size: 14px; line-height: 1.5;
+      color: var(--vp-text); background: var(--vp-panel-muted);
+    }
+    .vp-header {
+      position: sticky; top: 0; z-index: 100;
+      background: var(--vp-bg); color: var(--vp-text-inverse);
+      padding: 16px 32px; display: flex; align-items: center;
+      justify-content: space-between; gap: 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .vp-header-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .vp-app-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+      text-transform: uppercase; color: rgba(248,250,252,0.7); margin-bottom: 2px;
+    }
+    .vp-app-chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #10b981; }
+    .vp-feature { font-size: 12px; font-weight: 500; color: rgba(248,250,252,0.6); font-family: ui-monospace, "SF Mono", Menlo, Monaco, monospace; }
+    .vp-title { font-size: 16px; font-weight: 600; color: var(--vp-text-inverse); margin: 0; }
+    .vp-title em { font-style: normal; color: #ffffff; }
+    .vp-toc { display: flex; gap: 8px; flex-shrink: 0; }
+    .vp-toc a {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 40px; height: 32px; padding: 0 12px;
+      border-radius: var(--vp-radius-sm); background: rgba(255,255,255,0.08);
+      color: var(--vp-text-inverse); text-decoration: none; font-size: 13px; font-weight: 600;
+    }
+    .vp-toc a:hover { background: rgba(255,255,255,0.15); }
+    .vp-body { max-width: 1100px; margin: 0 auto; padding: 32px; display: flex; flex-direction: column; gap: 32px; }
+    .vp-variant { background: var(--vp-panel); border: 1px solid var(--vp-border); border-radius: var(--vp-radius-lg); box-shadow: var(--vp-shadow); overflow: hidden; }
+    .vp-variant-header { padding: 20px 24px; border-bottom: 1px solid var(--vp-border); display: flex; align-items: flex-start; gap: 16px; }
+    .vp-letter { flex-shrink: 0; width: 40px; height: 40px; border-radius: var(--vp-radius); background: var(--vp-text); color: var(--vp-text-inverse); display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; }
+    .vp-variant-title { flex: 1; min-width: 0; }
+    .vp-direction-name { font-size: 18px; font-weight: 600; color: var(--vp-text); margin: 0 0 4px 0; }
+    .vp-rationale { font-size: 13px; color: var(--vp-text-muted); margin: 0; }
+    .vp-meta { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 24px; background: var(--vp-panel-muted); border-bottom: 1px solid var(--vp-border); }
+    .vp-chip { display: inline-flex; align-items: baseline; gap: 6px; padding: 4px 10px; background: var(--vp-panel); border: 1px solid var(--vp-border); border-radius: var(--vp-radius-sm); font-size: 12px; }
+    .vp-chip-label { font-weight: 600; color: var(--vp-text); text-transform: uppercase; letter-spacing: 0.02em; font-size: 10px; }
+    .vp-chip-value { color: var(--vp-text-muted); }
+    .vp-mockup { padding: 24px; background: var(--vp-panel-muted); }
+    .vp-footer { padding: 12px 24px; background: var(--vp-panel); border-top: 1px solid var(--vp-border); font-size: 13px; color: var(--vp-text-muted); }
+    .vp-footer kbd { display: inline-block; padding: 2px 8px; background: var(--vp-panel-muted); border: 1px solid var(--vp-border-strong); border-bottom-width: 2px; border-radius: var(--vp-radius-sm); font-family: ui-monospace, "SF Mono", Menlo, Monaco, monospace; font-size: 12px; font-weight: 600; color: var(--vp-text); }
+    /* Mock kit */
+    .mockup-frame { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
+    .mockup-chrome { background: #f1f5f9; border-bottom: 1px solid #e2e8f0; padding: 8px 12px; display: flex; align-items: center; gap: 6px; }
+    .chrome-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .chrome-dot-r { background: #fc8181; } .chrome-dot-y { background: #f6ad55; } .chrome-dot-g { background: #68d391; }
+    .chrome-url { flex: 1; background: #fff; border: 1px solid #e2e8f0; border-radius: 4px; padding: 3px 10px; font-size: 11px; color: #94a3b8; margin-left: 8px; font-family: ui-monospace, "SF Mono", Menlo, Monaco, monospace; }
+    .mockup-body { padding: 0; }
+    .mock-nav { background: #1e293b; padding: 0 24px; display: flex; align-items: center; gap: 0; height: 48px; }
+    .mock-nav-item { color: rgba(255,255,255,0.5); font-size: 12px; padding: 0 14px; height: 48px; display: flex; align-items: center; border-bottom: 2px solid transparent; }
+    .mock-nav-item.active { color: #fff; border-bottom-color: #fff; }
+    .mock-topbar { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; }
+    .mock-page-title { font-size: 18px; font-weight: 700; color: #0f172a; margin: 0; }
+    .mock-subtitle { font-size: 12px; color: #94a3b8; margin-top: 1px; }
+    .mock-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; }
+    .badge-gray { background: #f1f5f9; color: #475569; }
+    .badge-green { background: #dcfce7; color: #15803d; }
+    .badge-amber { background: #fef3c7; color: #b45309; }
+    .badge-red { background: #fee2e2; color: #b91c1c; }
+    .mock-btn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; cursor: default; user-select: none; }
+    .btn-primary { background: #0f172a; color: #fff; }
+    .btn-outline { background: #fff; color: #374151; border: 1px solid #e2e8f0; }
+    .btn-ghost { background: transparent; color: #6b7280; }
+    .mock-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; }
+    .mock-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding-bottom: 8px; margin-bottom: 12px; border-bottom: 1px solid #f1f5f9; }
+    .mock-card-title { font-size: 13px; font-weight: 600; color: #0f172a; }
+    .mock-card-meta { font-size: 11px; color: #94a3b8; }
+    .mock-toolbar { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; }
+    .mock-toolbar.tight { padding: 8px 12px; }
+    .mock-search { flex: 1; min-width: 0; display: flex; align-items: center; background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 12px; font-size: 12px; color: #94a3b8; }
+    .mock-filter-chip { display: inline-flex; align-items: center; gap: 4px; background: #fff; border: 1px solid #e2e8f0; border-radius: 999px; padding: 4px 10px; font-size: 12px; color: #374151; cursor: default; user-select: none; }
+    .mock-table { border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; background: #fff; }
+    .mock-table-head { display: grid; gap: 8px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; padding: 8px 12px; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
+    .mock-table-row { display: grid; gap: 8px; align-items: center; padding: 10px 12px; font-size: 12px; color: #0f172a; border-bottom: 1px solid #f1f5f9; }
+    .mock-table-row:last-child { border-bottom: 0; }
+    .mock-table-row .meta { color: #64748b; font-size: 11px; }
+    .mock-stat { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
+    .mock-stat-label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
+    .mock-stat-value { font-size: 18px; font-weight: 700; color: #0f172a; }
+    .mock-section-label { font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 8px; }
+    .mock-divider { height: 1px; background: #e2e8f0; margin: 12px 0; }
+    .mock-list { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
+    .mock-list-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; font-size: 12px; color: #0f172a; border-bottom: 1px solid #f1f5f9; }
+    .mock-list-row:last-child { border-bottom: 0; }
+    .vp-replan { max-width: 1100px; margin: 0 auto 32px auto; padding: 16px 24px; background: #fef3c7; border: 1px solid #fcd34d; border-radius: var(--vp-radius); font-size: 13px; color: #78350f; }
+  </style>
+</head>
+<body>
+  <header class="vp-header">
+    <div class="vp-header-left">
+      <span class="vp-app-chip">Entrata</span>
+      <h1 class="vp-title">Pick a direction for <em>AI Ops Dashboard</em></h1>
+      <span class="vp-feature">ai-ops-dashboard</span>
+    </div>
+    <nav class="vp-toc">
+      <a href="#variant-a">A</a>
+      <a href="#variant-b">B</a>
+      <a href="#variant-c">C</a>
+    </nav>
+  </header>
+
+  <main class="vp-body">
+
+    <!-- VARIANT A -->
+    <section class="vp-variant" id="variant-a">
+      <div class="vp-variant-header">
+        <div class="vp-letter">A</div>
+        <div class="vp-variant-title">
+          <h2 class="vp-direction-name">KPI Grid + Tabbed Drilldown</h2>
+          <p class="vp-rationale">Best when managers want a quick status-at-a-glance across all metrics before diving into one area — the KPI row serves as a dashboard home, and each tab delivers full drilldown context.</p>
+        </div>
+      </div>
+      <div class="vp-meta">
+        <span class="vp-chip"><span class="vp-chip-label">Layout</span><span class="vp-chip-value">Full-width KPI row + section tabs below</span></span>
+        <span class="vp-chip"><span class="vp-chip-label">Density</span><span class="vp-chip-value">comfortable</span></span>
+        <span class="vp-chip"><span class="vp-chip-label">Interaction</span><span class="vp-chip-value">Tab-switch to drill into each metric</span></span>
+        <span class="vp-chip"><span class="vp-chip-label">Accent</span><span class="vp-chip-value">Threshold badges (green/amber/red) carry semantic weight</span></span>
+      </div>
+      <div class="vp-mockup">
+        <div class="mockup-frame">
+          <div class="mockup-chrome">
+            <div class="chrome-dot chrome-dot-r"></div>
+            <div class="chrome-dot chrome-dot-y"></div>
+            <div class="chrome-dot chrome-dot-g"></div>
+            <div class="chrome-url">localhost:5174/ai-ops-dashboard</div>
+          </div>
+          <div class="mockup-body">
+            <div class="mock-nav">
+              <div class="mock-nav-item">Dashboard</div>
+              <div class="mock-nav-item active">Leasing</div>
+              <div class="mock-nav-item">Residents</div>
+              <div class="mock-nav-item">Accounting</div>
+              <div class="mock-nav-item">Facilities</div>
+              <div class="mock-nav-item">Reports</div>
+            </div>
+
+            <div class="mock-topbar">
+              <div>
+                <div class="mock-page-title">AI Operations Dashboard</div>
+                <div class="mock-subtitle">Leasing &rsaquo; AI Performance &amp; Behavior</div>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <div class="mock-filter-chip">Property: All (12) ▾</div>
+                <div style="display:flex;gap:4px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;padding:3px;">
+                  <div class="mock-btn btn-outline" style="padding:4px 10px;font-size:11px;">7d</div>
+                  <div class="mock-btn btn-primary" style="padding:4px 10px;font-size:11px;">30d</div>
+                  <div class="mock-btn btn-outline" style="padding:4px 10px;font-size:11px;">90d</div>
+                  <div class="mock-btn btn-outline" style="padding:4px 10px;font-size:11px;">YTD</div>
+                </div>
+                <div class="mock-btn btn-outline">↓ Export</div>
+              </div>
+            </div>
+
+            <!-- KPI Summary Row -->
+            <div style="padding:16px 24px;background:#f8fafc;border-bottom:1px solid #e2e8f0;">
+              <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;">
+                <div class="mock-stat">
+                  <div class="mock-stat-label">Early Takeover</div>
+                  <div class="mock-stat-value">12.4%</div>
+                  <div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+                    <span class="mock-badge badge-amber">● Yellow</span>
+                    <span style="font-size:11px;color:#94a3b8;">↑2.1% WoW</span>
+                  </div>
+                  <div style="height:3px;margin-top:8px;background:#f1f5f9;border-radius:2px;overflow:hidden;"><div style="width:50%;height:100%;background:#f6ad55;"></div></div>
+                </div>
+                <div class="mock-stat">
+                  <div class="mock-stat-label">AI Handoff Rate</div>
+                  <div class="mock-stat-value">18.2%</div>
+                  <div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+                    <span class="mock-badge badge-amber">● Yellow</span>
+                    <span style="font-size:11px;color:#94a3b8;">↓3.0% WoW</span>
+                  </div>
+                  <div style="height:3px;margin-top:8px;background:#f1f5f9;border-radius:2px;overflow:hidden;"><div style="width:61%;height:100%;background:#f6ad55;"></div></div>
+                </div>
+                <div class="mock-stat">
+                  <div class="mock-stat-label">Pending Knowledge</div>
+                  <div class="mock-stat-value">7.8%</div>
+                  <div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+                    <span class="mock-badge badge-green">● Green</span>
+                    <span style="font-size:11px;color:#94a3b8;">↓1.2% WoW</span>
+                  </div>
+                  <div style="height:3px;margin-top:8px;background:#f1f5f9;border-radius:2px;overflow:hidden;"><div style="width:31%;height:100%;background:#86efac;"></div></div>
+                </div>
+                <div class="mock-stat">
+                  <div class="mock-stat-label">Task Resolution</div>
+                  <div class="mock-stat-value">91.3%</div>
+                  <div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+                    <span class="mock-badge badge-green">● Green</span>
+                    <span style="font-size:11px;color:#94a3b8;">↑5.2% WoW</span>
+                  </div>
+                  <div style="height:3px;margin-top:8px;background:#f1f5f9;border-radius:2px;overflow:hidden;"><div style="width:91%;height:100%;background:#86efac;"></div></div>
+                </div>
+                <div class="mock-stat">
+                  <div class="mock-stat-label">Lead-to-Tour</div>
+                  <div class="mock-stat-value">38.6%</div>
+                  <div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+                    <span class="mock-badge badge-green">● Green</span>
+                    <span style="font-size:11px;color:#94a3b8;">↑3.4% WoW</span>
+                  </div>
+                  <div style="height:3px;margin-top:8px;background:#f1f5f9;border-radius:2px;overflow:hidden;"><div style="width:77%;height:100%;background:#86efac;"></div></div>
+                </div>
+                <div class="mock-stat">
+                  <div class="mock-stat-label">Lead-to-Lease</div>
+                  <div class="mock-stat-value">4.1%</div>
+                  <div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+                    <span class="mock-badge badge-amber">● Yellow</span>
+                    <span style="font-size:11px;color:#94a3b8;">↓0.5% WoW</span>
+                  </div>
+                  <div style="height:3px;margin-top:8px;background:#f1f5f9;border-radius:2px;overflow:hidden;"><div style="width:41%;height:100%;background:#f6ad55;"></div></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Section Tabs -->
+            <div style="padding:0 24px;background:#fff;border-bottom:1px solid #e2e8f0;display:flex;gap:0;">
+              <div style="padding:12px 16px;font-size:12px;font-weight:600;color:#0f172a;border-bottom:2px solid #0f172a;">AI Behavior</div>
+              <div style="padding:12px 16px;font-size:12px;color:#64748b;border-bottom:2px solid transparent;">Knowledge Gaps</div>
+              <div style="padding:12px 16px;font-size:12px;color:#64748b;border-bottom:2px solid transparent;">Task Performance</div>
+              <div style="padding:12px 16px;font-size:12px;color:#64748b;border-bottom:2px solid transparent;">Leasing Funnel</div>
+              <div style="padding:12px 16px;font-size:12px;color:#64748b;border-bottom:2px solid transparent;">Channels</div>
+            </div>
+
+            <!-- AI Behavior Tab Content -->
+            <div style="padding:20px 24px;background:#fff;">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                <div class="mock-card">
+                  <div class="mock-card-header">
+                    <div class="mock-card-title">Early Takeover Rate — 30 Day Trend</div>
+                    <span class="mock-badge badge-amber">12.4% · Yellow</span>
+                  </div>
+                  <div style="height:80px;background:#f8fafc;border-radius:4px;display:flex;align-items:flex-end;padding:8px;gap:4px;">
+                    <div style="flex:1;background:#fde68a;border-radius:2px 2px 0 0;" title="10.3%"></div>
+                    <div style="flex:1;background:#fde68a;height:60%;border-radius:2px 2px 0 0;" title="9.8%"></div>
+                    <div style="flex:1;background:#fde68a;height:65%;border-radius:2px 2px 0 0;" title="10.1%"></div>
+                    <div style="flex:1;background:#f6ad55;height:72%;border-radius:2px 2px 0 0;" title="11.2%"></div>
+                    <div style="flex:1;background:#f6ad55;height:78%;border-radius:2px 2px 0 0;" title="12.4%"></div>
+                  </div>
+                  <div style="font-size:11px;color:#94a3b8;margin-top:8px;">Threshold: Green ≤10% · Yellow 10–25% · Red &gt;25%</div>
+                </div>
+                <div class="mock-card">
+                  <div class="mock-card-header">
+                    <div class="mock-card-title">AI Handoff Reasons — This Period</div>
+                    <span class="mock-badge badge-amber">18.2% total</span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;font-size:12px;">
+                      <span>Complex question</span>
+                      <div style="display:flex;align-items:center;gap:8px;"><div style="width:80px;height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden;"><div style="width:42%;height:100%;background:#64748b;"></div></div><span style="font-weight:600;">42%</span></div>
+                    </div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;font-size:12px;">
+                      <span>Explicit request</span>
+                      <div style="display:flex;align-items:center;gap:8px;"><div style="width:80px;height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden;"><div style="width:31%;height:100%;background:#64748b;"></div></div><span style="font-weight:600;">31%</span></div>
+                    </div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;font-size:12px;">
+                      <span>Complaint</span>
+                      <div style="display:flex;align-items:center;gap:8px;"><div style="width:80px;height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden;"><div style="width:16%;height:100%;background:#64748b;"></div></div><span style="font-weight:600;">16%</span></div>
+                    </div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;font-size:12px;">
+                      <span>System error</span>
+                      <div style="display:flex;align-items:center;gap:8px;"><div style="width:80px;height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden;"><div style="width:11%;height:100%;background:#64748b;"></div></div><span style="font-weight:600;">11%</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <!-- Property Ranking Table -->
+              <div style="margin-top:16px;">
+                <div class="mock-section-label">Property Ranking — Handoff Rate ↕</div>
+                <div class="mock-table">
+                  <div class="mock-table-head" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr;">
+                    <div>Property ↕</div><div>Early Takeover ↕</div><div>AI Handoff ↕</div><div>Pending Knowledge ↕</div><div>Task Resolution ↕</div>
+                  </div>
+                  <div class="mock-table-row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr;">
+                    <div style="font-weight:500;">Riverside Apartments</div>
+                    <div><span class="mock-badge badge-red">28.1%</span></div>
+                    <div><span class="mock-badge badge-red">32.4%</span></div>
+                    <div><span class="mock-badge badge-amber">14.2%</span></div>
+                    <div><span class="mock-badge badge-amber">78.0%</span></div>
+                  </div>
+                  <div class="mock-table-row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr;">
+                    <div style="font-weight:500;">Oakwood Terrace</div>
+                    <div><span class="mock-badge badge-amber">14.7%</span></div>
+                    <div><span class="mock-badge badge-amber">21.0%</span></div>
+                    <div><span class="mock-badge badge-green">6.8%</span></div>
+                    <div><span class="mock-badge badge-green">93.2%</span></div>
+                  </div>
+                  <div class="mock-table-row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr;">
+                    <div style="font-weight:500;">Maple Commons</div>
+                    <div><span class="mock-badge badge-green">8.3%</span></div>
+                    <div><span class="mock-badge badge-green">11.5%</span></div>
+                    <div><span class="mock-badge badge-green">4.1%</span></div>
+                    <div><span class="mock-badge badge-green">97.1%</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="vp-footer">Pick this direction? Reply <kbd>A</kbd> in the terminal.</div>
+    </section>
+
+    <!-- VARIANT B -->
+    <section class="vp-variant" id="variant-b">
+      <div class="vp-variant-header">
+        <div class="vp-letter">B</div>
+        <div class="vp-variant-title">
+          <h2 class="vp-direction-name">Left-Nav Metric Navigator</h2>
+          <p class="vp-rationale">Best when users have a specific metric they return to repeatedly — clicking a metric in the left nav loads its full detail view (chart + table + threshold) without leaving the page context.</p>
+        </div>
+      </div>
+      <div class="vp-meta">
+        <span class="vp-chip"><span class="vp-chip-label">Layout</span><span class="vp-chip-value">Sidebar metric list + right-panel detail</span></span>
+        <span class="vp-chip"><span class="vp-chip-label">Density</span><span class="vp-chip-value">compact</span></span>
+        <span class="vp-chip"><span class="vp-chip-label">Interaction</span><span class="vp-chip-value">Click metric in sidebar → detail panel loads</span></span>
+        <span class="vp-chip"><span class="vp-chip-label">Accent</span><span class="vp-chip-value">Active sidebar item highlight + threshold ring on stat</span></span>
+      </div>
+      <div class="vp-mockup">
+        <div class="mockup-frame">
+          <div class="mockup-chrome">
+            <div class="chrome-dot chrome-dot-r"></div>
+            <div class="chrome-dot chrome-dot-y"></div>
+            <div class="chrome-dot chrome-dot-g"></div>
+            <div class="chrome-url">localhost:5174/ai-ops-dashboard?metric=handoff-rate</div>
+          </div>
+          <div class="mockup-body">
+            <div class="mock-nav">
+              <div class="mock-nav-item">Dashboard</div>
+              <div class="mock-nav-item active">Leasing</div>
+              <div class="mock-nav-item">Residents</div>
+              <div class="mock-nav-item">Accounting</div>
+              <div class="mock-nav-item">Facilities</div>
+              <div class="mock-nav-item">Reports</div>
+            </div>
+            <div class="mock-topbar">
+              <div>
+                <div class="mock-page-title">AI Operations Dashboard</div>
+                <div class="mock-subtitle">Leasing &rsaquo; AI Performance</div>
+              </div>
+              <div style="display:flex;gap:8px;">
+                <div class="mock-filter-chip">All Properties ▾</div>
+                <div class="mock-filter-chip">Last 30 days ▾</div>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:220px 1fr;min-height:380px;">
+              <!-- Sidebar -->
+              <div style="border-right:1px solid #e2e8f0;background:#f8fafc;padding:12px 0;">
+                <div class="mock-section-label" style="padding:0 16px;margin-bottom:12px;">AI BEHAVIOR</div>
+                <div style="padding:8px 16px;background:#0f172a;border-left:3px solid #fff;display:flex;justify-content:space-between;align-items:center;">
+                  <span style="font-size:12px;font-weight:600;color:#fff;">AI Handoff Rate</span>
+                  <span class="mock-badge badge-amber" style="font-size:10px;">18.2%</span>
+                </div>
+                <div style="padding:8px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #f1f5f9;">
+                  <span style="font-size:12px;color:#374151;">Early Takeover Rate</span>
+                  <span class="mock-badge badge-amber" style="font-size:10px;">12.4%</span>
+                </div>
+                <div class="mock-divider" style="margin:8px 0;"></div>
+                <div class="mock-section-label" style="padding:0 16px;margin-bottom:8px;">KNOWLEDGE</div>
+                <div style="padding:8px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #f1f5f9;">
+                  <span style="font-size:12px;color:#374151;">Pending Knowledge</span>
+                  <span class="mock-badge badge-green" style="font-size:10px;">7.8%</span>
+                </div>
+                <div class="mock-divider" style="margin:8px 0;"></div>
+                <div class="mock-section-label" style="padding:0 16px;margin-bottom:8px;">TASKS</div>
+                <div style="padding:8px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #f1f5f9;">
+                  <span style="font-size:12px;color:#374151;">Task Resolution Rate</span>
+                  <span class="mock-badge badge-green" style="font-size:10px;">91.3%</span>
+                </div>
+                <div style="padding:8px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #f1f5f9;">
+                  <span style="font-size:12px;color:#374151;">Median Resolution Time</span>
+                  <span class="mock-badge badge-green" style="font-size:10px;">5.2h</span>
+                </div>
+                <div class="mock-divider" style="margin:8px 0;"></div>
+                <div class="mock-section-label" style="padding:0 16px;margin-bottom:8px;">LEASING FUNNEL</div>
+                <div style="padding:8px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #f1f5f9;">
+                  <span style="font-size:12px;color:#374151;">Lead-to-Tour</span>
+                  <span class="mock-badge badge-green" style="font-size:10px;">38.6%</span>
+                </div>
+                <div style="padding:8px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #f1f5f9;">
+                  <span style="font-size:12px;color:#374151;">Lead-to-Lease</span>
+                  <span class="mock-badge badge-amber" style="font-size:10px;">4.1%</span>
+                </div>
+                <div class="mock-divider" style="margin:8px 0;"></div>
+                <div class="mock-section-label" style="padding:0 16px;margin-bottom:8px;">CHANNELS</div>
+                <div style="padding:8px 16px;display:flex;justify-content:space-between;align-items:center;">
+                  <span style="font-size:12px;color:#374151;">Comms by Channel</span>
+                  <span class="mock-badge badge-gray" style="font-size:10px;">5 ch</span>
+                </div>
+              </div>
+              <!-- Detail Panel -->
+              <div style="padding:20px 24px;background:#fff;">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
+                  <div>
+                    <div style="font-size:15px;font-weight:700;color:#0f172a;">AI Handoff Rate</div>
+                    <div style="font-size:12px;color:#64748b;margin-top:2px;">% of AI conversations escalated to a human</div>
+                  </div>
+                  <div style="text-align:right;">
+                    <div style="font-size:28px;font-weight:700;color:#0f172a;">18.2%</div>
+                    <span class="mock-badge badge-amber">● Yellow — target ≤15%</span>
+                  </div>
+                </div>
+                <!-- Trend Chart Placeholder -->
+                <div style="height:90px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;display:flex;align-items:flex-end;padding:12px;gap:6px;margin-bottom:16px;">
+                  <div style="display:flex;flex-direction:column;gap:4px;flex:1;align-items:center;">
+                    <div style="width:100%;background:#cbd5e1;border-radius:2px 2px 0 0;" style="height:55%;"></div>
+                    <span style="font-size:10px;color:#94a3b8;">Jan</span>
+                  </div>
+                  <div style="flex:1;display:flex;flex-direction:column;gap:4px;align-items:center;">
+                    <div style="width:100%;height:50%;background:#cbd5e1;border-radius:2px 2px 0 0;"></div>
+                    <span style="font-size:10px;color:#94a3b8;">Feb</span>
+                  </div>
+                  <div style="flex:1;display:flex;flex-direction:column;gap:4px;align-items:center;">
+                    <div style="width:100%;height:60%;background:#94a3b8;border-radius:2px 2px 0 0;"></div>
+                    <span style="font-size:10px;color:#94a3b8;">Mar</span>
+                  </div>
+                  <div style="flex:1;display:flex;flex-direction:column;gap:4px;align-items:center;">
+                    <div style="width:100%;height:70%;background:#f6ad55;border-radius:2px 2px 0 0;"></div>
+                    <span style="font-size:10px;color:#94a3b8;">Apr</span>
+                  </div>
+                  <div style="flex:1;display:flex;flex-direction:column;gap:4px;align-items:center;">
+                    <div style="width:100%;height:80%;background:#f6ad55;border-radius:2px 2px 0 0;"></div>
+                    <span style="font-size:10px;color:#94a3b8;">May</span>
+                  </div>
+                  <div style="flex:1;display:flex;flex-direction:column;gap:4px;align-items:center;">
+                    <div style="width:100%;height:100%;background:#f97316;border-radius:2px 2px 0 0;"></div>
+                    <span style="font-size:10px;color:#94a3b8;">Jun</span>
+                  </div>
+                </div>
+                <!-- Reason breakdown + property table -->
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                  <div>
+                    <div class="mock-section-label">BY REASON</div>
+                    <div class="mock-list">
+                      <div class="mock-list-row"><span>Complex question</span><span style="font-weight:600;">42% <span class="mock-badge badge-gray" style="font-size:10px;">↑8%</span></span></div>
+                      <div class="mock-list-row"><span>Explicit request</span><span style="font-weight:600;">31%</span></div>
+                      <div class="mock-list-row"><span>Complaint</span><span style="font-weight:600;">16%</span></div>
+                      <div class="mock-list-row"><span>System error</span><span style="font-weight:600;">11%</span></div>
+                    </div>
+                  </div>
+                  <div>
+                    <div class="mock-section-label">BY PROPERTY</div>
+                    <div class="mock-list">
+                      <div class="mock-list-row"><span>Riverside Apts</span><span class="mock-badge badge-red">32.4%</span></div>
+                      <div class="mock-list-row"><span>Oakwood Terrace</span><span class="mock-badge badge-amber">21.0%</span></div>
+                      <div class="mock-list-row"><span>Maple Commons</span><span class="mock-badge badge-green">11.5%</span></div>
+                      <div class="mock-list-row"><span>Harbor View</span><span class="mock-badge badge-green">9.8%</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="vp-footer">Pick this direction? Reply <kbd>B</kbd> in the terminal.</div>
+    </section>
+
+    <!-- VARIANT C -->
+    <section class="vp-variant" id="variant-c">
+      <div class="vp-variant-header">
+        <div class="vp-letter">C</div>
+        <div class="vp-variant-title">
+          <h2 class="vp-direction-name">Channel-First Full-Page Scroll</h2>
+          <p class="vp-rationale">Best when channel performance is the primary analytical lens — the channel filter at the top resets all metric sections below, giving a single page that answers "how is SMS doing?" end-to-end.</p>
+        </div>
+      </div>
+      <div class="vp-meta">
+        <span class="vp-chip"><span class="vp-chip-label">Layout</span><span class="vp-chip-value">Sticky filter bar + stacked full-width metric sections</span></span>
+        <span class="vp-chip"><span class="vp-chip-label">Density</span><span class="vp-chip-value">comfortable</span></span>
+        <span class="vp-chip"><span class="vp-chip-label">Interaction</span><span class="vp-chip-value">Channel tab filters all sections; scroll to navigate</span></span>
+        <span class="vp-chip"><span class="vp-chip-label">Accent</span><span class="vp-chip-value">Active channel tab pill + section header threshold badge</span></span>
+      </div>
+      <div class="vp-mockup">
+        <div class="mockup-frame">
+          <div class="mockup-chrome">
+            <div class="chrome-dot chrome-dot-r"></div>
+            <div class="chrome-dot chrome-dot-y"></div>
+            <div class="chrome-dot chrome-dot-g"></div>
+            <div class="chrome-url">localhost:5174/ai-ops-dashboard?channel=sms</div>
+          </div>
+          <div class="mockup-body">
+            <div class="mock-nav">
+              <div class="mock-nav-item">Dashboard</div>
+              <div class="mock-nav-item active">Leasing</div>
+              <div class="mock-nav-item">Residents</div>
+              <div class="mock-nav-item">Accounting</div>
+              <div class="mock-nav-item">Facilities</div>
+              <div class="mock-nav-item">Reports</div>
+            </div>
+            <div class="mock-topbar">
+              <div>
+                <div class="mock-page-title">AI Operations Dashboard</div>
+                <div class="mock-subtitle">Leasing &rsaquo; AI Performance &amp; Behavior</div>
+              </div>
+              <div style="display:flex;gap:8px;">
+                <div class="mock-filter-chip">Property: All ▾</div>
+                <div class="mock-filter-chip">Last 30 days ▾</div>
+                <div class="mock-btn btn-outline">↓ Export</div>
+              </div>
+            </div>
+
+            <!-- Channel Tabs (sticky filter) -->
+            <div style="background:#fff;border-bottom:1px solid #e2e8f0;padding:0 24px;display:flex;align-items:center;gap:4px;">
+              <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;margin-right:8px;">Channel:</div>
+              <div style="padding:8px 14px;font-size:12px;font-weight:500;color:#64748b;border-bottom:2px solid transparent;">All</div>
+              <div style="padding:8px 14px;font-size:12px;font-weight:600;color:#0f172a;border-bottom:2px solid #0f172a;">SMS</div>
+              <div style="padding:8px 14px;font-size:12px;font-weight:500;color:#64748b;border-bottom:2px solid transparent;">Email</div>
+              <div style="padding:8px 14px;font-size:12px;font-weight:500;color:#64748b;border-bottom:2px solid transparent;">Chat</div>
+              <div style="padding:8px 14px;font-size:12px;font-weight:500;color:#64748b;border-bottom:2px solid transparent;">Voice</div>
+              <div style="padding:8px 14px;font-size:12px;font-weight:500;color:#64748b;border-bottom:2px solid transparent;">ILS</div>
+            </div>
+
+            <!-- Scrollable sections -->
+            <div style="padding:20px 24px;background:#f8fafc;display:flex;flex-direction:column;gap:16px;">
+
+              <!-- Section 1: AI Behavior -->
+              <div class="mock-card" style="padding:0;overflow:hidden;">
+                <div style="padding:14px 16px;background:#fff;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;">
+                  <div style="font-size:13px;font-weight:700;color:#0f172a;">AI Behavior — SMS Channel</div>
+                  <div style="display:flex;gap:8px;">
+                    <span class="mock-badge badge-amber">Takeover: 11.2% ● Yellow</span>
+                    <span class="mock-badge badge-amber">Handoff: 16.8% ● Yellow</span>
+                  </div>
+                </div>
+                <div style="padding:14px 16px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                  <div style="height:70px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;display:flex;align-items:center;justify-content:center;">
+                    <span style="font-size:11px;color:#94a3b8;font-style:italic;">Early Takeover trend — 30d</span>
+                  </div>
+                  <div style="height:70px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;display:flex;align-items:center;justify-content:center;">
+                    <span style="font-size:11px;color:#94a3b8;font-style:italic;">Handoff reasons breakdown</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Section 2: Task Performance -->
+              <div class="mock-card" style="padding:0;overflow:hidden;">
+                <div style="padding:14px 16px;background:#fff;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;">
+                  <div style="font-size:13px;font-weight:700;color:#0f172a;">Task Performance — SMS Channel</div>
+                  <div style="display:flex;gap:8px;">
+                    <span class="mock-badge badge-green">Resolution: 93.1% ● Green</span>
+                    <span class="mock-badge badge-green">Median: 4.8h ● Green</span>
+                  </div>
+                </div>
+                <div style="padding:14px 16px;display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
+                  <div class="mock-stat"><div class="mock-stat-label">Created</div><div class="mock-stat-value">142</div></div>
+                  <div class="mock-stat"><div class="mock-stat-label">Resolved</div><div class="mock-stat-value">131</div></div>
+                  <div class="mock-stat"><div class="mock-stat-label">Overdue</div><div class="mock-stat-value" style="color:#b91c1c;">4</div></div>
+                  <div class="mock-stat"><div class="mock-stat-label">Median Time</div><div class="mock-stat-value">4.8h</div></div>
+                </div>
+              </div>
+
+              <!-- Section 3: Leasing Funnel -->
+              <div class="mock-card" style="padding:0;overflow:hidden;">
+                <div style="padding:14px 16px;background:#fff;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;">
+                  <div style="font-size:13px;font-weight:700;color:#0f172a;">Leasing Funnel — SMS Channel</div>
+                  <span class="mock-badge badge-green">Lead-to-Tour: 41.2% ● Green</span>
+                </div>
+                <div style="padding:14px 16px;">
+                  <div style="display:flex;align-items:center;gap:0;height:40px;">
+                    <div style="flex:3;background:#0f172a;height:32px;border-radius:4px 0 0 4px;display:flex;align-items:center;padding:0 12px;">
+                      <span style="font-size:11px;font-weight:600;color:#fff;">Leads: 347</span>
+                    </div>
+                    <div style="width:0;height:0;border-left:12px solid #0f172a;border-top:20px solid transparent;border-bottom:20px solid transparent;"></div>
+                    <div style="flex:2;background:#334155;height:28px;display:flex;align-items:center;padding:0 12px;">
+                      <span style="font-size:11px;font-weight:600;color:#fff;">Tours: 143 (41%)</span>
+                    </div>
+                    <div style="width:0;height:0;border-left:12px solid #334155;border-top:16px solid transparent;border-bottom:16px solid transparent;"></div>
+                    <div style="flex:1;background:#64748b;height:24px;display:flex;align-items:center;padding:0 12px;">
+                      <span style="font-size:11px;font-weight:600;color:#fff;">Apps: 31</span>
+                    </div>
+                    <div style="width:0;height:0;border-left:12px solid #64748b;border-top:14px solid transparent;border-bottom:14px solid transparent;"></div>
+                    <div style="flex:1;background:#94a3b8;height:20px;border-radius:0 4px 4px 0;display:flex;align-items:center;padding:0 8px;">
+                      <span style="font-size:10px;font-weight:600;color:#fff;">Leases: 14</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="vp-footer">Pick this direction? Reply <kbd>C</kbd> in the terminal.</div>
+    </section>
+
+  </main>
+
+  <div class="vp-replan" style="max-width:1100px;margin:0 auto 32px auto;padding:16px 24px;background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;font-size:13px;color:#78350f;">
+    None of these feel right? Reply <kbd style="display:inline-block;padding:2px 8px;background:#fff;border:1px solid #fcd34d;border-bottom-width:2px;border-radius:4px;font-size:12px;font-weight:600;color:#78350f;">None — replan</kbd> to revise the plan and regenerate.
+  </div>
+</body>
+</html>

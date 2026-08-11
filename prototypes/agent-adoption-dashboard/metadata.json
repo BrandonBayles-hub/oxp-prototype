@@ -1,0 +1,6 @@
+{
+  "title": "Agent Adoption Dashboard",
+  "description": "Track whether onsite teams are actively using Eli and completing required human actions. Shows adoption score, outbound engagement, task follow-through, handoff responsiveness, and property/agent comparison tables with role-based permissions.",
+  "section": "Leasing AI",
+  "tags": ["leasing-ai", "eli", "adoption", "reporting", "dashboard", "DEV-301196"]
+}
