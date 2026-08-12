@@ -62,7 +62,11 @@ import { MaintenanceFullPage } from "@/components/eli-plus-setup/pages/Maintenan
 import { RenewalsFullPage } from "@/components/eli-plus-setup/pages/RenewalsFullPage";
 import { LeasingAISettingsPanel } from "@/components/leasing-ai-settings-panel";
 import { MaintenanceAISettingsPanel } from "@/components/maintenance-ai-settings-panel";
-import { RenewalsAISettingsPanel } from "@/components/renewals-ai-settings-panel";
+import {
+  makeDefaultRenewalsAISettings,
+  RenewalsAISettingsPanel,
+  type RenewalsAISettingsState,
+} from "@/components/renewals-ai-settings-panel";
 import { PaymentsAISettingsPanel } from "@/components/payments-ai-settings-panel";
 import { PaymentsAIBulkPropertySelector } from "@/components/payments-ai/bulk-property-selector";
 import {
@@ -6277,7 +6281,19 @@ function getAgentSubPages(agentName: string): { id: SettingsNav; label: string }
   return pages;
 }
 
-function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: string; property: typeof AGENT_FLYOUT_PROPERTIES[0]; onBack: () => void }) {
+function SimplifiedSettingsDetail({
+  agentName,
+  property,
+  onBack,
+  renewalSettings,
+  onRenewalSettingsSave,
+}: {
+  agentName: string;
+  property: typeof AGENT_FLYOUT_PROPERTIES[0];
+  onBack: () => void;
+  renewalSettings?: RenewalsAISettingsState;
+  onRenewalSettingsSave?: (settings: RenewalsAISettingsState) => void;
+}) {
   const tabs = AGENT_SETTINGS_TABS[agentName] ?? [];
   const agentSubPages = useMemo(() => getAgentSubPages(agentName), [agentName]);
   const [activeNav, setActiveNav] = useState<SettingsNav>("property");
@@ -6455,6 +6471,8 @@ function SimplifiedSettingsDetail({ agentName, property, onBack }: { agentName: 
               propertyName={property.name}
               propertyId={property.id}
               agentDisplayLabel={`ELI+ ${agentName}`}
+              initialState={renewalSettings}
+              onSave={onRenewalSettingsSave}
             />
           ) : (
             <div className="p-8 max-w-3xl">
@@ -6521,6 +6539,9 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
   const [cloneSettings, setCloneSettings] = useState<Set<CloneSettingType>>(new Set(["communication_windows", "offer_follow_ups", "lease_follow_ups"]));
   const [cloneTargets, setCloneTargets] = useState<Set<string>>(new Set());
   const [cloneSuccess, setCloneSuccess] = useState(false);
+  const [renewalSettingsByProperty, setRenewalSettingsByProperty] = useState<
+    Record<string, RenewalsAISettingsState>
+  >({});
 
   const activeProperties = AGENT_FLYOUT_PROPERTIES.filter(p => p.status === "Active");
   const isRenewalAI = agentName === "Renewal AI";
@@ -6556,7 +6577,44 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
 
   const deselectAllTargets = () => setCloneTargets(new Set());
 
-  const handleClone = () => setCloneSuccess(true);
+  const handleClone = () => {
+    if (!cloneSource || cloneTargets.size === 0) return;
+
+    setRenewalSettingsByProperty((previous) => {
+      const source =
+        previous[cloneSource] ?? makeDefaultRenewalsAISettings(cloneSource);
+      const next = { ...previous };
+
+      cloneTargets.forEach((targetId) => {
+        const target =
+          previous[targetId] ?? makeDefaultRenewalsAISettings(targetId);
+
+        next[targetId] = {
+          ...target,
+          communicationWindow: cloneSettings.has("communication_windows")
+            ? {
+                ...source.communicationWindow,
+                days: [...source.communicationWindow.days],
+                dailyHours: Object.fromEntries(
+                  Object.entries(source.communicationWindow.dailyHours).map(
+                    ([day, hours]) => [day, { ...hours }],
+                  ),
+                ) as RenewalsAISettingsState["communicationWindow"]["dailyHours"],
+              }
+            : target.communicationWindow,
+          offerSteps: cloneSettings.has("offer_follow_ups")
+            ? source.offerSteps.map((step) => ({ ...step }))
+            : target.offerSteps,
+          leaseSteps: cloneSettings.has("lease_follow_ups")
+            ? source.leaseSteps.map((step) => ({ ...step }))
+            : target.leaseSteps,
+        };
+      });
+
+      return next;
+    });
+    setCloneSuccess(true);
+  };
 
   const filtered = AGENT_FLYOUT_PROPERTIES
     .filter(p => visibleIds.has(p.id))
@@ -6602,6 +6660,21 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
         agentName={agentName}
         property={selectedProperty}
         onBack={() => setSelectedProperty(null)}
+        renewalSettings={
+          isRenewalAI
+            ? renewalSettingsByProperty[selectedProperty.id] ??
+              makeDefaultRenewalsAISettings(selectedProperty.id)
+            : undefined
+        }
+        onRenewalSettingsSave={
+          isRenewalAI
+            ? (settings) =>
+                setRenewalSettingsByProperty((previous) => ({
+                  ...previous,
+                  [selectedProperty.id]: settings,
+                }))
+            : undefined
+        }
       />
     );
   }
@@ -6991,7 +7064,7 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
                       <p className="text-xs text-muted-foreground ml-7">Select which configuration sections to copy.</p>
                       <div className="ml-7 space-y-1.5">
                         {([
-                          { id: "communication_windows" as CloneSettingType, label: "Communication Windows", desc: "Send time and allowed days" },
+                          { id: "communication_windows" as CloneSettingType, label: "Communication Windows", desc: "Follow-up time, allowed days, and each day's proactive messaging hours" },
                           { id: "offer_follow_ups" as CloneSettingType, label: "Renewal Offer Follow-Ups", desc: "Follow-up schedule for pending offers" },
                           { id: "lease_follow_ups" as CloneSettingType, label: "Renewal Lease Follow-Ups", desc: "Follow-up schedule for unsigned leases" },
                         ]).map(s => (
