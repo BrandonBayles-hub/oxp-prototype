@@ -53,9 +53,15 @@ interface LeaseFollowUpStep {
 
 type DayOfWeek = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun"
 
+interface DailyCommunicationHours {
+  startHour: string
+  endHour: string
+}
+
 interface CommunicationWindow {
   sendHour: string
   days: DayOfWeek[]
+  dailyHours: Record<DayOfWeek, DailyCommunicationHours>
 }
 
 interface BlackoutHoliday {
@@ -80,7 +86,7 @@ interface BlackoutDates {
   customDates: CustomBlackoutDate[]
 }
 
-interface PanelState {
+export interface RenewalsAISettingsState {
   communicationWindow: CommunicationWindow
   blackoutDates: BlackoutDates
   offerSteps: OfferFollowUpStep[]
@@ -264,11 +270,22 @@ const DEFAULT_LEASE_STEPS: LeaseFollowUpStep[] = [
   { id: "ls-4", days: 7, anchor: "before_lease_end", target: "all_residents" },
 ]
 
-function makeDefaultState(propertyId: string): PanelState {
+export function makeDefaultRenewalsAISettings(
+  propertyId: string
+): RenewalsAISettingsState {
   return {
     communicationWindow: {
       sendHour: "09:00",
       days: ["mon", "tue", "wed", "thu", "fri", "sat"],
+      dailyHours: {
+        mon: { startHour: "09:00", endHour: "20:00" },
+        tue: { startHour: "09:00", endHour: "20:00" },
+        wed: { startHour: "09:00", endHour: "20:00" },
+        thu: { startHour: "09:00", endHour: "20:00" },
+        fri: { startHour: "09:00", endHour: "20:00" },
+        sat: { startHour: "09:00", endHour: "20:00" },
+        sun: { startHour: "09:00", endHour: "20:00" },
+      },
     },
     blackoutDates: {
       holidays: DEFAULT_BLACKOUT_HOLIDAYS,
@@ -288,19 +305,30 @@ interface Props {
   propertyName: string
   propertyId?: string
   agentDisplayLabel?: string
+  initialState?: RenewalsAISettingsState
+  onSave?: (state: RenewalsAISettingsState) => void
 }
 
 export function RenewalsAISettingsPanel({
   propertyName,
   propertyId = "",
   agentDisplayLabel = "Renewal AI",
+  initialState,
+  onSave,
 }: Props) {
-  const [state, setState] = useState<PanelState>(() => makeDefaultState(propertyId))
-  const [pristine, setPristine] = useState<PanelState>(() => makeDefaultState(propertyId))
+  const [state, setState] = useState<RenewalsAISettingsState>(
+    () => initialState ?? makeDefaultRenewalsAISettings(propertyId)
+  )
+  const [pristine, setPristine] = useState<RenewalsAISettingsState>(
+    () => initialState ?? makeDefaultRenewalsAISettings(propertyId)
+  )
 
   const dirty = JSON.stringify(state) !== JSON.stringify(pristine)
 
-  const handleSave = () => setPristine(state)
+  const handleSave = () => {
+    setPristine(state)
+    onSave?.(state)
+  }
   const handleDiscard = () => setState(pristine)
 
   return (
@@ -423,21 +451,44 @@ function CommunicationWindowSection({
     patch({ days: next })
   }
 
+  const updateDailyHours = (
+    day: DayOfWeek,
+    hoursPatch: Partial<DailyCommunicationHours>
+  ) => {
+    const current = win.dailyHours[day]
+    const next = { ...current, ...hoursPatch }
+
+    if (next.startHour >= next.endHour) {
+      const startIndex = HOUR_OPTIONS.findIndex(
+        (option) => option.value === next.startHour
+      )
+      next.endHour = HOUR_OPTIONS[startIndex + 1].value
+    }
+
+    patch({
+      dailyHours: {
+        ...win.dailyHours,
+        [day]: next,
+      },
+    })
+  }
+
   return (
     <SectionShell
       icon={Clock}
       title="Communication Windows"
-      description={`Define when ${agentDisplayLabel} is allowed to send proactive outbound messages at this property. If a resident replies outside this window, the agent will respond promptly — but follow-ups, reminders, and notifications will be generated at the selected hour on the allowed days.`}
+      description={`Control when ${agentDisplayLabel} may initiate proactive outbound messages at this property. Event-triggered messages send immediately inside the selected day's hours; messages triggered outside those hours wait until the next allowed window opens. Resident-initiated conversations are not restricted.`}
     >
-      <div className="space-y-5">
+      <div className="space-y-6">
         {/* Send hour */}
         <div className="space-y-2">
           <p className="text-xs font-semibold text-foreground">
             Follow-up send time
           </p>
           <p className="text-[11px] text-muted-foreground">
-            Select the hour when {agentDisplayLabel} should generate and send
-            proactive follow-up messages each day.
+            Choose the preferred time for scheduled follow-ups. If that time
+            falls outside an allowed day&apos;s hours, the message waits until
+            that day&apos;s window opens.
           </p>
           <div className="flex items-center gap-3">
             <Select
@@ -455,42 +506,139 @@ function CommunicationWindowSection({
                 ))}
               </SelectContent>
             </Select>
-            <Badge variant="gray" className="text-[10px]">
-              Property timezone
-            </Badge>
           </div>
         </div>
 
-        {/* Days of week */}
-        <div className="space-y-2">
-          <p className="text-xs font-semibold text-foreground">
-            Allowed days
-          </p>
-          <div className="flex gap-1.5">
+        {/* Allowed days and event-triggered message hours */}
+        <div className="space-y-3">
+          <div className="flex items-end justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold text-foreground">
+                Allowed days and hours
+              </p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                Set the daily window for proactive, event-triggered messages,
+                including new renewal offer notifications.
+              </p>
+            </div>
+            <Badge variant="gray" className="shrink-0 text-[10px]">
+              Property timezone
+            </Badge>
+          </div>
+
+          <div className="overflow-hidden rounded-lg border border-border">
             {DAY_LABELS.map((d) => {
               const active = win.days.includes(d.id)
+              const hours = win.dailyHours[d.id]
+              const validEndHours = HOUR_OPTIONS.filter(
+                (option) => option.value > hours.startHour
+              )
+
               return (
-                <button
+                <div
                   key={d.id}
-                  type="button"
-                  onClick={() => toggleDay(d.id)}
                   className={cn(
-                    "flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold transition-all",
-                    active
-                      ? "bg-zinc-900 text-white"
-                      : "border border-border bg-white text-muted-foreground hover:border-zinc-400"
+                    "flex min-h-14 items-center gap-3 border-b border-border px-3 py-2.5 last:border-b-0",
+                    active ? "bg-white" : "bg-zinc-50/70"
                   )}
-                  title={d.label}
                 >
-                  {d.short}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleDay(d.id)}
+                    className="flex w-32 shrink-0 items-center gap-2 text-left"
+                    aria-pressed={active}
+                    aria-label={`${active ? "Disable" : "Enable"} ${d.label}`}
+                  >
+                    <span
+                      className={cn(
+                        "flex h-5 w-5 items-center justify-center rounded border transition-colors",
+                        active
+                          ? "border-zinc-900 bg-zinc-900 text-white"
+                          : "border-zinc-300 bg-white text-transparent"
+                      )}
+                    >
+                      <Check className="h-3 w-3" />
+                    </span>
+                    <span
+                      className={cn(
+                        "text-xs font-medium",
+                        active ? "text-foreground" : "text-muted-foreground"
+                      )}
+                    >
+                      {d.label}
+                    </span>
+                  </button>
+
+                  <div className="flex flex-1 items-center gap-2">
+                    <Select
+                      value={hours.startHour}
+                      onValueChange={(value) =>
+                        updateDailyHours(d.id, { startHour: value })
+                      }
+                      disabled={!active}
+                    >
+                      <SelectTrigger
+                        className="h-8 w-32 text-xs"
+                        aria-label={`${d.label} start time`}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {HOUR_OPTIONS.slice(0, -1).map((hour) => (
+                          <SelectItem
+                            key={hour.value}
+                            value={hour.value}
+                            className="text-xs"
+                          >
+                            {hour.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    <span className="text-[11px] text-muted-foreground">to</span>
+
+                    <Select
+                      value={hours.endHour}
+                      onValueChange={(value) =>
+                        updateDailyHours(d.id, { endHour: value })
+                      }
+                      disabled={!active}
+                    >
+                      <SelectTrigger
+                        className="h-8 w-32 text-xs"
+                        aria-label={`${d.label} end time`}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {validEndHours.map((hour) => (
+                          <SelectItem
+                            key={hour.value}
+                            value={hour.value}
+                            className="text-xs"
+                          >
+                            {hour.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {!active && (
+                    <span className="shrink-0 text-[10px] font-medium text-muted-foreground">
+                      No proactive messages
+                    </span>
+                  )}
+                </div>
               )
             })}
           </div>
+
           <p className="text-[10px] text-muted-foreground">
-            Proactive messages will only be sent on selected days at the hour
-            above. Responses to resident-initiated conversations are not
-            restricted.
+            Events outside these hours are queued for the next allowed
+            communication window. Blackout dates below take precedence over
+            this weekly schedule.
           </p>
         </div>
       </div>
