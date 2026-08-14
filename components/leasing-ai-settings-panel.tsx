@@ -52,7 +52,7 @@ import {
    Conversation modes
    ══════════════════════════════════════════════════════════════════════════ */
 
-type ConversationModeId = "maximize-tour" | "maximize-application" | "maximize-guest-card"
+type ConversationModeId = "maximize-tour" | "maximize-application"
 
 interface ConversationMode {
   id: ConversationModeId
@@ -81,15 +81,6 @@ const CONVERSATION_MODES: ConversationMode[] = [
     cadenceLabel: "Application Mode cadence",
     conversionGoal: "drive_applications",
     requiresConventionalNoAffordable: true,
-  },
-  {
-    id: "maximize-guest-card",
-    name: "Maximize Guest Card Mode",
-    description:
-      "The bot proactively gathers the prospect’s contact details, preferences, and move-in timing to complete a guest card before offering next steps.",
-    cadenceLabel: "Guest Card Mode cadence",
-    conversionGoal: "answer_questions",
-    requiresConventionalNoAffordable: false,
   },
 ]
 
@@ -138,6 +129,7 @@ const LEGACY_MODE_MAP: Record<string, ConversationModeId> = {
   "tour-first": "maximize-tour",
   "application-first": "maximize-application",
   "qualification-first": "maximize-tour",
+  "maximize-guest-card": "maximize-tour",
 }
 
 function normalizeModeId(id: string | undefined): ConversationModeId {
@@ -456,6 +448,7 @@ function isApplicationModeEligible(derived: DerivedPropertyData): boolean {
 interface PanelState {
   agentName: string
   conversationMode: ConversationModeId
+  requireGuestCard: boolean
   tourPriority: TourType[]
   virtualTourLink: string
   externalSelfGuidedTourLink: string
@@ -476,6 +469,7 @@ function makeDefaultState(agentDisplayLabel = "Leasing AI"): PanelState {
   return {
     agentName: agentDisplayLabel,
     conversationMode: DEFAULT_MODE,
+    requireGuestCard: false,
     tourPriority: DEFAULT_TOUR_PRIORITY,
     virtualTourLink: "",
     externalSelfGuidedTourLink: "",
@@ -928,41 +922,65 @@ function SectionConversationMode({ state, update, appModeEligible, agentDisplayL
       title="Conversation Mode"
       description={`Choose how ${agentDisplayLabel} prioritizes and converts prospects at this property.`}
     >
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {CONVERSATION_MODES.map((m) => {
-          const active = state.conversationMode === m.id
-          const blocked = m.requiresConventionalNoAffordable && !appModeEligible
-          return (
-            <button
-              key={m.id}
-              type="button"
-              disabled={blocked}
-              onClick={() => !blocked && update("conversationMode", m.id)}
-              className={cn(
-                "rounded-lg border px-4 py-4 text-left text-xs transition-all",
-                blocked
-                  ? "cursor-not-allowed border-dashed border-border bg-zinc-50 opacity-60"
-                  : active
-                    ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
-                    : "border-border bg-white text-foreground hover:border-zinc-400",
-              )}
-            >
-              <div className="flex items-center gap-1.5">
-                <span className="font-semibold leading-snug">{m.name}</span>
-                {m.id === "maximize-tour" && <Badge variant="gray" className="text-[9px]">Default</Badge>}
-              </div>
-              <div className={cn("mt-1.5 text-[11px] leading-snug", active ? "text-white/75" : "text-muted-foreground")}>
-                {m.description}
-              </div>
-              {blocked && (
-                <div className="mt-2 flex items-start gap-1 text-[10px] font-medium text-amber-700">
-                  <Lock className="mt-0.5 h-3 w-3 shrink-0" />
-                  Conventional, non-affordable only
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {CONVERSATION_MODES.map((m) => {
+            const active = state.conversationMode === m.id
+            const blocked = m.requiresConventionalNoAffordable && !appModeEligible
+            return (
+              <button
+                key={m.id}
+                type="button"
+                disabled={blocked}
+                onClick={() => !blocked && update("conversationMode", m.id)}
+                className={cn(
+                  "rounded-lg border px-4 py-4 text-left text-xs transition-all",
+                  blocked
+                    ? "cursor-not-allowed border-dashed border-border bg-zinc-50 opacity-60"
+                    : active
+                      ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+                      : "border-border bg-white text-foreground hover:border-zinc-400",
+                )}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className="font-semibold leading-snug">{m.name}</span>
+                  {m.id === "maximize-tour" && <Badge variant="gray" className="text-[9px]">Default</Badge>}
                 </div>
-              )}
-            </button>
-          )
-        })}
+                <div className={cn("mt-1.5 text-[11px] leading-snug", active ? "text-white/75" : "text-muted-foreground")}>
+                  {m.description}
+                </div>
+                {blocked && (
+                  <div className="mt-2 flex items-start gap-1 text-[10px] font-medium text-amber-700">
+                    <Lock className="mt-0.5 h-3 w-3 shrink-0" />
+                    Conventional, non-affordable only
+                  </div>
+                )}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Require Guest Card checkbox */}
+        <div className="flex items-center gap-2 pt-1">
+          <Checkbox
+            id="require-guest-card"
+            checked={state.requireGuestCard}
+            onCheckedChange={(checked) => update("requireGuestCard", checked === true)}
+          />
+          <label htmlFor="require-guest-card" className="text-xs font-medium text-foreground cursor-pointer select-none">
+            Require Guest Card Information to chat
+          </label>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <HelpCircle className="h-3.5 w-3.5 text-muted-foreground cursor-help shrink-0" />
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-xs text-[11px]">
+                Warning: enabling this setting will require the prospect to provide first name, last name, and a phone number before the chatbot will answer any question.
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
       </div>
     </SectionShell>
   )
