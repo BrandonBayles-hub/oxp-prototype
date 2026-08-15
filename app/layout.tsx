@@ -23,6 +23,7 @@ import { PlaybooksProvider } from "@/lib/playbooks-context";
 import { ClickToCallDemoProvider } from "@/lib/click-to-call-demo-context";
 import { CallSystemDemoProvider } from "@/lib/call-system-demo-context";
 import { ConversationsDemoProvider } from "@/lib/conversations-demo-context";
+import { TranslationDemoProvider } from "@/lib/translation-demo-context";
 import { R1ReleaseProvider } from "@/lib/r1-release-context";
 import { R2ReleaseProvider } from "@/lib/r2-release-context";
 import { EntrataExpertsReleaseProvider } from "@/lib/entrata-experts-release-context";
@@ -125,6 +126,7 @@ export default function RootLayout({
                   <VoiceProvider>
                     <EscalationsProvider>
                     <ConversationsDemoProvider>
+                    <TranslationDemoProvider>
                     <ConversationsProvider>
                     <ToolsProvider>
                     <GovernanceProvider>
@@ -144,6 +146,7 @@ export default function RootLayout({
                     </GovernanceProvider>
                     </ToolsProvider>
                     </ConversationsProvider>
+                    </TranslationDemoProvider>
                     </ConversationsDemoProvider>
                     </EscalationsProvider>
                   </VoiceProvider>
