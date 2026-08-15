@@ -4,6 +4,7 @@ import React, { createContext, useCallback, useContext, useMemo, useState } from
 import { useRole, matchesRoleProperties } from "@/lib/role-context";
 import { useClickToCallDemo } from "@/lib/click-to-call-demo-context";
 import { useConversationsDemo } from "@/lib/conversations-demo-context";
+import { useTranslationDemo } from "@/lib/translation-demo-context";
 import { CLICK_TO_CALL_DEMO_THREADS } from "@/lib/click-to-call-demo-threads";
 
 export type EmailAttachmentRef = {
@@ -111,6 +112,22 @@ export type ConversationMessage = {
     | "thread_activity"
     | "missed_call"
     | "voicemail";
+  /**
+   * ISO 639-1 code of the language `text` was authored in (e.g. "es"). Missing
+   * or "en" is treated as English.
+   */
+  language?: string;
+  /**
+   * English rendering of `text` when `language` is a non-English source; used
+   * when the reviewer toggles "Show English" on a translated bubble.
+   */
+  translation?: string;
+  /**
+   * Staff-composed text that was auto-translated before sending (e.g. staff typed
+   * English → thread carries the translated Spanish `text`). Preserved so we can
+   * show the original English underneath the translated bubble.
+   */
+  originalText?: string;
   /** Rendered in email-channel threads: footer block after the body. */
   emailSignature?: string;
   /** Rendered as file/image chips (and thumbnail for images) in email-channel threads. */
@@ -1067,6 +1084,57 @@ export function isSuperAgent1DemoThread(id: string): boolean {
   return SUPER_AGENT_1_DEMO_THREAD_IDS.has(id);
 }
 
+/**
+ * Translation demo: Spanish-speaking resident thread. Surfaces only when the
+ * Translation toggle in Communications Demo Controls is on. Each resident-authored
+ * message carries `language: "es"` + an `translation` field so the reviewer can
+ * flip between Spanish and English inline.
+ */
+export const TRANSLATION_DEMO_THREADS: ConversationItem[] = [
+  {
+    id: "translation-demo-alma",
+    resident: "Alma Sanchez",
+    unit: "Unit 214",
+    preview: "¿Podría alguien venir a revisar el aire acondicionado hoy?",
+    agent: "Leasing AI",
+    time: "6m ago",
+    contactType: "Resident",
+    property: "Hillside Living",
+    channel: "SMS",
+    assignee: "Abe Kashiwagi",
+    labels: ["Resident"],
+    status: "open",
+    hasUnread: true,
+    messages: [
+      {
+        role: "resident",
+        text: "Hola, buenos días. El aire acondicionado en mi apartamento no está enfriando desde anoche.",
+        timestamp: "Aug 14 2026 · 9:02am MST",
+        type: "message",
+        language: "es",
+        translation:
+          "Hi, good morning. The air conditioning in my apartment hasn't been cooling since last night.",
+      },
+      {
+        role: "resident",
+        text: "¿Podría alguien venir a revisar el aire acondicionado hoy? Hace mucho calor y tengo a mi hija en casa.",
+        timestamp: "Aug 14 2026 · 9:03am MST",
+        type: "message",
+        language: "es",
+        translation:
+          "Could someone come check the air conditioning today? It's very hot and I have my daughter at home.",
+      },
+    ],
+  },
+];
+
+const TRANSLATION_DEMO_THREAD_IDS = new Set(TRANSLATION_DEMO_THREADS.map((c) => c.id));
+
+/** True when the thread was injected by the translation demo toggle. */
+export function isTranslationDemoThread(id: string): boolean {
+  return TRANSLATION_DEMO_THREAD_IDS.has(id);
+}
+
 type ConversationsContextValue = {
   items: ConversationItem[];
   filteredItems: ConversationItem[];
@@ -1096,8 +1164,15 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
   const { roleProperties } = useRole();
   const { clickToCallEnabled } = useClickToCallDemo();
   const { superAgentEnabled, superAgent1Enabled } = useConversationsDemo();
+  const { translationEnabled } = useTranslationDemo();
   const [items, setItems] = useState<ConversationItem[]>(() => {
-    const seeded = [...CLICK_TO_CALL_DEMO_THREADS, ...SUPER_AGENT_DEMO_THREADS, ...SUPER_AGENT_1_DEMO_THREADS, ...INITIAL];
+    const seeded = [
+      ...CLICK_TO_CALL_DEMO_THREADS,
+      ...SUPER_AGENT_DEMO_THREADS,
+      ...SUPER_AGENT_1_DEMO_THREADS,
+      ...TRANSLATION_DEMO_THREADS,
+      ...INITIAL,
+    ];
     return seeded.map((c) => {
       const labels = ensureAiLabelCompanions(c.labels);
       return { ...c, labels, hasUnread: clampHasUnread(c.messages, c.hasUnread) };
@@ -1112,9 +1187,10 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
         if (!clickToCallEnabled && !superAgent1Enabled && isClickToCallDemoThread(c.id)) return false;
         if (!superAgentEnabled && isSuperAgentDemoThread(c.id)) return false;
         if (!superAgent1Enabled && isSuperAgent1DemoThread(c.id)) return false;
+        if (!translationEnabled && isTranslationDemoThread(c.id)) return false;
         return matchesRoleProperties(c.property, roleProperties);
       }),
-    [items, clickToCallEnabled, superAgentEnabled, superAgent1Enabled, roleProperties]
+    [items, clickToCallEnabled, superAgentEnabled, superAgent1Enabled, translationEnabled, roleProperties]
   );
 
   const propertyCount = new Set(filteredItems.map((c) => c.property)).size;

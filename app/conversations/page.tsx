@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  Fragment,
   Suspense,
   useCallback,
   useEffect,
@@ -72,6 +71,7 @@ import {
   Zap,
   PauseCircle,
   PlayCircle,
+  Languages,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -118,6 +118,7 @@ import {
   isSuperAgentDemoThread,
   isSuperAgent1DemoThread,
   isClickToCallDemoThread,
+  isTranslationDemoThread,
   getEscalationReason,
   DEFAULT_CONVERSATION_ACTIVITY_ACTOR,
 } from "@/lib/conversations-context";
@@ -133,6 +134,7 @@ import {
 import { useClickToCallDemo } from "@/lib/click-to-call-demo-context";
 import { useCallSystemDemo, type IncomingCallerType } from "@/lib/call-system-demo-context";
 import { useConversationsDemo } from "@/lib/conversations-demo-context";
+import { useTranslationDemo } from "@/lib/translation-demo-context";
 import {
   ClickToCallFloatingPanel,
   CLICK_TO_CALL_FOLLOWUP_UNASSIGNED,
@@ -193,16 +195,6 @@ function getActivePrivateNoteMention(text: string, caret: number): PrivateNoteMe
   const query = text.slice(i + 1, end);
   if (/\s/.test(query)) return null;
   return { triggerIndex: i, query };
-}
-
-/** Canonical property id → sidebar inbox name (filter value stays canonical). */
-const PROPERTY_INBOX_SIDEBAR_LABELS: Record<string, string> = {
-  "Hillside Living": "Escalated Hillside Living",
-  "Jamison Apartments": "Escalated Jamison Apartments",
-};
-
-function propertyInboxSidebarLabel(property: string) {
-  return PROPERTY_INBOX_SIDEBAR_LABELS[property] ?? property;
 }
 
 /** Live AI lane labels (no * AI Escalation); inbox also requires read + waiting on resident. */
@@ -579,6 +571,17 @@ function ThreadMessageAvatar({
 
 type ChannelOptChoice = "opt-in" | "opt-out" | "no-indication";
 
+/**
+ * SMS / Voice replies must never include the email signature block. The composer
+ * can still carry one over if staff just left an Email thread; strip from the
+ * first standalone `--` line to the end.
+ */
+function stripEmailSignatureFromNonEmailDraft(text: string): string {
+  const match = text.match(/(?:^|\n)--[ \t]*(?:\n|$)/);
+  if (!match || match.index === undefined) return text;
+  return text.slice(0, match.index).trimEnd();
+}
+
 function staffEmailSignatureForConversation(
   convo: ConversationItem,
   humanNameSet: Set<string>,
@@ -732,6 +735,18 @@ function isLiveAiHillsideConversation(c: ConversationItem): boolean {
   return isWaitingOnResidentPublicReply(c);
 }
 
+/** Union of the former custom-inbox rows (escalations + property + live AI). */
+function conversationMatchesCustomInbox1(c: ConversationItem): boolean {
+  if (c.labels.some(labelIsEscalation)) return true;
+  if (
+    (c.property === "Hillside Living" || c.property === "Jamison Apartments") &&
+    satisfiesEscalatedPropertyInboxLabels(c)
+  ) {
+    return true;
+  }
+  return isLiveAiHillsideConversation(c) || isLiveAiJamisonConversation(c);
+}
+
 type SidebarFilter =
   | "all"
   | "mentions"
@@ -739,7 +754,8 @@ type SidebarFilter =
   | { type: "label"; value: string }
   | { type: "property"; value: string }
   | { type: "live-ai-jamison" }
-  | { type: "live-ai-hillside" };
+  | { type: "live-ai-hillside" }
+  | { type: "custom-inbox-1" };
 
 type ThreadListConvoTypeFilter = "escalated" | "liveAi";
 type ThreadListDateRangePreset = "today" | "last7" | "last30" | "custom";
@@ -995,6 +1011,748 @@ function ProfilePanelConversationActionsMenu({
   );
 }
 
+/**
+ * Human-readable label for an ISO 639-1 language code (falls back to the raw code).
+ * Uses the browser's Intl.DisplayNames when available.
+ */
+function languageDisplayName(code: string): string {
+  const normalized = code.toLowerCase();
+  const map: Record<string, string> = {
+    es: "Spanish",
+    en: "English",
+    fr: "French",
+    de: "German",
+    pt: "Portuguese",
+    zh: "Chinese",
+    vi: "Vietnamese",
+    ko: "Korean",
+    ja: "Japanese",
+  };
+  if (map[normalized]) return map[normalized];
+  try {
+    const dn = new Intl.DisplayNames(["en"], { type: "language" });
+    return dn.of(normalized) ?? code;
+  } catch {
+    return code;
+  }
+}
+
+/** True when this conversation contains any resident message in a non-English language. */
+function conversationHasNonEnglishContent(c: ConversationItem): boolean {
+  return c.messages.some((m) => m.language && m.language.toLowerCase() !== "en");
+}
+
+/** First non-English language code detected across the conversation's messages. */
+function conversationDetectedLanguage(c: ConversationItem): string | null {
+  for (const m of c.messages) {
+    if (m.language && m.language.toLowerCase() !== "en") return m.language.toLowerCase();
+  }
+  return null;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Demo-only English → Spanish translator (real-time, deterministic)
+   ─────────────────────────────────────────────────────────────────────────────
+   Two-stage pipeline runs on every keystroke:
+     1. Multi-word phrase substitution (longest phrase first) — catches idioms,
+        greetings, and property-manager stock replies so they read naturally.
+     2. Word-by-word substitution — every remaining English token is looked up
+        in a ~200-word dictionary covering pronouns, verbs, prepositions, time
+        words, and maintenance / leasing vocab.
+   Also fixes Spanish sentence punctuation: any sentence ending in ? gets an
+   opening ¿, any sentence ending in ! gets an opening ¡.
+   Real Communications will call a translation service; this stub keeps the
+   prototype self-contained and produces convincing real-time output.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/** Multi-word English → Spanish phrases (case-insensitive). Longest first wins. */
+const EN_ES_PHRASES: Record<string, string> = {
+  // Greetings & closings
+  "good morning": "buenos días",
+  "good afternoon": "buenas tardes",
+  "good evening": "buenas noches",
+  "good night": "buenas noches",
+  "have a nice day": "que tenga un buen día",
+  "have a great day": "que tenga un excelente día",
+  "take care": "cuídese",
+  "best regards": "saludos cordiales",
+  "kind regards": "saludos cordiales",
+  "warm regards": "un cordial saludo",
+  "regards": "saludos",
+  "sincerely": "atentamente",
+  "cheers": "saludos",
+  "talk to you soon": "hablamos pronto",
+  "see you soon": "hasta pronto",
+  "see you later": "hasta luego",
+  "how are you doing": "cómo está",
+  "how are you": "cómo está",
+  "how is it going": "cómo va todo",
+  "how's it going": "cómo va todo",
+  "what's up": "qué tal",
+  "nice to meet you": "encantado de conocerle",
+
+  // Common polite phrases
+  "thank you so much": "muchísimas gracias",
+  "thank you very much": "muchas gracias",
+  "thank you": "gracias",
+  "you're welcome": "de nada",
+  "no problem": "no hay problema",
+  "you are welcome": "de nada",
+  "i'm sorry": "lo siento",
+  "i am sorry": "lo siento",
+  "sorry for the inconvenience": "disculpe las molestias",
+  "sorry about that": "disculpe eso",
+  "my apologies": "mis disculpas",
+  "of course": "por supuesto",
+  "no worries": "no se preocupe",
+  "please let me know": "por favor hágamelo saber",
+  "let me know": "hágamelo saber",
+  "i understand": "entiendo",
+  "i see": "ya veo",
+  "i know": "lo sé",
+  "i think": "pienso que",
+  "i believe": "creo que",
+  "i'm not sure": "no estoy seguro",
+  "i am not sure": "no estoy seguro",
+
+  // Action / dispatch phrases (maintenance context)
+  "right away": "de inmediato",
+  "as soon as possible": "lo antes posible",
+  "on the way": "en camino",
+  "on my way": "en camino",
+  "i'll send": "enviaré",
+  "i will send": "enviaré",
+  "i'll dispatch": "enviaré",
+  "i will dispatch": "enviaré",
+  "we'll send": "enviaremos",
+  "we will send": "enviaremos",
+  "we're sending": "estamos enviando",
+  "we are sending": "estamos enviando",
+  "i'm sending": "estoy enviando",
+  "i am sending": "estoy enviando",
+  "will be there": "estará allí",
+  "will arrive": "llegará",
+  "should arrive": "debería llegar",
+  "should be there": "debería estar allí",
+  "in about": "en aproximadamente",
+  "shortly": "en breve",
+  "a few minutes": "unos minutos",
+  "a moment": "un momento",
+  "one moment": "un momento",
+  "hold on": "espere un momento",
+  "give me a second": "deme un segundo",
+  "give me a moment": "deme un momento",
+  "check on": "revisar",
+  "check it out": "revisarlo",
+  "look into": "investigar",
+  "follow up": "hacer seguimiento",
+
+  // Time phrases
+  "right now": "ahora mismo",
+  "this morning": "esta mañana",
+  "this afternoon": "esta tarde",
+  "this evening": "esta noche",
+  "tonight": "esta noche",
+  "tomorrow morning": "mañana por la mañana",
+  "tomorrow afternoon": "mañana por la tarde",
+  "next week": "la próxima semana",
+  "last week": "la semana pasada",
+  "next month": "el próximo mes",
+  "last month": "el mes pasado",
+  "in the morning": "por la mañana",
+  "in the afternoon": "por la tarde",
+  "in the evening": "por la noche",
+  "at night": "por la noche",
+
+  // Property / maintenance vocab
+  "air conditioning": "aire acondicionado",
+  "air conditioner": "aire acondicionado",
+  "hot water": "agua caliente",
+  "cold water": "agua fría",
+  "work order": "orden de trabajo",
+  "service request": "solicitud de servicio",
+  "maintenance technician": "técnico de mantenimiento",
+  "maintenance team": "equipo de mantenimiento",
+  "leasing office": "oficina de arrendamiento",
+  "property manager": "gerente de la propiedad",
+  "front desk": "recepción",
+  "rent increase": "aumento de alquiler",
+  "lease renewal": "renovación del contrato",
+  "lease agreement": "contrato de arrendamiento",
+  "move in": "mudanza",
+  "move out": "desalojo",
+  "check in": "registro",
+  "check out": "salida",
+  "sign the lease": "firmar el contrato",
+  "pay rent": "pagar el alquiler",
+  "late fee": "cargo por retraso",
+  "security deposit": "depósito de seguridad",
+};
+
+/** Single-word English → Spanish dictionary. Case-preserved on output. */
+const EN_ES_WORDS: Record<string, string> = {
+  // Greetings
+  hi: "hola",
+  hello: "hola",
+  hey: "hola",
+  bye: "adiós",
+  goodbye: "adiós",
+
+  // Politeness
+  thanks: "gracias",
+  please: "por favor",
+  sorry: "lo siento",
+  welcome: "bienvenido",
+  yes: "sí",
+  no: "no",
+  ok: "está bien",
+  okay: "está bien",
+  sure: "claro",
+  maybe: "quizás",
+  perfect: "perfecto",
+  great: "excelente",
+  good: "bueno",
+  bad: "malo",
+  fine: "bien",
+  well: "bien",
+
+  // Pronouns
+  i: "yo",
+  me: "me",
+  my: "mi",
+  mine: "mío",
+  you: "usted",
+  your: "su",
+  yours: "suyo",
+  he: "él",
+  him: "él",
+  his: "su",
+  she: "ella",
+  her: "ella",
+  hers: "suyo",
+  it: "eso",
+  its: "su",
+  we: "nosotros",
+  us: "nosotros",
+  our: "nuestro",
+  ours: "nuestro",
+  they: "ellos",
+  them: "ellos",
+  their: "su",
+  theirs: "suyo",
+  this: "esto",
+  that: "eso",
+  these: "estos",
+  those: "esos",
+  someone: "alguien",
+  something: "algo",
+  anyone: "alguien",
+  anything: "algo",
+  everyone: "todos",
+  everything: "todo",
+  nobody: "nadie",
+  nothing: "nada",
+
+  // Articles / determiners
+  a: "un",
+  an: "un",
+  the: "el",
+  some: "algún",
+  any: "cualquier",
+  all: "todo",
+  every: "cada",
+  each: "cada",
+  many: "muchos",
+  few: "pocos",
+  more: "más",
+  less: "menos",
+  most: "la mayoría",
+  another: "otro",
+  other: "otro",
+  same: "mismo",
+  both: "ambos",
+
+  // Verbs (rough present-tense/base form)
+  am: "estoy",
+  is: "está",
+  are: "está",
+  was: "estaba",
+  were: "estaban",
+  be: "ser",
+  been: "sido",
+  being: "siendo",
+  have: "tener",
+  has: "tiene",
+  had: "tenía",
+  do: "hacer",
+  does: "hace",
+  did: "hizo",
+  done: "hecho",
+  can: "puedo",
+  could: "podría",
+  will: "voy a",
+  would: "sería",
+  should: "debería",
+  might: "podría",
+  must: "debe",
+  go: "ir",
+  going: "yendo",
+  went: "fui",
+  come: "venir",
+  coming: "viniendo",
+  came: "vino",
+  see: "ver",
+  seeing: "viendo",
+  saw: "vi",
+  know: "sé",
+  knew: "sabía",
+  think: "pienso",
+  thought: "pensé",
+  want: "quiero",
+  wants: "quiere",
+  wanted: "quería",
+  need: "necesito",
+  needs: "necesita",
+  needed: "necesitaba",
+  send: "envío",
+  sends: "envía",
+  sending: "enviando",
+  sent: "envié",
+  get: "obtener",
+  gets: "obtiene",
+  got: "obtuvo",
+  give: "dar",
+  gives: "da",
+  gave: "dio",
+  take: "tomar",
+  takes: "toma",
+  took: "tomó",
+  make: "hacer",
+  makes: "hace",
+  made: "hizo",
+  say: "decir",
+  says: "dice",
+  said: "dijo",
+  tell: "decir",
+  tells: "dice",
+  told: "dijo",
+  ask: "preguntar",
+  asks: "pregunta",
+  asked: "preguntó",
+  help: "ayudar",
+  helps: "ayuda",
+  helped: "ayudó",
+  fix: "reparar",
+  fixes: "repara",
+  fixed: "reparado",
+  check: "revisar",
+  checking: "revisando",
+  checked: "revisado",
+  call: "llamar",
+  calls: "llama",
+  called: "llamó",
+  arrive: "llegar",
+  arrives: "llega",
+  arriving: "llegando",
+  arrived: "llegó",
+  dispatch: "enviar",
+  schedule: "programar",
+  scheduled: "programado",
+  resolve: "resolver",
+  resolved: "resuelto",
+  work: "trabajar",
+  works: "funciona",
+  working: "funcionando",
+  worked: "trabajó",
+
+  // Conjunctions / prepositions
+  and: "y",
+  or: "o",
+  but: "pero",
+  so: "así que",
+  because: "porque",
+  if: "si",
+  when: "cuando",
+  while: "mientras",
+  though: "aunque",
+  although: "aunque",
+  to: "a",
+  from: "de",
+  of: "de",
+  in: "en",
+  on: "en",
+  at: "en",
+  with: "con",
+  without: "sin",
+  for: "para",
+  about: "sobre",
+  over: "sobre",
+  under: "debajo de",
+  before: "antes",
+  after: "después",
+  between: "entre",
+  among: "entre",
+  through: "a través de",
+  during: "durante",
+  since: "desde",
+  until: "hasta",
+  by: "por",
+  as: "como",
+  than: "que",
+
+  // Question words
+  what: "qué",
+  where: "dónde",
+  when_q: "cuándo",
+  why: "por qué",
+  how: "cómo",
+  who: "quién",
+  which: "cuál",
+
+  // Time
+  now: "ahora",
+  today: "hoy",
+  tomorrow: "mañana",
+  yesterday: "ayer",
+  morning: "mañana",
+  afternoon: "tarde",
+  evening: "noche",
+  night: "noche",
+  day: "día",
+  week: "semana",
+  month: "mes",
+  year: "año",
+  hour: "hora",
+  minute: "minuto",
+  second: "segundo",
+  soon: "pronto",
+  later: "más tarde",
+  earlier: "antes",
+  always: "siempre",
+  never: "nunca",
+  sometimes: "a veces",
+  often: "a menudo",
+
+  // Numbers
+  zero: "cero",
+  one: "uno",
+  two: "dos",
+  three: "tres",
+  four: "cuatro",
+  five: "cinco",
+  six: "seis",
+  seven: "siete",
+  eight: "ocho",
+  nine: "nueve",
+  ten: "diez",
+  eleven: "once",
+  twelve: "doce",
+  fifteen: "quince",
+  twenty: "veinte",
+  thirty: "treinta",
+  forty: "cuarenta",
+  fifty: "cincuenta",
+  sixty: "sesenta",
+
+  // Property vocab
+  apartment: "apartamento",
+  unit: "unidad",
+  room: "habitación",
+  kitchen: "cocina",
+  bathroom: "baño",
+  bedroom: "dormitorio",
+  building: "edificio",
+  property: "propiedad",
+  home: "casa",
+  house: "casa",
+  door: "puerta",
+  window: "ventana",
+  key: "llave",
+  keys: "llaves",
+  lock: "cerradura",
+  package: "paquete",
+  mail: "correo",
+  parking: "estacionamiento",
+  garage: "garaje",
+  pool: "piscina",
+  gym: "gimnasio",
+  laundry: "lavandería",
+  resident: "residente",
+  tenant: "inquilino",
+  neighbor: "vecino",
+
+  // Maintenance vocab
+  maintenance: "mantenimiento",
+  repair: "reparación",
+  technician: "técnico",
+  plumber: "plomero",
+  electrician: "electricista",
+  handyman: "empleado de mantenimiento",
+  broken: "roto",
+  leak: "fuga",
+  leaking: "goteando",
+  clogged: "atascado",
+  heat: "calefacción",
+  heating: "calefacción",
+  cooling: "refrigeración",
+  temperature: "temperatura",
+  hot: "caliente",
+  cold: "frío",
+  warm: "cálido",
+  cool: "fresco",
+  water: "agua",
+  power: "electricidad",
+  electricity: "electricidad",
+  gas: "gas",
+  ac: "aire acondicionado",
+
+  // Leasing vocab
+  rent: "alquiler",
+  lease: "contrato de arrendamiento",
+  payment: "pago",
+  deposit: "depósito",
+  application: "solicitud",
+  renewal: "renovación",
+  tour: "recorrido",
+  showing: "muestra",
+  signing: "firma",
+  approved: "aprobado",
+  denied: "denegado",
+  pending: "pendiente",
+
+  // Filler common words
+  really: "realmente",
+  very: "muy",
+  just: "solo",
+  only: "solo",
+  also: "también",
+  too: "también",
+  even: "incluso",
+  still: "todavía",
+  already: "ya",
+  yet: "aún",
+  again: "otra vez",
+  back: "de vuelta",
+  here: "aquí",
+  there: "allí",
+  up: "arriba",
+  down: "abajo",
+  out: "fuera",
+  off: "apagado",
+  away: "lejos",
+  around: "alrededor",
+  ready: "listo",
+  new: "nuevo",
+  old: "viejo",
+  big: "grande",
+  small: "pequeño",
+  right: "correcto",
+  wrong: "incorrecto",
+  first: "primero",
+  last: "último",
+  next: "siguiente",
+  best: "mejor",
+  better: "mejor",
+  worse: "peor",
+  early: "temprano",
+  late: "tarde",
+  full: "lleno",
+  empty: "vacío",
+  free: "gratis",
+  busy: "ocupado",
+  open: "abierto",
+  closed: "cerrado",
+};
+
+/** Preserve the capitalization of `original` on `replacement`. */
+function matchCase(original: string, replacement: string): string {
+  if (!original || !replacement) return replacement;
+  if (original === original.toUpperCase() && original.length > 1) {
+    return replacement.toUpperCase();
+  }
+  if (original[0] === original[0].toUpperCase()) {
+    return replacement[0].toUpperCase() + replacement.slice(1);
+  }
+  return replacement;
+}
+
+/**
+ * Convert English sentence punctuation to Spanish. Questions get an opening ¿ and
+ * exclamations get an opening ¡ inserted at the start of the sentence.
+ */
+function fixSpanishPunctuation(text: string): string {
+  return text.replace(/([^.!?\n]+)([.!?])/g, (_, sentence: string, terminator: string) => {
+    const trimmed = sentence.trimStart();
+    const leading = sentence.slice(0, sentence.length - trimmed.length);
+    if (terminator === "?") {
+      if (trimmed.startsWith("¿")) return `${leading}${trimmed}${terminator}`;
+      return `${leading}¿${trimmed}${terminator}`;
+    }
+    if (terminator === "!") {
+      if (trimmed.startsWith("¡")) return `${leading}${trimmed}${terminator}`;
+      return `${leading}¡${trimmed}${terminator}`;
+    }
+    return `${leading}${trimmed}${terminator}`;
+  });
+}
+
+/** Sorted phrase list (longest first) so "how are you doing" wins over "how are you". */
+const EN_ES_PHRASE_LIST = Object.entries(EN_ES_PHRASES).sort(
+  ([a], [b]) => b.length - a.length
+);
+
+/** Regex-escape a phrase for use in a RegExp constructor. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function translateEnglishToSpanish(text: string): string {
+  if (!text.trim()) return "";
+  let out = text;
+
+  // 1) Multi-word phrase substitution. Sentinel tokens keep the phrase from being
+  //    re-tokenized by the word-by-word pass below (e.g. "how are you" was
+  //    already replaced so we must not re-translate "how" / "are" / "you").
+  const phraseSentinels: string[] = [];
+  for (const [phrase, spanish] of EN_ES_PHRASE_LIST) {
+    const pattern = new RegExp(`\\b${escapeRegExp(phrase)}\\b`, "gi");
+    out = out.replace(pattern, (match) => {
+      const cased = matchCase(match, spanish);
+      const idx = phraseSentinels.push(cased) - 1;
+      return `\u0000P${idx}\u0000`;
+    });
+  }
+
+  // 2) Word-by-word substitution over the surviving English tokens. Anything that
+  //    isn't a letter (punctuation, digits, whitespace, sentinels) is left alone.
+  out = out.replace(/[A-Za-z']+/g, (word) => {
+    const lower = word.toLowerCase();
+    // "when" appears both as time-when and as question-when; the phrase map handles
+    // the question form, so single-word "when" always translates to time-when.
+    const key = lower === "when" ? "when" : lower;
+    const es = EN_ES_WORDS[key];
+    if (!es) return word;
+    return matchCase(word, es);
+  });
+
+  // Restore phrase sentinels.
+  out = out.replace(/\u0000P(\d+)\u0000/g, (_, idxStr) => {
+    const idx = parseInt(idxStr, 10);
+    return phraseSentinels[idx] ?? "";
+  });
+
+  return fixSpanishPunctuation(out);
+}
+
+function translateStaffDraftTo(text: string, targetLanguage: string): string {
+  const code = targetLanguage.toLowerCase();
+  if (code === "es") return translateEnglishToSpanish(text);
+  return text;
+}
+
+/**
+ * Renders a message body that may have a translation. There are two authoring
+ * paths a translated bubble can come from:
+ *
+ *   1. Resident authored in a non-English language. `msg.text` is the original
+ *      (e.g. Spanish), `msg.translation` is the English rendering.
+ *   2. Staff typed in English with auto-translate on. `msg.text` is what got sent
+ *      (e.g. Spanish), `msg.originalText` is the English draft.
+ *
+ * Which side of the bubble is shown is controlled by `showEnglish`, which is
+ * driven by a single toggle in the conversation header so the reviewer can flip
+ * the entire thread with one click.
+ *
+ * A small "Auto-translated" chip appears on translated staff bubbles regardless
+ * of the toggle so it's obvious the bubble went through the translator.
+ */
+function TranslatableMessageBody({
+  msg,
+  translationEnabled,
+  showEnglish,
+  className,
+  chipVariant = "muted",
+}: {
+  /** Minimal message shape — the ConversationMessage in the main thread carries these;
+   * the Entrata profile side-panel mock (EntrataProfileThreadMessage) never has them,
+   * so translation just doesn't apply there. */
+  msg: {
+    text: string;
+    language?: string;
+    translation?: string;
+    originalText?: string;
+  };
+  translationEnabled: boolean;
+  /** When true, show the English equivalent (if present) instead of the sent text. */
+  showEnglish: boolean;
+  /** Applied to the text container. */
+  className?: string;
+  /** Chip color variant — "onDark" for blue staff/agent bubbles, "muted" elsewhere. */
+  chipVariant?: "onDark" | "muted";
+}) {
+  const englishEquivalent = msg.translation ?? msg.originalText ?? null;
+  const canTranslate = translationEnabled && !!englishEquivalent;
+  const isStaffAutoTranslated = !!msg.originalText;
+  const languageCode = msg.language ?? "es";
+  const languageLabel = languageDisplayName(languageCode);
+
+  const displayed =
+    canTranslate && showEnglish ? (englishEquivalent as string) : msg.text;
+
+  const chipLabel = (() => {
+    if (!canTranslate) return null;
+    if (showEnglish) {
+      return isStaffAutoTranslated
+        ? "What you typed · English"
+        : "Translated · English";
+    }
+    if (isStaffAutoTranslated) return `Auto-translated · ${languageLabel}`;
+    return null;
+  })();
+
+  return (
+    <div className={className}>
+      {chipLabel && (
+        <div
+          className={cn(
+            "mb-1.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+            chipVariant === "onDark"
+              ? "bg-white/20 text-white ring-1 ring-inset ring-white/30"
+              : "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-100"
+          )}
+        >
+          <Languages className="h-3 w-3" aria-hidden />
+          {chipLabel}
+        </div>
+      )}
+      {displayed.split("\n").map((line, li) => (
+        <span key={li}>
+          {line}
+          {li < displayed.split("\n").length - 1 && <br />}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Compact "Spanish" / "French" chip. Rendered on the conversation card and header
+ * when translation demo mode is on and the thread carries at least one non-English
+ * message. Uses the same tonal-fill / borderless treatment as the channel chip.
+ */
+function ConversationListLanguageChip({ language }: { language: string }) {
+  const label = languageDisplayName(language);
+  return (
+    <span
+      className="inline-flex shrink-0 items-center gap-0.5 rounded-md bg-purple-100 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-purple-800 dark:bg-purple-900/40 dark:text-purple-200"
+      aria-label={`${label} language thread`}
+    >
+      <Languages className="h-3 w-3 shrink-0 opacity-80" aria-hidden />
+      {label}
+    </span>
+  );
+}
+
 function ConversationListChannelChip({ channel }: { channel: string }) {
   if (channel === "Email") {
     return (
@@ -1185,6 +1943,7 @@ function ConversationsContent() {
     superAgent1Enabled,
     toggleSuperAgent1Enabled,
   } = useConversationsDemo();
+  const { translationEnabled, toggleTranslationEnabled } = useTranslationDemo();
   /** Call controls + phone demo threads (missed/voicemail) for Click To Call or Super Agent 1.0. */
   const phoneDemoEnabled = clickToCallEnabled || superAgent1Enabled;
   const [callSystemPanelOpen, setCallSystemPanelOpen] = useState(false);
@@ -1392,42 +2151,11 @@ function ConversationsContent() {
     [conversations, sa1HiddenConversationIds]
   );
 
-  /** Sidebar badges: unread threads in that inbox’s conversation list (hasUnread). */
-  const escalationUnreadCount = useMemo(
-    () =>
-      conversations.filter((c) => c.labels.some(isEscalationLabel) && c.hasUnread).length,
+  /** Sidebar badge: unread threads in Custom Inbox 1. */
+  const customInbox1UnreadCount = useMemo(
+    () => conversations.filter((c) => conversationMatchesCustomInbox1(c) && c.hasUnread).length,
     [conversations]
   );
-
-  const liveAiJamisonUnreadCount = useMemo(
-    () => conversations.filter((c) => isLiveAiJamisonConversation(c) && c.hasUnread).length,
-    [conversations]
-  );
-
-  const liveAiHillsideUnreadCount = useMemo(
-    () => conversations.filter((c) => isLiveAiHillsideConversation(c) && c.hasUnread).length,
-    [conversations]
-  );
-
-  const properties = useMemo(() => {
-    const unreadByProp = new Map<string, number>();
-    const seenProp = new Set<string>();
-    for (const c of conversations) {
-      if (
-        (c.property === "Hillside Living" || c.property === "Jamison Apartments") &&
-        !satisfiesEscalatedPropertyInboxLabels(c)
-      ) {
-        continue;
-      }
-      seenProp.add(c.property);
-      if (c.hasUnread) {
-        unreadByProp.set(c.property, (unreadByProp.get(c.property) ?? 0) + 1);
-      }
-    }
-    return Array.from(seenProp)
-      .sort((a, b) => a.localeCompare(b))
-      .map((prop) => [prop, unreadByProp.get(prop) ?? 0] as [string, number]);
-  }, [conversations]);
 
   const sidebarFiltered = useMemo(() => {
     return conversations.filter((c) => {
@@ -1453,6 +2181,8 @@ function ConversationsContent() {
         return isLiveAiJamisonConversation(c);
       if (typeof sidebarFilter === "object" && sidebarFilter.type === "live-ai-hillside")
         return isLiveAiHillsideConversation(c);
+      if (typeof sidebarFilter === "object" && sidebarFilter.type === "custom-inbox-1")
+        return conversationMatchesCustomInbox1(c);
       return true;
     });
   }, [conversations, sidebarFilter]);
@@ -1614,6 +2344,32 @@ function ConversationsContent() {
   // --- Chat input ---
   const [inputMode, setInputMode] = useState<"message" | "private_note">("message");
   const [draft, setDraft] = useState("");
+  /**
+   * Composer auto-translate. When on and the selected thread has a detected
+   * non-English language, the draft is treated as English and translated to the
+   * thread's language on send. A live preview shows the translated payload under
+   * the composer so staff can sanity-check before hitting Send.
+   */
+  const [autoTranslateReply, setAutoTranslateReply] = useState(true);
+  /**
+   * Translation demo: per-conversation "view in English" flag. When a conversation
+   * ID is in this set, every bubble in that thread renders its English equivalent
+   * (staff drafts + resident translations) instead of the original-language text.
+   * Toggled from a single button in the conversation header — no more per-bubble
+   * clicks. Scoped per-conversation so switching threads doesn't leak state.
+   */
+  const [viewInEnglishIds, setViewInEnglishIds] = useState<Set<string>>(new Set());
+  const isViewingInEnglish = !!selected && viewInEnglishIds.has(selected.id);
+  const toggleViewInEnglish = useCallback(() => {
+    if (!selected) return;
+    const id = selected.id;
+    setViewInEnglishIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, [selected]);
 
   /**
    * Email composer body prefix: two blank lines + property/staff signature. Staff types their
@@ -1678,20 +2434,22 @@ function ConversationsContent() {
   const [privateNoteMentionIndex, setPrivateNoteMentionIndex] = useState(0);
 
   /**
-   * Seed the composer with an editable signature on conversation switch or mode switch when
-   * the target composer is Email + Message and the draft is currently empty. We intentionally
-   * do NOT re-seed when the user clears the draft mid-conversation — if they deleted the
-   * signature on purpose, it stays gone until they change threads or hit send.
+   * Seed the composer on conversation or mode switch:
+   *   - Email + Message → editable signature (staff types above it)
+   *   - SMS / Voice / private note → empty draft
+   * Signatures must never leak onto SMS. We intentionally do NOT re-seed when the
+   * user clears the draft mid-conversation — if they deleted the signature on
+   * purpose, it stays gone until they change threads or hit send.
    */
   useEffect(() => {
     if (!selected) return;
-    if (selected.channel !== "Email") return;
-    if (inputMode !== "message") return;
-    if (draft.length > 0) return;
+    if (inputMode !== "message" || selected.channel !== "Email") {
+      setDraft("");
+      return;
+    }
     const seed = buildEmailComposerSignatureDraft(selected);
-    if (!seed) return;
     setDraft(seed);
-    parkCaretAtStart();
+    if (seed) parkCaretAtStart();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run on conversation / mode switch
   }, [selectedId, inputMode]);
 
@@ -2094,14 +2852,33 @@ function ConversationsContent() {
       selectedEscalationTypes.size > 0
         ? Array.from(selectedEscalationTypes)
         : undefined;
+    // Translation demo: when auto-translate is on for a non-English thread + Message
+    // mode, translate the English draft into the thread's language before it goes out.
+    // The English draft is preserved as `originalText` so the reviewer can flip back.
+    const rawDraft =
+      selected.channel === "Email"
+        ? draft.trim()
+        : stripEmailSignatureFromNonEmailDraft(draft).trim();
+    if (!rawDraft) return;
+    const detectedLanguage =
+      translationEnabled && inputMode === "message"
+        ? conversationDetectedLanguage(selected)
+        : null;
+    const shouldTranslateReply = !!(detectedLanguage && autoTranslateReply);
+    const outboundText = shouldTranslateReply
+      ? translateStaffDraftTo(rawDraft, detectedLanguage as string)
+      : rawDraft;
     addMessage(selected.id, {
       role: "staff",
-      text: draft.trim(),
+      text: outboundText,
       timestamp,
       type: inputMode,
       ...(emailSignature ? { emailSignature } : {}),
       ...(inputMode === "private_note" ? { privateNoteAuthor: MY_INBOX_ASSIGNEE } : {}),
       ...(sa1ReplyToEscalations ? { replyToEscalations: sa1ReplyToEscalations } : {}),
+      ...(shouldTranslateReply
+        ? { language: detectedLanguage as string, originalText: rawDraft }
+        : {}),
     });
 
     // Super Agent 1.0: staff selected escalation(s) to reply to. This is purely a context
@@ -2296,7 +3073,8 @@ function ConversationsContent() {
       if (sidebarFilter.type !== filter.type) return false;
       if (
         sidebarFilter.type === "live-ai-jamison" ||
-        sidebarFilter.type === "live-ai-hillside"
+        sidebarFilter.type === "live-ai-hillside" ||
+        sidebarFilter.type === "custom-inbox-1"
       )
         return true;
       return (
@@ -2369,86 +3147,21 @@ function ConversationsContent() {
           <ul className="space-y-0.5">
             <li>
               <Button
-                variant={isSidebarActive({ type: "label", value: "__escalation__" }) ? "secondary" : "ghost"}
+                variant={isSidebarActive({ type: "custom-inbox-1" }) ? "secondary" : "ghost"}
                 className={cn(
                   "h-auto min-h-9 w-full items-start justify-start gap-2.5 whitespace-normal py-2 font-normal",
-                  isSidebarActive({ type: "label", value: "__escalation__" }) && "font-medium"
+                  isSidebarActive({ type: "custom-inbox-1" }) && "font-medium"
                 )}
-                onClick={() => setSidebarFilter({ type: "label", value: "__escalation__" })}
+                onClick={() => setSidebarFilter({ type: "custom-inbox-1" })}
               >
-                <span className="min-w-0 flex-1 text-left leading-snug break-words">AI Escalations</span>
-                {escalationUnreadCount > 0 && (
+                <span className="min-w-0 flex-1 text-left leading-snug break-words">Custom Inbox 1</span>
+                {customInbox1UnreadCount > 0 && (
                   <Badge variant="destructive" className="mt-0.5 h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">
-                    {escalationUnreadCount}
+                    {customInbox1UnreadCount}
                   </Badge>
                 )}
               </Button>
             </li>
-            {properties.map(([prop, unreadCount]) => (
-              <Fragment key={prop}>
-                <li>
-                  <Button
-                    variant={isSidebarActive({ type: "property", value: prop }) ? "secondary" : "ghost"}
-                    className={cn(
-                      "h-auto min-h-9 w-full items-start justify-start gap-2.5 whitespace-normal py-2 font-normal",
-                      isSidebarActive({ type: "property", value: prop }) && "font-medium"
-                    )}
-                    onClick={() => setSidebarFilter({ type: "property", value: prop })}
-                  >
-                    <span className="min-w-0 flex-1 text-left leading-snug break-words">
-                      {propertyInboxSidebarLabel(prop)}
-                    </span>
-                    {unreadCount > 0 && (
-                      <Badge variant="destructive" className="mt-0.5 h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">
-                        {unreadCount}
-                      </Badge>
-                    )}
-                  </Button>
-                </li>
-                {prop === "Hillside Living" && (
-                  <li>
-                    <Button
-                      variant={isSidebarActive({ type: "live-ai-hillside" }) ? "secondary" : "ghost"}
-                      className={cn(
-                        "h-auto min-h-9 w-full items-start justify-start gap-2.5 whitespace-normal py-2 font-normal",
-                        isSidebarActive({ type: "live-ai-hillside" }) && "font-medium"
-                      )}
-                      onClick={() => setSidebarFilter({ type: "live-ai-hillside" })}
-                    >
-                      <span className="min-w-0 flex-1 text-left leading-snug break-words">
-                        Live AI Hillside Living
-                      </span>
-                      {liveAiHillsideUnreadCount > 0 && (
-                        <Badge variant="destructive" className="mt-0.5 h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">
-                          {liveAiHillsideUnreadCount}
-                        </Badge>
-                      )}
-                    </Button>
-                  </li>
-                )}
-                {prop === "Jamison Apartments" && (
-                  <li>
-                    <Button
-                      variant={isSidebarActive({ type: "live-ai-jamison" }) ? "secondary" : "ghost"}
-                      className={cn(
-                        "h-auto min-h-9 w-full items-start justify-start gap-2.5 whitespace-normal py-2 font-normal",
-                        isSidebarActive({ type: "live-ai-jamison" }) && "font-medium"
-                      )}
-                      onClick={() => setSidebarFilter({ type: "live-ai-jamison" })}
-                    >
-                      <span className="min-w-0 flex-1 text-left leading-snug break-words">
-                        Live AI Jamison Apartments
-                      </span>
-                      {liveAiJamisonUnreadCount > 0 && (
-                        <Badge variant="destructive" className="mt-0.5 h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">
-                          {liveAiJamisonUnreadCount}
-                        </Badge>
-                      )}
-                    </Button>
-                  </li>
-                )}
-              </Fragment>
-            ))}
           </ul>
 
           <div className="my-3 h-px bg-border" />
@@ -2503,6 +3216,8 @@ function ConversationsContent() {
           onToggleSuperAgent={toggleSuperAgentEnabled}
           superAgent1Enabled={superAgent1Enabled}
           onToggleSuperAgent1={toggleSuperAgent1Enabled}
+          translationEnabled={translationEnabled}
+          onToggleTranslation={toggleTranslationEnabled}
         />
       </aside>
 
@@ -3189,6 +3904,10 @@ function ConversationsContent() {
                           {convo.additionalChannels?.map((ch) => (
                             <ConversationListChannelChip key={ch} channel={ch} />
                           ))}
+                          {translationEnabled && (() => {
+                            const lang = conversationDetectedLanguage(convo);
+                            return lang ? <ConversationListLanguageChip language={lang} /> : null;
+                          })()}
                         </div>
                       <div className="flex items-center justify-between gap-2">
                         {convo.additionalResidents && convo.additionalResidents.length > 0 ? (
@@ -3340,6 +4059,38 @@ function ConversationsContent() {
                   {(!selected.additionalResidents || selected.additionalResidents.length === 0) && (
                     <span className="text-sm text-muted-foreground">{selected.property}</span>
                   )}
+                  {translationEnabled && (() => {
+                    const lang = conversationDetectedLanguage(selected);
+                    if (!lang) return null;
+                    const langLabel = languageDisplayName(lang);
+                    return (
+                      <TooltipProvider delayDuration={200}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={toggleViewInEnglish}
+                              aria-pressed={isViewingInEnglish}
+                              className={cn(
+                                "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
+                                isViewingInEnglish
+                                  ? "border-purple-300 bg-purple-50 text-purple-900 hover:bg-purple-100 dark:border-purple-700 dark:bg-purple-900/30 dark:text-purple-100"
+                                  : "border-input bg-background text-foreground hover:bg-muted"
+                              )}
+                            >
+                              <Languages className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                              {isViewingInEnglish ? "Show original" : "Translate"}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" align="start">
+                            {isViewingInEnglish
+                              ? `Showing English for every message. Click to switch back to ${langLabel}.`
+                              : `Detected ${langLabel}. Click to translate the entire thread to English.`}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    );
+                  })()}
                 </div>
                 <div className="flex items-center gap-1.5 [&>*]:shrink-0">
                   {/* Labels icon popover */}
@@ -4352,14 +5103,12 @@ function ConversationsContent() {
                                 ))}
                               </div>
                             )}
-                            <div className="rounded-md border border-border bg-muted/30 px-4 py-3 text-sm leading-relaxed text-foreground">
-                              {msg.text.split("\n").map((line, li) => (
-                                <span key={li}>
-                                  {line}
-                                  {li < msg.text.split("\n").length - 1 && <br />}
-                                </span>
-                              ))}
-                            </div>
+                            <TranslatableMessageBody
+                              msg={msg}
+                              translationEnabled={translationEnabled}
+                              showEnglish={isViewingInEnglish}
+                              className="rounded-md border border-border bg-muted/30 px-4 py-3 text-sm leading-relaxed text-foreground"
+                            />
                             {msg.emailAttachments && msg.emailAttachments.length > 0 && (
                               <div className="space-y-2 pt-1">
                                 <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -4782,12 +5531,12 @@ function ConversationsContent() {
                             ))}
                           </div>
                         )}
-                        {msg.text.split("\n").map((line, li) => (
-                          <span key={li}>
-                            {line}
-                            {li < msg.text.split("\n").length - 1 && <br />}
-                          </span>
-                        ))}
+                        <TranslatableMessageBody
+                          msg={msg}
+                          translationEnabled={translationEnabled}
+                          showEnglish={isViewingInEnglish}
+                          chipVariant={isAgent || isStaff ? "onDark" : "muted"}
+                        />
                       </div>
                     </div>
                   );
@@ -5655,11 +6404,82 @@ function ConversationsContent() {
                         : undefined
                     }
                   />
+                  {(() => {
+                    // Translation composer preview: single-line inline preview above the
+                    // composer footer. Only shown when auto-translate is on AND the draft has
+                    // content — otherwise the toggle in the footer is the only affordance.
+                    if (!translationEnabled || inputMode !== "message" || !selected) return null;
+                    const detected = conversationDetectedLanguage(selected);
+                    if (!detected || !autoTranslateReply || !draft.trim()) return null;
+                    const langLabel = languageDisplayName(detected);
+                    const previewTranslated = translateStaffDraftTo(draft, detected);
+                    return (
+                      <TooltipProvider delayDuration={200}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div
+                              className="mx-3 mb-1 flex items-center gap-1.5 rounded-md bg-purple-50/70 px-2 py-1 text-[11px] text-purple-900 dark:bg-purple-900/15 dark:text-purple-100"
+                              aria-label={`Will send in ${langLabel}`}
+                            >
+                              <Languages className="h-3 w-3 shrink-0 text-purple-700 dark:text-purple-300" />
+                              <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-purple-700 dark:text-purple-300">
+                                {langLabel}
+                              </span>
+                              <span className="min-w-0 flex-1 truncate italic text-purple-900/90 dark:text-purple-100/90">
+                                {previewTranslated}
+                              </span>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" align="start" className="max-w-sm whitespace-pre-wrap">
+                            {previewTranslated}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    );
+                  })()}
                   <div className="flex items-center justify-between px-3 pb-2">
-                    <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-muted-foreground">
-                      <Paperclip className="h-3.5 w-3.5" />
-                      Attach
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-muted-foreground">
+                        <Paperclip className="h-3.5 w-3.5" />
+                        Attach
+                      </Button>
+                      {(() => {
+                        // Compact "translate to <lang>" toggle inline with Attach. Only visible
+                        // when the thread has a detected non-English language and we're in
+                        // Message mode. Click to flip between on/off.
+                        if (!translationEnabled || inputMode !== "message" || !selected) return null;
+                        const detected = conversationDetectedLanguage(selected);
+                        if (!detected) return null;
+                        const langLabel = languageDisplayName(detected);
+                        return (
+                          <TooltipProvider delayDuration={200}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={() => setAutoTranslateReply((v) => !v)}
+                                  className={cn(
+                                    "inline-flex h-7 items-center gap-1 rounded-full px-2 text-[11px] font-medium transition-colors",
+                                    autoTranslateReply
+                                      ? "bg-purple-100 text-purple-800 hover:bg-purple-200 dark:bg-purple-900/40 dark:text-purple-100"
+                                      : "text-muted-foreground hover:bg-muted"
+                                  )}
+                                  aria-pressed={autoTranslateReply}
+                                >
+                                  <Languages className="h-3.5 w-3.5" />
+                                  <span>{langLabel}</span>
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" align="start">
+                                {autoTranslateReply
+                                  ? `Auto-translating your reply to ${langLabel}. Click to send in English instead.`
+                                  : `Click to auto-translate your reply to ${langLabel}.`}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        );
+                      })()}
+                    </div>
                     <Button
                       size="icon"
                       className={cn(
@@ -6363,12 +7183,12 @@ function ConversationsContent() {
                                 "border border-border bg-card text-card-foreground shadow-sm"
                             )}
                           >
-                            {msg.text.split("\n").map((line, li) => (
-                              <span key={li}>
-                                {line}
-                                {li < msg.text.split("\n").length - 1 && <br />}
-                              </span>
-                            ))}
+                            <TranslatableMessageBody
+                              msg={msg}
+                              translationEnabled={translationEnabled}
+                              showEnglish={isViewingInEnglish}
+                              chipVariant={isAgent || isStaff ? "onDark" : "muted"}
+                            />
                             {emailSig ? (
                               <div className="mt-2 border-t border-white/25 pt-2">
                                 <div className="flex gap-2">
@@ -6770,12 +7590,12 @@ function ConversationsContent() {
                               !isAgent && !isStaff && "border border-border bg-card text-card-foreground shadow-sm"
                             )}
                           >
-                            {msg.text.split("\n").map((line, li) => (
-                              <span key={li}>
-                                {line}
-                                {li < msg.text.split("\n").length - 1 && <br />}
-                              </span>
-                            ))}
+                            <TranslatableMessageBody
+                              msg={msg}
+                              translationEnabled={translationEnabled}
+                              showEnglish={isViewingInEnglish}
+                              chipVariant={isAgent || isStaff ? "onDark" : "muted"}
+                            />
                           </div>
                           {msg.emailAttachments && msg.emailAttachments.length > 0 && (
                             <div className="flex flex-wrap gap-1.5 pt-0.5">
@@ -7798,6 +8618,8 @@ function CommunicationsDemoControl({
   onToggleSuperAgent,
   superAgent1Enabled,
   onToggleSuperAgent1,
+  translationEnabled,
+  onToggleTranslation,
 }: {
   clickToCallEnabled: boolean;
   onToggleClickToCall: () => void;
@@ -7808,9 +8630,16 @@ function CommunicationsDemoControl({
   onToggleSuperAgent: () => void;
   superAgent1Enabled: boolean;
   onToggleSuperAgent1: () => void;
+  translationEnabled: boolean;
+  onToggleTranslation: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const anyActive = clickToCallEnabled || callSystemEnabled || superAgentEnabled || superAgent1Enabled;
+  const anyActive =
+    clickToCallEnabled ||
+    callSystemEnabled ||
+    superAgentEnabled ||
+    superAgent1Enabled ||
+    translationEnabled;
 
   return (
     <div className="shrink-0 border-t border-border bg-muted/30">
@@ -7924,6 +8753,20 @@ function CommunicationsDemoControl({
             <Switch
               checked={superAgentEnabled}
               onCheckedChange={onToggleSuperAgent}
+              className="mt-0.5"
+            />
+          </label>
+
+          <label className="flex cursor-pointer items-start justify-between gap-2 rounded-md px-1.5 py-1.5 transition-colors hover:bg-muted/60">
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-semibold leading-tight text-foreground">Translation</p>
+              <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+                Detect non-English threads and translate replies live
+              </p>
+            </div>
+            <Switch
+              checked={translationEnabled}
+              onCheckedChange={onToggleTranslation}
               className="mt-0.5"
             />
           </label>
