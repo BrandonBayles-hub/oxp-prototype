@@ -449,6 +449,7 @@ interface PanelState {
   agentName: string
   conversationMode: ConversationModeId
   requireGuestCard: boolean
+  focusedMode: boolean
   tourPriority: TourType[]
   virtualTourLink: string
   externalSelfGuidedTourLink: string
@@ -470,6 +471,7 @@ function makeDefaultState(agentDisplayLabel = "Leasing AI"): PanelState {
     agentName: agentDisplayLabel,
     conversationMode: DEFAULT_MODE,
     requireGuestCard: false,
+    focusedMode: false,
     tourPriority: DEFAULT_TOUR_PRIORITY,
     virtualTourLink: "",
     externalSelfGuidedTourLink: "",
@@ -958,6 +960,19 @@ function SectionConversationMode({ state, update, appModeEligible, agentDisplayL
               </button>
             )
           })}
+        </div>
+
+        {/* Focused Mode checkbox */}
+        <div className="flex items-start gap-2 pt-1">
+          <Checkbox
+            id="focused-mode"
+            checked={state.focusedMode}
+            onCheckedChange={(checked) => update("focusedMode", checked === true)}
+            className="mt-0.5"
+          />
+          <label htmlFor="focused-mode" className="text-xs font-medium text-foreground cursor-pointer select-none leading-snug">
+            Focused Mode: Keeps conversations on track by asking specific follow-up questions and guiding prospects toward the information they need, without branching into unnecessary topics.
+          </label>
         </div>
 
         {/* Require Guest Card checkbox */}
