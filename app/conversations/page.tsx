@@ -72,6 +72,8 @@ import {
   PauseCircle,
   PlayCircle,
   Languages,
+  ListChecks,
+  CheckCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -1991,6 +1993,9 @@ function ConversationsContent() {
   const [sidebarFilter, setSidebarFilter] = useState<SidebarFilter>("all");
   const [inboxTab, setInboxTab] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [bulkSelectMode, setBulkSelectMode] = useState(false);
+  const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkResolveConfirmOpen, setBulkResolveConfirmOpen] = useState(false);
   const [threadListFiltersOpen, setThreadListFiltersOpen] = useState(false);
   const [threadListConvoTypes, setThreadListConvoTypes] = useState<Set<ThreadListConvoTypeFilter>>(
     () => new Set(["escalated"])
@@ -2423,6 +2428,9 @@ function ConversationsContent() {
   const [sa1ResolveSelections, setSa1ResolveSelections] = useState<Set<string>>(new Set());
   const [phoneDocumentKind, setPhoneDocumentKind] = useState<PhoneDocumentKind | null>(null);
   const [phoneDocumentNotes, setPhoneDocumentNotes] = useState("");
+  const [resolveModalOpen, setResolveModalOpen] = useState(false);
+  const [resolveModalAction, setResolveModalAction] = useState<"general" | "incoming" | "outgoing">("general");
+  const [resolveModalNotes, setResolveModalNotes] = useState("");
   const [profileMainTab, setProfileMainTab] = useState("Financial");
   const [residentProfileActivity, setResidentProfileActivity] = useState<
     Record<string, ResidentProfileActivityEntry[]>
@@ -3793,7 +3801,103 @@ function ConversationsContent() {
               </TooltipProvider>
             </PopoverContent>
           </Popover>
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant={bulkSelectMode ? "secondary" : "ghost"}
+                  size="icon"
+                  className="h-8 w-8 shrink-0"
+                  aria-label="Select threads"
+                  onClick={() => {
+                    setBulkSelectMode((v) => !v);
+                    if (bulkSelectMode) setBulkSelectedIds(new Set());
+                  }}
+                >
+                  <ListChecks className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Select &amp; resolve threads</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
+
+        {bulkSelectMode && (
+          <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-3 py-1.5">
+            <Checkbox
+              checked={filtered.length > 0 && bulkSelectedIds.size === filtered.length}
+              onCheckedChange={(checked) => {
+                if (checked) {
+                  setBulkSelectedIds(new Set(filtered.map((c) => c.id)));
+                } else {
+                  setBulkSelectedIds(new Set());
+                }
+              }}
+            />
+            <span className="text-[11px] text-muted-foreground">
+              {bulkSelectedIds.size === 0
+                ? "Select all"
+                : `${bulkSelectedIds.size} selected`}
+            </span>
+            <div className="ml-auto flex items-center gap-1.5">
+              {bulkSelectedIds.size > 0 && (
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  className="h-7 gap-1 text-[11px]"
+                  onClick={() => setBulkResolveConfirmOpen(true)}
+                >
+                  <CheckCheck className="h-3.5 w-3.5" />
+                  Resolve ({bulkSelectedIds.size})
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 text-[11px] text-muted-foreground"
+                onClick={() => {
+                  setBulkSelectMode(false);
+                  setBulkSelectedIds(new Set());
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <Dialog open={bulkResolveConfirmOpen} onOpenChange={setBulkResolveConfirmOpen}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Resolve {bulkSelectedIds.size} {bulkSelectedIds.size === 1 ? "conversation" : "conversations"}?</DialogTitle>
+              <DialogDescription>
+                This will mark the selected {bulkSelectedIds.size === 1 ? "thread" : "threads"} as resolved. You can reopen them later if needed.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setBulkResolveConfirmOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => {
+                  for (const id of bulkSelectedIds) {
+                    resolveConversation(id, MY_INBOX_ASSIGNEE);
+                  }
+                  setBulkSelectedIds(new Set());
+                  setBulkSelectMode(false);
+                  setBulkResolveConfirmOpen(false);
+                }}
+              >
+                Resolve
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* List */}
         <TooltipProvider delayDuration={250}>
@@ -3814,6 +3918,15 @@ function ConversationsContent() {
                       <button
                         type="button"
                         onClick={() => {
+                          if (bulkSelectMode) {
+                            setBulkSelectedIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(convo.id)) next.delete(convo.id);
+                              else next.add(convo.id);
+                              return next;
+                            });
+                            return;
+                          }
                           if (isSuperAgentDemoThread(convo.id)) {
                             previousSelectedIdRef.current = selectedId;
                             setSelectedId(convo.id);
@@ -3829,13 +3942,26 @@ function ConversationsContent() {
                           }
                         }}
                         className={cn(
-                          "relative flex w-full flex-col gap-1 py-3 pl-4 pr-4 text-left transition-colors",
-                          isActive
+                          "relative flex w-full gap-1 py-3 pl-4 pr-4 text-left transition-colors",
+                          bulkSelectMode ? "items-start" : "flex-col",
+                          isActive && !bulkSelectMode
                             ? "border-l-2 border-l-primary bg-accent"
-                            : "hover:bg-accent/50"
+                            : bulkSelectedIds.has(convo.id)
+                              ? "bg-primary/5"
+                              : "hover:bg-accent/50"
                         )}
                       >
-                        {convo.hasUnread && !isActive && (
+                        {bulkSelectMode && (
+                          <div className="mt-0.5 mr-2 shrink-0">
+                            <Checkbox
+                              checked={bulkSelectedIds.has(convo.id)}
+                              onCheckedChange={() => {}}
+                              className="pointer-events-none"
+                            />
+                          </div>
+                        )}
+                        <div className={cn("flex w-full flex-col gap-1", bulkSelectMode && "min-w-0 flex-1")}>
+                        {convo.hasUnread && !isActive && !bulkSelectMode && (
                           <span className="absolute left-1.5 top-4 h-2 w-2 rounded-full bg-destructive" />
                         )}
                         <div className="flex items-start justify-between gap-2 pr-0.5">
@@ -3969,6 +4095,7 @@ function ConversationsContent() {
                           })}
                         </div>
                       )}
+                      </div>
                       </button>
                     </li>
                   );
@@ -4675,39 +4802,6 @@ function ConversationsContent() {
                     </PopoverContent>
                   </Popover>
                   {isSuperAgentDemoThread(selected.id) && aiActivated ? null : selected.status === "open" ? (
-                    isPhoneDocumentResolveThread(selected) ? (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button size="sm" className="h-8 gap-1.5 px-3 text-xs">
-                            <Check className="h-3.5 w-3.5" />
-                            Resolve
-                            <ChevronDown className="h-3.5 w-3.5 opacity-80" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-56">
-                          <DropdownMenuItem
-                            className="gap-2"
-                            onSelect={() => {
-                              setPhoneDocumentNotes("");
-                              setPhoneDocumentKind("incoming");
-                            }}
-                          >
-                            <PhoneIncoming className="h-3.5 w-3.5" />
-                            Document incoming call
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="gap-2"
-                            onSelect={() => {
-                              setPhoneDocumentNotes("");
-                              setPhoneDocumentKind("outgoing");
-                            }}
-                          >
-                            <PhoneOutgoing className="h-3.5 w-3.5" />
-                            Document outgoing call
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    ) : (
                       <Button
                         size="sm"
                         className="h-8 gap-1.5 px-3 text-xs"
@@ -4720,13 +4814,15 @@ function ConversationsContent() {
                               return;
                             }
                           }
-                          resolveConversation(selected.id, MY_INBOX_ASSIGNEE);
+                          setResolveModalAction("general");
+                          setResolveModalNotes("");
+                          setResolveModalOpen(true);
                         }}
                       >
                         <Check className="h-3.5 w-3.5" />
                         Resolve
+                        <ChevronDown className="h-3.5 w-3.5 opacity-80" />
                       </Button>
-                    )
                   ) : (
                     <Button
                       size="sm"
@@ -6303,6 +6399,83 @@ function ConversationsContent() {
                       }}
                     >
                       Save & resolve
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              {/* Resolve conversation modal */}
+              <Dialog
+                open={resolveModalOpen && !!selected}
+                onOpenChange={(open) => {
+                  if (!open) {
+                    setResolveModalOpen(false);
+                    setResolveModalNotes("");
+                  }
+                }}
+              >
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Resolve conversation</DialogTitle>
+                    <DialogDescription>
+                      Select the action type and add any notes. The note will be posted to this conversation before it is resolved.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground">Action type</label>
+                      <Select value={resolveModalAction} onValueChange={(v) => setResolveModalAction(v as "general" | "incoming" | "outgoing")}>
+                        <SelectTrigger className="h-9 text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="general">General Resolution</SelectItem>
+                          <SelectItem value="incoming">Incoming Call</SelectItem>
+                          <SelectItem value="outgoing">Outgoing Call</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground">Notes (optional)</label>
+                      <textarea
+                        value={resolveModalNotes}
+                        onChange={(e) => setResolveModalNotes(e.target.value)}
+                        rows={4}
+                        className="input-base min-h-[96px] resize-y text-sm"
+                        placeholder={
+                          resolveModalAction === "general"
+                            ? "Add a note about this resolution…"
+                            : "What was discussed on the call?"
+                        }
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setResolveModalOpen(false);
+                        setResolveModalNotes("");
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        if (!selected) return;
+                        const notes = resolveModalNotes.trim();
+                        resolveConversation(selected.id, MY_INBOX_ASSIGNEE, {
+                          notes: notes || undefined,
+                          resolutionType: resolveModalAction,
+                        });
+                        setResolveModalOpen(false);
+                        setResolveModalNotes("");
+                      }}
+                    >
+                      Save &amp; resolve
                     </Button>
                   </DialogFooter>
                 </DialogContent>
