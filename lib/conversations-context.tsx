@@ -26,7 +26,7 @@ export type BulkOutboundEmailRef = {
 
 /** Staff-facing timeline entries (resolve, assign, read, AI preference, etc.). */
 export type ThreadActivity =
-  | { kind: "status"; action: "resolved" | "reopened"; actor: string }
+  | { kind: "status"; action: "resolved" | "reopened"; actor: string; notes?: string; resolutionType?: "general" | "incoming" | "outgoing" }
   | {
       kind: "assignment";
       assignee: string;
@@ -1143,7 +1143,7 @@ type ConversationsContextValue = {
   addConversation: (item: Omit<ConversationItem, "id">) => string;
   updateAssignee: (conversationId: string, assignee: string, assignedBy?: string) => void;
   getConversation: (id: string) => ConversationItem | undefined;
-  resolveConversation: (id: string, resolvedBy?: string) => void;
+  resolveConversation: (id: string, resolvedBy?: string, opts?: { notes?: string; resolutionType?: "general" | "incoming" | "outgoing" }) => void;
   reopenConversation: (id: string, reopenedBy?: string) => void;
   recordThreadActivity: (conversationId: string, activity: ThreadActivity) => void;
   addLabel: (id: string, label: string, appliedBy?: string) => void;
@@ -1290,7 +1290,7 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
     return items.find((c) => c.id === id);
   }, [items]);
 
-  const resolveConversation = useCallback((id: string, resolvedBy = DEFAULT_CONVERSATION_ACTIVITY_ACTOR) => {
+  const resolveConversation = useCallback((id: string, resolvedBy = DEFAULT_CONVERSATION_ACTIVITY_ACTOR, opts?: { notes?: string; resolutionType?: "general" | "incoming" | "outgoing" }) => {
     setItems((prev) =>
       prev.map((c) => {
         if (c.id !== id) return c;
@@ -1299,6 +1299,8 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
           kind: "status",
           action: "resolved",
           actor: resolvedBy,
+          notes: opts?.notes || undefined,
+          resolutionType: opts?.resolutionType || undefined,
         });
         const nextMessages = [...c.messages, message];
         return {

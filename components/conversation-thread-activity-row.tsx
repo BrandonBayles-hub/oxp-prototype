@@ -43,6 +43,7 @@ export function ConversationThreadActivityRow({
   switch (a.kind) {
     case "status":
       if (a.action === "resolved") {
+        const resLabel = a.resolutionType === "incoming" ? " (Incoming Call)" : a.resolutionType === "outgoing" ? " (Outgoing Call)" : "";
         icon = (
           <IconWrap>
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
@@ -53,6 +54,13 @@ export function ConversationThreadActivityRow({
             <span className="font-medium text-foreground">{a.actor}</span>
             {" marked the conversation "}
             <span className="font-medium text-foreground">resolved</span>
+            {resLabel && <span className="text-muted-foreground">{resLabel}</span>}
+            {a.notes && (
+              <span className="mt-1 block text-left text-muted-foreground">
+                <span className="font-medium text-foreground/90">Notes: </span>
+                {a.notes}
+              </span>
+            )}
           </>
         );
       } else {
