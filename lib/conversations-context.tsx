@@ -305,6 +305,32 @@ export function isConversationUnattended(c: ConversationItem): boolean {
 }
 
 /**
+ * Open thread where the most recent public message is from the lead/resident
+ * and no staff or agent has publicly replied after it. Unlike isConversationUnattended,
+ * this ignores read/unread state — the dot stays until staff responds.
+ */
+export function needsStaffResponse(c: ConversationItem): boolean {
+  if (c.status !== "open") return false;
+
+  const { messages: msgs } = c;
+  let lastResidentPublicIdx = -1;
+  for (let i = 0; i < msgs.length; i++) {
+    if (msgs[i].role === "resident" && isPublicThreadMessage(msgs[i])) {
+      lastResidentPublicIdx = i;
+    }
+  }
+  if (lastResidentPublicIdx === -1) return false;
+
+  for (let i = lastResidentPublicIdx + 1; i < msgs.length; i++) {
+    const m = msgs[i];
+    if (isStaffPhoneCallReplyActivity(m)) return false;
+    if (!isPublicThreadMessage(m)) continue;
+    if (m.role === "agent" || m.role === "staff") return false;
+  }
+  return true;
+}
+
+/**
  * Last public thread message is from agent or staff — conversation is waiting on the
  * lead or resident to reply next. Private notes and handoffs are ignored.
  */

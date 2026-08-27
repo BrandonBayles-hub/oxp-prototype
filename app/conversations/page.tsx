@@ -113,6 +113,7 @@ import {
   type BulkOutboundEmailRef,
   type EmailAttachmentRef,
   isConversationUnattended,
+  needsStaffResponse,
   isWaitingOnResidentPublicReply,
   satisfiesEscalatedPropertyInboxLabels,
   conversationHasCurrentUserPrivateNoteMention,
@@ -3114,7 +3115,6 @@ function ConversationsContent() {
             {([
               { id: "all" as const, icon: Inbox, label: "Open Threads" },
               { id: "mentions" as const, icon: AtSign, label: "Mentions" },
-              { id: "unattended" as const, icon: Clock, label: "Needs Action" },
             ] as const).map((item) => (
               <li key={item.id}>
                 <Button
@@ -3135,11 +3135,6 @@ function ConversationsContent() {
                   {item.id === "mentions" && mentionsInboxCount > 0 && (
                     <Badge variant="destructive" className="h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">
                       {mentionsInboxCount}
-                    </Badge>
-                  )}
-                  {item.id === "unattended" && unattendedInboxCount > 0 && (
-                    <Badge variant="destructive" className="h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">
-                      {unattendedInboxCount}
                     </Badge>
                   )}
                 </Button>
@@ -3961,8 +3956,8 @@ function ConversationsContent() {
                           </div>
                         )}
                         <div className={cn("flex w-full flex-col gap-1", bulkSelectMode && "min-w-0 flex-1")}>
-                        {convo.hasUnread && !isActive && !bulkSelectMode && (
-                          <span className="absolute left-1.5 top-4 h-2 w-2 rounded-full bg-destructive" />
+                        {needsStaffResponse(convo) && !isActive && !bulkSelectMode && (
+                          <span className="absolute left-1.5 top-4 h-2 w-2 rounded-full bg-destructive/90 ring-2 ring-background" />
                         )}
                         <div className="flex items-start justify-between gap-2 pr-0.5">
                           <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[10px] font-medium tracking-wide text-muted-foreground">
@@ -6774,26 +6769,27 @@ function ConversationsContent() {
           setProfileMainTab("Financial");
         };
         return (
-        <div className="fixed inset-0 z-[60] flex">
+        <>
+        {/* Entrata brand bar — separate top layer, above call panel */}
+        <div className="fixed top-0 inset-x-0 z-[120] flex items-center justify-between bg-[#b71c1c] px-4 py-2.5">
+          <span className="text-[16px] font-semibold italic text-white/90 tracking-wide">entrata</span>
+          <div className="flex items-center gap-4">
+            <button
+              type="button"
+              onClick={closeProfileCurtain}
+              className="flex items-center gap-1.5 text-[14px] font-medium text-white/90 hover:text-white transition-colors"
+            >
+              <X className="h-4 w-4" />
+              Close
+            </button>
+          </div>
+        </div>
+        <div className="fixed inset-0 z-[60] flex pt-[44px]">
           <div
             className="absolute inset-0 bg-black/30"
             onClick={closeProfileCurtain}
           />
           <div className="relative z-10 flex flex-1 flex-col animate-in slide-in-from-top duration-300 bg-white">
-            {/* Entrata brand bar — full width */}
-            <div className="flex items-center justify-between bg-[#b71c1c] px-4 py-2.5 shrink-0">
-              <span className="text-[16px] font-semibold italic text-white/90 tracking-wide">entrata</span>
-              <div className="flex items-center gap-4">
-                <button
-                  type="button"
-                  onClick={closeProfileCurtain}
-                  className="flex items-center gap-1.5 text-[14px] font-medium text-white/90 hover:text-white transition-colors"
-                >
-                  <X className="h-4 w-4" />
-                  Close
-                </button>
-              </div>
-            </div>
 
             {/* Content row below brand bar */}
             <div className="flex flex-1 min-h-0">
@@ -8092,6 +8088,7 @@ function ConversationsContent() {
             )}
           </div>}
         </div>
+        </>
         );
       })()}
 
