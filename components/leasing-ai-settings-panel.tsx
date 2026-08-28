@@ -40,6 +40,9 @@ import {
   Bell,
   Pencil,
   History,
+  ClipboardList,
+  MoreHorizontal,
+  Layers,
 } from "lucide-react"
 import {
   Tooltip,
@@ -47,6 +50,19 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { Switch } from "@/components/ui/switch"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 /* ══════════════════════════════════════════════════════════════════════════
    Conversation modes
@@ -445,6 +461,182 @@ function isApplicationModeEligible(derived: DerivedPropertyData): boolean {
    Settings state
    ══════════════════════════════════════════════════════════════════════════ */
 
+/* ══════════════════════════════════════════════════════════════════════════
+   Leasing Questions — conversation requirements
+   ══════════════════════════════════════════════════════════════════════════ */
+
+type QuestionTypeId =
+  | "name" | "email" | "phone"
+  | "move_in_date" | "floor_plan" | "bedrooms" | "bathrooms" | "preferred_unit"
+  | "rent_range" | "floor" | "desired_amenities" | "furnishing_options"
+  | "occupants"
+  | "lead_source"
+  | "current_address" | "reason_for_move_out" | "date_of_birth" | "gender" | "preferred_language"
+
+interface QuestionCategory {
+  label: string
+  questions: { id: QuestionTypeId; label: string }[]
+}
+
+const QUESTION_LIBRARY: QuestionCategory[] = [
+  { label: "Contact Information", questions: [
+    { id: "name", label: "Name" },
+    { id: "email", label: "Email" },
+    { id: "phone", label: "Phone" },
+  ] },
+  { label: "Move Preferences", questions: [
+    { id: "move_in_date", label: "Move-in Date" },
+    { id: "floor_plan", label: "Floor Plan" },
+    { id: "bedrooms", label: "Bedrooms" },
+    { id: "bathrooms", label: "Bathrooms" },
+    { id: "preferred_unit", label: "Preferred Unit" },
+  ] },
+  { label: "Budget & Home Preferences", questions: [
+    { id: "rent_range", label: "Rent Range/Budget" },
+    { id: "floor", label: "Floor" },
+    { id: "desired_amenities", label: "Desired Amenities" },
+    { id: "furnishing_options", label: "Furnishing Options" },
+  ] },
+  { label: "Household", questions: [
+    { id: "occupants", label: "Occupants" },
+  ] },
+  { label: "Lead Information", questions: [
+    { id: "lead_source", label: "Lead Source" },
+  ] },
+  { label: "Personal Information", questions: [
+    { id: "current_address", label: "Current Address" },
+    { id: "reason_for_move_out", label: "Reason for Move-Out" },
+    { id: "date_of_birth", label: "Date of Birth" },
+    { id: "gender", label: "Gender" },
+    { id: "preferred_language", label: "Preferred Language" },
+  ] },
+]
+
+const QUESTION_LABELS = Object.fromEntries(
+  QUESTION_LIBRARY.flatMap((category) => category.questions.map((q) => [q.id, q.label])),
+) as Record<QuestionTypeId, string>
+
+type LeasingStageId = "before_chat" | "before_pricing" | "before_tour" | "before_application"
+type QuestionRequirement = "required" | "optional"
+type GroupMode = "all" | "any" | "optional"
+
+interface StageQuestion {
+  id: string
+  type: QuestionTypeId
+  requirement: QuestionRequirement
+  groupId: string | null
+  /** Locked questions are mandatory: they can't be removed, ungrouped, or moved
+   *  to another group, and their requirement can't be changed. */
+  locked?: boolean
+}
+
+interface StageGroup {
+  id: string
+  label: string
+  mode: GroupMode
+  /** Locked groups are mandatory when the stage is on: they can't be deleted or
+   *  renamed and their mode is fixed. */
+  locked?: boolean
+}
+
+interface LeasingStageConfig {
+  enabled: boolean
+  questions: StageQuestion[]
+  groups: StageGroup[]
+}
+
+const GROUP_MODE_LABELS: Record<GroupMode, string> = {
+  all: "Require all",
+  any: "Require any 1",
+  optional: "Optional group",
+}
+
+interface LeasingStageMeta {
+  id: LeasingStageId
+  title: string
+  description: string
+  behavior: string
+}
+
+const LEASING_STAGES: LeasingStageMeta[] = [
+  {
+    id: "before_chat",
+    title: "Before Chat Starts",
+    description: "Collect information before the agent begins the normal conversation.",
+    behavior: "When on, the agent asks these questions before answering property, pricing, availability, tour, or application questions. Example: if Name is required and the prospect asks “Do you allow pets?”, the agent requests the required info first.",
+  },
+  {
+    id: "before_pricing",
+    title: "Before Showing Pricing & Availability",
+    description: "Collect qualifying information before revealing specific pricing or availability.",
+    behavior: "The agent can answer general questions first, but won't share available homes, units, rent, lease-term pricing, or availability dates until required fields are collected.",
+  },
+  {
+    id: "before_tour",
+    title: "Before Booking a Tour",
+    description: "Contact information required before the agent can complete a tour booking.",
+    behavior: "The agent can discuss tours and show available times, but can't finalize a booking until required fields are collected.",
+  },
+  {
+    id: "before_application",
+    title: "Before Application Invitation",
+    description: "Information required before the agent proactively invites the prospect to apply or shares an application link.",
+    behavior: "When on, the agent won't extend an application invitation until required fields are collected.",
+  },
+]
+
+let leasingQuestionIdCounter = 0
+function makeQuestionId() {
+  leasingQuestionIdCounter += 1
+  return `lq_${Date.now().toString(36)}_${leasingQuestionIdCounter}`
+}
+
+function makeDefaultLeasingStages(): Record<LeasingStageId, LeasingStageConfig> {
+  // Deterministic ids so the initial state and pristine snapshot match exactly
+  // (a random id here would flag the form dirty on mount).
+  const q = (stage: LeasingStageId, i: number, type: QuestionTypeId, requirement: QuestionRequirement): StageQuestion => ({
+    id: `${stage}-${i}`, type, requirement, groupId: null,
+  })
+  return {
+    before_chat: {
+      enabled: false,
+      groups: [],
+      questions: [
+        q("before_chat", 1, "name", "required"),
+        q("before_chat", 2, "phone", "required"),
+        q("before_chat", 3, "email", "optional"),
+      ],
+    },
+    before_pricing: {
+      enabled: true,
+      groups: [{ id: "before_pricing-layout", label: "Layout", mode: "any", locked: true }],
+      questions: [
+        { id: "before_pricing-1", type: "floor_plan", requirement: "required", groupId: "before_pricing-layout", locked: true },
+        { id: "before_pricing-2", type: "bedrooms", requirement: "required", groupId: "before_pricing-layout", locked: true },
+      ],
+    },
+    before_tour: {
+      enabled: true,
+      groups: [],
+      questions: [
+        { id: "before_tour-1", type: "name", requirement: "required", groupId: null, locked: true },
+        { id: "before_tour-2", type: "phone", requirement: "required", groupId: null, locked: true },
+        q("before_tour", 3, "email", "optional"),
+      ],
+    },
+    before_application: {
+      enabled: false,
+      groups: [],
+      questions: [
+        q("before_application", 1, "move_in_date", "required"),
+        q("before_application", 2, "bedrooms", "required"),
+        q("before_application", 3, "occupants", "required"),
+        q("before_application", 4, "rent_range", "optional"),
+      ],
+    },
+  }
+}
+
 interface PanelState {
   agentName: string
   conversationMode: ConversationModeId
@@ -463,6 +655,7 @@ interface PanelState {
   conversationStart: ConversationStart
   affordableSettings: AffordableSettings
   preQualGoals: PreQualGoal[]
+  leasingStages: Record<LeasingStageId, LeasingStageConfig>
 }
 
 function makeDefaultState(agentDisplayLabel = "Leasing AI"): PanelState {
@@ -496,6 +689,7 @@ function makeDefaultState(agentDisplayLabel = "Leasing AI"): PanelState {
       requiredDocuments: ["Government-issued ID", "4 most recent pay stubs", "Bank statements"],
     },
     preQualGoals: DEFAULT_PREQUAL_GOALS,
+    leasingStages: makeDefaultLeasingStages(),
   }
 }
 
@@ -568,6 +762,7 @@ export function LeasingAISettingsPanel({
         }
         prequalification_actions?: { outcome?: string; tour?: string; application?: string }[]
         prequalification_goals?: { result: string; tour: string; application: string; waitlist?: string; offer_market_rate: boolean }[]
+        leasing_questions?: Record<LeasingStageId, LeasingStageConfig>
       }) => {
         const defaults = makeDefaultState(initialAgentDisplayLabel)
         const loaded: Partial<PanelState> = {
@@ -648,6 +843,9 @@ export function LeasingAISettingsPanel({
             waitlist: (g.waitlist as TourGoal) ?? "none",
             offerMarketRate: Boolean(g.offer_market_rate),
           }))
+        }
+        if (data.leasing_questions) {
+          loaded.leasingStages = { ...defaults.leasingStages, ...data.leasing_questions }
         }
         setState((s) => ({ ...s, ...loaded }))
         setPristine((s) => ({ ...s, ...loaded }))
@@ -755,6 +953,7 @@ export function LeasingAISettingsPanel({
         prequalification_goals: s.preQualEnabled
           ? (activeAffordableProgram?.postQualificationGoals ?? s.preQualGoals).map((g) => ({ result: g.result, tour: g.tour, application: g.application, waitlist: g.waitlist, offer_market_rate: g.offerMarketRate }))
           : [],
+        leasing_questions: s.leasingStages,
       }),
     })
       .then(() => setBackendStatus("ok"))
@@ -818,6 +1017,8 @@ export function LeasingAISettingsPanel({
             <SectionVirtualTourLink state={state} update={update} />
             <SectionPreQualification state={state} update={update} />
             <SectionAffordable state={state} update={update} setState={setState} />
+            <GroupHeading label="Leasing Questions" />
+            <SectionLeasingQuestions state={state} setState={setState} />
           </div>
         ) : (
           <div className="mx-auto max-w-6xl">
@@ -2176,6 +2377,535 @@ function SectionAffordable({ state, update, setState }: {
               </div>
       )}
     </SectionShell>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Leasing Questions (Conversation Requirements)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function SectionLeasingQuestions({ state, setState }: {
+  state: PanelState
+  setState: React.Dispatch<React.SetStateAction<PanelState>>
+}) {
+  const updateStage = (
+    stageId: LeasingStageId,
+    updater: (config: LeasingStageConfig) => LeasingStageConfig,
+  ) =>
+    setState((s) => ({
+      ...s,
+      leasingStages: { ...s.leasingStages, [stageId]: updater(s.leasingStages[stageId]) },
+    }))
+
+  return (
+    <>
+      <p className="-mt-4 text-sm text-muted-foreground">
+        Configure what information {state.agentName.trim() || "the leasing agent"} should collect at
+        different stages of the conversation. Each stage acts as a gate — a{" "}
+        <span className="font-medium text-foreground">Required</span> question blocks the gated action
+        until the information is collected, while an{" "}
+        <span className="font-medium text-foreground">Optional</span> question is asked but never blocks
+        progress.
+      </p>
+      {LEASING_STAGES.map((meta) => (
+        <LeasingStageCard
+          key={meta.id}
+          meta={meta}
+          config={state.leasingStages[meta.id]}
+          onChange={(updater) => updateStage(meta.id, updater)}
+        />
+      ))}
+    </>
+  )
+}
+
+function LeasingStageCard({ meta, config, onChange }: {
+  meta: LeasingStageMeta
+  config: LeasingStageConfig
+  onChange: (updater: (config: LeasingStageConfig) => LeasingStageConfig) => void
+}) {
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [overId, setOverId] = useState<string | null>(null)
+
+  const prune = (c: LeasingStageConfig): LeasingStageConfig => {
+    const used = new Set(c.questions.map((q) => q.groupId).filter(Boolean) as string[])
+    return { ...c, groups: c.groups.filter((g) => used.has(g.id)) }
+  }
+
+  const setEnabled = (enabled: boolean) => onChange((c) => ({ ...c, enabled }))
+
+  const addQuestion = (type: QuestionTypeId) =>
+    onChange((c) => ({
+      ...c,
+      questions: [...c.questions, { id: makeQuestionId(), type, requirement: "required", groupId: null }],
+    }))
+
+  const removeQuestion = (id: string) =>
+    onChange((c) => {
+      if (c.questions.find((q) => q.id === id)?.locked) return c
+      return prune({ ...c, questions: c.questions.filter((q) => q.id !== id) })
+    })
+
+  const setRequirement = (id: string, requirement: QuestionRequirement) =>
+    onChange((c) => ({
+      ...c,
+      questions: c.questions.map((q) => (q.id === id ? { ...q, requirement } : q)),
+    }))
+
+  const moveByIndex = (from: number, to: number) =>
+    onChange((c) => {
+      if (from === to || to < 0 || to >= c.questions.length) return c
+      const next = [...c.questions]
+      const [item] = next.splice(from, 1)
+      next.splice(to, 0, item)
+      return { ...c, questions: next }
+    })
+
+  const createGroupWith = (questionId: string) =>
+    onChange((c) => {
+      const gid = makeQuestionId()
+      return {
+        ...c,
+        groups: [...c.groups, { id: gid, label: `Group ${c.groups.length + 1}`, mode: "any" as GroupMode }],
+        questions: c.questions.map((q) => (q.id === questionId ? { ...q, groupId: gid } : q)),
+      }
+    })
+
+  const assignToGroup = (questionId: string, gid: string) =>
+    onChange((c) => {
+      if (c.questions.find((q) => q.id === questionId)?.locked) return c
+      return {
+        ...c,
+        questions: c.questions.map((q) => (q.id === questionId ? { ...q, groupId: gid } : q)),
+      }
+    })
+
+  const ungroup = (questionId: string) =>
+    onChange((c) => {
+      if (c.questions.find((q) => q.id === questionId)?.locked) return c
+      return prune({
+        ...c,
+        questions: c.questions.map((q) => (q.id === questionId ? { ...q, groupId: null } : q)),
+      })
+    })
+
+  const setGroupMode = (gid: string, mode: GroupMode) =>
+    onChange((c) => ({ ...c, groups: c.groups.map((g) => (g.id === gid ? { ...g, mode } : g)) }))
+
+  const setGroupLabel = (gid: string, label: string) =>
+    onChange((c) => ({ ...c, groups: c.groups.map((g) => (g.id === gid ? { ...g, label } : g)) }))
+
+  const removeGroup = (gid: string) =>
+    onChange((c) => {
+      if (c.groups.find((g) => g.id === gid)?.locked) return c
+      return {
+        ...c,
+        groups: c.groups.filter((g) => g.id !== gid),
+        questions: c.questions.map((q) => (q.groupId === gid ? { ...q, groupId: null } : q)),
+      }
+    })
+
+  const reorderGroupMember = (gid: string, memberIndex: number, dir: -1 | 1) =>
+    onChange((c) => {
+      const positions = c.questions.map((q, i) => ({ q, i })).filter((x) => x.q.groupId === gid).map((x) => x.i)
+      const a = positions[memberIndex]
+      const b = positions[memberIndex + dir]
+      if (a == null || b == null) return c
+      const next = [...c.questions]
+      ;[next[a], next[b]] = [next[b], next[a]]
+      return { ...c, questions: next }
+    })
+
+  const usedTypes = new Set(config.questions.map((q) => q.type))
+  const requiredCount = config.questions.filter((q) => q.requirement === "required").length
+
+  // Build ordered render slots: a lone question, or a group (positioned by its
+  // first member). Members of a group always render together regardless of
+  // their exact positions in the underlying array.
+  type Slot =
+    | { kind: "question"; question: StageQuestion; index: number }
+    | { kind: "group"; group: StageGroup; members: { question: StageQuestion; index: number }[] }
+  const slots: Slot[] = []
+  const seenGroups = new Set<string>()
+  config.questions.forEach((question, index) => {
+    if (question.groupId) {
+      if (seenGroups.has(question.groupId)) return
+      seenGroups.add(question.groupId)
+      const group = config.groups.find((g) => g.id === question.groupId)
+      if (!group) {
+        slots.push({ kind: "question", question, index })
+        return
+      }
+      const members = config.questions
+        .map((q, i) => ({ question: q, index: i }))
+        .filter((x) => x.question.groupId === question.groupId)
+      slots.push({ kind: "group", group, members })
+    } else {
+      slots.push({ kind: "question", question, index })
+    }
+  })
+
+  return (
+    <SectionShell
+      icon={ClipboardList}
+      title={meta.title}
+      description={meta.description}
+      headerAction={
+        <div className="flex items-center gap-2.5">
+          <span className="text-xxs font-medium uppercase tracking-wider text-muted-foreground">
+            {config.enabled ? "On" : "Off"}
+          </span>
+          <Switch
+            checked={config.enabled}
+            onCheckedChange={setEnabled}
+            aria-label={`Turn ${meta.title} ${config.enabled ? "off" : "on"}`}
+          />
+        </div>
+      }
+    >
+      {!config.enabled ? (
+        <p className="text-xs text-muted-foreground">
+          This stage is off — {meta.behavior} Turn it on to configure the questions collected here.
+        </p>
+      ) : (
+        <div className="space-y-4">
+          <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+            <p className="text-[11px] leading-relaxed text-muted-foreground">{meta.behavior}</p>
+          </div>
+
+          {config.questions.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-xs text-muted-foreground">
+              No questions yet. Add one below to collect it at this stage.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {slots.map((slot) => {
+                if (slot.kind === "question") {
+                  const { question, index } = slot
+                  return (
+                    <QuestionRow
+                      key={question.id}
+                      question={question}
+                      priority={index + 1}
+                      grouped={false}
+                      groups={config.groups}
+                      draggable
+                      isDragging={dragId === question.id}
+                      isDropTarget={overId === question.id && dragId !== null && dragId !== question.id}
+                      onDragStart={() => setDragId(question.id)}
+                      onDragOverRow={() => setOverId(question.id)}
+                      onDropRow={() => {
+                        if (dragId && dragId !== question.id) {
+                          const from = config.questions.findIndex((q) => q.id === dragId)
+                          if (from !== -1) moveByIndex(from, index)
+                        }
+                        setDragId(null)
+                        setOverId(null)
+                      }}
+                      onDragEnd={() => {
+                        setDragId(null)
+                        setOverId(null)
+                      }}
+                      onSetRequirement={(r) => setRequirement(question.id, r)}
+                      onRemove={() => removeQuestion(question.id)}
+                      onMoveUp={() => moveByIndex(index, index - 1)}
+                      onMoveDown={() => moveByIndex(index, index + 1)}
+                      onCreateGroup={() => createGroupWith(question.id)}
+                      onAssignGroup={(gid) => assignToGroup(question.id, gid)}
+                      onUngroup={() => ungroup(question.id)}
+                    />
+                  )
+                }
+                const { group, members } = slot
+                return (
+                  <div key={group.id} className="rounded-lg border border-border bg-muted/30 p-2.5">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Layers className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                        {group.locked ? (
+                          <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                            {group.label}
+                            <Lock className="h-3 w-3 text-muted-foreground" aria-label="Required group" />
+                          </span>
+                        ) : (
+                          <Input
+                            value={group.label}
+                            onChange={(e) => setGroupLabel(group.id, e.target.value)}
+                            aria-label="Group name"
+                            className="h-7 w-40 text-xs"
+                          />
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {group.locked ? (
+                          <Badge variant="gray">{GROUP_MODE_LABELS[group.mode]}</Badge>
+                        ) : (
+                          <>
+                            <Select value={group.mode} onValueChange={(v) => setGroupMode(group.id, v as GroupMode)}>
+                              <SelectTrigger className="h-7 w-[9.5rem] text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {(Object.keys(GROUP_MODE_LABELS) as GroupMode[]).map((m) => (
+                                  <SelectItem key={m} value={m} className="text-xs">
+                                    {GROUP_MODE_LABELS[m]}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <button
+                              type="button"
+                              onClick={() => removeGroup(group.id)}
+                              aria-label="Ungroup all"
+                              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white hover:text-foreground"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <p className="mb-2 px-0.5 text-[10px] leading-relaxed text-muted-foreground">
+                      {group.mode === "any"
+                        ? "The agent needs any one answer in this group to satisfy the requirement."
+                        : group.mode === "all"
+                        ? "Every required question in this group must be answered."
+                        : "Questions are asked in order, but the group never blocks progress."}
+                    </p>
+                    <div className="space-y-2">
+                      {members.map((member, memberIndex) => (
+                        <QuestionRow
+                          key={member.question.id}
+                          question={member.question}
+                          priority={memberIndex + 1}
+                          grouped
+                          requirementDisabled={group.mode === "any" || group.mode === "optional"}
+                          groups={config.groups}
+                          onSetRequirement={(r) => setRequirement(member.question.id, r)}
+                          onRemove={() => removeQuestion(member.question.id)}
+                          onMoveUp={() => reorderGroupMember(group.id, memberIndex, -1)}
+                          onMoveDown={() => reorderGroupMember(group.id, memberIndex, 1)}
+                          onCreateGroup={() => createGroupWith(member.question.id)}
+                          onAssignGroup={(gid) => assignToGroup(member.question.id, gid)}
+                          onUngroup={() => ungroup(member.question.id)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          <div className="flex items-center justify-between gap-3 pt-0.5">
+            <AddQuestionPopover usedTypes={usedTypes} onAdd={addQuestion} />
+            <span className="text-[11px] text-muted-foreground">
+              {config.questions.length} question{config.questions.length === 1 ? "" : "s"}
+              {requiredCount > 0 ? ` · ${requiredCount} required` : ""}
+            </span>
+          </div>
+        </div>
+      )}
+    </SectionShell>
+  )
+}
+
+function RequirementToggle({ value, onChange, disabled }: {
+  value: QuestionRequirement
+  onChange: (value: QuestionRequirement) => void
+  disabled?: boolean
+}) {
+  return (
+    <div
+      className={cn(
+        "inline-flex shrink-0 rounded-md border border-input bg-background p-0.5",
+        disabled && "pointer-events-none opacity-50",
+      )}
+      role="group"
+      aria-label="Requirement"
+    >
+      {(["required", "optional"] as const).map((opt) => (
+        <button
+          key={opt}
+          type="button"
+          aria-pressed={value === opt}
+          onClick={() => onChange(opt)}
+          className={cn(
+            "rounded px-2.5 py-1 text-xxs font-medium capitalize transition-colors",
+            value === opt
+              ? "bg-[hsl(207_73%_95%)] text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {opt}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function QuestionRow({
+  question,
+  priority,
+  grouped,
+  requirementDisabled,
+  groups,
+  draggable,
+  isDragging,
+  isDropTarget,
+  onDragStart,
+  onDragOverRow,
+  onDropRow,
+  onDragEnd,
+  onSetRequirement,
+  onRemove,
+  onMoveUp,
+  onMoveDown,
+  onCreateGroup,
+  onAssignGroup,
+  onUngroup,
+}: {
+  question: StageQuestion
+  priority: number
+  grouped: boolean
+  requirementDisabled?: boolean
+  groups: StageGroup[]
+  draggable?: boolean
+  isDragging?: boolean
+  isDropTarget?: boolean
+  onDragStart?: () => void
+  onDragOverRow?: () => void
+  onDropRow?: () => void
+  onDragEnd?: () => void
+  onSetRequirement: (value: QuestionRequirement) => void
+  onRemove: () => void
+  onMoveUp: () => void
+  onMoveDown: () => void
+  onCreateGroup: () => void
+  onAssignGroup: (groupId: string) => void
+  onUngroup: () => void
+}) {
+  const locked = question.locked
+  const assignableGroups = groups.filter((g) => g.id !== question.groupId && !g.locked)
+  return (
+    <div
+      draggable={draggable}
+      onDragStart={draggable ? (e) => { e.dataTransfer.effectAllowed = "move"; onDragStart?.() } : undefined}
+      onDragOver={draggable ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; onDragOverRow?.() } : undefined}
+      onDrop={draggable ? (e) => { e.preventDefault(); onDropRow?.() } : undefined}
+      onDragEnd={draggable ? onDragEnd : undefined}
+      className={cn(
+        "flex items-center gap-3 rounded-lg border bg-white px-3 py-2.5 transition-all",
+        draggable && "cursor-grab active:cursor-grabbing",
+        isDragging && "opacity-50",
+        isDropTarget ? "border-zinc-900 ring-1 ring-zinc-900" : "border-border",
+      )}
+    >
+      <GripVertical
+        className={cn("h-4 w-4 shrink-0", draggable ? "text-zinc-400" : "text-zinc-300")}
+        aria-hidden
+      />
+      <span className="w-5 shrink-0 text-center text-xxs font-medium tabular-nums text-muted-foreground">
+        {priority}
+      </span>
+      <span className="flex min-w-0 flex-1 items-center gap-1.5 text-sm font-medium text-foreground">
+        <span className="truncate">{QUESTION_LABELS[question.type]}</span>
+        {locked && (
+          <TooltipProvider delayDuration={150}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Lock className="h-3 w-3 shrink-0 text-muted-foreground" aria-label="Required — can't be removed" />
+              </TooltipTrigger>
+              <TooltipContent side="top" className="px-2.5 py-1.5">
+                <p className="text-[11px] text-muted-foreground">Required — can&apos;t be removed</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
+      </span>
+      <RequirementToggle value={question.requirement} onChange={onSetRequirement} disabled={requirementDisabled || locked} />
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label={`Options for ${QUESTION_LABELS[question.type]}`}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-52">
+          <DropdownMenuItem onClick={onMoveUp}>Move up</DropdownMenuItem>
+          <DropdownMenuItem onClick={onMoveDown}>Move down</DropdownMenuItem>
+          {!locked && (
+            <>
+              <DropdownMenuSeparator />
+              {!grouped && <DropdownMenuItem onClick={onCreateGroup}>New group with this</DropdownMenuItem>}
+              {assignableGroups.map((g) => (
+                <DropdownMenuItem key={g.id} onClick={() => onAssignGroup(g.id)}>
+                  Move to {g.label}
+                </DropdownMenuItem>
+              ))}
+              {grouped && <DropdownMenuItem onClick={onUngroup}>Remove from group</DropdownMenuItem>}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={onRemove} className="text-red-600 focus:text-red-600">
+                Remove question
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  )
+}
+
+function AddQuestionPopover({ usedTypes, onAdd }: {
+  usedTypes: Set<QuestionTypeId>
+  onAdd: (type: QuestionTypeId) => void
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="h-8 gap-1.5">
+          <Plus className="h-3.5 w-3.5" />
+          Add question
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="max-h-80 w-72 overflow-y-auto p-1.5">
+        {QUESTION_LIBRARY.map((category) => (
+          <div key={category.label} className="mb-1.5 last:mb-0">
+            <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              {category.label}
+            </p>
+            {category.questions.map((q) => {
+              const used = usedTypes.has(q.id)
+              return (
+                <button
+                  key={q.id}
+                  type="button"
+                  disabled={used}
+                  onClick={() => {
+                    onAdd(q.id)
+                    setOpen(false)
+                  }}
+                  className={cn(
+                    "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
+                    used
+                      ? "cursor-not-allowed text-muted-foreground/60"
+                      : "text-foreground hover:bg-muted",
+                  )}
+                >
+                  <span>{q.label}</span>
+                  {used && <span className="text-[10px] text-muted-foreground">Added</span>}
+                </button>
+              )
+            })}
+          </div>
+        ))}
+      </PopoverContent>
+    </Popover>
   )
 }
 
