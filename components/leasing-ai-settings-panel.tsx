@@ -517,14 +517,32 @@ const QUESTION_LABELS = Object.fromEntries(
 ) as Record<QuestionTypeId, string>
 
 type LeasingStageId = "before_chat" | "before_pricing" | "before_tour" | "before_application"
-type QuestionRequirement = "required" | "optional"
-type GroupMode = "all" | "any" | "optional"
+/**
+ * required  — cannot bypass; the agent keeps asking / blocks the gate until answered.
+ * preferred — persistent but bypassable; the agent re-asks after resistance, then
+ *             advances once `bypassAfter` unsuccessful attempts are reached.
+ * optional  — asked once, but never blocks progress.
+ */
+type QuestionRequirement = "required" | "preferred" | "optional"
+type BypassAttempts = 1 | 2 | 3
+type GroupMode = "all" | "any" | "preferred" | "optional"
+
+const REQUIREMENT_LABELS: Record<QuestionRequirement, string> = {
+  required: "Required",
+  preferred: "Preferred",
+  optional: "Optional",
+}
+
+const DEFAULT_BYPASS_ATTEMPTS: BypassAttempts = 2
 
 interface StageQuestion {
   id: string
   type: QuestionTypeId
   requirement: QuestionRequirement
   groupId: string | null
+  /** Only meaningful when requirement is "preferred": how many times the agent
+   *  re-asks after resistance before advancing without an answer. */
+  bypassAfter?: BypassAttempts
   /** Locked questions are mandatory: they can't be removed, ungrouped, or moved
    *  to another group, and their requirement can't be changed. */
   locked?: boolean
@@ -534,6 +552,9 @@ interface StageGroup {
   id: string
   label: string
   mode: GroupMode
+  /** Only meaningful when mode is "preferred": how many times the agent re-asks
+   *  the group after resistance before advancing. */
+  bypassAfter?: BypassAttempts
   /** Locked groups are mandatory when the stage is on: they can't be deleted or
    *  renamed and their mode is fixed. */
   locked?: boolean
@@ -548,7 +569,15 @@ interface LeasingStageConfig {
 const GROUP_MODE_LABELS: Record<GroupMode, string> = {
   all: "Require all",
   any: "Require any 1",
+  preferred: "Preferred",
   optional: "Optional group",
+}
+
+const GROUP_MODE_DESCRIPTIONS: Record<GroupMode, string> = {
+  all: "Every required question in this group must be answered.",
+  any: "The agent needs any one answer in this group to satisfy the requirement.",
+  preferred: "The agent asks for these persistently, then continues after the set number of attempts.",
+  optional: "Questions are asked in order, but the group never blocks progress.",
 }
 
 interface LeasingStageMeta {
@@ -573,9 +602,9 @@ const LEASING_STAGES: LeasingStageMeta[] = [
   },
   {
     id: "before_tour",
-    title: "Before Booking a Tour",
-    description: "Contact information required before the agent can complete a tour booking.",
-    behavior: "The agent can discuss tours and show available times, but can't finalize a booking until required fields are collected.",
+    title: "Before Showing Tour Options",
+    description: "Collect what the prospect is looking for before the agent shows specific tour options.",
+    behavior: "The agent can talk about touring generally, but won't surface specific tour options or times until required fields are collected. Preferred questions are re-asked after resistance, then bypassed.",
   },
   {
     id: "before_application",
@@ -611,17 +640,18 @@ function makeDefaultLeasingStages(): Record<LeasingStageId, LeasingStageConfig> 
       enabled: true,
       groups: [{ id: "before_pricing-layout", label: "Layout", mode: "any", locked: true }],
       questions: [
+        { id: "before_pricing-movein", type: "move_in_date", requirement: "required", groupId: null, locked: true },
         { id: "before_pricing-1", type: "floor_plan", requirement: "required", groupId: "before_pricing-layout", locked: true },
         { id: "before_pricing-2", type: "bedrooms", requirement: "required", groupId: "before_pricing-layout", locked: true },
       ],
     },
     before_tour: {
       enabled: true,
-      groups: [],
+      groups: [{ id: "before_tour-layout", label: "Layout", mode: "any" }],
       questions: [
-        { id: "before_tour-1", type: "name", requirement: "required", groupId: null, locked: true },
-        { id: "before_tour-2", type: "phone", requirement: "required", groupId: null, locked: true },
-        q("before_tour", 3, "email", "optional"),
+        { id: "before_tour-1", type: "floor_plan", requirement: "required", groupId: "before_tour-layout" },
+        { id: "before_tour-2", type: "bedrooms", requirement: "required", groupId: "before_tour-layout" },
+        { id: "before_tour-3", type: "move_in_date", requirement: "preferred", groupId: null, bypassAfter: 2 },
       ],
     },
     before_application: {
@@ -2401,11 +2431,12 @@ function SectionLeasingQuestions({ state, setState }: {
     <>
       <p className="-mt-4 text-sm text-muted-foreground">
         Configure what information {state.agentName.trim() || "the leasing agent"} should collect at
-        different stages of the conversation. Each stage acts as a gate — a{" "}
-        <span className="font-medium text-foreground">Required</span> question blocks the gated action
-        until the information is collected, while an{" "}
-        <span className="font-medium text-foreground">Optional</span> question is asked but never blocks
-        progress.
+        different stages of the conversation. Each stage acts as a gate.{" "}
+        <span className="font-medium text-foreground">Required</span> blocks the gated action until the
+        information is collected;{" "}
+        <span className="font-medium text-foreground">Preferred</span> keeps asking after resistance,
+        then advances once the set number of attempts is reached; and{" "}
+        <span className="font-medium text-foreground">Optional</span> is asked but never blocks progress.
       </p>
       {LEASING_STAGES.map((meta) => (
         <LeasingStageCard
@@ -2449,7 +2480,17 @@ function LeasingStageCard({ meta, config, onChange }: {
   const setRequirement = (id: string, requirement: QuestionRequirement) =>
     onChange((c) => ({
       ...c,
-      questions: c.questions.map((q) => (q.id === id ? { ...q, requirement } : q)),
+      questions: c.questions.map((q) =>
+        q.id === id
+          ? { ...q, requirement, bypassAfter: requirement === "preferred" ? (q.bypassAfter ?? DEFAULT_BYPASS_ATTEMPTS) : q.bypassAfter }
+          : q,
+      ),
+    }))
+
+  const setBypassAfter = (id: string, bypassAfter: BypassAttempts) =>
+    onChange((c) => ({
+      ...c,
+      questions: c.questions.map((q) => (q.id === id ? { ...q, bypassAfter } : q)),
     }))
 
   const moveByIndex = (from: number, to: number) =>
@@ -2490,7 +2531,17 @@ function LeasingStageCard({ meta, config, onChange }: {
     })
 
   const setGroupMode = (gid: string, mode: GroupMode) =>
-    onChange((c) => ({ ...c, groups: c.groups.map((g) => (g.id === gid ? { ...g, mode } : g)) }))
+    onChange((c) => ({
+      ...c,
+      groups: c.groups.map((g) =>
+        g.id === gid
+          ? { ...g, mode, bypassAfter: mode === "preferred" ? (g.bypassAfter ?? DEFAULT_BYPASS_ATTEMPTS) : g.bypassAfter }
+          : g,
+      ),
+    }))
+
+  const setGroupBypassAfter = (gid: string, bypassAfter: BypassAttempts) =>
+    onChange((c) => ({ ...c, groups: c.groups.map((g) => (g.id === gid ? { ...g, bypassAfter } : g)) }))
 
   const setGroupLabel = (gid: string, label: string) =>
     onChange((c) => ({ ...c, groups: c.groups.map((g) => (g.id === gid ? { ...g, label } : g)) }))
@@ -2518,6 +2569,7 @@ function LeasingStageCard({ meta, config, onChange }: {
 
   const usedTypes = new Set(config.questions.map((q) => q.type))
   const requiredCount = config.questions.filter((q) => q.requirement === "required").length
+  const preferredCount = config.questions.filter((q) => q.requirement === "preferred").length
 
   // Build ordered render slots: a lone question, or a group (positioned by its
   // first member). Members of a group always render together regardless of
@@ -2608,6 +2660,7 @@ function LeasingStageCard({ meta, config, onChange }: {
                         setOverId(null)
                       }}
                       onSetRequirement={(r) => setRequirement(question.id, r)}
+                      onSetBypassAfter={(n) => setBypassAfter(question.id, n)}
                       onRemove={() => removeQuestion(question.id)}
                       onMoveUp={() => moveByIndex(index, index - 1)}
                       onMoveDown={() => moveByIndex(index, index + 1)}
@@ -2639,7 +2692,12 @@ function LeasingStageCard({ meta, config, onChange }: {
                       </div>
                       <div className="flex items-center gap-1.5">
                         {group.locked ? (
-                          <Badge variant="gray">{GROUP_MODE_LABELS[group.mode]}</Badge>
+                          <>
+                            <Badge variant="gray">{GROUP_MODE_LABELS[group.mode]}</Badge>
+                            {group.mode === "preferred" && (
+                              <Badge variant="gray">Ask {group.bypassAfter ?? DEFAULT_BYPASS_ATTEMPTS}&times;</Badge>
+                            )}
+                          </>
                         ) : (
                           <>
                             <Select value={group.mode} onValueChange={(v) => setGroupMode(group.id, v as GroupMode)}>
@@ -2654,6 +2712,12 @@ function LeasingStageCard({ meta, config, onChange }: {
                                 ))}
                               </SelectContent>
                             </Select>
+                            {group.mode === "preferred" && (
+                              <AttemptsSelect
+                                value={group.bypassAfter ?? DEFAULT_BYPASS_ATTEMPTS}
+                                onChange={(n) => setGroupBypassAfter(group.id, n)}
+                              />
+                            )}
                             <button
                               type="button"
                               onClick={() => removeGroup(group.id)}
@@ -2667,11 +2731,7 @@ function LeasingStageCard({ meta, config, onChange }: {
                       </div>
                     </div>
                     <p className="mb-2 px-0.5 text-[10px] leading-relaxed text-muted-foreground">
-                      {group.mode === "any"
-                        ? "The agent needs any one answer in this group to satisfy the requirement."
-                        : group.mode === "all"
-                        ? "Every required question in this group must be answered."
-                        : "Questions are asked in order, but the group never blocks progress."}
+                      {GROUP_MODE_DESCRIPTIONS[group.mode]}
                     </p>
                     <div className="space-y-2">
                       {members.map((member, memberIndex) => (
@@ -2680,9 +2740,10 @@ function LeasingStageCard({ meta, config, onChange }: {
                           question={member.question}
                           priority={memberIndex + 1}
                           grouped
-                          requirementDisabled={group.mode === "any" || group.mode === "optional"}
+                          requirementDisabled={group.mode !== "all"}
                           groups={config.groups}
                           onSetRequirement={(r) => setRequirement(member.question.id, r)}
+                          onSetBypassAfter={(n) => setBypassAfter(member.question.id, n)}
                           onRemove={() => removeQuestion(member.question.id)}
                           onMoveUp={() => reorderGroupMember(group.id, memberIndex, -1)}
                           onMoveDown={() => reorderGroupMember(group.id, memberIndex, 1)}
@@ -2703,6 +2764,7 @@ function LeasingStageCard({ meta, config, onChange }: {
             <span className="text-[11px] text-muted-foreground">
               {config.questions.length} question{config.questions.length === 1 ? "" : "s"}
               {requiredCount > 0 ? ` · ${requiredCount} required` : ""}
+              {preferredCount > 0 ? ` · ${preferredCount} preferred` : ""}
             </span>
           </div>
         </div>
@@ -2725,23 +2787,43 @@ function RequirementToggle({ value, onChange, disabled }: {
       role="group"
       aria-label="Requirement"
     >
-      {(["required", "optional"] as const).map((opt) => (
+      {(["required", "preferred", "optional"] as const).map((opt) => (
         <button
           key={opt}
           type="button"
           aria-pressed={value === opt}
           onClick={() => onChange(opt)}
           className={cn(
-            "rounded px-2.5 py-1 text-xxs font-medium capitalize transition-colors",
+            "rounded px-2.5 py-1 text-xxs font-medium transition-colors",
             value === opt
               ? "bg-[hsl(207_73%_95%)] text-foreground"
               : "text-muted-foreground hover:text-foreground",
           )}
         >
-          {opt}
+          {REQUIREMENT_LABELS[opt]}
         </button>
       ))}
     </div>
+  )
+}
+
+function AttemptsSelect({ value, onChange }: {
+  value: BypassAttempts
+  onChange: (value: BypassAttempts) => void
+}) {
+  return (
+    <Select value={String(value)} onValueChange={(v) => onChange(Number(v) as BypassAttempts)}>
+      <SelectTrigger className="h-7 w-[5.75rem] gap-1 text-xxs" aria-label="Attempts before the agent bypasses this question">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {([1, 2, 3] as BypassAttempts[]).map((n) => (
+          <SelectItem key={n} value={String(n)} className="text-xs">
+            Ask {n}&times;
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
 
@@ -2759,6 +2841,7 @@ function QuestionRow({
   onDropRow,
   onDragEnd,
   onSetRequirement,
+  onSetBypassAfter,
   onRemove,
   onMoveUp,
   onMoveDown,
@@ -2779,6 +2862,7 @@ function QuestionRow({
   onDropRow?: () => void
   onDragEnd?: () => void
   onSetRequirement: (value: QuestionRequirement) => void
+  onSetBypassAfter: (value: BypassAttempts) => void
   onRemove: () => void
   onMoveUp: () => void
   onMoveDown: () => void
@@ -2824,7 +2908,12 @@ function QuestionRow({
           </TooltipProvider>
         )}
       </span>
-      <RequirementToggle value={question.requirement} onChange={onSetRequirement} disabled={requirementDisabled || locked} />
+      <div className="flex shrink-0 items-center gap-1.5">
+        <RequirementToggle value={question.requirement} onChange={onSetRequirement} disabled={requirementDisabled || locked} />
+        {question.requirement === "preferred" && !requirementDisabled && !locked && (
+          <AttemptsSelect value={question.bypassAfter ?? DEFAULT_BYPASS_ATTEMPTS} onChange={onSetBypassAfter} />
+        )}
+      </div>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
