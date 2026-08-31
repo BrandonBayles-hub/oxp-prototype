@@ -51,6 +51,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Bell,
+  BellRing,
   Smile,
   Mic,
   SendHorizontal,
@@ -62,6 +63,7 @@ import {
   CircleHelp,
   Copy,
   Info,
+  HelpCircle,
   Beaker,
   PhoneIncoming,
   PhoneOutgoing,
@@ -114,6 +116,7 @@ import {
   type EmailAttachmentRef,
   isConversationUnattended,
   needsStaffResponse,
+  hasActiveFollowUpReminder,
   isWaitingOnResidentPublicReply,
   satisfiesEscalatedPropertyInboxLabels,
   conversationHasCurrentUserPrivateNoteMention,
@@ -257,16 +260,99 @@ type ThreadCardLabelChip =
   | { kind: "escalation"; labels: string[]; displayLabel: string };
 
 /**
+ * Small "i" info-tip used inside SA 1.2 sidebar rows and next to section headers.
+ * Wraps a tiny `Info` glyph in a Tooltip; stops click propagation so tapping the
+ * icon doesn't accidentally activate the enclosing button/nav item.
+ *
+ * When `hoverOnly` is true the icon collapses out of layout at rest and only
+ * appears when the parent row (marked with `group`) is hovered or focused.
+ */
+function SidebarInfoTip({
+  label,
+  children,
+  hoverOnly = false,
+}: {
+  label: string;
+  children: React.ReactNode;
+  hoverOnly?: boolean;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          role="button"
+          tabIndex={0}
+          aria-label={label}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") e.stopPropagation();
+          }}
+          className={cn(
+            "ml-1 inline-flex h-4 w-4 shrink-0 cursor-help items-center justify-center rounded-full text-muted-foreground/60 transition-colors hover:text-foreground",
+            hoverOnly &&
+              "hidden group-hover:inline-flex group-focus-within:inline-flex focus-visible:inline-flex"
+          )}
+        >
+          <Info className="h-3.5 w-3.5" strokeWidth={2} />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="right" align="start" className="max-w-[260px] text-[11px] leading-snug">
+        {children}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
+ * Derive the persona chip ("Lead" / "Resident") from the AI labels present on a
+ * conversation. Leasing agents work with leads (prospects); Payments, Renewals,
+ * and Maintenance agents work with existing residents.
+ */
+function personaFromAILabels(labels: string[]): "Lead" | "Resident" | null {
+  const isLeasing = (l: string) => l === "Leasing AI" || l.startsWith("Leasing AI ");
+  const isResidentAgent = (l: string) =>
+    l === "Payments AI" ||
+    l.startsWith("Payments AI ") ||
+    l === "Renewals AI" ||
+    l === "Renewal AI" ||
+    l.startsWith("Renewals AI ") ||
+    l.startsWith("Renewal AI ") ||
+    l === "Maintenance AI" ||
+    l.startsWith("Maintenance AI ") ||
+    /^Maintenance AI \d/.test(l);
+  if (labels.some(isLeasing)) return "Lead";
+  if (labels.some(isResidentAgent)) return "Resident";
+  return null;
+}
+
+/** Base AI product labels — SA 1.2 hides these because ownership is already
+ * conveyed by the Property/Eli chip on the card. Escalation variants stay. */
+const AI_PRODUCT_LABEL_SET = new Set([
+  "Leasing AI",
+  "Renewals AI",
+  "Renewal AI",
+  "Maintenance AI",
+  "Payments AI",
+]);
+
+/**
  * Collapse same-agent escalations on the thread list card into one chip + count
  * (e.g. Maintenance AI 1 + 2 → "Maintenance AI Escalation" with count 2).
  * Underlying labels stay intact for reply / resolve.
+ *
+ * When `omitAIProductLabels` is true (SA 1.2), the plain AI-product chips are
+ * suppressed since the Property/Eli ownership chip already carries that info.
  */
-function collapseLabelsForThreadCard(labels: string[]): ThreadCardLabelChip[] {
+function collapseLabelsForThreadCard(
+  labels: string[],
+  omitAIProductLabels = false,
+): ThreadCardLabelChip[] {
   const chips: ThreadCardLabelChip[] = [];
   const agentGroupIndex = new Map<string, number>();
 
   for (const label of labels) {
     if (!label.endsWith("Escalation")) {
+      if (omitAIProductLabels && AI_PRODUCT_LABEL_SET.has(label)) continue;
       chips.push({ kind: "plain", label });
       continue;
     }
@@ -286,6 +372,19 @@ function collapseLabelsForThreadCard(labels: string[]): ThreadCardLabelChip[] {
     } else {
       const chip = chips[existing];
       if (chip.kind === "escalation") chip.labels.push(label);
+    }
+  }
+
+  // Ensure the persona label (Lead / Resident) matches the AI agents on the
+  // thread. If the source labels didn't already include one, prepend it so the
+  // card visually leads with who the conversation is with.
+  const persona = personaFromAILabels(labels);
+  if (persona) {
+    const alreadyPresent = chips.some(
+      (c) => c.kind === "plain" && c.label === persona
+    );
+    if (!alreadyPresent) {
+      chips.unshift({ kind: "plain", label: persona });
     }
   }
   return chips;
@@ -754,11 +853,18 @@ type SidebarFilter =
   | "all"
   | "mentions"
   | "unattended"
+  /** SA 1.2 only — dedicated inboxes. */
+  | "sa12-escalated"
+  | "sa12-property"
+  | "sa12-closed"
   | { type: "label"; value: string }
   | { type: "property"; value: string }
   | { type: "live-ai-jamison" }
   | { type: "live-ai-hillside" }
   | { type: "custom-inbox-1" };
+
+/** SA 1.2 channel sub-filter (applied on top of the primary inbox). */
+type Sa12ChannelFilter = "all" | "sms" | "chat" | "email" | "voice";
 
 type ThreadListConvoTypeFilter = "escalated" | "liveAi";
 type ThreadListDateRangePreset = "today" | "last7" | "last30" | "custom";
@@ -1941,15 +2047,32 @@ function ConversationsContent() {
   const { clickToCallEnabled, toggleClickToCallEnabled } = useClickToCallDemo();
   const { callSystemEnabled, toggleCallSystemEnabled, simulateInboundCall } = useCallSystemDemo();
   const {
-    superAgentEnabled,
-    toggleSuperAgentEnabled,
     superAgent1Enabled,
     toggleSuperAgent1Enabled,
+    superAgent12Enabled,
+    toggleSuperAgent12Enabled,
+    propertyOwnedThreadIds,
+    setThreadPropertyOwned,
+    simulateUserEnabled,
+    toggleSimulateUserEnabled,
+    followUpEnabled,
+    setFollowUpEnabled,
+    followUpDaysList,
+    setFollowUpDaysList,
+    autoCloseEnabled,
+    setAutoCloseEnabled,
+    autoCloseDays,
+    setAutoCloseDays,
+    threadSortMode,
+    setThreadSortMode,
   } = useConversationsDemo();
   const { translationEnabled, toggleTranslationEnabled } = useTranslationDemo();
   /** Call controls + phone demo threads (missed/voicemail) for Click To Call or Super Agent 1.0. */
   const phoneDemoEnabled = clickToCallEnabled || superAgent1Enabled;
   const [callSystemPanelOpen, setCallSystemPanelOpen] = useState(false);
+  const [manageInboxPanelOpen, setManageInboxPanelOpen] = useState(false);
+  /** Manage Inbox → Defaults: whether the Quick Filter block is visible in the sidebar. */
+  const [quickFilterEnabled, setQuickFilterEnabled] = useState(true);
 
   const clickToCallAssigneeOptions = useMemo(() => {
     const rest = humanMembers
@@ -1993,10 +2116,26 @@ function ConversationsContent() {
   // --- Sidebar + filter state ---
   const [sidebarFilter, setSidebarFilter] = useState<SidebarFilter>("all");
   const [inboxTab, setInboxTab] = useState("all");
+  // In SA 1.2 the My Inbox / Unassigned / All tab strip is hidden, so make sure
+  // any prior selection doesn't stay applied invisibly.
+  useEffect(() => {
+    if (superAgent12Enabled && inboxTab !== "all") setInboxTab("all");
+  }, [superAgent12Enabled, inboxTab]);
+  // Clicking any inbox in the sidebar should pull the user out of a settings
+  // panel (Call System, Manage Inbox) back to the thread list. Settings items
+  // don't mutate `sidebarFilter`, so this effect only fires on real inbox clicks.
+  useEffect(() => {
+    setCallSystemPanelOpen(false);
+    setManageInboxPanelOpen(false);
+  }, [sidebarFilter]);
   const [searchQuery, setSearchQuery] = useState("");
   const [bulkSelectMode, setBulkSelectMode] = useState(false);
   const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
   const [bulkResolveConfirmOpen, setBulkResolveConfirmOpen] = useState(false);
+  /** SA 1.2: sidebar-help modal explaining the inboxes and badges. */
+  const [inboxHelpOpen, setInboxHelpOpen] = useState(false);
+  /** SA 1.2: channel sub-filter applied to the sidebar-selected inbox. */
+  const [sa12ChannelFilter, setSa12ChannelFilter] = useState<Sa12ChannelFilter>("all");
   const [threadListFiltersOpen, setThreadListFiltersOpen] = useState(false);
   const [threadListConvoTypes, setThreadListConvoTypes] = useState<Set<ThreadListConvoTypeFilter>>(
     () => new Set(["escalated"])
@@ -2016,6 +2155,54 @@ function ConversationsContent() {
   );
 
   const isEscalationLabel = (label: string) => label.endsWith("Escalation");
+
+  /**
+   * SA 1.2 routing rule: any voice thread that carries a voicemail or missed
+   * call is inherently a staff-handled workflow (someone has to call the person
+   * back — Eli doesn't do that). Such threads route to Property Threads regardless
+   * of labels or explicit takeover, so Eli Threads only ever shows voice threads
+   * where Eli itself handled the call.
+   */
+  const isPropertyOwnedByVoiceOrigin = (c: (typeof conversations)[number]) => {
+    const ch = (c.channel || "").toLowerCase();
+    if (ch !== "voice" && ch !== "phone") return false;
+    return c.messages.some((m) => m.type === "voicemail" || m.type === "missed_call");
+  };
+
+  /**
+   * SA 1.2 "is this a Property Threads item?" — the union of the three ownership
+   * signals: explicit takeover, escalation label, or a voicemail/missed-call
+   * origin. Used everywhere the sidebar and channel counters partition threads.
+   */
+  const isPropertyOwnedSA12 = (c: (typeof conversations)[number]) => {
+    if (propertyOwnedThreadIds.has(c.id)) return true;
+    if (c.labels.some(isEscalationLabel)) return true;
+    if (isPropertyOwnedByVoiceOrigin(c)) return true;
+    return false;
+  };
+
+  /**
+   * Best-effort parse of a `ConversationItem.time` string (e.g. "5m ago",
+   * "27m ago", "3h ago", "2d ago", "just now") into an "age in minutes" number
+   * so the thread list can be ordered by recency. Anything unparseable is
+   * treated as extremely old so it drops to the bottom under "newest first".
+   */
+  const parseAgeMinutes = (time: string): number => {
+    const raw = (time || "").trim().toLowerCase();
+    if (!raw) return Number.POSITIVE_INFINITY;
+    if (raw === "just now" || raw === "now") return 0;
+    const m = raw.match(/(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|wk|wks|week|weeks|mo|mos|month|months|y|yr|yrs|year|years)\b/);
+    if (!m) return Number.POSITIVE_INFINITY;
+    const n = parseInt(m[1], 10);
+    const unit = m[2];
+    if (unit.startsWith("m") && !unit.startsWith("mo")) return n; // minutes
+    if (unit.startsWith("h")) return n * 60;
+    if (unit.startsWith("d")) return n * 60 * 24;
+    if (unit.startsWith("w")) return n * 60 * 24 * 7;
+    if (unit.startsWith("mo")) return n * 60 * 24 * 30;
+    if (unit.startsWith("y")) return n * 60 * 24 * 365;
+    return Number.POSITIVE_INFINITY;
+  };
 
   const allConversationPropertyNames = useMemo(() => {
     const s = new Set<string>();
@@ -2157,6 +2344,95 @@ function ConversationsContent() {
     [conversations, sa1HiddenConversationIds]
   );
 
+  /**
+   * SA 1.2 sidebar badge counts — one source of truth used by both the sidebar
+   * badges *and* the channel-filter "All channels" total, so they always agree.
+   * Keys map to `sidebarFilter` values: "all" | "sa12-escalated" | "sa12-property" | "sa12-closed".
+   */
+  const sa12InboxTotals = useMemo(() => {
+    const totals = { all: 0, escalated: 0, property: 0, closed: 0 };
+    for (const c of conversations) {
+      const isPropertyOwned = isPropertyOwnedSA12(c);
+      if (c.status === "open") {
+        totals.all += 1;
+        if (isPropertyOwned) totals.escalated += 1;
+        else totals.property += 1;
+      } else if (c.status === "resolved") {
+        totals.closed += 1;
+      }
+    }
+    return totals;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversations, propertyOwnedThreadIds]);
+
+  /**
+   * SA 1.2 "needs action" counts. These power the sidebar badges: only threads
+   * where the last public message is from resident/lead and staff hasn't replied
+   * yet (i.e. `needsStaffResponse`) contribute. We intentionally do NOT count
+   * Eli Threads or Closed here — Eli is handling those, and closed threads are done.
+   */
+  const sa12InboxActionCounts = useMemo(() => {
+    const counts = { all: 0, escalated: 0 };
+    for (const c of conversations) {
+      if (c.status !== "open") continue;
+      if (!needsStaffResponse(c)) continue;
+      // Only threads that a human is expected to handle count as "action needed".
+      // Eli-owned threads are Eli's responsibility.
+      if (!isPropertyOwnedSA12(c)) continue;
+      counts.all += 1;
+      counts.escalated += 1;
+    }
+    return counts;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversations, propertyOwnedThreadIds]);
+
+  /** Backwards-compatible alias for the Property Threads sidebar badge. */
+  const sa12EscalatedCount = sa12InboxTotals.escalated;
+
+  /**
+   * SA 1.2: per-channel counts of threads *needing action* inside the currently
+   * selected sidebar inbox (open + `needsStaffResponse`). Matches the sidebar
+   * badge semantics so the "All channels" total always equals the corresponding
+   * sidebar badge, and SMS + Chat + Email + Voice sum to that total.
+   */
+  const sa12ChannelActionCounts = useMemo(() => {
+    const counts = { all: 0, sms: 0, chat: 0, email: 0, voice: 0 };
+    if (!superAgent12Enabled) return counts;
+    // Eli Threads is Eli's territory — Eli handles those conversations, so
+    // staff has no "needs action" work here. The channel filter therefore
+    // reports zero across the board when the Eli inbox is active.
+    if (sidebarFilter === "sa12-property") return counts;
+    for (const c of conversations) {
+      // Match the "sidebar-filtered but without channel filter" base set.
+      // For open inboxes ("all" and "sa12-escalated") we additionally require
+      // isPropertyOwnedSA12 so the total mirrors the sidebar badge — because
+      // needs-action is defined as "Property-owned + needs staff reply." Eli
+      // Threads never contribute to needs-action counts.
+      if (sidebarFilter === "all") {
+        if (c.status !== "open" || !isPropertyOwnedSA12(c)) continue;
+      } else if (sidebarFilter === "sa12-escalated") {
+        if (c.status !== "open" || !isPropertyOwnedSA12(c)) continue;
+      } else if (sidebarFilter === "sa12-property") {
+        if (c.status !== "open" || isPropertyOwnedSA12(c)) continue;
+      } else if (sidebarFilter === "sa12-closed") {
+        if (c.status !== "resolved") continue;
+      } else {
+        continue;
+      }
+      // Only include threads that need staff to take action next.
+      if (c.status === "open" && !needsStaffResponse(c)) continue;
+      const ch = (c.channel || "").toLowerCase();
+      counts.all += 1;
+      if (ch === "sms") counts.sms += 1;
+      else if (ch === "email") counts.email += 1;
+      else if (ch === "resident chat") counts.chat += 1;
+      // Voice mock data lives under both "Voice" and legacy "Phone" — accept either.
+      else if (ch === "voice" || ch === "phone") counts.voice += 1;
+    }
+    return counts;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversations, sidebarFilter, propertyOwnedThreadIds, superAgent12Enabled]);
+
   /** Sidebar badge: unread threads in Custom Inbox 1. */
   const customInbox1UnreadCount = useMemo(
     () => conversations.filter((c) => conversationMatchesCustomInbox1(c) && c.hasUnread).length,
@@ -2165,9 +2441,41 @@ function ConversationsContent() {
 
   const sidebarFiltered = useMemo(() => {
     return conversations.filter((c) => {
-      if (sidebarFilter === "all") return conversationMatchesAllThreadsInbox(c);
+      // SA 1.2 rule: Resident Chat = resident-portal-only channel, so any thread
+      // that would render with a "Lead" persona is filtered out entirely (chat
+      // isn't a valid channel for prospects in SA 1.2).
+      if (
+        superAgent12Enabled &&
+        (c.channel || "").toLowerCase() === "resident chat" &&
+        personaFromAILabels(c.labels) === "Lead"
+      ) {
+        return false;
+      }
+      if (sidebarFilter === "all") {
+        // SA 1.2: "All Threads" shows every open thread (union of Property Threads + Eli Threads).
+        // Closed threads live in their own inbox.
+        if (superAgent12Enabled) {
+          return c.status === "open";
+        }
+        return conversationMatchesAllThreadsInbox(c);
+      }
       if (sidebarFilter === "mentions") return conversationHasCurrentUserPrivateNoteMention(c);
       if (sidebarFilter === "unattended") return isConversationUnattended(c);
+      if (sidebarFilter === "sa12-escalated") {
+        // SA 1.2 "Property Threads" — staff owns because the thread is escalated,
+        // staff explicitly took it over, OR the voice thread has a voicemail /
+        // missed call that a human has to call back on.
+        return c.status === "open" && isPropertyOwnedSA12(c);
+      }
+      if (sidebarFilter === "sa12-property") {
+        // SA 1.2 "Eli Threads" — everything Eli is still handling: open and NOT
+        // property-owned. Voicemail / missed-call voice threads are excluded
+        // even without escalation, since callbacks are staff work.
+        return c.status === "open" && !isPropertyOwnedSA12(c);
+      }
+      if (sidebarFilter === "sa12-closed") {
+        return c.status === "resolved";
+      }
       if (typeof sidebarFilter === "object" && sidebarFilter.type === "label") {
         if (sidebarFilter.value === "__escalation__")
           return c.labels.some(isEscalationLabel);
@@ -2191,17 +2499,27 @@ function ConversationsContent() {
         return conversationMatchesCustomInbox1(c);
       return true;
     });
-  }, [conversations, sidebarFilter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversations, sidebarFilter, superAgent12Enabled, propertyOwnedThreadIds]);
 
   const tabFiltered = useMemo(() => {
     return sidebarFiltered.filter((c) => {
+      // SA 1.2 channel sub-filter (applied only when SA 1.2 is on).
+      if (superAgent12Enabled && sa12ChannelFilter !== "all") {
+        const ch = (c.channel || "").toLowerCase();
+        if (sa12ChannelFilter === "sms" && ch !== "sms") return false;
+        if (sa12ChannelFilter === "email" && ch !== "email") return false;
+        if (sa12ChannelFilter === "chat" && ch !== "resident chat") return false;
+        // Voice mock data lives under both "Voice" and legacy "Phone" — accept either.
+        if (sa12ChannelFilter === "voice" && ch !== "voice" && ch !== "phone") return false;
+      }
       if (inboxTab === "all") return true;
       if (inboxTab === "mine") return c.assignee === MY_INBOX_ASSIGNEE;
       if (inboxTab === "unassigned")
         return c.assignee.startsWith("ELI+") || c.assignee === CONVERSATION_UNASSIGNED_ASSIGNEE;
       return true;
     });
-  }, [sidebarFiltered, inboxTab]);
+  }, [sidebarFiltered, inboxTab, superAgent12Enabled, sa12ChannelFilter]);
 
   const threadListConvoFiltered = useMemo(() => {
     const baseFiltered = tabFiltered.filter((c) => !sa1HiddenConversationIds.has(c.id));
@@ -2252,15 +2570,46 @@ function ConversationsContent() {
   ]);
 
   const filtered = useMemo(() => {
-    if (!searchQuery.trim()) return threadListDateFiltered;
-    const q = searchQuery.toLowerCase();
-    return threadListDateFiltered.filter(
-      (c) =>
-        c.resident.toLowerCase().includes(q) ||
-        c.preview.toLowerCase().includes(q) ||
-        c.labels.some((l) => l.toLowerCase().includes(q))
-    );
-  }, [threadListDateFiltered, searchQuery]);
+    const base = !searchQuery.trim()
+      ? threadListDateFiltered
+      : (() => {
+          const q = searchQuery.toLowerCase();
+          return threadListDateFiltered.filter(
+            (c) =>
+              c.resident.toLowerCase().includes(q) ||
+              c.preview.toLowerCase().includes(q) ||
+              c.labels.some((l) => l.toLowerCase().includes(q))
+          );
+        })();
+
+    // Thread Settings → Sorting. Applied for SA 1.2 across every inbox so the
+    // ordering setting there is a single source of truth for the list. Sort is
+    // stable on the source array; we clone before sorting to avoid mutating memo
+    // inputs. Age is derived from the pre-formatted `time` string (e.g. "5m ago").
+    if (!superAgent12Enabled) return base;
+    const arr = [...base];
+    if (threadSortMode === "newest") {
+      arr.sort((a, b) => parseAgeMinutes(a.time) - parseAgeMinutes(b.time));
+    } else if (threadSortMode === "oldest") {
+      arr.sort((a, b) => parseAgeMinutes(b.time) - parseAgeMinutes(a.time));
+    } else if (threadSortMode === "priority") {
+      // Needs-action Property Threads bubble to the top, everything else falls
+      // back to newest-first. Eli threads never count as "needs action" per SA 1.2.
+      const priorityOf = (c: (typeof arr)[number]) => {
+        if (c.status !== "open") return 2;
+        if (isPropertyOwnedSA12(c) && needsStaffResponse(c)) return 0;
+        return 1;
+      };
+      arr.sort((a, b) => {
+        const pa = priorityOf(a);
+        const pb = priorityOf(b);
+        if (pa !== pb) return pa - pb;
+        return parseAgeMinutes(a.time) - parseAgeMinutes(b.time);
+      });
+    }
+    return arr;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadListDateFiltered, searchQuery, superAgent12Enabled, threadSortMode, propertyOwnedThreadIds]);
 
   const myInboxUnreadCount = useMemo(
     () =>
@@ -3111,101 +3460,339 @@ function ConversationsContent() {
         </Link>
 
         <nav className="flex-1 overflow-y-auto px-2 py-2">
-          <ul className="space-y-0.5">
-            {([
-              { id: "all" as const, icon: Inbox, label: "Open Threads" },
-              { id: "mentions" as const, icon: AtSign, label: "Mentions" },
-            ] as const).map((item) => (
-              <li key={item.id}>
+          {superAgent12Enabled ? (
+            <TooltipProvider delayDuration={200}>
+              <ul className="space-y-0.5">
+              <li>
                 <Button
-                  variant={isSidebarActive(item.id) ? "secondary" : "ghost"}
+                  variant={isSidebarActive("all") ? "secondary" : "ghost"}
                   className={cn(
-                    "w-full justify-start gap-2.5 font-normal",
-                    isSidebarActive(item.id) && "font-medium"
+                    "group w-full justify-start gap-2 px-2 font-normal",
+                    isSidebarActive("all") && "font-medium"
                   )}
-                  onClick={() => setSidebarFilter(item.id)}
+                  onClick={() => setSidebarFilter("all")}
                 >
-                  <item.icon className="h-4 w-4 shrink-0" />
-                  <span className="min-w-0 flex-1 text-left">{item.label}</span>
-                  {item.id === "all" && allThreadsUnreadCount > 0 && (
-                    <Badge variant="destructive" className="h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">
-                      {allThreadsUnreadCount}
-                    </Badge>
-                  )}
-                  {item.id === "mentions" && mentionsInboxCount > 0 && (
-                    <Badge variant="destructive" className="h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">
-                      {mentionsInboxCount}
-                    </Badge>
-                  )}
+                  <Inbox className="h-4 w-4 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate text-left">Open Threads</span>
+                  <SidebarInfoTip label="About Open Threads" hoverOnly>
+                    Every active conversation — both those Eli is handling and those a
+                    property teammate owns. The count is the sum of Property Threads
+                    and Eli Threads — and because Eli Threads never require staff
+                    action, this number always matches Property Threads.
+                  </SidebarInfoTip>
+                  {/* No badge — the count is identical to Property Threads (Eli contributes 0), so it's redundant. */}
                 </Button>
               </li>
-            ))}
-          </ul>
-
-          <div className="my-3 h-px bg-border" />
-
-          <h3 className="px-2 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Custom Inboxes
-          </h3>
-          <ul className="space-y-0.5">
-            <li>
-              <Button
-                variant={isSidebarActive({ type: "custom-inbox-1" }) ? "secondary" : "ghost"}
-                className={cn(
-                  "h-auto min-h-9 w-full items-start justify-start gap-2.5 whitespace-normal py-2 font-normal",
-                  isSidebarActive({ type: "custom-inbox-1" }) && "font-medium"
-                )}
-                onClick={() => setSidebarFilter({ type: "custom-inbox-1" })}
-              >
-                <span className="min-w-0 flex-1 text-left leading-snug break-words">Custom Inbox 1</span>
-                {customInbox1UnreadCount > 0 && (
-                  <Badge variant="destructive" className="mt-0.5 h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">
-                    {customInbox1UnreadCount}
-                  </Badge>
-                )}
-              </Button>
-            </li>
-          </ul>
-
-          <div className="my-3 h-px bg-border" />
-
-          <h3 className="px-2 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Settings
-          </h3>
-          <ul className="space-y-0.5">
-            {(["Call System", "Email Integration", "Manage Vanity Numbers", "Manage Inboxes", "Manage Labels", "Reporting"]).map((label) => {
-              if (label === "Call System" && !callSystemEnabled) return null;
-              return (
-              <li key={label}>
-                {label === "Call System" ? (
+              {([
+                {
+                  id: "sa12-escalated" as const,
+                  icon: Building,
+                  label: "Property Threads",
+                  tip: (
+                    <>
+                      Threads a property teammate is handling — either escalated to a
+                      human or taken over from Eli. Eli is paused on these until they
+                      close.
+                    </>
+                  ),
+                },
+                {
+                  id: "sa12-property" as const,
+                  icon: Bot,
+                  label: "Eli Threads",
+                  tip: (
+                    <>
+                      Threads Eli is actively handling on the property&apos;s behalf.
+                      No badge because these don&apos;t require your action right now.
+                    </>
+                  ),
+                },
+              ] as const).map((item) => (
+                <li key={item.id} className="relative">
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute left-[15px] top-0 bottom-0 w-px bg-border"
+                  />
                   <Button
-                    variant={callSystemPanelOpen ? "secondary" : "ghost"}
-                    className={cn("w-full justify-start font-normal", callSystemPanelOpen && "font-medium")}
-                    onClick={() => setCallSystemPanelOpen(!callSystemPanelOpen)}
+                    variant={isSidebarActive(item.id) ? "secondary" : "ghost"}
+                    className={cn(
+                      "group w-full justify-start gap-1.5 pl-7 pr-1.5 font-normal",
+                      isSidebarActive(item.id) && "font-medium"
+                    )}
+                    onClick={() => setSidebarFilter(item.id)}
                   >
-                    {label}
+                    <item.icon className="h-4 w-4 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
+                    <SidebarInfoTip label={`About ${item.label}`} hoverOnly>{item.tip}</SidebarInfoTip>
+                    {item.id === "sa12-escalated" && sa12InboxActionCounts.escalated > 0 && (
+                      <Badge variant="destructive" className="ml-1 h-4 min-w-4 shrink-0 justify-center rounded-full px-1 text-[9px] font-semibold leading-none tabular-nums">
+                        {sa12InboxActionCounts.escalated}
+                      </Badge>
+                    )}
                   </Button>
-                ) : label === "Email Integration" ? (
-                  <Link href="/communications-setup/custom-email">
-                    <Button variant="ghost" className="w-full justify-start font-normal" onClick={() => setCallSystemPanelOpen(false)}>
-                      {label}
-                    </Button>
-                  </Link>
-                ) : label === "Manage Vanity Numbers" ? (
-                  <Link href="/communications-setup/phone-numbers">
-                    <Button variant="ghost" className="w-full justify-start font-normal" onClick={() => setCallSystemPanelOpen(false)}>
-                      {label}
-                    </Button>
-                  </Link>
-                ) : (
-                  <Button variant="ghost" className="w-full justify-start font-normal" onClick={() => setCallSystemPanelOpen(false)}>
-                    {label}
-                  </Button>
-                )}
+                </li>
+              ))}
+              <li>
+                <Button
+                  variant={isSidebarActive("sa12-closed") ? "secondary" : "ghost"}
+                  className={cn(
+                    "group w-full justify-start gap-2 px-2 font-normal",
+                    isSidebarActive("sa12-closed") && "font-medium"
+                  )}
+                  onClick={() => setSidebarFilter("sa12-closed")}
+                >
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate text-left">Closed Threads</span>
+                  <SidebarInfoTip label="About Closed Threads" hoverOnly>
+                    Resolved conversations, archived for reference. No badge because
+                    completed work doesn&apos;t need attention.
+                  </SidebarInfoTip>
+                </Button>
               </li>
-              );
-            })}
-          </ul>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => setInboxHelpOpen(true)}
+                  className="mt-1 inline-flex w-full items-center gap-1 whitespace-nowrap rounded-md px-2 py-1 text-left text-[10px] text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                >
+                  <HelpCircle className="h-3 w-3 shrink-0" strokeWidth={2} />
+                  <span className="underline decoration-dotted underline-offset-2">
+                    Understand the inbox?
+                  </span>
+                </button>
+              </li>
+              </ul>
+            </TooltipProvider>
+          ) : (
+            <ul className="space-y-0.5">
+              {([
+                { id: "all" as const, icon: Inbox, label: "Open Threads" },
+                { id: "mentions" as const, icon: AtSign, label: "Mentions" },
+                { id: "unattended" as const, icon: Clock, label: "Needs Action" },
+              ] as const).map((item) => (
+                <li key={item.id}>
+                  <Button
+                    variant={isSidebarActive(item.id) ? "secondary" : "ghost"}
+                    className={cn(
+                      "w-full justify-start gap-2 px-2 font-normal",
+                      isSidebarActive(item.id) && "font-medium"
+                    )}
+                    onClick={() => setSidebarFilter(item.id)}
+                  >
+                    <item.icon className="h-4 w-4 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
+                    {item.id === "all" && allThreadsUnreadCount > 0 && (
+                      <Badge variant="destructive" className="h-[18px] min-w-[18px] shrink-0 justify-center rounded-full px-1 text-[10px] leading-none">
+                        {allThreadsUnreadCount}
+                      </Badge>
+                    )}
+                    {item.id === "mentions" && mentionsInboxCount > 0 && (
+                      <Badge variant="destructive" className="h-[18px] min-w-[18px] shrink-0 justify-center rounded-full px-1 text-[10px] leading-none">
+                        {mentionsInboxCount}
+                      </Badge>
+                    )}
+                    {item.id === "unattended" && unattendedInboxCount > 0 && (
+                      <Badge variant="destructive" className="h-[18px] min-w-[18px] shrink-0 justify-center rounded-full px-1 text-[10px] leading-none">
+                        {unattendedInboxCount}
+                      </Badge>
+                    )}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {superAgent12Enabled && quickFilterEnabled && (
+            <div className="mt-3 border-t border-border/70 px-2 pt-3">
+              <TooltipProvider delayDuration={200}>
+                <h3 className="mb-1 flex items-center gap-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <span>Quick Filter</span>
+                  <SidebarInfoTip label="About Quick Filter">
+                    Narrow the current inbox to a single channel. Counts show how
+                    many threads in this inbox still need staff action, broken out
+                    by SMS, Chat, Email, and Voice. Selecting a channel filters the
+                    thread list on the right; &quot;All channels&quot; clears it.
+                  </SidebarInfoTip>
+                </h3>
+                <div className="rounded-md border border-border/60 bg-muted/50 p-1">
+                {/* Header row: "All channels" acts as the total + reset. */}
+                {(() => {
+                  const active = sa12ChannelFilter === "all";
+                  const count = sa12ChannelActionCounts.all;
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => setSa12ChannelFilter("all")}
+                      aria-pressed={active}
+                      className={cn(
+                        "mb-1 flex w-full items-center justify-center gap-2 rounded-sm px-2 py-1 transition-all",
+                        active
+                          ? "bg-[hsl(207_73%_95%)] text-[hsl(207_73%_25%)] ring-1 ring-inset ring-[hsl(207_73%_75%)] shadow-sm dark:bg-[hsl(207_73%_20%)] dark:text-[hsl(207_73%_92%)] dark:ring-[hsl(207_73%_35%)]"
+                          : "text-muted-foreground hover:bg-background/60 hover:text-foreground"
+                      )}
+                    >
+                      <span className={cn(
+                        "text-[10px] uppercase tracking-wider",
+                        active ? "font-bold" : "font-semibold"
+                      )}>
+                        All channels
+                      </span>
+                      {count > 0 && (
+                        <span className="inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold leading-none text-destructive-foreground">
+                          {count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })()}
+                {/* Channel tiles — badge on the icon's shoulder, label under the icon. */}
+                <div className="grid grid-cols-4 gap-0.5">
+                  {([
+                    { id: "voice" as const, label: "Voice", Icon: Phone },
+                    { id: "sms" as const, label: "SMS", Icon: MessageSquare },
+                    { id: "chat" as const, label: "Chat", Icon: MessageCircle },
+                    { id: "email" as const, label: "Email", Icon: Mail },
+                  ] as const).map((opt) => {
+                    const active = sa12ChannelFilter === opt.id;
+                    const count = sa12ChannelActionCounts[opt.id];
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setSa12ChannelFilter(opt.id)}
+                        aria-pressed={active}
+                        title={`Filter by ${opt.label}${count > 0 ? ` \u2022 ${count} need action` : ""}`}
+                        className={cn(
+                          "flex flex-col items-center gap-1 rounded-sm px-1 py-1.5 text-[10px] transition-all",
+                          active
+                            ? "bg-[hsl(207_73%_95%)] text-[hsl(207_73%_25%)] ring-1 ring-inset ring-[hsl(207_73%_75%)] shadow-sm font-semibold dark:bg-[hsl(207_73%_20%)] dark:text-[hsl(207_73%_92%)] dark:ring-[hsl(207_73%_35%)]"
+                            : "text-muted-foreground hover:bg-background/60 hover:text-foreground font-medium"
+                        )}
+                      >
+                        <span className="relative inline-flex">
+                          <opt.Icon className={cn("h-4 w-4", active && "text-[hsl(207_73%_30%)] dark:text-[hsl(207_73%_92%)]")} strokeWidth={active ? 2.5 : 2} />
+                          {count > 0 && (
+                            <span
+                              className={cn(
+                                "pointer-events-none absolute -right-2 -top-1.5 inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold leading-none text-destructive-foreground ring-2",
+                                active
+                                  ? "ring-[hsl(207_73%_95%)] dark:ring-[hsl(207_73%_20%)]"
+                                  : "ring-muted/50"
+                              )}
+                            >
+                              {count}
+                            </span>
+                          )}
+                        </span>
+                        <span>{opt.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              </TooltipProvider>
+            </div>
+          )}
+
+          <div className="my-3 h-px bg-border" />
+
+          {!simulateUserEnabled && (
+            <>
+              {!superAgent12Enabled && (
+                <>
+                  <h3 className="px-2 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Custom Inboxes
+                  </h3>
+                  <ul className="space-y-0.5">
+                    <li>
+                      <Button
+                        variant={isSidebarActive({ type: "custom-inbox-1" }) ? "secondary" : "ghost"}
+                        className={cn(
+                          "w-full items-center justify-start gap-2 px-2 font-normal",
+                          isSidebarActive({ type: "custom-inbox-1" }) && "font-medium"
+                        )}
+                        onClick={() => setSidebarFilter({ type: "custom-inbox-1" })}
+                      >
+                        <span className="min-w-0 flex-1 truncate text-left">Custom Inbox 1</span>
+                        {customInbox1UnreadCount > 0 && (
+                          <Badge variant="destructive" className="h-[18px] min-w-[18px] shrink-0 justify-center rounded-full px-1 text-[10px] leading-none">
+                            {customInbox1UnreadCount}
+                          </Badge>
+                        )}
+                      </Button>
+                    </li>
+                  </ul>
+
+                  <div className="my-3 h-px bg-border" />
+                </>
+              )}
+
+              <h3 className="px-2 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Settings
+              </h3>
+              <ul className="space-y-0.5">
+                {(["Call System", "Email Integration", "Manage Vanity Numbers", "Manage Inboxes", "Thread Settings", "Manage Labels", "Reporting"]).map((label) => {
+                  if (label === "Call System" && !callSystemEnabled) return null;
+                  // Thread Settings is a SA 1.2-only surface — the settings inside
+                  // (Thread Automation, Quick Filter defaults, One Time Setup)
+                  // only make sense once the SA 1.2 inbox model is turned on.
+                  if (label === "Thread Settings" && !superAgent12Enabled) return null;
+                  // SA 1.2 trims the Settings list — these three surfaces move elsewhere.
+                  if (
+                    superAgent12Enabled &&
+                    (label === "Manage Vanity Numbers" ||
+                      label === "Manage Inboxes" ||
+                      label === "Reporting")
+                  ) {
+                    return null;
+                  }
+                  return (
+                  <li key={label}>
+                    {label === "Call System" ? (
+                      <Button
+                        variant={callSystemPanelOpen ? "secondary" : "ghost"}
+                        className={cn("w-full justify-start px-2 font-normal", callSystemPanelOpen && "font-medium")}
+                        onClick={() => {
+                          setManageInboxPanelOpen(false);
+                          setCallSystemPanelOpen((v) => !v);
+                        }}
+                      >
+                        {label}
+                      </Button>
+                    ) : label === "Thread Settings" ? (
+                      <Button
+                        variant={manageInboxPanelOpen ? "secondary" : "ghost"}
+                        className={cn("w-full justify-start px-2 font-normal", manageInboxPanelOpen && "font-medium")}
+                        onClick={() => {
+                          setCallSystemPanelOpen(false);
+                          setManageInboxPanelOpen((v) => !v);
+                        }}
+                      >
+                        {label}
+                      </Button>
+                    ) : label === "Email Integration" ? (
+                      <Link href="/communications-setup/custom-email">
+                        <Button variant="ghost" className="w-full justify-start px-2 font-normal" onClick={() => { setCallSystemPanelOpen(false); setManageInboxPanelOpen(false); }}>
+                          {label}
+                        </Button>
+                      </Link>
+                    ) : label === "Manage Vanity Numbers" ? (
+                      <Link href="/communications-setup/phone-numbers">
+                        <Button variant="ghost" className="w-full justify-start px-2 font-normal" onClick={() => { setCallSystemPanelOpen(false); setManageInboxPanelOpen(false); }}>
+                          {label}
+                        </Button>
+                      </Link>
+                    ) : (
+                      <Button variant="ghost" className="w-full justify-start px-2 font-normal" onClick={() => { setCallSystemPanelOpen(false); setManageInboxPanelOpen(false); }}>
+                        {label}
+                      </Button>
+                    )}
+                  </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
         </nav>
 
         {/* ===== COMMUNICATIONS DEMO CONTROL ===== */}
@@ -3215,41 +3802,64 @@ function ConversationsContent() {
           callSystemEnabled={callSystemEnabled}
           onToggleCallSystem={toggleCallSystemEnabled}
           onSimulateInboundCall={simulateInboundCall}
-          superAgentEnabled={superAgentEnabled}
-          onToggleSuperAgent={toggleSuperAgentEnabled}
           superAgent1Enabled={superAgent1Enabled}
           onToggleSuperAgent1={toggleSuperAgent1Enabled}
+          superAgent12Enabled={superAgent12Enabled}
+          onToggleSuperAgent12={toggleSuperAgent12Enabled}
           translationEnabled={translationEnabled}
           onToggleTranslation={toggleTranslationEnabled}
+          simulateUserEnabled={simulateUserEnabled}
+          onToggleSimulateUser={toggleSimulateUserEnabled}
         />
       </aside>
 
       {/* ===== CALL SYSTEM SETTINGS PANEL ===== */}
       {callSystemPanelOpen && <CallSystemSettingsPanel onClose={() => setCallSystemPanelOpen(false)} />}
 
+      {/* ===== MANAGE INBOX SETTINGS PANEL ===== */}
+      {manageInboxPanelOpen && (
+        <ManageInboxSettingsPanel
+          onClose={() => setManageInboxPanelOpen(false)}
+          quickFilterEnabled={quickFilterEnabled}
+          onToggleQuickFilter={setQuickFilterEnabled}
+          followUpEnabled={followUpEnabled}
+          onToggleFollowUpEnabled={setFollowUpEnabled}
+          followUpDaysList={followUpDaysList}
+          onSetFollowUpDaysList={setFollowUpDaysList}
+          autoCloseEnabled={autoCloseEnabled}
+          onToggleAutoCloseEnabled={setAutoCloseEnabled}
+          autoCloseDays={autoCloseDays}
+          onSetAutoCloseDays={setAutoCloseDays}
+          sortMode={threadSortMode}
+          onSetSortMode={setThreadSortMode}
+        />
+      )}
+
       {/* ===== CONVERSATION LIST ===== */}
-      <div className={cn("flex w-[340px] shrink-0 flex-col border-r border-border bg-card", callSystemPanelOpen && "hidden")}>
-        {/* Tabs bar */}
-        <div className="px-3 py-2">
-          <Tabs value={inboxTab} onValueChange={setInboxTab} className="w-full">
-            <TabsList className="h-9 w-full">
-              <TabsTrigger value="mine" className="flex-1 gap-1.5 px-1.5 text-xs">
-                My Inbox
-                {myInboxUnreadCount > 0 && (
-                  <Badge variant="destructive" className="h-5 min-w-5 justify-center px-1.5 text-[10px]">
-                    {myInboxUnreadCount}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="unassigned" className="flex-1 px-1.5 text-xs">
-                Unassigned
-              </TabsTrigger>
-              <TabsTrigger value="all" className="flex-1 px-1.5 text-xs">
-                All
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </div>
+      <div className={cn("flex w-[340px] shrink-0 flex-col border-r border-border bg-card", (callSystemPanelOpen || manageInboxPanelOpen) && "hidden")}>
+        {/* Tabs bar — hidden in SA 1.2 (the sidebar inboxes already partition the list). */}
+        {!superAgent12Enabled && (
+          <div className="px-3 py-2">
+            <Tabs value={inboxTab} onValueChange={setInboxTab} className="w-full">
+              <TabsList className="h-9 w-full">
+                <TabsTrigger value="mine" className="flex-1 gap-1.5 px-1.5 text-xs">
+                  My Inbox
+                  {myInboxUnreadCount > 0 && (
+                    <Badge variant="destructive" className="h-5 min-w-5 justify-center px-1.5 text-[10px]">
+                      {myInboxUnreadCount}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="unassigned" className="flex-1 px-1.5 text-xs">
+                  Unassigned
+                </TabsTrigger>
+                <TabsTrigger value="all" className="flex-1 px-1.5 text-xs">
+                  All
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+        )}
 
         {/* Search + floating filters */}
         <div className="flex items-center gap-2 border-b border-border px-3 py-2">
@@ -3864,6 +4474,137 @@ function ConversationsContent() {
           </div>
         )}
 
+        <Dialog open={inboxHelpOpen} onOpenChange={setInboxHelpOpen}>
+          <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Understanding your inbox</DialogTitle>
+              <DialogDescription>
+                A quick tour of the four inboxes on the left and the red count badges next to them.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="-mx-6 flex-1 space-y-4 overflow-y-auto px-6 text-sm">
+              <div className="flex gap-3">
+                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
+                  <Inbox className="h-4 w-4 text-muted-foreground" strokeWidth={2} />
+                </div>
+                <div>
+                  <p className="font-semibold">Open Threads</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Every active conversation — both those Eli is handling and those a
+                    property teammate owns. Think of it as the roll-up of Property
+                    Works + Eli Threads.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
+                  <Building className="h-4 w-4 text-muted-foreground" strokeWidth={2} />
+                </div>
+                <div>
+                  <p className="font-semibold">Property Threads</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Threads a property teammate is handling — because the AI escalated
+                    them or because staff explicitly took the thread over. Eli is paused
+                    on these until they close.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
+                  <Bot className="h-4 w-4 text-muted-foreground" strokeWidth={2} />
+                </div>
+                <div>
+                  <p className="font-semibold">Eli Threads</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Threads Eli is actively handling on the property&apos;s behalf. There is
+                    no badge here because these don&apos;t need your action right now.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
+                  <CheckCircle2 className="h-4 w-4 text-muted-foreground" strokeWidth={2} />
+                </div>
+                <div>
+                  <p className="font-semibold">Closed Threads</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Resolved conversations, kept for reference. No badge because
+                    completed work doesn&apos;t need attention.
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                <div className="flex items-center gap-2">
+                  <Badge variant="destructive" className="h-[18px] min-w-[18px] shrink-0 justify-center rounded-full px-1 text-[10px] leading-none">
+                    N
+                  </Badge>
+                  <p className="text-xs font-semibold">What the red count means</p>
+                </div>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  The number is how many threads in that inbox{" "}
+                  <span className="font-medium text-foreground">need staff action</span>. A
+                  thread counts when either:
+                </p>
+                <ul className="mt-1.5 space-y-0.5 pl-4 text-xs text-muted-foreground list-disc">
+                  <li>
+                    The resident or lead sent the last public message and no one has
+                    replied yet, or
+                  </li>
+                  <li>
+                    A <span className="font-medium text-foreground">Thread Automation</span>{" "}
+                    follow-up reminder has fired on the thread (see below).
+                  </li>
+                </ul>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Only <span className="font-medium text-foreground">Property Threads</span>{" "}
+                  shows a red count. <span className="font-medium text-foreground">Eli Threads</span>{" "}
+                  and <span className="font-medium text-foreground">Closed Threads</span> never
+                  do — Eli is handling those and closed work is done. Open Threads is the
+                  sum of both, and since Eli contributes 0, its count would just duplicate
+                  Property Threads, so we hide it.
+                </p>
+              </div>
+
+              <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                <div className="flex items-center gap-2">
+                  <BellRing className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-300" strokeWidth={2} aria-hidden />
+                  <p className="text-xs font-semibold">Thread Automation follow-ups</p>
+                </div>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  In <span className="font-medium text-foreground">Thread Settings → Thread
+                  Automation</span> you can set follow-up thresholds (e.g. 3, 7, 10 days).
+                  When staff sent the last reply and a resident or lead hasn&apos;t
+                  responded within one of those windows, we surface a follow-up reminder
+                  on the thread and it starts counting toward the red badge — so nothing
+                  waiting on the resident quietly falls off.
+                </p>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Reminded threads show a subtle{" "}
+                  <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+                    <BellRing className="h-3 w-3" strokeWidth={2} aria-hidden />
+                    Follow up
+                  </span>{" "}
+                  marker on the card, and every trigger is logged on the thread&apos;s
+                  activity timeline.
+                </p>
+              </div>
+
+              <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                <p className="text-xs font-semibold">Quick Filter</p>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Narrows the current inbox to a single channel (Voice, SMS, Chat, or
+                  Email). The counts on each tile add up to the sidebar badge, so you
+                  always see the same actionable set — just sliced by channel.
+                </p>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button size="sm" onClick={() => setInboxHelpOpen(false)}>Got it</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         <Dialog open={bulkResolveConfirmOpen} onOpenChange={setBulkResolveConfirmOpen}>
           <DialogContent className="sm:max-w-sm">
             <DialogHeader>
@@ -3956,8 +4697,34 @@ function ConversationsContent() {
                           </div>
                         )}
                         <div className={cn("flex w-full flex-col gap-1", bulkSelectMode && "min-w-0 flex-1")}>
-                        {needsStaffResponse(convo) && !isActive && !bulkSelectMode && (
-                          <span className="absolute left-1.5 top-4 h-2 w-2 rounded-full bg-destructive/90 ring-2 ring-background" />
+                        {(() => {
+                          if (!needsStaffResponse(convo)) return false;
+                          // Bulk-select mode owns the top-left slot with a checkbox,
+                          // so the marker steps aside there — but NOT when the row
+                          // is merely selected. The dot represents "still needs
+                          // action" and should only disappear when staff actually
+                          // resolves it (reply / callback / clear the reminder).
+                          if (bulkSelectMode) return false;
+                          // In SA 1.2, only Property-owned threads get the marker.
+                          // Eli-owned threads (including reminder-flagged ones) are
+                          // fully Eli's responsibility — staff should never see an
+                          // "act on this" indicator in the Eli Threads inbox.
+                          if (superAgent12Enabled) {
+                            if (!isPropertyOwnedSA12(convo)) return false;
+                          }
+                          return true;
+                        })() && (
+                          <span
+                            aria-label={hasActiveFollowUpReminder(convo) ? "Follow-up reminder — needs staff action" : "Needs staff action"}
+                            title={hasActiveFollowUpReminder(convo) ? "Follow-up reminder — needs staff action" : "Needs staff action"}
+                            className={cn(
+                              "absolute left-1.5 top-4 h-2 w-2 rounded-full ring-2 ring-background",
+                              // Amber = reminder (Thread Automation nudge), red = unreplied resident message.
+                              hasActiveFollowUpReminder(convo)
+                                ? "bg-amber-500"
+                                : "bg-destructive/90",
+                            )}
+                          />
                         )}
                         <div className="flex items-start justify-between gap-2 pr-0.5">
                           <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[10px] font-medium tracking-wide text-muted-foreground">
@@ -4021,6 +4788,31 @@ function ConversationsContent() {
                               convo.property
                             )}
                           </span>
+                          {/*
+                            Thread Automation follow-up chip — lives in the top
+                            metadata row (alongside the channel chip) so it reads
+                            as thread provenance rather than a resident-applied
+                            label. Amber matches the corner dot and the activity
+                            timeline row so the automation is visually unified.
+                            Suppressed on Eli-owned threads: Eli handles those
+                            conversations, so staff has no action to take even
+                            when a reminder is logged on the thread.
+                          */}
+                          {(() => {
+                            if (!superAgent12Enabled) return false;
+                            if (convo.status !== "open") return false;
+                            if (!hasActiveFollowUpReminder(convo)) return false;
+                            return isPropertyOwnedSA12(convo);
+                          })() && (
+                            <span
+                              aria-label="Follow-up reminder triggered by Thread Automation"
+                              title="Follow-up reminder triggered by Thread Automation"
+                              className="inline-flex shrink-0 items-center gap-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300"
+                            >
+                              <BellRing className="h-3 w-3 shrink-0" aria-hidden />
+                              Follow up
+                            </span>
+                          )}
                           <ConversationListChannelChip channel={convo.channel} />
                           {convo.additionalChannels?.map((ch) => (
                             <ConversationListChannelChip key={ch} channel={ch} />
@@ -4046,12 +4838,64 @@ function ConversationsContent() {
                             {convo.resident}
                           </span>
                         )}
-                        <span className="shrink-0 text-[10px] text-muted-foreground">{convo.time}</span>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          {(() => {
+                            if (!followUpEnabled) return null;
+                            if (convo.status !== "open") return null;
+                            const ch = (convo.channel || "").toLowerCase();
+                            if (ch !== "sms" && ch !== "email") return null;
+                            if (!isWaitingOnResidentPublicReply(convo)) return null;
+                            // SA 1.2: Eli owns Eli Threads end-to-end, so no
+                            // staff-directed "no reply" prompt shows there.
+                            if (superAgent12Enabled) {
+                              if (!isPropertyOwnedSA12(convo)) return null;
+                            }
+                            // Multi-threshold display: use the shortest configured
+                            // threshold since it's when the marker first fires. Additional
+                            // thresholds (7d, 10d, …) still exist and drive their own
+                            // reminders — this badge just shows the entry point.
+                            const shortest = Math.min(...followUpDaysList);
+                            const persona = personaFromAILabels(convo.labels) === "Resident" ? "resident" : "lead";
+                            const listLabel = followUpDaysList.length > 1
+                              ? `Follow-up thresholds: ${followUpDaysList.map((n) => `${n}d`).join(", ")}`
+                              : `No reply from ${persona} for ${shortest} day${shortest === 1 ? "" : "s"}`;
+                            return (
+                              <Badge
+                                variant="secondary"
+                                title={listLabel}
+                                className="h-auto gap-1 bg-status-warning px-1.5 py-0.5 text-[10px] leading-none text-status-warning-foreground"
+                              >
+                                <Clock className="h-3 w-3" strokeWidth={2} />
+                                No reply · {shortest}d{followUpDaysList.length > 1 ? "+" : ""}
+                              </Badge>
+                            );
+                          })()}
+                          <span className="text-[10px] text-muted-foreground">{convo.time}</span>
+                        </div>
                       </div>
                       <p className={cn("truncate text-xs", convo.hasUnread ? "text-foreground" : "text-muted-foreground")}>{convo.preview}</p>
-                      {convo.labels.length > 0 && (
+                      {(superAgent12Enabled && convo.status === "open") || convo.labels.length > 0 ? (
                         <div className="mt-0.5 flex flex-wrap gap-1">
-                          {collapseLabelsForThreadCard(convo.labels).map((chip) => {
+                          {superAgent12Enabled && convo.status === "open" && (
+                            isPropertyOwnedSA12(convo) ? (
+                              <Badge
+                                variant="secondary"
+                                className="h-auto gap-1 bg-blue-100 px-1.5 py-0 text-[10px] text-blue-900 dark:bg-blue-900/40 dark:text-blue-100"
+                              >
+                                <Building className="h-3 w-3" strokeWidth={2} />
+                                Property
+                              </Badge>
+                            ) : (
+                              <Badge
+                                variant="secondary"
+                                className="h-auto gap-1 border border-eli-purple/30 bg-eli-warm-bg px-1.5 py-0 text-[10px] text-eli-warm-bg-foreground"
+                              >
+                                <Bot className="h-3 w-3" strokeWidth={2} />
+                                Eli
+                              </Badge>
+                            )
+                          )}
+                          {collapseLabelsForThreadCard(convo.labels, superAgent12Enabled).map((chip) => {
                             if (chip.kind === "plain") {
                               return (
                                 <Badge
@@ -4089,7 +4933,7 @@ function ConversationsContent() {
                             );
                           })}
                         </div>
-                      )}
+                      ) : null}
                       </div>
                       </button>
                     </li>
@@ -4106,7 +4950,7 @@ function ConversationsContent() {
       </div>
 
       {/* ===== CONVERSATION DETAIL ===== */}
-      <div className={cn("flex min-w-0 flex-1 flex-col", callSystemPanelOpen && "hidden")}>
+      <div className={cn("flex min-w-0 flex-1 flex-col", (callSystemPanelOpen || manageInboxPanelOpen) && "hidden")}>
         {selected ? (
           <>
             {/* Header */}
@@ -4320,8 +5164,21 @@ function ConversationsContent() {
                     </PopoverContent>
                   </Popover>
 
-                  {selected.labels.some((label) => AI_ACTIVATION_OPT_IN_LABELS.has(label)) && (() => {
-                    const sa1State = isSuperAgent1DemoThread(selected.id)
+                  {(() => {
+                    // In SA 1.2 the AI On/Off pill also appears on any thread carrying an
+                    // "X AI Escalation" label, even without the base "X AI" activation
+                    // label — since these threads are inherently AI-owned until staff
+                    // takes over.
+                    const hasAiLabel = selected.labels.some((label) => AI_ACTIVATION_OPT_IN_LABELS.has(label));
+                    const hasAiEscalationLabel =
+                      superAgent12Enabled && selected.labels.some((l) => l.endsWith(" AI Escalation"));
+                    return hasAiLabel || hasAiEscalationLabel;
+                  })() && (() => {
+                    // SA 1.2 uses the same rich AI On/Off popover as SA 1.0: per-sub-agent
+                    // status (Leasing / Renewals / Maintenance / Payments), AI Activated
+                    // selector, phone/email opt-ins, and demo toggles for adding blocks.
+                    const useSa1PopoverModel = isSuperAgent1DemoThread(selected.id) || superAgent12Enabled;
+                    const sa1State = useSa1PopoverModel
                       ? computeSa1AiState(selected, aiActivated)
                       : null;
                     const pillVariant: "on" | "partial" | "off" = sa1State
@@ -8784,32 +9641,37 @@ function CommunicationsDemoControl({
   callSystemEnabled,
   onToggleCallSystem,
   onSimulateInboundCall,
-  superAgentEnabled,
-  onToggleSuperAgent,
   superAgent1Enabled,
   onToggleSuperAgent1,
+  superAgent12Enabled,
+  onToggleSuperAgent12,
   translationEnabled,
   onToggleTranslation,
+  simulateUserEnabled,
+  onToggleSimulateUser,
 }: {
   clickToCallEnabled: boolean;
   onToggleClickToCall: () => void;
   callSystemEnabled: boolean;
   onToggleCallSystem: () => void;
   onSimulateInboundCall: (callerType?: IncomingCallerType) => void;
-  superAgentEnabled: boolean;
-  onToggleSuperAgent: () => void;
   superAgent1Enabled: boolean;
   onToggleSuperAgent1: () => void;
+  superAgent12Enabled: boolean;
+  onToggleSuperAgent12: () => void;
   translationEnabled: boolean;
   onToggleTranslation: () => void;
+  simulateUserEnabled: boolean;
+  onToggleSimulateUser: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const anyActive =
     clickToCallEnabled ||
     callSystemEnabled ||
-    superAgentEnabled ||
     superAgent1Enabled ||
-    translationEnabled;
+    superAgent12Enabled ||
+    translationEnabled ||
+    simulateUserEnabled;
 
   return (
     <div className="shrink-0 border-t border-border bg-muted/30">
@@ -8915,14 +9777,14 @@ function CommunicationsDemoControl({
 
           <label className="flex cursor-pointer items-start justify-between gap-2 rounded-md px-1.5 py-1.5 transition-colors hover:bg-muted/60">
             <div className="min-w-0 flex-1">
-              <p className="text-[12px] font-semibold leading-tight text-foreground">Super Agent 2.0</p>
+              <p className="text-[12px] font-semibold leading-tight text-foreground">Super Agent 1.2</p>
               <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
-                Escalation selector with AI context flow
+                V2 Super Agent
               </p>
             </div>
             <Switch
-              checked={superAgentEnabled}
-              onCheckedChange={onToggleSuperAgent}
+              checked={superAgent12Enabled}
+              onCheckedChange={onToggleSuperAgent12}
               className="mt-0.5"
             />
           </label>
@@ -8937,6 +9799,20 @@ function CommunicationsDemoControl({
             <Switch
               checked={translationEnabled}
               onCheckedChange={onToggleTranslation}
+              className="mt-0.5"
+            />
+          </label>
+
+          <label className="flex cursor-pointer items-start justify-between gap-2 rounded-md px-1.5 py-1.5 transition-colors hover:bg-muted/60">
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-semibold leading-tight text-foreground">Simulate User</p>
+              <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+                Hide Custom Inboxes and Settings from the sidebar
+              </p>
+            </div>
+            <Switch
+              checked={simulateUserEnabled}
+              onCheckedChange={onToggleSimulateUser}
               className="mt-0.5"
             />
           </label>
@@ -8958,6 +9834,835 @@ const CALL_SYSTEM_TABS: { id: CallSystemTab; label: string }[] = [
   { id: "routing", label: "Call Routing" },
   { id: "queue", label: "Call Queue" },
 ];
+
+/**
+ * Compact "labeled switch" row used inside the Manage Inbox settings panel.
+ * Kept local because this file doesn't otherwise use the shared ToggleRow.
+ */
+function ManageInboxToggleRow({
+  title,
+  description,
+  checked,
+  onCheckedChange,
+}: {
+  title: string;
+  description: string;
+  checked: boolean;
+  onCheckedChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium">{title}</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+      </div>
+      <Switch checked={checked} onCheckedChange={onCheckedChange} className="mt-0.5" />
+    </div>
+  );
+}
+
+function ManageInboxSettingsPanel({
+  onClose,
+  quickFilterEnabled,
+  onToggleQuickFilter,
+  followUpEnabled,
+  onToggleFollowUpEnabled,
+  followUpDaysList,
+  onSetFollowUpDaysList,
+  autoCloseEnabled,
+  onToggleAutoCloseEnabled,
+  autoCloseDays,
+  onSetAutoCloseDays,
+  sortMode,
+  onSetSortMode,
+}: {
+  onClose: () => void;
+  quickFilterEnabled: boolean;
+  onToggleQuickFilter: (v: boolean) => void;
+  followUpEnabled: boolean;
+  onToggleFollowUpEnabled: (v: boolean) => void;
+  followUpDaysList: number[];
+  onSetFollowUpDaysList: (days: number[]) => void;
+  autoCloseEnabled: boolean;
+  onToggleAutoCloseEnabled: (v: boolean) => void;
+  autoCloseDays: number;
+  onSetAutoCloseDays: (n: number) => void;
+  sortMode: "newest" | "oldest" | "priority";
+  onSetSortMode: (m: "newest" | "oldest" | "priority") => void;
+}) {
+  type SectionId = "sorting" | "notifications" | "defaults" | "setup" | "follow-up";
+  const SECTIONS: { id: SectionId; label: string; description: string }[] = [
+    { id: "setup", label: "One Time Setup", description: "One-time actions to prep the inbox" },
+    { id: "defaults", label: "Defaults", description: "Which inbox and filters open by default" },
+    { id: "sorting", label: "Sorting", description: "Ordering of threads in every inbox" },
+    // Notifications intentionally hidden for now; content still exists below in case
+    // it needs to come back — just re-add the entry above to expose it.
+    { id: "follow-up", label: "Thread Automation", description: "Follow-up and auto-close rules" },
+  ];
+  const [activeSection, setActiveSection] = useState<SectionId>("setup");
+
+  // Local state — none of this is persisted yet. Wire to a real store later.
+  const [soundOnNewMessage, setSoundOnNewMessage] = useState(false);
+  const [desktopNotifications, setDesktopNotifications] = useState(false);
+  const [defaultInbox, setDefaultInbox] = useState<"all" | "escalated" | "property" | "last">("all");
+  const [defaultChannel, setDefaultChannel] = useState<"all" | "voice" | "sms" | "chat" | "email">("all");
+
+  // Setup — one-time inbox cleanup. Uses the same context as the rest of the page,
+  // so resolved threads flow through into the Closed Threads inbox and honor
+  // the SA 1.2 activity log.
+  const { items: allConversations, resolveConversation } = useConversations();
+  const setupTargets = useMemo(
+    () =>
+      allConversations.filter(
+        (c) => c.status === "open" && (c.channel === "SMS" || c.channel === "Email"),
+      ),
+    [allConversations],
+  );
+  // Cutoff date — the client picks how far back "pre-existing" goes. Defaults
+  // to yesterday, which is the recommended value (today's messages are still
+  // active work). Stored as an ISO yyyy-mm-dd string so it works with the
+  // native <input type="date">. Use LOCAL date parts (not `toISOString`) so
+  // late-evening users don't see today's date reported as tomorrow.
+  const toIsoDate = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+  const todayIso = useMemo(() => toIsoDate(new Date()), []);
+  const yesterdayIso = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return toIsoDate(d);
+  }, []);
+  const [setupCutoffDate, setSetupCutoffDate] = useState<string>(yesterdayIso);
+  const [setupConfirmOpen, setSetupConfirmOpen] = useState(false);
+  const [setupResolvedCount, setSetupResolvedCount] = useState<number | null>(null);
+  const runInboxSetup = () => {
+    const ids = setupTargets.map((c) => c.id);
+    ids.forEach((id) =>
+      resolveConversation(id, undefined, {
+        resolutionType: "general",
+        notes: `Bulk-resolved during inbox setup (cutoff ${setupCutoffDate}) to give site staff a fresh starting point.`,
+      }),
+    );
+    setSetupResolvedCount(ids.length);
+    setSetupConfirmOpen(false);
+  };
+
+  // Follow-up + auto-close day choices (dropdown values). Auto-close ranges
+  // farther out because an idle-close usually happens on the order of weeks.
+  const followUpDayChoices = [1, 2, 3, 5, 7, 10, 14, 21, 30];
+  const autoCloseDayChoices = [3, 5, 7, 10, 14, 21, 30, 45, 60, 90];
+
+  // Sort options — labels/descriptions live here so the shared confirm dialog can
+  // resolve them for the "from → to" sentence.
+  type SortMode = "newest" | "oldest" | "priority";
+  const SORT_OPTIONS: { id: SortMode; label: string; desc: string }[] = [
+    { id: "newest", label: "Newest activity first", desc: "Threads with the most recent message rise to the top." },
+    { id: "oldest", label: "Oldest activity first", desc: "Surface the longest-waiting threads at the top." },
+    { id: "priority", label: "Priority", desc: "Threads needing action first, then by recency." },
+  ];
+  const sortLabelFor = (id: SortMode) => SORT_OPTIONS.find((o) => o.id === id)?.label ?? "";
+  const inboxLabelFor = (id: string) => {
+    switch (id) {
+      case "all": return "Open Threads";
+      case "escalated": return "Property Threads";
+      case "property": return "Eli Threads";
+      case "last": return "Last inbox I was on";
+      default: return id;
+    }
+  };
+  const channelLabelFor = (id: string) => {
+    switch (id) {
+      case "all": return "All channels";
+      case "voice": return "Voice";
+      case "sms": return "SMS";
+      case "chat": return "Chat";
+      case "email": return "Email";
+      default: return id;
+    }
+  };
+
+  // Shared "change this setting live?" confirm dialog. Any live-affecting
+  // control routes its change through this pattern so the UX stays consistent:
+  //   1. User picks a new value (or clicks Deactivate).
+  //   2. We store the intent in `pendingChange` and open the dialog.
+  //   3. Confirm → run `onApply`; Cancel → discard.
+  // Controls that are NOT live (e.g. tweaking the day count while Follow-up is
+  // inactive) call their setter directly and skip this flow.
+  type PendingChange = {
+    title: string;
+    fromLabel: string;
+    toLabel: string;
+    impact: string;
+    applyLabel?: string;
+    onApply: () => void;
+  };
+  const [pendingChange, setPendingChange] = useState<PendingChange | null>(null);
+  const requestConfirmedChange = (change: PendingChange) => setPendingChange(change);
+
+  return (
+    <div className="flex flex-1 flex-col overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-border px-6 py-4">
+        <div>
+          <h2 className="text-lg font-semibold">Thread Settings</h2>
+          <p className="text-sm text-muted-foreground">
+            Configure how the thread inbox looks and behaves. Changes apply to every inbox in this workspace.
+          </p>
+        </div>
+        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close Thread Settings">
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <div className="flex flex-1 min-h-0">
+        {/* Section navigation */}
+        <div className="w-[220px] shrink-0 border-r border-border bg-muted/30 p-2">
+          <ul className="space-y-0.5">
+            {SECTIONS.map((section) => (
+              <li key={section.id}>
+                <button
+                  type="button"
+                  onClick={() => setActiveSection(section.id)}
+                  className={cn(
+                    "w-full rounded-md px-3 py-2 text-left transition-colors",
+                    activeSection === section.id
+                      ? "bg-background font-medium text-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-background/60 hover:text-foreground"
+                  )}
+                >
+                  <p className="text-sm">{section.label}</p>
+                  <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground/80">
+                    {section.description}
+                  </p>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Section content */}
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="mx-auto max-w-2xl space-y-6">
+            {activeSection === "sorting" && (
+              <>
+                <div>
+                  <h3 className="text-base font-semibold">Sorting</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Choose how conversations are ordered inside every inbox.
+                  </p>
+                </div>
+
+                <div className="rounded-lg border border-border bg-background p-4">
+                  <p className="text-sm font-medium">Default sort order</p>
+                  <div className="mt-3 space-y-2">
+                    {SORT_OPTIONS.map((opt) => (
+                      <label
+                        key={opt.id}
+                        className={cn(
+                          "flex cursor-pointer items-start gap-3 rounded-md border p-3 transition-colors",
+                          sortMode === opt.id
+                            ? "border-primary/40 bg-[hsl(207_73%_95%)]"
+                            : "border-input bg-background hover:bg-muted/60"
+                        )}
+                      >
+                        <input
+                          type="radio"
+                          name="sortMode"
+                          className="mt-0.5 accent-primary"
+                          checked={sortMode === opt.id}
+                          onChange={() => {
+                            if (opt.id === sortMode) return;
+                            requestConfirmedChange({
+                              title: "Change the default sort order live?",
+                              fromLabel: sortLabelFor(sortMode),
+                              toLabel: sortLabelFor(opt.id),
+                              impact:
+                                "Applies immediately to every inbox in the workspace — threads on staff screens will re-order right after you confirm.",
+                              onApply: () => onSetSortMode(opt.id),
+                            });
+                          }}
+                        />
+                        <div>
+                          <p className="text-sm font-medium">{opt.label}</p>
+                          <p className="text-xs text-muted-foreground">{opt.desc}</p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+              </>
+            )}
+
+            {activeSection === "notifications" && (
+              <>
+                <div>
+                  <h3 className="text-base font-semibold">Notifications</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Decide when the app should alert you about new inbox activity.
+                  </p>
+                </div>
+
+                <div className="space-y-4 rounded-lg border border-border bg-background p-4">
+                  <ManageInboxToggleRow
+                    title="Play sound on new message"
+                    description="Play a subtle chime when a new resident or lead message arrives."
+                    checked={soundOnNewMessage}
+                    onCheckedChange={setSoundOnNewMessage}
+                  />
+                  <ManageInboxToggleRow
+                    title="Desktop notifications"
+                    description="Show a system notification while the app is in the background."
+                    checked={desktopNotifications}
+                    onCheckedChange={setDesktopNotifications}
+                  />
+                </div>
+              </>
+            )}
+
+            {activeSection === "defaults" && (
+              <>
+                <div>
+                  <h3 className="text-base font-semibold">Defaults</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Choose which inbox and quick filter appear on load.
+                  </p>
+                </div>
+
+                <div className="rounded-lg border border-border bg-background p-4">
+                  <ManageInboxToggleRow
+                    title="Show Quick Filter"
+                    description="Display the Voice / SMS / Chat / Email channel filter under the inbox list. Turn off if you prefer a cleaner sidebar."
+                    checked={quickFilterEnabled}
+                    onCheckedChange={(next) => {
+                      if (next === quickFilterEnabled) return;
+                      requestConfirmedChange({
+                        title: next
+                          ? "Show the Quick Filter live?"
+                          : "Hide the Quick Filter live?",
+                        fromLabel: quickFilterEnabled ? "Shown" : "Hidden",
+                        toLabel: next ? "Shown" : "Hidden",
+                        impact: next
+                          ? "The Voice / SMS / Chat / Email tiles will appear in the sidebar for everyone in this workspace right after you confirm."
+                          : "The Voice / SMS / Chat / Email tiles will disappear from the sidebar for everyone in this workspace right after you confirm.",
+                        onApply: () => onToggleQuickFilter(next),
+                      });
+                    }}
+                  />
+                </div>
+
+                <div className="rounded-lg border border-border bg-background p-4">
+                  <p className="text-sm font-medium">Default inbox</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Which inbox opens when a staff member loads Conversations.
+                  </p>
+                  <Select
+                    value={defaultInbox}
+                    onValueChange={(v) => {
+                      const next = v as typeof defaultInbox;
+                      if (next === defaultInbox) return;
+                      requestConfirmedChange({
+                        title: "Change the default inbox live?",
+                        fromLabel: inboxLabelFor(defaultInbox),
+                        toLabel: inboxLabelFor(next),
+                        impact:
+                          "Applies to every staff member in this workspace the next time they open Conversations.",
+                        onApply: () => setDefaultInbox(next),
+                      });
+                    }}
+                  >
+                    <SelectTrigger className="mt-3 w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Open Threads</SelectItem>
+                      <SelectItem value="escalated">Property Threads</SelectItem>
+                      <SelectItem value="property">Eli Threads</SelectItem>
+                      <SelectItem value="last">Last inbox I was on</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="rounded-lg border border-border bg-background p-4">
+                  <p className="text-sm font-medium">Default quick filter</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Which channel filter is pre-selected on load.
+                  </p>
+                  <Select
+                    value={defaultChannel}
+                    onValueChange={(v) => {
+                      const next = v as typeof defaultChannel;
+                      if (next === defaultChannel) return;
+                      requestConfirmedChange({
+                        title: "Change the default quick filter live?",
+                        fromLabel: channelLabelFor(defaultChannel),
+                        toLabel: channelLabelFor(next),
+                        impact:
+                          "Applies to every staff member in this workspace the next time they open Conversations.",
+                        onApply: () => setDefaultChannel(next),
+                      });
+                    }}
+                  >
+                    <SelectTrigger className="mt-3 w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All channels</SelectItem>
+                      <SelectItem value="voice">Voice</SelectItem>
+                      <SelectItem value="sms">SMS</SelectItem>
+                      <SelectItem value="chat">Chat</SelectItem>
+                      <SelectItem value="email">Email</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
+
+            {activeSection === "setup" && (
+              <>
+                <div>
+                  <h3 className="text-base font-semibold">One Time Setup</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Give site staff a clean starting point by resolving pre-existing
+                    SMS &amp; Email threads that pre-date the new resolve-based
+                    workflow.
+                  </p>
+                </div>
+
+                <div className="rounded-lg border border-border bg-background p-4">
+                  {/* One sentence with an inline date picker — this is the whole config. */}
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
+                    <span>Resolve open SMS &amp; Email threads with activity through</span>
+                    <input
+                      type="date"
+                      value={setupCutoffDate}
+                      max={todayIso}
+                      onChange={(e) => setSetupCutoffDate(e.target.value || yesterdayIso)}
+                      className="h-8 rounded-md border border-input bg-background px-2 text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                    {setupCutoffDate === yesterdayIso ? (
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                        Recommended
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setSetupCutoffDate(yesterdayIso)}
+                        className="text-[11px] font-medium text-primary underline-offset-2 hover:underline"
+                      >
+                        Use recommended (yesterday)
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/60 pt-3">
+                    <p className="text-sm">
+                      <span className="font-medium">
+                        {setupTargets.length.toLocaleString()}
+                      </span>{" "}
+                      <span className="text-muted-foreground">
+                        conversation{setupTargets.length === 1 ? "" : "s"} will be
+                        resolved
+                      </span>
+                    </p>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      disabled={setupTargets.length === 0}
+                      onClick={() => setSetupConfirmOpen(true)}
+                    >
+                      Resolve all
+                    </Button>
+                  </div>
+
+                  {setupResolvedCount !== null && (
+                    <div className="mt-3 flex items-start gap-2 rounded-md border border-status-success-border bg-status-success/10 p-3 text-sm text-status-success-foreground">
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                      <div>
+                        <p className="font-medium">
+                          Resolved {setupResolvedCount.toLocaleString()} conversation
+                          {setupResolvedCount === 1 ? "" : "s"}
+                        </p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          They&apos;re now in Closed Threads. Staff can reopen any
+                          individual thread from there.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <Dialog open={setupConfirmOpen} onOpenChange={setSetupConfirmOpen}>
+                  <DialogContent className="max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>Resolve all pre-existing SMS &amp; Email?</DialogTitle>
+                      <DialogDescription className="pt-2">
+                        This will mark {setupTargets.length.toLocaleString()} open SMS
+                        and Email thread{setupTargets.length === 1 ? "" : "s"} with
+                        activity through{" "}
+                        <span className="font-medium text-foreground">
+                          {setupCutoffDate}
+                        </span>{" "}
+                        as Resolved and move them to Closed Threads. Staff can still
+                        reopen any individual thread from there. This is intended as a
+                        one-time cleanup for the transition to the new resolve-based
+                        workflow.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => setSetupConfirmOpen(false)}>
+                        Cancel
+                      </Button>
+                      <Button variant="destructive" onClick={runInboxSetup}>
+                        Resolve {setupTargets.length.toLocaleString()} conversation
+                        {setupTargets.length === 1 ? "" : "s"}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </>
+            )}
+
+            {activeSection === "follow-up" && (
+              <>
+                <div>
+                  <h3 className="text-base font-semibold">Thread Automation</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Set up rules that flag stale conversations and quietly clean up
+                    idle ones — so site staff only see threads that still need
+                    attention.
+                  </p>
+                </div>
+
+                {/*
+                  Audit-log note — every automation event (follow-up reminder,
+                  auto-close) is written to the affected thread's activity
+                  timeline with the fired-at date, so staff can trace when and
+                  why any thread was nudged or closed.
+                */}
+                <div className="flex items-start gap-2 rounded-md border border-border/70 bg-muted/40 p-3 text-xs text-muted-foreground">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-foreground/70" />
+                  <p>
+                    Every automation event —{" "}
+                    <span className="font-medium text-foreground">follow-up reminders</span>{" "}
+                    and{" "}
+                    <span className="font-medium text-foreground">auto-close resolutions</span>{" "}
+                    — is written to the thread&apos;s activity timeline with the
+                    date and time it was triggered. Staff can always see when a
+                    rule fired and why.
+                  </p>
+                </div>
+
+                {/* --- Follow-up flagging --- */}
+                <div>
+                  <p className="text-sm font-medium">Flag threads waiting on a reply</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Applies to SMS &amp; Email threads where a property teammate sent
+                    the last message. Threads waiting on staff (already flagged red)
+                    are unaffected.
+                  </p>
+                </div>
+
+                <div className="rounded-lg border border-border bg-background p-4">
+                  {/*
+                    Multi-threshold list: each row is one "flag after N days"
+                    rule. Users can add more (e.g. 3 days, 7 days, 10 days) so
+                    staff get progressively firmer nudges as a thread ages.
+                  */}
+                  <div className="space-y-2">
+                    {followUpDaysList.map((n, idx) => {
+                      // Options: this row's current value plus any not-yet-used choices.
+                      const usedElsewhere = new Set(
+                        followUpDaysList.filter((_, i) => i !== idx),
+                      );
+                      const availableChoices = followUpDayChoices.filter(
+                        (choice) => choice === n || !usedElsewhere.has(choice),
+                      );
+                      const isOnlyRow = followUpDaysList.length === 1;
+                      const applyReplacement = (nextList: number[]) => {
+                        if (followUpEnabled) {
+                          requestConfirmedChange({
+                            title: "Change follow-up thresholds live?",
+                            fromLabel: followUpDaysList.map((d) => `${d}d`).join(", "),
+                            toLabel: nextList.map((d) => `${d}d`).join(", "),
+                            impact:
+                              "Applies immediately to every SMS and Email thread in the inbox — cards that were flagged may fall off, and new ones may light up.",
+                            onApply: () => onSetFollowUpDaysList(nextList),
+                          });
+                        } else {
+                          onSetFollowUpDaysList(nextList);
+                        }
+                      };
+                      return (
+                        <div
+                          key={`follow-up-row-${idx}`}
+                          className="flex flex-wrap items-center gap-x-2 gap-y-2 text-sm"
+                        >
+                          <span>Flag threads with no reply after</span>
+                          <Select
+                            value={String(n)}
+                            onValueChange={(v) => {
+                              const next = Number(v);
+                              if (!Number.isFinite(next) || next === n) return;
+                              const nextList = followUpDaysList.map((d, i) => (i === idx ? next : d));
+                              applyReplacement(nextList);
+                            }}
+                          >
+                            <SelectTrigger className="h-8 w-[110px]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {availableChoices.map((choice) => (
+                                <SelectItem key={choice} value={String(choice)}>
+                                  {choice} day{choice === 1 ? "" : "s"}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <span className="text-muted-foreground">from the lead or resident.</span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="ml-auto h-7 w-7 text-muted-foreground hover:text-destructive"
+                            disabled={isOnlyRow}
+                            title={isOnlyRow ? "At least one threshold is required" : "Remove this threshold"}
+                            aria-label={isOnlyRow ? "At least one threshold is required" : `Remove ${n}-day threshold`}
+                            onClick={() => {
+                              if (isOnlyRow) return;
+                              const nextList = followUpDaysList.filter((_, i) => i !== idx);
+                              applyReplacement(nextList);
+                            }}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Add-another-threshold row. Suggests the next unused choice. */}
+                  {(() => {
+                    const used = new Set(followUpDaysList);
+                    const nextChoice = followUpDayChoices.find((c) => !used.has(c));
+                    const canAdd = nextChoice !== undefined;
+                    return (
+                      <div className="mt-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2 text-xs"
+                          disabled={!canAdd}
+                          title={canAdd ? undefined : "All available thresholds are already in use"}
+                          onClick={() => {
+                            if (!canAdd) return;
+                            const nextList = [...followUpDaysList, nextChoice];
+                            if (followUpEnabled) {
+                              requestConfirmedChange({
+                                title: "Add a new follow-up threshold live?",
+                                fromLabel: followUpDaysList.map((d) => `${d}d`).join(", "),
+                                toLabel: [...followUpDaysList, nextChoice].sort((a, b) => a - b).map((d) => `${d}d`).join(", "),
+                                impact:
+                                  "A new reminder threshold will start firing on qualifying threads immediately.",
+                                onApply: () => onSetFollowUpDaysList(nextList),
+                              });
+                            } else {
+                              onSetFollowUpDaysList(nextList);
+                            }
+                          }}
+                        >
+                          <Plus className="mr-1 h-3.5 w-3.5" />
+                          Add follow-up threshold
+                        </Button>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Footer: status pill + primary action, one row. */}
+                  <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/60 pt-3">
+                    {followUpEnabled ? (
+                      <Badge className="h-auto gap-1.5 bg-status-success px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-status-success-foreground">
+                        <span className="relative inline-flex h-1.5 w-1.5">
+                          <span className="absolute inset-0 animate-ping rounded-full bg-status-success-foreground/60" />
+                          <span className="relative inline-block h-1.5 w-1.5 rounded-full bg-status-success-foreground" />
+                        </span>
+                        Active
+                      </Badge>
+                    ) : (
+                      <Badge className="h-auto gap-1.5 border-transparent bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground/50 ring-1 ring-muted-foreground/30" />
+                        Inactive
+                      </Badge>
+                    )}
+                    {followUpEnabled ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          requestConfirmedChange({
+                            title: "Deactivate follow-up flagging live?",
+                            fromLabel: "Active",
+                            toLabel: "Inactive",
+                            impact:
+                              "Every card currently carrying a follow-up marker will lose it immediately.",
+                            applyLabel: "Deactivate",
+                            onApply: () => onToggleFollowUpEnabled(false),
+                          })
+                        }
+                      >
+                        Deactivate
+                      </Button>
+                    ) : (
+                      <Button size="sm" onClick={() => onToggleFollowUpEnabled(true)}>
+                        Activate follow-up
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {/* --- Auto-close idle threads --- */}
+                <div>
+                  <p className="text-sm font-medium">Auto-close idle threads</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Automatically resolve threads with no activity from anyone —
+                    staff, AI, lead, or resident — and move them to Closed Threads.
+                    Applies to every channel. Nothing is deleted; staff can reopen
+                    from Closed Threads any time.
+                  </p>
+                </div>
+
+                <div className="rounded-lg border border-border bg-background p-4">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
+                    <span>Close threads with no activity for</span>
+                    <Select
+                      value={String(autoCloseDays)}
+                      onValueChange={(v) => {
+                        const next = Number(v);
+                        if (!Number.isFinite(next) || next === autoCloseDays) return;
+                        if (autoCloseEnabled) {
+                          requestConfirmedChange({
+                            title: "Change the auto-close threshold live?",
+                            fromLabel: `${autoCloseDays} day${autoCloseDays === 1 ? "" : "s"}`,
+                            toLabel: `${next} day${next === 1 ? "" : "s"}`,
+                            impact:
+                              "Applies immediately to every open thread — some may auto-close on the next sweep, and some that were already queued may stay open longer.",
+                            onApply: () => onSetAutoCloseDays(next),
+                          });
+                        } else {
+                          onSetAutoCloseDays(next);
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="h-8 w-[110px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {autoCloseDayChoices.map((n) => (
+                          <SelectItem key={n} value={String(n)}>
+                            {n} day{n === 1 ? "" : "s"}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <span className="text-muted-foreground">
+                      from anyone in the conversation.
+                    </span>
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/60 pt-3">
+                    {autoCloseEnabled ? (
+                      <Badge className="h-auto gap-1.5 bg-status-success px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-status-success-foreground">
+                        <span className="relative inline-flex h-1.5 w-1.5">
+                          <span className="absolute inset-0 animate-ping rounded-full bg-status-success-foreground/60" />
+                          <span className="relative inline-block h-1.5 w-1.5 rounded-full bg-status-success-foreground" />
+                        </span>
+                        Active
+                      </Badge>
+                    ) : (
+                      <Badge className="h-auto gap-1.5 border-transparent bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground/50 ring-1 ring-muted-foreground/30" />
+                        Inactive
+                      </Badge>
+                    )}
+                    {autoCloseEnabled ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          requestConfirmedChange({
+                            title: "Deactivate auto-close live?",
+                            fromLabel: "Active",
+                            toLabel: "Inactive",
+                            impact:
+                              "No threads will be auto-closed while this is off — idle threads will simply sit in the inbox until someone resolves them.",
+                            applyLabel: "Deactivate",
+                            onApply: () => onToggleAutoCloseEnabled(false),
+                          })
+                        }
+                      >
+                        Deactivate
+                      </Button>
+                    ) : (
+                      <Button size="sm" onClick={() => onToggleAutoCloseEnabled(true)}>
+                        Activate auto-close
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Shared "change this setting live?" dialog. Any control that produces a
+          live change calls `requestConfirmedChange({...})` and this dialog opens
+          with a consistent title/from-to/impact/footer format across the panel. */}
+      <Dialog
+        open={pendingChange !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingChange(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{pendingChange?.title ?? "Change this setting live?"}</DialogTitle>
+            <DialogDescription className="pt-2">
+              {pendingChange ? (
+                <>
+                  You&apos;re about to change this setting from{" "}
+                  <span className="font-medium text-foreground">
+                    {pendingChange.fromLabel}
+                  </span>{" "}
+                  to{" "}
+                  <span className="font-medium text-foreground">
+                    {pendingChange.toLabel}
+                  </span>
+                  . {pendingChange.impact}
+                </>
+              ) : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingChange(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                pendingChange?.onApply();
+                setPendingChange(null);
+              }}
+            >
+              {pendingChange?.applyLabel ?? "Apply change"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
 
 function CallSystemSettingsPanel({ onClose }: { onClose: () => void }) {
   const [activeTab, setActiveTab] = useState<CallSystemTab>("softphone");

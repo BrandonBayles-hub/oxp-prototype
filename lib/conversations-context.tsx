@@ -28,6 +28,21 @@ export type BulkOutboundEmailRef = {
 export type ThreadActivity =
   | { kind: "status"; action: "resolved" | "reopened"; actor: string; notes?: string; resolutionType?: "general" | "incoming" | "outgoing" }
   | {
+      // SA 1.2 Thread Automation → Follow-Up Threads. Fires when the lead or
+      // resident has gone silent for N days after a staff/agent reply. Treated
+      // as a fresh call-to-action by needsStaffResponse so the thread comes
+      // back into the "needs action" set until staff responds again.
+      kind: "follow_up_reminder";
+      /** How many days of resident/lead silence triggered the reminder. */
+      daysIdle: number;
+      /** Who sent the last message that started the countdown. */
+      sinceRole: "staff" | "agent";
+      /** Human-readable timestamp of that last reply (used in body copy). */
+      sinceTimestamp?: string;
+      /** Optional prompt for staff, e.g. "Suggested action: send a nudge asking if they're still interested." */
+      suggestedAction?: string;
+    }
+  | {
       kind: "assignment";
       assignee: string;
       assignedBy: string;
@@ -305,23 +320,64 @@ export function isConversationUnattended(c: ConversationItem): boolean {
 }
 
 /**
- * Open thread where the most recent public message is from the lead/resident
- * and no staff or agent has publicly replied after it. Unlike isConversationUnattended,
- * this ignores read/unread state — the dot stays until staff responds.
+ * The thread has an active Thread Automation "follow-up reminder" that hasn't
+ * been cleared yet — i.e. a reminder was fired, and no staff/agent reply (or
+ * documented phone call) has followed it. Used so reminder-triggered need-action
+ * shows a marker even in Eli-owned inboxes.
+ */
+export function hasActiveFollowUpReminder(c: ConversationItem): boolean {
+  const { messages: msgs } = c;
+  let lastReminderIdx = -1;
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i];
+    if (
+      m.type === "thread_activity" &&
+      m.threadActivity?.kind === "follow_up_reminder"
+    ) {
+      lastReminderIdx = i;
+    }
+  }
+  if (lastReminderIdx === -1) return false;
+  for (let i = lastReminderIdx + 1; i < msgs.length; i++) {
+    const m = msgs[i];
+    if (isStaffPhoneCallReplyActivity(m)) return false;
+    if (!isPublicThreadMessage(m)) continue;
+    if (m.role === "agent" || m.role === "staff") return false;
+  }
+  return true;
+}
+
+/**
+ * Open thread that still needs staff attention. Two ways this can be true:
+ *   1. The most recent public message is from the lead/resident and no staff
+ *      or agent has publicly replied after it.
+ *   2. Thread Automation dropped a follow-up reminder on the thread because
+ *      the lead/resident has gone silent for N days after a staff/agent reply,
+ *      and staff has not yet acted on that reminder.
+ * Unlike isConversationUnattended, this ignores read/unread state — the dot
+ * stays until staff responds.
  */
 export function needsStaffResponse(c: ConversationItem): boolean {
   if (c.status !== "open") return false;
 
   const { messages: msgs } = c;
-  let lastResidentPublicIdx = -1;
+  // Most recent "call to action" — either a resident/lead public message, or
+  // a follow-up-reminder activity fired by inbox automation.
+  let lastCtaIdx = -1;
   for (let i = 0; i < msgs.length; i++) {
-    if (msgs[i].role === "resident" && isPublicThreadMessage(msgs[i])) {
-      lastResidentPublicIdx = i;
+    const m = msgs[i];
+    if (m.role === "resident" && isPublicThreadMessage(m)) {
+      lastCtaIdx = i;
+    } else if (
+      m.type === "thread_activity" &&
+      m.threadActivity?.kind === "follow_up_reminder"
+    ) {
+      lastCtaIdx = i;
     }
   }
-  if (lastResidentPublicIdx === -1) return false;
+  if (lastCtaIdx === -1) return false;
 
-  for (let i = lastResidentPublicIdx + 1; i < msgs.length; i++) {
+  for (let i = lastCtaIdx + 1; i < msgs.length; i++) {
     const m = msgs[i];
     if (isStaffPhoneCallReplyActivity(m)) return false;
     if (!isPublicThreadMessage(m)) continue;
@@ -493,7 +549,7 @@ Hillside Living
     time: "2m ago",
     contactType: "Resident",
     property: "Hillside Living",
-    channel: "Resident Portal",
+    channel: "Resident Chat",
     assignee: "Abe Kashiwagi",
     labels: ["Payments AI"],
     status: "open",
@@ -621,19 +677,32 @@ Hillside Living
     id: "lc-4",
     resident: "Davis Calzoni",
     unit: null,
-    preview: "I was wondering if you could help me know what the light...",
+    preview: "Follow-up reminder — no reply in 5 days since the AI agent last responded",
     agent: "Renewals AI",
-    time: "8m ago",
+    time: "just now",
     contactType: "Lead",
     property: "Hillside Living",
     channel: "SMS",
     assignee: "ELI+ Renewal AI",
-    labels: ["Renewals AI"],
+    labels: ["Leasing AI"],
     status: "open",
     hasUnread: false,
     messages: [
-      { role: "resident", text: "I was wondering if you could help me know what the lighting situation is like in the 2-bedroom units?", timestamp: "Sep 15 2025 · 6:45pm MST", type: "message" },
-      { role: "agent", text: "Great question! Our 2-bedroom units feature large windows in both bedrooms and the living area, providing plenty of natural light. The kitchen also has under-cabinet LED lighting. Would you like to schedule a tour to see for yourself?", timestamp: "Sep 15 2025 · 6:46pm MST", type: "message" },
+      { role: "resident", text: "I was wondering if you could help me know what the lighting situation is like in the 2-bedroom units?", timestamp: "Sep 10 2025 · 6:45pm MST", type: "message" },
+      { role: "agent", text: "Great question! Our 2-bedroom units feature large windows in both bedrooms and the living area, providing plenty of natural light. The kitchen also has under-cabinet LED lighting. Would you like to schedule a tour to see for yourself?", timestamp: "Sep 10 2025 · 6:46pm MST", type: "message" },
+      {
+        role: "staff",
+        type: "thread_activity",
+        text: "",
+        timestamp: "Sep 15 2025 · 8:00am MST",
+        threadActivity: {
+          kind: "follow_up_reminder",
+          daysIdle: 5,
+          sinceRole: "agent",
+          sinceTimestamp: "Sep 10 · 6:46pm",
+          suggestedAction: "Send a quick nudge asking if they're still interested in a tour — Leasing AI's offer went unanswered.",
+        },
+      },
     ],
   },
   {
@@ -666,19 +735,32 @@ Hillside Living
     id: "lc-5",
     resident: "Lindsey Carder",
     unit: "Unit 204",
-    preview: "If I am not ready to move in when the lease is signed can I...",
-    agent: "Leasing AI",
-    time: "10m ago",
+    preview: "Follow-up reminder — no reply in 3 days since the AI agent last responded",
+    agent: "Renewals AI",
+    time: "just now",
     contactType: "Resident",
     property: "Hillside Living",
-    channel: "Resident Portal",
-    assignee: "ELI+ Leasing AI",
-    labels: ["Leasing AI"],
+    channel: "Resident Chat",
+    assignee: "ELI+ Renewals AI",
+    labels: ["Renewals AI"],
     status: "open",
     hasUnread: false,
     messages: [
-      { role: "resident", text: "If I am not ready to move in when the lease is signed can I delay my move-in date?", timestamp: "Sep 15 2025 · 6:40pm MST", type: "message" },
-      { role: "agent", text: "I understand the concern! In most cases, we can work with you on adjusting the move-in date. Typically, we can hold a unit for up to 2 weeks after lease signing. Let me check with the property manager about your specific situation.", timestamp: "Sep 15 2025 · 6:41pm MST", type: "message" },
+      { role: "resident", text: "My lease is up in December and I'm thinking about a shorter renewal — is a 6-month option available, or is it always 12 months?", timestamp: "Sep 12 2025 · 6:40pm MST", type: "message" },
+      { role: "agent", text: "Great question, Lindsey! We do offer a 6-month renewal at a slightly higher monthly rate ($1,595 vs your current $1,520 for a 12-month term). I can send both offer letters side-by-side so you can compare — want me to?", timestamp: "Sep 12 2025 · 6:41pm MST", type: "message" },
+      {
+        role: "staff",
+        type: "thread_activity",
+        text: "",
+        timestamp: "Sep 15 2025 · 8:00am MST",
+        threadActivity: {
+          kind: "follow_up_reminder",
+          daysIdle: 3,
+          sinceRole: "agent",
+          sinceTimestamp: "Sep 12 · 6:41pm",
+          suggestedAction: "Follow up with Lindsey — she asked about a 6-month renewal and hasn't answered whether to send both offer letters.",
+        },
+      },
     ],
   },
   {
@@ -810,11 +892,12 @@ Jamison Apartments
     assignee: "ELI+ Leasing AI",
     labels: ["Leasing AI", "Leasing AI Escalation"],
     status: "open",
-    hasUnread: true,
+    hasUnread: false,
     messages: [
       { role: "resident", text: "I’m self-employed — can I qualify with 12 months of bank statements instead of pay stubs?", timestamp: "Sep 15 2025 · 5:50pm MST", type: "message" },
       { role: "agent", text: "Thanks for sharing that. I’ve looped in a specialist who can review income documentation with you and walk through next steps. You should hear back within one business day.", timestamp: "Sep 15 2025 · 5:52pm MST", type: "message" },
       { role: "resident", text: "Sounds good — I’ll upload my last 12 months of statements to the portal tonight.", timestamp: "Sep 15 2025 · 5:54pm MST", type: "message" },
+      { role: "staff", text: "Perfect Priya — once they're up I'll review overnight and get back to you tomorrow morning with a decision. Thanks for turning these around so fast.", timestamp: "Sep 15 2025 · 5:58pm MST", type: "message" },
     ],
   },
   {
@@ -849,11 +932,12 @@ Jamison Apartments
     assignee: "ELI+ Leasing AI",
     labels: ["Leasing AI", "Leasing AI Escalation"],
     status: "open",
-    hasUnread: true,
+    hasUnread: false,
     messages: [
       { role: "resident", text: "I was wondering if my roommate would be able to rent a space as well? We're looking for units near each other.", timestamp: "Sep 15 2025 · 6:15pm MST", type: "message" },
       { role: "agent", text: "Of course! We have several adjacent units available. Let me pull up the options for you. In the meantime, I'm flagging this for a leasing specialist who can help coordinate both applications.", timestamp: "Sep 15 2025 · 6:16pm MST", type: "message" },
       { role: "resident", text: "Yes please — send both application links when you have them.", timestamp: "Sep 15 2025 · 6:17pm MST", type: "message" },
+      { role: "staff", text: "Here are both application links — one for you and one for your roommate. I've soft-held Units 214 and 216 (adjacent 1BRs) for 48 hours while you both apply. Let me know if you want a different pair.", timestamp: "Sep 15 2025 · 6:22pm MST", type: "message" },
     ],
   },
   {
@@ -874,15 +958,16 @@ Jamison Apartments
       { role: "resident", text: "Hi — do you have any covered parking for the 2-bedroom units?", timestamp: "Sep 15 2025 · 5:20pm MST", type: "message" },
       { role: "agent", text: "Hi Jordan! Yes — several 2x2s include one covered space. I can send availability for your move-in window.", timestamp: "Sep 15 2025 · 5:21pm MST", type: "message" },
       { role: "resident", text: "Great. Let me know when you have an update on parking spots for Building C.", timestamp: "Sep 15 2025 · 5:25pm MST", type: "message" },
+      { role: "staff", text: "Two Building C covered spaces just opened up — G-14 and G-22. Both come with the 2BR on the 4th floor (Unit 405). Want me to hold either while you decide?", timestamp: "Sep 15 2025 · 5:41pm MST", type: "message" },
     ],
   },
   {
     id: "lc-17",
     resident: "Maya Chen",
     unit: null,
-    preview: "Can overnight guests use visitor parking for a full weekend?",
+    preview: "Follow-up reminder — no reply in 7 days since staff last responded",
     agent: "Staff",
-    time: "28m ago",
+    time: "just now",
     contactType: "Lead",
     property: "Jamison Apartments",
     channel: "Email",
@@ -895,14 +980,14 @@ Jamison Apartments
       {
         role: "resident",
         text: "Hi leasing team — I’m comparing a few communities and wanted to ask: can overnight guests use visitor parking for a full weekend, or is there a nightly limit? I host family fairly often.",
-        timestamp: "Sep 15 2025 · 5:08pm MST",
+        timestamp: "Sep 8 2025 · 5:08pm MST",
         type: "message",
         emailSignature: "—\nMaya Chen\nProspective resident",
       },
       {
         role: "staff",
         text: "Thanks for asking, Maya. Visitor parking is available on a first-come basis; there isn’t a formal nightly cap for registered guests, but vehicles can’t stay longer than 72 consecutive hours without management approval so we can rotate spaces fairly.\n\nI’ve attached our guest-parking quick guide (where to register a plate and which lots to use).",
-        timestamp: "Sep 15 2025 · 5:14pm MST",
+        timestamp: "Sep 8 2025 · 5:14pm MST",
         type: "message",
         emailAttachments: [
           { name: "Jamison-Guest-Parking-Quick-Guide.pdf", kind: "file" },
@@ -914,6 +999,19 @@ Leasing Specialist
 Jamison Apartments
 (720) 555-0280
 2400 Jamison Circle, Aurora, CO 80014`,
+      },
+      {
+        role: "staff",
+        type: "thread_activity",
+        text: "",
+        timestamp: "Sep 15 2025 · 8:00am MST",
+        threadActivity: {
+          kind: "follow_up_reminder",
+          daysIdle: 7,
+          sinceRole: "staff",
+          sinceTimestamp: "Sep 8 · 5:14pm",
+          suggestedAction: "Nudge Maya on the visitor-parking answer and offer to schedule a tour while she's evaluating communities.",
+        },
       },
     ],
   },
@@ -952,6 +1050,826 @@ Leasing Specialist
 Hillside Living
 (720) 555-0140
 1800 Hillside Parkway, Denver, CO 80205`,
+      },
+    ],
+  },
+
+  // ============================================================================
+  // Voice (missed calls / voicemails) — need-action for SA 1.2 demos so the
+  // Quick Filter "Voice" tile has content and the Property Threads inbox has
+  // callback obligations to show.
+  // ============================================================================
+  {
+    id: "voice-vm-jordan",
+    resident: "Jordan Whitaker",
+    unit: "Unit 507",
+    preview: "Voicemail · 1:34 — Front-door lock keypad is dead, can't get in tonight.",
+    agent: "Staff",
+    time: "6m ago",
+    contactType: "Resident",
+    property: "Hillside Living",
+    channel: "Voice",
+    assignee: "Abe Kashiwagi",
+    labels: ["Resident", "Maintenance AI Escalation"],
+    status: "open",
+    hasUnread: true,
+    messages: [
+      {
+        role: "resident",
+        type: "voicemail",
+        text: "Voicemail — see transcript",
+        timestamp: "Aug 29 2026 · 8:42pm MST",
+        voicemail: {
+          durationSec: 94,
+          fromNumber: "+1 (720) 555-4402",
+          transcript:
+            "Jordan Whitaker in unit 507 reported the front-door keypad is unresponsive and they can't get into the building; requested an urgent callback for after-hours access.",
+          turns: [
+            {
+              speaker: "ai",
+              text: "Thanks for calling Hillside Living. This is ELI. How can I help you today?",
+            },
+            {
+              speaker: "resident",
+              text: "Yeah hi, this is Jordan in unit 507. The keypad on the main entrance is completely dead — I've been trying my code for the last ten minutes and it's not lighting up at all. I'm standing outside with groceries.",
+            },
+            {
+              speaker: "ai",
+              text: "I'm sorry, Jordan. Let me flag this for the on-call maintenance team so they can get you in tonight. Is 720-555-4402 the best number for a callback?",
+            },
+            {
+              speaker: "resident",
+              text: "Yes, please have someone call me back — I don't have another way in.",
+            },
+          ],
+        },
+      },
+    ],
+  },
+  {
+    id: "voice-missed-priya",
+    resident: "Priya Balakrishnan",
+    unit: null,
+    preview: "Missed call · rang 42s · 3 attempts in a row",
+    agent: "Staff",
+    time: "11m ago",
+    contactType: "Lead",
+    property: "Hillside Living",
+    channel: "Voice",
+    assignee: "Unassigned",
+    labels: ["Lead", "Leasing AI Escalation"],
+    status: "open",
+    hasUnread: true,
+    messages: [
+      {
+        role: "resident",
+        type: "missed_call",
+        text: "Missed call",
+        timestamp: "Aug 29 2026 · 8:18pm MST",
+        missedCall: {
+          fromNumber: "+1 (415) 555-7710",
+          attemptCount: 3,
+          rangForSec: 42,
+        },
+      },
+      {
+        role: "resident",
+        type: "missed_call",
+        text: "Missed call",
+        timestamp: "Aug 29 2026 · 8:22pm MST",
+        missedCall: {
+          fromNumber: "+1 (415) 555-7710",
+          rangForSec: 38,
+        },
+      },
+      {
+        role: "resident",
+        type: "missed_call",
+        text: "Missed call",
+        timestamp: "Aug 29 2026 · 8:29pm MST",
+        missedCall: {
+          fromNumber: "+1 (415) 555-7710",
+          rangForSec: 45,
+        },
+      },
+    ],
+  },
+  {
+    id: "voice-vm-mateo",
+    resident: "Mateo Alvarez",
+    unit: null,
+    preview: "Callback complete — booked studio tour for Saturday 10:30am.",
+    agent: "Leasing AI",
+    time: "24m ago",
+    contactType: "Lead",
+    property: "Jamison Apartments",
+    channel: "Voice",
+    assignee: "ELI+ Leasing AI",
+    labels: ["Leasing AI"],
+    status: "open",
+    hasUnread: false,
+    messages: [
+      {
+        role: "resident",
+        type: "voicemail",
+        text: "Voicemail — see transcript",
+        timestamp: "Aug 29 2026 · 8:05pm MST",
+        voicemail: {
+          durationSec: 48,
+          fromNumber: "+1 (602) 555-3391",
+          transcript:
+            "Mateo Alvarez asked about scheduling a studio tour this weekend and left a callback number.",
+          turns: [
+            {
+              speaker: "resident",
+              text: "Hi, this is Mateo Alvarez — I filled out the studio inquiry yesterday and I wanted to lock in a tour for Saturday if any morning times are still open. You can reach me at this number, thanks.",
+            },
+          ],
+        },
+      },
+      {
+        role: "staff",
+        type: "thread_activity",
+        text: "",
+        timestamp: "Aug 29 2026 · 8:14pm MST",
+        threadActivity: {
+          kind: "phone_call",
+          actor: "Abe Kashiwagi",
+          phoneNumber: "+1 (602) 555-3391",
+          outcome: "connected",
+          durationLabel: "4:12",
+          notes: "Returned VM. Booked studio tour Sat 10:30am; sent calendar invite and unit link.",
+        },
+      },
+    ],
+  },
+  {
+    id: "voice-vm-natalie",
+    resident: "Natalie Ortega",
+    unit: "Unit 312",
+    preview: "Callback complete — HVAC tech dispatched, ETA under 2 hours.",
+    agent: "Staff",
+    time: "18m ago",
+    contactType: "Resident",
+    property: "Jamison Apartments",
+    channel: "Voice",
+    assignee: "Abe Kashiwagi",
+    labels: ["Resident", "Maintenance AI Escalation"],
+    status: "open",
+    hasUnread: false,
+    messages: [
+      {
+        role: "resident",
+        type: "voicemail",
+        text: "Voicemail — see transcript",
+        timestamp: "Aug 29 2026 · 8:24pm MST",
+        voicemail: {
+          durationSec: 72,
+          fromNumber: "+1 (480) 555-2288",
+          transcript:
+            "Natalie Ortega in unit 312 reported the AC unit has been off since 8am and interior temps are climbing past 88°F. Requested same-day service.",
+          turns: [
+            {
+              speaker: "resident",
+              text: "Hi, this is Natalie in 312 — our AC has been dead since about 8 this morning and it's up to 88 in here. My two kids are home and it's really uncomfortable. Please have someone come out today if at all possible.",
+            },
+          ],
+        },
+      },
+      {
+        role: "staff",
+        type: "thread_activity",
+        text: "",
+        timestamp: "Aug 29 2026 · 8:33pm MST",
+        threadActivity: {
+          kind: "phone_call",
+          actor: "Abe Kashiwagi",
+          phoneNumber: "+1 (480) 555-2288",
+          outcome: "connected",
+          durationLabel: "5:47",
+          notes: "Callback complete. Dispatched on-call HVAC (ETA under 2 hrs). Offered lobby AC while she waits; opened WO #4712.",
+        },
+      },
+    ],
+  },
+  {
+    id: "voice-missed-devon",
+    resident: "Devon Cross",
+    unit: null,
+    preview: "Callback complete — sent tour options for Fri PM & Sat AM.",
+    agent: "Leasing AI",
+    time: "27m ago",
+    contactType: "Lead",
+    property: "Jamison Apartments",
+    channel: "Voice",
+    assignee: "ELI+ Leasing AI",
+    labels: ["Leasing AI"],
+    status: "open",
+    hasUnread: false,
+    messages: [
+      {
+        role: "resident",
+        type: "missed_call",
+        text: "Missed call",
+        timestamp: "Aug 29 2026 · 8:02pm MST",
+        missedCall: {
+          fromNumber: "+1 (971) 555-6104",
+          rangForSec: 31,
+        },
+      },
+      {
+        role: "staff",
+        type: "thread_activity",
+        text: "",
+        timestamp: "Aug 29 2026 · 8:11pm MST",
+        threadActivity: {
+          kind: "phone_call",
+          actor: "Abe Kashiwagi",
+          phoneNumber: "+1 (971) 555-6104",
+          outcome: "connected",
+          durationLabel: "2:36",
+          notes: "Reached Devon. Wants a 1BR facing the courtyard, budget $1.9k. Sent tour options for Fri 4pm and Sat 10am — waiting on preference.",
+        },
+      },
+    ],
+  },
+  {
+    id: "voice-vm-simone",
+    resident: "Simone Bakari",
+    unit: "Unit 1104",
+    preview: "Callback complete — late fee waived, autopay re-verified for Oct.",
+    agent: "Staff",
+    time: "38m ago",
+    contactType: "Resident",
+    property: "Hillside Living",
+    channel: "Voice",
+    assignee: "Abe Kashiwagi",
+    labels: ["Resident", "Payments AI Escalation"],
+    status: "open",
+    hasUnread: false,
+    messages: [
+      {
+        role: "resident",
+        type: "voicemail",
+        text: "Voicemail — see transcript",
+        timestamp: "Aug 29 2026 · 7:51pm MST",
+        voicemail: {
+          durationSec: 52,
+          fromNumber: "+1 (206) 555-8823",
+          transcript:
+            "Simone Bakari in unit 1104 says autopay did not run for September rent and she just received a late-fee notice. Wants a callback before the office closes tomorrow to sort out the fee and reconfirm autopay.",
+          turns: [
+            {
+              speaker: "resident",
+              text: "Hi, this is Simone in 1104. My autopay was supposed to run on the first and it looks like it never did — I just got the late-fee text. I've had autopay on for two years so something's off. Please call me back before you close tomorrow.",
+            },
+          ],
+        },
+      },
+      {
+        role: "staff",
+        type: "thread_activity",
+        text: "",
+        timestamp: "Aug 29 2026 · 8:04pm MST",
+        threadActivity: {
+          kind: "phone_call",
+          actor: "Abe Kashiwagi",
+          phoneNumber: "+1 (206) 555-8823",
+          outcome: "connected",
+          durationLabel: "6:18",
+          notes: "Reached Simone. Confirmed her card on file expired 8/31 — she updated it on the call. Waived $75 late fee, re-armed autopay for Oct 1. Sent receipt of fee waiver via email.",
+        },
+      },
+    ],
+  },
+  {
+    id: "voice-missed-hannah",
+    resident: "Hannah Delacroix",
+    unit: null,
+    preview: "Callback complete — texted pet-friendly 2BR list.",
+    agent: "Leasing AI",
+    time: "51m ago",
+    contactType: "Lead",
+    property: "Hillside Living",
+    channel: "Voice",
+    assignee: "ELI+ Leasing AI",
+    labels: ["Leasing AI"],
+    status: "open",
+    hasUnread: false,
+    messages: [
+      {
+        role: "resident",
+        type: "missed_call",
+        text: "Missed call",
+        timestamp: "Aug 29 2026 · 7:38pm MST",
+        missedCall: {
+          fromNumber: "+1 (503) 555-4471",
+          attemptCount: 2,
+          rangForSec: 46,
+        },
+      },
+      {
+        role: "resident",
+        type: "missed_call",
+        text: "Missed call",
+        timestamp: "Aug 29 2026 · 7:44pm MST",
+        missedCall: {
+          fromNumber: "+1 (503) 555-4471",
+          rangForSec: 40,
+        },
+      },
+      {
+        role: "staff",
+        type: "thread_activity",
+        text: "",
+        timestamp: "Aug 29 2026 · 7:55pm MST",
+        threadActivity: {
+          kind: "phone_call",
+          actor: "Abe Kashiwagi",
+          phoneNumber: "+1 (503) 555-4471",
+          outcome: "connected",
+          durationLabel: "3:22",
+          notes: "Called Hannah back. Two large dogs, 2BR needed, move-in 10/15. Texted her the pet-friendly 2BR list with pet deposit info and tour slots.",
+        },
+      },
+    ],
+  },
+  {
+    id: "voice-vm-terrence",
+    resident: "Terrence Yao",
+    unit: "Unit 706",
+    preview: "Follow-up reminder — no reply in 4 days since staff last responded",
+    agent: "Renewals AI",
+    time: "just now",
+    contactType: "Resident",
+    property: "Jamison Apartments",
+    channel: "Voice",
+    assignee: "ELI+ Renewals AI",
+    labels: ["Renewals AI"],
+    status: "open",
+    hasUnread: false,
+    messages: [
+      {
+        role: "resident",
+        type: "voicemail",
+        text: "Voicemail — see transcript",
+        timestamp: "Aug 25 2026 · 7:29pm MST",
+        voicemail: {
+          durationSec: 65,
+          fromNumber: "+1 (971) 555-2245",
+          transcript:
+            "Terrence Yao in unit 706 has a question about the renewal offer that arrived by email — wants to walk through the two term options with a person before signing, deadline is Sept 15.",
+          turns: [
+            {
+              speaker: "resident",
+              text: "Hey, this is Terrence in 706. I got the renewal offer email and I have some questions before I sign — I want to talk through the twelve versus fifteen month option with somebody. Give me a call whenever, thanks.",
+            },
+          ],
+        },
+      },
+      {
+        role: "staff",
+        type: "thread_activity",
+        text: "",
+        timestamp: "Aug 25 2026 · 8:12pm MST",
+        threadActivity: {
+          kind: "phone_call",
+          actor: "Abe Kashiwagi",
+          phoneNumber: "+1 (971) 555-2245",
+          outcome: "failed",
+          notes: "Called back — went to voicemail. Left a message walking through 12-mo vs 15-mo renewal pricing and offered to book a 15-min call.",
+        },
+      },
+      {
+        role: "staff",
+        type: "thread_activity",
+        text: "",
+        timestamp: "Aug 29 2026 · 8:00am MST",
+        threadActivity: {
+          kind: "follow_up_reminder",
+          daysIdle: 4,
+          sinceRole: "staff",
+          sinceTimestamp: "Aug 25 · 8:12pm",
+          suggestedAction: "Renewal deadline is Sept 15 — try a second callback or send the two pricing options via SMS.",
+        },
+      },
+    ],
+  },
+
+  // ============================================================================
+  // Chat need-action — resident sent the last public message, awaiting a
+  // property reply. Uses the "Resident Chat" channel (maps to the Chat quick-
+  // filter tile).
+  // ============================================================================
+  {
+    id: "chat-need-derek",
+    resident: "Derek Simmons",
+    unit: "Unit 208",
+    preview: "Can I still get on the reserved parking waitlist if I signed my lease last week?",
+    agent: "Staff",
+    time: "9m ago",
+    contactType: "Resident",
+    property: "Hillside Living",
+    channel: "Resident Chat",
+    assignee: "Abe Kashiwagi",
+    labels: ["Resident"],
+    status: "open",
+    hasUnread: true,
+    messages: [
+      {
+        role: "resident",
+        text: "Hey — I saw the note about reserved parking on the community board. I just moved into 208 last Wednesday. Can I still get on the waitlist even though I already signed my lease?",
+        timestamp: "Aug 29 2026 · 8:20pm MST",
+        type: "message",
+      },
+    ],
+  },
+  {
+    id: "chat-need-yasmin",
+    resident: "Yasmin El-Sayed",
+    unit: "Unit 1104",
+    preview: "The elevator on the 11th floor makes a grinding noise — is that being looked at?",
+    agent: "Staff",
+    time: "16m ago",
+    contactType: "Resident",
+    property: "Jamison Apartments",
+    channel: "Resident Chat",
+    assignee: "Alex Johnson",
+    labels: ["Resident", "Maintenance AI Escalation"],
+    status: "open",
+    hasUnread: true,
+    messages: [
+      {
+        role: "resident",
+        text: "Hi, the elevator on the 11th floor has been making a grinding noise every time it opens on my floor for the last three days. Is that being looked at? Happy to demo it if maintenance wants to come up.",
+        timestamp: "Aug 29 2026 · 8:12pm MST",
+        type: "message",
+      },
+      {
+        role: "agent",
+        text: "Hi Yasmin — thanks for flagging this. I don't see an active work order on the 11th-floor elevator yet, and grinding when the doors open can point to a few different mechanical issues (roller bearings, door operator, sheave). I'd rather have our on-site maintenance team hear it in person before opening a WO so they can bring the right parts. Let me hand this to Alex to schedule a quick inspection.",
+        timestamp: "Aug 29 2026 · 8:14pm MST",
+        type: "message",
+      },
+      { role: "staff", text: "", timestamp: "Aug 29 2026 · 8:14pm MST", type: "handoff" },
+    ],
+  },
+
+  // ============================================================================
+  // Follow-up reminder demo threads (SA 1.2). Each one lands with an amber
+  // marker on the thread card, driven by Thread Automation. Kept together so
+  // they're easy to find and adjust.
+  // ============================================================================
+  {
+    // SMS · Property Threads · Payments Escalation · single 4-day threshold fired.
+    id: "sa12-followup-marcus",
+    resident: "Marcus Doyle",
+    unit: "Unit 302",
+    preview: "Follow-up reminder — no reply in 4 days since staff last responded",
+    agent: "Staff",
+    time: "just now",
+    contactType: "Resident",
+    property: "Hillside Living",
+    channel: "SMS",
+    assignee: "Abe Kashiwagi",
+    labels: ["Resident", "Payments AI Escalation"],
+    status: "open",
+    hasUnread: false,
+    messages: [
+      {
+        role: "resident",
+        text: "My rent hasn't gone through this month even though autopay is on — can someone look into it? I don't want a late fee.",
+        timestamp: "Sep 10 2025 · 3:14pm MST",
+        type: "message",
+      },
+      {
+        role: "agent",
+        text: "Hi Marcus — I looked at your ledger and I can see that your September autopay didn't post. The card on file expired 9/1 and the pull failed on 9/2. I can walk you through updating the card in the portal, but reversing the $50 late fee that already posted needs a team member's approval. Let me hand this over so they can waive it and confirm autopay is armed for October.",
+        timestamp: "Sep 10 2025 · 3:16pm MST",
+        type: "message",
+      },
+      { role: "staff", text: "", timestamp: "Sep 10 2025 · 3:16pm MST", type: "handoff" },
+      {
+        role: "staff",
+        text: "Hey Marcus — pulled up your ledger. Looks like the card on file expired 9/1 so the pull failed. I've disabled the late fee for this cycle. Want to update the card in the portal or use a bank draft this month?",
+        timestamp: "Sep 11 2025 · 9:22am MST",
+        type: "message",
+      },
+      {
+        role: "staff",
+        type: "thread_activity",
+        text: "",
+        timestamp: "Sep 15 2025 · 8:00am MST",
+        threadActivity: {
+          kind: "follow_up_reminder",
+          daysIdle: 4,
+          sinceRole: "staff",
+          sinceTimestamp: "Sep 11 · 9:22am",
+          suggestedAction: "Nudge Marcus — payment still isn't posted and the grace period ends Friday.",
+        },
+      },
+    ],
+  },
+  {
+    // Email · Property Threads · Leasing AI Escalation · MULTI-threshold demo:
+    // both the 3-day and 7-day rules have fired.
+    id: "sa12-followup-genevieve",
+    resident: "Genevieve Marchetti",
+    unit: null,
+    preview: "Follow-up reminder — no reply in 7 days since staff last responded",
+    agent: "Staff",
+    time: "just now",
+    contactType: "Lead",
+    property: "Jamison Apartments",
+    channel: "Email",
+    emailSubject: "Re: Availability + pricing — 2-bed corner units, October move-in",
+    assignee: "Abe Kashiwagi",
+    labels: ["Lead", "Leasing AI Escalation"],
+    status: "open",
+    hasUnread: false,
+    messages: [
+      {
+        role: "resident",
+        text: "Hi — I filled out the corner-unit inquiry on the website last week. Do you have any 2-beds with the corner floorplan opening between Oct 1–15? Looking for around $2,400 and I have two indoor cats.",
+        timestamp: "Sep 7 2025 · 4:18pm MST",
+        type: "message",
+        emailSignature: "—\nGenevieve Marchetti\nProspective resident\ngenevieve.m@example.com",
+      },
+      {
+        role: "agent",
+        text: "Hi Genevieve — thanks for reaching out about a corner 2-bed. I can see two units that fit your Oct 1–15 window: Unit 812 (available Oct 3, $2,395) and Unit 1108 (available Oct 12, $2,450). Both are pet-friendly with a refundable $300 pet deposit. Since you mentioned a $2,400 budget I'd like to flag Unit 1108 to my colleague so they can confirm whether we can honor the corner-unit promo pricing this cycle — I don't want to promise a discount I can't verify. They'll follow up shortly with floorplans, a walkthrough video, and next steps on holding a unit.",
+        timestamp: "Sep 7 2025 · 4:22pm MST",
+        type: "message",
+      },
+      { role: "staff", text: "", timestamp: "Sep 7 2025 · 4:22pm MST", type: "handoff" },
+      {
+        role: "staff",
+        text: "Hi Genevieve — thanks for reaching out. Two corner 2-beds fit your window: Unit 812 (Oct 3, $2,395) and Unit 1108 (Oct 12, $2,450). Both are pet-friendly with a $300 refundable pet deposit. I've attached the floorplans and a corner-unit walkthrough video — happy to hold either while you decide.",
+        timestamp: "Sep 8 2025 · 10:04am MST",
+        type: "message",
+        emailAttachments: [
+          { name: "Jamison-2BR-Corner-Floorplan.pdf", kind: "file" },
+          { name: "Corner-Unit-Walkthrough-Sept2025.mp4", kind: "file" },
+        ],
+        emailSignature: `Best regards,
+Abe Kashiwagi
+Leasing Specialist
+
+Jamison Apartments
+(720) 555-0280
+2400 Jamison Circle, Aurora, CO 80014`,
+      },
+      {
+        role: "staff",
+        type: "thread_activity",
+        text: "",
+        timestamp: "Sep 11 2025 · 8:00am MST",
+        threadActivity: {
+          kind: "follow_up_reminder",
+          daysIdle: 3,
+          sinceRole: "staff",
+          sinceTimestamp: "Sep 8 · 10:04am",
+          suggestedAction: "Send a friendly nudge asking if she'd like to lock in Unit 812 or 1108 before someone else does.",
+        },
+      },
+      {
+        role: "staff",
+        type: "thread_activity",
+        text: "",
+        timestamp: "Sep 15 2025 · 8:00am MST",
+        threadActivity: {
+          kind: "follow_up_reminder",
+          daysIdle: 7,
+          sinceRole: "staff",
+          sinceTimestamp: "Sep 8 · 10:04am",
+          suggestedAction: "Second threshold hit — try a phone call before Genevieve moves on. Both units still available.",
+        },
+      },
+    ],
+  },
+  {
+    // SMS · Eli Threads · Renewals AI · single 5-day threshold fired.
+    // Demonstrates the amber marker firing in the Eli inbox (not just Property).
+    id: "sa12-followup-priya-r",
+    resident: "Priya Ranganathan",
+    unit: "Unit 507",
+    preview: "Follow-up reminder — no reply in 5 days since the AI agent last responded",
+    agent: "Renewals AI",
+    time: "just now",
+    contactType: "Resident",
+    property: "Hillside Living",
+    channel: "SMS",
+    assignee: "ELI+ Renewals AI",
+    labels: ["Renewals AI"],
+    status: "open",
+    hasUnread: false,
+    messages: [
+      {
+        role: "resident",
+        text: "Got the renewal email — is the 13-month special still available if I sign this week?",
+        timestamp: "Sep 9 2025 · 6:32pm MST",
+        type: "message",
+      },
+      {
+        role: "agent",
+        text: "Hi Priya — yes, the 13-month promo is locked in for anyone who signs before Sept 20 ($1,585/mo vs $1,620 for a straight 12-month). Want me to prep the addendum for signature?",
+        timestamp: "Sep 9 2025 · 6:34pm MST",
+        type: "message",
+      },
+      {
+        role: "staff",
+        type: "thread_activity",
+        text: "",
+        timestamp: "Sep 15 2025 · 8:00am MST",
+        threadActivity: {
+          kind: "follow_up_reminder",
+          daysIdle: 5,
+          sinceRole: "agent",
+          sinceTimestamp: "Sep 9 · 6:34pm",
+          suggestedAction: "Sept 20 deadline is 5 days out — send a nudge or call to confirm before the promo expires.",
+        },
+      },
+    ],
+  },
+
+  // ============================================================================
+  // Closed Threads — resolved conversations across channels, so the Closed
+  // Threads inbox is not empty on first load.
+  // ============================================================================
+  {
+    id: "closed-sms-daniela",
+    resident: "Daniela Cruz",
+    unit: "Unit 402",
+    preview: "Perfect, thank you! Got the new fob and the code works now.",
+    agent: "Staff",
+    time: "Yesterday",
+    contactType: "Resident",
+    property: "Hillside Living",
+    channel: "SMS",
+    assignee: "Abe Kashiwagi",
+    labels: ["Resident"],
+    status: "resolved",
+    hasUnread: false,
+    messages: [
+      {
+        role: "resident",
+        text: "Hi — my fob stopped working at the garage door this morning.",
+        timestamp: "Aug 28 2026 · 9:14am MST",
+        type: "message",
+      },
+      {
+        role: "staff",
+        text: "Sorry about that Daniela — I re-provisioned the fob and it should work now. Give it a try and let me know.",
+        timestamp: "Aug 28 2026 · 9:32am MST",
+        type: "message",
+      },
+      {
+        role: "resident",
+        text: "Perfect, thank you! Got the new fob and the code works now.",
+        timestamp: "Aug 28 2026 · 10:02am MST",
+        type: "message",
+      },
+    ],
+  },
+  {
+    id: "closed-email-marcus",
+    resident: "Marcus Chen",
+    unit: null,
+    preview: "Signed the application — thanks for the fast turnaround.",
+    agent: "Leasing AI",
+    time: "Yesterday",
+    contactType: "Lead",
+    property: "Hillside Living",
+    channel: "Email",
+    emailSubject: "Application submitted — 1BR pricing question",
+    assignee: "ELI+ Leasing AI",
+    labels: ["Leasing AI", "Lead"],
+    status: "resolved",
+    hasUnread: false,
+    messages: [
+      {
+        role: "resident",
+        text: "Hi — I'd like to apply for the 1-bedroom listed at $1,750. What's the application fee and is there anything I should have ready?",
+        timestamp: "Aug 28 2026 · 3:04pm MST",
+        type: "message",
+      },
+      {
+        role: "agent",
+        text: "Hi Marcus — application fee is $50, and you'll want a photo ID and last 30 days of income docs. I've sent the application link to this email.",
+        timestamp: "Aug 28 2026 · 3:05pm MST",
+        type: "message",
+      },
+      {
+        role: "resident",
+        text: "Signed the application — thanks for the fast turnaround.",
+        timestamp: "Aug 28 2026 · 4:41pm MST",
+        type: "message",
+      },
+    ],
+  },
+  {
+    id: "closed-chat-yolanda",
+    resident: "Yolanda Perez",
+    unit: "Unit 613",
+    preview: "Got the confirmation email, thanks!",
+    agent: "Payments AI",
+    time: "2d ago",
+    contactType: "Resident",
+    property: "Hillside Living",
+    channel: "Resident Chat",
+    assignee: "ELI+ Payments AI",
+    labels: ["Payments AI", "Resident"],
+    status: "resolved",
+    hasUnread: false,
+    messages: [
+      {
+        role: "resident",
+        text: "I paid rent this morning but I don't see it reflected on my ledger yet.",
+        timestamp: "Aug 27 2026 · 11:20am MST",
+        type: "message",
+      },
+      {
+        role: "agent",
+        text: "I see the payment posted at 11:04am — it should reflect on the ledger within an hour. I've kicked off a manual refresh for you.",
+        timestamp: "Aug 27 2026 · 11:22am MST",
+        type: "message",
+      },
+      {
+        role: "resident",
+        text: "Got the confirmation email, thanks!",
+        timestamp: "Aug 27 2026 · 12:08pm MST",
+        type: "message",
+      },
+    ],
+  },
+  {
+    id: "closed-voice-anna",
+    resident: "Anna Bergstrom",
+    unit: "Unit 305",
+    preview: "Voicemail · 0:38 — resolved after callback, package located.",
+    agent: "Staff",
+    time: "3d ago",
+    contactType: "Resident",
+    property: "Hillside Living",
+    channel: "Voice",
+    assignee: "Abe Kashiwagi",
+    labels: ["Resident"],
+    status: "resolved",
+    hasUnread: false,
+    messages: [
+      {
+        role: "resident",
+        type: "voicemail",
+        text: "Voicemail — see transcript",
+        timestamp: "Aug 26 2026 · 2:15pm MST",
+        voicemail: {
+          durationSec: 38,
+          fromNumber: "+1 (720) 555-9821",
+          transcript:
+            "Anna Bergstrom in unit 305 called about a missing package she was expecting; ELI logged a callback request.",
+          turns: [
+            {
+              speaker: "resident",
+              text: "Hi, this is Anna in 305 — my package says it was delivered to the parcel room but I can't find it. Can someone call me back? Thanks.",
+            },
+          ],
+        },
+      },
+      {
+        role: "staff",
+        text: "Called Anna back at 2:32pm — package was in locker C-12; she has the pickup code. Closing out.",
+        timestamp: "Aug 26 2026 · 2:33pm MST",
+        type: "message",
+      },
+    ],
+  },
+  {
+    id: "closed-email-terrence",
+    resident: "Terrence Ho",
+    unit: "Unit 811",
+    preview: "Renewal signed — see you Sept 1.",
+    agent: "Renewal AI",
+    time: "5d ago",
+    contactType: "Resident",
+    property: "Jamison Apartments",
+    emailSubject: "Renewal offer — Unit 811",
+    channel: "Email",
+    assignee: "ELI+ Renewal AI",
+    labels: ["Renewal AI", "Renewal Offer", "Resident"],
+    status: "resolved",
+    hasUnread: false,
+    messages: [
+      {
+        role: "agent",
+        text: "Hi Terrence — attached is your renewal offer for Unit 811. The 12-month term keeps your current rate.",
+        timestamp: "Aug 24 2026 · 10:00am MST",
+        type: "message",
+      },
+      {
+        role: "resident",
+        text: "Renewal signed — see you Sept 1.",
+        timestamp: "Aug 24 2026 · 3:47pm MST",
+        type: "message",
       },
     ],
   },
