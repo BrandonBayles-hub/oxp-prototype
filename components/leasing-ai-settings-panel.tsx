@@ -43,6 +43,9 @@ import {
   ClipboardList,
   MoreHorizontal,
   Layers,
+  ChevronRight,
+  Sparkles,
+  Check,
 } from "lucide-react"
 import {
   Tooltip,
@@ -68,7 +71,7 @@ import {
    Conversation modes
    ══════════════════════════════════════════════════════════════════════════ */
 
-type ConversationModeId = "maximize-tour" | "maximize-application"
+type ConversationModeId = "maximize-tour" | "maximize-application" | "custom"
 
 interface ConversationMode {
   id: ConversationModeId
@@ -98,9 +101,39 @@ const CONVERSATION_MODES: ConversationMode[] = [
     conversionGoal: "drive_applications",
     requiresConventionalNoAffordable: true,
   },
+  {
+    id: "custom",
+    name: "Custom Mode",
+    description:
+      "Describe what you want the agent to collect and prioritize. We'll set up the Leasing Questions from your description.",
+    cadenceLabel: "Custom cadence",
+    conversionGoal: "answer_questions",
+    requiresConventionalNoAffordable: false,
+  },
 ]
 
 const DEFAULT_MODE: ConversationModeId = "maximize-tour"
+
+type QuestionPacing = "one" | "smart" | "two" | "three"
+
+interface QuestionPacingOption {
+  id: QuestionPacing
+  label: string
+  description: string
+}
+
+const QUESTION_PACING_OPTIONS: QuestionPacingOption[] = [
+  { id: "one", label: "One at a time", description: "Ask a maximum of one configured question per agent response." },
+  { id: "smart", label: "Smart Pacing", description: "Let the agent decide whether to ask questions individually or naturally group closely related ones. Prefers fewer, more natural questions." },
+  { id: "two", label: "Up to 2 at a time", description: "Ask up to two unanswered questions in a single response." },
+  { id: "three", label: "Up to 3 at a time", description: "Ask up to three unanswered questions in a single response." },
+]
+
+const DEFAULT_QUESTION_PACING: QuestionPacing = "smart"
+
+function questionPacingLabel(id: QuestionPacing): string {
+  return QUESTION_PACING_OPTIONS.find((o) => o.id === id)?.label ?? "Smart Pacing"
+}
 
 type LeasingSettingsTab = "settings" | "pre-tour-nurture" | "post-tour-nurture"
 
@@ -667,9 +700,48 @@ function makeDefaultLeasingStages(): Record<LeasingStageId, LeasingStageConfig> 
   }
 }
 
+/**
+ * Conversation Mode presets — selecting a mode reconfigures the Leasing
+ * Questions gates. Tour mode gets prospects to a tour quickly; Application mode
+ * additionally opens the application-invitation gate so more is collected before
+ * the agent invites an application.
+ */
+function makeLeasingStagesForMode(mode: ConversationModeId): Record<LeasingStageId, LeasingStageConfig> {
+  const base = makeDefaultLeasingStages()
+  if (mode === "maximize-application") {
+    base.before_application = { ...base.before_application, enabled: true }
+  }
+  // "maximize-tour" and "custom" start from the tour-focused base ("custom" is
+  // then refined by makeLeasingStagesFromInstructions on submit).
+  return base
+}
+
+/**
+ * Prototype heuristic: turn a free-text description into gate toggles. A real
+ * implementation would send the text to the agent to synthesize the config.
+ */
+function makeLeasingStagesFromInstructions(text: string): Record<LeasingStageId, LeasingStageConfig> {
+  const base = makeDefaultLeasingStages()
+  const t = text.toLowerCase()
+  const setEnabled = (id: LeasingStageId, on: boolean) => {
+    base[id] = { ...base[id], enabled: on }
+  }
+  if (/\b(appl(y|ication)|lease|sign)\b/.test(t)) setEnabled("before_application", true)
+  if (/\b(upfront|before anything|first thing|greeting|as soon as|immediately|right away|name|contact|phone|email)\b/.test(t)) {
+    setEnabled("before_chat", true)
+  }
+  if (/\b(no pricing gate|show pricing|open pricing|don'?t gate pricing|share pricing freely)\b/.test(t)) {
+    setEnabled("before_pricing", false)
+  }
+  if (/\b(no tour gate|show tours freely|don'?t gate tours?)\b/.test(t)) setEnabled("before_tour", false)
+  return base
+}
+
 interface PanelState {
   agentName: string
   conversationMode: ConversationModeId
+  customModeInstructions: string
+  questionPacing: QuestionPacing
   requireGuestCard: boolean
   tourPriority: TourType[]
   virtualTourLink: string
@@ -692,6 +764,8 @@ function makeDefaultState(agentDisplayLabel = "Leasing AI"): PanelState {
   return {
     agentName: agentDisplayLabel,
     conversationMode: DEFAULT_MODE,
+    customModeInstructions: "",
+    questionPacing: DEFAULT_QUESTION_PACING,
     requireGuestCard: false,
     tourPriority: DEFAULT_TOUR_PRIORITY,
     virtualTourLink: "",
@@ -793,11 +867,17 @@ export function LeasingAISettingsPanel({
         prequalification_actions?: { outcome?: string; tour?: string; application?: string }[]
         prequalification_goals?: { result: string; tour: string; application: string; waitlist?: string; offer_market_rate: boolean }[]
         leasing_questions?: Record<LeasingStageId, LeasingStageConfig>
+        custom_mode_instructions?: string
+        question_pacing?: string
       }) => {
         const defaults = makeDefaultState(initialAgentDisplayLabel)
         const loaded: Partial<PanelState> = {
           agentName: data.agent_display_name?.trim() || initialAgentDisplayLabel,
           conversationMode: normalizeModeId(data.mode_id),
+          customModeInstructions: data.custom_mode_instructions ?? "",
+          questionPacing: QUESTION_PACING_OPTIONS.some((o) => o.id === data.question_pacing)
+            ? (data.question_pacing as QuestionPacing)
+            : DEFAULT_QUESTION_PACING,
           tourPriority: normalizeTourPriority(data.tour_priority),
           virtualTourLink: data.virtual_tour_link ?? "",
           externalSelfGuidedTourLink: data.external_self_guided_tour_link ?? "",
@@ -931,6 +1011,8 @@ export function LeasingAISettingsPanel({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         mode_id: s.conversationMode,
+        custom_mode_instructions: s.conversationMode === "custom" ? s.customModeInstructions : undefined,
+        question_pacing: s.questionPacing,
         agent_display_name: s.agentName.trim() || initialAgentDisplayLabel,
         mode_name: activeMode?.name ?? s.conversationMode,
         conversion_goal: activeMode?.conversionGoal ?? "schedule_tours",
@@ -1042,13 +1124,11 @@ export function LeasingAISettingsPanel({
           <div className="mx-auto max-w-3xl space-y-8">
             <GroupHeading label={`${resolvedAgentDisplayLabel} Settings`} />
             <SectionAgentIdentity state={state} update={update} />
-            <SectionConversationMode state={state} update={update} appModeEligible={appModeEligible} agentDisplayLabel={resolvedAgentDisplayLabel} />
+            <SectionConversationMode state={state} setState={setState} appModeEligible={appModeEligible} agentDisplayLabel={resolvedAgentDisplayLabel} />
             <SectionTourPriority state={state} update={update} />
             <SectionVirtualTourLink state={state} update={update} />
             <SectionPreQualification state={state} update={update} />
             <SectionAffordable state={state} update={update} setState={setState} />
-            <GroupHeading label="Leasing Questions" />
-            <SectionLeasingQuestions state={state} setState={setState} />
           </div>
         ) : (
           <div className="mx-auto max-w-6xl">
@@ -1141,20 +1221,50 @@ function SectionShell({ icon: Icon, title, description, headerAction, children }
    Conversation Mode
    ══════════════════════════════════════════════════════════════════════════ */
 
-function SectionConversationMode({ state, update, appModeEligible, agentDisplayLabel }: {
+function SectionConversationMode({ state, setState, appModeEligible, agentDisplayLabel }: {
   state: PanelState
-  update: <K extends keyof PanelState>(key: K, value: PanelState[K]) => void
+  setState: React.Dispatch<React.SetStateAction<PanelState>>
   appModeEligible: boolean
   agentDisplayLabel: string
 }) {
+  const [customDraft, setCustomDraft] = useState(state.customModeInstructions)
+  const [pacingOpen, setPacingOpen] = useState(false)
+  const [leasingOpen, setLeasingOpen] = useState(false)
+  const enabledStageCount = LEASING_STAGES.filter((m) => state.leasingStages[m.id]?.enabled).length
+
+  const selectMode = (id: ConversationModeId) => {
+    if (id === "custom") {
+      setCustomDraft(state.customModeInstructions)
+      setState((s) => ({ ...s, conversationMode: "custom" }))
+      return
+    }
+    setState((s) => ({ ...s, conversationMode: id, leasingStages: makeLeasingStagesForMode(id) }))
+  }
+
+  const applyCustom = () => {
+    const text = customDraft.trim()
+    if (text.length === 0) return
+    setState((s) => ({
+      ...s,
+      conversationMode: "custom",
+      customModeInstructions: text,
+      leasingStages: makeLeasingStagesFromInstructions(text),
+    }))
+  }
+
+  const customApplied =
+    state.conversationMode === "custom" &&
+    state.customModeInstructions.trim().length > 0 &&
+    customDraft.trim() === state.customModeInstructions.trim()
+
   return (
     <SectionShell
       icon={MessageSquare}
       title="Conversation Mode"
-      description={`Choose how ${agentDisplayLabel} prioritizes and converts prospects at this property.`}
+      description={`Choose how ${agentDisplayLabel} prioritizes prospects. Selecting a mode configures the Leasing Questions below.`}
     >
       <div className="space-y-4">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {CONVERSATION_MODES.map((m) => {
             const active = state.conversationMode === m.id
             const blocked = m.requiresConventionalNoAffordable && !appModeEligible
@@ -1163,7 +1273,7 @@ function SectionConversationMode({ state, update, appModeEligible, agentDisplayL
                 key={m.id}
                 type="button"
                 disabled={blocked}
-                onClick={() => !blocked && update("conversationMode", m.id)}
+                onClick={() => !blocked && selectMode(m.id)}
                 className={cn(
                   "rounded-lg border px-4 py-4 text-left text-xs transition-all",
                   blocked
@@ -1174,6 +1284,7 @@ function SectionConversationMode({ state, update, appModeEligible, agentDisplayL
                 )}
               >
                 <div className="flex items-center gap-1.5">
+                  {m.id === "custom" && <Sparkles className="h-3.5 w-3.5 shrink-0" aria-hidden />}
                   <span className="font-semibold leading-snug">{m.name}</span>
                   {m.id === "maximize-tour" && <Badge variant="gray" className="text-[9px]">Default</Badge>}
                 </div>
@@ -1191,26 +1302,111 @@ function SectionConversationMode({ state, update, appModeEligible, agentDisplayL
           })}
         </div>
 
-        {/* Require Guest Card checkbox */}
-        <div className="flex items-center gap-2 pt-1">
-          <Checkbox
-            id="require-guest-card"
-            checked={state.requireGuestCard}
-            onCheckedChange={(checked) => update("requireGuestCard", checked === true)}
-          />
-          <label htmlFor="require-guest-card" className="text-xs font-medium text-foreground cursor-pointer select-none">
-            Require Guest Card Information to chat
-          </label>
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <HelpCircle className="h-3.5 w-3.5 text-muted-foreground cursor-help shrink-0" />
-              </TooltipTrigger>
-              <TooltipContent side="right" className="max-w-xs text-[11px]">
-                Warning: enabling this setting will require the prospect to provide first name, last name, and a phone number before the chatbot will answer any question.
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+        {state.conversationMode === "custom" && (
+          <div className="space-y-2.5 rounded-lg border border-border bg-zinc-50/60 p-3.5">
+            <label htmlFor="custom-mode-text" className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+              <Sparkles className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+              Describe what {agentDisplayLabel} should collect and prioritize
+            </label>
+            <textarea
+              id="custom-mode-text"
+              value={customDraft}
+              onChange={(e) => setCustomDraft(e.target.value)}
+              rows={4}
+              placeholder="e.g. Collect name and phone up front, require move-in date and layout before pricing, and invite qualified prospects to apply."
+              className="w-full resize-y rounded-md border border-input bg-white px-3 py-2 text-xs text-foreground shadow-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            />
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[11px] text-muted-foreground">
+                {customApplied ? "Applied — expand Leasing Questions below to review." : "Submitting updates the Leasing Questions below."}
+              </p>
+              <Button size="sm" className="h-8" onClick={applyCustom} disabled={customDraft.trim().length === 0}>
+                Submit
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-3 rounded-lg border border-border bg-white p-3.5">
+          <button
+            type="button"
+            onClick={() => setPacingOpen((o) => !o)}
+            aria-expanded={pacingOpen}
+            className="flex w-full items-start gap-2 text-left"
+          >
+            <ChevronRight className={cn("mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform", pacingOpen && "rotate-90")} aria-hidden />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold text-foreground">Question Pacing</span>
+                <Badge variant="gray">{questionPacingLabel(state.questionPacing)}</Badge>
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Controls how the agent asks unanswered questions in each stage.
+              </p>
+            </div>
+            <span className="shrink-0 self-center text-[11px] font-medium text-muted-foreground">
+              {pacingOpen ? "Hide" : "Options"}
+            </span>
+          </button>
+
+          {pacingOpen && (
+            <div role="listbox" aria-label="Question pacing" className="space-y-1.5">
+              {QUESTION_PACING_OPTIONS.map((opt) => {
+                const selected = state.questionPacing === opt.id
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    role="option"
+                    aria-selected={selected}
+                    onClick={() => setState((s) => ({ ...s, questionPacing: opt.id }))}
+                    className={cn(
+                      "flex w-full items-start gap-2.5 rounded-md border px-3 py-2.5 text-left transition-colors",
+                      selected ? "border-primary/40 bg-muted/40" : "border-border hover:border-zinc-400",
+                    )}
+                  >
+                    <Check className={cn("mt-0.5 h-4 w-4 shrink-0 text-foreground", selected ? "opacity-100" : "opacity-0")} aria-hidden />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-medium text-foreground">{opt.label}</span>
+                        {opt.id === DEFAULT_QUESTION_PACING && <Badge variant="gray" className="text-[9px]">Default</Badge>}
+                      </div>
+                      <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{opt.description}</p>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-3 rounded-lg border border-border bg-white p-3.5">
+          <button
+            type="button"
+            onClick={() => setLeasingOpen((o) => !o)}
+            aria-expanded={leasingOpen}
+            className="flex w-full items-start gap-2 text-left"
+          >
+            <ChevronRight className={cn("mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform", leasingOpen && "rotate-90")} aria-hidden />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold text-foreground">Leasing Questions</span>
+                <Badge variant="gray">{enabledStageCount} of {LEASING_STAGES.length} stages on</Badge>
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Configure what {agentDisplayLabel} collects at each stage of the conversation.
+              </p>
+            </div>
+            <span className="shrink-0 self-center text-[11px] font-medium text-muted-foreground">
+              {leasingOpen ? "Hide" : "Options"}
+            </span>
+          </button>
+
+          {leasingOpen && (
+            <div className="space-y-6 pt-1">
+              <SectionLeasingQuestions state={state} setState={setState} />
+            </div>
+          )}
         </div>
       </div>
     </SectionShell>
@@ -2429,7 +2625,7 @@ function SectionLeasingQuestions({ state, setState }: {
 
   return (
     <>
-      <p className="-mt-4 text-sm text-muted-foreground">
+      <p className="text-sm text-muted-foreground">
         Configure what information {state.agentName.trim() || "the leasing agent"} should collect at
         different stages of the conversation. Each stage acts as a gate.{" "}
         <span className="font-medium text-foreground">Required</span> blocks the gated action until the
