@@ -2408,12 +2408,12 @@ function ConversationsContent() {
       // isPropertyOwnedSA12 so the total mirrors the sidebar badge — because
       // needs-action is defined as "Property-owned + needs staff reply." Eli
       // Threads never contribute to needs-action counts.
+      // (The "sa12-property" case is handled by the early return above, so it
+      // never reaches this switch — TypeScript narrows it out.)
       if (sidebarFilter === "all") {
         if (c.status !== "open" || !isPropertyOwnedSA12(c)) continue;
       } else if (sidebarFilter === "sa12-escalated") {
         if (c.status !== "open" || !isPropertyOwnedSA12(c)) continue;
-      } else if (sidebarFilter === "sa12-property") {
-        if (c.status !== "open" || isPropertyOwnedSA12(c)) continue;
       } else if (sidebarFilter === "sa12-closed") {
         if (c.status !== "resolved") continue;
       } else {
