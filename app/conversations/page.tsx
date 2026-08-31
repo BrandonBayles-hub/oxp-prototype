@@ -2136,10 +2136,6 @@ function ConversationsContent() {
   const [inboxHelpOpen, setInboxHelpOpen] = useState(false);
   /** SA 1.2: channel sub-filter applied to the sidebar-selected inbox. */
   const [sa12ChannelFilter, setSa12ChannelFilter] = useState<Sa12ChannelFilter>("all");
-  /** SA 1.2: When set, show the take-over prompt before actually sending the message. */
-  const [sa12TakeoverPromptOpen, setSa12TakeoverPromptOpen] = useState(false);
-  /** SA 1.2: skip the takeover prompt for the very next handleSend call (used after modal choice). */
-  const sa12BypassPromptRef = useRef(false);
   const [threadListFiltersOpen, setThreadListFiltersOpen] = useState(false);
   const [threadListConvoTypes, setThreadListConvoTypes] = useState<Set<ThreadListConvoTypeFilter>>(
     () => new Set(["escalated"])
@@ -3178,18 +3174,6 @@ function ConversationsContent() {
 
   const handleSend = () => {
     if (!draft.trim() || !selected) return;
-    // SA 1.2: prompt the user to choose "one-time reply" vs "take over thread" the
-    // first time they reply to an AI-owned thread in Message mode.
-    if (
-      superAgent12Enabled &&
-      inputMode === "message" &&
-      !propertyOwnedThreadIds.has(selected.id) &&
-      !sa12BypassPromptRef.current
-    ) {
-      setSa12TakeoverPromptOpen(true);
-      return;
-    }
-    sa12BypassPromptRef.current = false;
     if (isSuperAgentDemoThread(selected.id) && aiActivated && inputMode === "message" && selectedEscalationTypes.size === 0) {
       setEscalationError(true);
       return;
@@ -5181,7 +5165,11 @@ function ConversationsContent() {
                   </Popover>
 
                   {selected.labels.some((label) => AI_ACTIVATION_OPT_IN_LABELS.has(label)) && (() => {
-                    const sa1State = isSuperAgent1DemoThread(selected.id)
+                    // SA 1.2 uses the same rich AI On/Off popover as SA 1.0: per-sub-agent
+                    // status (Leasing / Renewals / Maintenance / Payments), AI Activated
+                    // selector, phone/email opt-ins, and demo toggles for adding blocks.
+                    const useSa1PopoverModel = isSuperAgent1DemoThread(selected.id) || superAgent12Enabled;
+                    const sa1State = useSa1PopoverModel
                       ? computeSa1AiState(selected, aiActivated)
                       : null;
                     const pillVariant: "on" | "partial" | "off" = sa1State
@@ -7331,48 +7319,6 @@ function ConversationsContent() {
                       }}
                     >
                       Save &amp; resolve
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-
-              {/* SA 1.2 take-over-thread confirmation modal */}
-              <Dialog
-                open={sa12TakeoverPromptOpen && !!selected}
-                onOpenChange={(open) => {
-                  if (!open) setSa12TakeoverPromptOpen(false);
-                }}
-              >
-                <DialogContent className="sm:max-w-sm">
-                  <DialogHeader>
-                    <DialogTitle>Pause AI on this thread?</DialogTitle>
-                    <DialogDescription>
-                      If AI stays on, it may respond to the escalated question too.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <DialogFooter className="gap-2 sm:justify-between">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setSa12TakeoverPromptOpen(false);
-                        sa12BypassPromptRef.current = true;
-                        handleSend();
-                      }}
-                    >
-                      Keep AI on
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        if (!selected) return;
-                        setSa12TakeoverPromptOpen(false);
-                        setThreadPropertyOwned(selected.id, true);
-                        sa12BypassPromptRef.current = true;
-                        handleSend();
-                      }}
-                    >
-                      Pause AI &amp; send
                     </Button>
                   </DialogFooter>
                 </DialogContent>
