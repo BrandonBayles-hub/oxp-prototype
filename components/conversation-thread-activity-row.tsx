@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import {
+  BellRing,
   Bot,
   CheckCircle2,
   Eye,
@@ -177,6 +178,35 @@ export function ConversationThreadActivityRow({
         </>
       );
       break;
+    case "follow_up_reminder": {
+      const senderLabel = a.sinceRole === "staff" ? "staff" : "the AI agent";
+      icon = (
+        <IconWrap>
+          <BellRing className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+        </IconWrap>
+      );
+      body = (
+        <>
+          <span className="font-medium text-foreground">
+            Follow-up reminder triggered by Thread Automation
+          </span>
+          <span className="mt-0.5 block text-left">
+            {`No reply in ${a.daysIdle} day${a.daysIdle === 1 ? "" : "s"} since ${senderLabel} last responded`}
+            {a.sinceTimestamp ? (
+              <span className="text-muted-foreground">{` (${a.sinceTimestamp})`}</span>
+            ) : null}
+            {"."}
+          </span>
+          {a.suggestedAction ? (
+            <span className="mt-1 block text-left text-muted-foreground">
+              <span className="font-medium text-foreground/90">Suggested: </span>
+              {a.suggestedAction}
+            </span>
+          ) : null}
+        </>
+      );
+      break;
+    }
     case "phone_call": {
       const directionLabel =
         a.direction === "inbound" ? "incoming" : a.direction === "outbound" ? "outgoing" : null;
