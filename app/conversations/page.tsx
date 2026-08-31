@@ -5164,7 +5164,16 @@ function ConversationsContent() {
                     </PopoverContent>
                   </Popover>
 
-                  {selected.labels.some((label) => AI_ACTIVATION_OPT_IN_LABELS.has(label)) && (() => {
+                  {(() => {
+                    // In SA 1.2 the AI On/Off pill also appears on any thread carrying an
+                    // "X AI Escalation" label, even without the base "X AI" activation
+                    // label — since these threads are inherently AI-owned until staff
+                    // takes over.
+                    const hasAiLabel = selected.labels.some((label) => AI_ACTIVATION_OPT_IN_LABELS.has(label));
+                    const hasAiEscalationLabel =
+                      superAgent12Enabled && selected.labels.some((l) => l.endsWith(" AI Escalation"));
+                    return hasAiLabel || hasAiEscalationLabel;
+                  })() && (() => {
                     // SA 1.2 uses the same rich AI On/Off popover as SA 1.0: per-sub-agent
                     // status (Leasing / Renewals / Maintenance / Payments), AI Activated
                     // selector, phone/email opt-ins, and demo toggles for adding blocks.

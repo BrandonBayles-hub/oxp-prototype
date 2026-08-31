@@ -1070,7 +1070,7 @@ Hillside Living
     property: "Hillside Living",
     channel: "Voice",
     assignee: "Abe Kashiwagi",
-    labels: ["Resident", "Maintenance Escalation"],
+    labels: ["Resident", "Maintenance AI Escalation"],
     status: "open",
     hasUnread: true,
     messages: [
@@ -1117,7 +1117,7 @@ Hillside Living
     property: "Hillside Living",
     channel: "Voice",
     assignee: "Unassigned",
-    labels: ["Lead", "Leasing Escalation"],
+    labels: ["Lead", "Leasing AI Escalation"],
     status: "open",
     hasUnread: true,
     messages: [
@@ -1214,7 +1214,7 @@ Hillside Living
     property: "Jamison Apartments",
     channel: "Voice",
     assignee: "Abe Kashiwagi",
-    labels: ["Resident", "Maintenance Escalation"],
+    labels: ["Resident", "Maintenance AI Escalation"],
     status: "open",
     hasUnread: false,
     messages: [
@@ -1304,7 +1304,7 @@ Hillside Living
     property: "Hillside Living",
     channel: "Voice",
     assignee: "Abe Kashiwagi",
-    labels: ["Resident", "Payments Escalation"],
+    labels: ["Resident", "Payments AI Escalation"],
     status: "open",
     hasUnread: false,
     messages: [
@@ -1495,7 +1495,7 @@ Hillside Living
     property: "Jamison Apartments",
     channel: "Resident Chat",
     assignee: "Alex Johnson",
-    labels: ["Resident", "Maintenance Escalation"],
+    labels: ["Resident", "Maintenance AI Escalation"],
     status: "open",
     hasUnread: true,
     messages: [
@@ -1505,6 +1505,13 @@ Hillside Living
         timestamp: "Aug 29 2026 · 8:12pm MST",
         type: "message",
       },
+      {
+        role: "agent",
+        text: "Hi Yasmin — thanks for flagging this. I don't see an active work order on the 11th-floor elevator yet, and grinding when the doors open can point to a few different mechanical issues (roller bearings, door operator, sheave). I'd rather have our on-site maintenance team hear it in person before opening a WO so they can bring the right parts. Let me hand this to Alex to schedule a quick inspection.",
+        timestamp: "Aug 29 2026 · 8:14pm MST",
+        type: "message",
+      },
+      { role: "staff", text: "", timestamp: "Aug 29 2026 · 8:14pm MST", type: "handoff" },
     ],
   },
 
@@ -1525,7 +1532,7 @@ Hillside Living
     property: "Hillside Living",
     channel: "SMS",
     assignee: "Abe Kashiwagi",
-    labels: ["Resident", "Payments Escalation"],
+    labels: ["Resident", "Payments AI Escalation"],
     status: "open",
     hasUnread: false,
     messages: [
@@ -1535,6 +1542,13 @@ Hillside Living
         timestamp: "Sep 10 2025 · 3:14pm MST",
         type: "message",
       },
+      {
+        role: "agent",
+        text: "Hi Marcus — I looked at your ledger and I can see that your September autopay didn't post. The card on file expired 9/1 and the pull failed on 9/2. I can walk you through updating the card in the portal, but reversing the $50 late fee that already posted needs a team member's approval. Let me hand this over so they can waive it and confirm autopay is armed for October.",
+        timestamp: "Sep 10 2025 · 3:16pm MST",
+        type: "message",
+      },
+      { role: "staff", text: "", timestamp: "Sep 10 2025 · 3:16pm MST", type: "handoff" },
       {
         role: "staff",
         text: "Hey Marcus — pulled up your ledger. Looks like the card on file expired 9/1 so the pull failed. I've disabled the late fee for this cycle. Want to update the card in the portal or use a bank draft this month?",
@@ -1581,6 +1595,13 @@ Hillside Living
         type: "message",
         emailSignature: "—\nGenevieve Marchetti\nProspective resident\ngenevieve.m@example.com",
       },
+      {
+        role: "agent",
+        text: "Hi Genevieve — thanks for reaching out about a corner 2-bed. I can see two units that fit your Oct 1–15 window: Unit 812 (available Oct 3, $2,395) and Unit 1108 (available Oct 12, $2,450). Both are pet-friendly with a refundable $300 pet deposit. Since you mentioned a $2,400 budget I'd like to flag Unit 1108 to my colleague so they can confirm whether we can honor the corner-unit promo pricing this cycle — I don't want to promise a discount I can't verify. They'll follow up shortly with floorplans, a walkthrough video, and next steps on holding a unit.",
+        timestamp: "Sep 7 2025 · 4:22pm MST",
+        type: "message",
+      },
+      { role: "staff", text: "", timestamp: "Sep 7 2025 · 4:22pm MST", type: "handoff" },
       {
         role: "staff",
         text: "Hi Genevieve — thanks for reaching out. Two corner 2-beds fit your window: Unit 812 (Oct 3, $2,395) and Unit 1108 (Oct 12, $2,450). Both are pet-friendly with a $300 refundable pet deposit. I've attached the floorplans and a corner-unit walkthrough video — happy to hold either while you decide.",
