@@ -45,7 +45,8 @@ import {
   Layers,
   ChevronRight,
   Sparkles,
-  Check,
+  Lightbulb,
+  Settings,
 } from "lucide-react"
 import {
   Tooltip,
@@ -71,7 +72,7 @@ import {
    Conversation modes
    ══════════════════════════════════════════════════════════════════════════ */
 
-type ConversationModeId = "maximize-tour" | "maximize-application" | "custom"
+type ConversationModeId = "maximize-tour" | "maximize-application"
 
 interface ConversationMode {
   id: ConversationModeId
@@ -85,55 +86,25 @@ interface ConversationMode {
 const CONVERSATION_MODES: ConversationMode[] = [
   {
     id: "maximize-tour",
-    name: "Maximize Tour Mode",
+    name: "Maximize Tours",
     description:
-      "The bot proactively offers available tours and invites the prospect to take a tour. An application is only offered if the prospect asks.",
+      "The bot proactively offers available tours and invites prospects to take a tour. An application is only offered if the prospect asks.",
     cadenceLabel: "Maximize Tour cadence",
     conversionGoal: "schedule_tours",
     requiresConventionalNoAffordable: false,
   },
   {
     id: "maximize-application",
-    name: "Maximize Application Mode",
+    name: "Maximize Applications",
     description:
-      "The bot proactively shares the application link and invites the prospect to apply. Tours are only offered if the prospect asks.",
+      "The bot proactively shares the application link and invites prospects to apply. Tours are only offered if the prospect asks.",
     cadenceLabel: "Application Mode cadence",
     conversionGoal: "drive_applications",
     requiresConventionalNoAffordable: true,
   },
-  {
-    id: "custom",
-    name: "Custom Mode",
-    description:
-      "Describe what you want the agent to collect and prioritize. We'll set up the Leasing Questions from your description.",
-    cadenceLabel: "Custom cadence",
-    conversionGoal: "answer_questions",
-    requiresConventionalNoAffordable: false,
-  },
 ]
 
 const DEFAULT_MODE: ConversationModeId = "maximize-tour"
-
-type QuestionPacing = "one" | "smart" | "two" | "three"
-
-interface QuestionPacingOption {
-  id: QuestionPacing
-  label: string
-  description: string
-}
-
-const QUESTION_PACING_OPTIONS: QuestionPacingOption[] = [
-  { id: "one", label: "One at a time", description: "Ask a maximum of one configured question per agent response." },
-  { id: "smart", label: "Smart Pacing", description: "Let the agent decide whether to ask questions individually or naturally group closely related ones. Prefers fewer, more natural questions." },
-  { id: "two", label: "Up to 2 at a time", description: "Ask up to two unanswered questions in a single response." },
-  { id: "three", label: "Up to 3 at a time", description: "Ask up to three unanswered questions in a single response." },
-]
-
-const DEFAULT_QUESTION_PACING: QuestionPacing = "smart"
-
-function questionPacingLabel(id: QuestionPacing): string {
-  return QUESTION_PACING_OPTIONS.find((o) => o.id === id)?.label ?? "Smart Pacing"
-}
 
 type LeasingSettingsTab = "settings" | "pre-tour-nurture" | "post-tour-nurture"
 
@@ -711,14 +682,14 @@ function makeLeasingStagesForMode(mode: ConversationModeId): Record<LeasingStage
   if (mode === "maximize-application") {
     base.before_application = { ...base.before_application, enabled: true }
   }
-  // "maximize-tour" and "custom" start from the tour-focused base ("custom" is
-  // then refined by makeLeasingStagesFromInstructions on submit).
+  // "maximize-tour" starts from the tour-focused base.
   return base
 }
 
 /**
- * Prototype heuristic: turn a free-text description into gate toggles. A real
- * implementation would send the text to the agent to synthesize the config.
+ * Prototype heuristic: "Configure with AI" turns a free-text description into
+ * Leasing Questions gate toggles. A real implementation would send the text to
+ * ELI to synthesize the config; here we keyword-match to demo the flow.
  */
 function makeLeasingStagesFromInstructions(text: string): Record<LeasingStageId, LeasingStageConfig> {
   const base = makeDefaultLeasingStages()
@@ -737,11 +708,19 @@ function makeLeasingStagesFromInstructions(text: string): Record<LeasingStageId,
   return base
 }
 
+const AI_CONFIG_EXAMPLES = [
+  "Require contact info before showing pricing",
+  "Ask for move-in date before showing pricing",
+  "Collect budget range before touring",
+  "Ask for roommate count before application",
+] as const
+
+type LeasingQuestionsMode = "recommended" | "custom"
+
 interface PanelState {
   agentName: string
   conversationMode: ConversationModeId
-  customModeInstructions: string
-  questionPacing: QuestionPacing
+  leasingQuestionsMode: LeasingQuestionsMode
   requireGuestCard: boolean
   tourPriority: TourType[]
   virtualTourLink: string
@@ -764,8 +743,7 @@ function makeDefaultState(agentDisplayLabel = "Leasing AI"): PanelState {
   return {
     agentName: agentDisplayLabel,
     conversationMode: DEFAULT_MODE,
-    customModeInstructions: "",
-    questionPacing: DEFAULT_QUESTION_PACING,
+    leasingQuestionsMode: "recommended",
     requireGuestCard: false,
     tourPriority: DEFAULT_TOUR_PRIORITY,
     virtualTourLink: "",
@@ -867,17 +845,13 @@ export function LeasingAISettingsPanel({
         prequalification_actions?: { outcome?: string; tour?: string; application?: string }[]
         prequalification_goals?: { result: string; tour: string; application: string; waitlist?: string; offer_market_rate: boolean }[]
         leasing_questions?: Record<LeasingStageId, LeasingStageConfig>
-        custom_mode_instructions?: string
-        question_pacing?: string
+        leasing_questions_mode?: string
       }) => {
         const defaults = makeDefaultState(initialAgentDisplayLabel)
         const loaded: Partial<PanelState> = {
           agentName: data.agent_display_name?.trim() || initialAgentDisplayLabel,
           conversationMode: normalizeModeId(data.mode_id),
-          customModeInstructions: data.custom_mode_instructions ?? "",
-          questionPacing: QUESTION_PACING_OPTIONS.some((o) => o.id === data.question_pacing)
-            ? (data.question_pacing as QuestionPacing)
-            : DEFAULT_QUESTION_PACING,
+          leasingQuestionsMode: data.leasing_questions_mode === "custom" ? "custom" : "recommended",
           tourPriority: normalizeTourPriority(data.tour_priority),
           virtualTourLink: data.virtual_tour_link ?? "",
           externalSelfGuidedTourLink: data.external_self_guided_tour_link ?? "",
@@ -1011,8 +985,7 @@ export function LeasingAISettingsPanel({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         mode_id: s.conversationMode,
-        custom_mode_instructions: s.conversationMode === "custom" ? s.customModeInstructions : undefined,
-        question_pacing: s.questionPacing,
+        leasing_questions_mode: s.leasingQuestionsMode,
         agent_display_name: s.agentName.trim() || initialAgentDisplayLabel,
         mode_name: activeMode?.name ?? s.conversationMode,
         conversion_goal: activeMode?.conversionGoal ?? "schedule_tours",
@@ -1227,185 +1200,308 @@ function SectionConversationMode({ state, setState, appModeEligible, agentDispla
   appModeEligible: boolean
   agentDisplayLabel: string
 }) {
-  const [customDraft, setCustomDraft] = useState(state.customModeInstructions)
-  const [pacingOpen, setPacingOpen] = useState(false)
   const [leasingOpen, setLeasingOpen] = useState(false)
+  const [aiDraft, setAiDraft] = useState("")
   const enabledStageCount = LEASING_STAGES.filter((m) => state.leasingStages[m.id]?.enabled).length
+  const isCustom = state.leasingQuestionsMode === "custom"
 
-  const selectMode = (id: ConversationModeId) => {
-    if (id === "custom") {
-      setCustomDraft(state.customModeInstructions)
-      setState((s) => ({ ...s, conversationMode: "custom" }))
-      return
-    }
-    setState((s) => ({ ...s, conversationMode: id, leasingStages: makeLeasingStagesForMode(id) }))
-  }
-
-  const applyCustom = () => {
-    const text = customDraft.trim()
+  const generateFromAI = () => {
+    const text = aiDraft.trim()
     if (text.length === 0) return
     setState((s) => ({
       ...s,
-      conversationMode: "custom",
-      customModeInstructions: text,
+      leasingQuestionsMode: "custom",
       leasingStages: makeLeasingStagesFromInstructions(text),
+    }))
+    setLeasingOpen(true)
+  }
+
+  const selectGoal = (id: ConversationModeId) => {
+    setState((s) => ({
+      ...s,
+      conversationMode: id,
+      leasingStages: s.leasingQuestionsMode === "recommended" ? makeLeasingStagesForMode(id) : s.leasingStages,
     }))
   }
 
-  const customApplied =
-    state.conversationMode === "custom" &&
-    state.customModeInstructions.trim().length > 0 &&
-    customDraft.trim() === state.customModeInstructions.trim()
+  const selectLeasingMode = (mode: LeasingQuestionsMode) => {
+    if (mode === "recommended") {
+      setState((s) => ({
+        ...s,
+        leasingQuestionsMode: "recommended",
+        leasingStages: makeLeasingStagesForMode(s.conversationMode),
+      }))
+      setLeasingOpen(false)
+    } else {
+      setState((s) => ({ ...s, leasingQuestionsMode: "custom" }))
+      setLeasingOpen(true)
+    }
+  }
 
   return (
     <SectionShell
       icon={MessageSquare}
-      title="Conversation Mode"
-      description={`Choose how ${agentDisplayLabel} prioritizes prospects. Selecting a mode configures the Leasing Questions below.`}
+      title="Conversation Settings"
+      description={`Choose your conversation goal and configure the leasing questions ${agentDisplayLabel} will ask prospects.`}
     >
-      <div className="space-y-4">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {CONVERSATION_MODES.map((m) => {
-            const active = state.conversationMode === m.id
-            const blocked = m.requiresConventionalNoAffordable && !appModeEligible
-            return (
-              <button
-                key={m.id}
-                type="button"
-                disabled={blocked}
-                onClick={() => !blocked && selectMode(m.id)}
+      <div className="space-y-6">
+        {/* 1. Conversation Goal */}
+        <div className="space-y-3">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">1. Conversation Goal</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Choose how {agentDisplayLabel} prioritizes prospects.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {CONVERSATION_MODES.map((m) => {
+              const active = state.conversationMode === m.id
+              const blocked = m.requiresConventionalNoAffordable && !appModeEligible
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  disabled={blocked}
+                  onClick={() => !blocked && selectGoal(m.id)}
+                  className={cn(
+                    "rounded-lg border px-4 py-4 text-left text-xs transition-all",
+                    blocked
+                      ? "cursor-not-allowed border-dashed border-border bg-zinc-50 opacity-60"
+                      : active
+                        ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+                        : "border-border bg-white text-foreground hover:border-zinc-400",
+                  )}
+                >
+                  <div className="flex items-start gap-2.5">
+                    <span
+                      className={cn(
+                        "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
+                        active ? "border-white" : "border-zinc-400",
+                      )}
+                      aria-hidden
+                    >
+                      {active && <span className="h-2 w-2 rounded-full bg-white" />}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold leading-snug">{m.name}</span>
+                        <Badge variant="gray" className="shrink-0">Recommended</Badge>
+                      </div>
+                      <div className={cn("mt-1.5 text-[11px] leading-snug", active ? "text-white/75" : "text-muted-foreground")}>
+                        {m.description}
+                      </div>
+                      {blocked && (
+                        <div className="mt-2 flex items-start gap-1 text-[10px] font-medium text-amber-700">
+                          <Lock className="mt-0.5 h-3 w-3 shrink-0" />
+                          Conventional, non-affordable only
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* 2. Leasing Questions */}
+        <div className="space-y-3">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">2. Leasing Questions</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Choose how {agentDisplayLabel} collects information from prospects during the conversation.
+            </p>
+          </div>
+
+          <div
+            role="radiogroup"
+            aria-label="Leasing Questions mode"
+            className={cn(
+              "divide-y divide-border overflow-hidden rounded-lg border bg-white",
+              !isCustom ? "border-primary/40" : "border-border",
+            )}
+          >
+            <button
+              type="button"
+              role="radio"
+              aria-checked={!isCustom}
+              onClick={() => selectLeasingMode("recommended")}
+              className={cn(
+                "flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors",
+                !isCustom ? "bg-[hsl(207_73%_95%)]" : "hover:bg-muted/40",
+              )}
+            >
+              <span
                 className={cn(
-                  "rounded-lg border px-4 py-4 text-left text-xs transition-all",
-                  blocked
-                    ? "cursor-not-allowed border-dashed border-border bg-zinc-50 opacity-60"
-                    : active
-                      ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
-                      : "border-border bg-white text-foreground hover:border-zinc-400",
+                  "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
+                  !isCustom ? "border-zinc-900" : "border-zinc-400",
+                )}
+                aria-hidden
+              >
+                {!isCustom && <span className="h-2 w-2 rounded-full bg-zinc-900" />}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-foreground">Use recommended settings</span>
+                  <Badge variant="green" className="shrink-0">Recommended</Badge>
+                </div>
+                <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                  We&apos;ll use the recommended Leasing Questions for your selected goal above.
+                </p>
+              </div>
+            </button>
+
+            <div className={cn(isCustom ? "bg-[hsl(207_73%_95%)]" : "")}>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={isCustom}
+                onClick={() => selectLeasingMode("custom")}
+                className={cn(
+                  "flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors",
+                  isCustom ? "" : "hover:bg-muted/40",
                 )}
               >
-                <div className="flex items-center gap-1.5">
-                  {m.id === "custom" && <Sparkles className="h-3.5 w-3.5 shrink-0" aria-hidden />}
-                  <span className="font-semibold leading-snug">{m.name}</span>
-                  {m.id === "maximize-tour" && <Badge variant="gray" className="text-[9px]">Default</Badge>}
+                <span
+                  className={cn(
+                    "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
+                    isCustom ? "border-zinc-900" : "border-zinc-400",
+                  )}
+                  aria-hidden
+                >
+                  {isCustom && <span className="h-2 w-2 rounded-full bg-zinc-900" />}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <span className="text-xs font-semibold text-foreground">Customize Leasing Questions</span>
+                  <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                    Choose which questions are asked at each stage, and whether they are required.
+                  </p>
                 </div>
-                <div className={cn("mt-1.5 text-[11px] leading-snug", active ? "text-white/75" : "text-muted-foreground")}>
-                  {m.description}
-                </div>
-                {blocked && (
-                  <div className="mt-2 flex items-start gap-1 text-[10px] font-medium text-amber-700">
-                    <Lock className="mt-0.5 h-3 w-3 shrink-0" />
-                    Conventional, non-affordable only
-                  </div>
-                )}
+                <ChevronRight
+                  className={cn(
+                    "mt-0.5 h-4 w-4 shrink-0 self-center text-muted-foreground transition-transform",
+                    isCustom && "-rotate-90",
+                  )}
+                  aria-hidden
+                />
               </button>
-            )
-          })}
-        </div>
 
-        {state.conversationMode === "custom" && (
-          <div className="space-y-2.5 rounded-lg border border-border bg-zinc-50/60 p-3.5">
-            <label htmlFor="custom-mode-text" className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-              <Sparkles className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-              Describe what {agentDisplayLabel} should collect and prioritize
-            </label>
-            <textarea
-              id="custom-mode-text"
-              value={customDraft}
-              onChange={(e) => setCustomDraft(e.target.value)}
-              rows={4}
-              placeholder="e.g. Collect name and phone up front, require move-in date and layout before pricing, and invite qualified prospects to apply."
-              className="w-full resize-y rounded-md border border-input bg-white px-3 py-2 text-xs text-foreground shadow-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
-            />
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-[11px] text-muted-foreground">
-                {customApplied ? "Applied — expand Leasing Questions below to review." : "Submitting updates the Leasing Questions below."}
-              </p>
-              <Button size="sm" className="h-8" onClick={applyCustom} disabled={customDraft.trim().length === 0}>
-                Submit
-              </Button>
+              {isCustom && (
+                <div className="px-4 pb-4">
+                  {/* Configure with AI (ELI warm treatment) */}
+                  <div className="space-y-3 rounded-lg border border-eli-purple/30 bg-eli-warm-bg p-4 text-eli-warm-bg-foreground">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5">
+                        <Sparkles className="h-4 w-4 shrink-0 text-eli-purple" aria-hidden />
+                        <span className="text-sm font-semibold">Configure with AI</span>
+                      </div>
+                      <p className="text-[11px] leading-snug text-muted-foreground">
+                        Describe how you want {agentDisplayLabel} to collect information. We&apos;ll translate your
+                        instructions into the Leasing Questions settings below.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <textarea
+                        value={aiDraft}
+                        onChange={(e) => setAiDraft(e.target.value)}
+                        rows={3}
+                        placeholder="e.g. Ask for move-in date and bedroom count before showing pricing. Require a phone number before booking a tour."
+                        className="w-full resize-y rounded-md border border-input bg-white px-3 py-2 text-xs text-foreground shadow-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                      />
+                      <div className="flex justify-end">
+                        <Button size="sm" onClick={generateFromAI} disabled={aiDraft.trim().length === 0}>
+                          <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                          Generate settings
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* How it works */}
+                    <div className="flex flex-col gap-2.5 border-t border-eli-purple/20 pt-3 sm:flex-row sm:items-center sm:gap-4">
+                      <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                        How it works
+                        <Info className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+                      </div>
+                      <div className="flex flex-1 flex-col gap-2.5 sm:flex-row sm:gap-4">
+                        {[
+                          { icon: MessageSquareText, text: "Describe what and when you want to collect." },
+                          { icon: Sparkles, text: "AI translates your request into settings." },
+                          { icon: Settings, text: "Review and apply the changes below." },
+                        ].map((step, i) => (
+                          <div key={i} className="flex items-start gap-1.5">
+                            <step.icon className="mt-px h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                            <span className="text-[11px] leading-snug text-muted-foreground">{step.text}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-        )}
 
-        <div className="space-y-3 rounded-lg border border-border bg-white p-3.5">
-          <button
-            type="button"
-            onClick={() => setPacingOpen((o) => !o)}
-            aria-expanded={pacingOpen}
-            className="flex w-full items-start gap-2 text-left"
-          >
-            <ChevronRight className={cn("mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform", pacingOpen && "rotate-90")} aria-hidden />
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-semibold text-foreground">Question Pacing</span>
-                <Badge variant="gray">{questionPacingLabel(state.questionPacing)}</Badge>
+          <div className="space-y-3 rounded-lg border border-border bg-white p-3.5">
+            <button
+              type="button"
+              onClick={() => setLeasingOpen((o) => !o)}
+              aria-expanded={leasingOpen}
+              className="flex w-full items-start gap-2 text-left"
+            >
+              <ChevronRight className={cn("mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform", leasingOpen && "rotate-90")} aria-hidden />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-semibold text-foreground">Leasing Questions</span>
+                  <Badge variant="gray">{enabledStageCount} of {LEASING_STAGES.length} stages on</Badge>
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Choose which questions {agentDisplayLabel} asks at each stage and whether an answer is required.
+                </p>
               </div>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Controls how the agent asks unanswered questions in each stage.
-              </p>
-            </div>
-            <span className="shrink-0 self-center text-[11px] font-medium text-muted-foreground">
-              {pacingOpen ? "Hide" : "Options"}
-            </span>
-          </button>
+              <span className="shrink-0 self-center text-[11px] font-medium text-muted-foreground">
+                {leasingOpen ? "Hide" : "Options"}
+              </span>
+            </button>
 
-          {pacingOpen && (
-            <div role="listbox" aria-label="Question pacing" className="space-y-1.5">
-              {QUESTION_PACING_OPTIONS.map((opt) => {
-                const selected = state.questionPacing === opt.id
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    role="option"
-                    aria-selected={selected}
-                    onClick={() => setState((s) => ({ ...s, questionPacing: opt.id }))}
-                    className={cn(
-                      "flex w-full items-start gap-2.5 rounded-md border px-3 py-2.5 text-left transition-colors",
-                      selected ? "border-primary/40 bg-muted/40" : "border-border hover:border-zinc-400",
-                    )}
-                  >
-                    <Check className={cn("mt-0.5 h-4 w-4 shrink-0 text-foreground", selected ? "opacity-100" : "opacity-0")} aria-hidden />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-medium text-foreground">{opt.label}</span>
-                        {opt.id === DEFAULT_QUESTION_PACING && <Badge variant="gray" className="text-[9px]">Default</Badge>}
-                      </div>
-                      <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{opt.description}</p>
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-          )}
-        </div>
-
-        <div className="space-y-3 rounded-lg border border-border bg-white p-3.5">
-          <button
-            type="button"
-            onClick={() => setLeasingOpen((o) => !o)}
-            aria-expanded={leasingOpen}
-            className="flex w-full items-start gap-2 text-left"
-          >
-            <ChevronRight className={cn("mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform", leasingOpen && "rotate-90")} aria-hidden />
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-semibold text-foreground">Leasing Questions</span>
-                <Badge variant="gray">{enabledStageCount} of {LEASING_STAGES.length} stages on</Badge>
+            {leasingOpen && (
+              <div className="space-y-6 pt-1">
+                <SectionLeasingQuestions state={state} setState={setState} />
               </div>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Configure what {agentDisplayLabel} collects at each stage of the conversation.
-              </p>
-            </div>
-            <span className="shrink-0 self-center text-[11px] font-medium text-muted-foreground">
-              {leasingOpen ? "Hide" : "Options"}
-            </span>
-          </button>
+            )}
+          </div>
 
-          {leasingOpen && (
-            <div className="space-y-6 pt-1">
-              <SectionLeasingQuestions state={state} setState={setState} />
-            </div>
+          {isCustom && (
+            <>
+              <div className="flex flex-wrap items-start gap-3 rounded-lg border border-border bg-white p-3.5">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-eli-warm-bg">
+                  <Lightbulb className="h-4 w-4 text-eli-purple" aria-hidden />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <span className="text-xs font-semibold text-foreground">Examples you can try</span>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {AI_CONFIG_EXAMPLES.map((example) => (
+                      <button
+                        key={example}
+                        type="button"
+                        onClick={() => setAiDraft(example)}
+                        className="rounded-md border border-input bg-background px-2.5 py-1.5 text-[11px] leading-snug text-foreground transition-colors hover:border-zinc-400 hover:bg-muted/50"
+                      >
+                        {example}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <p className="flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground">
+                <Lock className="mt-px h-3 w-3 shrink-0" aria-hidden />
+                <span>
+                  AI suggestions are only used to configure Leasing Questions settings. They do not change how the
+                  agent behaves outside of these settings.
+                </span>
+              </p>
+            </>
           )}
         </div>
       </div>
