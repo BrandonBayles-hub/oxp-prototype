@@ -2199,7 +2199,13 @@ function ConversationsContent() {
   useEffect(() => {
     if (!threadContextMenu) return;
     const close = () => setThreadContextMenu(null);
-    const onKey = (e: KeyboardEvent) => {
+    // Explicit `globalThis.KeyboardEvent` here — this file imports React's
+    // `KeyboardEvent` type at the top for synthetic-event handlers
+    // (e.g. `copyId` on line 456), so an unqualified `KeyboardEvent` in
+    // scope resolves to `React.KeyboardEvent<Element>`. `window.addEventListener`
+    // takes the DOM event, and CI's strict typecheck breaks the deploy build
+    // if we mix them here.
+    const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key === "Escape") close();
     };
     // Any click anywhere (including on menu items — items call close before
