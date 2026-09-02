@@ -4698,11 +4698,12 @@ function ConversationsContent() {
                       </TooltipTrigger>
                       <TooltipContent side="left" className="z-[220] max-w-[260px] space-y-1.5 text-xs leading-snug">
                         <p>
-                          Follow-up: Thread Automation nudged a staff-idle thread (cyan bell marker on the card).
+                          Follow-up: Thread Automation nudged a staff-idle thread (red unread dot plus a cyan
+                          &quot;Follow up&quot; chip in the card metadata).
                         </p>
                         <p>
                           Escalation: the lead or resident sent the last public message and staff hasn&apos;t
-                          replied (red dot marker on the card).
+                          replied (red unread dot on the card).
                         </p>
                         <p className="text-muted-foreground">
                           Leave both unchecked to show every thread regardless of action state.
@@ -4762,7 +4763,7 @@ function ConversationsContent() {
                               Follow-up reminders
                             </span>
                             <span className="mt-0.5 block text-[10px] text-muted-foreground">
-                              Thread Automation nudge (cyan bell)
+                              Thread Automation nudge (red dot + &quot;Follow up&quot; chip)
                             </span>
                           </label>
                         </div>
@@ -5322,7 +5323,8 @@ function ConversationsContent() {
             <DialogHeader>
               <DialogTitle>Understanding your inbox</DialogTitle>
               <DialogDescription>
-                A quick tour of the four inboxes on the left and the red count badges next to them.
+                A tour of the four inboxes on the left, the red unread badges next to them, and how
+                Property Threads is grouped inside.
               </DialogDescription>
             </DialogHeader>
             <div className="-mx-6 flex-1 space-y-4 overflow-y-auto px-6 text-sm">
@@ -5333,9 +5335,8 @@ function ConversationsContent() {
                 <div>
                   <p className="font-semibold">Open Threads</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    Every active conversation — both those Eli is handling and those a
-                    property teammate owns. Think of it as the roll-up of Property
-                    Works + Eli Threads.
+                    Every active conversation — both those Eli is handling and those a property
+                    teammate owns. Think of it as the roll-up of Property Threads + Eli Threads.
                   </p>
                 </div>
               </div>
@@ -5346,17 +5347,11 @@ function ConversationsContent() {
                 <div>
                   <p className="font-semibold">Property Threads</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    Threads a property teammate owns. Use the Escalated / Non-Escalated
-                    filter above the search bar to split them by whether the thread has
-                    an <em>active</em> escalation on it right now:{" "}
-                    <span className="font-medium text-foreground">Escalated</span>{" "}
-                    means at least one AI escalation is still open, or a voicemail /
-                    missed call hasn&apos;t been resolved yet (Eli always picks up
-                    first, so those count too).{" "}
-                    <span className="font-medium text-foreground">Non-Escalated</span>{" "}
-                    means the thread is with staff but no escalation is active — every
-                    escalation on it has been resolved and the thread stayed open,
-                    staff explicitly took the thread over, or AI is turned off on it.
+                    Threads a property teammate owns — either because an AI escalation is active,
+                    staff explicitly took the thread over, or Eli was turned off on it. Inside,
+                    the list is grouped into two collapsible sections (see below), and the
+                    Escalation filter in <span className="font-medium text-foreground">Filters</span>{" "}
+                    can narrow the view to Escalated, Non-Escalated, or All.
                   </p>
                 </div>
               </div>
@@ -5367,8 +5362,8 @@ function ConversationsContent() {
                 <div>
                   <p className="font-semibold">Eli Threads</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    Threads Eli is actively handling on the property&apos;s behalf. There is
-                    no badge here because these don&apos;t need your action right now.
+                    Threads Eli is actively handling on the property&apos;s behalf. No badge —
+                    these don&apos;t need staff action right now.
                   </p>
                 </div>
               </div>
@@ -5379,12 +5374,21 @@ function ConversationsContent() {
                 <div>
                   <p className="font-semibold">Closed Threads</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    Resolved conversations, kept for reference. No badge because
-                    completed work doesn&apos;t need attention.
+                    Resolved conversations, kept for reference. No badge — completed work
+                    doesn&apos;t need attention.
                   </p>
                 </div>
               </div>
 
+              {/* What the red count means — SA 1.2 semantics.
+                  The sidebar badge, the channel-filter chips (ALL / Voice /
+                  SMS / Email), and the section-header chips inside Property
+                  Threads all draw from the same rule: property-owned + still
+                  unread. Prior copy claimed the number was "needs staff
+                  action" (last-message-from-resident + follow-ups), which is
+                  no longer accurate — we switched to raw unread so
+                  acknowledgement / thank-you messages that don't move the
+                  thread out of "No Action Needed" still light the badge. */}
               <div className="rounded-md border border-border/60 bg-muted/40 p-3">
                 <div className="flex items-center gap-2">
                   <Badge variant="destructive" className="h-[18px] min-w-[18px] shrink-0 justify-center rounded-full px-1 text-[10px] leading-none">
@@ -5393,30 +5397,64 @@ function ConversationsContent() {
                   <p className="text-xs font-semibold">What the red count means</p>
                 </div>
                 <p className="mt-1.5 text-xs text-muted-foreground">
-                  The number is how many threads in that inbox{" "}
-                  <span className="font-medium text-foreground">need staff action</span>. A
-                  thread counts when either:
+                  The number is how many threads in that inbox are{" "}
+                  <span className="font-medium text-foreground">unread</span>. A thread counts
+                  whenever it&apos;s property-owned and hasn&apos;t been marked read yet — so
+                  new resident messages, follow-up reminders, and even quick
+                  acknowledgements (&quot;thanks!&quot;) all contribute. Opening the thread, or
+                  right-clicking → <span className="font-medium text-foreground">Mark read</span>,
+                  clears it.
                 </p>
-                <ul className="mt-1.5 space-y-0.5 pl-4 text-xs text-muted-foreground list-disc">
-                  <li>
-                    The resident or lead sent the last public message and no one has
-                    replied yet, or
-                  </li>
-                  <li>
-                    A <span className="font-medium text-foreground">Thread Automation</span>{" "}
-                    follow-up reminder has fired on the thread (see below).
-                  </li>
-                </ul>
                 <p className="mt-1.5 text-xs text-muted-foreground">
                   Only <span className="font-medium text-foreground">Property Threads</span>{" "}
                   shows a red count. <span className="font-medium text-foreground">Eli Threads</span>{" "}
-                  and <span className="font-medium text-foreground">Closed Threads</span> never
-                  do — Eli is handling those and closed work is done. Open Threads is the
-                  sum of both, and since Eli contributes 0, its count would just duplicate
-                  Property Threads, so we hide it.
+                  and <span className="font-medium text-foreground">Closed Threads</span> never do —
+                  Eli is handling those and closed work is done. Open Threads is the sum of both,
+                  and since Eli contributes 0, its count just duplicates Property Threads, so
+                  we hide it.
                 </p>
               </div>
 
+              {/* Section grouping inside Property Threads. Documents the SA
+                  1.2 change that split the list into two collapsible groups
+                  driven by needsStaffResponse, with an unread chip on each
+                  header that follows the same "property-owned + unread"
+                  rule so a "No Action Needed" thread with an un-read
+                  acknowledgement still shows the red chip on that header. */}
+              <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                <p className="text-xs font-semibold">Needs Action vs No Action Needed</p>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Inside Property Threads (and Open Threads), the list is split into two
+                  collapsible sections so the most urgent work is always at the top:
+                </p>
+                <ul className="mt-1.5 space-y-1 pl-4 text-xs text-muted-foreground list-disc">
+                  <li>
+                    <span className="font-medium text-foreground">Needs Action</span> — threads
+                    still waiting on a staff reply (the resident/lead sent the last public
+                    message, or a Thread Automation follow-up reminder has fired). Uncapped so
+                    nothing that needs attention drops below the fold.
+                  </li>
+                  <li>
+                    <span className="font-medium text-foreground">No Action Needed</span> —
+                    threads where staff has already replied. Kept as context, capped at 15 rows
+                    so the section reads as a &quot;recently handled&quot; log, not a working
+                    queue.
+                  </li>
+                </ul>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Each section header shows a red unread chip when it contains at least one
+                  unread thread — same rule as the sidebar badge. So an unread reply that lands
+                  in No Action Needed (e.g. staff wrapped up by phone but the resident&apos;s
+                  last SMS was never marked read) still surfaces the chip on that header.
+                </p>
+              </div>
+
+              {/* Thread Automation follow-ups — copy updated to reflect the
+                  marker change: follow-up threads no longer show a cyan
+                  bell in the top-left corner. They use the standard red
+                  unread dot like anything else and gain a cyan "Follow up"
+                  chip in the metadata row so the automation trigger is
+                  still identifiable at a glance. */}
               <div className="rounded-md border border-border/60 bg-muted/40 p-3">
                 <div className="flex items-center gap-2">
                   <BellRing className="h-3.5 w-3.5 shrink-0 text-cyan-700 dark:text-cyan-300" strokeWidth={2} aria-hidden />
@@ -5424,41 +5462,43 @@ function ConversationsContent() {
                 </div>
                 <p className="mt-1.5 text-xs text-muted-foreground">
                   In <span className="font-medium text-foreground">Thread Settings → Thread
-                  Automation</span> you can set follow-up thresholds (e.g. 3, 7, 10 days).
-                  When staff sent the last reply and a resident or lead hasn&apos;t
-                  responded within one of those windows, we surface a follow-up reminder
-                  on the thread and it starts counting toward the red badge — so nothing
-                  waiting on the resident quietly falls off.
+                  Automation</span> you can set follow-up thresholds (e.g. 3, 7, 10 days). When
+                  staff sent the last reply and the resident or lead hasn&apos;t responded
+                  within one of those windows, we surface a follow-up reminder on the thread —
+                  it flips back to unread, pushes into <span className="font-medium text-foreground">Needs Action</span>,
+                  and starts counting toward the red badges, so nothing waiting on the resident
+                  quietly falls off.
                 </p>
                 <p className="mt-1.5 text-xs text-muted-foreground">
-                  Reminded threads show a{" "}
-                  <BellRing
-                    className="inline h-3.5 w-3.5 align-middle text-cyan-600 dark:text-cyan-400"
-                    strokeWidth={2.75}
+                  Reminded threads keep the same{" "}
+                  <span
+                    className="inline-flex h-3.5 w-3.5 items-center justify-center align-middle"
                     aria-hidden
-                  />{" "}
-                  cyan bell in the top-left corner of the card (instead of the red dot
-                  used for unreplied messages) and a{" "}
+                  >
+                    <span className="h-2 w-2 rounded-full bg-destructive ring-2 ring-background" />
+                  </span>{" "}
+                  red unread dot as every other unread thread and gain a{" "}
                   <span className="inline-flex items-center gap-1 rounded bg-cyan-100/70 px-1.5 py-px text-[10px] font-semibold text-cyan-800 align-middle dark:bg-cyan-900/40 dark:text-cyan-200">
                     <BellRing className="h-3 w-3" strokeWidth={2.25} aria-hidden />
                     Follow up
                   </span>{" "}
-                  chip in the header row. Cyan keeps the automation clearly separate
-                  from the red escalation dot, the blue Email/Property chips, and
-                  the amber tones we&apos;d otherwise use — a color-blind-safe pairing
-                  that doesn&apos;t collide with any other indicator on the card. Every
-                  trigger is also logged on the thread&apos;s activity timeline.
+                  chip in the metadata row so you can tell the reminder-driven ones apart from
+                  new-message threads at a glance. Every trigger is also logged on the
+                  thread&apos;s activity timeline.
                 </p>
               </div>
 
+              {/* Quick Filter — copy updated so the "add up to the sidebar
+                  badge" claim describes the current unread math instead of
+                  the retired "needs action" math. */}
               <div className="rounded-md border border-border/60 bg-muted/40 p-3">
                 <p className="text-xs font-semibold">Quick Filter</p>
                 <p className="mt-1.5 text-xs text-muted-foreground">
-                  The compact channel row above the search bar narrows the current
-                  inbox to a single channel (Voice, SMS, Chat, or Email). The counts
-                  on each tile add up to the sidebar badge, so you always see the same
-                  actionable set — just sliced by channel. Toggle its visibility in
-                  Thread Settings → Defaults.
+                  The compact channel row above the search bar narrows the current inbox to a
+                  single channel (Voice, SMS, Chat, or Email). Each tile carries its own red
+                  unread count, and the four counts always add up to the sidebar badge — so
+                  you&apos;re looking at the same unread set, just sliced by channel. Toggle its
+                  visibility in Thread Settings → Defaults.
                 </p>
               </div>
             </div>
