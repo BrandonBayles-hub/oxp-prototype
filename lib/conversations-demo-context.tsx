@@ -89,11 +89,21 @@ type ConversationsDemoContextValue = {
   /** Replace the entire list. Values are clamped to 1–30 and de-duped/sorted. */
   setFollowUpDaysList: (days: number[]) => void;
   /**
-   * Auto-close: when enabled, threads with no activity from anyone (staff, AI,
-   * lead, or resident) for `autoCloseDays` days are automatically resolved and
-   * moved to Closed Threads. Configured per-workspace on the Manage Inbox
-   * screen. In the prototype, no real day-counting is done — the flag alone
-   * drives the eventual close (nothing runs on a timer here).
+   * Auto-close: when enabled, threads with no *message activity* for
+   * `autoCloseDays` days are automatically closed and moved to Closed
+   * Threads. Only real inbound messages from the lead/resident and outbound
+   * messages from staff (including replies Eli sends on staff's behalf)
+   * reset the idle clock — non-message activity such as escalation labels,
+   * Eli mode changes, private notes, or read receipts does NOT.
+   *
+   * When the sweep fires, an activity note is written to the affected
+   * thread's timeline naming the "Auto-close idle threads" setting and the
+   * idle window that triggered it, so staff can always trace exactly why a
+   * conversation was closed.
+   *
+   * Configured per-workspace on the Manage Inbox screen. In the prototype,
+   * no real day-counting is done — the flag alone drives the eventual close
+   * (nothing runs on a timer here).
    */
   autoCloseEnabled: boolean;
   setAutoCloseEnabled: (v: boolean) => void;
@@ -103,12 +113,14 @@ type ConversationsDemoContextValue = {
    * Sort mode for the thread list in every SA 1.2 inbox (Open, Property, Eli,
    * Closed). Configured on Thread Settings → Sorting. Live-applied so switching
    * the setting immediately re-orders the list.
-   *   - "newest"   : most recent activity first
-   *   - "oldest"   : longest-waiting threads first
-   *   - "priority" : needs-action threads first, then by recency
+   *   - "newest" : most recent activity first
+   *   - "oldest" : longest-waiting threads first
+   * A "priority" sort used to live here too, but it was folded away when
+   * SA 1.2's Needs Action / No Action Needed collapsible groups replaced
+   * the flat priority-first ordering.
    */
-  threadSortMode: "newest" | "oldest" | "priority";
-  setThreadSortMode: (m: "newest" | "oldest" | "priority") => void;
+  threadSortMode: "newest" | "oldest";
+  setThreadSortMode: (m: "newest" | "oldest") => void;
   /**
    * SA 1.2 Thread Automation → Eli Prompt.
    *
@@ -241,7 +253,7 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
     const bounded = Math.max(1, Math.min(90, Math.round(n) || 1));
     setAutoCloseDaysState(bounded);
   }, []);
-  const [threadSortMode, setThreadSortMode] = useState<"newest" | "oldest" | "priority">("newest");
+  const [threadSortMode, setThreadSortMode] = useState<"newest" | "oldest">("newest");
   // Default ON so SA 1.2 threads surface the post-send Eli Prompt without
   // requiring staff to opt into Thread Automation → Eli Prompt first. The
   // toggle in Thread Settings can still turn it off.

@@ -144,6 +144,10 @@ import {
 import { useClickToCallDemo } from "@/lib/click-to-call-demo-context";
 import { useCallSystemDemo, type IncomingCallerType } from "@/lib/call-system-demo-context";
 import {
+  collectLeafPropertyNames,
+  portfolioData,
+} from "@/lib/property-selector-data";
+import {
   useConversationsDemo,
   getEffectiveEliMode,
   cadenceToMinutes,
@@ -900,13 +904,23 @@ type ThreadListConvoTypeFilter = "escalated" | "liveAi";
  * When both are selected the union of the two sets is shown.
  */
 type ThreadListActionFilter = "followup" | "escalation";
-type ThreadListDateRangePreset = "today" | "last7" | "last30" | "custom";
+type ThreadListDateRangePreset =
+  | "all"
+  | "today"
+  | "last7"
+  | "last30"
+  | "custom";
 type ThreadListChannelFilter = "email" | "sms" | "voice";
 
+// `all` is the default (see `useState<ThreadListDateRangePreset>("all")`
+// below) — it's an unfiltered pass-through that the resolver short-circuits
+// in `conversationMatchesThreadListDateRange`. Keeps every archived thread
+// visible until staff explicitly narrows the window.
 const THREAD_LIST_DATE_RANGE_OPTIONS: {
   value: ThreadListDateRangePreset;
   label: string;
 }[] = [
+  { value: "all", label: "All" },
   { value: "today", label: "Today" },
   { value: "last7", label: "Last 7 days" },
   { value: "last30", label: "Last 30 days" },
@@ -973,6 +987,11 @@ function conversationMatchesThreadListDateRange(
   customFrom: string,
   customTo: string
 ): boolean {
+  // `all` is the unfiltered pass-through — no date bound, matches every
+  // thread. Short-circuits before we bother computing activity/now, which
+  // matters when the caller is running the check over every archived
+  // conversation in the demo dataset.
+  if (preset === "all") return true;
   const activity = conversationActivityMs(c);
   const now = new Date();
   if (preset === "today") {
@@ -2320,7 +2339,7 @@ function ConversationsContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when the sidebar inbox changes
   }, [sidebarFilter]);
   const [threadListDateRange, setThreadListDateRange] =
-    useState<ThreadListDateRangePreset>("last30");
+    useState<ThreadListDateRangePreset>("all");
   const [threadListCustomDateFrom, setThreadListCustomDateFrom] = useState("");
   const [threadListCustomDateTo, setThreadListCustomDateTo] = useState("");
   /** `null` = all channels (default). */
@@ -2435,7 +2454,7 @@ function ConversationsContent() {
     threadListPropertyKeys !== null ||
     threadListConvoTypeIsNonDefault ||
     threadListStatusIsNonDefault ||
-    threadListDateRange !== "last30" ||
+    threadListDateRange !== "all" ||
     Boolean(threadListCustomDateFrom) ||
     Boolean(threadListCustomDateTo) ||
     threadListChannelIsNonDefault ||
@@ -2926,28 +2945,17 @@ function ConversationsContent() {
     // inputs. Age is derived from the pre-formatted `time` string (e.g. "5m ago").
     if (!superAgent12Enabled) return base;
     const arr = [...base];
-    if (threadSortMode === "newest") {
-      arr.sort((a, b) => parseAgeMinutes(a.time) - parseAgeMinutes(b.time));
-    } else if (threadSortMode === "oldest") {
+    // Two-mode sort — newest-first (default) or oldest-first. The old
+    // "priority" mode was retired; SA 1.2's Needs Action / No Action Needed
+    // collapsible groups now surface needs-attention threads at the top of
+    // the list without collapsing everything into a single flat ordering.
+    if (threadSortMode === "oldest") {
       arr.sort((a, b) => parseAgeMinutes(b.time) - parseAgeMinutes(a.time));
-    } else if (threadSortMode === "priority") {
-      // Needs-action Property Threads bubble to the top, everything else falls
-      // back to newest-first. Eli threads never count as "needs action" per SA 1.2.
-      const priorityOf = (c: (typeof arr)[number]) => {
-        if (c.status !== "open") return 2;
-        if (isPropertyOwnedSA12(c) && needsStaffResponse(c)) return 0;
-        return 1;
-      };
-      arr.sort((a, b) => {
-        const pa = priorityOf(a);
-        const pb = priorityOf(b);
-        if (pa !== pb) return pa - pb;
-        return parseAgeMinutes(a.time) - parseAgeMinutes(b.time);
-      });
+    } else {
+      arr.sort((a, b) => parseAgeMinutes(a.time) - parseAgeMinutes(b.time));
     }
     return arr;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [threadListDateFiltered, searchQuery, superAgent12Enabled, threadSortMode, propertyOwnedThreadIds]);
+  }, [threadListDateFiltered, searchQuery, superAgent12Enabled, threadSortMode]);
 
   const myInboxUnreadCount = useMemo(
     () =>
@@ -4440,7 +4448,7 @@ function ConversationsContent() {
                       setThreadListConvoTypes(new Set(["escalated"]));
                       setThreadListPropertyKeys(null);
                       setThreadListStatusFilters(new Set(["active"]));
-                      setThreadListDateRange("last30");
+                      setThreadListDateRange("all");
                       setThreadListCustomDateFrom("");
                       setThreadListCustomDateTo("");
                       setThreadListChannels(null);
@@ -5028,7 +5036,12 @@ function ConversationsContent() {
                       type="button"
                       className={cn(
                         "flex h-8 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/50",
-                        threadListDateRange !== "last30" && "border-primary/40"
+                        // Filter-pill selected treatment: any non-default
+                        // date range (anything other than "All") tints the
+                        // border. `custom` also always counts, even if the
+                        // From/To pair is empty, so the pill signals that
+                        // the user is inside a narrower mode.
+                        threadListDateRange !== "all" && "border-primary/40"
                       )}
                     >
                       <span className="truncate">{threadListDateRangeSummary}</span>
@@ -12057,8 +12070,8 @@ function ManageInboxSettingsPanel({
   onToggleAutoCloseEnabled: (v: boolean) => void;
   autoCloseDays: number;
   onSetAutoCloseDays: (n: number) => void;
-  sortMode: "newest" | "oldest" | "priority";
-  onSetSortMode: (m: "newest" | "oldest" | "priority") => void;
+  sortMode: "newest" | "oldest";
+  onSetSortMode: (m: "newest" | "oldest") => void;
   eliPromptEnabled: boolean;
   onToggleEliPromptEnabled: (v: boolean) => void;
   eliPromptCadenceMinutes: number;
@@ -12072,13 +12085,13 @@ function ManageInboxSettingsPanel({
   promptOptionKeepOnEnabled: boolean;
   onTogglePromptOptionKeepOnEnabled: (v: boolean) => void;
 }) {
-  type SectionId = "sorting" | "notifications" | "defaults" | "setup" | "follow-up";
+  type SectionId = "notifications" | "defaults" | "setup" | "follow-up";
   const SECTIONS: { id: SectionId; label: string; description: string }[] = [
     { id: "setup", label: "One Time Setup", description: "One-time actions to prep the inbox" },
-    { id: "defaults", label: "Defaults", description: "Which inbox and filters open by default" },
-    { id: "sorting", label: "Sorting", description: "Ordering of threads in every inbox" },
+    { id: "defaults", label: "Defaults", description: "Which inbox, filter, and sort open by default" },
     // Notifications intentionally hidden for now; content still exists below in case
     // it needs to come back — just re-add the entry above to expose it.
+    // Sorting was folded into Defaults — the standalone section is gone.
     { id: "follow-up", label: "Thread Automation", description: "Follow-up and auto-close rules" },
   ];
   const [activeSection, setActiveSection] = useState<SectionId>("setup");
@@ -12093,12 +12106,66 @@ function ManageInboxSettingsPanel({
   // so resolved threads flow through into the Closed Threads inbox and honor
   // the SA 1.2 activity log.
   const { items: allConversations, resolveConversation } = useConversations();
+  // Property scope for the one-time sweep. Empty set = every property (the
+  // filter treats an empty selection as "unscoped"). Stored as a set of
+  // leaf property display names (matching `ConversationItem.property`)
+  // because the picker below is a flat property-name list, not the shared
+  // portfolio tree — per design feedback we intentionally skip the
+  // portfolio/region/group nesting for this cleanup setting and just let
+  // staff tick individual properties.
+  const [setupPropertyFilters, setSetupPropertyFilters] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const setupPropertyNames = setupPropertyFilters;
+  // All leaf property names available in the portfolio tree, sorted
+  // alphabetically once. Used by the flat picker below.
+  const allSetupPropertyNames = useMemo(() => {
+    return Array.from(collectLeafPropertyNames(portfolioData)).sort((a, b) =>
+      a.localeCompare(b),
+    );
+  }, []);
+  const [setupPropertySearch, setSetupPropertySearch] = useState("");
+  const filteredSetupPropertyNames = useMemo(() => {
+    const q = setupPropertySearch.trim().toLowerCase();
+    if (!q) return allSetupPropertyNames;
+    return allSetupPropertyNames.filter((n) => n.toLowerCase().includes(q));
+  }, [allSetupPropertyNames, setupPropertySearch]);
+  const toggleSetupProperty = useCallback(
+    (name: string) => {
+      setSetupPropertyFilters((prev) => {
+        const next = new Set(prev);
+        if (next.has(name)) next.delete(name);
+        else next.add(name);
+        return next;
+      });
+    },
+    [],
+  );
+  // AI-ownership heuristic for the setup sweep. The setting is intentionally
+  // limited to threads Eli is currently handling — anything with an active
+  // human owner stays open regardless of channel or age. In the demo data
+  // AI-owned threads carry an `ELI+ …` assignee (e.g. "ELI+ Leasing AI");
+  // once staff takes over the thread the assignee flips to a person's name.
+  const isSetupAiOwned = useCallback((c: ConversationItem) => {
+    return typeof c.assignee === "string" && c.assignee.startsWith("ELI+");
+  }, []);
   const setupTargets = useMemo(
     () =>
-      allConversations.filter(
-        (c) => c.status === "open" && (c.channel === "SMS" || c.channel === "Email"),
-      ),
-    [allConversations],
+      allConversations.filter((c) => {
+        if (c.status !== "open") return false;
+        if (c.channel !== "SMS" && c.channel !== "Email") return false;
+        if (!isSetupAiOwned(c)) return false;
+        // Property scope — empty selection means "every property," matching
+        // how the shared PropertySelector reports "nothing selected."
+        if (
+          setupPropertyNames.size > 0 &&
+          !setupPropertyNames.has(c.property)
+        ) {
+          return false;
+        }
+        return true;
+      }),
+    [allConversations, isSetupAiOwned, setupPropertyNames],
   );
   // Cutoff date — the client picks how far back "pre-existing" goes. Defaults
   // to yesterday, which is the recommended value (today's messages are still
@@ -12122,10 +12189,19 @@ function ManageInboxSettingsPanel({
   const [setupResolvedCount, setSetupResolvedCount] = useState<number | null>(null);
   const runInboxSetup = () => {
     const ids = setupTargets.map((c) => c.id);
+    // Compact human-readable scope line for the activity-log note so admins
+    // reviewing a closed thread can tell (a) it was closed by the one-time
+    // sweep (not a manual resolve) and (b) which scope the sweep ran with.
+    const scopeSummary =
+      setupPropertyNames.size === 0
+        ? "all properties"
+        : setupPropertyNames.size === 1
+          ? Array.from(setupPropertyNames)[0]
+          : `${setupPropertyNames.size} properties`;
     ids.forEach((id) =>
       resolveConversation(id, undefined, {
         resolutionType: "general",
-        notes: `Bulk-resolved during inbox setup (cutoff ${setupCutoffDate}) to give site staff a fresh starting point.`,
+        notes: `Auto-closed by inbox setup (AI-owned only, cutoff ${setupCutoffDate}, scope: ${scopeSummary}) to give site staff a fresh starting point.`,
       }),
     );
     setSetupResolvedCount(ids.length);
@@ -12175,13 +12251,15 @@ function ManageInboxSettingsPanel({
     return `${value} day${one ? "" : "s"}`;
   };
 
-  // Sort options — labels/descriptions live here so the shared confirm dialog can
-  // resolve them for the "from → to" sentence.
-  type SortMode = "newest" | "oldest" | "priority";
-  const SORT_OPTIONS: { id: SortMode; label: string; desc: string }[] = [
-    { id: "newest", label: "Newest activity first", desc: "Threads with the most recent message rise to the top." },
-    { id: "oldest", label: "Oldest activity first", desc: "Surface the longest-waiting threads at the top." },
-    { id: "priority", label: "Priority", desc: "Threads needing action first, then by recency." },
+  // Sort options — labels live here so the shared confirm dialog can resolve
+  // them for the "from → to" sentence. A "priority" mode used to live here
+  // too, but it was retired when SA 1.2's Needs Action / No Action Needed
+  // collapsible groups became the canonical way to surface work that needs
+  // attention.
+  type SortMode = "newest" | "oldest";
+  const SORT_OPTIONS: { id: SortMode; label: string }[] = [
+    { id: "newest", label: "Newest activity first" },
+    { id: "oldest", label: "Oldest activity first" },
   ];
   const sortLabelFor = (id: SortMode) => SORT_OPTIONS.find((o) => o.id === id)?.label ?? "";
   const inboxLabelFor = (id: string) => {
@@ -12266,57 +12344,6 @@ function ManageInboxSettingsPanel({
         {/* Section content */}
         <div className="flex-1 overflow-y-auto p-6">
           <div className="mx-auto max-w-2xl space-y-6">
-            {activeSection === "sorting" && (
-              <>
-                <div>
-                  <h3 className="text-base font-semibold">Sorting</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Choose how conversations are ordered inside every inbox.
-                  </p>
-                </div>
-
-                <div className="rounded-lg border border-border bg-background p-4">
-                  <p className="text-sm font-medium">Default sort order</p>
-                  <div className="mt-3 space-y-2">
-                    {SORT_OPTIONS.map((opt) => (
-                      <label
-                        key={opt.id}
-                        className={cn(
-                          "flex cursor-pointer items-start gap-3 rounded-md border p-3 transition-colors",
-                          sortMode === opt.id
-                            ? "border-primary/40 bg-[hsl(207_73%_95%)]"
-                            : "border-input bg-background hover:bg-muted/60"
-                        )}
-                      >
-                        <input
-                          type="radio"
-                          name="sortMode"
-                          className="mt-0.5 accent-primary"
-                          checked={sortMode === opt.id}
-                          onChange={() => {
-                            if (opt.id === sortMode) return;
-                            requestConfirmedChange({
-                              title: "Change the default sort order live?",
-                              fromLabel: sortLabelFor(sortMode),
-                              toLabel: sortLabelFor(opt.id),
-                              impact:
-                                "Applies immediately to every inbox in the workspace — threads on staff screens will re-order right after you confirm.",
-                              onApply: () => onSetSortMode(opt.id),
-                            });
-                          }}
-                        />
-                        <div>
-                          <p className="text-sm font-medium">{opt.label}</p>
-                          <p className="text-xs text-muted-foreground">{opt.desc}</p>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-              </>
-            )}
-
             {activeSection === "notifications" && (
               <>
                 <div>
@@ -12348,7 +12375,8 @@ function ManageInboxSettingsPanel({
                 <div>
                   <h3 className="text-base font-semibold">Defaults</h3>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Choose which inbox and quick filter appear on load.
+                    Choose which inbox, quick filter, and sort order appear at
+                    the start of each session.
                   </p>
                 </div>
 
@@ -12377,7 +12405,10 @@ function ManageInboxSettingsPanel({
                 <div className="rounded-lg border border-border bg-background p-4">
                   <p className="text-sm font-medium">Default inbox</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    Which inbox opens when a staff member loads Conversations.
+                    Which inbox is selected at the start of each logged-in
+                    session when a staff member opens OXP Communications.
+                    They can still switch to another inbox afterward —
+                    this setting only picks the starting view.
                   </p>
                   <Select
                     value={defaultInbox}
@@ -12409,7 +12440,11 @@ function ManageInboxSettingsPanel({
                 <div className="rounded-lg border border-border bg-background p-4">
                   <p className="text-sm font-medium">Default quick filter</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    Which channel filter is pre-selected on load.
+                    Which communication channel is pre-selected in the Quick
+                    Filter row (the ALL / Voice / SMS / Email tiles above the
+                    search bar) at the start of each session. Staff can still
+                    switch channels afterward — this only sets the starting
+                    tile.
                   </p>
                   <Select
                     value={defaultChannel}
@@ -12438,6 +12473,47 @@ function ManageInboxSettingsPanel({
                     </SelectContent>
                   </Select>
                 </div>
+
+                {/* Default sort order — moved out of the retired "Sorting"
+                    section so all "how the inbox opens" preferences live in
+                    one place. Two-option Select for consistency with the
+                    Default inbox / Default quick filter rows above; the
+                    old three-radio card layout (Newest / Oldest / Priority)
+                    was retired alongside the Priority sort itself. */}
+                <div className="rounded-lg border border-border bg-background p-4">
+                  <p className="text-sm font-medium">Default sort order</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    How threads are ordered inside every inbox at the start of
+                    each session. Staff can still resort afterward — this only
+                    sets the starting order.
+                  </p>
+                  <Select
+                    value={sortMode}
+                    onValueChange={(v) => {
+                      const next = v as SortMode;
+                      if (next === sortMode) return;
+                      requestConfirmedChange({
+                        title: "Change the default sort order live?",
+                        fromLabel: sortLabelFor(sortMode),
+                        toLabel: sortLabelFor(next),
+                        impact:
+                          "Applies immediately to every inbox in the workspace — threads on staff screens will re-order right after you confirm.",
+                        onApply: () => onSetSortMode(next),
+                      });
+                    }}
+                  >
+                    <SelectTrigger className="mt-3 w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SORT_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.id} value={opt.id}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </>
             )}
 
@@ -12446,16 +12522,23 @@ function ManageInboxSettingsPanel({
                 <div>
                   <h3 className="text-base font-semibold">One Time Setup</h3>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Give site staff a clean starting point by resolving pre-existing
-                    SMS &amp; Email threads that pre-date the new resolve-based
-                    workflow.
+                    Give site staff a clean starting point by closing pre-existing
+                    AI-owned SMS &amp; Email threads that pre-date the new
+                    resolve-based workflow.{" "}
+                    <span className="font-medium text-foreground">
+                      This will not close any non-AI conversations
+                    </span>{" "}
+                    — anything a property teammate is already on stays open and
+                    keeps its current assignee.
                   </p>
                 </div>
 
                 <div className="rounded-lg border border-border bg-background p-4">
-                  {/* One sentence with an inline date picker — this is the whole config. */}
+                  {/* Row 1 — cutoff-date sentence. */}
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
-                    <span>Resolve open SMS &amp; Email threads with activity through</span>
+                    <span>
+                      Close open AI SMS &amp; Email threads with activity through
+                    </span>
                     <input
                       type="date"
                       value={setupCutoffDate}
@@ -12478,14 +12561,166 @@ function ManageInboxSettingsPanel({
                     )}
                   </div>
 
+                  {/* Row 2 — property scope. Flat property-name list per
+                      design feedback: this setting doesn't need portfolio /
+                      region / group nesting, staff just wants to check off
+                      the properties they want the sweep to hit. Empty
+                      selection = every property. */}
+                  <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
+                    <span className="text-muted-foreground">
+                      Scope to properties:
+                    </span>
+                    <Popover modal>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className={cn(
+                            "inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/50",
+                            setupPropertyFilters.size > 0 && "border-primary/40",
+                          )}
+                        >
+                          <Building className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          <span className="truncate">
+                            {setupPropertyFilters.size === 0
+                              ? "All properties"
+                              : setupPropertyFilters.size === 1
+                                ? Array.from(setupPropertyFilters)[0]
+                                : "Properties"}
+                          </span>
+                          {setupPropertyFilters.size > 1 && (
+                            <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-none text-primary-foreground">
+                              {setupPropertyFilters.size}
+                            </span>
+                          )}
+                          <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        className="z-[200] w-[320px] p-0"
+                        align="start"
+                        sideOffset={4}
+                      >
+                        {/* Flat property picker — search box + scrollable
+                            checkbox list of leaf property names, plus a
+                            "Select all / Clear" affordance in the header
+                            that operates on whatever's currently visible
+                            after the search filter. */}
+                        <div className="flex h-[360px] flex-col">
+                          <div className="border-b border-border/70 p-2">
+                            <div className="relative">
+                              <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                              <Input
+                                value={setupPropertySearch}
+                                onChange={(e) =>
+                                  setSetupPropertySearch(e.target.value)
+                                }
+                                placeholder="Search properties…"
+                                className="h-8 pl-7 text-xs"
+                              />
+                            </div>
+                            <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
+                              <span>
+                                {setupPropertyFilters.size === 0
+                                  ? "All properties"
+                                  : `${setupPropertyFilters.size} selected`}
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSetupPropertyFilters((prev) => {
+                                      const next = new Set(prev);
+                                      for (const n of filteredSetupPropertyNames) {
+                                        next.add(n);
+                                      }
+                                      return next;
+                                    });
+                                  }}
+                                  disabled={filteredSetupPropertyNames.length === 0}
+                                  className="font-medium text-primary underline-offset-2 hover:underline disabled:opacity-40"
+                                >
+                                  Select all
+                                </button>
+                                <span aria-hidden>·</span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setSetupPropertyFilters(new Set())
+                                  }
+                                  disabled={setupPropertyFilters.size === 0}
+                                  className="font-medium text-primary underline-offset-2 hover:underline disabled:opacity-40"
+                                >
+                                  Clear
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                          <div
+                            role="listbox"
+                            aria-label="Properties"
+                            aria-multiselectable="true"
+                            className="flex-1 overflow-y-auto py-1"
+                          >
+                            {filteredSetupPropertyNames.length === 0 ? (
+                              <p className="px-3 py-6 text-center text-xs text-muted-foreground">
+                                No properties match{" "}
+                                <span className="font-medium text-foreground">
+                                  &ldquo;{setupPropertySearch}&rdquo;
+                                </span>
+                                .
+                              </p>
+                            ) : (
+                              filteredSetupPropertyNames.map((name) => {
+                                const checked = setupPropertyFilters.has(name);
+                                const rowId = `setup-prop-${name}`;
+                                return (
+                                  <label
+                                    key={name}
+                                    htmlFor={rowId}
+                                    role="option"
+                                    aria-selected={checked}
+                                    className={cn(
+                                      "flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-muted/60",
+                                      checked && "bg-muted/40",
+                                    )}
+                                  >
+                                    <Checkbox
+                                      id={rowId}
+                                      checked={checked}
+                                      onCheckedChange={() =>
+                                        toggleSetupProperty(name)
+                                      }
+                                    />
+                                    <span className="flex-1 truncate text-foreground">
+                                      {name}
+                                    </span>
+                                  </label>
+                                );
+                              })
+                            )}
+                          </div>
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                    {setupPropertyFilters.size > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSetupPropertyFilters(new Set())}
+                        className="text-[11px] font-medium text-primary underline-offset-2 hover:underline"
+                      >
+                        Reset to all properties
+                      </button>
+                    )}
+                  </div>
+
                   <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/60 pt-3">
                     <p className="text-sm">
                       <span className="font-medium">
                         {setupTargets.length.toLocaleString()}
                       </span>{" "}
                       <span className="text-muted-foreground">
-                        conversation{setupTargets.length === 1 ? "" : "s"} will be
-                        resolved
+                        AI conversation{setupTargets.length === 1 ? "" : "s"} will
+                        be closed
                       </span>
                     </p>
                     <Button
@@ -12494,7 +12729,7 @@ function ManageInboxSettingsPanel({
                       disabled={setupTargets.length === 0}
                       onClick={() => setSetupConfirmOpen(true)}
                     >
-                      Resolve all
+                      Close All conversations
                     </Button>
                   </div>
 
@@ -12503,7 +12738,8 @@ function ManageInboxSettingsPanel({
                       <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
                       <div>
                         <p className="font-medium">
-                          Resolved {setupResolvedCount.toLocaleString()} conversation
+                          Closed {setupResolvedCount.toLocaleString()} AI
+                          conversation
                           {setupResolvedCount === 1 ? "" : "s"}
                         </p>
                         <p className="mt-0.5 text-xs text-muted-foreground">
@@ -12518,18 +12754,35 @@ function ManageInboxSettingsPanel({
                 <Dialog open={setupConfirmOpen} onOpenChange={setSetupConfirmOpen}>
                   <DialogContent className="max-w-md">
                     <DialogHeader>
-                      <DialogTitle>Resolve all pre-existing SMS &amp; Email?</DialogTitle>
+                      <DialogTitle>
+                        Close all AI SMS &amp; Email conversations?
+                      </DialogTitle>
                       <DialogDescription className="pt-2">
-                        This will mark {setupTargets.length.toLocaleString()} open SMS
-                        and Email thread{setupTargets.length === 1 ? "" : "s"} with
-                        activity through{" "}
+                        This will close{" "}
+                        {setupTargets.length.toLocaleString()} open AI-owned SMS
+                        and Email thread{setupTargets.length === 1 ? "" : "s"}{" "}
+                        with activity through{" "}
                         <span className="font-medium text-foreground">
                           {setupCutoffDate}
+                        </span>
+                        {setupPropertyNames.size > 0 && (
+                          <>
+                            {" "}across{" "}
+                            <span className="font-medium text-foreground">
+                              {setupPropertyNames.size === 1
+                                ? Array.from(setupPropertyNames)[0]
+                                : `${setupPropertyNames.size} selected properties`}
+                            </span>
+                          </>
+                        )}
+                        {" "}and move them to Closed Threads.{" "}
+                        <span className="font-medium text-foreground">
+                          Non-AI conversations are not affected
                         </span>{" "}
-                        as Resolved and move them to Closed Threads. Staff can still
-                        reopen any individual thread from there. This is intended as a
-                        one-time cleanup for the transition to the new resolve-based
-                        workflow.
+                        — anything a property teammate is currently on stays open.
+                        Staff can still reopen any individual closed thread. This is
+                        intended as a one-time cleanup for the transition to the new
+                        resolve-based workflow.
                       </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
@@ -12537,7 +12790,7 @@ function ManageInboxSettingsPanel({
                         Cancel
                       </Button>
                       <Button variant="destructive" onClick={runInboxSetup}>
-                        Resolve {setupTargets.length.toLocaleString()} conversation
+                        Close {setupTargets.length.toLocaleString()} conversation
                         {setupTargets.length === 1 ? "" : "s"}
                       </Button>
                     </DialogFooter>
@@ -12558,35 +12811,58 @@ function ManageInboxSettingsPanel({
                 </div>
 
                 {/*
-                  Audit-log note — every automation event (follow-up reminder,
-                  auto-close) is written to the affected thread's activity
-                  timeline with the fired-at date, so staff can trace when and
-                  why any thread was nudged or closed.
+                  Cleaned-up card structure. Each automation is a
+                  self-contained rounded card with three tiers:
+                    · Header    — icon tile + title + short lead paragraph +
+                                  a compact inline audit-note callout so
+                                  admins see the log contract right on the
+                                  setting they're configuring.
+                    · Config    — the actual controls, on a subtle muted tint
+                                  so the input area reads as distinct from
+                                  the descriptive header.
+                    · Footer    — status pill on the left, primary Activate /
+                                  Deactivate action on the right.
+                  The redundant shared "Every automation event…" Info banner
+                  that used to sit above the three cards was removed — each
+                  card now carries its own inline audit-note, which reads
+                  better and never gets stale if we retire one of the
+                  automations later.
                 */}
-                <div className="flex items-start gap-2 rounded-md border border-border/70 bg-muted/40 p-3 text-xs text-muted-foreground">
-                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-foreground/70" />
-                  <p>
-                    Every automation event —{" "}
-                    <span className="font-medium text-foreground">follow-up reminders</span>{" "}
-                    and{" "}
-                    <span className="font-medium text-foreground">auto-close resolutions</span>{" "}
-                    — is written to the thread&apos;s activity timeline with the
-                    date and time it was triggered. Staff can always see when a
-                    rule fired and why.
-                  </p>
-                </div>
 
                 {/* --- Follow-up flagging --- */}
-                <div>
-                  <p className="text-sm font-medium">Flag threads waiting on a reply</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    Applies to SMS &amp; Email threads where a property teammate sent
-                    the last message. Threads waiting on staff (already flagged red)
-                    are unaffected.
-                  </p>
-                </div>
+                <div className="overflow-hidden rounded-lg border border-border bg-background">
+                  <div className="p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                        <BellRing className="h-4 w-4" strokeWidth={2} aria-hidden />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-foreground">
+                          Flag threads waiting on a reply
+                        </p>
+                        <p className="mt-1 text-xs leading-snug text-muted-foreground">
+                          Nudges SMS &amp; Email threads where a property
+                          teammate sent the last message and the lead or
+                          resident hasn&apos;t replied. Threads already
+                          waiting on staff (flagged red) are unaffected.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-start gap-2 rounded-md border border-border/50 bg-muted/40 px-2.5 py-1.5 text-xxs leading-snug text-muted-foreground">
+                      <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
+                      <p>
+                        When a threshold fires, an{" "}
+                        <span className="font-medium text-foreground">
+                          activity note
+                        </span>{" "}
+                        is written to the thread naming this setting and the
+                        idle window that triggered it (e.g. &ldquo;3 days
+                        without a resident reply&rdquo;).
+                      </p>
+                    </div>
+                  </div>
 
-                <div className="rounded-lg border border-border bg-background p-4">
+                  <div className="border-t border-border/60 bg-muted/20 p-4">
                   {/*
                     Multi-threshold list: each row is one "flag after N days"
                     rule. Users can add more (e.g. 3 days, 7 days, 10 days) so
@@ -12700,8 +12976,10 @@ function ManageInboxSettingsPanel({
                     );
                   })()}
 
+                  </div>
+
                   {/* Footer: status pill + primary action, one row. */}
-                  <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/60 pt-3">
+                  <div className="flex items-center justify-between gap-3 border-t border-border/60 px-4 py-2.5">
                     {followUpEnabled ? (
                       <Badge className="h-auto gap-1.5 bg-status-success px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-status-success-foreground">
                         <span className="relative inline-flex h-1.5 w-1.5">
@@ -12743,19 +13021,45 @@ function ManageInboxSettingsPanel({
                 </div>
 
                 {/* --- Auto-close idle threads --- */}
-                <div>
-                  <p className="text-sm font-medium">Auto-close idle threads</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    Automatically resolve threads with no activity from anyone —
-                    staff, AI, lead, or resident — and move them to Closed Threads.
-                    Applies to every channel. Nothing is deleted; staff can reopen
-                    from Closed Threads any time.
-                  </p>
-                </div>
+                <div className="overflow-hidden rounded-lg border border-border bg-background">
+                  <div className="p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                        <Clock className="h-4 w-4" strokeWidth={2} aria-hidden />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-foreground">
+                          Auto-close idle threads
+                        </p>
+                        <p className="mt-1 text-xs leading-snug text-muted-foreground">
+                          Automatically closes conversations that have gone
+                          silent for the configured window. Only real messages
+                          between staff, the lead, and the resident reset the
+                          idle clock — non-message activity like escalation
+                          labels, mode changes, private notes, or read
+                          receipts doesn&apos;t count. Nothing is deleted;
+                          closed threads stay in Closed Threads and can be
+                          reopened any time.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-start gap-2 rounded-md border border-border/50 bg-muted/40 px-2.5 py-1.5 text-xxs leading-snug text-muted-foreground">
+                      <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
+                      <p>
+                        When a thread auto-closes, an{" "}
+                        <span className="font-medium text-foreground">
+                          activity note
+                        </span>{" "}
+                        is written to its timeline naming this setting and
+                        the idle window that triggered it, so staff can tell
+                        exactly why a conversation was closed.
+                      </p>
+                    </div>
+                  </div>
 
-                <div className="rounded-lg border border-border bg-background p-4">
+                  <div className="border-t border-border/60 bg-muted/20 p-4">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
-                    <span>Close threads with no activity for</span>
+                    <span>Close threads with no messages for</span>
                     <Select
                       value={String(autoCloseDays)}
                       onValueChange={(v) => {
@@ -12787,11 +13091,12 @@ function ManageInboxSettingsPanel({
                       </SelectContent>
                     </Select>
                     <span className="text-muted-foreground">
-                      from anyone in the conversation.
+                      from the lead, resident, or staff.
                     </span>
                   </div>
+                  </div>
 
-                  <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/60 pt-3">
+                  <div className="flex items-center justify-between gap-3 border-t border-border/60 px-4 py-2.5">
                     {autoCloseEnabled ? (
                       <Badge className="h-auto gap-1.5 bg-status-success px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-status-success-foreground">
                         <span className="relative inline-flex h-1.5 w-1.5">
@@ -12840,23 +13145,38 @@ function ManageInboxSettingsPanel({
                     only public messages. The re-prompt cadence below
                     governs how often we re-nudge if staff dismisses. When
                     deactivated, staff replies leave Eli mode untouched. */}
-                <div>
-                  <p className="text-sm font-medium">Prompt staff to manage Eli on escalated threads</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    When staff sends the first public reply on an escalated
-                    thread while Eli is still on, show a small modal so they
-                    can resolve the escalation (Eli turns back on) or turn
-                    Eli off until the escalation is resolved. Only fires on
-                    public messages — private notes are ignored. Dismissing
-                    the modal counts as &quot;decide later&quot; and
-                    we&apos;ll re-nudge on a later message per the cadence
-                    below. When deactivated, staff replies leave Eli mode
-                    untouched — staff manage Eli manually from the AI On/Off
-                    popover.
-                  </p>
-                </div>
+                <div className="overflow-hidden rounded-lg border border-border bg-background">
+                  <div className="p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                        <Bot className="h-4 w-4" strokeWidth={2} aria-hidden />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-foreground">
+                          Prompt staff to manage Eli on escalated threads
+                        </p>
+                        <p className="mt-1 text-xs leading-snug text-muted-foreground">
+                          When staff sends the first public reply on an
+                          escalated thread while Eli is on, show a modal so
+                          they can resolve the escalation (Eli turns back on)
+                          or turn Eli off until the escalation is resolved.
+                          Only fires on public messages — private notes are
+                          ignored. Dismissing counts as &ldquo;decide later&rdquo;
+                          and we&apos;ll re-nudge per the cadence below.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-start gap-2 rounded-md border border-border/50 bg-muted/40 px-2.5 py-1.5 text-xxs leading-snug text-muted-foreground">
+                      <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
+                      <p>
+                        When deactivated, staff replies leave Eli mode
+                        untouched — staff manage Eli manually from the AI
+                        On/Off popover on each thread.
+                      </p>
+                    </div>
+                  </div>
 
-                <div className="rounded-lg border border-border bg-background p-4">
+                  <div className="border-t border-border/60 bg-muted/20 p-4">
                   {/* Cadence explainer — makes the "when does the prompt
                       fire again?" contract explicit before the picker.
                       Rule: the prompt fires the *first* time a staff
@@ -12953,106 +13273,45 @@ function ManageInboxSettingsPanel({
                     </span>
                   </div>
 
-                  {/* Options shown in the modal — two checkboxes gate the
-                      visibility of each row. Toggle one off to hide that
-                      choice; at least one must stay on so the modal always
-                      has something for staff to pick. */}
-                  <div className="mt-4 space-y-2 border-t border-border/60 pt-3">
-                    <p className="text-xs font-medium text-foreground">Options shown in the prompt</p>
-                    <p className="text-[11px] text-muted-foreground">
-                      Toggle any option off to hide it from the modal. At
-                      least one option must stay on.
-                    </p>
-                    {(() => {
-                      const enabledCount =
-                        (promptOptionOffEnabled ? 1 : 0) +
-                        (promptOptionKeepOnEnabled ? 1 : 0);
-                      const lastEnabledDisable = (isEnabled: boolean) =>
-                        isEnabled && enabledCount <= 1;
-                      return (
-                        <div className="space-y-1.5 pt-1">
-                          {/* "Resolve escalation and Eli turns back on"
-                              option — staff clears the escalation label and
-                              Eli resumes on the thread. */}
-                          <label className="flex items-start gap-2 rounded-md border border-transparent px-2 py-1.5 text-sm hover:bg-muted/50">
-                            <Checkbox
-                              className="mt-0.5"
-                              checked={promptOptionKeepOnEnabled}
-                              disabled={lastEnabledDisable(promptOptionKeepOnEnabled)}
-                              onCheckedChange={(v) =>
-                                onTogglePromptOptionKeepOnEnabled(Boolean(v))
-                              }
-                            />
-                            <span className="flex-1">
-                              <span className="font-medium text-foreground">Resolve escalation and Eli turns back on</span>
-                              <span className="ml-1.5 text-xs text-muted-foreground">
-                                Clear the escalation label. Eli picks the thread back up and responds to new messages.
-                              </span>
-                            </span>
-                          </label>
-
-                          {/* Turn off option — Eli comes back automatically
-                              once the escalation on the thread is resolved. */}
-                          <label className="flex items-start gap-2 rounded-md border border-transparent px-2 py-1.5 text-sm hover:bg-muted/50">
-                            <Checkbox
-                              className="mt-0.5"
-                              checked={promptOptionOffEnabled}
-                              disabled={lastEnabledDisable(promptOptionOffEnabled)}
-                              onCheckedChange={(v) =>
-                                onTogglePromptOptionOffEnabled(Boolean(v))
-                              }
-                            />
-                            <span className="flex-1">
-                              <span className="font-medium text-foreground">Turn Eli off until the escalation is resolved</span>
-                              <span className="ml-1.5 text-xs text-muted-foreground">
-                                Pause Eli on the thread. Eli comes back on automatically once the escalation is resolved.
-                              </span>
-                            </span>
-                          </label>
-                        </div>
-                      );
-                    })()}
-
-                    {/* Default option — which of the two cards is
-                        pre-selected when the modal opens. Options that are
-                        hidden above are disabled in the picker; the runtime
-                        falls back to the other still-enabled option if the
-                        configured default has since been turned off. */}
-                    <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-2 border-t border-border/60 pt-3 text-sm">
-                      <span className="font-medium text-foreground">Default option</span>
-                      <Select
-                        value={eliPromptDefaultOption}
-                        onValueChange={(v) => {
-                          const next = v as "off" | "on";
-                          if (next === eliPromptDefaultOption) return;
-                          onSetEliPromptDefaultOption(next);
-                        }}
-                      >
-                        <SelectTrigger className="h-8 w-[220px]">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem
-                            value="on"
-                            disabled={!promptOptionKeepOnEnabled}
-                          >
-                            Resolve escalation and Eli turns back on
-                          </SelectItem>
-                          <SelectItem
-                            value="off"
-                            disabled={!promptOptionOffEnabled}
-                          >
-                            Turn Eli off until the escalation is resolved
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <span className="text-muted-foreground">
-                        pre-selected when the modal opens.
-                      </span>
-                    </div>
+                  {/* Default option — which of the two cards is
+                      pre-selected when the Eli Prompt modal opens for staff.
+                      The modal itself always shows both options; the picker
+                      here just decides which one starts highlighted. Both
+                      `promptOptionOffEnabled` / `promptOptionKeepOnEnabled`
+                      state still exists in the demo context (and gates the
+                      modal rendering + `handleSend` fallback), but the
+                      per-option "hide from modal" checkboxes were removed
+                      per design feedback — staff always sees the full choice
+                      set. */}
+                  <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-2 border-t border-border/60 pt-3 text-sm">
+                    <span className="font-medium text-foreground">Default option</span>
+                    <Select
+                      value={eliPromptDefaultOption}
+                      onValueChange={(v) => {
+                        const next = v as "off" | "on";
+                        if (next === eliPromptDefaultOption) return;
+                        onSetEliPromptDefaultOption(next);
+                      }}
+                    >
+                      <SelectTrigger className="h-8 w-[220px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="on">
+                          Resolve escalation and Eli turns back on
+                        </SelectItem>
+                        <SelectItem value="off">
+                          Turn Eli off until the escalation is resolved
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <span className="text-muted-foreground">
+                      pre-selected when the modal opens.
+                    </span>
+                  </div>
                   </div>
 
-                  <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/60 pt-3">
+                  <div className="flex items-center justify-between gap-3 border-t border-border/60 px-4 py-2.5">
                     {eliPromptEnabled ? (
                       <Badge className="h-auto gap-1.5 bg-status-success px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-status-success-foreground">
                         <span className="relative inline-flex h-1.5 w-1.5">
