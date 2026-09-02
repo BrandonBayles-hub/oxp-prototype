@@ -1780,9 +1780,14 @@ Hillside Living
         threadActivity: {
           kind: "follow_up_reminder",
           daysIdle: 4,
-          sinceRole: "resident",
-          sinceTimestamp: "Sep 11 · 5:41pm",
-          suggestedAction: "Two escalations open on this thread — payments (late-fee waiver) and maintenance (WO-48219, broken door). Marcus's last message went unanswered.",
+          // `follow_up_reminder.sinceRole` is typed to "staff" | "agent" —
+          // the reminder tracks *resident silence following a staff-side
+          // reply*, so the "since" role must reference the last message
+          // from our side (here Eli's Maintenance AI response at 5:42pm),
+          // not the resident's inbound message that kicked things off.
+          sinceRole: "agent",
+          sinceTimestamp: "Sep 11 · 5:42pm",
+          suggestedAction: "Two escalations still open on this thread — payments (late-fee waiver) and maintenance (WO-48219, broken door). Marcus hasn't come back to staff since Eli acknowledged.",
         },
       },
     ],
