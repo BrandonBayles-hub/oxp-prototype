@@ -198,12 +198,14 @@ export function ConversationThreadActivityRow({
             ) : null}
             {"."}
           </span>
-          {a.suggestedAction ? (
-            <span className="mt-1 block text-left text-muted-foreground">
-              <span className="font-medium text-foreground/90">Suggested: </span>
-              {a.suggestedAction}
-            </span>
-          ) : null}
+          {/* The `suggestedAction` field is still honored on the underlying
+              activity type (see `follow_up_reminder` in lib/conversations-context.tsx)
+              so demo data doesn't need to be scrubbed, but we intentionally
+              don't render it — per design feedback the "Suggested: …" line
+              on the follow-up reminder card was pulling focus away from the
+              trigger itself. If we ever want to bring the suggestion back
+              (e.g. behind a "Show suggestion" affordance) the data is
+              already there. */}
         </>
       );
       break;
