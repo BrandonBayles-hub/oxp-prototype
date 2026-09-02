@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import {
   BellRing,
   Bot,
+  BotOff,
   CheckCircle2,
   Eye,
   Mail,
@@ -182,7 +183,7 @@ export function ConversationThreadActivityRow({
       const senderLabel = a.sinceRole === "staff" ? "staff" : "the AI agent";
       icon = (
         <IconWrap>
-          <BellRing className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+          <BellRing className="h-3.5 w-3.5 text-cyan-600 dark:text-cyan-400" />
         </IconWrap>
       );
       body = (
@@ -205,6 +206,66 @@ export function ConversationThreadActivityRow({
           ) : null}
         </>
       );
+      break;
+    }
+    case "eli_mode_change": {
+      /*
+       * SA 1.2 Eli mode transitions on the thread. Renders one of two
+       * shapes depending on the target mode:
+       *   • On   → Bot icon, "turned Eli on for this thread"
+       *   • Off  → BotOff icon, tailored copy per policy:
+       *       – "until-resolved" → Eli auto-resumes when the escalation
+       *         clears.
+       *       – "indefinite"     → someone must manually flip Eli back on.
+       * `source` narrows the verb ("triggered from the Eli Prompt" vs.
+       * "manually toggled" vs. "from the Resolve dialog" vs. auto-resume)
+       * so the audit trail is clear about who/what changed it.
+       */
+      const sourceLabel =
+        a.source === "prompt"
+          ? "from the Eli Prompt"
+          : a.source === "resolve"
+            ? "from the Resolve dialog"
+            : a.source === "auto-resume"
+              ? "automatically (escalation resolved)"
+              : "manually";
+      let modeIcon: ReactNode;
+      let modeCopy: ReactNode;
+      if (a.mode.kind === "on") {
+        modeIcon = <Bot className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />;
+        modeCopy = (
+          <>
+            <span className="font-medium text-foreground">{a.actor}</span>
+            {" turned Eli "}
+            <span className="font-medium text-foreground">on</span>
+            {" for this thread — "}
+            <span className="text-muted-foreground">{sourceLabel}</span>
+            {"."}
+          </>
+        );
+      } else {
+        const offLabel =
+          a.mode.policy === "indefinite"
+            ? "off indefinitely"
+            : "off until the escalation is resolved";
+        const trailingCopy =
+          a.mode.policy === "indefinite"
+            ? ". Someone will need to turn Eli back on manually."
+            : ". Eli will resume automatically once the escalation clears.";
+        modeIcon = <BotOff className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />;
+        modeCopy = (
+          <>
+            <span className="font-medium text-foreground">{a.actor}</span>
+            {" turned Eli "}
+            <span className="font-medium text-foreground">{offLabel}</span>
+            {" — "}
+            <span className="text-muted-foreground">{sourceLabel}</span>
+            {trailingCopy}
+          </>
+        );
+      }
+      icon = <IconWrap>{modeIcon}</IconWrap>;
+      body = modeCopy;
       break;
     }
     case "phone_call": {

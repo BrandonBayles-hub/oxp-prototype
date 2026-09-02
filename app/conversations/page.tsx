@@ -18,6 +18,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Bot,
+  BotOff,
   MessageCircle,
   Search,
   Plus,
@@ -27,6 +28,7 @@ import {
   Paperclip,
   ArrowUp,
   MessageSquare,
+  MessageSquareText,
   StickyNote,
   CornerDownRight,
   Inbox,
@@ -40,6 +42,7 @@ import {
   PhoneForwarded,
   Headphones,
   Mail,
+  MailOpen,
   Building,
   Hash,
   CalendarIcon,
@@ -117,6 +120,7 @@ import {
   isConversationUnattended,
   needsStaffResponse,
   hasActiveFollowUpReminder,
+  hasActiveAiEscalation,
   isWaitingOnResidentPublicReply,
   satisfiesEscalatedPropertyInboxLabels,
   conversationHasCurrentUserPrivateNoteMention,
@@ -139,7 +143,13 @@ import {
 } from "@/lib/email-signature";
 import { useClickToCallDemo } from "@/lib/click-to-call-demo-context";
 import { useCallSystemDemo, type IncomingCallerType } from "@/lib/call-system-demo-context";
-import { useConversationsDemo } from "@/lib/conversations-demo-context";
+import {
+  useConversationsDemo,
+  getEffectiveEliMode,
+  cadenceToMinutes,
+  type EliMode,
+  type EliPromptCadenceUnit,
+} from "@/lib/conversations-demo-context";
 import { useTranslationDemo } from "@/lib/translation-demo-context";
 import {
   ClickToCallFloatingPanel,
@@ -866,7 +876,30 @@ type SidebarFilter =
 /** SA 1.2 channel sub-filter (applied on top of the primary inbox). */
 type Sa12ChannelFilter = "all" | "sms" | "chat" | "email" | "voice";
 
+/**
+ * SA 1.2 inline escalation Quick Filter (below the search bar).
+ *   - "all"          → both classes of thread pass
+ *   - "escalated"    → threads carrying at least one AI escalation label
+ *                      (e.g. "Maintenance AI Escalation"). Eli routed these
+ *                      to staff.
+ *   - "non-escalated" → threads with no AI escalation label — plain
+ *                       property↔lead/resident conversations.
+ */
+type Sa12EscalationFilter = "all" | "escalated" | "non-escalated";
+
 type ThreadListConvoTypeFilter = "escalated" | "liveAi";
+
+/**
+ * SA 1.2 only — "Action Needed" filter. Lets staff scope the thread list to
+ * only threads that require them to act. The two flavors correspond exactly
+ * to the two corner markers on the thread card:
+ *   - "followup"   → cyan bell marker (Thread Automation nudge, staff idle)
+ *   - "escalation" → red dot marker  (resident/lead has replied and is
+ *                                     waiting on staff)
+ * When neither is selected the filter is a no-op (all threads pass).
+ * When both are selected the union of the two sets is shown.
+ */
+type ThreadListActionFilter = "followup" | "escalation";
 type ThreadListDateRangePreset = "today" | "last7" | "last30" | "custom";
 type ThreadListChannelFilter = "email" | "sms" | "voice";
 
@@ -1993,6 +2026,7 @@ function ConversationsContent() {
     addLabel,
     removeLabel,
     markRead,
+    markUnread,
   } = useConversations();
   const { agents } = useAgents();
   const { humanMembers } = useWorkforce();
@@ -2065,6 +2099,22 @@ function ConversationsContent() {
     setAutoCloseDays,
     threadSortMode,
     setThreadSortMode,
+    eliPromptEnabled,
+    setEliPromptEnabled,
+    promptOptionOffEnabled,
+    setPromptOptionOffEnabled,
+    promptOptionKeepOnEnabled,
+    setPromptOptionKeepOnEnabled,
+    eliPromptCadenceMinutes,
+    setEliPromptCadenceMinutes,
+    eliPromptCadenceUnit,
+    setEliPromptCadenceUnit,
+    eliPromptDefaultOption,
+    setEliPromptDefaultOption,
+    eliModeByThreadId,
+    setEliMode,
+    eliPromptShownAt,
+    markEliPromptShown,
   } = useConversationsDemo();
   const { translationEnabled, toggleTranslationEnabled } = useTranslationDemo();
   /** Call controls + phone demo threads (missed/voicemail) for Click To Call or Super Agent 1.0. */
@@ -2128,23 +2178,141 @@ function ConversationsContent() {
     setCallSystemPanelOpen(false);
     setManageInboxPanelOpen(false);
   }, [sidebarFilter]);
+  // Previous sidebar filter tracker for the SA 1.2 auto-select-first-thread
+  // effect (declared below, after `filtered` and `setSelectedId` are in scope).
+  const prevSidebarFilterRef = useRef(sidebarFilter);
   const [searchQuery, setSearchQuery] = useState("");
   const [bulkSelectMode, setBulkSelectMode] = useState(false);
   const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
   const [bulkResolveConfirmOpen, setBulkResolveConfirmOpen] = useState(false);
+  /**
+   * Right-click context menu on thread rows. Anchored to the exact cursor
+   * position (viewport coordinates) rather than to the row DOM, which
+   * matches native OS context menus. Currently exposes read/unread toggling
+   * so staff can flip the red inbox dot back on for triage.
+   */
+  const [threadContextMenu, setThreadContextMenu] = useState<{
+    threadId: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  useEffect(() => {
+    if (!threadContextMenu) return;
+    const close = () => setThreadContextMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    // Any click anywhere (including on menu items — items call close before
+    // acting) closes the menu; scroll / resize also close so the menu never
+    // sits detached from its anchor position.
+    window.addEventListener("mousedown", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [threadContextMenu]);
   /** SA 1.2: sidebar-help modal explaining the inboxes and badges. */
   const [inboxHelpOpen, setInboxHelpOpen] = useState(false);
   /** SA 1.2: channel sub-filter applied to the sidebar-selected inbox. */
   const [sa12ChannelFilter, setSa12ChannelFilter] = useState<Sa12ChannelFilter>("all");
+  const [sa12EscalationFilter, setSa12EscalationFilter] = useState<Sa12EscalationFilter>("all");
+  /**
+   * SA 1.2 thread-list grouping — split the visible thread list into a
+   * "Needs Action" section (property-owned threads waiting on staff or with
+   * an active follow-up reminder) and a "No Action Needed" section (property
+   * threads staff is already on top of, plus Eli-owned threads that don't
+   * surface action markers). Each section header is a collapsible bar so
+   * staff can hide the group they aren't triaging. Default: both expanded.
+   * Only surfaces in Open Threads + Property Threads — Eli Threads and
+   * Closed Threads don't have an action-needed dimension.
+   */
+  const [sa12ActionCollapsed, setSa12ActionCollapsed] = useState(false);
+  const [sa12NoActionCollapsed, setSa12NoActionCollapsed] = useState(false);
+
+  /**
+   * SA 1.2 Eli Prompt modal state — fires after a public staff reply to an
+   * escalated thread whose Eli mode is currently On. We stash the
+   * captured-at-fire-time thread id so dismissing/reopening the modal
+   * doesn't accidentally target the wrong conversation (users can switch
+   * threads while the modal is open).
+   */
+  const [eliPromptOpen, setEliPromptOpen] = useState(false);
+  const [eliPromptForThreadId, setEliPromptForThreadId] = useState<string | null>(null);
+  /**
+   * SA 1.2 pre-send gate — when staff hits Send on an escalated thread with
+   * Eli currently on, we hold the reply here and open the Eli Prompt modal
+   * instead of committing the send. The modal picks how Eli behaves going
+   * forward and _then_ commits the buffered message. Cancelling the modal
+   * discards the pending record and leaves the composer text alone so
+   * staff can edit and try again.
+   */
+  const [eliPromptPendingSend, setEliPromptPendingSend] = useState<{
+    threadId: string;
+    inputMode: "message" | "private_note";
+    payload: Parameters<typeof addMessage>[1];
+  } | null>(null);
+  /**
+   * Which of the two options is picked in the modal (drives the Send button's
+   * disabled state — Send is off until staff makes a choice).
+   */
+  const [eliPromptChoice, setEliPromptChoice] = useState<
+    "off" | "on" | null
+  >(null);
   const [threadListFiltersOpen, setThreadListFiltersOpen] = useState(false);
+  /**
+   * Snapshot of every filter dimension the Filters popover controls, taken
+   * the moment the popover opens. Backs the "Cancel" button + auto-revert
+   * behavior on outside-click / ESC: if a snapshot is present when the
+   * popover closes, its values are restored. "Apply" bypasses the revert
+   * by clearing the snapshot before closing, so the tweaks the user made
+   * while the popover was open become the new committed state.
+   * (List updates preview live while the popover is open — clicking Apply
+   * confirms the preview, Cancel throws it away.)
+   */
+  const filterSnapshotRef = useRef<null | {
+    propertyKeys: Set<string> | null;
+    convoTypes: Set<ThreadListConvoTypeFilter>;
+    actionFilters: Set<ThreadListActionFilter>;
+    sa12Escalation: Sa12EscalationFilter;
+    statusFilters: Set<"active" | "completed">;
+    dateRange: ThreadListDateRangePreset;
+    customDateFrom: string;
+    customDateTo: string;
+    channels: Set<ThreadListChannelFilter> | null;
+  }>(null);
   const [threadListConvoTypes, setThreadListConvoTypes] = useState<Set<ThreadListConvoTypeFilter>>(
     () => new Set(["escalated"])
+  );
+  /**
+   * SA 1.2 only — "Action Needed" filter. Empty set = show every thread
+   * (the filter is off). Any populated set narrows the list to threads whose
+   * corner marker matches at least one of the selected kinds.
+   */
+  const [threadListActionFilters, setThreadListActionFilters] = useState<Set<ThreadListActionFilter>>(
+    () => new Set()
   );
   /** `null` = all properties (default). */
   const [threadListPropertyKeys, setThreadListPropertyKeys] = useState<Set<string> | null>(null);
   const [threadListStatusFilters, setThreadListStatusFilters] = useState<Set<"active" | "completed">>(
     () => new Set(["active"])
   );
+  // Auto-flip the Status filter when the user changes inboxes so Closed Threads
+  // actually renders its resolved contents (the default "active" filter would
+  // otherwise hide everything). Open / Property / Eli inboxes flip back to
+  // "active" so switching from Closed back to Open doesn't leave the user
+  // staring at an unexpected empty state. The filter remains user-editable in
+  // both cases — this only handles the automatic transition.
+  useEffect(() => {
+    setThreadListStatusFilters(
+      sidebarFilter === "sa12-closed" ? new Set(["completed"]) : new Set(["active"])
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when the sidebar inbox changes
+  }, [sidebarFilter]);
   const [threadListDateRange, setThreadListDateRange] =
     useState<ThreadListDateRangePreset>("last30");
   const [threadListCustomDateFrom, setThreadListCustomDateFrom] = useState("");
@@ -2170,14 +2338,32 @@ function ConversationsContent() {
   };
 
   /**
-   * SA 1.2 "is this a Property Threads item?" — the union of the three ownership
-   * signals: explicit takeover, escalation label, or a voicemail/missed-call
-   * origin. Used everywhere the sidebar and channel counters partition threads.
+   * SA 1.2 shortcut: what Eli mode is currently in effect for this thread.
+   * All read sites should go through this so we have a single accessor.
+   */
+  const eliModeFor = (id: string): EliMode =>
+    getEffectiveEliMode(eliModeByThreadId, id);
+
+  /**
+   * SA 1.2 "is this a Property Threads item?" — a thread belongs to Property
+   * Threads when *any* of the ownership signals fire:
+   *   1. Staff explicitly took it over (`propertyOwnedThreadIds`)
+   *   2. It carries an AI Escalation label
+   *   3. It's a voicemail / missed-call voice thread that Eli couldn't
+   *      complete (see `isPropertyOwnedByVoiceOrigin`)
+   *   4. Eli mode is not "on" (i.e. off-indefinite). Staff has flipped
+   *      Eli off on the thread (either via the Eli Prompt outcome or the
+   *      manual AI On/Off popover), so staff owns it until they turn Eli
+   *      back on. This is what makes "Non-Escalated in Property Threads"
+   *      a real state after every escalation on a thread is resolved.
+   * The Escalation Quick Filter inside Property Threads is a separate
+   * dimension — it slices on `hasActiveAiEscalation`, NOT ownership.
    */
   const isPropertyOwnedSA12 = (c: (typeof conversations)[number]) => {
     if (propertyOwnedThreadIds.has(c.id)) return true;
     if (c.labels.some(isEscalationLabel)) return true;
     if (isPropertyOwnedByVoiceOrigin(c)) return true;
+    if (eliModeFor(c.id).kind !== "on") return true;
     return false;
   };
 
@@ -2210,16 +2396,45 @@ function ConversationsContent() {
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [conversations]);
 
+  // The Conversation Type filter is hidden and bypassed in SA 1.2 mode — so
+  // don't let its leftover state (default is "only Escalated") light up the
+  // "non-default filter" dot on the filters button when SA 1.2 is on.
+  const threadListConvoTypeIsNonDefault =
+    !superAgent12Enabled &&
+    (threadListConvoTypes.size !== 1 || !threadListConvoTypes.has("escalated"));
+  // The SA 1.2 Escalation filter (All / Escalated / Non-Escalated) only takes
+  // effect inside the Property Threads inbox, so it should only mark the
+  // Filters popover "dirty" when the user is actually viewing that inbox with
+  // a non-"all" value selected. Anywhere else it's inert and shouldn't light
+  // up the non-default dot.
+  const threadListEscalationIsNonDefault =
+    superAgent12Enabled &&
+    sidebarFilter === "sa12-escalated" &&
+    sa12EscalationFilter !== "all";
+  // The Communication Channel filter is hidden and bypassed in SA 1.2 mode
+  // (the channel Quick Filter above the search bar owns that dimension), so
+  // don't let leftover checkboxes there light up the non-default dot when
+  // the user can't see or clear the control.
+  const threadListChannelIsNonDefault =
+    !superAgent12Enabled && threadListChannels !== null;
+  // The Status filter is hidden in SA 1.2 mode — the sidebar owns it
+  // (Closed Threads → "completed", everything else → "active"), and a
+  // `useEffect` keeps `threadListStatusFilters` in sync. Any value it holds
+  // there is authored by the sidebar, not by the user, so it must never
+  // light up the non-default dot in SA 1.2.
+  const threadListStatusIsNonDefault =
+    !superAgent12Enabled &&
+    (threadListStatusFilters.size !== 1 || !threadListStatusFilters.has("active"));
   const threadFiltersAreNonDefault =
     threadListPropertyKeys !== null ||
-    threadListConvoTypes.size !== 1 ||
-    !threadListConvoTypes.has("escalated") ||
-    threadListStatusFilters.size !== 1 ||
-    !threadListStatusFilters.has("active") ||
+    threadListConvoTypeIsNonDefault ||
+    threadListStatusIsNonDefault ||
     threadListDateRange !== "last30" ||
     Boolean(threadListCustomDateFrom) ||
     Boolean(threadListCustomDateTo) ||
-    threadListChannels !== null;
+    threadListChannelIsNonDefault ||
+    threadListActionFilters.size > 0 ||
+    threadListEscalationIsNonDefault;
 
   const threadListConvoSummary = useMemo(() => {
     const parts: string[] = [];
@@ -2231,6 +2446,22 @@ function ConversationsContent() {
   }, [threadListConvoTypes]);
 
   const threadListConvoTypeCount = threadListConvoTypes.size;
+
+  /**
+   * SA 1.2 only — pill summary for the Action Needed trigger button. Mirrors
+   * the `threadListConvoSummary` pattern so the two filter triggers look and
+   * feel identical.
+   */
+  const threadListActionSummary = useMemo(() => {
+    const parts: string[] = [];
+    if (threadListActionFilters.has("followup")) parts.push("Follow-up");
+    if (threadListActionFilters.has("escalation")) parts.push("Escalation");
+    if (parts.length === 0) return "Any action";
+    if (parts.length === 1) return `${parts[0]} needed`;
+    return "Action Needed";
+  }, [threadListActionFilters]);
+
+  const threadListActionCount = threadListActionFilters.size;
 
   const threadListPropertySummary = useMemo(() => {
     if (threadListPropertyKeys === null) return "Properties";
@@ -2363,64 +2594,88 @@ function ConversationsContent() {
     }
     return totals;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversations, propertyOwnedThreadIds]);
+  }, [conversations, propertyOwnedThreadIds, eliModeByThreadId]);
 
   /**
-   * SA 1.2 "needs action" counts. These power the sidebar badges: only threads
-   * where the last public message is from resident/lead and staff hasn't replied
-   * yet (i.e. `needsStaffResponse`) contribute. We intentionally do NOT count
-   * Eli Threads or Closed here — Eli is handling those, and closed threads are done.
+   * SA 1.2 "effective unread" predicate. In SA 1.2 mode only threads that
+   * are property-owned contribute to unread state — Eli-owned threads are
+   * silent by design — but WITHIN property ownership every unread thread
+   * counts, whether it's in the "Needs Action" bucket or the "No Action
+   * Needed" bucket. That parity is deliberate: an inbound resident
+   * message on an already-handled thread still deserves the "there's
+   * something new here" signal, so the sidebar count, the channel-filter
+   * badges, the section-header chip on "No Action Needed", and the red
+   * dot on the thread card all light up together.
+   *
+   * In SA 1.0 / non-SA modes the helper falls back to the raw
+   * `hasUnread` flag so nothing outside SA 1.2 changes behavior.
+   */
+  const isEffectivelyUnread = (c: (typeof conversations)[number]): boolean => {
+    if (!c.hasUnread) return false;
+    if (!superAgent12Enabled) return true;
+    return isPropertyOwnedSA12(c);
+  };
+
+  /**
+   * SA 1.2 sidebar-badge counts — mirrors the standard inbox convention of
+   * "unread messages," not "needs action." Only property-owned threads
+   * (`isPropertyOwnedSA12`) contribute, so the badge tracks unread work that
+   * a human is expected to handle. Eli Threads and Closed Threads are
+   * intentionally excluded (Eli handles those / closed is done).
    */
   const sa12InboxActionCounts = useMemo(() => {
     const counts = { all: 0, escalated: 0 };
     for (const c of conversations) {
       if (c.status !== "open") continue;
-      if (!needsStaffResponse(c)) continue;
-      // Only threads that a human is expected to handle count as "action needed".
-      // Eli-owned threads are Eli's responsibility.
+      if (!isEffectivelyUnread(c)) continue;
       if (!isPropertyOwnedSA12(c)) continue;
       counts.all += 1;
       counts.escalated += 1;
     }
     return counts;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversations, propertyOwnedThreadIds]);
+  }, [conversations, propertyOwnedThreadIds, eliModeByThreadId, superAgent12Enabled]);
 
   /** Backwards-compatible alias for the Property Threads sidebar badge. */
   const sa12EscalatedCount = sa12InboxTotals.escalated;
 
   /**
-   * SA 1.2: per-channel counts of threads *needing action* inside the currently
-   * selected sidebar inbox (open + `needsStaffResponse`). Matches the sidebar
-   * badge semantics so the "All channels" total always equals the corresponding
-   * sidebar badge, and SMS + Chat + Email + Voice sum to that total.
+   * SA 1.2: per-channel counts of *unread* threads inside the currently
+   * selected sidebar inbox. Mirrors the sidebar badge convention (unread
+   * count, not "needs action"), so the "All channels" total always equals
+   * the sidebar badge and SMS + Chat + Email + Voice sum to that total.
    */
   const sa12ChannelActionCounts = useMemo(() => {
     const counts = { all: 0, sms: 0, chat: 0, email: 0, voice: 0 };
     if (!superAgent12Enabled) return counts;
     // Eli Threads is Eli's territory — Eli handles those conversations, so
-    // staff has no "needs action" work here. The channel filter therefore
-    // reports zero across the board when the Eli inbox is active.
+    // there's no unread-for-staff work to surface here. The channel filter
+    // therefore reports zero across the board when the Eli inbox is active.
     if (sidebarFilter === "sa12-property") return counts;
+    // Closed Threads by definition are done, so no unread surface. Reopening
+    // a thread is the only way for it to acquire an unread flag again, and
+    // reopening moves it back to Open Threads. The Quick Filter should never
+    // surface red badges here, even though there's real data behind the counts.
+    if (sidebarFilter === "sa12-closed") return counts;
     for (const c of conversations) {
       // Match the "sidebar-filtered but without channel filter" base set.
       // For open inboxes ("all" and "sa12-escalated") we additionally require
       // isPropertyOwnedSA12 so the total mirrors the sidebar badge — because
-      // needs-action is defined as "Property-owned + needs staff reply." Eli
-      // Threads never contribute to needs-action counts.
-      // (The "sa12-property" case is handled by the early return above, so it
-      // never reaches this switch — TypeScript narrows it out.)
+      // the sidebar badge is defined as "Property-owned + unread." Eli
+      // Threads never contribute to the unread count.
+      // ("sa12-property" and "sa12-closed" are handled by the early returns
+      // above, so they never reach this switch — TypeScript narrows them out.)
       if (sidebarFilter === "all") {
         if (c.status !== "open" || !isPropertyOwnedSA12(c)) continue;
       } else if (sidebarFilter === "sa12-escalated") {
         if (c.status !== "open" || !isPropertyOwnedSA12(c)) continue;
-      } else if (sidebarFilter === "sa12-closed") {
-        if (c.status !== "resolved") continue;
       } else {
         continue;
       }
-      // Only include threads that need staff to take action next.
-      if (c.status === "open" && !needsStaffResponse(c)) continue;
+      // Only include unread threads — matches the sidebar badge.
+      // Uses the SA 1.2 "effective" unread definition so threads in the
+      // "No Action Needed" group are treated as read here too.
+      if (!isEffectivelyUnread(c)) continue;
       const ch = (c.channel || "").toLowerCase();
       counts.all += 1;
       if (ch === "sms") counts.sms += 1;
@@ -2431,7 +2686,7 @@ function ConversationsContent() {
     }
     return counts;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversations, sidebarFilter, propertyOwnedThreadIds, superAgent12Enabled]);
+  }, [conversations, sidebarFilter, propertyOwnedThreadIds, superAgent12Enabled, eliModeByThreadId]);
 
   /** Sidebar badge: unread threads in Custom Inbox 1. */
   const customInbox1UnreadCount = useMemo(
@@ -2500,7 +2755,7 @@ function ConversationsContent() {
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversations, sidebarFilter, superAgent12Enabled, propertyOwnedThreadIds]);
+  }, [conversations, sidebarFilter, superAgent12Enabled, propertyOwnedThreadIds, eliModeByThreadId]);
 
   const tabFiltered = useMemo(() => {
     return sidebarFiltered.filter((c) => {
@@ -2513,28 +2768,101 @@ function ConversationsContent() {
         // Voice mock data lives under both "Voice" and legacy "Phone" — accept either.
         if (sa12ChannelFilter === "voice" && ch !== "voice" && ch !== "phone") return false;
       }
+      // SA 1.2 inline Escalation Quick Filter — only applies inside the
+      // Property Threads inbox (where the control is actually rendered).
+      // Any other inbox unconditionally passes through, so a stale filter
+      // value can't silently hide threads in an inbox where this control is
+      // hidden.
+      //
+      // Escalation state is about "is there an *active* escalation on this
+      // thread right now," not "was Eli ever in the loop." Escalations can
+      // be resolved while the thread stays open, which flips the thread to
+      // Non-Escalated. That happens in two ways:
+      //
+      //   1. Label-based (DEV-301687 partial resolve flow) — staff picks a
+      //      subset of Escalation labels, a `label_activity` row with
+      //      `action: "resolved_escalation"` is appended, AND the resolved
+      //      labels are removed from `c.labels`. So the label check alone
+      //      already handles this case: no active Escalation labels = not
+      //      currently escalated.
+      //   2. Voice-origin — voicemail / missed-call voice threads. Eli
+      //      always picks up the phone first, so the voicemail or
+      //      missed-transfer state IS an escalation. But once staff calls
+      //      back and the escalation is resolved (a `resolved_escalation`
+      //      activity is recorded on the thread), the voice thread flips
+      //      to Non-Escalated even though the voicemail / missed_call
+      //      message is still in the transcript for reference.
+      //
+      // "Non-Escalated within Property Threads" therefore includes: threads
+      // whose active Escalation labels have all been resolved, voice-origin
+      // threads whose voice escalation has been resolved, threads staff
+      // explicitly took over (`propertyOwnedThreadIds`), and — when it
+      // ships — threads with "AI turned off from the start."
+      if (
+        superAgent12Enabled &&
+        sidebarFilter === "sa12-escalated" &&
+        sa12EscalationFilter !== "all"
+      ) {
+        const hasActiveEscalationLabel = c.labels.some((l) => l.endsWith("Escalation"));
+        const hasResolvedEscalationMarker = c.messages.some(
+          (m) => m.type === "label_activity" && m.labelActivity?.action === "resolved_escalation",
+        );
+        // A voice-origin thread is "still escalated" until a
+        // `resolved_escalation` activity is stamped on it.
+        const hasUnresolvedVoiceEscalation =
+          isPropertyOwnedByVoiceOrigin(c) && !hasResolvedEscalationMarker;
+        const isEscalated = hasActiveEscalationLabel || hasUnresolvedVoiceEscalation;
+        if (sa12EscalationFilter === "escalated" && !isEscalated) return false;
+        if (sa12EscalationFilter === "non-escalated" && isEscalated) return false;
+      }
       if (inboxTab === "all") return true;
       if (inboxTab === "mine") return c.assignee === MY_INBOX_ASSIGNEE;
       if (inboxTab === "unassigned")
         return c.assignee.startsWith("ELI+") || c.assignee === CONVERSATION_UNASSIGNED_ASSIGNEE;
       return true;
     });
-  }, [sidebarFiltered, inboxTab, superAgent12Enabled, sa12ChannelFilter]);
+  }, [sidebarFiltered, inboxTab, superAgent12Enabled, sa12ChannelFilter, sa12EscalationFilter, sidebarFilter]);
 
   const threadListConvoFiltered = useMemo(() => {
     const baseFiltered = tabFiltered.filter((c) => !sa1HiddenConversationIds.has(c.id));
+    // SA 1.2 owns escalation filtering via the inline Quick Filter above the
+    // thread list — bypass the popover's Conversation Type filter entirely so
+    // its default ("only Escalated") doesn't silently hide non-escalated
+    // threads when the user has "All" selected in the inline filter.
+    if (superAgent12Enabled) return baseFiltered;
     if (threadListConvoTypes.size === 0) return baseFiltered;
     return baseFiltered.filter((c) => {
       if (threadListConvoTypes.has("escalated") && matchesThreadListEscalatedFilter(c)) return true;
       if (threadListConvoTypes.has("liveAi") && matchesThreadListLiveAiNonEscalatedFilter(c)) return true;
       return false;
     });
-  }, [tabFiltered, threadListConvoTypes, sa1HiddenConversationIds]);
+  }, [tabFiltered, threadListConvoTypes, sa1HiddenConversationIds, superAgent12Enabled]);
+
+  /**
+   * SA 1.2 "Action Needed" filter. Gated to super-agent 1.2 mode so it doesn't
+   * accidentally scope the classic inbox to a subset that the classic UI has
+   * no way to visualize. Empty set = pass-through; any populated set filters
+   * to the UNION of the selected action kinds so "both boxes checked" reads
+   * naturally as "anything that needs my attention."
+   */
+  const threadListActionFiltered = useMemo(() => {
+    if (!superAgent12Enabled) return threadListConvoFiltered;
+    if (threadListActionFilters.size === 0) return threadListConvoFiltered;
+    const wantsFollowup = threadListActionFilters.has("followup");
+    const wantsEscalation = threadListActionFilters.has("escalation");
+    return threadListConvoFiltered.filter((c) => {
+      const hasFollowup = hasActiveFollowUpReminder(c);
+      const hasEscalation = needsStaffResponse(c) && !hasFollowup;
+      if (wantsFollowup && hasFollowup) return true;
+      if (wantsEscalation && hasEscalation) return true;
+      return false;
+    });
+  }, [threadListConvoFiltered, threadListActionFilters, superAgent12Enabled]);
 
   const threadListFiltered = useMemo(() => {
-    if (threadListPropertyKeys === null) return threadListConvoFiltered;
-    return threadListConvoFiltered.filter((c) => threadListPropertyKeys.has(c.property));
-  }, [threadListConvoFiltered, threadListPropertyKeys]);
+    if (threadListPropertyKeys === null) return threadListActionFiltered;
+    return threadListActionFiltered.filter((c) => threadListPropertyKeys.has(c.property));
+  }, [threadListActionFiltered, threadListPropertyKeys]);
 
   const threadListCompletedFiltered = useMemo(() => {
     if (threadListStatusFilters.size === 0) return [];
@@ -2546,12 +2874,16 @@ function ConversationsContent() {
   }, [threadListFiltered, threadListStatusFilters]);
 
   const threadListChannelFiltered = useMemo(() => {
+    // The Communication Channel filter is hidden in SA 1.2 mode — bypass it
+    // in the pipeline too so a stale value can't silently filter threads
+    // that the user can't see the control for.
+    if (superAgent12Enabled) return threadListCompletedFiltered;
     if (threadListChannels === null) return threadListCompletedFiltered;
     if (threadListChannels.size === 0) return [];
     return threadListCompletedFiltered.filter((c) =>
       conversationMatchesThreadListChannel(c, threadListChannels)
     );
-  }, [threadListCompletedFiltered, threadListChannels]);
+  }, [threadListCompletedFiltered, threadListChannels, superAgent12Enabled]);
 
   const threadListDateFiltered = useMemo(() => {
     return threadListChannelFiltered.filter((c) =>
@@ -2643,6 +2975,29 @@ function ConversationsContent() {
       }
     }
   }, [filtered, selectedId, initialConvoId, conversations]);
+
+  // SA 1.2: when the user clicks an inbox in the sidebar (Open Threads,
+  // Property Threads, Eli Threads, Closed Threads), auto-select the first
+  // thread in that inbox so the conversation panel opens on the right
+  // immediately — no extra click required. `prevSidebarFilterRef` (declared
+  // near the sidebar-state block above) gates this to actual sidebar
+  // transitions so a `filtered` change from a resolved thread or a sort
+  // toggle doesn't hijack the current selection. SA 1.0 preserves its
+  // existing behavior of keeping the current selection until it falls out
+  // of the list.
+  useEffect(() => {
+    if (!superAgent12Enabled) {
+      prevSidebarFilterRef.current = sidebarFilter;
+      return;
+    }
+    if (prevSidebarFilterRef.current === sidebarFilter) return;
+    prevSidebarFilterRef.current = sidebarFilter;
+    if (filtered.length > 0) {
+      setSelectedId(filtered[0].id);
+    } else {
+      setSelectedId(null);
+    }
+  }, [sidebarFilter, superAgent12Enabled, filtered]);
 
   const selected: ConversationItem | null = useMemo(() => {
     if (!selectedId) return null;
@@ -2781,6 +3136,28 @@ function ConversationsContent() {
   const [resolveModalOpen, setResolveModalOpen] = useState(false);
   const [resolveModalAction, setResolveModalAction] = useState<"general" | "incoming" | "outgoing">("general");
   const [resolveModalNotes, setResolveModalNotes] = useState("");
+  /**
+   * SA 1.2: staff's pick from the Resolve dialog's "What should Eli do
+   * next?" section. Only surfaced when SA 1.2 is on AND the thread has
+   * active AI escalations (otherwise Eli mode is already whatever staff
+   * wants). Default "resume" mirrors the safe "get back to normal"
+   * behavior; "off-indefinite" is the deliberate opt-out that keeps Eli
+   * from picking the thread back up when the resident messages again.
+   */
+  const [resolveModalEliChoice, setResolveModalEliChoice] = useState<
+    "resume" | "off-indefinite"
+  >("resume");
+  /**
+   * SA 1.2: which escalation labels staff is resolving in this Resolve
+   * dialog session. Only rendered as a picker when the thread carries
+   * more than one active AI escalation — otherwise we auto-resolve the
+   * single escalation on Save. Seeded from the thread's active
+   * escalations at open time (all selected by default) so the picker
+   * behaves as "opt-out any you don't want to resolve." Mirrors SA 1.0's
+   * `sa1ResolveSelections` semantics.
+   */
+  const [resolveModalEscalationsToResolve, setResolveModalEscalationsToResolve] =
+    useState<Set<string>>(new Set());
   const [profileMainTab, setProfileMainTab] = useState("Financial");
   const [residentProfileActivity, setResidentProfileActivity] = useState<
     Record<string, ResidentProfileActivityEntry[]>
@@ -3172,8 +3549,101 @@ function ConversationsContent() {
     toast.success("Private note saved to conversation and profile Activity Log");
   };
 
+  /**
+   * True only when there's real, sendable content in the composer.
+   * - SMS / Voice / private note → must have any non-whitespace text.
+   * - Email + message → the pre-seeded signature block doesn't count; something
+   *   must have been typed above (or in place of) the `-- ` signature marker,
+   *   otherwise the "send" is just the signature and gets blocked.
+   */
+  const hasSendableDraft = useMemo(() => {
+    if (!draft.trim()) return false;
+    if (selected?.channel === "Email" && inputMode === "message") {
+      return stripEmailSignatureFromNonEmailDraft(draft).trim().length > 0;
+    }
+    return true;
+  }, [draft, selected?.channel, inputMode]);
+
+  /**
+   * SA 1.2: apply a new Eli mode to a thread and log the transition on the
+   * timeline. Centralized so every entry point (post-send prompt, thread
+   * AI On/Off popover, keyboard shortcuts, etc.) uses the same shape.
+   */
+  const applyEliModeChange = useCallback(
+    (
+      threadId: string,
+      mode: EliMode,
+      source: "prompt" | "manual" | "resolve" | "auto-resume" = "manual",
+    ) => {
+      setEliMode(threadId, mode);
+      const activityMode =
+        mode.kind === "on"
+          ? { kind: "on" as const }
+          : { kind: "off" as const, policy: mode.policy };
+      addMessage(threadId, {
+        role: "staff",
+        text: "",
+        timestamp: new Date()
+          .toLocaleString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+            timeZoneName: "short",
+          })
+          .replace(",", " ·"),
+        type: "thread_activity",
+        threadActivity: {
+          kind: "eli_mode_change",
+          mode: activityMode,
+          source,
+          actor: source === "auto-resume" ? "System" : MY_INBOX_ASSIGNEE,
+        },
+      });
+    },
+    [setEliMode, addMessage],
+  );
+
+  /**
+   * SA 1.2 auto-resume: when a thread is Eli-off with policy
+   * "until-resolved" AND has no active AI escalations, flip Eli back to
+   * On. This backs the modal option "Turn off Eli — Until escalation is
+   * resolved" — the moment the last escalation on the thread gets
+   * resolved (regardless of which path triggered the resolution — a
+   * Resolve dialog, another Eli Prompt "resolve" pick, or a manual
+   * label removal from the header chip), Eli picks the thread back up.
+   * Threads that were flipped off with policy "indefinite" (e.g. from
+   * the Resolve dialog's "Keep Eli off indefinitely" option) are
+   * *excluded* from auto-resume — they only come back on via a manual
+   * flip from the AI On/Off popover. Runs whenever the items list or
+   * the eli-mode map changes.
+   */
+  useEffect(() => {
+    if (!superAgent12Enabled) return;
+    const toResume: string[] = [];
+    for (const c of conversations) {
+      const mode = eliModeByThreadId[c.id];
+      if (!mode || mode.kind !== "off") continue;
+      if (mode.policy !== "until-resolved") continue;
+      if (hasActiveAiEscalation(c)) continue;
+      toResume.push(c.id);
+    }
+    if (toResume.length === 0) return;
+    for (const id of toResume) {
+      applyEliModeChange(id, { kind: "on" }, "auto-resume");
+    }
+  }, [conversations, eliModeByThreadId, superAgent12Enabled, applyEliModeChange]);
+
   const handleSend = () => {
-    if (!draft.trim() || !selected) return;
+    if (!selected) return;
+    if (!hasSendableDraft) {
+      if (selected.channel === "Email" && inputMode === "message" && draft.trim()) {
+        toast.error("Type a message above your signature before sending.");
+      }
+      return;
+    }
     if (isSuperAgentDemoThread(selected.id) && aiActivated && inputMode === "message" && selectedEscalationTypes.size === 0) {
       setEscalationError(true);
       return;
@@ -3182,6 +3652,22 @@ function ConversationsContent() {
     // replying to before the message can go out. This mirrors the SA 2.0 gate so it's consistent.
     if (
       isSuperAgent1DemoThread(selected.id) &&
+      inputMode === "message" &&
+      selected.labels.some((l) => l.includes("Escalation")) &&
+      selectedEscalationTypes.size === 0
+    ) {
+      setEscalationError(true);
+      return;
+    }
+    // SA 1.2 conversations with active escalations: same gate as SA 1.0 —
+    // staff picks which escalation(s) they're replying to before the
+    // message goes out. The picker + summary UI in the composer is shared
+    // with SA 1.0. This gate runs BEFORE the Eli-Prompt pre-send gate so
+    // the flow is: pick escalation → click Send → pick Eli behavior →
+    // reply commits.
+    if (
+      superAgent12Enabled &&
+      !isSuperAgent1DemoThread(selected.id) &&
       inputMode === "message" &&
       selected.labels.some((l) => l.includes("Escalation")) &&
       selectedEscalationTypes.size === 0
@@ -3204,8 +3690,13 @@ function ConversationsContent() {
     // as a separate emailSignature field on the outbound message. Non-composer flows (bulk email,
     // Entrata profile side panel) still populate this field explicitly where needed.
     const emailSignature: string | undefined = undefined;
+    // "Reply is answering these escalations" tag on the outbound message.
+    // Rendered on SA 1.0 threads today; SA 1.2 threads now use the same
+    // picker so we attach the same field for parity with the SA 1.0
+    // timeline treatment.
     const sa1ReplyToEscalations =
-      isSuperAgent1DemoThread(selected.id) &&
+      (isSuperAgent1DemoThread(selected.id) ||
+        (superAgent12Enabled && !isSuperAgentDemoThread(selected.id))) &&
       inputMode === "message" &&
       selectedEscalationTypes.size > 0
         ? Array.from(selectedEscalationTypes)
@@ -3226,7 +3717,7 @@ function ConversationsContent() {
     const outboundText = shouldTranslateReply
       ? translateStaffDraftTo(rawDraft, detectedLanguage as string)
       : rawDraft;
-    addMessage(selected.id, {
+    const stagedOutboundMessage: Parameters<typeof addMessage>[1] = {
       role: "staff",
       text: outboundText,
       timestamp,
@@ -3237,13 +3728,64 @@ function ConversationsContent() {
       ...(shouldTranslateReply
         ? { language: detectedLanguage as string, originalText: rawDraft }
         : {}),
-    });
+    };
 
-    // Super Agent 1.0: staff selected escalation(s) to reply to. This is purely a context
-    // affordance — the message itself is the public reply. We do NOT remove escalation labels
-    // or resolve the conversation. We track which escalations have been replied to for UI state.
+    // SA 1.2 pre-send gate: on escalated threads where Eli is still on and
+    // the Eli Prompt automation is enabled, buffer the outbound reply and
+    // open the Eli Prompt modal instead of committing the send. The modal
+    // couples the "how does Eli behave next" decision to the send itself so
+    // staff can't ship a reply into an escalated thread without a plan for
+    // the AI. The cadence stamp is only written when they pick an option
+    // (i.e., when they actually send), so cancelling re-opens the modal on
+    // the next Send attempt. Private notes skip the gate.
     if (
-      isSuperAgent1DemoThread(selected.id) &&
+      superAgent12Enabled &&
+      inputMode === "message" &&
+      eliPromptEnabled &&
+      hasActiveAiEscalation(selected) &&
+      eliModeFor(selected.id).kind === "on"
+    ) {
+      const lastShown = eliPromptShownAt[selected.id];
+      const cadenceMs = eliPromptCadenceMinutes * 60_000;
+      const withinCadenceWindow =
+        typeof lastShown === "number" && Date.now() - lastShown < cadenceMs;
+      if (!withinCadenceWindow) {
+        // Resolve the initial radio selection from the workspace default,
+        // then fall back to the other enabled option so we never seed the
+        // modal with a choice whose card isn't rendered.
+        const defaultOptionEnabled =
+          (eliPromptDefaultOption === "off" && promptOptionOffEnabled) ||
+          (eliPromptDefaultOption === "on" && promptOptionKeepOnEnabled);
+        const fallbackChoice: "off" | "on" | null = promptOptionKeepOnEnabled
+          ? "on"
+          : promptOptionOffEnabled
+            ? "off"
+            : null;
+        const initialChoice = defaultOptionEnabled
+          ? eliPromptDefaultOption
+          : fallbackChoice;
+        setEliPromptPendingSend({
+          threadId: selected.id,
+          inputMode,
+          payload: stagedOutboundMessage,
+        });
+        setEliPromptChoice(initialChoice);
+        setEliPromptForThreadId(selected.id);
+        setEliPromptOpen(true);
+        return;
+      }
+    }
+
+    addMessage(selected.id, stagedOutboundMessage);
+
+    // Super Agent 1.0 (and SA 1.2 escalated threads): staff selected
+    // escalation(s) to reply to. This is purely a context affordance — the
+    // message itself is the public reply. We do NOT remove escalation
+    // labels or resolve the conversation. We track which escalations have
+    // been replied to for UI state.
+    if (
+      (isSuperAgent1DemoThread(selected.id) ||
+        (superAgent12Enabled && !isSuperAgentDemoThread(selected.id))) &&
       inputMode === "message" &&
       selectedEscalationTypes.size > 0
     ) {
@@ -3515,17 +4057,38 @@ function ConversationsContent() {
                   />
                   <Button
                     variant={isSidebarActive(item.id) ? "secondary" : "ghost"}
+                    /* Tightened gutter (`pl-6` + `pr-1` + `gap-1`) plus a
+                       smaller `text-xs` label + `h-3.5 w-3.5` icon so
+                       "Property Threads" fits in full alongside a double-
+                       digit badge. The nested-item indent line is at
+                       15px, so pl-6 (24px) keeps the icon clear of the
+                       vertical rule and the smaller label creates the
+                       hierarchy expected of a nested inbox row. */
                     className={cn(
-                      "group w-full justify-start gap-1.5 pl-7 pr-1.5 font-normal",
+                      "group w-full justify-start gap-1 pl-6 pr-1 text-xs font-normal",
                       isSidebarActive(item.id) && "font-medium"
                     )}
                     onClick={() => setSidebarFilter(item.id)}
                   >
-                    <item.icon className="h-4 w-4 shrink-0" />
+                    <item.icon className="h-3.5 w-3.5 shrink-0" />
                     <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
                     <SidebarInfoTip label={`About ${item.label}`} hoverOnly>{item.tip}</SidebarInfoTip>
                     {item.id === "sa12-escalated" && sa12InboxActionCounts.escalated > 0 && (
-                      <Badge variant="destructive" className="ml-1 h-4 min-w-4 shrink-0 justify-center rounded-full px-1 text-[9px] font-semibold leading-none tabular-nums">
+                      <Badge
+                        variant="destructive"
+                        /* Compact 16px round chip that still reads clean
+                           for double-digit counts:
+                             • `py-0` overrides Badge's default `py-0.5`,
+                               so the disc stays a true circle instead of
+                               an oval at this size.
+                             • `h-4 min-w-4 px-1` gives 8px of horizontal
+                               room for the number without pushing the
+                               label into a truncate.
+                             • `text-[10px] font-semibold tabular-nums`
+                               keeps single- and double-digit widths
+                               aligned. */
+                        className="h-4 min-w-4 shrink-0 justify-center rounded-full border-0 px-1 py-0 text-[10px] font-semibold leading-none tabular-nums"
+                      >
                         {sa12InboxActionCounts.escalated}
                       </Badge>
                     )}
@@ -3600,98 +4163,6 @@ function ConversationsContent() {
                 </li>
               ))}
             </ul>
-          )}
-
-          {superAgent12Enabled && quickFilterEnabled && (
-            <div className="mt-3 border-t border-border/70 px-2 pt-3">
-              <TooltipProvider delayDuration={200}>
-                <h3 className="mb-1 flex items-center gap-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  <span>Quick Filter</span>
-                  <SidebarInfoTip label="About Quick Filter">
-                    Narrow the current inbox to a single channel. Counts show how
-                    many threads in this inbox still need staff action, broken out
-                    by SMS, Chat, Email, and Voice. Selecting a channel filters the
-                    thread list on the right; &quot;All channels&quot; clears it.
-                  </SidebarInfoTip>
-                </h3>
-                <div className="rounded-md border border-border/60 bg-muted/50 p-1">
-                {/* Header row: "All channels" acts as the total + reset. */}
-                {(() => {
-                  const active = sa12ChannelFilter === "all";
-                  const count = sa12ChannelActionCounts.all;
-                  return (
-                    <button
-                      type="button"
-                      onClick={() => setSa12ChannelFilter("all")}
-                      aria-pressed={active}
-                      className={cn(
-                        "mb-1 flex w-full items-center justify-center gap-2 rounded-sm px-2 py-1 transition-all",
-                        active
-                          ? "bg-[hsl(207_73%_95%)] text-[hsl(207_73%_25%)] ring-1 ring-inset ring-[hsl(207_73%_75%)] shadow-sm dark:bg-[hsl(207_73%_20%)] dark:text-[hsl(207_73%_92%)] dark:ring-[hsl(207_73%_35%)]"
-                          : "text-muted-foreground hover:bg-background/60 hover:text-foreground"
-                      )}
-                    >
-                      <span className={cn(
-                        "text-[10px] uppercase tracking-wider",
-                        active ? "font-bold" : "font-semibold"
-                      )}>
-                        All channels
-                      </span>
-                      {count > 0 && (
-                        <span className="inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold leading-none text-destructive-foreground">
-                          {count}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })()}
-                {/* Channel tiles — badge on the icon's shoulder, label under the icon. */}
-                <div className="grid grid-cols-4 gap-0.5">
-                  {([
-                    { id: "voice" as const, label: "Voice", Icon: Phone },
-                    { id: "sms" as const, label: "SMS", Icon: MessageSquare },
-                    { id: "chat" as const, label: "Chat", Icon: MessageCircle },
-                    { id: "email" as const, label: "Email", Icon: Mail },
-                  ] as const).map((opt) => {
-                    const active = sa12ChannelFilter === opt.id;
-                    const count = sa12ChannelActionCounts[opt.id];
-                    return (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => setSa12ChannelFilter(opt.id)}
-                        aria-pressed={active}
-                        title={`Filter by ${opt.label}${count > 0 ? ` \u2022 ${count} need action` : ""}`}
-                        className={cn(
-                          "flex flex-col items-center gap-1 rounded-sm px-1 py-1.5 text-[10px] transition-all",
-                          active
-                            ? "bg-[hsl(207_73%_95%)] text-[hsl(207_73%_25%)] ring-1 ring-inset ring-[hsl(207_73%_75%)] shadow-sm font-semibold dark:bg-[hsl(207_73%_20%)] dark:text-[hsl(207_73%_92%)] dark:ring-[hsl(207_73%_35%)]"
-                            : "text-muted-foreground hover:bg-background/60 hover:text-foreground font-medium"
-                        )}
-                      >
-                        <span className="relative inline-flex">
-                          <opt.Icon className={cn("h-4 w-4", active && "text-[hsl(207_73%_30%)] dark:text-[hsl(207_73%_92%)]")} strokeWidth={active ? 2.5 : 2} />
-                          {count > 0 && (
-                            <span
-                              className={cn(
-                                "pointer-events-none absolute -right-2 -top-1.5 inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold leading-none text-destructive-foreground ring-2",
-                                active
-                                  ? "ring-[hsl(207_73%_95%)] dark:ring-[hsl(207_73%_20%)]"
-                                  : "ring-muted/50"
-                              )}
-                            >
-                              {count}
-                            </span>
-                          )}
-                        </span>
-                        <span>{opt.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              </TooltipProvider>
-            </div>
           )}
 
           <div className="my-3 h-px bg-border" />
@@ -3832,6 +4303,18 @@ function ConversationsContent() {
           onSetAutoCloseDays={setAutoCloseDays}
           sortMode={threadSortMode}
           onSetSortMode={setThreadSortMode}
+          eliPromptEnabled={eliPromptEnabled}
+          onToggleEliPromptEnabled={setEliPromptEnabled}
+          eliPromptCadenceMinutes={eliPromptCadenceMinutes}
+          onSetEliPromptCadenceMinutes={setEliPromptCadenceMinutes}
+          eliPromptCadenceUnit={eliPromptCadenceUnit}
+          onSetEliPromptCadenceUnit={setEliPromptCadenceUnit}
+          eliPromptDefaultOption={eliPromptDefaultOption}
+          onSetEliPromptDefaultOption={setEliPromptDefaultOption}
+          promptOptionOffEnabled={promptOptionOffEnabled}
+          onTogglePromptOptionOffEnabled={setPromptOptionOffEnabled}
+          promptOptionKeepOnEnabled={promptOptionKeepOnEnabled}
+          onTogglePromptOptionKeepOnEnabled={setPromptOptionKeepOnEnabled}
         />
       )}
 
@@ -3861,18 +4344,63 @@ function ConversationsContent() {
           </div>
         )}
 
-        {/* Search + floating filters */}
-        <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search Threads"
-              className="h-8 pl-8 text-xs"
-            />
-          </div>
-          <Popover open={threadListFiltersOpen} onOpenChange={setThreadListFiltersOpen}>
+        {/* Search + floating filters + (SA 1.2) channel Quick Filter.
+            In SA 1.2 the channel Quick Filter renders inside the same
+            container as the search input, directly below it — so the two
+            controls read as one filter block instead of two stacked strips.
+            SA 1.0 shows just the search + floating filters row.
+            Balanced p-3 padding (12px on every side) with a slightly
+            tighter gap between the search input and channel row so the
+            two controls read as one grouped block. */}
+        <div className="flex flex-col gap-2.5 border-b border-border p-3">
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search Threads"
+                className="h-8 pl-8 text-xs"
+              />
+            </div>
+          <Popover
+            open={threadListFiltersOpen}
+            /* Snapshot filter state on open so Cancel / outside-click / ESC
+               can roll back the preview. Apply clears the snapshot ref
+               (see the Apply button in the popover footer) before flipping
+               the popover closed, which short-circuits the revert branch. */
+            onOpenChange={(nextOpen) => {
+              if (nextOpen) {
+                filterSnapshotRef.current = {
+                  propertyKeys:
+                    threadListPropertyKeys === null ? null : new Set(threadListPropertyKeys),
+                  convoTypes: new Set(threadListConvoTypes),
+                  actionFilters: new Set(threadListActionFilters),
+                  sa12Escalation: sa12EscalationFilter,
+                  statusFilters: new Set(threadListStatusFilters),
+                  dateRange: threadListDateRange,
+                  customDateFrom: threadListCustomDateFrom,
+                  customDateTo: threadListCustomDateTo,
+                  channels: threadListChannels === null ? null : new Set(threadListChannels),
+                };
+              } else {
+                const snap = filterSnapshotRef.current;
+                if (snap) {
+                  setThreadListPropertyKeys(snap.propertyKeys);
+                  setThreadListConvoTypes(snap.convoTypes);
+                  setThreadListActionFilters(snap.actionFilters);
+                  setSa12EscalationFilter(snap.sa12Escalation);
+                  setThreadListStatusFilters(snap.statusFilters);
+                  setThreadListDateRange(snap.dateRange);
+                  setThreadListCustomDateFrom(snap.customDateFrom);
+                  setThreadListCustomDateTo(snap.customDateTo);
+                  setThreadListChannels(snap.channels);
+                  filterSnapshotRef.current = null;
+                }
+              }
+              setThreadListFiltersOpen(nextOpen);
+            }}
+          >
             <PopoverTrigger asChild>
               <Button
                 type="button"
@@ -3910,6 +4438,8 @@ function ConversationsContent() {
                       setThreadListCustomDateFrom("");
                       setThreadListCustomDateTo("");
                       setThreadListChannels(null);
+                      setThreadListActionFilters(new Set());
+                      setSa12EscalationFilter("all");
                     }}
                   >
                     Reset
@@ -4003,7 +4533,11 @@ function ConversationsContent() {
                 </Popover>
               </div>
 
-              {/* Conversation Type */}
+              {/* Conversation Type — hidden in SA 1.2 mode because the same
+                  slice is available as an inline Quick Filter directly under
+                  the search bar. Keeping both would leave two competing
+                  sources of truth for the same dimension. */}
+              {!superAgent12Enabled && (
               <div className="space-y-1.5">
                 <div className="flex items-center gap-1">
                   <p className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -4139,8 +4673,240 @@ function ConversationsContent() {
                   </PopoverContent>
                 </Popover>
               </div>
+              )}
 
-              {/* Status */}
+              {/* Action Needed — SA 1.2 only.
+                  Maps 1:1 to the two thread-card corner markers, so staff can
+                  scope the list to only threads that show a red dot, only
+                  threads that show a cyan bell, or both. */}
+              {superAgent12Enabled && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1">
+                    <p className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Action Needed
+                    </p>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          className="rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                          aria-label="About Action Needed filter"
+                        >
+                          <CircleHelp className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="left" className="z-[220] max-w-[260px] space-y-1.5 text-xs leading-snug">
+                        <p>
+                          Follow-up: Thread Automation nudged a staff-idle thread (cyan bell marker on the card).
+                        </p>
+                        <p>
+                          Escalation: the lead or resident sent the last public message and staff hasn&apos;t
+                          replied (red dot marker on the card).
+                        </p>
+                        <p className="text-muted-foreground">
+                          Leave both unchecked to show every thread regardless of action state.
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <Popover modal>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className={cn(
+                          "flex h-8 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/50",
+                          threadListActionCount > 0 && "border-primary/40"
+                        )}
+                      >
+                        <span className="truncate">{threadListActionSummary}</span>
+                        {threadListActionCount > 1 && (
+                          <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1.5 text-xxs font-semibold leading-none text-primary-foreground">
+                            {threadListActionCount}
+                          </span>
+                        )}
+                        <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      className="z-[200] w-[var(--radix-popover-trigger-width)] p-2"
+                      align="start"
+                      sideOffset={4}
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-start gap-1.5 rounded-md px-1 py-1 hover:bg-accent/60">
+                          <Checkbox
+                            id="thread-filter-action-followup"
+                            className="mt-0.5 shrink-0"
+                            checked={threadListActionFilters.has("followup")}
+                            onCheckedChange={(c) => {
+                              if (c === "indeterminate") return;
+                              setThreadListActionFilters((prev) => {
+                                const next = new Set(prev);
+                                if (c) next.add("followup");
+                                else next.delete("followup");
+                                return next;
+                              });
+                            }}
+                          />
+                          <label
+                            htmlFor="thread-filter-action-followup"
+                            className="min-w-0 flex-1 cursor-pointer text-xs leading-snug text-foreground"
+                          >
+                            <span className="inline-flex items-center gap-1">
+                              <BellRing
+                                className="h-3 w-3 text-cyan-600 dark:text-cyan-400"
+                                strokeWidth={2.5}
+                                aria-hidden
+                              />
+                              Follow-up reminders
+                            </span>
+                            <span className="mt-0.5 block text-[10px] text-muted-foreground">
+                              Thread Automation nudge (cyan bell)
+                            </span>
+                          </label>
+                        </div>
+                        <div className="flex items-start gap-1.5 rounded-md px-1 py-1 hover:bg-accent/60">
+                          <Checkbox
+                            id="thread-filter-action-escalation"
+                            className="mt-0.5 shrink-0"
+                            checked={threadListActionFilters.has("escalation")}
+                            onCheckedChange={(c) => {
+                              if (c === "indeterminate") return;
+                              setThreadListActionFilters((prev) => {
+                                const next = new Set(prev);
+                                if (c) next.add("escalation");
+                                else next.delete("escalation");
+                                return next;
+                              });
+                            }}
+                          />
+                          <label
+                            htmlFor="thread-filter-action-escalation"
+                            className="min-w-0 flex-1 cursor-pointer text-xs leading-snug text-foreground"
+                          >
+                            <span className="inline-flex items-center gap-1">
+                              <span
+                                className="inline-flex h-3 w-3 items-center justify-center"
+                                aria-hidden
+                              >
+                                <span className="h-2 w-2 rounded-full bg-destructive" />
+                              </span>
+                              Escalations
+                            </span>
+                            <span className="mt-0.5 block text-[10px] text-muted-foreground">
+                              Lead or resident waiting on staff (red dot)
+                            </span>
+                          </label>
+                        </div>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              )}
+
+              {/* Escalation — SA 1.2 only, only when viewing Property Threads.
+                  Single-select dropdown (All / Escalated / Non-Escalated)
+                  styled to match the other popover filters: labelled trigger
+                  button that opens a nested option list with a leading
+                  check-mark marking the current selection. */}
+              {superAgent12Enabled && sidebarFilter === "sa12-escalated" && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1">
+                    <p className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Escalation
+                    </p>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          className="rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                          aria-label="About Escalation filter"
+                        >
+                          <CircleHelp className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="left" className="z-[220] max-w-[260px] space-y-1.5 text-xs leading-snug">
+                        <p>
+                          Escalated: an active AI escalation is on the thread right now — AI-labeled
+                          escalations plus unresolved voicemails and missed calls (Eli always picks up
+                          first).
+                        </p>
+                        <p>
+                          Non-Escalated: property staff owns the thread with no active escalation. Includes
+                          resolved escalations kept open and threads staff explicitly took over.
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <Popover modal>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className={cn(
+                          "flex h-8 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/50",
+                          sa12EscalationFilter !== "all" && "border-primary/40"
+                        )}
+                      >
+                        <span className="truncate">
+                          {sa12EscalationFilter === "escalated"
+                            ? "Escalated"
+                            : sa12EscalationFilter === "non-escalated"
+                              ? "Non-Escalated"
+                              : "All"}
+                        </span>
+                        <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      className="z-[200] w-[var(--radix-popover-trigger-width)] p-2"
+                      align="start"
+                      sideOffset={4}
+                      onOpenAutoFocus={(e) => e.preventDefault()}
+                    >
+                      <div role="listbox" aria-label="Escalation filter" className="space-y-1">
+                        {(
+                          [
+                            { id: "all", label: "All" },
+                            { id: "escalated", label: "Escalated" },
+                            { id: "non-escalated", label: "Non-Escalated" },
+                          ] as const
+                        ).map((opt) => {
+                          const selected = sa12EscalationFilter === opt.id;
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              role="option"
+                              aria-selected={selected}
+                              className="flex w-full cursor-pointer items-center gap-2 rounded-md px-1 py-1.5 text-left hover:bg-accent/60"
+                              onClick={() => setSa12EscalationFilter(opt.id)}
+                            >
+                              <Check
+                                className={cn(
+                                  "h-3.5 w-3.5 shrink-0",
+                                  selected ? "opacity-100" : "opacity-0"
+                                )}
+                                aria-hidden
+                              />
+                              <span className="text-xs leading-snug text-foreground">{opt.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              )}
+
+              {/* Status — hidden in SA 1.2 mode because the sidebar owns
+                  this dimension: Open Threads / Property Threads / Eli
+                  Threads pin status to "active" and Closed Threads pins it
+                  to "completed" via the sidebar-sync effect. Surfacing a
+                  redundant checkbox pair here would let staff put the
+                  status filter and the sidebar out of sync. */}
+              {!superAgent12Enabled && (
               <div className="space-y-1.5">
                 <div className="flex items-center gap-1">
                   <p className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -4224,6 +4990,7 @@ function ConversationsContent() {
                   </PopoverContent>
                 </Popover>
               </div>
+              )}
 
               {/* Date Range */}
               <div className="space-y-1.5">
@@ -4324,7 +5091,11 @@ function ConversationsContent() {
                 </Popover>
               </div>
 
-              {/* Communication Channel */}
+              {/* Communication Channel — hidden in SA 1.2 mode because the
+                  same slice is available as the channel Quick Filter row
+                  directly under the search input. Keeping both would leave
+                  two competing sources of truth for the same dimension. */}
+              {!superAgent12Enabled && (
               <div className="space-y-1.5">
                 <div className="flex items-center gap-1">
                   <p className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -4403,29 +5174,101 @@ function ConversationsContent() {
                   </PopoverContent>
                 </Popover>
               </div>
-              </TooltipProvider>
-            </PopoverContent>
-          </Popover>
-          <TooltipProvider delayDuration={200}>
-            <Tooltip>
-              <TooltipTrigger asChild>
+              )}
+
+              {/* Apply / Cancel footer. The popover previews changes live
+                  while it's open, but only Apply commits them to the
+                  thread list; Cancel (and closing the popover any other
+                  way) rolls back to the snapshot taken on open. */}
+              <div className="-mx-3 -mb-3 mt-1 flex items-center justify-end gap-2 border-t border-border bg-muted/30 px-3 py-2">
                 <Button
                   type="button"
-                  variant={bulkSelectMode ? "secondary" : "ghost"}
-                  size="icon"
-                  className="h-8 w-8 shrink-0"
-                  aria-label="Select threads"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setThreadListFiltersOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-7 text-xs"
                   onClick={() => {
-                    setBulkSelectMode((v) => !v);
-                    if (bulkSelectMode) setBulkSelectedIds(new Set());
+                    // Clear the snapshot first so the onOpenChange revert
+                    // branch is a no-op — the live preview becomes the
+                    // committed state.
+                    filterSnapshotRef.current = null;
+                    setThreadListFiltersOpen(false);
                   }}
                 >
-                  <ListChecks className="h-4 w-4" />
+                  Apply
                 </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">Select &amp; resolve threads</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+              </div>
+              </TooltipProvider>
+              </PopoverContent>
+          </Popover>
+          </div>
+
+          {/* SA 1.2 channel Quick Filter — nested below the search input in
+              the same container so search + channel narrow read as a single
+              filter block. Hidden when the workspace disables the Quick
+              Filter in Thread Settings. */}
+          {superAgent12Enabled && quickFilterEnabled && (
+            <TooltipProvider delayDuration={200}>
+              <div className="flex items-center gap-1">
+                {([
+                  { id: "all" as const, label: "All", Icon: null },
+                  { id: "voice" as const, label: "Voice", Icon: Phone },
+                  { id: "sms" as const, label: "SMS", Icon: MessageSquareText },
+                  { id: "chat" as const, label: "Chat", Icon: MessageCircle },
+                  { id: "email" as const, label: "Email", Icon: Mail },
+                ] as const).map((opt) => {
+                  const active = sa12ChannelFilter === opt.id;
+                  const count = sa12ChannelActionCounts[opt.id];
+                  const btn = (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setSa12ChannelFilter(opt.id)}
+                      aria-pressed={active}
+                      aria-label={`Filter by ${opt.label}${count > 0 ? ` (${count} unread)` : ""}`}
+                      className={cn(
+                        "relative flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-all",
+                        active
+                          ? "bg-[hsl(207_73%_95%)] text-[hsl(207_73%_25%)] ring-1 ring-inset ring-[hsl(207_73%_75%)] dark:bg-[hsl(207_73%_20%)] dark:text-[hsl(207_73%_92%)] dark:ring-[hsl(207_73%_35%)]"
+                          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                      )}
+                    >
+                      {opt.Icon ? (
+                        <opt.Icon className="h-4 w-4" strokeWidth={active ? 2.5 : 2} />
+                      ) : (
+                        <span className={cn("text-[11px] uppercase tracking-wide", active ? "font-bold" : "font-semibold")}>All</span>
+                      )}
+                      {count > 0 && (
+                        <span
+                          className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-destructive-foreground tabular-nums"
+                        >
+                          {count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                  return opt.Icon ? (
+                    <Tooltip key={opt.id}>
+                      <TooltipTrigger asChild>{btn}</TooltipTrigger>
+                      <TooltipContent side="bottom" className="text-[11px]">
+                        {opt.label}
+                        {count > 0 ? ` · ${count} unread` : ""}
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    btn
+                  );
+                })}
+              </div>
+            </TooltipProvider>
+          )}
         </div>
 
         {bulkSelectMode && (
@@ -4503,9 +5346,17 @@ function ConversationsContent() {
                 <div>
                   <p className="font-semibold">Property Threads</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    Threads a property teammate is handling — because the AI escalated
-                    them or because staff explicitly took the thread over. Eli is paused
-                    on these until they close.
+                    Threads a property teammate owns. Use the Escalated / Non-Escalated
+                    filter above the search bar to split them by whether the thread has
+                    an <em>active</em> escalation on it right now:{" "}
+                    <span className="font-medium text-foreground">Escalated</span>{" "}
+                    means at least one AI escalation is still open, or a voicemail /
+                    missed call hasn&apos;t been resolved yet (Eli always picks up
+                    first, so those count too).{" "}
+                    <span className="font-medium text-foreground">Non-Escalated</span>{" "}
+                    means the thread is with staff but no escalation is active — every
+                    escalation on it has been resolved and the thread stayed open,
+                    staff explicitly took the thread over, or AI is turned off on it.
                   </p>
                 </div>
               </div>
@@ -4568,7 +5419,7 @@ function ConversationsContent() {
 
               <div className="rounded-md border border-border/60 bg-muted/40 p-3">
                 <div className="flex items-center gap-2">
-                  <BellRing className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-300" strokeWidth={2} aria-hidden />
+                  <BellRing className="h-3.5 w-3.5 shrink-0 text-cyan-700 dark:text-cyan-300" strokeWidth={2} aria-hidden />
                   <p className="text-xs font-semibold">Thread Automation follow-ups</p>
                 </div>
                 <p className="mt-1.5 text-xs text-muted-foreground">
@@ -4580,22 +5431,34 @@ function ConversationsContent() {
                   waiting on the resident quietly falls off.
                 </p>
                 <p className="mt-1.5 text-xs text-muted-foreground">
-                  Reminded threads show a subtle{" "}
-                  <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
-                    <BellRing className="h-3 w-3" strokeWidth={2} aria-hidden />
+                  Reminded threads show a{" "}
+                  <BellRing
+                    className="inline h-3.5 w-3.5 align-middle text-cyan-600 dark:text-cyan-400"
+                    strokeWidth={2.75}
+                    aria-hidden
+                  />{" "}
+                  cyan bell in the top-left corner of the card (instead of the red dot
+                  used for unreplied messages) and a{" "}
+                  <span className="inline-flex items-center gap-1 rounded bg-cyan-100/70 px-1.5 py-px text-[10px] font-semibold text-cyan-800 align-middle dark:bg-cyan-900/40 dark:text-cyan-200">
+                    <BellRing className="h-3 w-3" strokeWidth={2.25} aria-hidden />
                     Follow up
                   </span>{" "}
-                  marker on the card, and every trigger is logged on the thread&apos;s
-                  activity timeline.
+                  chip in the header row. Cyan keeps the automation clearly separate
+                  from the red escalation dot, the blue Email/Property chips, and
+                  the amber tones we&apos;d otherwise use — a color-blind-safe pairing
+                  that doesn&apos;t collide with any other indicator on the card. Every
+                  trigger is also logged on the thread&apos;s activity timeline.
                 </p>
               </div>
 
               <div className="rounded-md border border-border/60 bg-muted/40 p-3">
                 <p className="text-xs font-semibold">Quick Filter</p>
                 <p className="mt-1.5 text-xs text-muted-foreground">
-                  Narrows the current inbox to a single channel (Voice, SMS, Chat, or
-                  Email). The counts on each tile add up to the sidebar badge, so you
-                  always see the same actionable set — just sliced by channel.
+                  The compact channel row above the search bar narrows the current
+                  inbox to a single channel (Voice, SMS, Chat, or Email). The counts
+                  on each tile add up to the sidebar badge, so you always see the same
+                  actionable set — just sliced by channel. Toggle its visibility in
+                  Thread Settings → Defaults.
                 </p>
               </div>
             </div>
@@ -4635,13 +5498,459 @@ function ConversationsContent() {
           </DialogContent>
         </Dialog>
 
+        {/* SA 1.2: Eli Prompt modal — pre-send gate.
+            Opens when staff hits Send on an escalated thread where Eli is
+            still on. The reply is buffered in `eliPromptPendingSend` and
+            _will not_ send until staff picks one of the two options:
+              • Turn Eli off until the escalation is resolved
+              • Resolve escalation and Eli turns back on
+            Picking an option + clicking "Send reply" commits both the Eli
+            mode change and the buffered message together. Cancel / ESC /
+            X discard the pending record but leave the composer text alone
+            so staff can edit and try again — no cadence stamp is written,
+            so the modal re-opens on the next Send attempt. */}
+        <Dialog
+          open={eliPromptOpen}
+          onOpenChange={(open) => {
+            if (open) return;
+            // Cancel path — release the buffered send without committing.
+            // Composer text is intentionally left intact.
+            setEliPromptOpen(false);
+            setEliPromptPendingSend(null);
+            setEliPromptChoice(null);
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            {(() => {
+              // Look up the thread we're prompting for so the modal can
+              // reference the resident by name in the body copy.
+              const eliPromptConversation = eliPromptForThreadId
+                ? conversations.find((c) => c.id === eliPromptForThreadId)
+                : undefined;
+              const eliPromptResidentName = eliPromptConversation?.resident;
+              // Active escalation label(s) on this thread. "Keep Eli on"
+              // is now paired with resolving these — the staff reply is
+              // treated as the resolution, escalation labels are cleared,
+              // and Eli picks the thread back up. If the thread is a
+              // voice-origin escalation with no literal label, the array
+              // is empty and we still stamp a generic resolved_escalation
+              // activity so `hasActiveAiEscalation` flips false.
+              const eliPromptActiveEscalationLabels =
+                eliPromptConversation?.labels.filter((l) =>
+                  l.endsWith("Escalation"),
+                ) ?? [];
+              const eliPromptHasMultipleEscalations =
+                eliPromptActiveEscalationLabels.length > 1;
+
+              // Commit path — apply the Eli mode change chosen in the radio
+              // group, then addMessage the buffered reply, then reset the
+              // composer and close. Guards against the (unlikely) race where
+              // the modal is open with no choice picked and no pending send.
+              const commitPendingSend = () => {
+                if (!eliPromptChoice || !eliPromptPendingSend) return;
+                const { threadId, payload, inputMode: pendingMode } =
+                  eliPromptPendingSend;
+                if (eliPromptChoice === "off") {
+                  // Eli-Prompt "Turn off Eli" always means "off until the
+                  // escalation is resolved" — the auto-resume effect flips
+                  // Eli back on the moment the last escalation clears.
+                  applyEliModeChange(
+                    threadId,
+                    { kind: "off", policy: "until-resolved" },
+                    "prompt",
+                  );
+                } else {
+                  // "on" means "resolve the escalation(s), keep Eli
+                  // responding". Eli is already on for this thread, so we
+                  // don't need to flip its mode — but we do stamp a manual
+                  // "on" mode-change so the audit trail records the staff
+                  // decision, then resolve every active escalation label
+                  // via a label_activity + label removal.
+                  applyEliModeChange(threadId, { kind: "on" }, "prompt");
+                }
+                addMessage(threadId, payload);
+
+                // "Resolve escalation and Eli turns back on" post-send
+                // bookkeeping. Stamped AFTER the staff reply so the timeline
+                // reads: reply → resolution notice → thread continues.
+                if (eliPromptChoice === "on") {
+                  const resolveTimestamp = new Date().toLocaleString(
+                    "en-US",
+                    {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                      hour: "numeric",
+                      minute: "2-digit",
+                      hour12: true,
+                      timeZoneName: "short",
+                    },
+                  );
+                  const labelsForResolveActivity =
+                    eliPromptActiveEscalationLabels.length > 0
+                      ? eliPromptActiveEscalationLabels
+                      : ["AI Escalation"];
+                  addMessage(threadId, {
+                    role: "staff",
+                    text: "",
+                    timestamp: resolveTimestamp,
+                    type: "label_activity",
+                    labelActivity: {
+                      actor: MY_INBOX_ASSIGNEE,
+                      labelsAdded: labelsForResolveActivity,
+                      action: "resolved_escalation",
+                    },
+                  });
+                  for (const label of eliPromptActiveEscalationLabels) {
+                    removeLabel(threadId, label);
+                  }
+                }
+
+                // Clear the SA 1.2 escalation-reply picker selections so the
+                // composer resets cleanly. Mirrors the non-gated post-send
+                // path where `selectedEscalationTypes` gets drained.
+                setSelectedEscalationTypes(new Set());
+                superAgentSelectionsRef.current.set(threadId, new Set());
+
+                markEliPromptShown(threadId);
+                const convo =
+                  conversations.find((c) => c.id === threadId) ?? null;
+                resetComposerAfterSend(convo, pendingMode);
+                setPrivateNoteMention(null);
+                setEliPromptOpen(false);
+                setEliPromptPendingSend(null);
+                setEliPromptChoice(null);
+              };
+
+              // Renders one big option tile. The tile is the click-target
+              // (role="radio"); an icon + one-word title + short subtitle
+              // makes the choice legible at a glance. The selected tile
+              // takes a colored ring + faint tint in its "own" semantic
+              // color (green for resolve, muted for turn-off) so the two
+              // choices read as *different in kind*, not just different in
+              // position. Keyboard support (Space/Enter) is wired manually.
+              const renderOptionTile = (
+                id: "off" | "on",
+                {
+                  icon: Icon,
+                  iconBg,
+                  iconRing,
+                  selectedBorder,
+                  selectedBg,
+                  title,
+                  subtitle,
+                }: {
+                  icon: typeof CheckCircle2;
+                  iconBg: string;
+                  iconRing: string;
+                  selectedBorder: string;
+                  selectedBg: string;
+                  title: string;
+                  subtitle: string;
+                },
+              ) => {
+                const selected = eliPromptChoice === id;
+                return (
+                  <div
+                    key={id}
+                    role="radio"
+                    tabIndex={0}
+                    aria-checked={selected}
+                    onClick={() => setEliPromptChoice(id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setEliPromptChoice(id);
+                      }
+                    }}
+                    className={cn(
+                      "group relative flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 p-4 text-center transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                      selected
+                        ? cn(selectedBorder, selectedBg, "shadow-sm")
+                        : "border-input bg-background hover:border-input hover:bg-accent/30",
+                    )}
+                  >
+                    {/* Selected-state check mark in the top-right corner —
+                        gives an unambiguous "this is the picked one"
+                        indicator on top of the ring + tint. */}
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full transition-opacity",
+                        selected
+                          ? cn(iconBg, "opacity-100")
+                          : "opacity-0",
+                      )}
+                    >
+                      <Check
+                        className={cn("h-3 w-3", iconRing)}
+                        strokeWidth={3}
+                      />
+                    </span>
+                    {/* Circular icon — semantic color per option. */}
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
+                        iconBg,
+                      )}
+                    >
+                      <Icon
+                        className={cn("h-5 w-5", iconRing)}
+                        strokeWidth={2.25}
+                      />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold leading-tight">
+                        {title}
+                      </p>
+                      <p className="mt-1 text-xs leading-snug text-muted-foreground">
+                        {subtitle}
+                      </p>
+                    </div>
+                  </div>
+                );
+              };
+
+              return (
+                <>
+                  <DialogHeader>
+                    <DialogTitle>What should Eli do next?</DialogTitle>
+                    <DialogDescription>
+                      Your reply
+                      {eliPromptResidentName ? ` to ${eliPromptResidentName}` : ""}{" "}
+                      won&apos;t send until you pick. Change it any time from
+                      the AI On/Off control on the thread.
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <div
+                    role="radiogroup"
+                    aria-label="What should Eli do on this thread going forward?"
+                    className="grid grid-cols-2 gap-3"
+                  >
+                    {promptOptionKeepOnEnabled &&
+                      renderOptionTile("on", {
+                        icon: CheckCircle2,
+                        iconBg: "bg-status-success",
+                        iconRing: "text-status-success-foreground",
+                        selectedBorder: "border-status-success",
+                        selectedBg: "bg-status-success/10",
+                        title: eliPromptHasMultipleEscalations
+                          ? "Resolve escalations"
+                          : "Resolve escalation",
+                        subtitle: "Eli turns back on",
+                      })}
+
+                    {promptOptionOffEnabled &&
+                      renderOptionTile("off", {
+                        icon: BotOff,
+                        iconBg: "bg-muted-foreground",
+                        iconRing: "text-background",
+                        selectedBorder: "border-foreground",
+                        selectedBg: "bg-muted/60",
+                        title: "Turn off Eli",
+                        subtitle: eliPromptHasMultipleEscalations
+                          ? "Until escalations are resolved"
+                          : "Until escalation is resolved",
+                      })}
+                  </div>
+
+                  <DialogFooter className="gap-2 sm:gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setEliPromptOpen(false);
+                        setEliPromptPendingSend(null);
+                        setEliPromptChoice(null);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={!eliPromptChoice || !eliPromptPendingSend}
+                      onClick={commitPendingSend}
+                    >
+                      Send reply
+                    </Button>
+                  </DialogFooter>
+                </>
+              );
+            })()}
+          </DialogContent>
+        </Dialog>
+
         {/* List */}
         <TooltipProvider delayDuration={250}>
           <div className="flex-1 overflow-y-auto scrollbar-hover">
             {filtered.length > 0 ? (
               <ul>
-                {filtered.map((convo) => {
-                  const isActive = convo.id === selectedId;
+                {(() => {
+                  /**
+                   * SA 1.2 thread-list grouping. When the user is viewing
+                   * Open Threads or Property Threads with SA 1.2 on, split
+                   * the list into two collapsible sections:
+                   *   1. Needs Action — property-owned threads waiting on
+                   *      staff (red dot) or with an active follow-up
+                   *      reminder (cyan bell).
+                   *   2. No Action Needed — everything else in the current
+                   *      inbox (property threads staff is already on top
+                   *      of + Eli-owned threads without markers).
+                   * Eli Threads (sa12-property) and Closed Threads
+                   * (sa12-closed) don't have an action dimension, so
+                   * they render as a flat list.
+                   * Collapsed sections still show their header + count
+                   * so staff can re-expand with one click.
+                   * When neither group has items in the current filter,
+                   * we fall back to a flat list (both groups just
+                   * wrapping around an empty array is a no-op).
+                   */
+                  type ListItem =
+                    | {
+                        kind: "header";
+                        key: string;
+                        label: string;
+                        // Total conversations in this section (drives the
+                        // primary chip on the header) + unread count inside
+                        // that same section (drives a small red badge that
+                        // only appears when > 0). Splitting the two makes
+                        // "how many threads live here" visible at a glance
+                        // even when the unread count is zero.
+                        total: number;
+                        unread: number;
+                        collapsed: boolean;
+                        onToggle: () => void;
+                      }
+                    | { kind: "thread"; convo: (typeof filtered)[number] };
+                  const sa12GroupingActive =
+                    superAgent12Enabled &&
+                    (sidebarFilter === "all" || sidebarFilter === "sa12-escalated");
+                  const listItems: ListItem[] = [];
+                  if (sa12GroupingActive) {
+                    const needsActionThreads = filtered.filter(
+                      (c) => isPropertyOwnedSA12(c) && needsStaffResponse(c)
+                    );
+                    // SA 1.2 caps the "No Action Needed" section at 15 rows —
+                    // the section is context, not a working queue, so keeping
+                    // it short prevents the list from feeling overloaded.
+                    // "Needs Action" is intentionally uncapped so nothing that
+                    // requires staff attention gets hidden below the fold.
+                    const noActionThreads = filtered
+                      .filter(
+                        (c) => !(isPropertyOwnedSA12(c) && needsStaffResponse(c))
+                      )
+                      .slice(0, 15);
+                    // Header chips: only the red "unread" chip is shown, and
+                    // only when the section contains at least one unread
+                    // thread. Both buckets use the exact same rule
+                    // (`isEffectivelyUnread` → property-owned + hasUnread),
+                    // so an unread thread in "No Action Needed" (e.g. staff
+                    // wrapped up via phone but the resident's last SMS was
+                    // never marked read) surfaces the red chip on that
+                    // header too — same signal as "Needs Action". Sections
+                    // with zero rows stay hidden entirely.
+                    const needsActionUnreadCount = needsActionThreads.filter(
+                      (c) => isEffectivelyUnread(c),
+                    ).length;
+                    const noActionUnreadCount = noActionThreads.filter(
+                      (c) => isEffectivelyUnread(c),
+                    ).length;
+                    if (needsActionThreads.length > 0) {
+                      listItems.push({
+                        kind: "header",
+                        key: "hdr-action-needed",
+                        label: "Needs Action",
+                        total: needsActionThreads.length,
+                        unread: needsActionUnreadCount,
+                        collapsed: sa12ActionCollapsed,
+                        onToggle: () => setSa12ActionCollapsed((v) => !v),
+                      });
+                      if (!sa12ActionCollapsed) {
+                        for (const c of needsActionThreads) {
+                          listItems.push({ kind: "thread", convo: c });
+                        }
+                      }
+                    }
+                    if (noActionThreads.length > 0) {
+                      listItems.push({
+                        kind: "header",
+                        key: "hdr-no-action-needed",
+                        label: "No Action Needed",
+                        total: noActionThreads.length,
+                        unread: noActionUnreadCount,
+                        collapsed: sa12NoActionCollapsed,
+                        onToggle: () => setSa12NoActionCollapsed((v) => !v),
+                      });
+                      if (!sa12NoActionCollapsed) {
+                        for (const c of noActionThreads) {
+                          listItems.push({ kind: "thread", convo: c });
+                        }
+                      }
+                    }
+                  } else {
+                    for (const c of filtered) {
+                      listItems.push({ kind: "thread", convo: c });
+                    }
+                  }
+                  return listItems.map((__item) => {
+                    if (__item.kind === "header") {
+                      // Section header — label + chevron only, plus a
+                      // single red "unread" chip when there's something
+                      // new in the section. The neutral total-count chip was
+                      // removed per user feedback; the sidebar + channel-filter
+                      // badges are the source of truth for "how many
+                      // conversations." Both buckets use the same rule now
+                      // — an unread thread that lands in "No Action Needed"
+                      // (e.g. staff closed the loop by phone, but the
+                      // resident's last SMS was never marked read) still
+                      // surfaces a red chip on that section header so staff
+                      // don't miss it.
+                      const unreadLabel =
+                        __item.unread === 1
+                          ? "1 unread"
+                          : `${__item.unread} unread`;
+                      return (
+                        <li key={__item.key}>
+                          <button
+                            type="button"
+                            onClick={__item.onToggle}
+                            aria-expanded={!__item.collapsed}
+                            aria-label={`${__item.label}${__item.unread > 0 ? ` · ${unreadLabel}` : ""}`}
+                            className="sticky top-0 z-10 flex w-full items-center gap-1.5 border-b border-border/70 bg-muted/70 px-3 py-1.5 text-left backdrop-blur transition-colors hover:bg-muted"
+                          >
+                            <ChevronRight
+                              className={cn(
+                                "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+                                !__item.collapsed && "rotate-90"
+                              )}
+                              aria-hidden
+                            />
+                            <span className="text-[11px] font-semibold uppercase tracking-wide text-foreground">
+                              {__item.label}
+                            </span>
+                            {/* Unread indicator — only shown when at
+                                least one thread inside the section is
+                                effectively unread. Red fill matches
+                                the sidebar + channel-filter badges +
+                                thread-card dots so the "there's
+                                something new here" signal is
+                                consistent across the surface. */}
+                            {__item.unread > 0 && (
+                              <span
+                                className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none tabular-nums text-destructive-foreground"
+                                aria-hidden
+                              >
+                                {__item.unread}
+                              </span>
+                            )}
+                          </button>
+                        </li>
+                      );
+                    }
+                    const convo = __item.convo;
+                    const isActive = convo.id === selectedId;
                   const emailRouting =
                     convo.channel === "Email"
                       ? getEmailThreadRoutingAddresses(convo.resident, convo.property)
@@ -4677,8 +5986,26 @@ function ConversationsContent() {
                             markRead(convo.id, MY_INBOX_ASSIGNEE);
                           }
                         }}
+                        /* Right-click → open the read/unread context menu at
+                           the cursor. Suppressed in bulk-select mode (the
+                           row is a checkbox target then, not a thread
+                           entry). Prevents the browser's default context
+                           menu so ours can take over. */
+                        onContextMenu={(e) => {
+                          if (bulkSelectMode) return;
+                          e.preventDefault();
+                          setThreadContextMenu({
+                            threadId: convo.id,
+                            x: e.clientX,
+                            y: e.clientY,
+                          });
+                        }}
                         className={cn(
-                          "relative flex w-full gap-1 py-3 pl-4 pr-4 text-left transition-colors",
+                          // pl-6 (was pl-4): dedicate a 24px left gutter for the
+                          // needs-action / follow-up markers so a 14px marker has
+                          // ~5px of breathing room on both sides instead of sitting
+                          // flush against the property name.
+                          "relative flex w-full gap-1 py-3 pl-6 pr-4 text-left transition-colors",
                           bulkSelectMode ? "items-start" : "flex-col",
                           isActive && !bulkSelectMode
                             ? "border-l-2 border-l-primary bg-accent"
@@ -4697,34 +6024,26 @@ function ConversationsContent() {
                           </div>
                         )}
                         <div className={cn("flex w-full flex-col gap-1", bulkSelectMode && "min-w-0 flex-1")}>
-                        {(() => {
-                          if (!needsStaffResponse(convo)) return false;
-                          // Bulk-select mode owns the top-left slot with a checkbox,
-                          // so the marker steps aside there — but NOT when the row
-                          // is merely selected. The dot represents "still needs
-                          // action" and should only disappear when staff actually
-                          // resolves it (reply / callback / clear the reminder).
-                          if (bulkSelectMode) return false;
-                          // In SA 1.2, only Property-owned threads get the marker.
-                          // Eli-owned threads (including reminder-flagged ones) are
-                          // fully Eli's responsibility — staff should never see an
-                          // "act on this" indicator in the Eli Threads inbox.
-                          if (superAgent12Enabled) {
-                            if (!isPropertyOwnedSA12(convo)) return false;
-                          }
-                          return true;
-                        })() && (
+                        {/* Unread indicator — classic red inbox dot pinned to
+                            the top-left corner of the row. Uses the SA 1.2
+                            "effective unread" helper so threads that fall
+                            into the "No Action Needed" group render as read
+                            regardless of their stored `hasUnread`; in SA 1.0
+                            / non-SA modes it falls back to `hasUnread`
+                            directly. Cleared when staff opens the thread via
+                            markRead. Follow-up threads keep the same dot
+                            here — their "Follow up" identity comes from the
+                            inline bell chip in the metadata row instead.
+                            Bulk-select mode reclaims the corner for the
+                            checkbox, so we suppress there. */}
+                        {isEffectivelyUnread(convo) && !bulkSelectMode && (
                           <span
-                            aria-label={hasActiveFollowUpReminder(convo) ? "Follow-up reminder — needs staff action" : "Needs staff action"}
-                            title={hasActiveFollowUpReminder(convo) ? "Follow-up reminder — needs staff action" : "Needs staff action"}
-                            className={cn(
-                              "absolute left-1.5 top-4 h-2 w-2 rounded-full ring-2 ring-background",
-                              // Amber = reminder (Thread Automation nudge), red = unreplied resident message.
-                              hasActiveFollowUpReminder(convo)
-                                ? "bg-amber-500"
-                                : "bg-destructive/90",
-                            )}
-                          />
+                            aria-label="Unread message"
+                            title="Unread message"
+                            className="absolute left-1 top-3 flex h-3.5 w-3.5 items-center justify-center"
+                          >
+                            <span className="h-2.5 w-2.5 rounded-full bg-destructive ring-2 ring-background shadow-[0_0_2px_rgba(255,255,255,0.9)] dark:shadow-none" />
+                          </span>
                         )}
                         <div className="flex items-start justify-between gap-2 pr-0.5">
                           <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[10px] font-medium tracking-wide text-muted-foreground">
@@ -4807,9 +6126,9 @@ function ConversationsContent() {
                             <span
                               aria-label="Follow-up reminder triggered by Thread Automation"
                               title="Follow-up reminder triggered by Thread Automation"
-                              className="inline-flex shrink-0 items-center gap-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300"
+                              className="inline-flex shrink-0 items-center gap-1 rounded bg-cyan-100/70 px-1.5 py-px text-[10px] font-semibold text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-200"
                             >
-                              <BellRing className="h-3 w-3 shrink-0" aria-hidden />
+                              <BellRing className="h-3 w-3 shrink-0" strokeWidth={2.25} aria-hidden />
                               Follow up
                             </span>
                           )}
@@ -4827,14 +6146,14 @@ function ConversationsContent() {
                           <span
                             className={cn(
                               "truncate text-sm italic text-muted-foreground",
-                              convo.hasUnread && "font-semibold text-foreground",
+                              isEffectivelyUnread(convo) && "font-semibold text-foreground",
                             )}
                             title="Multiple resident profiles are linked to this conversation"
                           >
                             Multiple Profiles
                           </span>
                         ) : (
-                          <span className={cn("truncate text-sm", convo.hasUnread ? "font-bold" : "font-semibold")}>
+                          <span className={cn("truncate text-sm", isEffectivelyUnread(convo) ? "font-bold" : "font-semibold")}>
                             {convo.resident}
                           </span>
                         )}
@@ -4870,10 +6189,12 @@ function ConversationsContent() {
                               </Badge>
                             );
                           })()}
-                          <span className="text-[10px] text-muted-foreground">{convo.time}</span>
+                          <span className="text-[10px] tabular-nums text-muted-foreground">
+                            {convo.time}
+                          </span>
                         </div>
                       </div>
-                      <p className={cn("truncate text-xs", convo.hasUnread ? "text-foreground" : "text-muted-foreground")}>{convo.preview}</p>
+                      <p className={cn("truncate text-xs", isEffectivelyUnread(convo) ? "text-foreground" : "text-muted-foreground")}>{convo.preview}</p>
                       {(superAgent12Enabled && convo.status === "open") || convo.labels.length > 0 ? (
                         <div className="mt-0.5 flex flex-wrap gap-1">
                           {superAgent12Enabled && convo.status === "open" && (
@@ -4938,7 +6259,8 @@ function ConversationsContent() {
                       </button>
                     </li>
                   );
-                })}
+                });
+                })()}
               </ul>
             ) : (
               <div className="flex h-full items-center justify-center p-6">
@@ -4947,6 +6269,59 @@ function ConversationsContent() {
             )}
           </div>
         </TooltipProvider>
+
+        {/* Thread-list right-click context menu. Rendered inline (not
+            portaled) but pinned with `fixed` positioning to the exact
+            cursor coordinates captured on `onContextMenu`. High z-index
+            (`z-[500]`) so it sits above the profile overlay, escalation
+            panels, and the call-panel stack. The window-level effect on
+            `threadContextMenu` handles outside-click / ESC / scroll
+            dismissal, so we intentionally don't wire onBlur here. */}
+        {threadContextMenu && (() => {
+          const target = filtered.find((c) => c.id === threadContextMenu.threadId);
+          if (!target) return null;
+          return (
+            <div
+              role="menu"
+              aria-label="Thread actions"
+              style={{ left: threadContextMenu.x, top: threadContextMenu.y }}
+              className="fixed z-[500] min-w-[180px] rounded-md border border-border bg-popover py-1 text-popover-foreground shadow-lg"
+              // Swallow the initial mousedown that opens the menu so the
+              // window-level "close on any mousedown" listener doesn't
+              // immediately close it before the click has a chance to
+              // register on a menu item.
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  if (target.hasUnread) {
+                    markRead(target.id, MY_INBOX_ASSIGNEE);
+                  } else {
+                    markUnread(target.id);
+                  }
+                  setThreadContextMenu(null);
+                }}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
+              >
+                {target.hasUnread ? (
+                  <>
+                    <MailOpen className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+                    <span>Mark as read</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="inline-flex h-3.5 w-3.5 items-center justify-center" aria-hidden>
+                      <span className="h-2 w-2 rounded-full bg-destructive" />
+                    </span>
+                    <span>Mark as unread</span>
+                  </>
+                )}
+              </button>
+            </div>
+          );
+        })()}
       </div>
 
       {/* ===== CONVERSATION DETAIL ===== */}
@@ -5181,7 +6556,19 @@ function ConversationsContent() {
                     const sa1State = useSa1PopoverModel
                       ? computeSa1AiState(selected, aiActivated)
                       : null;
-                    const pillVariant: "on" | "partial" | "off" = sa1State
+                    // SA 1.2: per-thread Eli mode. When Off, this trumps the
+                    // SA 1.0-style per-product state on the pill — Eli mode
+                    // is a thread-wide override (staff explicitly turned
+                    // Eli off on this conversation). "On" defers back to
+                    // the SA 1.0 computation so the rich AI-Product state
+                    // remains visible for threads Eli is actively working.
+                    const eliMode: EliMode | null = superAgent12Enabled
+                      ? eliModeFor(selected.id)
+                      : null;
+                    const eliModeOverride = eliMode && eliMode.kind !== "on";
+                    const pillVariant: "on" | "partial" | "off" = eliModeOverride
+                      ? "off"
+                      : sa1State
                       ? sa1State.kind === "on"
                         ? "on"
                         : sa1State.kind === "partial"
@@ -5190,7 +6577,9 @@ function ConversationsContent() {
                       : aiActivated
                       ? "on"
                       : "off";
-                    const pillLabel = sa1State
+                    const pillLabel = eliModeOverride
+                      ? "Eli Off"
+                      : sa1State
                       ? sa1State.kind === "on"
                         ? "AI On"
                         : sa1State.kind === "partial"
@@ -5224,7 +6613,316 @@ function ConversationsContent() {
                         className={cn("p-3", sa1State ? "w-[360px]" : "w-auto")}
                         align="end"
                       >
-                        {sa1State ? (() => {
+                        {/* SA 1.2: Eli Mode section — always visible at the top
+                            of the popover in SA 1.2. Even when Eli is On (no
+                            override), staff can preemptively turn off Eli
+                            from here. This is the single source of truth
+                            for the AI On/Off control per the user's spec. */}
+                        {superAgent12Enabled && eliMode && (
+                          <div className="mb-3 overflow-hidden rounded-md border border-border/70 bg-background">
+                            {/* Status strip — semantic status tokens per the
+                                design system so the current Eli state is
+                                unambiguous at a glance:
+                                  · On   → status-success (green)
+                                  · Off  → muted (neutral)
+                                The colored circular icon + bold state line +
+                                short qualifier reads as a single "hero" chip. */}
+                            {(() => {
+                              const isOn = eliMode.kind === "on";
+                              const isOff = eliMode.kind === "off";
+                              // Policy is only defined on the "off" branch;
+                              // pull it out so the qualifier can distinguish
+                              // "off until resolved" (auto-resume) from
+                              // "off indefinitely" (manual-only resume).
+                              const offPolicy =
+                                eliMode.kind === "off" ? eliMode.policy : null;
+                              const hasEscalation = hasActiveAiEscalation(selected);
+                              const stateLabel = isOn ? "On" : "Off";
+                              const stateQualifier = isOn
+                                ? "Eli is responding on this thread"
+                                : offPolicy === "indefinite"
+                                  ? "Handed to staff indefinitely"
+                                  : hasEscalation
+                                    ? "Auto-resumes when the escalation is resolved"
+                                    : "Handed to staff";
+                              return (
+                                <div
+                                  className={cn(
+                                    "flex items-center gap-2.5 border-b border-border/70 px-2.5 py-2.5",
+                                    isOn && "bg-status-success/10",
+                                    isOff && "bg-muted/60",
+                                  )}
+                                >
+                                  <span
+                                    aria-hidden
+                                    className={cn(
+                                      "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+                                      isOn && "bg-status-success text-status-success-foreground",
+                                      isOff && "bg-muted-foreground/80 text-background",
+                                    )}
+                                  >
+                                    {isOn && <Bot className="h-4 w-4" strokeWidth={2.25} />}
+                                    {isOff && <BotOff className="h-4 w-4" strokeWidth={2.25} />}
+                                  </span>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                      Eli Mode
+                                    </p>
+                                    <p className="text-sm font-semibold leading-tight">
+                                      {stateLabel}
+                                      <span className="ml-1 text-xs font-normal text-muted-foreground">
+                                        · {stateQualifier}
+                                      </span>
+                                    </p>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+
+                            <div className="space-y-2 p-2.5">
+                              <p className="text-[11px] text-muted-foreground leading-snug">
+                                {(() => {
+                                  // Copy under the status strip is tuned
+                                  // per (state × policy × escalation).
+                                  //   • On + escalation → offer to hand off
+                                  //     with the "auto-resume when
+                                  //     resolved" promise.
+                                  //   • On + no escalation → offer to hand
+                                  //     off indefinitely (nothing to
+                                  //     auto-resume against).
+                                  //   • Off "indefinite" → hard-set state,
+                                  //     manual flip only.
+                                  //   • Off "until-resolved" + escalation
+                                  //     → tell staff Eli will resume when
+                                  //     the escalation clears.
+                                  //   • Off "until-resolved" + no
+                                  //     escalation → transient/awaiting
+                                  //     auto-resume (rare, but honest).
+                                  if (eliMode.kind === "on") {
+                                    return hasActiveAiEscalation(selected)
+                                      ? "Turn Eli off below to hand this thread to staff — Eli comes back on automatically once the escalation is resolved."
+                                      : "Turn Eli off below to hand this thread to staff.";
+                                  }
+                                  if (eliMode.policy === "indefinite") {
+                                    return "Staff owns this thread until you turn Eli back on.";
+                                  }
+                                  return hasActiveAiEscalation(selected)
+                                    ? "Eli will resume automatically when the escalation is resolved — or turn it back on now."
+                                    : "Eli will resume as soon as the escalation clears.";
+                                })()}
+                              </p>
+
+                            {/* Quick actions — a single primary CTA that
+                                flips Eli to the other mode. */}
+                            <div className="space-y-1.5">
+                              {eliMode.kind !== "on" && (
+                                <Button
+                                  size="sm"
+                                  className="h-8 w-full text-xs"
+                                  onClick={() =>
+                                    applyEliModeChange(selected.id, { kind: "on" }, "manual")
+                                  }
+                                >
+                                  Turn Eli back on
+                                </Button>
+                              )}
+                              {eliMode.kind !== "off" && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 w-full text-xs"
+                                  onClick={() =>
+                                    // Popover "Turn Eli off" — derive the
+                                    // policy from the thread's escalation
+                                    // state so the semantics stay coherent:
+                                    //   • Thread has an active escalation →
+                                    //     "until resolved" (auto-resume when
+                                    //     the escalation clears).
+                                    //   • Thread has no active escalation →
+                                    //     "indefinite" (staff is
+                                    //     deliberately taking over an
+                                    //     otherwise-quiet thread; no
+                                    //     escalation resolution to trigger
+                                    //     auto-resume).
+                                    applyEliModeChange(
+                                      selected.id,
+                                      {
+                                        kind: "off",
+                                        policy: hasActiveAiEscalation(selected)
+                                          ? "until-resolved"
+                                          : "indefinite",
+                                      },
+                                      "manual",
+                                    )
+                                  }
+                                >
+                                  <BotOff className="mr-1 h-3.5 w-3.5" strokeWidth={2} />
+                                  Turn Eli off
+                                </Button>
+                              )}
+                            </div>
+                            </div>
+                          </div>
+                        )}
+                        {/* SA 1.2 simplified popover: the Eli Mode section
+                            above already covers the overall AI on/off state
+                            for the thread. Below it we still show the
+                            per-sub-agent breakdown (Leasing / Renewals /
+                            Payments / Maintenance) so staff can see WHICH AI
+                            is responding — Eli-mode trumps the per-agent
+                            state, so when Eli is Off every row is forced
+                            Off; when Eli is On, the per-agent state falls
+                            back to the escalation-label logic shared with
+                            SA 1.0. The AI Activated dropdown, DEMO buttons,
+                            and super-agent block controls are intentionally
+                            hidden for SA 1.2 — Eli Mode is the single
+                            control point. */}
+                        {superAgent12Enabled ? (
+                          <div className="space-y-3">
+                            {sa1State && (() => {
+                              // Eli-mode override: when Eli is Off on this
+                              // thread, the sub-agents are effectively paused
+                              // too (Eli is the umbrella). Otherwise fall
+                              // back to the escalation-label view.
+                              const eliOverridesOff = eliMode && eliMode.kind !== "on";
+                              return (
+                                <div className="space-y-1.5">
+                                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                    AI Agent status
+                                  </p>
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    {SA1_KNOWN_SUB_AGENTS.map((agent) => {
+                                      const blocked =
+                                        eliOverridesOff ||
+                                        sa1State.kind === "off-manual" ||
+                                        sa1State.kind === "off-super" ||
+                                        sa1State.kind === "off-all-subs" ||
+                                        sa1State.kind === "off-profile" ||
+                                        sa1State.blockedSubAgents.includes(agent);
+                                      return (
+                                        <div
+                                          key={agent}
+                                          className={cn(
+                                            "flex items-center justify-between rounded-md border px-2 py-1.5 text-[11px]",
+                                            blocked
+                                              ? "border-red-200 bg-red-50/60 dark:border-red-900/50 dark:bg-red-950/20"
+                                              : "border-emerald-200 bg-emerald-50/60 dark:border-emerald-900/50 dark:bg-emerald-950/20"
+                                          )}
+                                        >
+                                          <span className="font-medium text-foreground">{agent}</span>
+                                          <span
+                                            className={cn(
+                                              "text-[10px] font-bold uppercase tracking-wide",
+                                              blocked
+                                                ? "text-red-700 dark:text-red-300"
+                                                : "text-emerald-700 dark:text-emerald-300"
+                                            )}
+                                          >
+                                            {blocked ? "Off" : "On"}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                  {eliOverridesOff && (
+                                    <p className="text-[10px] leading-snug text-muted-foreground">
+                                      All AI agents are paused because Eli is off on this thread.
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                              Contact preferences
+                            </p>
+                            <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-2">
+                                <label className="whitespace-nowrap text-[11px] font-medium text-muted-foreground">
+                                  Phone
+                                </label>
+                                <Select
+                                  value={phoneOpt}
+                                  onValueChange={(v) => {
+                                    const choice = v as ChannelOptChoice;
+                                    setPhoneOpt(choice);
+                                    recordThreadActivity(selected.id, {
+                                      kind: "channel_opt",
+                                      channel: "phone",
+                                      choice,
+                                      actor: MY_INBOX_ASSIGNEE,
+                                    });
+                                  }}
+                                >
+                                  <SelectTrigger className="h-7 w-[110px] text-[11px]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="opt-in">
+                                      <span className="flex items-center gap-2">
+                                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                                        Opt In
+                                      </span>
+                                    </SelectItem>
+                                    <SelectItem value="opt-out">
+                                      <span className="flex items-center gap-2">
+                                        <XCircle className="h-3.5 w-3.5 text-red-500" />
+                                        Opt Out
+                                      </span>
+                                    </SelectItem>
+                                    <SelectItem value="no-indication">
+                                      <span className="flex items-center gap-2">
+                                        <MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                                        No Indication
+                                      </span>
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <label className="whitespace-nowrap text-[11px] font-medium text-muted-foreground">
+                                  Email
+                                </label>
+                                <Select
+                                  value={emailOpt}
+                                  onValueChange={(v) => {
+                                    const choice = v as ChannelOptChoice;
+                                    setEmailOpt(choice);
+                                    recordThreadActivity(selected.id, {
+                                      kind: "channel_opt",
+                                      channel: "email",
+                                      choice,
+                                      actor: MY_INBOX_ASSIGNEE,
+                                    });
+                                  }}
+                                >
+                                  <SelectTrigger className="h-7 w-[110px] text-[11px]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="opt-in">
+                                      <span className="flex items-center gap-2">
+                                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                                        Opt In
+                                      </span>
+                                    </SelectItem>
+                                    <SelectItem value="opt-out">
+                                      <span className="flex items-center gap-2">
+                                        <XCircle className="h-3.5 w-3.5 text-red-500" />
+                                        Opt Out
+                                      </span>
+                                    </SelectItem>
+                                    <SelectItem value="no-indication">
+                                      <span className="flex items-center gap-2">
+                                        <MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                                        No Indication
+                                      </span>
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                          </div>
+                        ) : sa1State ? (() => {
                           const residentLabel = selected.resident || "this resident";
                           const bannerCopy =
                             sa1State.kind === "on"
@@ -5668,6 +7366,25 @@ function ConversationsContent() {
                           }
                           setResolveModalAction("general");
                           setResolveModalNotes("");
+                          setResolveModalEliChoice("resume");
+                          // SA 1.2 with active AI escalations — seed the
+                          // picker with every active escalation label so
+                          // the dialog opens with "resolve everything"
+                          // pre-picked. Staff opts out of any escalation
+                          // they aren't resolving right now. The picker
+                          // itself only renders when there are 2+
+                          // escalations — for a single escalation, the
+                          // seeded selection auto-resolves it on Save.
+                          if (superAgent12Enabled) {
+                            const activeEscalations = selected.labels.filter(
+                              (l) => l.includes("Escalation"),
+                            );
+                            setResolveModalEscalationsToResolve(
+                              new Set(activeEscalations),
+                            );
+                          } else {
+                            setResolveModalEscalationsToResolve(new Set());
+                          }
                           setResolveModalOpen(true);
                         }}
                       >
@@ -5794,6 +7511,20 @@ function ConversationsContent() {
                       {selected.messages.map((msg, idx) => {
                         if (msg.type === "handoff") {
                           if (isSuperAgentDemoThread(selected.id) || isSuperAgent1DemoThread(selected.id)) return null;
+                          // SA 1.2 threads: the escalation is already
+                          // rendered as a `label_activity` card in the
+                          // timeline (see the `label_activity` branch
+                          // below), so the compact orange "Handoff X ·
+                          // <label>" banner would just duplicate the same
+                          // information. Suppress it here — the label
+                          // activity card is now the single source of
+                          // truth for "an escalation was opened on this
+                          // thread." Handoffs without an escalation
+                          // aren't a case that lands on SA 1.2 threads
+                          // in the demo, but if one ever does it will
+                          // still fall through the SA 1.0 / SA 2.0
+                          // paths.
+                          if (superAgent12Enabled) return null;
                           const escalationLabel = selected.labels.find((l) => l.includes("Escalation"));
                           return (
                             <div key={idx} className={cn(
@@ -6136,15 +7867,57 @@ function ConversationsContent() {
                 selected.messages.map((msg, idx) => {
                   if (msg.type === "handoff") {
                     if (isSuperAgentDemoThread(selected.id) || isSuperAgent1DemoThread(selected.id)) return null;
+                    // SA 1.2: suppress — see the Email path above for the
+                    // full rationale. Short version: the escalation
+                    // `label_activity` card is the canonical timeline
+                    // representation, and rendering a second orange
+                    // banner here just duplicates it.
+                    if (superAgent12Enabled) return null;
+                    // Orange escalation banner — mirrors the Email render
+                    // path so SMS / Chat / Voice threads with an active
+                    // "* AI Escalation" label surface the escalation on the
+                    // timeline instead of silently showing a plain handoff
+                    // arrow. Falls back to the plain handoff row when no
+                    // escalation label is on the thread.
+                    const escalationLabel = selected.labels.find((l) => l.includes("Escalation"));
                     return (
-                      <div key={idx} className="flex items-center justify-center gap-2 py-1">
-                        <CornerDownRight className="h-3 w-3 text-muted-foreground" />
-                        <span className="text-[11px] text-muted-foreground">
+                      <div
+                        key={idx}
+                        className={cn(
+                          "flex items-center justify-center gap-2 py-1",
+                          escalationLabel &&
+                            "rounded-md border border-orange-200 bg-orange-50/80 px-3 py-2 dark:border-orange-900/50 dark:bg-orange-950/20",
+                        )}
+                      >
+                        {escalationLabel ? (
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-orange-500" />
+                        ) : (
+                          <CornerDownRight className="h-3 w-3 text-muted-foreground" />
+                        )}
+                        <span
+                          className={cn(
+                            "text-[11px]",
+                            escalationLabel
+                              ? "text-orange-800 dark:text-orange-200"
+                              : "text-muted-foreground",
+                          )}
+                        >
                           Handoff {handoffAssigneeLabelForConversation(
-                                selected.assignee,
-                                isHumanAssignee,
-                                selected.staffRespondentIsExternalAgent
-                              )} · {msg.timestamp}
+                            selected.assignee,
+                            isHumanAssignee,
+                            selected.staffRespondentIsExternalAgent
+                          )}
+                          {escalationLabel && (
+                            <span className="ml-1.5 inline-flex items-center gap-0.5 rounded bg-orange-100 px-1.5 py-0.5 text-[10px] font-semibold text-orange-800 dark:bg-orange-900/40 dark:text-orange-200">
+                              {escalationLabel}
+                              <EscalationIdHint
+                                conversationId={selected.id}
+                                label={escalationLabel}
+                                className="text-orange-800 dark:text-orange-200"
+                              />
+                            </span>
+                          )}
+                          {" · "}{msg.timestamp}
                         </span>
                       </div>
                     );
@@ -6531,9 +8304,15 @@ function ConversationsContent() {
                 </div>
               )}
 
-              {/* SA 1.0: compact escalation-reply selector — instructive label + helper sub-line + pill checkboxes. */}
+              {/* Compact escalation-reply selector — instructive label +
+                  helper sub-line + pill checkboxes. Rendered on both SA 1.0
+                  demo threads AND SA 1.2 threads with active escalations so
+                  staff always mark which escalation(s) their public reply
+                  is answering before Send commits. */}
               {selected &&
-                isSuperAgent1DemoThread(selected.id) &&
+                (isSuperAgent1DemoThread(selected.id) ||
+                  (superAgent12Enabled &&
+                    !isSuperAgentDemoThread(selected.id))) &&
                 inputMode === "message" &&
                 selected.labels.some((l) => l.includes("Escalation")) && (() => {
                   const sa1Escalations = selected.labels.filter((l) => l.includes("Escalation"));
@@ -7263,6 +9042,10 @@ function ConversationsContent() {
                   if (!open) {
                     setResolveModalOpen(false);
                     setResolveModalNotes("");
+                    // Reset Eli-choice back to the safe default whenever the
+                    // dialog is dismissed so the next open starts fresh.
+                    setResolveModalEliChoice("resume");
+                    setResolveModalEscalationsToResolve(new Set());
                   }
                 }}
               >
@@ -7302,6 +9085,225 @@ function ConversationsContent() {
                         autoFocus
                       />
                     </div>
+                    {/* SA 1.2 "Which escalations are you resolving?"
+                        picker — only rendered when the thread carries
+                        MORE THAN ONE active AI escalation. A single-
+                        escalation thread auto-resolves that one on Save,
+                        matching SA 1.0's "no picker if just one" rule.
+                        Seeded with all active escalations pre-selected so
+                        the default action is "resolve everything"; staff
+                        opts out of any escalation they aren't answering
+                        yet. Mirrors the SA 1.0 resolve picker's visual
+                        language (orange escalation tint + checkbox +
+                        EscalationIdHint). */}
+                    {superAgent12Enabled &&
+                      selected &&
+                      (() => {
+                        const activeEscalations = selected.labels.filter(
+                          (l) => l.includes("Escalation"),
+                        );
+                        if (activeEscalations.length < 2) return null;
+                        return (
+                          <div className="space-y-2 border-t border-border/60 pt-4">
+                            <div>
+                              <p className="text-sm font-medium">
+                                Which escalations are you resolving?
+                              </p>
+                              <p className="mt-0.5 text-xs text-muted-foreground">
+                                Uncheck any escalation you&apos;re not
+                                resolving in this pass — those stay
+                                open on the thread.
+                              </p>
+                            </div>
+                            <div className="space-y-1.5">
+                              {activeEscalations.map((label) => {
+                                const isChecked =
+                                  resolveModalEscalationsToResolve.has(label);
+                                return (
+                                  <label
+                                    key={label}
+                                    className={cn(
+                                      "flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors",
+                                      isChecked
+                                        ? "border-status-success/60 bg-status-success/5"
+                                        : "border-input bg-background hover:border-input hover:bg-accent/30",
+                                    )}
+                                  >
+                                    <Checkbox
+                                      checked={isChecked}
+                                      onCheckedChange={(v) =>
+                                        setResolveModalEscalationsToResolve(
+                                          (prev) => {
+                                            const next = new Set(prev);
+                                            if (v) next.add(label);
+                                            else next.delete(label);
+                                            return next;
+                                          },
+                                        )
+                                      }
+                                    />
+                                    <span className="inline-flex min-w-0 flex-1 items-center gap-1">
+                                      <span className="truncate text-sm font-medium text-foreground">
+                                        {label
+                                          .replace(" Escalation", "")
+                                          .replace(/\s+\d+$/, "")}
+                                      </span>
+                                      <EscalationIdHint
+                                        conversationId={selected.id}
+                                        label={label}
+                                        className="text-muted-foreground"
+                                      />
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    {/* SA 1.2 "What should Eli do next?" section — only
+                        surfaced when SA 1.2 is on AND the thread has an
+                        active AI escalation. Mirrors the tile pattern used
+                        by the Eli Prompt modal so the two "pick how Eli
+                        behaves" moments feel like the same control. */}
+                    {superAgent12Enabled &&
+                      selected &&
+                      hasActiveAiEscalation(selected) && (
+                        <div className="space-y-2 border-t border-border/60 pt-4">
+                          <div>
+                            <p className="text-sm font-medium">
+                              What should Eli do next?
+                            </p>
+                            <p className="mt-0.5 text-xs text-muted-foreground">
+                              Choose how Eli behaves after this thread is
+                              resolved.
+                            </p>
+                          </div>
+                          <div
+                            role="radiogroup"
+                            aria-label="What should Eli do on this thread after it's resolved?"
+                            className="grid grid-cols-2 gap-3"
+                          >
+                            {(() => {
+                              /**
+                               * Local helper that reuses the same tile
+                               * pattern as the Eli Prompt modal so both
+                               * "pick how Eli behaves" moments feel like
+                               * the same control. Kept local because it
+                               * closes over the resolve-modal state, not
+                               * the pre-send Eli-prompt state.
+                               */
+                              const renderResolveTile = (
+                                id: "resume" | "off-indefinite",
+                                {
+                                  icon: Icon,
+                                  iconBg,
+                                  iconRing,
+                                  selectedBorder,
+                                  selectedBg,
+                                  title,
+                                  subtitle,
+                                }: {
+                                  icon: typeof CheckCircle2;
+                                  iconBg: string;
+                                  iconRing: string;
+                                  selectedBorder: string;
+                                  selectedBg: string;
+                                  title: string;
+                                  subtitle: string;
+                                },
+                              ) => {
+                                const isSelected =
+                                  resolveModalEliChoice === id;
+                                return (
+                                  <div
+                                    key={id}
+                                    role="radio"
+                                    tabIndex={0}
+                                    aria-checked={isSelected}
+                                    onClick={() => setResolveModalEliChoice(id)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter" || e.key === " ") {
+                                        e.preventDefault();
+                                        setResolveModalEliChoice(id);
+                                      }
+                                    }}
+                                    className={cn(
+                                      "group relative flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 p-4 text-center transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                                      isSelected
+                                        ? cn(
+                                            selectedBorder,
+                                            selectedBg,
+                                            "shadow-sm",
+                                          )
+                                        : "border-input bg-background hover:border-input hover:bg-accent/30",
+                                    )}
+                                  >
+                                    <span
+                                      aria-hidden
+                                      className={cn(
+                                        "absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full transition-opacity",
+                                        isSelected
+                                          ? cn(iconBg, "opacity-100")
+                                          : "opacity-0",
+                                      )}
+                                    >
+                                      <Check
+                                        className={cn("h-3 w-3", iconRing)}
+                                        strokeWidth={3}
+                                      />
+                                    </span>
+                                    <span
+                                      aria-hidden
+                                      className={cn(
+                                        "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
+                                        iconBg,
+                                      )}
+                                    >
+                                      <Icon
+                                        className={cn("h-5 w-5", iconRing)}
+                                        strokeWidth={2.25}
+                                      />
+                                    </span>
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-semibold leading-tight">
+                                        {title}
+                                      </p>
+                                      <p className="mt-1 text-xs leading-snug text-muted-foreground">
+                                        {subtitle}
+                                      </p>
+                                    </div>
+                                  </div>
+                                );
+                              };
+                              return (
+                                <>
+                                  {renderResolveTile("resume", {
+                                    icon: CheckCircle2,
+                                    iconBg: "bg-status-success",
+                                    iconRing: "text-status-success-foreground",
+                                    selectedBorder: "border-status-success",
+                                    selectedBg: "bg-status-success/10",
+                                    title: "Eli turns back on",
+                                    subtitle:
+                                      "Future messages get Eli's automation",
+                                  })}
+                                  {renderResolveTile("off-indefinite", {
+                                    icon: BotOff,
+                                    iconBg: "bg-muted-foreground",
+                                    iconRing: "text-background",
+                                    selectedBorder: "border-foreground",
+                                    selectedBg: "bg-muted/60",
+                                    title: "Keep Eli off",
+                                    subtitle:
+                                      "Future messages go to Property Threads",
+                                  })}
+                                </>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                      )}
                   </div>
                   <DialogFooter>
                     <Button
@@ -7310,25 +9312,135 @@ function ConversationsContent() {
                       onClick={() => {
                         setResolveModalOpen(false);
                         setResolveModalNotes("");
+                        setResolveModalEliChoice("resume");
+                        setResolveModalEscalationsToResolve(new Set());
                       }}
                     >
                       Cancel
                     </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        if (!selected) return;
-                        const notes = resolveModalNotes.trim();
-                        resolveConversation(selected.id, MY_INBOX_ASSIGNEE, {
-                          notes: notes || undefined,
-                          resolutionType: resolveModalAction,
-                        });
-                        setResolveModalOpen(false);
-                        setResolveModalNotes("");
-                      }}
-                    >
-                      Save &amp; resolve
-                    </Button>
+                    {(() => {
+                      // Save button — disabled when the picker is
+                      // rendered (2+ escalations) but staff has unchecked
+                      // every option. Anything else is always send-able.
+                      const activeEscalations = selected
+                        ? selected.labels.filter((l) => l.includes("Escalation"))
+                        : [];
+                      const pickerVisible = activeEscalations.length >= 2;
+                      const saveDisabled =
+                        pickerVisible &&
+                        resolveModalEscalationsToResolve.size === 0;
+                      return (
+                        <Button
+                          size="sm"
+                          disabled={saveDisabled}
+                          onClick={() => {
+                            if (!selected) return;
+                            const notes = resolveModalNotes.trim();
+                            // SA 1.2 escalated-thread branch: resolve
+                            // exactly the escalation labels staff picked
+                            // (all of them by default when the picker is
+                            // hidden; the "pick which" subset when the
+                            // picker is visible). The mode change is
+                            // stamped BEFORE any resolveConversation call
+                            // so the timeline reads:
+                            //   resolved_escalation activity → eli_mode
+                            //   change → thread status resolved.
+                            const shouldApplyEliBranch =
+                              superAgent12Enabled &&
+                              hasActiveAiEscalation(selected);
+                            let remainingEscalationCount =
+                              activeEscalations.length;
+                            if (shouldApplyEliBranch) {
+                              // "Labels this Save resolves" — either the
+                              // full active list (auto path) or exactly
+                              // the picker selection (2+ path).
+                              const labelsToResolve = pickerVisible
+                                ? Array.from(resolveModalEscalationsToResolve)
+                                : activeEscalations;
+                              const labelsForActivity =
+                                labelsToResolve.length > 0
+                                  ? labelsToResolve
+                                  : ["AI Escalation"];
+                              const resolveTimestamp = new Date()
+                                .toLocaleString("en-US", {
+                                  month: "short",
+                                  day: "numeric",
+                                  year: "numeric",
+                                  hour: "numeric",
+                                  minute: "2-digit",
+                                  hour12: true,
+                                  timeZoneName: "short",
+                                })
+                                .replace(",", " ·");
+                              addMessage(selected.id, {
+                                role: "staff",
+                                text: "",
+                                timestamp: resolveTimestamp,
+                                type: "label_activity",
+                                labelActivity: {
+                                  actor: MY_INBOX_ASSIGNEE,
+                                  labelsAdded: labelsForActivity,
+                                  action: "resolved_escalation",
+                                },
+                              });
+                              for (const label of labelsToResolve) {
+                                removeLabel(selected.id, label);
+                              }
+                              remainingEscalationCount = Math.max(
+                                0,
+                                activeEscalations.length - labelsToResolve.length,
+                              );
+                              // Apply the Eli mode change per staff's
+                              // pick. Note: "resume" is a no-op state-wise
+                              // when Eli is already On on the thread, but
+                              // we still stamp a mode-change audit entry
+                              // so the timeline records the staff
+                              // decision — mirroring the Eli-Prompt "on"
+                              // branch. "off-indefinite" uses the
+                              // "indefinite" policy so the auto-resume
+                              // effect leaves it alone.
+                              if (
+                                resolveModalEliChoice === "off-indefinite"
+                              ) {
+                                applyEliModeChange(
+                                  selected.id,
+                                  { kind: "off", policy: "indefinite" },
+                                  "resolve",
+                                );
+                              } else {
+                                applyEliModeChange(
+                                  selected.id,
+                                  { kind: "on" },
+                                  "resolve",
+                                );
+                              }
+                            }
+                            // Only close the conversation when every
+                            // active escalation has been resolved (or
+                            // when the thread has no escalations at all,
+                            // i.e. classic "resolve conversation" flow).
+                            // If some escalations remain, staff will
+                            // hit Resolve again later.
+                            if (remainingEscalationCount === 0) {
+                              resolveConversation(
+                                selected.id,
+                                MY_INBOX_ASSIGNEE,
+                                {
+                                  notes: notes || undefined,
+                                  resolutionType: resolveModalAction,
+                                },
+                              );
+                            }
+                            setResolveModalOpen(false);
+                            setResolveModalNotes("");
+                            setResolveModalEliChoice("resume");
+                            setResolveModalEscalationsToResolve(new Set());
+                          }}
+                        >
+                          Save &amp; resolve
+                        </Button>
+                      );
+                    })()}
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
@@ -7511,7 +9623,7 @@ function ConversationsContent() {
                         "h-8 w-8 rounded-full",
                         inputMode === "private_note" && "bg-amber-600 hover:bg-amber-700"
                       )}
-                      disabled={!draft.trim()}
+                      disabled={!hasSendableDraft}
                       onClick={handleSend}
                       aria-label="Send"
                     >
@@ -8774,7 +10886,7 @@ function ConversationsContent() {
                             "h-7 w-7 rounded-full",
                             inputMode === "private_note" && "bg-amber-600 hover:bg-amber-700"
                           )}
-                          disabled={!draft.trim()}
+                          disabled={!hasSendableDraft}
                           onClick={handleSend}
                           aria-label="Send"
                         >
@@ -9875,6 +11987,18 @@ function ManageInboxSettingsPanel({
   onSetAutoCloseDays,
   sortMode,
   onSetSortMode,
+  eliPromptEnabled,
+  onToggleEliPromptEnabled,
+  eliPromptCadenceMinutes,
+  onSetEliPromptCadenceMinutes,
+  eliPromptCadenceUnit,
+  onSetEliPromptCadenceUnit,
+  eliPromptDefaultOption,
+  onSetEliPromptDefaultOption,
+  promptOptionOffEnabled,
+  onTogglePromptOptionOffEnabled,
+  promptOptionKeepOnEnabled,
+  onTogglePromptOptionKeepOnEnabled,
 }: {
   onClose: () => void;
   quickFilterEnabled: boolean;
@@ -9889,6 +12013,18 @@ function ManageInboxSettingsPanel({
   onSetAutoCloseDays: (n: number) => void;
   sortMode: "newest" | "oldest" | "priority";
   onSetSortMode: (m: "newest" | "oldest" | "priority") => void;
+  eliPromptEnabled: boolean;
+  onToggleEliPromptEnabled: (v: boolean) => void;
+  eliPromptCadenceMinutes: number;
+  onSetEliPromptCadenceMinutes: (n: number) => void;
+  eliPromptCadenceUnit: EliPromptCadenceUnit;
+  onSetEliPromptCadenceUnit: (u: EliPromptCadenceUnit) => void;
+  eliPromptDefaultOption: "off" | "on";
+  onSetEliPromptDefaultOption: (choice: "off" | "on") => void;
+  promptOptionOffEnabled: boolean;
+  onTogglePromptOptionOffEnabled: (v: boolean) => void;
+  promptOptionKeepOnEnabled: boolean;
+  onTogglePromptOptionKeepOnEnabled: (v: boolean) => void;
 }) {
   type SectionId = "sorting" | "notifications" | "defaults" | "setup" | "follow-up";
   const SECTIONS: { id: SectionId; label: string; description: string }[] = [
@@ -9954,6 +12090,44 @@ function ManageInboxSettingsPanel({
   // farther out because an idle-close usually happens on the order of weeks.
   const followUpDayChoices = [1, 2, 3, 5, 7, 10, 14, 21, 30];
   const autoCloseDayChoices = [3, 5, 7, 10, 14, 21, 30, 45, 60, 90];
+
+  // Eli Prompt cadence — allowed values per unit. Kept minimal so the
+  // dropdown feels like Slack DND / Gmail snooze rather than an arbitrary
+  // number entry. Anything below 1 minute would be noisy; anything above
+  // 30 days stops behaving like an automation.
+  const ELI_PROMPT_CADENCE_CHOICES: Record<EliPromptCadenceUnit, number[]> = {
+    minutes: [5, 15, 30, 45],
+    hours: [1, 2, 4, 6, 12, 24],
+    days: [1, 3, 7, 14, 30],
+  };
+  // Local editing buffer for the cadence controls. We only push the parsed
+  // combined "minutes" value into context when both value + unit are settled,
+  // otherwise flipping units mid-edit would clobber the stored value.
+  const [pendingCadenceValue, setPendingCadenceValue] = useState<number>(() => {
+    if (eliPromptCadenceUnit === "days") return Math.max(1, Math.round(eliPromptCadenceMinutes / (60 * 24)));
+    if (eliPromptCadenceUnit === "hours") return Math.max(1, Math.round(eliPromptCadenceMinutes / 60));
+    return Math.max(1, eliPromptCadenceMinutes);
+  });
+  // Keep the local value in sync when the unit switches — pick the largest
+  // choice that's <= the current minute total so switching feels lossless.
+  useEffect(() => {
+    const choices = ELI_PROMPT_CADENCE_CHOICES[eliPromptCadenceUnit];
+    let raw: number;
+    if (eliPromptCadenceUnit === "days") raw = eliPromptCadenceMinutes / (60 * 24);
+    else if (eliPromptCadenceUnit === "hours") raw = eliPromptCadenceMinutes / 60;
+    else raw = eliPromptCadenceMinutes;
+    // Snap to the nearest available choice (prefer floor to avoid over-shooting).
+    const snapped = [...choices].reverse().find((c) => c <= raw) ?? choices[0];
+    setPendingCadenceValue(snapped);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eliPromptCadenceUnit]);
+  // Human-readable cadence label ("6 hours", "3 days") for confirm dialogs.
+  const cadenceLabelFor = (value: number, unit: EliPromptCadenceUnit) => {
+    const one = value === 1;
+    if (unit === "minutes") return `${value} minute${one ? "" : "s"}`;
+    if (unit === "hours") return `${value} hour${one ? "" : "s"}`;
+    return `${value} day${one ? "" : "s"}`;
+  };
 
   // Sort options — labels/descriptions live here so the shared confirm dialog can
   // resolve them for the "from → to" sentence.
@@ -10611,6 +12785,268 @@ function ManageInboxSettingsPanel({
                     )}
                   </div>
                 </div>
+
+                {/* --- Eli Prompt (SA 1.2 only) ---
+                    When active, staff who reply to an escalated thread while
+                    Eli is On get a modal asking whether to resolve the
+                    escalation (Eli turns back on) or turn Eli off until the
+                    escalation is resolved. Private notes never trigger it —
+                    only public messages. The re-prompt cadence below
+                    governs how often we re-nudge if staff dismisses. When
+                    deactivated, staff replies leave Eli mode untouched. */}
+                <div>
+                  <p className="text-sm font-medium">Prompt staff to manage Eli on escalated threads</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    When staff sends the first public reply on an escalated
+                    thread while Eli is still on, show a small modal so they
+                    can resolve the escalation (Eli turns back on) or turn
+                    Eli off until the escalation is resolved. Only fires on
+                    public messages — private notes are ignored. Dismissing
+                    the modal counts as &quot;decide later&quot; and
+                    we&apos;ll re-nudge on a later message per the cadence
+                    below. When deactivated, staff replies leave Eli mode
+                    untouched — staff manage Eli manually from the AI On/Off
+                    popover.
+                  </p>
+                </div>
+
+                <div className="rounded-lg border border-border bg-background p-4">
+                  {/* Cadence explainer — makes the "when does the prompt
+                      fire again?" contract explicit before the picker.
+                      Rule: the prompt fires the *first* time a staff
+                      member sends a public reply on an escalated thread
+                      while Eli is on. If they dismiss it, subsequent
+                      sends do NOT re-fire the prompt until the cadence
+                      window below has elapsed. The window is tracked
+                      per (staff member × thread), so different staff
+                      members are re-prompted independently. */}
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    When a staff member sends a public reply, the Eli
+                    Prompt fires the first time. If they dismiss it, the
+                    prompt only re-appears on a later send if this much
+                    time has passed since their last dismissal on this
+                    thread.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
+                    <span>Re-prompt me every</span>
+                    <Select
+                      value={String(pendingCadenceValue)}
+                      onValueChange={(v) => {
+                        const nextValue = Number(v);
+                        if (!Number.isFinite(nextValue) || nextValue === pendingCadenceValue) return;
+                        const nextMinutes = cadenceToMinutes(nextValue, eliPromptCadenceUnit);
+                        if (eliPromptEnabled) {
+                          requestConfirmedChange({
+                            title: "Change the Eli Prompt cadence live?",
+                            fromLabel: cadenceLabelFor(pendingCadenceValue, eliPromptCadenceUnit),
+                            toLabel: cadenceLabelFor(nextValue, eliPromptCadenceUnit),
+                            impact:
+                              "Applies immediately — staff who dismiss the prompt won't see it again until the new cadence has elapsed.",
+                            onApply: () => {
+                              setPendingCadenceValue(nextValue);
+                              onSetEliPromptCadenceMinutes(nextMinutes);
+                            },
+                          });
+                        } else {
+                          setPendingCadenceValue(nextValue);
+                          onSetEliPromptCadenceMinutes(nextMinutes);
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="h-8 w-[80px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ELI_PROMPT_CADENCE_CHOICES[eliPromptCadenceUnit].map((n) => (
+                          <SelectItem key={n} value={String(n)}>
+                            {n}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={eliPromptCadenceUnit}
+                      onValueChange={(v) => {
+                        const nextUnit = v as EliPromptCadenceUnit;
+                        if (nextUnit === eliPromptCadenceUnit) return;
+                        // Snap to the first choice in the new unit so we always
+                        // land on a valid dropdown value.
+                        const firstChoice = ELI_PROMPT_CADENCE_CHOICES[nextUnit][0];
+                        const nextMinutes = cadenceToMinutes(firstChoice, nextUnit);
+                        if (eliPromptEnabled) {
+                          requestConfirmedChange({
+                            title: "Change the Eli Prompt cadence live?",
+                            fromLabel: cadenceLabelFor(pendingCadenceValue, eliPromptCadenceUnit),
+                            toLabel: cadenceLabelFor(firstChoice, nextUnit),
+                            impact:
+                              "Applies immediately — staff who dismiss the prompt won't see it again until the new cadence has elapsed.",
+                            onApply: () => {
+                              onSetEliPromptCadenceUnit(nextUnit);
+                              setPendingCadenceValue(firstChoice);
+                              onSetEliPromptCadenceMinutes(nextMinutes);
+                            },
+                          });
+                        } else {
+                          onSetEliPromptCadenceUnit(nextUnit);
+                          setPendingCadenceValue(firstChoice);
+                          onSetEliPromptCadenceMinutes(nextMinutes);
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="h-8 w-[110px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="minutes">Minutes</SelectItem>
+                        <SelectItem value="hours">Hours</SelectItem>
+                        <SelectItem value="days">Days</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <span className="text-muted-foreground">
+                      per staff member per thread.
+                    </span>
+                  </div>
+
+                  {/* Options shown in the modal — two checkboxes gate the
+                      visibility of each row. Toggle one off to hide that
+                      choice; at least one must stay on so the modal always
+                      has something for staff to pick. */}
+                  <div className="mt-4 space-y-2 border-t border-border/60 pt-3">
+                    <p className="text-xs font-medium text-foreground">Options shown in the prompt</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Toggle any option off to hide it from the modal. At
+                      least one option must stay on.
+                    </p>
+                    {(() => {
+                      const enabledCount =
+                        (promptOptionOffEnabled ? 1 : 0) +
+                        (promptOptionKeepOnEnabled ? 1 : 0);
+                      const lastEnabledDisable = (isEnabled: boolean) =>
+                        isEnabled && enabledCount <= 1;
+                      return (
+                        <div className="space-y-1.5 pt-1">
+                          {/* "Resolve escalation and Eli turns back on"
+                              option — staff clears the escalation label and
+                              Eli resumes on the thread. */}
+                          <label className="flex items-start gap-2 rounded-md border border-transparent px-2 py-1.5 text-sm hover:bg-muted/50">
+                            <Checkbox
+                              className="mt-0.5"
+                              checked={promptOptionKeepOnEnabled}
+                              disabled={lastEnabledDisable(promptOptionKeepOnEnabled)}
+                              onCheckedChange={(v) =>
+                                onTogglePromptOptionKeepOnEnabled(Boolean(v))
+                              }
+                            />
+                            <span className="flex-1">
+                              <span className="font-medium text-foreground">Resolve escalation and Eli turns back on</span>
+                              <span className="ml-1.5 text-xs text-muted-foreground">
+                                Clear the escalation label. Eli picks the thread back up and responds to new messages.
+                              </span>
+                            </span>
+                          </label>
+
+                          {/* Turn off option — Eli comes back automatically
+                              once the escalation on the thread is resolved. */}
+                          <label className="flex items-start gap-2 rounded-md border border-transparent px-2 py-1.5 text-sm hover:bg-muted/50">
+                            <Checkbox
+                              className="mt-0.5"
+                              checked={promptOptionOffEnabled}
+                              disabled={lastEnabledDisable(promptOptionOffEnabled)}
+                              onCheckedChange={(v) =>
+                                onTogglePromptOptionOffEnabled(Boolean(v))
+                              }
+                            />
+                            <span className="flex-1">
+                              <span className="font-medium text-foreground">Turn Eli off until the escalation is resolved</span>
+                              <span className="ml-1.5 text-xs text-muted-foreground">
+                                Pause Eli on the thread. Eli comes back on automatically once the escalation is resolved.
+                              </span>
+                            </span>
+                          </label>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Default option — which of the two cards is
+                        pre-selected when the modal opens. Options that are
+                        hidden above are disabled in the picker; the runtime
+                        falls back to the other still-enabled option if the
+                        configured default has since been turned off. */}
+                    <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-2 border-t border-border/60 pt-3 text-sm">
+                      <span className="font-medium text-foreground">Default option</span>
+                      <Select
+                        value={eliPromptDefaultOption}
+                        onValueChange={(v) => {
+                          const next = v as "off" | "on";
+                          if (next === eliPromptDefaultOption) return;
+                          onSetEliPromptDefaultOption(next);
+                        }}
+                      >
+                        <SelectTrigger className="h-8 w-[220px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem
+                            value="on"
+                            disabled={!promptOptionKeepOnEnabled}
+                          >
+                            Resolve escalation and Eli turns back on
+                          </SelectItem>
+                          <SelectItem
+                            value="off"
+                            disabled={!promptOptionOffEnabled}
+                          >
+                            Turn Eli off until the escalation is resolved
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <span className="text-muted-foreground">
+                        pre-selected when the modal opens.
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/60 pt-3">
+                    {eliPromptEnabled ? (
+                      <Badge className="h-auto gap-1.5 bg-status-success px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-status-success-foreground">
+                        <span className="relative inline-flex h-1.5 w-1.5">
+                          <span className="absolute inset-0 animate-ping rounded-full bg-status-success-foreground/60" />
+                          <span className="relative inline-block h-1.5 w-1.5 rounded-full bg-status-success-foreground" />
+                        </span>
+                        Active
+                      </Badge>
+                    ) : (
+                      <Badge className="h-auto gap-1.5 border-transparent bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground/50 ring-1 ring-muted-foreground/30" />
+                        Inactive
+                      </Badge>
+                    )}
+                    {eliPromptEnabled ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          requestConfirmedChange({
+                            title: "Deactivate the Eli Prompt live?",
+                            fromLabel: "Active",
+                            toLabel: "Inactive",
+                            impact:
+                              "Staff won't see a modal when they reply to escalated threads. Nothing will happen to Eli automatically — staff will need to manage Eli's mode manually from the thread's AI On/Off popover.",
+                            applyLabel: "Deactivate",
+                            onApply: () => onToggleEliPromptEnabled(false),
+                          })
+                        }
+                      >
+                        Deactivate
+                      </Button>
+                    ) : (
+                      <Button size="sm" onClick={() => onToggleEliPromptEnabled(true)}>
+                        Activate Eli Prompt
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
               </>
             )}
           </div>
