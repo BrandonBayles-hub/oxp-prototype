@@ -153,6 +153,7 @@ import {
   cadenceToMinutes,
   type EliMode,
   type EliPromptCadenceUnit,
+  type ViewportPreset,
 } from "@/lib/conversations-demo-context";
 import { useTranslationDemo } from "@/lib/translation-demo-context";
 import {
@@ -2108,6 +2109,8 @@ function ConversationsContent() {
     setThreadPropertyOwned,
     simulateUserEnabled,
     toggleSimulateUserEnabled,
+    viewportPreset,
+    setViewportPreset,
     followUpEnabled,
     setFollowUpEnabled,
     followUpDaysList,
@@ -4295,6 +4298,8 @@ function ConversationsContent() {
           onToggleTranslation={toggleTranslationEnabled}
           simulateUserEnabled={simulateUserEnabled}
           onToggleSimulateUser={toggleSimulateUserEnabled}
+          viewportPreset={viewportPreset}
+          onSetViewportPreset={setViewportPreset}
         />
       </aside>
 
@@ -4363,10 +4368,17 @@ function ConversationsContent() {
             container as the search input, directly below it — so the two
             controls read as one filter block instead of two stacked strips.
             SA 1.0 shows just the search + floating filters row.
-            Balanced p-3 padding (12px on every side) with a slightly
-            tighter gap between the search input and channel row so the
-            two controls read as one grouped block. */}
-        <div className="flex flex-col gap-2.5 border-b border-border p-3">
+            Padding is asymmetric on purpose: `px-3` (12px) matches the
+            rest of the sidebar's horizontal rhythm, and `py-2.5` (10px)
+            leaves a comfortable margin around the two `h-8` control
+            rows — enough that the bottom border never feels like it's
+            hugging the controls. Inter-row gap dropped to `gap-2` (8px)
+            so it matches the horizontal `gap-2` between the search input
+            and the filter icon — the whole block reads as one evenly-
+            gridded filter cluster instead of two loosely stacked strips.
+            Net: the container is ~6px shorter than the old
+            `p-3 gap-2.5` version without any control itself shrinking. */}
+        <div className="flex flex-col gap-2 border-b border-border px-3 py-2.5">
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
               <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -5338,64 +5350,87 @@ function ConversationsContent() {
         )}
 
         <Dialog open={inboxHelpOpen} onOpenChange={setInboxHelpOpen}>
-          <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-2xl">
+          {/* Dialog width bumped from `sm:max-w-2xl` (672 px) to
+              `sm:max-w-4xl` (896 px). The extra ~224 px of horizontal room
+              cuts the wrap count in half on most copy blocks — the two SA
+              1.2 panels ("Thread Automation follow-ups", "Quick Filter")
+              and the "What the red count means" summary are the biggest
+              beneficiaries — and lets the four-inbox roll-up fit as a 2×2
+              grid at md+ instead of a tall single-column stack, so the
+              modal reads as one screen of context instead of a scroll. */}
+          <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-4xl">
             <DialogHeader>
               <DialogTitle>Understanding your inbox</DialogTitle>
               <DialogDescription>
-                A tour of the four inboxes on the left, the red unread badges next to them, and how
-                Property Threads is grouped inside.
+                A tour of the four inboxes in the sidebar, the red unread
+                badges next to them, and how Property Threads is organized
+                inside.
               </DialogDescription>
             </DialogHeader>
             <div className="-mx-6 flex-1 space-y-4 overflow-y-auto px-6 text-sm">
-              <div className="flex gap-3">
-                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
-                  <Inbox className="h-4 w-4 text-muted-foreground" strokeWidth={2} />
+              {/* Four-inbox overview. Single column on narrow viewports so
+                  each icon + description reads as a full row; 2 columns at
+                  md+ so the taller Property Threads description sits next
+                  to the shorter Open Threads paragraph without dominating
+                  the whole modal. Reading order stays natural (Open →
+                  Property → Eli → Closed) because CSS grid fills row by
+                  row. */}
+              <div className="grid gap-x-4 gap-y-3 md:grid-cols-2">
+                <div className="flex gap-3">
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
+                    <Inbox className="h-4 w-4 text-muted-foreground" strokeWidth={2} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold">Open Threads</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Every active conversation — the ones Eli is handling
+                      and the ones a property teammate owns. Think of it as
+                      the combined view of Property Threads and Eli Threads.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="font-semibold">Open Threads</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    Every active conversation — both those Eli is handling and those a property
-                    teammate owns. Think of it as the roll-up of Property Threads + Eli Threads.
-                  </p>
+                <div className="flex gap-3">
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
+                    <Building className="h-4 w-4 text-muted-foreground" strokeWidth={2} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold">Property Threads</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Threads a property teammate owns — either because an
+                      AI escalation is active, staff took the thread over,
+                      or Eli was turned off on it. Inside, the list is split
+                      into two collapsible sections (see below), and the
+                      Escalation filter under{" "}
+                      <span className="font-medium text-foreground">Filters</span>{" "}
+                      can narrow the view to Escalated, Non-Escalated, or
+                      All.
+                    </p>
+                  </div>
                 </div>
-              </div>
-              <div className="flex gap-3">
-                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
-                  <Building className="h-4 w-4 text-muted-foreground" strokeWidth={2} />
+                <div className="flex gap-3">
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
+                    <Bot className="h-4 w-4 text-muted-foreground" strokeWidth={2} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold">Eli Threads</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Threads Eli is actively handling on the
+                      property&apos;s behalf. No badge — these don&apos;t
+                      need staff action right now.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="font-semibold">Property Threads</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    Threads a property teammate owns — either because an AI escalation is active,
-                    staff explicitly took the thread over, or Eli was turned off on it. Inside,
-                    the list is grouped into two collapsible sections (see below), and the
-                    Escalation filter in <span className="font-medium text-foreground">Filters</span>{" "}
-                    can narrow the view to Escalated, Non-Escalated, or All.
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-3">
-                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
-                  <Bot className="h-4 w-4 text-muted-foreground" strokeWidth={2} />
-                </div>
-                <div>
-                  <p className="font-semibold">Eli Threads</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    Threads Eli is actively handling on the property&apos;s behalf. No badge —
-                    these don&apos;t need staff action right now.
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-3">
-                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
-                  <CheckCircle2 className="h-4 w-4 text-muted-foreground" strokeWidth={2} />
-                </div>
-                <div>
-                  <p className="font-semibold">Closed Threads</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    Resolved conversations, kept for reference. No badge — completed work
-                    doesn&apos;t need attention.
-                  </p>
+                <div className="flex gap-3">
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
+                    <CheckCircle2 className="h-4 w-4 text-muted-foreground" strokeWidth={2} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold">Closed Threads</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Resolved conversations, kept for reference. No badge
+                      — completed work doesn&apos;t need attention.
+                    </p>
+                  </div>
                 </div>
               </div>
 
@@ -5416,21 +5451,27 @@ function ConversationsContent() {
                   <p className="text-xs font-semibold">What the red count means</p>
                 </div>
                 <p className="mt-1.5 text-xs text-muted-foreground">
-                  The number is how many threads in that inbox are{" "}
-                  <span className="font-medium text-foreground">unread</span>. A thread counts
-                  whenever it&apos;s property-owned and hasn&apos;t been marked read yet — so
-                  new resident messages, follow-up reminders, and even quick
-                  acknowledgements (&quot;thanks!&quot;) all contribute. Opening the thread, or
-                  right-clicking → <span className="font-medium text-foreground">Mark read</span>,
-                  clears it.
+                  The number shows how many threads in that inbox are{" "}
+                  <span className="font-medium text-foreground">unread</span>.
+                  A thread counts as long as it&apos;s property-owned and
+                  hasn&apos;t been marked read yet — so new resident messages,
+                  follow-up reminders, and even quick acknowledgements
+                  (&ldquo;thanks!&rdquo;) all count toward it. Opening the
+                  thread — or right-clicking it and choosing{" "}
+                  <span className="font-medium text-foreground">Mark read</span>{" "}
+                  — clears the count.
                 </p>
                 <p className="mt-1.5 text-xs text-muted-foreground">
-                  Only <span className="font-medium text-foreground">Property Threads</span>{" "}
-                  shows a red count. <span className="font-medium text-foreground">Eli Threads</span>{" "}
-                  and <span className="font-medium text-foreground">Closed Threads</span> never do —
-                  Eli is handling those and closed work is done. Open Threads is the sum of both,
-                  and since Eli contributes 0, its count just duplicates Property Threads, so
-                  we hide it.
+                  Only{" "}
+                  <span className="font-medium text-foreground">Property Threads</span>{" "}
+                  carries a red count.{" "}
+                  <span className="font-medium text-foreground">Eli Threads</span>{" "}
+                  and{" "}
+                  <span className="font-medium text-foreground">Closed Threads</span>{" "}
+                  never do — Eli is handling those, and closed work is done.
+                  Open Threads would be the sum of both, but since Eli
+                  contributes zero, its count would just duplicate Property
+                  Threads, so we hide the Open Threads badge too.
                 </p>
               </div>
 
@@ -5442,29 +5483,84 @@ function ConversationsContent() {
                   acknowledgement still shows the red chip on that header. */}
               <div className="rounded-md border border-border/60 bg-muted/40 p-3">
                 <p className="text-xs font-semibold">Needs Action vs No Action Needed</p>
-                <p className="mt-1.5 text-xs text-muted-foreground">
-                  Inside Property Threads (and Open Threads), the list is split into two
-                  collapsible sections so the most urgent work is always at the top:
+
+                {/* Mini illustration of the actual collapsible section
+                    headers that appear inside Property Threads / Open
+                    Threads. Gated on SA 1.2 because this UI only exists in
+                    that mode — showing it while the workspace is in SA 1.0
+                    would be misleading. Styling mirrors the live sticky
+                    header at src=`headers.map(...)` above (bg-muted/70 with
+                    a chevron + uppercase label + optional red unread chip),
+                    just scaled down and framed in a rounded container so it
+                    reads as a screenshot inside the copy. */}
+                {superAgent12Enabled && (
+                  <div className="mt-2 max-w-sm overflow-hidden rounded-md border border-border/60 bg-background">
+                    <div className="flex items-center gap-1.5 border-b border-border/70 bg-muted/70 px-3 py-1.5">
+                      <ChevronRight
+                        className="h-3.5 w-3.5 shrink-0 rotate-90 text-muted-foreground"
+                        aria-hidden
+                      />
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-foreground">
+                        Needs Action
+                      </span>
+                      <span
+                        className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold leading-none tabular-nums text-destructive-foreground"
+                        aria-hidden
+                      >
+                        3
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 border-b border-border/40 px-3 py-1.5">
+                      <span
+                        className="h-1.5 w-1.5 shrink-0 rounded-full bg-destructive ring-2 ring-background"
+                        aria-hidden
+                      />
+                      <span className="truncate text-[10px] text-foreground">
+                        Alma Sanchez
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        · SMS · 3m ago
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 bg-muted/70 px-3 py-1.5">
+                      <ChevronRight
+                        className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                        aria-hidden
+                      />
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-foreground">
+                        No Action Needed
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Inside Property Threads (and Open Threads), the list is
+                  split into two collapsible sections so the most urgent work
+                  is always at the top:
                 </p>
-                <ul className="mt-1.5 space-y-1 pl-4 text-xs text-muted-foreground list-disc">
+                <ul className="mt-1.5 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
                   <li>
-                    <span className="font-medium text-foreground">Needs Action</span> — threads
-                    still waiting on a staff reply (the resident/lead sent the last public
-                    message, or a Thread Automation follow-up reminder has fired). Uncapped so
-                    nothing that needs attention drops below the fold.
+                    <span className="font-medium text-foreground">Needs Action</span>{" "}
+                    — threads still waiting on a staff reply (the resident or
+                    lead sent the last public message, or a Thread Automation
+                    follow-up reminder has fired). This section is uncapped
+                    so nothing that needs attention drops below the fold.
                   </li>
                   <li>
-                    <span className="font-medium text-foreground">No Action Needed</span> —
-                    threads where staff has already replied. Kept as context, capped at 15 rows
-                    so the section reads as a &quot;recently handled&quot; log, not a working
-                    queue.
+                    <span className="font-medium text-foreground">No Action Needed</span>{" "}
+                    — threads a staff member has already replied to. Kept as
+                    context and capped at 15 rows so the section reads as a
+                    &ldquo;recently handled&rdquo; log, not a working queue.
                   </li>
                 </ul>
                 <p className="mt-1.5 text-xs text-muted-foreground">
-                  Each section header shows a red unread chip when it contains at least one
-                  unread thread — same rule as the sidebar badge. So an unread reply that lands
-                  in No Action Needed (e.g. staff wrapped up by phone but the resident&apos;s
-                  last SMS was never marked read) still surfaces the chip on that header.
+                  Each section header shows a red unread chip when it contains
+                  at least one unread thread — the same rule as the sidebar
+                  badge. So an unread reply that lands in No Action Needed
+                  (for example, staff wrapped things up by phone but the
+                  resident&apos;s last SMS was never marked read) still shows
+                  the chip on that header.
                 </p>
               </div>
 
@@ -5480,30 +5576,36 @@ function ConversationsContent() {
                   <p className="text-xs font-semibold">Thread Automation follow-ups</p>
                 </div>
                 <p className="mt-1.5 text-xs text-muted-foreground">
-                  In <span className="font-medium text-foreground">Thread Settings → Thread
-                  Automation</span> you can set follow-up thresholds (e.g. 3, 7, 10 days). When
-                  staff sent the last reply and the resident or lead hasn&apos;t responded
-                  within one of those windows, we surface a follow-up reminder on the thread —
-                  it flips back to unread, pushes into <span className="font-medium text-foreground">Needs Action</span>,
-                  and starts counting toward the red badges, so nothing waiting on the resident
-                  quietly falls off.
+                  Under{" "}
+                  <span className="font-medium text-foreground">
+                    Thread Settings → Thread Automation
+                  </span>
+                  , you can set follow-up thresholds (for example, 3, 7, or
+                  10 days). When staff has sent the last reply and the
+                  resident or lead hasn&apos;t responded within one of those
+                  windows, the thread gets a follow-up reminder — it flips
+                  back to unread, moves into{" "}
+                  <span className="font-medium text-foreground">Needs Action</span>
+                  , and starts counting toward the red badges, so nothing
+                  waiting on the resident quietly falls off the list.
                 </p>
                 <p className="mt-1.5 text-xs text-muted-foreground">
-                  Reminded threads keep the same{" "}
+                  A reminded thread keeps the same{" "}
                   <span
                     className="inline-flex h-3.5 w-3.5 items-center justify-center align-middle"
                     aria-hidden
                   >
                     <span className="h-2 w-2 rounded-full bg-destructive ring-2 ring-background" />
                   </span>{" "}
-                  red unread dot as every other unread thread and gain a{" "}
-                  <span className="inline-flex items-center gap-1 rounded bg-cyan-100/70 px-1.5 py-px text-[10px] font-semibold text-cyan-800 align-middle dark:bg-cyan-900/40 dark:text-cyan-200">
+                  red unread dot as any other unread thread and picks up a{" "}
+                  <span className="inline-flex items-center gap-1 rounded bg-cyan-100/70 px-1.5 py-px align-middle text-[10px] font-semibold text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-200">
                     <BellRing className="h-3 w-3" strokeWidth={2.25} aria-hidden />
                     Follow up
                   </span>{" "}
-                  chip in the metadata row so you can tell the reminder-driven ones apart from
-                  new-message threads at a glance. Every trigger is also logged on the
-                  thread&apos;s activity timeline.
+                  chip in the metadata row, so you can tell reminder-driven
+                  threads apart from new-message threads at a glance. Every
+                  trigger is also logged on the thread&apos;s activity
+                  timeline.
                 </p>
               </div>
 
@@ -5512,12 +5614,60 @@ function ConversationsContent() {
                   the retired "needs action" math. */}
               <div className="rounded-md border border-border/60 bg-muted/40 p-3">
                 <p className="text-xs font-semibold">Quick Filter</p>
-                <p className="mt-1.5 text-xs text-muted-foreground">
-                  The compact channel row above the search bar narrows the current inbox to a
-                  single channel (Voice, SMS, Chat, or Email). Each tile carries its own red
-                  unread count, and the four counts always add up to the sidebar badge — so
-                  you&apos;re looking at the same unread set, just sliced by channel. Toggle its
-                  visibility in Thread Settings → Defaults.
+
+                {/* Mini illustration of the actual channel Quick Filter row
+                    that sits above the search bar. Gated on SA 1.2 because
+                    the tile row only exists in that mode. Styling mirrors
+                    the live tiles (see the `superAgent12Enabled &&
+                    quickFilterEnabled` block earlier in this file): a
+                    `hsl(207 73% 95%)` fill + inset ring for the active
+                    tile, muted foreground icons for the rest, and a red
+                    destructive-bg unread pill next to whichever tile has
+                    work waiting. Scaled slightly smaller so it reads as a
+                    screenshot inside the copy rather than a functional
+                    control. */}
+                {superAgent12Enabled && (
+                  <div className="mt-2 max-w-sm rounded-md border border-border/60 bg-background p-1.5">
+                    <div className="flex items-center gap-1">
+                      <div className="flex h-7 flex-1 items-center justify-center rounded-md bg-[hsl(207_73%_95%)] text-[hsl(207_73%_25%)] ring-1 ring-inset ring-[hsl(207_73%_75%)] dark:bg-[hsl(207_73%_20%)] dark:text-[hsl(207_73%_92%)] dark:ring-[hsl(207_73%_35%)]">
+                        <span className="text-[10px] font-bold uppercase tracking-wide">
+                          All
+                        </span>
+                      </div>
+                      <div className="flex h-7 flex-1 items-center justify-center rounded-md text-muted-foreground">
+                        <Phone className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+                      </div>
+                      <div className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md text-muted-foreground">
+                        <MessageSquareText className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+                        <span
+                          className="inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold leading-none tabular-nums text-destructive-foreground"
+                          aria-hidden
+                        >
+                          3
+                        </span>
+                      </div>
+                      <div className="flex h-7 flex-1 items-center justify-center rounded-md text-muted-foreground">
+                        <MessageCircle className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+                      </div>
+                      <div className="flex h-7 flex-1 items-center justify-center rounded-md text-muted-foreground">
+                        <Mail className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <p className="mt-2 text-xs text-muted-foreground">
+                  The compact channel row above the search bar narrows the
+                  current inbox to a single channel (Voice, SMS, Chat, or
+                  Email). Each tile carries its own red unread count, and the
+                  four counts always add up to the sidebar badge — so
+                  you&apos;re looking at the same unread set, just sliced by
+                  channel. You can toggle the Quick Filter&apos;s visibility
+                  under{" "}
+                  <span className="font-medium text-foreground">
+                    Thread Settings → Defaults
+                  </span>
+                  .
                 </p>
               </div>
             </div>
@@ -5843,172 +5993,119 @@ function ConversationsContent() {
 
         {/* List */}
         <TooltipProvider delayDuration={250}>
-          <div className="flex-1 overflow-y-auto scrollbar-hover">
-            {filtered.length > 0 ? (
-              <ul>
-                {(() => {
-                  /**
-                   * SA 1.2 thread-list grouping. When the user is viewing
-                   * Open Threads or Property Threads with SA 1.2 on, split
-                   * the list into two collapsible sections:
-                   *   1. Needs Action — property-owned threads waiting on
-                   *      staff (red dot) or with an active follow-up
-                   *      reminder (cyan bell).
-                   *   2. No Action Needed — everything else in the current
-                   *      inbox (property threads staff is already on top
-                   *      of + Eli-owned threads without markers).
-                   * Eli Threads (sa12-property) and Closed Threads
-                   * (sa12-closed) don't have an action dimension, so
-                   * they render as a flat list.
-                   * Collapsed sections still show their header + count
-                   * so staff can re-expand with one click.
-                   * When neither group has items in the current filter,
-                   * we fall back to a flat list (both groups just
-                   * wrapping around an empty array is a no-op).
-                   */
-                  type ListItem =
-                    | {
-                        kind: "header";
-                        key: string;
-                        label: string;
-                        // Total conversations in this section (drives the
-                        // primary chip on the header) + unread count inside
-                        // that same section (drives a small red badge that
-                        // only appears when > 0). Splitting the two makes
-                        // "how many threads live here" visible at a glance
-                        // even when the unread count is zero.
-                        total: number;
-                        unread: number;
-                        collapsed: boolean;
-                        onToggle: () => void;
-                      }
-                    | { kind: "thread"; convo: (typeof filtered)[number] };
-                  const sa12GroupingActive =
-                    superAgent12Enabled &&
-                    (sidebarFilter === "all" || sidebarFilter === "sa12-escalated");
-                  const listItems: ListItem[] = [];
-                  if (sa12GroupingActive) {
-                    const needsActionThreads = filtered.filter(
-                      (c) => isPropertyOwnedSA12(c) && needsStaffResponse(c)
-                    );
-                    // SA 1.2 caps the "No Action Needed" section at 15 rows —
-                    // the section is context, not a working queue, so keeping
-                    // it short prevents the list from feeling overloaded.
-                    // "Needs Action" is intentionally uncapped so nothing that
-                    // requires staff attention gets hidden below the fold.
-                    const noActionThreads = filtered
-                      .filter(
-                        (c) => !(isPropertyOwnedSA12(c) && needsStaffResponse(c))
-                      )
-                      .slice(0, 15);
-                    // Header chips: only the red "unread" chip is shown, and
-                    // only when the section contains at least one unread
-                    // thread. Both buckets use the exact same rule
-                    // (`isEffectivelyUnread` → property-owned + hasUnread),
-                    // so an unread thread in "No Action Needed" (e.g. staff
-                    // wrapped up via phone but the resident's last SMS was
-                    // never marked read) surfaces the red chip on that
-                    // header too — same signal as "Needs Action". Sections
-                    // with zero rows stay hidden entirely.
-                    const needsActionUnreadCount = needsActionThreads.filter(
-                      (c) => isEffectivelyUnread(c),
-                    ).length;
-                    const noActionUnreadCount = noActionThreads.filter(
-                      (c) => isEffectivelyUnread(c),
-                    ).length;
-                    if (needsActionThreads.length > 0) {
-                      listItems.push({
-                        kind: "header",
-                        key: "hdr-action-needed",
-                        label: "Needs Action",
-                        total: needsActionThreads.length,
-                        unread: needsActionUnreadCount,
-                        collapsed: sa12ActionCollapsed,
-                        onToggle: () => setSa12ActionCollapsed((v) => !v),
-                      });
-                      if (!sa12ActionCollapsed) {
-                        for (const c of needsActionThreads) {
-                          listItems.push({ kind: "thread", convo: c });
-                        }
-                      }
-                    }
-                    if (noActionThreads.length > 0) {
-                      listItems.push({
-                        kind: "header",
-                        key: "hdr-no-action-needed",
-                        label: "No Action Needed",
-                        total: noActionThreads.length,
-                        unread: noActionUnreadCount,
-                        collapsed: sa12NoActionCollapsed,
-                        onToggle: () => setSa12NoActionCollapsed((v) => !v),
-                      });
-                      if (!sa12NoActionCollapsed) {
-                        for (const c of noActionThreads) {
-                          listItems.push({ kind: "thread", convo: c });
-                        }
-                      }
-                    }
-                  } else {
-                    for (const c of filtered) {
-                      listItems.push({ kind: "thread", convo: c });
-                    }
-                  }
-                  return listItems.map((__item) => {
-                    if (__item.kind === "header") {
-                      // Section header — label + chevron only, plus a
-                      // single red "unread" chip when there's something
-                      // new in the section. The neutral total-count chip was
-                      // removed per user feedback; the sidebar + channel-filter
-                      // badges are the source of truth for "how many
-                      // conversations." Both buckets use the same rule now
-                      // — an unread thread that lands in "No Action Needed"
-                      // (e.g. staff closed the loop by phone, but the
-                      // resident's last SMS was never marked read) still
-                      // surfaces a red chip on that section header so staff
-                      // don't miss it.
-                      const unreadLabel =
-                        __item.unread === 1
-                          ? "1 unread"
-                          : `${__item.unread} unread`;
-                      return (
-                        <li key={__item.key}>
-                          <button
-                            type="button"
-                            onClick={__item.onToggle}
-                            aria-expanded={!__item.collapsed}
-                            aria-label={`${__item.label}${__item.unread > 0 ? ` · ${unreadLabel}` : ""}`}
-                            className="sticky top-0 z-10 flex w-full items-center gap-1.5 border-b border-border/70 bg-muted/70 px-3 py-1.5 text-left backdrop-blur transition-colors hover:bg-muted"
-                          >
-                            <ChevronRight
-                              className={cn(
-                                "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
-                                !__item.collapsed && "rotate-90"
-                              )}
-                              aria-hidden
-                            />
-                            <span className="text-[11px] font-semibold uppercase tracking-wide text-foreground">
-                              {__item.label}
-                            </span>
-                            {/* Unread indicator — only shown when at
-                                least one thread inside the section is
-                                effectively unread. Red fill matches
-                                the sidebar + channel-filter badges +
-                                thread-card dots so the "there's
-                                something new here" signal is
-                                consistent across the surface. */}
-                            {__item.unread > 0 && (
-                              <span
-                                className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none tabular-nums text-destructive-foreground"
-                                aria-hidden
-                              >
-                                {__item.unread}
-                              </span>
-                            )}
-                          </button>
-                        </li>
-                      );
-                    }
-                    const convo = __item.convo;
+          {/*
+            SA 1.2 splits the list into two independent scroll panes so
+            "Needs Action" stays pinned at the top (~3 rows visible) and
+            "No Action Needed" expands to fill the rest of the column with
+            its own scroll. Before this refactor both sections shared one
+            scroll container, so a long "No Action Needed" bucket would
+            push "Needs Action" off-screen once staff scrolled — exactly
+            the case the grouping was meant to prevent. For SA 1.0, Eli
+            Threads, Closed Threads (or any SA 1.2 sub-filter that isn't
+            "all" / "sa12-escalated") the list stays flat in a single
+            scroll region — the `sa12GroupingActive` check below
+            short-circuits to that path.
+          */}
+          <div className="flex flex-1 flex-col min-h-0">
+            {(() => {
+              /*
+                Bucket computation (SA 1.2 only). When grouping is off,
+                both bucket arrays stay empty and the dispatch below
+                short-circuits to the flat-list branch — we never render
+                the `renderHeader` calls in that case.
+              */
+              const sa12GroupingActive =
+                superAgent12Enabled &&
+                (sidebarFilter === "all" || sidebarFilter === "sa12-escalated");
+              // "No Action Needed" is capped at 15 rows — the section is
+              // context, not a working queue, so keeping it short
+              // prevents it from dominating the inbox. "Needs Action" is
+              // intentionally uncapped in the *data* so nothing that
+              // requires staff attention gets hidden below the fold; the
+              // visible-3-rows cap is a *scroll-container* max-height,
+              // not a slice, so extra rows scroll into view.
+              const needsActionThreads = sa12GroupingActive
+                ? filtered.filter(
+                    (c) => isPropertyOwnedSA12(c) && needsStaffResponse(c),
+                  )
+                : [];
+              const noActionThreads = sa12GroupingActive
+                ? filtered
+                    .filter(
+                      (c) => !(isPropertyOwnedSA12(c) && needsStaffResponse(c)),
+                    )
+                    .slice(0, 15)
+                : [];
+              // Header chips: only the red "unread" chip is shown, and
+              // only when the section contains at least one unread
+              // thread. Both buckets use the exact same rule
+              // (`isEffectivelyUnread` → property-owned + hasUnread),
+              // so an unread thread in "No Action Needed" (e.g. staff
+              // wrapped up via phone but the resident's last SMS was
+              // never marked read) surfaces the red chip on that
+              // header too — same signal as "Needs Action".
+              const needsActionUnreadCount = needsActionThreads.filter((c) =>
+                isEffectivelyUnread(c),
+              ).length;
+              const noActionUnreadCount = noActionThreads.filter((c) =>
+                isEffectivelyUnread(c),
+              ).length;
+
+              /*
+                Section-header button used by both SA 1.2 buckets. Sits
+                *above* each pane's scroll container (rather than inside
+                it) so it's always visible without needing `sticky` — the
+                inner scroll region owns its own overflow.
+              */
+              const renderHeader = (h: {
+                key: string;
+                label: string;
+                unread: number;
+                collapsed: boolean;
+                onToggle: () => void;
+              }) => {
+                const unreadLabel =
+                  h.unread === 1 ? "1 unread" : `${h.unread} unread`;
+                return (
+                  <button
+                    key={h.key}
+                    type="button"
+                    onClick={h.onToggle}
+                    aria-expanded={!h.collapsed}
+                    aria-label={`${h.label}${h.unread > 0 ? ` · ${unreadLabel}` : ""}`}
+                    className="flex w-full shrink-0 items-center gap-1.5 border-b border-border/70 bg-muted/70 px-3 py-1 text-left backdrop-blur transition-colors hover:bg-muted"
+                  >
+                    <ChevronRight
+                      className={cn(
+                        "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+                        !h.collapsed && "rotate-90",
+                      )}
+                      aria-hidden
+                    />
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-foreground">
+                      {h.label}
+                    </span>
+                    {h.unread > 0 && (
+                      <span
+                        className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none tabular-nums text-destructive-foreground"
+                        aria-hidden
+                      >
+                        {h.unread}
+                      </span>
+                    )}
+                  </button>
+                );
+              };
+
+              /*
+                Full thread-card renderer. Kept as a closure so both the
+                SA 1.2 split-pane branches and the flat-list branch below
+                can reuse the same JSX. Closes over `selectedId`,
+                `bulkSelectMode`, all the mark-read / open-context-menu
+                handlers, `superAgent12Enabled`, and everything else
+                from the surrounding component scope.
+              */
+              const renderThreadLi = (convo: (typeof filtered)[number]) => {
                     const isActive = convo.id === selectedId;
                   const emailRouting =
                     convo.channel === "Email"
@@ -6318,14 +6415,109 @@ function ConversationsContent() {
                       </button>
                     </li>
                   );
-                });
-                })()}
-              </ul>
-            ) : (
-              <div className="flex h-full items-center justify-center p-6">
-                <p className="text-sm text-muted-foreground">No conversations match the filters.</p>
-              </div>
-            )}
+                };
+                // ─── Dispatch ────────────────────────────────────────
+                // Empty state first — cheapest exit and covers "search
+                // matched nothing" identically for both grouping modes.
+                if (filtered.length === 0) {
+                  return (
+                    <div className="flex flex-1 items-center justify-center p-6">
+                      <p className="text-sm text-muted-foreground">
+                        No conversations match the filters.
+                      </p>
+                    </div>
+                  );
+                }
+                // SA 1.2 split-pane layout: two scrolling regions
+                // stacked vertically inside the shared flex-column.
+                //   · "Needs Action" is bounded to ~3 rows so it stays
+                //     visible even when staff scroll deep into "No Action
+                //     Needed" below. Sized at `max-h-[348px]`, which is
+                //     the exact sum of the three most-common thread-card
+                //     heights in this bucket (109 + 130 + 109, where the
+                //     130 is a card whose tag chips wrap onto a second
+                //     line). No peek of a fourth card — the bar sits
+                //     flush with the bottom of card three so every label
+                //     on the third card ("Property", "Lead", "Leasing AI
+                //     Escalation", etc.) stays fully visible while
+                //     pulling the sibling header ~12px closer up the
+                //     column. If the tag chips on row three ever wrap
+                //     onto a second line in a future dataset, this cap
+                //     will clip its bottom labels — bump to ~370 to give
+                //     it headroom. If more than 3 threads land in the
+                //     the pane scrolls internally — the sibling pane is
+                //     completely unaffected because it lives in its own
+                //     scroll container.
+                //   · "No Action Needed" claims `flex-1` and fills the
+                //     rest of the column, scrolling internally.
+                //   · Collapsing either header removes that pane's
+                //     scroll region so the other pane naturally expands.
+                //     (When "No Action Needed" is collapsed its wrapper
+                //     drops `flex-1` too, so it snaps to header height
+                //     instead of leaving a blank gutter below.)
+                if (sa12GroupingActive) {
+                  const hasAction = needsActionThreads.length > 0;
+                  const hasNoAction = noActionThreads.length > 0;
+                  return (
+                    <>
+                      {hasAction && (
+                        <div
+                          className={cn(
+                            "flex shrink-0 flex-col",
+                            // Only carry a bottom border when there's a
+                            // second section below; otherwise the
+                            // header's own `border-b` already draws it.
+                            hasNoAction && "border-b border-border/60",
+                          )}
+                        >
+                          {renderHeader({
+                            key: "hdr-action-needed",
+                            label: "Needs Action",
+                            unread: needsActionUnreadCount,
+                            collapsed: sa12ActionCollapsed,
+                            onToggle: () => setSa12ActionCollapsed((v) => !v),
+                          })}
+                          {!sa12ActionCollapsed && (
+                            <ul className="max-h-[348px] overflow-y-auto scrollbar-hover">
+                              {needsActionThreads.map((c) => renderThreadLi(c))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                      {hasNoAction && (
+                        <div
+                          className={cn(
+                            "flex flex-col min-h-0",
+                            !sa12NoActionCollapsed && "flex-1",
+                          )}
+                        >
+                          {renderHeader({
+                            key: "hdr-no-action-needed",
+                            label: "No Action Needed",
+                            unread: noActionUnreadCount,
+                            collapsed: sa12NoActionCollapsed,
+                            onToggle: () => setSa12NoActionCollapsed((v) => !v),
+                          })}
+                          {!sa12NoActionCollapsed && (
+                            <ul className="min-h-0 flex-1 overflow-y-auto scrollbar-hover">
+                              {noActionThreads.map((c) => renderThreadLi(c))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  );
+                }
+                // Flat-list fallback — SA 1.0, Eli Threads, Closed
+                // Threads, and any SA 1.2 sidebar filter that isn't
+                // "all" or "sa12-escalated". Single scroll container,
+                // no grouping.
+                return (
+                  <div className="flex-1 overflow-y-auto scrollbar-hover">
+                    <ul>{filtered.map((c) => renderThreadLi(c))}</ul>
+                  </div>
+                );
+              })()}
           </div>
         </TooltipProvider>
 
@@ -11820,6 +12012,8 @@ function CommunicationsDemoControl({
   onToggleTranslation,
   simulateUserEnabled,
   onToggleSimulateUser,
+  viewportPreset,
+  onSetViewportPreset,
 }: {
   clickToCallEnabled: boolean;
   onToggleClickToCall: () => void;
@@ -11834,6 +12028,8 @@ function CommunicationsDemoControl({
   onToggleTranslation: () => void;
   simulateUserEnabled: boolean;
   onToggleSimulateUser: () => void;
+  viewportPreset: ViewportPreset;
+  onSetViewportPreset: (preset: ViewportPreset) => void;
 }) {
   const [open, setOpen] = useState(false);
   const anyActive =
@@ -11842,7 +12038,8 @@ function CommunicationsDemoControl({
     superAgent1Enabled ||
     superAgent12Enabled ||
     translationEnabled ||
-    simulateUserEnabled;
+    simulateUserEnabled ||
+    viewportPreset !== "off";
 
   return (
     <div className="shrink-0 border-t border-border bg-muted/30">
@@ -11988,6 +12185,54 @@ function CommunicationsDemoControl({
             />
           </label>
 
+          {/*
+            Viewport-emulation presets — letter-box the whole OXP shell into
+            a fixed-size window centered in the browser so we can spot-check
+            the layout at the two most common laptop-monitor sizes property
+            staff actually use. Purely visual (no CDP / real viewport
+            change), so all app behavior stays identical — the toggles are
+            safe to leave on during a live demo. Modeled as mutually
+            exclusive switches: turning one on turns the other off, driven
+            by a single `viewportPreset` enum in the demo context.
+          */}
+          <label className="flex cursor-pointer items-start justify-between gap-2 rounded-md px-1.5 py-1.5 transition-colors hover:bg-muted/60">
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-semibold leading-tight text-foreground">
+                1366 × 768 preview
+              </p>
+              <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+                Frame the whole app at 1366 × 768 to preview a small-laptop
+                monitor
+              </p>
+            </div>
+            <Switch
+              checked={viewportPreset === "1366x768"}
+              onCheckedChange={(checked) =>
+                onSetViewportPreset(checked ? "1366x768" : "off")
+              }
+              className="mt-0.5"
+            />
+          </label>
+
+          <label className="flex cursor-pointer items-start justify-between gap-2 rounded-md px-1.5 py-1.5 transition-colors hover:bg-muted/60">
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-semibold leading-tight text-foreground">
+                1600 × 900 preview
+              </p>
+              <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+                Frame the whole app at 1600 × 900 to preview a 15-inch
+                laptop or entry-level desktop
+              </p>
+            </div>
+            <Switch
+              checked={viewportPreset === "1600x900"}
+              onCheckedChange={(checked) =>
+                onSetViewportPreset(checked ? "1600x900" : "off")
+              }
+              className="mt-0.5"
+            />
+          </label>
+
         </div>
       )}
     </div>
@@ -12099,7 +12344,7 @@ function ManageInboxSettingsPanel({
   // Local state — none of this is persisted yet. Wire to a real store later.
   const [soundOnNewMessage, setSoundOnNewMessage] = useState(false);
   const [desktopNotifications, setDesktopNotifications] = useState(false);
-  const [defaultInbox, setDefaultInbox] = useState<"all" | "escalated" | "property" | "last">("all");
+  const [defaultInbox, setDefaultInbox] = useState<"all" | "escalated" | "property">("all");
   const [defaultChannel, setDefaultChannel] = useState<"all" | "voice" | "sms" | "chat" | "email">("all");
 
   // Setup — one-time inbox cleanup. Uses the same context as the rest of the page,
@@ -12267,7 +12512,6 @@ function ManageInboxSettingsPanel({
       case "all": return "Open Threads";
       case "escalated": return "Property Threads";
       case "property": return "Eli Threads";
-      case "last": return "Last inbox I was on";
       default: return id;
     }
   };
@@ -12432,7 +12676,6 @@ function ManageInboxSettingsPanel({
                       <SelectItem value="all">Open Threads</SelectItem>
                       <SelectItem value="escalated">Property Threads</SelectItem>
                       <SelectItem value="property">Eli Threads</SelectItem>
-                      <SelectItem value="last">Last inbox I was on</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
