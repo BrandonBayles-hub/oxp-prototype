@@ -48,6 +48,25 @@ export function cadenceToMinutes(value: number, unit: EliPromptCadenceUnit): num
   return value;
 }
 
+/**
+ * Preview-viewport preset. Kept as a string enum (not a `{width, height}`
+ * object) so React comparisons stay reference-stable and the UI can drive
+ * mutually-exclusive switches with a simple `preset === "1366x768"` check.
+ *
+ * Add new presets by extending the union, adding an entry to
+ * `VIEWPORT_PRESET_SIZES`, and wiring a new switch row in the demo panel.
+ */
+export type ViewportPreset = "off" | "1366x768" | "1600x900";
+
+/** Physical pixel size each preset renders at inside the emulator frame. */
+export const VIEWPORT_PRESET_SIZES: Record<
+  Exclude<ViewportPreset, "off">,
+  { width: number; height: number }
+> = {
+  "1366x768": { width: 1366, height: 768 },
+  "1600x900": { width: 1600, height: 900 },
+};
+
 type ConversationsDemoContextValue = {
   /** Increments each time the demo should open the Entrata profile without the threads panel. */
   profileCommsPopupRequest: number;
@@ -74,6 +93,31 @@ type ConversationsDemoContextValue = {
    */
   simulateUserEnabled: boolean;
   toggleSimulateUserEnabled: () => void;
+  /**
+   * Viewport-emulation demo preset: when non-`off`, the whole `AppShell`
+   * is rendered inside a letter-boxed frame of the picked size centered
+   * in the physical browser window. Purely visual — we don't touch the
+   * browser's `window.innerWidth`, so Tailwind media queries still key
+   * off the real viewport. The prototype's layout only uses Tailwind's
+   * `lg` (≥1024) breakpoint for its sidebar/desktop chrome, and every
+   * preset here is safely above that, so the boxed layout renders the
+   * same "desktop" arrangement a real monitor of that size would.
+   *
+   * Useful for spot-checking that the conversations page (and adjacent
+   * screens) still fit the two most common laptop-monitor sizes
+   * property staff actually use — a 13" laptop (1366×768) and a 15"
+   * laptop or entry-level desktop (1600×900).
+   *
+   * Modeled as a single enum (rather than one boolean per preset) so
+   * the two options are mutually exclusive by construction — picking
+   * one automatically clears the other, no coordination needed at the
+   * call sites.
+   *
+   * Lives in the Communications Demo Control panel next to the other
+   * prototype-only toggles so it's easy to flip during demos.
+   */
+  viewportPreset: ViewportPreset;
+  setViewportPreset: (preset: ViewportPreset) => void;
   /**
    * Follow-up: when enabled, SMS/Email threads where staff sent the last public
    * message get a "needs-follow-up" marker on the thread card once the wait
@@ -233,6 +277,7 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
     ]),
   );
   const [simulateUserEnabled, setSimulateUserEnabled] = useState(false);
+  const [viewportPreset, setViewportPresetState] = useState<ViewportPreset>("off");
   const [followUpEnabled, setFollowUpEnabled] = useState(false);
   const [followUpDaysList, setFollowUpDaysListState] = useState<number[]>([3]);
   const setFollowUpDaysList = useCallback((days: number[]) => {
@@ -329,6 +374,15 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
     setSimulateUserEnabled((v) => !v);
   }, []);
 
+  // Public setter — accepts the exact enum value the UI is switching to.
+  // Wrapped so we can eventually persist / log preset changes without
+  // rewriting consumers. Because state lives in a single scalar, mutual
+  // exclusivity is automatic: flipping to "1600x900" implicitly clears
+  // "1366x768" and vice versa.
+  const setViewportPreset = useCallback((preset: ViewportPreset) => {
+    setViewportPresetState(preset);
+  }, []);
+
   const setThreadPropertyOwned = useCallback((id: string, owned: boolean) => {
     setPropertyOwnedThreadIds((prev) => {
       const next = new Set(prev);
@@ -352,6 +406,8 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
       setThreadPropertyOwned,
       simulateUserEnabled,
       toggleSimulateUserEnabled,
+      viewportPreset,
+      setViewportPreset,
       followUpEnabled,
       setFollowUpEnabled,
       followUpDaysList,
@@ -392,6 +448,8 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
       setThreadPropertyOwned,
       simulateUserEnabled,
       toggleSimulateUserEnabled,
+      viewportPreset,
+      setViewportPreset,
       followUpEnabled,
       followUpDaysList,
       setFollowUpDaysList,
