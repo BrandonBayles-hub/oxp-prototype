@@ -2661,28 +2661,32 @@ function ConversationsContent() {
   }, [conversations, propertyOwnedThreadIds, eliModeByThreadId]);
 
   /**
-   * SA 1.2 "effective unread" predicate. In SA 1.2 mode a thread only
-   * reads as unread when it's in the "Needs Action" bucket —
-   * i.e. property-owned AND `needsStaffResponse`. Anything that falls
-   * into "No Action Needed" (Eli-owned, resolved, waiting on the
-   * resident, follow-up done, etc.) is always rendered as read: no
-   * red dot on the card, no bold preview, no contribution to the
-   * sidebar / quick-filter / section-header unread badges.
+   * "Effective unread" predicate — used everywhere the UI has to decide
+   * whether a card gets a red dot, whether a preview bolds, and whether
+   * the thread contributes to sidebar / quick-filter / section-header
+   * unread counts.
    *
-   * The intent is that the red-badge system stays a signal about
-   * *work staff still has to do* rather than a strict "any new inbound
-   * bit" signal. If Eli or another staffer already handled the thread
-   * and it slid to "No Action Needed," subsequent late reads or trailing
-   * "thanks!" replies won't re-light the badge unless they push the
-   * thread back into "Needs Action."
+   * Today this is a straight passthrough of the raw `hasUnread` flag.
+   * In SA 1.2 the two-bucket list ("Needs Action" / "No Action Needed")
+   * *organizes* threads by whether staff still owes a reply, but it
+   * does NOT gate the unread signal itself:
+   *   - A thread in "Needs Action" reads as unread iff `hasUnread` is
+   *     true (usually because the resident just replied).
+   *   - A thread in "No Action Needed" ALSO reads as unread iff
+   *     `hasUnread` is true. That flag will typically be false there
+   *     (staff already replied, which called `markRead`), but a staffer
+   *     can right-click → "Mark as unread" on any thread — including
+   *     one in No Action Needed — to force the red dot back on for
+   *     triage purposes. When that happens the dot re-appears on the
+   *     card, the "No Action Needed" section-header chip lights up,
+   *     and the thread contributes to every downstream count.
    *
-   * In SA 1.0 / non-SA modes the helper falls back to the raw
-   * `hasUnread` flag so nothing outside SA 1.2 changes behavior.
+   * This helper stays a separate function (rather than inlining
+   * `c.hasUnread`) so a future reintroduction of bucket-scoped
+   * unread masking has one obvious place to plug back into.
    */
   const isEffectivelyUnread = (c: (typeof conversations)[number]): boolean => {
-    if (!c.hasUnread) return false;
-    if (!superAgent12Enabled) return true;
-    return isPropertyOwnedSA12(c) && needsStaffResponse(c);
+    return c.hasUnread;
   };
 
   /**
@@ -2751,8 +2755,9 @@ function ConversationsContent() {
         continue;
       }
       // Only include unread threads — matches the sidebar badge.
-      // Uses the SA 1.2 "effective" unread definition so threads in the
-      // "No Action Needed" group are treated as read here too.
+      // Uses `isEffectivelyUnread`, which is a straight `hasUnread` check:
+      // any thread staff has explicitly marked unread contributes here,
+      // whether it lives in "Needs Action" or "No Action Needed."
       if (!isEffectivelyUnread(c)) continue;
       counts.all += 1;
       // Increment every channel bucket the thread touches — primary
@@ -5533,12 +5538,12 @@ function ConversationsContent() {
 
               {/* Section grouping inside Property Threads. Documents the SA
                   1.2 change that split the list into two collapsible groups
-                  driven by needsStaffResponse. The red unread chip only
-                  appears on the "Needs Action" header — anything in
-                  "No Action Needed" reads as read (see
-                  `isEffectivelyUnread`), so the chip is structurally never
-                  drawn on that section's header even when the underlying
-                  `hasUnread` flag on a card is still true. */}
+                  driven by needsStaffResponse. Both section headers can
+                  show a red unread chip when the underlying threads have
+                  `hasUnread: true` — "Needs Action" typically lights up
+                  from fresh resident replies, and "No Action Needed"
+                  lights up whenever staff explicitly marks one of its
+                  threads as unread. */}
               <div className="rounded-md border border-border/60 bg-muted/40 p-3">
                 <p className="text-xs font-semibold">Needs Action vs No Action Needed</p>
 
@@ -5613,14 +5618,19 @@ function ConversationsContent() {
                   </li>
                 </ul>
                 <p className="mt-1.5 text-xs text-muted-foreground">
-                  The red unread chip only shows on the{" "}
-                  <span className="font-medium text-foreground">Needs Action</span>{" "}
-                  header. Threads that live in{" "}
+                  The red unread chip lights up on whichever section contains
+                  unread threads. Most of the time that&apos;s just{" "}
+                  <span className="font-medium text-foreground">Needs Action</span>,
+                  because staff typically read a thread the moment they
+                  reply and it slides down to{" "}
                   <span className="font-medium text-foreground">No Action Needed</span>{" "}
-                  are treated as read across the app — no red dot on the card,
-                  no contribution to the sidebar or quick-filter counts, no
-                  chip on that section&apos;s header — so the unread signal
-                  stays focused on work you still have to do.
+                  already read. If you ever right-click a thread in{" "}
+                  <span className="font-medium text-foreground">No Action Needed</span>{" "}
+                  and pick <span className="font-medium text-foreground">Mark as unread</span>,
+                  it gets the red dot back on the card, contributes to the
+                  sidebar and quick-filter counts, and lights its own
+                  section-header chip — so triage marks stay visible no
+                  matter where the thread lives.
                 </p>
               </div>
 
@@ -6102,13 +6112,12 @@ function ConversationsContent() {
                 : [];
               // Header chips: only the red "unread" chip is shown, and
               // only when the section contains at least one unread
-              // thread. Since `isEffectivelyUnread` is now scoped to
-              // property-owned + `needsStaffResponse` (i.e. exactly the
-              // "Needs Action" membership rule), `noActionUnreadCount`
-              // is structurally always 0 — every "No Action Needed"
-              // thread renders as read. We still compute the count so
-              // if the effective-unread rule is ever loosened again
-              // the section-header chip lights up automatically.
+              // thread. `isEffectivelyUnread` is a straight passthrough
+              // of `hasUnread` (see the helper's JSDoc), so both
+              // sections can light their chip — a "No Action Needed"
+              // thread that staff manually marked unread lights the
+              // "No Action Needed" header chip; the section is no
+              // longer force-read.
               const needsActionUnreadCount = needsActionThreads.filter((c) =>
                 isEffectivelyUnread(c),
               ).length;
