@@ -218,7 +218,26 @@ export type ConversationItem = {
   contactType: string;
   property: string;
   channel: string;
-  /** Additional communication channels used in this thread (e.g. Voice added to SMS thread). */
+  /**
+   * Additional communication channels used in this thread beyond the
+   * primary `channel` — e.g. Voice added onto an SMS thread once staff
+   * placed an outbound call, or SMS added onto a Voice thread once staff
+   * texted after a voicemail.
+   *
+   * INVARIANT: only include a channel here if the thread's `messages`
+   * array *actually contains* a corresponding event for it. Voice means
+   * at least one `voicemail`, `missed_call`, or `phone_call`
+   * thread_activity is present; SMS means at least one staff/agent/
+   * resident `type: "message"` bubble exists on a non-Email/non-Chat
+   * thread. Never populate this field with a channel that has no
+   * message-level evidence — the thread card labels are meant to
+   * reflect real activity, not future intent.
+   *
+   * Both the primary `channel` and every id in `additionalChannels`
+   * feed the SA 1.2 Quick Filter counts and the "match if any channel"
+   * filter logic via `conversationChannelIds()` in
+   * app/conversations/page.tsx.
+   */
   additionalChannels?: string[];
   /** When `channel` is Email, shown as the thread subject in the conversation panel. */
   emailSubject?: string;
@@ -334,6 +353,65 @@ function nextHasUnreadAfterAppend(c: ConversationItem, message: ConversationMess
   )
     return c.hasUnread;
   return message.role === "resident";
+}
+
+/**
+ * Inspects a newly-appended message and decides which display-cased
+ * channel label it implies for the thread.
+ *
+ * Voice-adjacent activity (voicemail, missed_call, phone_call
+ * thread_activity) always implies "Voice." A plain `type: "message"`
+ * body implies the thread's own primary channel — with one asymmetry:
+ * a plain message on a Voice-primary thread is understood as an
+ * outbound SMS reply, since staff typing a text into a voicemail
+ * thread's composer goes to the resident's phone as an SMS (there's
+ * no "reply by voice inline" affordance in the composer).
+ *
+ * Internal / bookkeeping messages (private_note, label_activity,
+ * handoff, and every non-phone_call thread_activity kind) return
+ * null — those don't move bits over any channel and shouldn't
+ * change the thread's channel labels.
+ *
+ * Callers use this to keep `additionalChannels` honest: any real
+ * cross-channel exchange earns a chip on the thread card, and only
+ * a real exchange earns one.
+ */
+function messageImpliesChannel(
+  m: ConversationMessage,
+  primaryChannel: string
+): "Voice" | "SMS" | "Email" | "Resident Chat" | null {
+  if (m.type === "voicemail" || m.type === "missed_call") return "Voice";
+  if (m.type === "thread_activity") {
+    if (m.threadActivity?.kind === "phone_call") return "Voice";
+    return null;
+  }
+  if (m.type === "message") {
+    if (primaryChannel === "Voice" || primaryChannel === "Phone") return "SMS";
+    if (primaryChannel === "SMS") return "SMS";
+    if (primaryChannel === "Email") return "Email";
+    if (primaryChannel === "Resident Chat") return "Resident Chat";
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Returns the next `additionalChannels` value for a thread after
+ * appending `message`. Returns the current value (possibly `undefined`)
+ * unchanged when nothing new was crossed — callers can treat
+ * `next === c.additionalChannels` as "no delta" and avoid an
+ * unnecessary state rewrite.
+ */
+function nextAdditionalChannelsAfterMessage(
+  c: ConversationItem,
+  message: ConversationMessage
+): string[] | undefined {
+  const implied = messageImpliesChannel(message, c.channel);
+  if (!implied) return c.additionalChannels;
+  if (implied === c.channel) return c.additionalChannels;
+  const existing = c.additionalChannels ?? [];
+  if (existing.some((ch) => ch === implied)) return c.additionalChannels;
+  return [...existing, implied];
 }
 
 /** A logged phone call by staff/agent counts as a reply to inbound voicemail/missed calls. */
@@ -691,6 +769,11 @@ Hillside Living
     contactType: "Lead",
     property: "Hillside Living",
     channel: "SMS",
+    // Thread started as SMS, but staff placed an outbound call to Alma
+    // to confirm the pricing exception verbally before nudging her for
+    // the application — so this SMS thread now also carries a Voice
+    // label and appears under both channel Quick Filters.
+    additionalChannels: ["Voice"],
     assignee: "ELI+ Leasing AI",
     labels: ["Leasing AI", "Leasing AI Escalation"],
     escalationId: "esc-hillside-alma-12",
@@ -707,6 +790,25 @@ Hillside Living
         timestamp: "Sep 15 2025 · 8:17pm MST",
         type: "private_note",
         privateNoteAuthor: "Abe Kashiwagi",
+      },
+      // Staff placed an outbound call to confirm the pricing exception
+      // verbally before moving Alma to the application step. This is
+      // what earns the Voice label on an SMS-primary thread — one
+      // actual phone-call activity row backs the second channel chip.
+      {
+        role: "staff",
+        type: "thread_activity",
+        text: "",
+        timestamp: "Sep 15 2025 · 8:24pm MST",
+        threadActivity: {
+          kind: "phone_call",
+          actor: "Abe Kashiwagi",
+          phoneNumber: "+1 (415) 555-8821",
+          outcome: "connected",
+          durationLabel: "4:12",
+          direction: "outbound",
+          notes: "Called Alma to confirm the pricing exception verbally. She's on board and will submit the application tonight; I'll send the pre-app checklist + ID upload link right after this call as a text.",
+        },
       },
     ],
   },
@@ -1146,6 +1248,11 @@ Hillside Living
     contactType: "Resident",
     property: "Hillside Living",
     channel: "Voice",
+    // Voicemail came in first, but staff followed up with an SMS to
+    // Jordan letting him know a technician is en route — so this thread
+    // now carries both Voice and SMS labels and shows up under both
+    // Quick Filters.
+    additionalChannels: ["SMS"],
     assignee: "Abe Kashiwagi",
     labels: ["Resident", "Maintenance AI Escalation"],
     status: "open",
@@ -1197,6 +1304,15 @@ Hillside Living
           reason:
             "Resident is locked out — front-door keypad is unresponsive after multiple attempts and requires on-call maintenance dispatch, which the AI cannot arrange after hours.",
         },
+      },
+      // Staff acknowledged the voicemail with an outbound SMS reply.
+      // This is what earns the SMS label on a Voice-primary thread —
+      // one actual text message backs the second channel chip.
+      {
+        role: "staff",
+        text: "Hi Jordan — got your voicemail. On-call tech is en route for the keypad, ETA ~20 min. I've temporarily unlocked the loading-dock side entrance so you can get in with your groceries in the meantime.",
+        timestamp: "Aug 29 2026 · 8:47pm MST",
+        type: "message",
       },
     ],
   },
@@ -2866,6 +2982,10 @@ export const ESCALATION_REASON_BY_LABEL: Record<string, string> = {
     "Resident asked when a technician will arrive for dishwasher work order #48219 (submitted last week). Maintenance AI could not confirm a schedule from available data and escalated for staff to check the queue.",
   "Maintenance AI 2 Escalation":
     "While still waiting on the dishwasher update, resident reported a separate issue — A/C not blowing cold air. Maintenance AI escalated so staff can open or prioritize a second work order independent of #48219.",
+  "Maintenance AI Escalation":
+    "Resident reported a maintenance issue that requires staff attention — either a work-order status update the AI could not confirm from the system, or a recurring problem that a quick patch has not resolved. Escalated so the maintenance lead can review history and dispatch.",
+  "Leasing AI Escalation":
+    "Prospect or lead asked a leasing question the AI could not answer or approve on its own (e.g. tour scheduling outside public hours, pet-policy exception, pricing/parking specifics). Escalated so a leasing consultant can follow up with a real answer.",
 };
 
 export function getEscalationReason(label: string): string {
@@ -3055,6 +3175,383 @@ export function isTranslationDemoThread(id: string): boolean {
   return TRANSLATION_DEMO_THREAD_IDS.has(id);
 }
 
+/**
+ * "Breakouts Example" demo threads (SA 1.2). Ten property-owned,
+ * needs-staff-response threads that flood the "Needs Action" bucket so
+ * the two-bucket list demonstrates the "there are too many rows, No
+ * Action Needed is now off-screen" scenario. Each thread carries an
+ * escalation label (which makes it property-owned per
+ * `isPropertyOwnedSA12` in `app/conversations/page.tsx`) and ends with
+ * a resident/lead public message (which makes it satisfy
+ * `needsStaffResponse` in this file). Together those two predicates
+ * guarantee membership in the "Needs Action" bucket, no per-thread
+ * ownership seeding required.
+ *
+ * These threads are ONLY visible when the "Breakouts Example" toggle
+ * in Communications Demo Controls is on — see `isBreakoutsExampleDemoThread`
+ * plus the filter step in `ConversationsProvider.filteredItems`. Outside
+ * of SA 1.2 they simply flow into the flat list, but the peek pill that
+ * jumps between buckets is SA-1.2-only.
+ *
+ * Timestamps are staggered across a plausible morning-of-triage window
+ * so the newest-first sort renders them as a natural queue.
+ */
+export const BREAKOUTS_EXAMPLE_DEMO_THREADS: ConversationItem[] = [
+  {
+    id: "breakouts-1",
+    resident: "Regina Yu",
+    unit: "Unit 208",
+    preview: "It's been almost a week — any update at all?",
+    agent: "Maintenance AI",
+    time: "3m ago",
+    contactType: "Resident",
+    property: "Hillside Living",
+    channel: "SMS",
+    assignee: "ELI+ Maintenance AI",
+    labels: ["Maintenance AI", "Maintenance AI Escalation", "Work Order"],
+    escalationId: "esc-breakouts-regina-01",
+    status: "open",
+    hasUnread: true,
+    messages: [
+      { role: "resident", text: "Hey — my dishwasher work order (#48417) has been open since last Tuesday. I still haven't heard anything.", timestamp: "Aug 30 2026 · 9:52am MST", type: "message" },
+      { role: "agent", text: "Thanks for the nudge, Regina. Let me pass this to the maintenance team to get you a real ETA.", timestamp: "Aug 30 2026 · 9:53am MST", type: "message" },
+      { role: "staff", text: "", timestamp: "Aug 30 2026 · 9:53am MST", type: "handoff" },
+      {
+        role: "staff",
+        text: "",
+        timestamp: "Aug 30 2026 · 9:53am MST",
+        type: "label_activity",
+        labelActivity: {
+          actor: "ELI+ Maintenance AI",
+          labelsAdded: ["Maintenance AI Escalation"],
+          action: "added",
+          reason: ESCALATION_REASON_BY_LABEL["Maintenance AI Escalation"],
+        },
+      },
+      { role: "resident", text: "It's been almost a week — any update at all?", timestamp: "Sep 3 2026 · 8:14am MST", type: "message" },
+    ],
+  },
+  {
+    id: "breakouts-2",
+    resident: "Kenji Watanabe",
+    unit: "Unit 415",
+    preview: "I don't recognize this charge — can someone explain?",
+    agent: "Payments AI",
+    time: "8m ago",
+    contactType: "Resident",
+    property: "Jamison Apartments",
+    channel: "Email",
+    emailSubject: "Re: August ledger — unexpected charge",
+    assignee: "ELI+ Payments AI",
+    labels: ["Payments AI", "Payments AI Escalation"],
+    escalationId: "esc-breakouts-kenji-02",
+    status: "open",
+    hasUnread: true,
+    messages: [
+      { role: "resident", text: "There's a $124 charge on my August statement labeled 'utility reconciliation' but nothing was posted last month. Can you break this down?", timestamp: "Sep 2 2026 · 4:41pm MST", type: "message" },
+      { role: "agent", text: "Thanks Kenji — that reconciliation charge is set by Accounting, not by me. I'm looping in someone from the property team who can pull the underlying invoice.", timestamp: "Sep 2 2026 · 4:42pm MST", type: "message" },
+      { role: "staff", text: "", timestamp: "Sep 2 2026 · 4:42pm MST", type: "handoff" },
+      {
+        role: "staff",
+        text: "",
+        timestamp: "Sep 2 2026 · 4:42pm MST",
+        type: "label_activity",
+        labelActivity: {
+          actor: "ELI+ Payments AI",
+          labelsAdded: ["Payments AI Escalation"],
+          action: "added",
+          reason: ESCALATION_REASON_BY_LABEL["Payments AI Escalation"],
+        },
+      },
+      { role: "resident", text: "I don't recognize this charge — can someone explain?", timestamp: "Sep 3 2026 · 8:19am MST", type: "message" },
+    ],
+  },
+  {
+    id: "breakouts-3",
+    resident: "Sonia Martinez",
+    unit: "Unit 611",
+    preview: "So what does that mean for my monthly rent?",
+    agent: "Renewals AI",
+    time: "14m ago",
+    contactType: "Resident",
+    property: "Hillside Living",
+    channel: "SMS",
+    assignee: "ELI+ Renewals AI",
+    labels: ["Renewals AI", "Renewals AI Escalation"],
+    escalationId: "esc-breakouts-sonia-03",
+    status: "open",
+    hasUnread: true,
+    messages: [
+      { role: "resident", text: "I got the renewal offer but the numbers don't match what my leasing rep quoted verbally last week.", timestamp: "Sep 3 2026 · 7:43am MST", type: "message" },
+      { role: "agent", text: "Thanks for flagging that Sonia. I don't have the verbal quote in my system, so I'm escalating to the leasing manager to reconcile.", timestamp: "Sep 3 2026 · 7:44am MST", type: "message" },
+      { role: "staff", text: "", timestamp: "Sep 3 2026 · 7:44am MST", type: "handoff" },
+      {
+        role: "staff",
+        text: "",
+        timestamp: "Sep 3 2026 · 7:44am MST",
+        type: "label_activity",
+        labelActivity: {
+          actor: "ELI+ Renewals AI",
+          labelsAdded: ["Renewals AI Escalation"],
+          action: "added",
+          reason: ESCALATION_REASON_BY_LABEL["Renewals AI Escalation"],
+        },
+      },
+      { role: "resident", text: "So what does that mean for my monthly rent?", timestamp: "Sep 3 2026 · 8:08am MST", type: "message" },
+    ],
+  },
+  {
+    id: "breakouts-4",
+    resident: "Adrian Cole",
+    unit: null,
+    preview: "Do you have any virtual tour openings this afternoon?",
+    agent: "Leasing AI",
+    time: "17m ago",
+    contactType: "Lead",
+    property: "Jamison Apartments",
+    channel: "SMS",
+    assignee: "ELI+ Leasing AI",
+    labels: ["Leasing AI", "Leasing AI Escalation"],
+    escalationId: "esc-breakouts-adrian-04",
+    status: "open",
+    hasUnread: true,
+    messages: [
+      { role: "resident", text: "Hi — I'm interested in the 2BR floor plan. My work schedule only lets me tour after 5pm on weekdays. Is that possible?", timestamp: "Sep 3 2026 · 7:22am MST", type: "message" },
+      { role: "agent", text: "Thanks for reaching out Adrian! Our public tour hours end at 5pm, so I'm looping in a leasing consultant to see if they can accommodate an after-hours slot.", timestamp: "Sep 3 2026 · 7:23am MST", type: "message" },
+      { role: "staff", text: "", timestamp: "Sep 3 2026 · 7:23am MST", type: "handoff" },
+      {
+        role: "staff",
+        text: "",
+        timestamp: "Sep 3 2026 · 7:23am MST",
+        type: "label_activity",
+        labelActivity: {
+          actor: "ELI+ Leasing AI",
+          labelsAdded: ["Leasing AI Escalation"],
+          action: "added",
+          reason: ESCALATION_REASON_BY_LABEL["Leasing AI Escalation"],
+        },
+      },
+      { role: "resident", text: "Do you have any virtual tour openings this afternoon?", timestamp: "Sep 3 2026 · 8:05am MST", type: "message" },
+    ],
+  },
+  {
+    id: "breakouts-5",
+    resident: "Fatima Diallo",
+    unit: "Unit 122",
+    preview: "This is the third time — I need someone to actually come by.",
+    agent: "Maintenance AI",
+    time: "22m ago",
+    contactType: "Resident",
+    property: "Hillside Living",
+    channel: "Email",
+    emailSubject: "Re: Recurring leak under kitchen sink — Unit 122",
+    assignee: "ELI+ Maintenance AI",
+    labels: ["Maintenance AI", "Maintenance AI Escalation", "Work Order"],
+    escalationId: "esc-breakouts-fatima-05",
+    status: "open",
+    hasUnread: true,
+    messages: [
+      { role: "resident", text: "The leak under my kitchen sink is back. I've already reported this twice this summer — WO #47201 and #47588. It keeps returning after a few days.", timestamp: "Sep 3 2026 · 7:18am MST", type: "message" },
+      { role: "agent", text: "That's frustrating Fatima — recurring issues like this need a proper diagnosis rather than another quick patch. I'm escalating so the maintenance lead can look at the history.", timestamp: "Sep 3 2026 · 7:19am MST", type: "message" },
+      { role: "staff", text: "", timestamp: "Sep 3 2026 · 7:19am MST", type: "handoff" },
+      {
+        role: "staff",
+        text: "",
+        timestamp: "Sep 3 2026 · 7:19am MST",
+        type: "label_activity",
+        labelActivity: {
+          actor: "ELI+ Maintenance AI",
+          labelsAdded: ["Maintenance AI Escalation"],
+          action: "added",
+          reason: ESCALATION_REASON_BY_LABEL["Maintenance AI Escalation"],
+        },
+      },
+      { role: "resident", text: "This is the third time — I need someone to actually come by.", timestamp: "Sep 3 2026 · 8:00am MST", type: "message" },
+    ],
+  },
+  {
+    id: "breakouts-6",
+    resident: "Nikolai Vetrov",
+    unit: "Unit 507",
+    preview: "Could we set up a partial-pay plan for September?",
+    agent: "Payments AI",
+    time: "29m ago",
+    contactType: "Resident",
+    property: "Hillside Living",
+    channel: "SMS",
+    assignee: "ELI+ Payments AI",
+    labels: ["Payments AI", "Payments AI Escalation"],
+    escalationId: "esc-breakouts-nikolai-06",
+    status: "open",
+    hasUnread: true,
+    messages: [
+      { role: "resident", text: "Hey — I'll be a few days late on September rent because of a pay-schedule issue at my new job. Is there a way to set up a partial payment plan?", timestamp: "Sep 3 2026 · 7:11am MST", type: "message" },
+      { role: "agent", text: "Thanks for the heads-up Nikolai. Payment plan requests need property-manager approval, so I'm escalating this so they can review your ledger.", timestamp: "Sep 3 2026 · 7:12am MST", type: "message" },
+      { role: "staff", text: "", timestamp: "Sep 3 2026 · 7:12am MST", type: "handoff" },
+      {
+        role: "staff",
+        text: "",
+        timestamp: "Sep 3 2026 · 7:12am MST",
+        type: "label_activity",
+        labelActivity: {
+          actor: "ELI+ Payments AI",
+          labelsAdded: ["Payments AI Escalation"],
+          action: "added",
+          reason: ESCALATION_REASON_BY_LABEL["Payments AI Escalation"],
+        },
+      },
+      { role: "resident", text: "Could we set up a partial-pay plan for September?", timestamp: "Sep 3 2026 · 7:53am MST", type: "message" },
+    ],
+  },
+  {
+    id: "breakouts-7",
+    resident: "Talia Brooks",
+    unit: null,
+    preview: "I have a Great Dane — is that going to be an issue?",
+    agent: "Leasing AI",
+    time: "35m ago",
+    contactType: "Lead",
+    property: "Jamison Apartments",
+    channel: "Email",
+    emailSubject: "Re: 1BR availability — pet policy question",
+    assignee: "ELI+ Leasing AI",
+    labels: ["Leasing AI", "Leasing AI Escalation"],
+    escalationId: "esc-breakouts-talia-07",
+    status: "open",
+    hasUnread: true,
+    messages: [
+      { role: "resident", text: "Hi! Considering the 1BR listing on your website. I have a 140lb Great Dane — I know that's above your standard pet weight limit. Is there flexibility?", timestamp: "Sep 3 2026 · 7:03am MST", type: "message" },
+      { role: "agent", text: "Thanks for asking upfront, Talia! Weight-limit exceptions aren't something I can approve myself, so I'm escalating to a leasing manager who can review the request.", timestamp: "Sep 3 2026 · 7:04am MST", type: "message" },
+      { role: "staff", text: "", timestamp: "Sep 3 2026 · 7:04am MST", type: "handoff" },
+      {
+        role: "staff",
+        text: "",
+        timestamp: "Sep 3 2026 · 7:04am MST",
+        type: "label_activity",
+        labelActivity: {
+          actor: "ELI+ Leasing AI",
+          labelsAdded: ["Leasing AI Escalation"],
+          action: "added",
+          reason: ESCALATION_REASON_BY_LABEL["Leasing AI Escalation"],
+        },
+      },
+      { role: "resident", text: "I have a Great Dane — is that going to be an issue?", timestamp: "Sep 3 2026 · 7:47am MST", type: "message" },
+    ],
+  },
+  {
+    id: "breakouts-8",
+    resident: "Emerson Chase",
+    unit: "Unit 319",
+    preview: "No hot water since last night — I need to shower before work.",
+    agent: "Maintenance AI",
+    time: "42m ago",
+    contactType: "Resident",
+    property: "Hillside Living",
+    channel: "SMS",
+    assignee: "ELI+ Maintenance AI",
+    labels: ["Maintenance AI", "Maintenance AI Escalation", "Work Order"],
+    escalationId: "esc-breakouts-emerson-08",
+    status: "open",
+    hasUnread: true,
+    messages: [
+      { role: "resident", text: "Zero hot water in the entire unit since last night. Both bathrooms and the kitchen.", timestamp: "Sep 3 2026 · 6:55am MST", type: "message" },
+      { role: "agent", text: "That's an emergency-tier issue Emerson — I'm escalating to on-call maintenance right now so someone can dispatch.", timestamp: "Sep 3 2026 · 6:56am MST", type: "message" },
+      { role: "staff", text: "", timestamp: "Sep 3 2026 · 6:56am MST", type: "handoff" },
+      {
+        role: "staff",
+        text: "",
+        timestamp: "Sep 3 2026 · 6:56am MST",
+        type: "label_activity",
+        labelActivity: {
+          actor: "ELI+ Maintenance AI",
+          labelsAdded: ["Maintenance AI Escalation"],
+          action: "added",
+          reason: ESCALATION_REASON_BY_LABEL["Maintenance AI Escalation"],
+        },
+      },
+      { role: "resident", text: "No hot water since last night — I need to shower before work.", timestamp: "Sep 3 2026 · 7:40am MST", type: "message" },
+    ],
+  },
+  {
+    id: "breakouts-9",
+    resident: "Casey Reyes",
+    unit: "Unit 802",
+    preview: "Any way to freeze the current rate for another year?",
+    agent: "Renewals AI",
+    time: "48m ago",
+    contactType: "Resident",
+    property: "Jamison Apartments",
+    channel: "SMS",
+    assignee: "ELI+ Renewals AI",
+    labels: ["Renewals AI", "Renewals AI Escalation"],
+    escalationId: "esc-breakouts-casey-09",
+    status: "open",
+    hasUnread: true,
+    messages: [
+      { role: "resident", text: "I've been a resident for 4 years now with no incidents. Any chance we can freeze the current rate for the next renewal instead of the standard bump?", timestamp: "Sep 3 2026 · 6:48am MST", type: "message" },
+      { role: "agent", text: "Thanks for being a long-term resident Casey! Rate holds aren't something I can approve myself, so I'm passing this to the property manager to consider.", timestamp: "Sep 3 2026 · 6:49am MST", type: "message" },
+      { role: "staff", text: "", timestamp: "Sep 3 2026 · 6:49am MST", type: "handoff" },
+      {
+        role: "staff",
+        text: "",
+        timestamp: "Sep 3 2026 · 6:49am MST",
+        type: "label_activity",
+        labelActivity: {
+          actor: "ELI+ Renewals AI",
+          labelsAdded: ["Renewals AI Escalation"],
+          action: "added",
+          reason: ESCALATION_REASON_BY_LABEL["Renewals AI Escalation"],
+        },
+      },
+      { role: "resident", text: "Any way to freeze the current rate for another year?", timestamp: "Sep 3 2026 · 7:34am MST", type: "message" },
+    ],
+  },
+  {
+    id: "breakouts-10",
+    resident: "Winston Park",
+    unit: null,
+    preview: "Are covered parking spots included in the base rent?",
+    agent: "Leasing AI",
+    time: "55m ago",
+    contactType: "Lead",
+    property: "Hillside Living",
+    channel: "Email",
+    emailSubject: "Re: Studio availability — parking question",
+    assignee: "ELI+ Leasing AI",
+    labels: ["Leasing AI", "Leasing AI Escalation"],
+    escalationId: "esc-breakouts-winston-10",
+    status: "open",
+    hasUnread: true,
+    messages: [
+      { role: "resident", text: "Hi — the studio listing says 'reserved parking available' but doesn't say whether it costs extra. Can you confirm?", timestamp: "Sep 3 2026 · 6:41am MST", type: "message" },
+      { role: "agent", text: "Thanks for asking Winston! Parking pricing is set at the property level and it looks like there's a covered/uncovered distinction I don't have full detail on, so I'm escalating to leasing.", timestamp: "Sep 3 2026 · 6:42am MST", type: "message" },
+      { role: "staff", text: "", timestamp: "Sep 3 2026 · 6:42am MST", type: "handoff" },
+      {
+        role: "staff",
+        text: "",
+        timestamp: "Sep 3 2026 · 6:42am MST",
+        type: "label_activity",
+        labelActivity: {
+          actor: "ELI+ Leasing AI",
+          labelsAdded: ["Leasing AI Escalation"],
+          action: "added",
+          reason: ESCALATION_REASON_BY_LABEL["Leasing AI Escalation"],
+        },
+      },
+      { role: "resident", text: "Are covered parking spots included in the base rent?", timestamp: "Sep 3 2026 · 7:27am MST", type: "message" },
+    ],
+  },
+];
+
+const BREAKOUTS_EXAMPLE_DEMO_THREAD_IDS = new Set(
+  BREAKOUTS_EXAMPLE_DEMO_THREADS.map((c) => c.id),
+);
+
+/** True when the thread was injected by the "Breakouts Example" demo toggle. */
+export function isBreakoutsExampleDemoThread(id: string): boolean {
+  return BREAKOUTS_EXAMPLE_DEMO_THREAD_IDS.has(id);
+}
+
 type ConversationsContextValue = {
   items: ConversationItem[];
   filteredItems: ConversationItem[];
@@ -3090,7 +3587,8 @@ export function isClickToCallDemoThread(id: string): boolean {
 export function ConversationsProvider({ children }: { children: React.ReactNode }) {
   const { roleProperties } = useRole();
   const { clickToCallEnabled } = useClickToCallDemo();
-  const { superAgentEnabled, superAgent1Enabled } = useConversationsDemo();
+  const { superAgentEnabled, superAgent1Enabled, breakoutsExampleEnabled } =
+    useConversationsDemo();
   const { translationEnabled } = useTranslationDemo();
   const [items, setItems] = useState<ConversationItem[]>(() => {
     const seeded = [
@@ -3098,6 +3596,7 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
       ...SUPER_AGENT_DEMO_THREADS,
       ...SUPER_AGENT_1_DEMO_THREADS,
       ...TRANSLATION_DEMO_THREADS,
+      ...BREAKOUTS_EXAMPLE_DEMO_THREADS,
       ...INITIAL,
     ];
     return seeded.map((c) => {
@@ -3115,9 +3614,14 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
         if (!superAgentEnabled && isSuperAgentDemoThread(c.id)) return false;
         if (!superAgent1Enabled && isSuperAgent1DemoThread(c.id)) return false;
         if (!translationEnabled && isTranslationDemoThread(c.id)) return false;
+        // "Breakouts Example" demo threads — 10 needs-staff-response threads
+        // that flood the Needs Action bucket so the peek-pill affordance
+        // has something to jump *from*. Off by default; the toggle in
+        // Communications Demo Controls flips them in.
+        if (!breakoutsExampleEnabled && isBreakoutsExampleDemoThread(c.id)) return false;
         return matchesRoleProperties(c.property, roleProperties);
       }),
-    [items, clickToCallEnabled, superAgentEnabled, superAgent1Enabled, translationEnabled, roleProperties]
+    [items, clickToCallEnabled, superAgentEnabled, superAgent1Enabled, translationEnabled, breakoutsExampleEnabled, roleProperties]
   );
 
   const propertyCount = new Set(filteredItems.map((c) => c.property)).size;
@@ -3127,11 +3631,20 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
       prev.map((c) => {
         if (c.id !== conversationId) return c;
         const nextMessages = [...c.messages, message];
+        // Keep the thread's channel labels honest: if this message
+        // introduced a channel the thread hadn't previously exchanged
+        // on (e.g. a staff SMS reply typed into a Voice thread's
+        // composer, or a phone_call activity logged on an SMS
+        // thread), append that channel to `additionalChannels` so
+        // the card renders both chips and both quick-filter counts
+        // include it. See `messageImpliesChannel` for the mapping.
+        const nextAdditionalChannels = nextAdditionalChannelsAfterMessage(c, message);
         if (message.type === "label_activity" || message.type === "thread_activity") {
           return {
             ...c,
             messages: nextMessages,
             hasUnread: nextHasUnreadAfterAppend(c, message),
+            additionalChannels: nextAdditionalChannels,
           };
         }
         const truncated = message.text.length > 50 ? message.text.slice(0, 50) + "..." : message.text;
@@ -3141,6 +3654,7 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
           preview: truncated,
           time: "just now",
           hasUnread: nextHasUnreadAfterAppend(c, message),
+          additionalChannels: nextAdditionalChannels,
         };
       })
     );
@@ -3168,6 +3682,11 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
           ...c,
           messages: [...c.messages, message],
           hasUnread: nextHasUnreadAfterAppend(c, message),
+          // A logged phone_call activity on a non-Voice thread earns
+          // the Voice chip via `messageImpliesChannel`. Every other
+          // activity kind (assignment, ai_activation, etc.) is
+          // bookkeeping and leaves `additionalChannels` untouched.
+          additionalChannels: nextAdditionalChannelsAfterMessage(c, message),
         };
       })
     );
