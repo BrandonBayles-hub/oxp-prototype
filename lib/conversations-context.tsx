@@ -643,7 +643,14 @@ const INITIAL: ConversationItem[] = [
     assignee: "Abe Kashiwagi",
     labels: ["Resident"],
     status: "open",
-    hasUnread: true,
+    // Baseline demo state kept read: this thread lives in the SA 1.2
+    // "No Action Needed" bucket (Eli-owned, no escalation label), and
+    // per the current inbox convention we don't seed unread examples
+    // in that bucket. The predicate that gates the red dot
+    // (`isEffectivelyUnread`) is now bucket-agnostic, so a staffer can
+    // still right-click → "Mark as unread" and light the dot back up
+    // for triage — we just don't ship a red dot here by default.
+    hasUnread: false,
     bulkOutboundEmail: {
       sentAt: "Apr 6 2026 · 8:30am MST",
       recipientSummary: "All residents · 612 recipients",
@@ -778,7 +785,11 @@ Hillside Living
     labels: ["Leasing AI", "Leasing AI Escalation"],
     escalationId: "esc-hillside-alma-12",
     status: "open",
-    hasUnread: true,
+    // Baseline demo state kept read: staff already logged the outbound
+    // phone-call reply below, so `needsStaffResponse` is false and this
+    // thread lives in "No Action Needed." No unread examples are seeded
+    // in that bucket by default (see the identical comment on lc-22).
+    hasUnread: false,
     messages: [
       { role: "agent", text: "Thanks Alma!\n\nTo ensure this request is properly handled, I am escalating it to a member of our team who can discuss the possibility of an exception with you. You can expect to hear from them within 24-48 business hours.", timestamp: "Sep 15 2025 · 7:05pm MST", type: "message" },
       { role: "staff", text: "", timestamp: "Sep 15 2025 · 7:05pm MST", type: "handoff" },
@@ -898,7 +909,10 @@ Hillside Living
     assignee: "Abe Kashiwagi",
     labels: ["Resident"],
     status: "open",
-    hasUnread: true,
+    // Baseline demo state kept read — this thread lives in "No Action
+    // Needed" and we don't seed unread examples in that bucket
+    // by default (see lc-22 for the full rationale).
+    hasUnread: false,
     messages: [
       { role: "resident", text: "Thanks for the package hold — I’ll pick it up tonight after 6.", timestamp: "Sep 15 2025 · 6:00pm MST", type: "message" },
       { role: "staff", text: "Sounds good — front desk has it under your unit number. See you then!", timestamp: "Sep 15 2025 · 6:01pm MST", type: "message" },
@@ -1329,7 +1343,12 @@ Hillside Living
     assignee: "Unassigned",
     labels: ["Lead", "Leasing AI Escalation"],
     status: "open",
-    hasUnread: true,
+    // Baseline demo state kept read — a missed-call-only thread with
+    // no resident public message satisfies `!needsStaffResponse`, so
+    // it lives in "No Action Needed" despite the escalation label. We
+    // don't seed unread examples in that bucket by default
+    // (see lc-22 for the full rationale).
+    hasUnread: false,
     messages: [
       {
         role: "resident",
@@ -1740,7 +1759,10 @@ Hillside Living
     assignee: "Abe Kashiwagi",
     labels: ["Resident"],
     status: "open",
-    hasUnread: true,
+    // Baseline demo state kept read — this thread lives in "No Action
+    // Needed" and we don't seed unread examples in that bucket
+    // by default (see lc-22 for the full rationale).
+    hasUnread: false,
     messages: [
       {
         role: "resident",
@@ -3144,7 +3166,11 @@ export const TRANSLATION_DEMO_THREADS: ConversationItem[] = [
     assignee: "Abe Kashiwagi",
     labels: ["Resident"],
     status: "open",
-    hasUnread: true,
+    // Baseline demo state kept read — Eli-owned, no escalation, so this
+    // thread lives in the SA 1.2 "No Action Needed" bucket. We don't
+    // seed unread examples in that bucket by default (see lc-22 for
+    // the full rationale).
+    hasUnread: false,
     messages: [
       {
         role: "resident",
