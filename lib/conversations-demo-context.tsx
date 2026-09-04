@@ -94,6 +94,25 @@ type ConversationsDemoContextValue = {
   simulateUserEnabled: boolean;
   toggleSimulateUserEnabled: () => void;
   /**
+   * "Breakouts Example" — SA 1.2 demo scenario for the two-bucket list
+   * (Needs Action / No Action Needed). When on, ten extra property-owned
+   * threads that satisfy `needsStaffResponse` are injected into the
+   * conversations list so the "Needs Action" bucket balloons and pushes
+   * "No Action Needed" below the fold. The list column also renders a
+   * floating "N no action needed" peek pill anchored near the bottom of
+   * the list; clicking it collapses "Needs Action" and expands "No
+   * Action Needed" so staff can jump straight to the read/archive-y
+   * bucket without hand-scrolling past a huge working queue.
+   *
+   * Requires Super Agent 1.2 to also be on — outside SA 1.2 the two
+   * buckets don't exist, so the seeded threads simply flow into the
+   * flat list and the peek pill never renders. That's intentional: the
+   * toggle is a demo for a proposed peek affordance, not a general
+   * feature yet.
+   */
+  breakoutsExampleEnabled: boolean;
+  toggleBreakoutsExampleEnabled: () => void;
+  /**
    * Viewport-emulation demo preset: when non-`off`, the whole `AppShell`
    * is rendered inside a letter-boxed frame of the picked size centered
    * in the physical browser window. Purely visual — we don't touch the
@@ -277,6 +296,7 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
     ]),
   );
   const [simulateUserEnabled, setSimulateUserEnabled] = useState(false);
+  const [breakoutsExampleEnabled, setBreakoutsExampleEnabled] = useState(false);
   const [viewportPreset, setViewportPresetState] = useState<ViewportPreset>("off");
   const [followUpEnabled, setFollowUpEnabled] = useState(false);
   const [followUpDaysList, setFollowUpDaysListState] = useState<number[]>([3]);
@@ -374,6 +394,10 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
     setSimulateUserEnabled((v) => !v);
   }, []);
 
+  const toggleBreakoutsExampleEnabled = useCallback(() => {
+    setBreakoutsExampleEnabled((v) => !v);
+  }, []);
+
   // Public setter — accepts the exact enum value the UI is switching to.
   // Wrapped so we can eventually persist / log preset changes without
   // rewriting consumers. Because state lives in a single scalar, mutual
@@ -406,6 +430,8 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
       setThreadPropertyOwned,
       simulateUserEnabled,
       toggleSimulateUserEnabled,
+      breakoutsExampleEnabled,
+      toggleBreakoutsExampleEnabled,
       viewportPreset,
       setViewportPreset,
       followUpEnabled,
@@ -448,6 +474,8 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
       setThreadPropertyOwned,
       simulateUserEnabled,
       toggleSimulateUserEnabled,
+      breakoutsExampleEnabled,
+      toggleBreakoutsExampleEnabled,
       viewportPreset,
       setViewportPreset,
       followUpEnabled,

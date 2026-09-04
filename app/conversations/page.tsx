@@ -1018,14 +1018,48 @@ function conversationMatchesThreadListDateRange(
   return activity >= from && activity <= to;
 }
 
+/**
+ * Normalized channel-id set for a thread. A thread carries its primary
+ * `channel` plus any `additionalChannels` accumulated when staff or Eli
+ * touched the thread on a different medium (SMS reply on a voice thread,
+ * outbound call on an SMS thread, etc.). Callers should use this — not
+ * `c.channel` alone — for any "is channel X involved on this thread"
+ * question so cross-channel threads register on every filter and count
+ * their labels appear on.
+ *
+ * Returns a Set of stable lowercase IDs ("voice" | "sms" | "chat" |
+ * "email"). "Phone" (legacy) and "Voice" both collapse to "voice";
+ * "Resident Chat" collapses to "chat". Unknown labels are dropped.
+ */
+function conversationChannelIds(
+  c: ConversationItem
+): Set<"voice" | "sms" | "chat" | "email"> {
+  const ids = new Set<"voice" | "sms" | "chat" | "email">();
+  const add = (raw: string | undefined | null) => {
+    if (!raw) return;
+    const norm = raw.toLowerCase();
+    if (norm === "sms") ids.add("sms");
+    else if (norm === "email") ids.add("email");
+    else if (norm === "resident chat" || norm === "chat") ids.add("chat");
+    else if (norm === "voice" || norm === "phone") ids.add("voice");
+  };
+  add(c.channel);
+  c.additionalChannels?.forEach(add);
+  return ids;
+}
+
 function conversationMatchesThreadListChannel(
   c: ConversationItem,
   channels: Set<ThreadListChannelFilter>
 ): boolean {
-  const ch = c.channel;
-  if (channels.has("email") && ch === "Email") return true;
-  if (channels.has("sms") && ch === "SMS") return true;
-  if (channels.has("voice") && (ch === "Phone" || ch === "Voice" || ch === "phone")) return true;
+  // Cross-channel threads (a Voice thread with an SMS follow-up, say)
+  // surface on every filter their labels touch, so both "Voice" alone
+  // and "SMS" alone will show the same thread — matching the chip
+  // badges rendered on the thread card.
+  const ids = conversationChannelIds(c);
+  if (channels.has("email") && ids.has("email")) return true;
+  if (channels.has("sms") && ids.has("sms")) return true;
+  if (channels.has("voice") && ids.has("voice")) return true;
   return false;
 }
 
@@ -2109,6 +2143,8 @@ function ConversationsContent() {
     setThreadPropertyOwned,
     simulateUserEnabled,
     toggleSimulateUserEnabled,
+    breakoutsExampleEnabled,
+    toggleBreakoutsExampleEnabled,
     viewportPreset,
     setViewportPreset,
     followUpEnabled,
@@ -2625,15 +2661,20 @@ function ConversationsContent() {
   }, [conversations, propertyOwnedThreadIds, eliModeByThreadId]);
 
   /**
-   * SA 1.2 "effective unread" predicate. In SA 1.2 mode only threads that
-   * are property-owned contribute to unread state — Eli-owned threads are
-   * silent by design — but WITHIN property ownership every unread thread
-   * counts, whether it's in the "Needs Action" bucket or the "No Action
-   * Needed" bucket. That parity is deliberate: an inbound resident
-   * message on an already-handled thread still deserves the "there's
-   * something new here" signal, so the sidebar count, the channel-filter
-   * badges, the section-header chip on "No Action Needed", and the red
-   * dot on the thread card all light up together.
+   * SA 1.2 "effective unread" predicate. In SA 1.2 mode a thread only
+   * reads as unread when it's in the "Needs Action" bucket —
+   * i.e. property-owned AND `needsStaffResponse`. Anything that falls
+   * into "No Action Needed" (Eli-owned, resolved, waiting on the
+   * resident, follow-up done, etc.) is always rendered as read: no
+   * red dot on the card, no bold preview, no contribution to the
+   * sidebar / quick-filter / section-header unread badges.
+   *
+   * The intent is that the red-badge system stays a signal about
+   * *work staff still has to do* rather than a strict "any new inbound
+   * bit" signal. If Eli or another staffer already handled the thread
+   * and it slid to "No Action Needed," subsequent late reads or trailing
+   * "thanks!" replies won't re-light the badge unless they push the
+   * thread back into "Needs Action."
    *
    * In SA 1.0 / non-SA modes the helper falls back to the raw
    * `hasUnread` flag so nothing outside SA 1.2 changes behavior.
@@ -2641,7 +2682,7 @@ function ConversationsContent() {
   const isEffectivelyUnread = (c: (typeof conversations)[number]): boolean => {
     if (!c.hasUnread) return false;
     if (!superAgent12Enabled) return true;
-    return isPropertyOwnedSA12(c);
+    return isPropertyOwnedSA12(c) && needsStaffResponse(c);
   };
 
   /**
@@ -2670,8 +2711,17 @@ function ConversationsContent() {
   /**
    * SA 1.2: per-channel counts of *unread* threads inside the currently
    * selected sidebar inbox. Mirrors the sidebar badge convention (unread
-   * count, not "needs action"), so the "All channels" total always equals
-   * the sidebar badge and SMS + Chat + Email + Voice sum to that total.
+   * count, not "needs action"), so the "All channels" total equals the
+   * sidebar badge.
+   *
+   * Cross-channel threads (a Voice thread with an SMS follow-up on it,
+   * or an SMS thread that received an outbound call) count once for
+   * *every* channel bucket they touch — 1 for Voice AND 1 for SMS on
+   * the same thread. This matches the badges rendered on the card and
+   * the filter-matching rule below (selecting either Voice or SMS
+   * surfaces that same thread). Because of this, SMS + Chat + Email +
+   * Voice can now exceed "All" whenever multi-channel threads exist;
+   * that's the honest count, not a bug.
    */
   const sa12ChannelActionCounts = useMemo(() => {
     const counts = { all: 0, sms: 0, chat: 0, email: 0, voice: 0 };
@@ -2704,13 +2754,17 @@ function ConversationsContent() {
       // Uses the SA 1.2 "effective" unread definition so threads in the
       // "No Action Needed" group are treated as read here too.
       if (!isEffectivelyUnread(c)) continue;
-      const ch = (c.channel || "").toLowerCase();
       counts.all += 1;
-      if (ch === "sms") counts.sms += 1;
-      else if (ch === "email") counts.email += 1;
-      else if (ch === "resident chat") counts.chat += 1;
-      // Voice mock data lives under both "Voice" and legacy "Phone" — accept either.
-      else if (ch === "voice" || ch === "phone") counts.voice += 1;
+      // Increment every channel bucket the thread touches — primary
+      // channel plus any additional channels accrued when the thread
+      // crossed mediums (e.g. Voice → SMS follow-up). See the header
+      // comment on `sa12ChannelActionCounts` for why the parts can
+      // now exceed "all".
+      const ids = conversationChannelIds(c);
+      if (ids.has("sms")) counts.sms += 1;
+      if (ids.has("email")) counts.email += 1;
+      if (ids.has("chat")) counts.chat += 1;
+      if (ids.has("voice")) counts.voice += 1;
     }
     return counts;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2788,13 +2842,13 @@ function ConversationsContent() {
   const tabFiltered = useMemo(() => {
     return sidebarFiltered.filter((c) => {
       // SA 1.2 channel sub-filter (applied only when SA 1.2 is on).
+      // Uses the union of primary + additional channels so a cross-channel
+      // thread (Voice+SMS, SMS+Voice, etc.) surfaces on whichever channel
+      // filter matches — the same thread appears under Voice AND under
+      // SMS, mirroring the labels rendered on the card.
       if (superAgent12Enabled && sa12ChannelFilter !== "all") {
-        const ch = (c.channel || "").toLowerCase();
-        if (sa12ChannelFilter === "sms" && ch !== "sms") return false;
-        if (sa12ChannelFilter === "email" && ch !== "email") return false;
-        if (sa12ChannelFilter === "chat" && ch !== "resident chat") return false;
-        // Voice mock data lives under both "Voice" and legacy "Phone" — accept either.
-        if (sa12ChannelFilter === "voice" && ch !== "voice" && ch !== "phone") return false;
+        const ids = conversationChannelIds(c);
+        if (!ids.has(sa12ChannelFilter)) return false;
       }
       // SA 1.2 inline Escalation Quick Filter — only applies inside the
       // Property Threads inbox (where the control is actually rendered).
@@ -4298,6 +4352,8 @@ function ConversationsContent() {
           onToggleTranslation={toggleTranslationEnabled}
           simulateUserEnabled={simulateUserEnabled}
           onToggleSimulateUser={toggleSimulateUserEnabled}
+          breakoutsExampleEnabled={breakoutsExampleEnabled}
+          onToggleBreakoutsExample={toggleBreakoutsExampleEnabled}
           viewportPreset={viewportPreset}
           onSetViewportPreset={setViewportPreset}
         />
@@ -5477,10 +5533,12 @@ function ConversationsContent() {
 
               {/* Section grouping inside Property Threads. Documents the SA
                   1.2 change that split the list into two collapsible groups
-                  driven by needsStaffResponse, with an unread chip on each
-                  header that follows the same "property-owned + unread"
-                  rule so a "No Action Needed" thread with an un-read
-                  acknowledgement still shows the red chip on that header. */}
+                  driven by needsStaffResponse. The red unread chip only
+                  appears on the "Needs Action" header — anything in
+                  "No Action Needed" reads as read (see
+                  `isEffectivelyUnread`), so the chip is structurally never
+                  drawn on that section's header even when the underlying
+                  `hasUnread` flag on a card is still true. */}
               <div className="rounded-md border border-border/60 bg-muted/40 p-3">
                 <p className="text-xs font-semibold">Needs Action vs No Action Needed</p>
 
@@ -5555,12 +5613,14 @@ function ConversationsContent() {
                   </li>
                 </ul>
                 <p className="mt-1.5 text-xs text-muted-foreground">
-                  Each section header shows a red unread chip when it contains
-                  at least one unread thread — the same rule as the sidebar
-                  badge. So an unread reply that lands in No Action Needed
-                  (for example, staff wrapped things up by phone but the
-                  resident&apos;s last SMS was never marked read) still shows
-                  the chip on that header.
+                  The red unread chip only shows on the{" "}
+                  <span className="font-medium text-foreground">Needs Action</span>{" "}
+                  header. Threads that live in{" "}
+                  <span className="font-medium text-foreground">No Action Needed</span>{" "}
+                  are treated as read across the app — no red dot on the card,
+                  no contribution to the sidebar or quick-filter counts, no
+                  chip on that section&apos;s header — so the unread signal
+                  stays focused on work you still have to do.
                 </p>
               </div>
 
@@ -5994,19 +6054,23 @@ function ConversationsContent() {
         {/* List */}
         <TooltipProvider delayDuration={250}>
           {/*
-            SA 1.2 splits the list into two independent scroll panes so
-            "Needs Action" stays pinned at the top (~3 rows visible) and
-            "No Action Needed" expands to fill the rest of the column with
-            its own scroll. Before this refactor both sections shared one
-            scroll container, so a long "No Action Needed" bucket would
-            push "Needs Action" off-screen once staff scrolled — exactly
-            the case the grouping was meant to prevent. For SA 1.0, Eli
-            Threads, Closed Threads (or any SA 1.2 sub-filter that isn't
-            "all" / "sa12-escalated") the list stays flat in a single
-            scroll region — the `sa12GroupingActive` check below
-            short-circuits to that path.
+            SA 1.2 renders the two buckets ("Needs Action" and "No Action
+            Needed") as inline section headers inside a single scrolling
+            list — one column, one scrollbar, one flow. The headers are
+            still full-width toggle buttons that can collapse their bucket,
+            so the grouping affordance stays intact; they just aren't
+            pinned inside their own independent scroll containers anymore.
+            For SA 1.0, Eli Threads, Closed Threads (or any SA 1.2
+            sub-filter that isn't "all" / "sa12-escalated") the same
+            single-scroll region drops the section headers entirely — the
+            `sa12GroupingActive` check below handles the branch.
+
+            The outer wrapper is `relative` so the "Breakouts Example"
+            peek pill (see the SA 1.2 branch below) can be absolutely
+            positioned inside the list column, floating over the bottom
+            edge of the scroll region without being clipped by it.
           */}
-          <div className="flex flex-1 flex-col min-h-0">
+          <div className="relative flex flex-1 flex-col min-h-0">
             {(() => {
               /*
                 Bucket computation (SA 1.2 only). When grouping is off,
@@ -6038,12 +6102,13 @@ function ConversationsContent() {
                 : [];
               // Header chips: only the red "unread" chip is shown, and
               // only when the section contains at least one unread
-              // thread. Both buckets use the exact same rule
-              // (`isEffectivelyUnread` → property-owned + hasUnread),
-              // so an unread thread in "No Action Needed" (e.g. staff
-              // wrapped up via phone but the resident's last SMS was
-              // never marked read) surfaces the red chip on that
-              // header too — same signal as "Needs Action".
+              // thread. Since `isEffectivelyUnread` is now scoped to
+              // property-owned + `needsStaffResponse` (i.e. exactly the
+              // "Needs Action" membership rule), `noActionUnreadCount`
+              // is structurally always 0 — every "No Action Needed"
+              // thread renders as read. We still compute the count so
+              // if the effective-unread rule is ever loosened again
+              // the section-header chip lights up automatically.
               const needsActionUnreadCount = needsActionThreads.filter((c) =>
                 isEffectivelyUnread(c),
               ).length;
@@ -6052,10 +6117,11 @@ function ConversationsContent() {
               ).length;
 
               /*
-                Section-header button used by both SA 1.2 buckets. Sits
-                *above* each pane's scroll container (rather than inside
-                it) so it's always visible without needing `sticky` — the
-                inner scroll region owns its own overflow.
+                Section-header button used by both SA 1.2 buckets.
+                Rendered inline in the shared scroll region — it scrolls
+                out of view along with the section's rows, matching the
+                "one continuous listing" behavior. Clicking the header
+                still toggles that bucket's collapse state.
               */
               const renderHeader = (h: {
                 key: string;
@@ -6428,81 +6494,122 @@ function ConversationsContent() {
                     </div>
                   );
                 }
-                // SA 1.2 split-pane layout: two scrolling regions
-                // stacked vertically inside the shared flex-column.
-                //   · "Needs Action" is bounded to ~3 rows so it stays
-                //     visible even when staff scroll deep into "No Action
-                //     Needed" below. Sized at `max-h-[348px]`, which is
-                //     the exact sum of the three most-common thread-card
-                //     heights in this bucket (109 + 130 + 109, where the
-                //     130 is a card whose tag chips wrap onto a second
-                //     line). No peek of a fourth card — the bar sits
-                //     flush with the bottom of card three so every label
-                //     on the third card ("Property", "Lead", "Leasing AI
-                //     Escalation", etc.) stays fully visible while
-                //     pulling the sibling header ~12px closer up the
-                //     column. If the tag chips on row three ever wrap
-                //     onto a second line in a future dataset, this cap
-                //     will clip its bottom labels — bump to ~370 to give
-                //     it headroom. If more than 3 threads land in the
-                //     the pane scrolls internally — the sibling pane is
-                //     completely unaffected because it lives in its own
-                //     scroll container.
-                //   · "No Action Needed" claims `flex-1` and fills the
-                //     rest of the column, scrolling internally.
-                //   · Collapsing either header removes that pane's
-                //     scroll region so the other pane naturally expands.
-                //     (When "No Action Needed" is collapsed its wrapper
-                //     drops `flex-1` too, so it snaps to header height
-                //     instead of leaving a blank gutter below.)
+                // SA 1.2 grouped layout: one scroll region, section
+                // headers inline as row-like dividers that scroll along
+                // with the content. Collapsing a header hides that
+                // bucket's rows but keeps the header visible so it can
+                // be re-expanded. The 15-item cap on `noActionThreads`
+                // is still enforced upstream (bucket-computation
+                // block) — that's a business rule about how much
+                // context to surface, unrelated to layout — but it no
+                // longer has anything to do with keeping "Needs Action"
+                // pinned to the top.
                 if (sa12GroupingActive) {
                   const hasAction = needsActionThreads.length > 0;
                   const hasNoAction = noActionThreads.length > 0;
+                  /*
+                    "Breakouts Example" peek pill. Only surfaces when:
+                      · The Breakouts Example demo toggle is on (staff
+                        opted into the proposed affordance for evaluation).
+                      · "Needs Action" is expanded — a collapsed section
+                        already frees the "No Action Needed" header, so
+                        the pill would be redundant.
+                      · There's at least one "No Action Needed" thread —
+                        otherwise there's nothing to peek at.
+                    Clicking it snaps the two-bucket state to "focus on
+                    No Action Needed": collapse Needs Action, expand No
+                    Action Needed. Absolutely positioned bottom-center of
+                    the list column (the wrapper is `relative`) so the
+                    pill floats over the last visible thread card
+                    regardless of scroll position — same pattern as
+                    Gmail's "N new" pill.
+                  */
+                  const showPeekPill =
+                    breakoutsExampleEnabled &&
+                    !sa12ActionCollapsed &&
+                    hasNoAction;
                   return (
                     <>
-                      {hasAction && (
+                      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-hover">
+                        {hasAction && (
+                          <>
+                            {renderHeader({
+                              key: "hdr-action-needed",
+                              label: "Needs Action",
+                              unread: needsActionUnreadCount,
+                              collapsed: sa12ActionCollapsed,
+                              onToggle: () => setSa12ActionCollapsed((v) => !v),
+                            })}
+                            {!sa12ActionCollapsed && (
+                              <ul>{needsActionThreads.map((c) => renderThreadLi(c))}</ul>
+                            )}
+                          </>
+                        )}
+                        {hasNoAction && (
+                          <>
+                            {renderHeader({
+                              key: "hdr-no-action-needed",
+                              label: "No Action Needed",
+                              unread: noActionUnreadCount,
+                              collapsed: sa12NoActionCollapsed,
+                              onToggle: () => setSa12NoActionCollapsed((v) => !v),
+                            })}
+                            {!sa12NoActionCollapsed && (
+                              <ul>{noActionThreads.map((c) => renderThreadLi(c))}</ul>
+                            )}
+                          </>
+                        )}
+                      </div>
+                      {showPeekPill && (
                         <div
-                          className={cn(
-                            "flex shrink-0 flex-col",
-                            // Only carry a bottom border when there's a
-                            // second section below; otherwise the
-                            // header's own `border-b` already draws it.
-                            hasNoAction && "border-b border-border/60",
-                          )}
+                          className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center"
+                          aria-hidden={false}
                         >
-                          {renderHeader({
-                            key: "hdr-action-needed",
-                            label: "Needs Action",
-                            unread: needsActionUnreadCount,
-                            collapsed: sa12ActionCollapsed,
-                            onToggle: () => setSa12ActionCollapsed((v) => !v),
-                          })}
-                          {!sa12ActionCollapsed && (
-                            <ul className="max-h-[348px] overflow-y-auto scrollbar-hover">
-                              {needsActionThreads.map((c) => renderThreadLi(c))}
-                            </ul>
-                          )}
-                        </div>
-                      )}
-                      {hasNoAction && (
-                        <div
-                          className={cn(
-                            "flex flex-col min-h-0",
-                            !sa12NoActionCollapsed && "flex-1",
-                          )}
-                        >
-                          {renderHeader({
-                            key: "hdr-no-action-needed",
-                            label: "No Action Needed",
-                            unread: noActionUnreadCount,
-                            collapsed: sa12NoActionCollapsed,
-                            onToggle: () => setSa12NoActionCollapsed((v) => !v),
-                          })}
-                          {!sa12NoActionCollapsed && (
-                            <ul className="min-h-0 flex-1 overflow-y-auto scrollbar-hover">
-                              {noActionThreads.map((c) => renderThreadLi(c))}
-                            </ul>
-                          )}
+                          {/*
+                            Pronounced peek pill: OXP-primary filled (black on
+                            light, inverted on dark) so it reads as an active
+                            action pinned to the list column rather than a
+                            passive hint. A small numeric count chip on the
+                            left uses a translucent-white pill so the "N"
+                            reads instantly without competing with the label.
+                            Shadow steps up on hover along with a lift and a
+                            gentle chevron drop.
+                          */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              // Snap to "focus on No Action Needed": hide
+                              // the working queue, expand the read bucket.
+                              setSa12ActionCollapsed(true);
+                              setSa12NoActionCollapsed(false);
+                            }}
+                            className={cn(
+                              "pointer-events-auto group flex items-center gap-2 whitespace-nowrap rounded-full border border-primary/20 bg-primary px-4 py-2",
+                              "text-xs font-semibold text-primary-foreground shadow-xl",
+                              "transition-all duration-150 hover:-translate-y-0.5 hover:bg-primary/90 hover:shadow-2xl",
+                              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
+                            )}
+                            aria-label={`Jump to ${noActionThreads.length} No Action Needed conversations`}
+                          >
+                            <span
+                              className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary-foreground/15 px-1.5 text-[11px] font-bold leading-none tabular-nums text-primary-foreground"
+                              aria-hidden
+                            >
+                              {noActionThreads.length}
+                            </span>
+                            <span>
+                              {noActionThreads.length === 1
+                                ? "No Action Needed conversation"
+                                : "No Action Needed conversations"}
+                            </span>
+                            <span className="flex items-center gap-1 border-l border-primary-foreground/25 pl-2 text-primary-foreground/80 group-hover:text-primary-foreground">
+                              Tap to view
+                              <ChevronDown
+                                className="h-3.5 w-3.5 transition-transform duration-150 group-hover:translate-y-0.5"
+                                aria-hidden
+                              />
+                            </span>
+                          </button>
                         </div>
                       )}
                     </>
@@ -12012,6 +12119,8 @@ function CommunicationsDemoControl({
   onToggleTranslation,
   simulateUserEnabled,
   onToggleSimulateUser,
+  breakoutsExampleEnabled,
+  onToggleBreakoutsExample,
   viewportPreset,
   onSetViewportPreset,
 }: {
@@ -12028,6 +12137,8 @@ function CommunicationsDemoControl({
   onToggleTranslation: () => void;
   simulateUserEnabled: boolean;
   onToggleSimulateUser: () => void;
+  breakoutsExampleEnabled: boolean;
+  onToggleBreakoutsExample: () => void;
   viewportPreset: ViewportPreset;
   onSetViewportPreset: (preset: ViewportPreset) => void;
 }) {
@@ -12039,6 +12150,7 @@ function CommunicationsDemoControl({
     superAgent12Enabled ||
     translationEnabled ||
     simulateUserEnabled ||
+    breakoutsExampleEnabled ||
     viewportPreset !== "off";
 
   return (
@@ -12181,6 +12293,33 @@ function CommunicationsDemoControl({
             <Switch
               checked={simulateUserEnabled}
               onCheckedChange={onToggleSimulateUser}
+              className="mt-0.5"
+            />
+          </label>
+
+          {/*
+            "Breakouts Example" — SA 1.2 scenario toggle. When on, ten extra
+            escalated / needs-staff-response threads are injected so the
+            "Needs Action" bucket balloons past what fits on screen, and a
+            floating "N no action needed" peek pill appears near the bottom
+            of the list column. Clicking the pill collapses "Needs Action"
+            and expands "No Action Needed" so staff can jump straight to
+            that bucket without hand-scrolling past a huge working queue.
+            Requires Super Agent 1.2 to be on — outside SA 1.2 the two
+            buckets don't exist, so the seeded threads flow into the flat
+            list and the peek pill never renders.
+          */}
+          <label className="flex cursor-pointer items-start justify-between gap-2 rounded-md px-1.5 py-1.5 transition-colors hover:bg-muted/60">
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-semibold leading-tight text-foreground">Super Agent 1.2 (Breakout example)</p>
+              <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+                Flood Needs Action with 10 extra threads and surface a peek
+                pill that jumps to No Action Needed
+              </p>
+            </div>
+            <Switch
+              checked={breakoutsExampleEnabled}
+              onCheckedChange={onToggleBreakoutsExample}
               className="mt-0.5"
             />
           </label>
@@ -12386,20 +12525,36 @@ function ManageInboxSettingsPanel({
     },
     [],
   );
-  // AI-ownership heuristic for the setup sweep. The setting is intentionally
-  // limited to threads Eli is currently handling — anything with an active
-  // human owner stays open regardless of channel or age. In the demo data
-  // AI-owned threads carry an `ELI+ …` assignee (e.g. "ELI+ Leasing AI");
-  // once staff takes over the thread the assignee flips to a person's name.
-  const isSetupAiOwned = useCallback((c: ConversationItem) => {
-    return typeof c.assignee === "string" && c.assignee.startsWith("ELI+");
+  // Setup-sweep filter. Two important shape decisions here:
+  //
+  //  1. Assignee-agnostic. The one-time cleanup is meant to zero out the
+  //     entire pre-existing SMS + Email backlog so the new resolve-based
+  //     workflow starts from a clean slate — Eli-owned AND property-
+  //     teammate-owned threads both get closed. Anyone who needs a
+  //     specific thread back can reopen it from Closed Threads, which is
+  //     what makes the aggressive close acceptable as a one-time cutover.
+  //
+  //  2. Live-escalation carve-out. If the client is using ELI+ and a
+  //     thread carries an active escalation label ("Leasing AI Escalation",
+  //     "Renewals AI Escalation", "Payments AI Escalation", "Maintenance
+  //     AI Escalation", "Other Escalation", or the "Renewal AI Escalation"
+  //     variant), that thread was escalated to staff by Eli and is still
+  //     waiting on a resolution — closing it out from under staff would
+  //     drop live work on the floor. Those stay open. The check is a
+  //     suffix match on ` Escalation` because every current escalation
+  //     label follows the `<Bucket> AI Escalation` / `Other Escalation`
+  //     naming pattern (see `lib/conversations-context.tsx`), so this
+  //     stays correct if a new escalation bucket is added later without
+  //     needing a hardcoded list here.
+  const isOpenEliEscalation = useCallback((c: ConversationItem) => {
+    return c.labels.some((l) => l.endsWith(" Escalation"));
   }, []);
   const setupTargets = useMemo(
     () =>
       allConversations.filter((c) => {
         if (c.status !== "open") return false;
         if (c.channel !== "SMS" && c.channel !== "Email") return false;
-        if (!isSetupAiOwned(c)) return false;
+        if (isOpenEliEscalation(c)) return false;
         // Property scope — empty selection means "every property," matching
         // how the shared PropertySelector reports "nothing selected."
         if (
@@ -12410,7 +12565,7 @@ function ManageInboxSettingsPanel({
         }
         return true;
       }),
-    [allConversations, isSetupAiOwned, setupPropertyNames],
+    [allConversations, isOpenEliEscalation, setupPropertyNames],
   );
   // Cutoff date — the client picks how far back "pre-existing" goes. Defaults
   // to yesterday, which is the recommended value (today's messages are still
@@ -12446,7 +12601,7 @@ function ManageInboxSettingsPanel({
     ids.forEach((id) =>
       resolveConversation(id, undefined, {
         resolutionType: "general",
-        notes: `Auto-closed by inbox setup (AI-owned only, cutoff ${setupCutoffDate}, scope: ${scopeSummary}) to give site staff a fresh starting point.`,
+        notes: `Auto-closed by inbox setup (cutoff ${setupCutoffDate}, scope: ${scopeSummary}, active ELI+ escalations excluded) to give site staff a fresh starting point.`,
       }),
     );
     setSetupResolvedCount(ids.length);
@@ -12766,13 +12921,19 @@ function ManageInboxSettingsPanel({
                   <h3 className="text-base font-semibold">One Time Setup</h3>
                   <p className="mt-1 text-sm text-muted-foreground">
                     Give site staff a clean starting point by closing pre-existing
-                    AI-owned SMS &amp; Email threads that pre-date the new
-                    resolve-based workflow.{" "}
+                    SMS &amp; Email threads that pre-date the new resolve-based
+                    workflow.{" "}
                     <span className="font-medium text-foreground">
-                      This will not close any non-AI conversations
+                      This closes every open thread in the selected scope.
                     </span>{" "}
-                    — anything a property teammate is already on stays open and
-                    keeps its current assignee.
+                    <span className="font-medium text-foreground">
+                      Active ELI+ escalations stay open
+                    </span>{" "}
+                    — any conversation currently escalated to staff by Eli and
+                    still awaiting a resolution is left untouched so live work
+                    isn&apos;t dropped. Staff can reopen any individual closed
+                    thread from Closed Threads afterward — this is intended as
+                    a one-time cutover, not a routine cleanup.
                   </p>
                 </div>
 
@@ -12780,7 +12941,7 @@ function ManageInboxSettingsPanel({
                   {/* Row 1 — cutoff-date sentence. */}
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
                     <span>
-                      Close open AI SMS &amp; Email threads with activity through
+                      Close open SMS &amp; Email threads with activity through
                     </span>
                     <input
                       type="date"
@@ -12962,7 +13123,7 @@ function ManageInboxSettingsPanel({
                         {setupTargets.length.toLocaleString()}
                       </span>{" "}
                       <span className="text-muted-foreground">
-                        AI conversation{setupTargets.length === 1 ? "" : "s"} will
+                        conversation{setupTargets.length === 1 ? "" : "s"} will
                         be closed
                       </span>
                     </p>
@@ -12981,7 +13142,7 @@ function ManageInboxSettingsPanel({
                       <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
                       <div>
                         <p className="font-medium">
-                          Closed {setupResolvedCount.toLocaleString()} AI
+                          Closed {setupResolvedCount.toLocaleString()}{" "}
                           conversation
                           {setupResolvedCount === 1 ? "" : "s"}
                         </p>
@@ -12998,13 +13159,13 @@ function ManageInboxSettingsPanel({
                   <DialogContent className="max-w-md">
                     <DialogHeader>
                       <DialogTitle>
-                        Close all AI SMS &amp; Email conversations?
+                        Close all pre-existing SMS &amp; Email conversations?
                       </DialogTitle>
                       <DialogDescription className="pt-2">
                         This will close{" "}
-                        {setupTargets.length.toLocaleString()} open AI-owned SMS
-                        and Email thread{setupTargets.length === 1 ? "" : "s"}{" "}
-                        with activity through{" "}
+                        {setupTargets.length.toLocaleString()} open SMS and Email
+                        thread{setupTargets.length === 1 ? "" : "s"} with activity
+                        through{" "}
                         <span className="font-medium text-foreground">
                           {setupCutoffDate}
                         </span>
@@ -13020,12 +13181,20 @@ function ManageInboxSettingsPanel({
                         )}
                         {" "}and move them to Closed Threads.{" "}
                         <span className="font-medium text-foreground">
-                          Non-AI conversations are not affected
+                          This includes threads currently assigned to a property
+                          teammate
                         </span>{" "}
-                        — anything a property teammate is currently on stays open.
-                        Staff can still reopen any individual closed thread. This is
-                        intended as a one-time cleanup for the transition to the new
-                        resolve-based workflow.
+                        — every open thread in the selected scope will be closed,
+                        regardless of assignee.{" "}
+                        <span className="font-medium text-foreground">
+                          Active ELI+ escalations are excluded
+                        </span>{" "}
+                        — any conversation currently escalated to staff by Eli
+                        and still awaiting a resolution stays open. Staff can
+                        reopen any individual closed thread from Closed Threads
+                        if a teammate needs to pick one back up. This is
+                        intended as a one-time cutover to the new resolve-based
+                        workflow, not a routine cleanup.
                       </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
