@@ -174,6 +174,7 @@ import {
 } from "@/components/conversation-bulk-email";
 import { VoicemailPlayer } from "@/components/voicemail-player";
 import { MissedCallBubble } from "@/components/missed-call-bubble";
+import { EntrataInlineSmsComposer } from "@/components/app-shell/entrata-inline-sms-composer";
 
 const AVATAR_COLORS = [
   "bg-emerald-100 text-emerald-700",
@@ -2081,6 +2082,7 @@ function ConversationsContent() {
     removeLabel,
     markRead,
     markUnread,
+    pendingSmsCompose,
   } = useConversations();
   const { agents } = useAgents();
   const { humanMembers } = useWorkforce();
@@ -3029,17 +3031,35 @@ function ConversationsContent() {
   const initialConvoId = searchParams.get("id");
 
   const [selectedId, setSelectedId] = useState<string | null>(initialConvoId);
-  const didInitFromParam = useRef(false);
 
+  // Sync `?id=` in the URL → `selectedId` on mount AND on every
+  // subsequent URL change. This is what the Entrata global-search
+  // "SMS" button relies on when the user is already on
+  // `/conversations/` and clicks the row-level SMS action: the
+  // top-nav `router.push`es `/conversations/?id=<threadId>`, we pick
+  // up the new `id`, and force-select that thread even if it's not
+  // in the currently-filtered sidebar list. The right pane's
+  // fallback (`filtered.find(...) ?? conversations.find(...)`, see
+  // `selected` below) means the thread renders even when a filter
+  // like "My Inbox" would otherwise hide it from the left column,
+  // so we never need to auto-switch sidebar tabs to make it visible.
+  //
+  // We intentionally do NOT gate this with a ref like
+  // `didInitFromParam` — that would keep the effect from firing on
+  // subsequent URL pushes and is what caused the SMS button to
+  // "click but not switch" once the user had already navigated to
+  // this page once.
   useEffect(() => {
-    if (initialConvoId && !didInitFromParam.current) {
-      const match = conversations.find((c) => c.id === initialConvoId);
-      if (match) {
-        setSelectedId(initialConvoId);
-        didInitFromParam.current = true;
-        return;
-      }
+    if (initialConvoId && conversations.some((c) => c.id === initialConvoId)) {
+      setSelectedId(initialConvoId);
     }
+  }, [initialConvoId, conversations]);
+
+  // Independent fallback: keep `selectedId` valid against the current
+  // filter / conversation set. Doesn't touch selections that came in
+  // via `?id=` because those threads always exist in `conversations`,
+  // so `idStillValid` short-circuits the clobber path below.
+  useEffect(() => {
     if (filtered.length > 0 && (!selectedId || !filtered.find((c) => c.id === selectedId))) {
       const idStillValid = Boolean(selectedId && conversations.some((c) => c.id === selectedId));
       if (!idStillValid) {
@@ -3050,7 +3070,7 @@ function ConversationsContent() {
         setSelectedId(null);
       }
     }
-  }, [filtered, selectedId, initialConvoId, conversations]);
+  }, [filtered, selectedId, conversations]);
 
   // SA 1.2: when the user clicks an inbox in the sidebar (Open Threads,
   // Property Threads, Eli Threads, Closed Threads), auto-select the first
@@ -6692,8 +6712,21 @@ function ConversationsContent() {
       </div>
 
       {/* ===== CONVERSATION DETAIL ===== */}
+      {/*
+        Right-pane switch: when the Entrata global-search "SMS" button
+        hands off a `pendingSmsCompose` recipient, we render the inline
+        `EntrataInlineSmsComposer` in this exact slot instead of the
+        selected-thread view. The composer fills the same flex column,
+        so the thread-list left column stays anchored and only the
+        right pane swaps. Cancel/Escape inside the composer clears
+        `pendingSmsCompose`, which drops us back into the ternary
+        below and re-renders the previously-selected thread (or the
+        empty state if none was selected).
+      */}
       <div className={cn("flex min-w-0 flex-1 flex-col", (callSystemPanelOpen || manageInboxPanelOpen) && "hidden")}>
-        {selected ? (
+        {pendingSmsCompose ? (
+          <EntrataInlineSmsComposer recipient={pendingSmsCompose} />
+        ) : selected ? (
           <>
             {/* Header */}
             <div className="shrink-0 border-b border-border bg-card px-5 py-3">
