@@ -6,6 +6,11 @@ import { useClickToCallDemo } from "@/lib/click-to-call-demo-context";
 import { useConversationsDemo } from "@/lib/conversations-demo-context";
 import { useTranslationDemo } from "@/lib/translation-demo-context";
 import { CLICK_TO_CALL_DEMO_THREADS } from "@/lib/click-to-call-demo-threads";
+// Type-only import — used to type the `pendingSmsCompose` slot that the
+// Entrata global-search "SMS" button hands off to the conversations page
+// so it can render the inline compose panel in the right pane. Type-only
+// so we don't drag the global-search runtime into the context bundle.
+import type { Result as EntrataSearchResult } from "@/components/app-shell/entrata-global-search";
 
 export type EmailAttachmentRef = {
   name: string;
@@ -1243,6 +1248,72 @@ Leasing Specialist
 Hillside Living
 (720) 555-0140
 1800 Hillside Parkway, Denver, CO 80205`,
+      },
+    ],
+  },
+  {
+    // Live in-flight maintenance SMS for Abraham Lukose (Unit 10-107,
+    // Enclave at 127th). Seeded so the Entrata Global Search row for
+    // Abraham can jump straight into an existing conversation instead
+    // of the empty new-SMS composer — see `activeSmsThreadId` on the
+    // Abraham rows in `components/app-shell/entrata-global-search.tsx`.
+    // Last message is from Abraham (waiting on staff), which is why a
+    // staffer would pop in to reply.
+    id: "lc-abraham-lukose-1",
+    resident: "Abraham Lukose",
+    unit: "10 - 107",
+    preview: "Just did the reset — still blowing room-temp air. Should I l...",
+    agent: "Maintenance AI",
+    time: "just now",
+    contactType: "Resident",
+    property: "Enclave at 127th",
+    channel: "SMS",
+    assignee: "Abe Kashiwagi",
+    labels: ["Maintenance AI", "Work Order"],
+    status: "open",
+    hasUnread: false,
+    messages: [
+      {
+        role: "resident",
+        text: "Hey — my AC has been blowing warm air for a couple hours. Apartment is up to 78° right now and it's not budging.",
+        timestamp: "Sep 15 2025 · 8:12pm MST",
+        type: "message",
+      },
+      {
+        role: "agent",
+        text: "Sorry about that, Abraham — that's frustrating in this heat. Quick check so I can get the right tech out: is the thermostat set to Cool with a target below the current room temp, and roughly what time did you first notice it not cooling?",
+        timestamp: "Sep 15 2025 · 8:13pm MST",
+        type: "message",
+      },
+      {
+        role: "resident",
+        text: "Set to Cool at 70°. It was working fine this morning — started around 3pm today.",
+        timestamp: "Sep 15 2025 · 8:15pm MST",
+        type: "message",
+      },
+      {
+        role: "agent",
+        text: "Thanks. That plus warm supply air points to either low refrigerant or a frozen coil. I've opened work order WO #A127-3421 and paged Ricardo (HVAC). He can be onsite tonight 6–8pm or first thing tomorrow 8–10am — which would you prefer?",
+        timestamp: "Sep 15 2025 · 8:17pm MST",
+        type: "message",
+      },
+      {
+        role: "resident",
+        text: "Tonight 6–8pm if he can make it, please. It's really uncomfortable in here.",
+        timestamp: "Sep 15 2025 · 8:20pm MST",
+        type: "message",
+      },
+      {
+        role: "agent",
+        text: "Locked in with Ricardo for 6–8pm tonight. In the meantime, try flipping the thermostat to Off for ~15 minutes so the coil can thaw, then back to Cool at 72°. You'll get a text 30 min before he arrives.",
+        timestamp: "Sep 15 2025 · 8:22pm MST",
+        type: "message",
+      },
+      {
+        role: "resident",
+        text: "Just did the reset — still blowing room-temp air. Should I leave the front door unlocked, or does Ricardo have a key for entry?",
+        timestamp: "Sep 15 2025 · 8:27pm MST",
+        type: "message",
       },
     ],
   },
@@ -3599,6 +3670,18 @@ type ConversationsContextValue = {
    * misleading "unread" event on the conversation history.
    */
   markUnread: (id: string) => void;
+  /**
+   * Recipient that the Entrata global-search "SMS" button handed off to
+   * the OXP Conversations page. When non-null, the conversations page
+   * renders an inline "Send new SMS to <Name>" composer in the right
+   * pane instead of the selected-thread view. Cleared when the user
+   * cancels (or presses Escape) inside the composer, or after the
+   * composer commits a new thread via `addConversation`. Lives on this
+   * context because the composer needs `addConversation` anyway and
+   * both surfaces (top-nav + conversations page) already consume it.
+   */
+  pendingSmsCompose: EntrataSearchResult | null;
+  setPendingSmsCompose: (next: EntrataSearchResult | null) => void;
 };
 
 const ConversationsContext = createContext<ConversationsContextValue | null>(null);
@@ -3857,6 +3940,17 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
     );
   }, []);
 
+  /**
+   * Pending-SMS-compose slot. Set by the Entrata global-search overlay
+   * when the user clicks the "SMS" button on a row that has no active
+   * thread; consumed by `app/conversations/page.tsx` to swap the right
+   * pane over to the inline `EntrataInlineSmsComposer`. Kept as plain
+   * useState — no side effects — so the composer can clear it on
+   * Cancel/Escape/Send without any activity-log churn.
+   */
+  const [pendingSmsCompose, setPendingSmsCompose] =
+    useState<EntrataSearchResult | null>(null);
+
   const removeLabel = useCallback((id: string, label: string) => {
     setItems((prev) =>
       prev.map((c) => {
@@ -3886,6 +3980,8 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
         removeLabel,
         markRead,
         markUnread,
+        pendingSmsCompose,
+        setPendingSmsCompose,
       }}
     >
       {children}

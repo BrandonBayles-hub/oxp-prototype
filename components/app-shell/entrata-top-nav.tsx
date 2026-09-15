@@ -23,6 +23,11 @@ import {
   Eye,
 } from "lucide-react";
 import { MobileAppPreview } from "@/components/mobile-app-preview";
+import {
+  EntrataGlobalSearch,
+  type Result as SearchResult,
+} from "@/components/app-shell/entrata-global-search";
+import { EntrataComposeEmail } from "@/components/app-shell/entrata-compose-email";
 import { useRole, ROLES, type Role } from "@/lib/role-context";
 
 import { useR1Release } from "@/lib/r1-release-context";
@@ -59,7 +64,7 @@ export function EntrataTopNav() {
 
   const { getCurrentUser } = useWorkforce();
   const { items: escalations } = useEscalations();
-  const { items: conversations } = useConversations();
+  const { items: conversations, setPendingSmsCompose } = useConversations();
   const { handoffEnabled, toggleHandoffEnabled } = useAnalyticsHandoff();
   const { viewerRole, setViewerRole, isContracted, contractedPropertyIds, clearContract, addContractedProperties } = useAgentBuilderViewerRole();
   const { showRoadmap, setShowRoadmap } = useRoadmap();
@@ -116,6 +121,68 @@ export function EntrataTopNav() {
 
   const [accountOpen, setAccountOpen] = useState(false);
   const accountRef = useRef<HTMLDivElement>(null);
+
+  /*
+    Global-search overlay wiring. The button is fixed to the right edge
+    of the primary top bar; when it's clicked we open the
+    `EntrataGlobalSearch` panel and hand it the exact viewport
+    coordinates of the button (so the input pill can render at the
+    same spot the button occupied, and the results panel can align
+    flush under the tab bar). Geometry is recomputed on window resize
+    so the overlay follows the button if the browser is resized while
+    open.
+  */
+  const searchButtonRef = useRef<HTMLButtonElement>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchGeom, setSearchGeom] = useState<{
+    anchorTop: number;
+    searchInputTop: number;
+    searchInputRight: number;
+    searchInputWidth: number;
+  } | null>(null);
+
+  const measureSearchGeom = () => {
+    // The results panel drops directly beneath the primary top bar
+    // (40px tall) — it visually replaces the OXP tab strip on the
+    // right half of the viewport, matching the reference where the
+    // Entrata global-search panel covers everything below the
+    // "entrata | Client Name" bar on the right side of the screen.
+    const anchorTop = 40;
+    const rect = searchButtonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    // Expand the input pill leftward so it feels like the button
+    // "grew into" a real input rather than jumped to a different
+    // size. 260px lands close to the reference input width without
+    // overrunning the Demo dropdown pill next to it.
+    const searchInputWidth = 260;
+    const searchInputTop = rect.top;
+    const searchInputRight = window.innerWidth - rect.right;
+    setSearchGeom({
+      anchorTop,
+      searchInputTop,
+      searchInputRight,
+      searchInputWidth,
+    });
+  };
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    const onResize = () => measureSearchGeom();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [searchOpen]);
+
+  /*
+    Compose-Email modal launched from the row-level "Email" button in
+    the search overlay. The SMS button no longer opens a modal — it
+    pushes a `pendingSmsCompose` recipient onto `ConversationsContext`
+    and navigates to `/conversations/`, where the right pane swaps in
+    the inline `EntrataInlineSmsComposer`. See the onComposeSms
+    callback wired on `<EntrataGlobalSearch>` below.
+  */
+  const [composeEmailFor, setComposeEmailFor] = useState<SearchResult | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!accountOpen) return;
@@ -389,14 +456,29 @@ export function EntrataTopNav() {
           </div>
 
           <button
+            ref={searchButtonRef}
             type="button"
+            onClick={() => {
+              // Measure first so the fixed-position input pill and
+              // panel are already in place on the same frame they
+              // mount — no visible layout jump.
+              measureSearchGeom();
+              setSearchOpen(true);
+            }}
+            aria-haspopup="dialog"
+            aria-expanded={searchOpen}
             className="flex items-center gap-1.5 rounded px-2.5"
             style={{
               height: 28,
-              background: "rgba(0,0,0,0.04)",
+              background: searchOpen ? "transparent" : "rgba(0,0,0,0.04)",
               color: "rgba(0,0,0,0.45)",
               fontSize: 12,
               border: "1px solid rgba(0,0,0,0.1)",
+              // Hide the button visually while the overlay's input
+              // pill is anchored on top of it, but keep it in-flow so
+              // the surrounding row stays the same width and the
+              // Demo pill doesn't jump.
+              visibility: searchOpen ? "hidden" : "visible",
             }}
           >
             <Search className="h-3.5 w-3.5" />
@@ -818,6 +900,51 @@ export function EntrataTopNav() {
       </div>
 
       <MobileAppPreview open={mobilePreviewOpen} onClose={() => setMobilePreviewOpen(false)} />
+
+      {searchGeom && (
+        <EntrataGlobalSearch
+          open={searchOpen}
+          onClose={() => setSearchOpen(false)}
+          anchorTop={searchGeom.anchorTop}
+          searchInputTop={searchGeom.searchInputTop}
+          searchInputRight={searchGeom.searchInputRight}
+          searchInputWidth={searchGeom.searchInputWidth}
+          onComposeEmail={(r) => setComposeEmailFor(r)}
+          onComposeSms={(r) => {
+            // Hand the recipient off to the OXP Conversations page,
+            // which reads `pendingSmsCompose` from `ConversationsContext`
+            // and renders the inline compose panel in its right pane
+            // instead of opening a floating modal. The search overlay
+            // already calls onClose() before firing this handler.
+            setPendingSmsCompose(r);
+            router.push("/conversations/");
+          }}
+          onOpenSmsThread={(threadId) => {
+            // Navigate to the existing thread on the OXP Communications
+            // page. The Conversations page reads `?id=` from the URL
+            // via useSearchParams and pre-selects that thread. We don't
+            // open the compose popup here since the whole point of the
+            // active-thread branch is "no duplicate — go straight in".
+            //
+            // The overlay already fires `onClose()` before this handler,
+            // but we defensively (a) force the overlay closed in case
+            // this callback ever runs from another entry point, and
+            // (b) clear any stale `pendingSmsCompose` recipient so the
+            // /conversations/ right pane renders the thread view
+            // instead of the inline SMS composer (which takes
+            // precedence when `pendingSmsCompose` is non-null).
+            setSearchOpen(false);
+            setPendingSmsCompose(null);
+            router.push(`/conversations/?id=${threadId}`);
+          }}
+        />
+      )}
+
+      <EntrataComposeEmail
+        open={composeEmailFor !== null}
+        onClose={() => setComposeEmailFor(null)}
+        recipient={composeEmailFor}
+      />
     </div>
   );
 }
