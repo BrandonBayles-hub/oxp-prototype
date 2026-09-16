@@ -3682,6 +3682,19 @@ type ConversationsContextValue = {
    */
   pendingSmsCompose: EntrataSearchResult | null;
   setPendingSmsCompose: (next: EntrataSearchResult | null) => void;
+  /**
+   * Recipient the top-nav wants the OXP `/conversations/` right pane
+   * to show a new-email compose panel for. Null when no compose is
+   * pending. Cleared on send (which commits a new email thread) or on
+   * Escape/Cancel. Mirrors `pendingSmsCompose`, but — unlike SMS —
+   * there is no "existing thread" branch: the inline email composer
+   * always commits a fresh new thread. Guarded by
+   * `useConversationsDemo().email2DemoEnabled === false` (the default);
+   * when that flag is ON, the top-nav opens the legacy modal instead
+   * and this slot is never populated.
+   */
+  pendingEmailCompose: EntrataSearchResult | null;
+  setPendingEmailCompose: (next: EntrataSearchResult | null) => void;
 };
 
 const ConversationsContext = createContext<ConversationsContextValue | null>(null);
@@ -3951,6 +3964,18 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
   const [pendingSmsCompose, setPendingSmsCompose] =
     useState<EntrataSearchResult | null>(null);
 
+  /**
+   * Pending-email-compose slot. Set by the Entrata global-search
+   * overlay when the user clicks the "Email" button on a row and the
+   * `email2DemoEnabled` toggle is OFF (default); consumed by
+   * `app/conversations/page.tsx` to swap the right pane over to the
+   * inline `EntrataInlineEmailComposer`. Unlike SMS, there is no
+   * "existing thread" branch — the inline email composer always
+   * creates a fresh new thread and navigates to it on send.
+   */
+  const [pendingEmailCompose, setPendingEmailCompose] =
+    useState<EntrataSearchResult | null>(null);
+
   const removeLabel = useCallback((id: string, label: string) => {
     setItems((prev) =>
       prev.map((c) => {
@@ -3982,6 +4007,8 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
         markUnread,
         pendingSmsCompose,
         setPendingSmsCompose,
+        pendingEmailCompose,
+        setPendingEmailCompose,
       }}
     >
       {children}

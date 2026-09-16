@@ -37,6 +37,7 @@ import { useRoadmap } from "@/lib/roadmap-context";
 import { useWorkforce } from "@/lib/workforce-context";
 import { useEscalations } from "@/lib/escalations-context";
 import { useConversations } from "@/lib/conversations-context";
+import { useConversationsDemo } from "@/lib/conversations-demo-context";
 import { useAnalyticsHandoff } from "@/lib/analytics-handoff-context";
 import { useAgentBuilderViewerRole } from "@/lib/agent-builder-viewer-role-context";
 import { PMC_PROPERTY_RECORDS } from "@/components/custom-agent-builder/lib/pmc-identity";
@@ -64,7 +65,12 @@ export function EntrataTopNav() {
 
   const { getCurrentUser } = useWorkforce();
   const { items: escalations } = useEscalations();
-  const { items: conversations, setPendingSmsCompose } = useConversations();
+  const {
+    items: conversations,
+    setPendingSmsCompose,
+    setPendingEmailCompose,
+  } = useConversations();
+  const { email2DemoEnabled } = useConversationsDemo();
   const { handoffEnabled, toggleHandoffEnabled } = useAnalyticsHandoff();
   const { viewerRole, setViewerRole, isContracted, contractedPropertyIds, clearContract, addContractedProperties } = useAgentBuilderViewerRole();
   const { showRoadmap, setShowRoadmap } = useRoadmap();
@@ -909,13 +915,43 @@ export function EntrataTopNav() {
           searchInputTop={searchGeom.searchInputTop}
           searchInputRight={searchGeom.searchInputRight}
           searchInputWidth={searchGeom.searchInputWidth}
-          onComposeEmail={(r) => setComposeEmailFor(r)}
+          onComposeEmail={(r) => {
+            // Email 2 Demo ON → legacy `EntrataComposeEmail` modal.
+            // OFF (default) → hand the recipient off to the OXP
+            // Conversations page, which reads `pendingEmailCompose`
+            // from `ConversationsContext` and renders the inline
+            // `EntrataInlineEmailComposer` in its right pane (mirror
+            // of the SMS handoff below). Search overlay is closed
+            // eagerly so the /conversations/ navigation doesn't
+            // race with the overlay's own close handler.
+            //
+            // Clear the sibling SMS-compose slot so the most recent
+            // click always wins the right-pane render priority
+            // (`pendingSmsCompose` is checked before
+            // `pendingEmailCompose` in page.tsx — without this, an
+            // earlier SMS compose would keep showing on top of the
+            // fresh email one the user just asked for).
+            if (email2DemoEnabled) {
+              setComposeEmailFor(r);
+            } else {
+              setPendingSmsCompose(null);
+              setPendingEmailCompose(r);
+              setSearchOpen(false);
+              router.push("/conversations/");
+            }
+          }}
           onComposeSms={(r) => {
             // Hand the recipient off to the OXP Conversations page,
             // which reads `pendingSmsCompose` from `ConversationsContext`
             // and renders the inline compose panel in its right pane
             // instead of opening a floating modal. The search overlay
             // already calls onClose() before firing this handler.
+            //
+            // Clear the sibling email-compose slot so switching from
+            // an in-progress email to a fresh SMS compose actually
+            // swaps the right pane (see mirror comment on
+            // onComposeEmail above).
+            setPendingEmailCompose(null);
             setPendingSmsCompose(r);
             router.push("/conversations/");
           }}
@@ -929,12 +965,13 @@ export function EntrataTopNav() {
             // The overlay already fires `onClose()` before this handler,
             // but we defensively (a) force the overlay closed in case
             // this callback ever runs from another entry point, and
-            // (b) clear any stale `pendingSmsCompose` recipient so the
+            // (b) clear any stale pending compose recipient so the
             // /conversations/ right pane renders the thread view
-            // instead of the inline SMS composer (which takes
-            // precedence when `pendingSmsCompose` is non-null).
+            // instead of an inline composer (both compose slots take
+            // precedence over `selected` in page.tsx's render order).
             setSearchOpen(false);
             setPendingSmsCompose(null);
+            setPendingEmailCompose(null);
             router.push(`/conversations/?id=${threadId}`);
           }}
         />
