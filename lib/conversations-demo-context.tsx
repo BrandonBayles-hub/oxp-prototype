@@ -132,6 +132,58 @@ type ConversationsDemoContextValue = {
   email2DemoEnabled: boolean;
   toggleEmail2DemoEnabled: () => void;
   /**
+   * "Notifications" demo control — gates the floating chatbot-shaped
+   * notification bell that lives in the bottom-right corner of the
+   * OXP Communications page. When OFF (default), the bell is hidden
+   * entirely so the classic /conversations experience is unchanged.
+   * When ON, the bell renders with an unread count aggregated across
+   * every open thread that needs staff attention (has unread AND/OR
+   * the last public message is from the lead/resident) and honors
+   * the per-channel toggles below — so `notifChannelSms=false` means
+   * SMS threads don't contribute to the count and don't appear in
+   * the notification panel.
+   *
+   * The bell is a demo of an omnichannel notification affordance for
+   * property staff who work off the OXP Communications page —
+   * distinct from the account-level `NotificationToast` we already
+   * ship in the shell.
+   */
+  notificationsEnabled: boolean;
+  toggleNotificationsEnabled: () => void;
+  /**
+   * Signal counter for the "preview notification pop" demo action.
+   * Increments each time staff hits the "Preview pop-out" button in
+   * the Communications Demo Control panel — the notification bell
+   * watches this counter and re-runs its attention-getter animation
+   * whenever the counter advances, so demoers can replicate the
+   * "a new notification just arrived" pop without waiting for a real
+   * unread-count increase.
+   */
+  notificationPopSignal: number;
+  triggerNotificationPop: () => void;
+  /**
+   * Per-channel notification toggles used both by the bell (which
+   * channels contribute to the unread count) and by the Notifications
+   * settings tab in Thread Settings → Manage Inboxes. Default ON so
+   * every channel notifies out of the box; staff can turn a channel
+   * off to silence noisier surfaces.
+   *
+   * "Resident Portal" maps to the internal `Chat` channel used by the
+   * in-portal messenger — kept as a separate toggle from SMS/Email so
+   * clients that don't use the portal messenger can silence just that
+   * lane. Voice includes both inbound calls and voicemails; there's
+   * no separate voicemail toggle by design (a voicemail is just a
+   * follow-up to a voice thread).
+   */
+  notifChannelVoice: boolean;
+  setNotifChannelVoice: (v: boolean) => void;
+  notifChannelSms: boolean;
+  setNotifChannelSms: (v: boolean) => void;
+  notifChannelEmail: boolean;
+  setNotifChannelEmail: (v: boolean) => void;
+  notifChannelResidentPortal: boolean;
+  setNotifChannelResidentPortal: (v: boolean) => void;
+  /**
    * Viewport-emulation demo preset: when non-`off`, the whole `AppShell`
    * is rendered inside a letter-boxed frame of the picked size centered
    * in the physical browser window. Purely visual — we don't touch the
@@ -320,6 +372,16 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
   // type. Default (off) is the new inline OXP email composer; ON restores
   // the legacy `EntrataComposeEmail` modal path.
   const [email2DemoEnabled, setEmail2DemoEnabled] = useState(false);
+  // Notifications demo — OFF by default so /conversations renders exactly
+  // as it does today until the demo control is flipped. Per-channel
+  // toggles default to ON so, once the bell is enabled, every channel
+  // contributes to the count out of the box.
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [notificationPopSignal, setNotificationPopSignal] = useState(0);
+  const [notifChannelVoice, setNotifChannelVoice] = useState(true);
+  const [notifChannelSms, setNotifChannelSms] = useState(true);
+  const [notifChannelEmail, setNotifChannelEmail] = useState(true);
+  const [notifChannelResidentPortal, setNotifChannelResidentPortal] = useState(true);
   const [viewportPreset, setViewportPresetState] = useState<ViewportPreset>("off");
   const [followUpEnabled, setFollowUpEnabled] = useState(false);
   const [followUpDaysList, setFollowUpDaysListState] = useState<number[]>([3]);
@@ -425,6 +487,19 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
     setEmail2DemoEnabled((v) => !v);
   }, []);
 
+  const toggleNotificationsEnabled = useCallback(() => {
+    setNotificationsEnabled((v) => !v);
+  }, []);
+
+  // Increments a counter watched by the bell. The bell re-runs its
+  // pop-out animation whenever the counter advances, so this is
+  // effectively "pretend a new notification just came in." Using a
+  // counter (not a boolean) so consecutive presses each fire fresh
+  // animations even if the previous run hasn't cleared yet.
+  const triggerNotificationPop = useCallback(() => {
+    setNotificationPopSignal((n) => n + 1);
+  }, []);
+
   // Public setter — accepts the exact enum value the UI is switching to.
   // Wrapped so we can eventually persist / log preset changes without
   // rewriting consumers. Because state lives in a single scalar, mutual
@@ -461,6 +536,18 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
       toggleBreakoutsExampleEnabled,
       email2DemoEnabled,
       toggleEmail2DemoEnabled,
+      notificationsEnabled,
+      toggleNotificationsEnabled,
+      notificationPopSignal,
+      triggerNotificationPop,
+      notifChannelVoice,
+      setNotifChannelVoice,
+      notifChannelSms,
+      setNotifChannelSms,
+      notifChannelEmail,
+      setNotifChannelEmail,
+      notifChannelResidentPortal,
+      setNotifChannelResidentPortal,
       viewportPreset,
       setViewportPreset,
       followUpEnabled,
@@ -507,6 +594,14 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
       toggleBreakoutsExampleEnabled,
       email2DemoEnabled,
       toggleEmail2DemoEnabled,
+      notificationsEnabled,
+      toggleNotificationsEnabled,
+      notificationPopSignal,
+      triggerNotificationPop,
+      notifChannelVoice,
+      notifChannelSms,
+      notifChannelEmail,
+      notifChannelResidentPortal,
       viewportPreset,
       setViewportPreset,
       followUpEnabled,

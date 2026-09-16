@@ -121,6 +121,7 @@ import {
   needsStaffResponse,
   hasActiveFollowUpReminder,
   hasActiveAiEscalation,
+  parseAgeMinutes,
   isWaitingOnResidentPublicReply,
   satisfiesEscalatedPropertyInboxLabels,
   conversationHasCurrentUserPrivateNoteMention,
@@ -176,6 +177,7 @@ import { VoicemailPlayer } from "@/components/voicemail-player";
 import { MissedCallBubble } from "@/components/missed-call-bubble";
 import { EntrataInlineSmsComposer } from "@/components/app-shell/entrata-inline-sms-composer";
 import { EntrataInlineEmailComposer } from "@/components/app-shell/entrata-inline-email-composer";
+import { CommunicationsNotificationBell } from "@/components/app-shell/communications-notification-bell";
 
 const AVATAR_COLORS = [
   "bg-emerald-100 text-emerald-700",
@@ -2151,6 +2153,17 @@ function ConversationsContent() {
     toggleBreakoutsExampleEnabled,
     email2DemoEnabled,
     toggleEmail2DemoEnabled,
+    notificationsEnabled,
+    toggleNotificationsEnabled,
+    triggerNotificationPop,
+    notifChannelVoice,
+    setNotifChannelVoice,
+    notifChannelSms,
+    setNotifChannelSms,
+    notifChannelEmail,
+    setNotifChannelEmail,
+    notifChannelResidentPortal,
+    setNotifChannelResidentPortal,
     viewportPreset,
     setViewportPreset,
     followUpEnabled,
@@ -2437,28 +2450,11 @@ function ConversationsContent() {
     return false;
   };
 
-  /**
-   * Best-effort parse of a `ConversationItem.time` string (e.g. "5m ago",
-   * "27m ago", "3h ago", "2d ago", "just now") into an "age in minutes" number
-   * so the thread list can be ordered by recency. Anything unparseable is
-   * treated as extremely old so it drops to the bottom under "newest first".
-   */
-  const parseAgeMinutes = (time: string): number => {
-    const raw = (time || "").trim().toLowerCase();
-    if (!raw) return Number.POSITIVE_INFINITY;
-    if (raw === "just now" || raw === "now") return 0;
-    const m = raw.match(/(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|wk|wks|week|weeks|mo|mos|month|months|y|yr|yrs|year|years)\b/);
-    if (!m) return Number.POSITIVE_INFINITY;
-    const n = parseInt(m[1], 10);
-    const unit = m[2];
-    if (unit.startsWith("m") && !unit.startsWith("mo")) return n; // minutes
-    if (unit.startsWith("h")) return n * 60;
-    if (unit.startsWith("d")) return n * 60 * 24;
-    if (unit.startsWith("w")) return n * 60 * 24 * 7;
-    if (unit.startsWith("mo")) return n * 60 * 24 * 30;
-    if (unit.startsWith("y")) return n * 60 * 24 * 365;
-    return Number.POSITIVE_INFINITY;
-  };
+  // `parseAgeMinutes` used to live here as a component-local closure.
+  // It's now exported from `lib/conversations-context.tsx` so the
+  // Communications notification bell (and any other surface that
+  // orders threads by recency) uses the identical model. See there
+  // for the recency parsing rules.
 
   const allConversationPropertyNames = useMemo(() => {
     const s = new Set<string>();
@@ -3007,17 +3003,17 @@ function ConversationsContent() {
           );
         })();
 
-    // Thread Settings → Sorting. Applied for SA 1.2 across every inbox so the
-    // ordering setting there is a single source of truth for the list. Sort is
-    // stable on the source array; we clone before sorting to avoid mutating memo
-    // inputs. Age is derived from the pre-formatted `time` string (e.g. "5m ago").
-    if (!superAgent12Enabled) return base;
+    // Sort by recency across EVERY mode (SA 1.0, SA 1.2, and default).
+    // Historically only SA 1.2 sorted the list — SA 1.0 rendered the raw
+    // seed order — but staff reasonably expect newest-first ordering to be
+    // universal so a fresh reply always jumps to the top of the visible
+    // list. SA 1.2 keeps its Thread Settings → Sorting override so the
+    // oldest-first toggle there still flips the direction; every other
+    // mode is pinned to newest-first. Sort is stable on the source array;
+    // we clone before sorting to avoid mutating memo inputs. Age is
+    // derived from the pre-formatted `time` string (e.g. "5m ago").
     const arr = [...base];
-    // Two-mode sort — newest-first (default) or oldest-first. The old
-    // "priority" mode was retired; SA 1.2's Needs Action / No Action Needed
-    // collapsible groups now surface needs-attention threads at the top of
-    // the list without collapsing everything into a single flat ordering.
-    if (threadSortMode === "oldest") {
+    if (superAgent12Enabled && threadSortMode === "oldest") {
       arr.sort((a, b) => parseAgeMinutes(b.time) - parseAgeMinutes(a.time));
     } else {
       arr.sort((a, b) => parseAgeMinutes(a.time) - parseAgeMinutes(b.time));
@@ -4390,6 +4386,9 @@ function ConversationsContent() {
           onToggleBreakoutsExample={toggleBreakoutsExampleEnabled}
           email2DemoEnabled={email2DemoEnabled}
           onToggleEmail2Demo={toggleEmail2DemoEnabled}
+          notificationsEnabled={notificationsEnabled}
+          onToggleNotifications={toggleNotificationsEnabled}
+          onPreviewNotificationPop={triggerNotificationPop}
           viewportPreset={viewportPreset}
           onSetViewportPreset={setViewportPreset}
         />
@@ -11860,6 +11859,14 @@ function ConversationsContent() {
         defaultAssigneeValue={CLICK_TO_CALL_FOLLOWUP_UNASSIGNED}
       />
 
+      {/* Floating chatbot-shaped notifications widget for OXP
+          Communications. Renders no DOM at all until the
+          Notifications demo control is turned on (self-guarded via
+          `notificationsEnabled` inside the component), so the
+          /conversations layout stays byte-identical for every user
+          who hasn't flipped the toggle. */}
+      <CommunicationsNotificationBell />
+
     </div>
   );
 }
@@ -12219,6 +12226,9 @@ function CommunicationsDemoControl({
   onToggleBreakoutsExample,
   email2DemoEnabled,
   onToggleEmail2Demo,
+  notificationsEnabled,
+  onToggleNotifications,
+  onPreviewNotificationPop,
   viewportPreset,
   onSetViewportPreset,
 }: {
@@ -12239,6 +12249,16 @@ function CommunicationsDemoControl({
   onToggleBreakoutsExample: () => void;
   email2DemoEnabled: boolean;
   onToggleEmail2Demo: () => void;
+  notificationsEnabled: boolean;
+  onToggleNotifications: () => void;
+  /**
+   * Fires the "pretend a new notification just arrived" pop animation
+   * on the floating bell. Used by the "Preview pop-out" sub-button
+   * under the Notifications row so demoers can replicate the peek
+   * animation on demand without waiting for a real unread count to
+   * change.
+   */
+  onPreviewNotificationPop: () => void;
   viewportPreset: ViewportPreset;
   onSetViewportPreset: (preset: ViewportPreset) => void;
 }) {
@@ -12252,6 +12272,7 @@ function CommunicationsDemoControl({
     simulateUserEnabled ||
     breakoutsExampleEnabled ||
     email2DemoEnabled ||
+    notificationsEnabled ||
     viewportPreset !== "off";
 
   return (
@@ -12436,10 +12457,7 @@ function CommunicationsDemoControl({
             <div className="min-w-0 flex-1">
               <p className="text-[12px] font-semibold leading-tight text-foreground">Email 2 Demo</p>
               <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
-                When on, clicking Email on a search-row opens the classic
-                Entrata &ldquo;Create Email&rdquo; modal. Off (default) opens
-                a new inline email composer inside OXP Communications —
-                matches the SMS flow.
+                With composer
               </p>
             </div>
             <Switch
@@ -12448,6 +12466,81 @@ function CommunicationsDemoControl({
               className="mt-0.5"
             />
           </label>
+
+          {/*
+            "Notifications" — surfaces the floating chatbot-shaped
+            notification bell in the bottom-right of the OXP
+            Communications page. SA 1.2-only: the bell's count is
+            the SA 1.2 "Needs Action" bucket (property-owned + needs
+            staff response), so the toggle is disabled while SA 1.2
+            is off. Per-channel silencing lives in Thread Settings →
+            Notifications; both this toggle and the per-channel
+            toggles are session-scoped demo state (nothing is
+            persisted).
+          */}
+          <label
+            className={cn(
+              "flex items-start justify-between gap-2 rounded-md px-1.5 py-1.5 transition-colors",
+              superAgent12Enabled
+                ? "cursor-pointer hover:bg-muted/60"
+                : "cursor-not-allowed opacity-60",
+            )}
+            title={
+              superAgent12Enabled
+                ? undefined
+                : "Turn on Super Agent 1.2 first — Notifications count from its Needs Action bucket."
+            }
+          >
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-semibold leading-tight text-foreground">
+                Notifications
+                <span className="ml-1 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+                  SA 1.2
+                </span>
+              </p>
+              <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+                Floating bell showing the SA 1.2 Needs Action count
+              </p>
+            </div>
+            <Switch
+              checked={notificationsEnabled && superAgent12Enabled}
+              onCheckedChange={onToggleNotifications}
+              disabled={!superAgent12Enabled}
+              className="mt-0.5"
+            />
+          </label>
+          {/*
+            Demo-only sub-action: fires the bell's attention-getter
+            animation on demand so walk-throughs don't have to wait
+            for a fake inbound message. Bell pops AND a toast card
+            slides in beside the FAB showing the person and their
+            message. Primary "default" variant (black) because it
+            simulates the everyday real-world notification arrival
+            (per workspace rule primary = black/white in OXP).
+            Disabled when either the Notifications toggle or SA 1.2
+            is off — clicking with the bell hidden would be a
+            no-op, so the disabled state makes that explicit.
+          */}
+          <div className="-mt-0.5 flex justify-end px-1.5 pb-1.5">
+            <Button
+              type="button"
+              size="sm"
+              variant="default"
+              className="h-6 gap-1 px-2 text-[10px] font-semibold shadow-sm"
+              onClick={onPreviewNotificationPop}
+              disabled={!notificationsEnabled || !superAgent12Enabled}
+              title={
+                !superAgent12Enabled
+                  ? "Turn on Super Agent 1.2 first"
+                  : notificationsEnabled
+                  ? "Simulate an incoming notification (bell + preview card)"
+                  : "Turn Notifications on to preview"
+              }
+            >
+              <BellRing className="h-3 w-3" strokeWidth={2.5} aria-hidden />
+              Preview pop-out
+            </Button>
+          </div>
 
           {/*
             Viewport-emulation presets — letter-box the whole OXP shell into
@@ -12598,13 +12691,35 @@ function ManageInboxSettingsPanel({
   const SECTIONS: { id: SectionId; label: string; description: string }[] = [
     { id: "setup", label: "One Time Setup", description: "One-time actions to prep the inbox" },
     { id: "defaults", label: "Defaults", description: "Which inbox, filter, and sort open by default" },
-    // Notifications intentionally hidden for now; content still exists below in case
-    // it needs to come back — just re-add the entry above to expose it.
+    // Notifications — governs the floating chatbot-shaped notification
+    // bell in the bottom-right of the Communications page. Per-channel
+    // toggles below silence individual lanes (Voice / SMS / Email /
+    // Resident Portal). Section is unconditionally exposed as of the
+    // Notifications demo; the bell itself is still gated behind the
+    // Communications Demo Control's Notifications switch so this page
+    // remains inert for anyone who hasn't turned it on yet.
+    { id: "notifications", label: "Notifications", description: "Bell notifications across every channel" },
     // Sorting was folded into Defaults — the standalone section is gone.
     { id: "follow-up", label: "Thread Automation", description: "Follow-up and auto-close rules" },
   ];
   const [activeSection, setActiveSection] = useState<SectionId>("setup");
 
+  // Per-channel notification toggles live in the demo context so the
+  // bell and this settings tab stay in sync — flipping "Voice" off
+  // here silences the bell's Voice contributions instantly. The two
+  // legacy toggles below (sound / desktop) are still purely local; if
+  // we ever wire them to a real notification store, hoist them into
+  // the context too.
+  const {
+    notifChannelVoice,
+    setNotifChannelVoice,
+    notifChannelSms,
+    setNotifChannelSms,
+    notifChannelEmail,
+    setNotifChannelEmail,
+    notifChannelResidentPortal,
+    setNotifChannelResidentPortal,
+  } = useConversationsDemo();
   // Local state — none of this is persisted yet. Wire to a real store later.
   const [soundOnNewMessage, setSoundOnNewMessage] = useState(false);
   const [desktopNotifications, setDesktopNotifications] = useState(false);
@@ -12877,7 +12992,62 @@ function ManageInboxSettingsPanel({
                   </p>
                 </div>
 
+                {/* Channel notifications — surfaces the per-channel
+                    switches that feed the Communications-page bell.
+                    Flipping any switch off here removes that channel's
+                    threads from the bell's list and its unread count
+                    live, and hides the channel's chip from the panel's
+                    filter row. Kept in its own card (separate from the
+                    legacy sound/desktop toggles below) because these
+                    switches govern the bell's data, not its delivery
+                    method. */}
+                <div className="rounded-lg border border-border bg-background p-4">
+                  <div className="mb-3">
+                    <p className="text-sm font-semibold text-foreground">
+                      Notify me across these channels
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Silences the Communications-page notification bell for the channels you turn off — unread counts and list rows both respect these switches.
+                    </p>
+                  </div>
+                  <div className="space-y-4">
+                    <ManageInboxToggleRow
+                      title="Voice"
+                      description="Inbound calls and voicemails. Turn off to silence the phone lane without hiding voicemails from the inbox."
+                      checked={notifChannelVoice}
+                      onCheckedChange={setNotifChannelVoice}
+                    />
+                    <ManageInboxToggleRow
+                      title="SMS"
+                      description="Text messages exchanged with leads and residents."
+                      checked={notifChannelSms}
+                      onCheckedChange={setNotifChannelSms}
+                    />
+                    <ManageInboxToggleRow
+                      title="Email"
+                      description="Emails routed to your property mailboxes."
+                      checked={notifChannelEmail}
+                      onCheckedChange={setNotifChannelEmail}
+                    />
+                    <ManageInboxToggleRow
+                      title="Resident Portal"
+                      description="Chat and messenger threads originating from the resident portal."
+                      checked={notifChannelResidentPortal}
+                      onCheckedChange={setNotifChannelResidentPortal}
+                    />
+                  </div>
+                </div>
+
                 <div className="space-y-4 rounded-lg border border-border bg-background p-4">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">
+                      Delivery
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      How the app grabs your attention when a new
+                      notification arrives.
+                    </p>
+                  </div>
                   <ManageInboxToggleRow
                     title="Play sound on new message"
                     description="Play a subtle chime when a new resident or lead message arrives."
