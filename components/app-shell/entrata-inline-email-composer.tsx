@@ -19,11 +19,14 @@
  *     email is a longer-form message than a text.
  *   • The empty messages helper uses the `Mail` icon and reminds
  *     staff their first email will start this conversation.
- *   • Hovering the recipient name in the header pops a tooltip
- *     showing the From/To email addresses the send will use;
- *     clicking the name opens a compact profile preview dialog
- *     (name / role / property / unit / email / phone) while keeping
- *     the in-progress subject + body intact in local state.
+ *   • Clicking the recipient name in the header opens a compact
+ *     profile preview dialog (name / role / property / unit / email
+ *     / phone) while keeping the in-progress subject + body intact
+ *     in local state. Hovering the name shows a short "Click to open
+ *     profile" tooltip — from/to addresses are no longer surfaced
+ *     inside the composer since the header already names the
+ *     recipient and the seeded signature carries the sending
+ *     property.
  *
  * Unlike SMS, this composer has no "existing thread" branch — the
  * user requested that email ALWAYS creates a fresh new thread from
@@ -55,7 +58,7 @@
  * Send Email footer) lives behind the ON position of that toggle.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowUp,
@@ -109,16 +112,71 @@ function resolveRecipientEmail(recipient: Result): string {
 }
 
 /**
- * Staff-side "From" address for the tooltip. Derived from the recipient's
- * property so the demo reads as if the sending mailbox is the leasing
- * inbox for that property (matches how the seeded email threads render
- * their From: line, e.g. `Hillside Living Leasing <leasing@hillsideliving.com>`).
+ * Per-property phone + address defaults for the seeded email
+ * signature. Kept as a small local map (rather than a shared lib
+ * export) because it's demo copy — no upstream source of truth
+ * exists, and the user is expected to edit the signature inline
+ * anyway. Any property not in the map falls back to a placeholder
+ * pair so the signature still reads correctly for new properties.
  */
-function resolveSenderEmail(recipient: Result): string {
-  const slug = recipient.property
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "");
-  return `leasing@${slug || "property"}.com`;
+const PROPERTY_SIGNATURE_DEFAULTS: Record<
+  string,
+  { phone: string; address: string }
+> = {
+  "Enclave at 127th": {
+    phone: "(720) 555-0140",
+    address: "12700 Peoria St, Thornton, CO 80602",
+  },
+  "Courthouse Square Apartments": {
+    phone: "(303) 555-0182",
+    address: "1490 W Colfax Ave, Denver, CO 80204",
+  },
+  "The Reserve at Kenosha": {
+    phone: "(720) 555-0198",
+    address: "8450 S Kenosha Way, Aurora, CO 80013",
+  },
+  "Wrenfield at Pleasant View": {
+    phone: "(303) 555-0121",
+    address: "2100 Pleasant View Rd, Longmont, CO 80503",
+  },
+  "Circa Apartments": {
+    phone: "(720) 555-0175",
+    address: "1801 Wynkoop St, Denver, CO 80202",
+  },
+  "Hillside Living": {
+    phone: "(303) 555-0163",
+    address: "890 Hillside Dr, Boulder, CO 80302",
+  },
+};
+
+/**
+ * Build the initial email signature block. Rendered as the tail of
+ * the composer's body textarea so it stays fully editable in place —
+ * the user can rewrite the closing line, tweak the address, or delete
+ * lines entirely without leaving the composer.
+ *
+ * The senderName is currently hard-coded to match the `assignee` used
+ * at Send time (`"Abe Kashiwagi"`) so the signature and the seeded
+ * `ConversationItem.assignee` stay in sync. If we later thread the
+ * signed-in staff name through here we should read it from context
+ * and pass it in.
+ */
+function buildEmailSignature({
+  property,
+  senderName,
+}: {
+  property: string;
+  senderName: string;
+}): string {
+  const defaults = PROPERTY_SIGNATURE_DEFAULTS[property] ?? {
+    phone: "(555) 555-0100",
+    address: `${property} · [property address]`,
+  };
+  return `Best regards,
+${senderName}
+${property}
+${defaults.phone}
+${defaults.address}`;
 }
 
 export function EntrataInlineEmailComposer({
@@ -128,23 +186,51 @@ export function EntrataInlineEmailComposer({
 }) {
   const router = useRouter();
   const { addConversation, setPendingEmailCompose } = useConversations();
+  // Staff signature name — matches the `assignee` used at Send time so
+  // the outgoing email and the ConversationItem author stay aligned.
+  // Kept as a local const rather than a state var since the demo has
+  // no signed-in-user context yet; when we add one, thread it through
+  // here.
+  const senderName = "Abe Kashiwagi";
+  // Pre-computed signature block seeded into the body textarea so the
+  // user can edit it inline (Gmail / Outlook pattern) without needing
+  // an extra field. Memoized per-recipient because property drives the
+  // phone/address defaults; changes to the recipient reset the draft
+  // via the effect below.
+  const signatureText = useMemo(
+    () =>
+      buildEmailSignature({
+        property: recipient.property,
+        senderName,
+      }),
+    [recipient.property, senderName],
+  );
+  // The seeded draft is two empty lines (where the staff will type
+  // their message) followed by the signature. We track the initial
+  // value on a ref so `onFocus` can decide whether to snap the cursor
+  // back to the top — see the textarea's onFocus handler.
+  const initialDraft = useMemo(() => `\n\n${signatureText}`, [signatureText]);
   const [subject, setSubject] = useState("");
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(initialDraft);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [hasFocusedBody, setHasFocusedBody] = useState(false);
   const subjectRef = useRef<HTMLInputElement | null>(null);
-  // Precomputed once per recipient render so the header tooltip and any
-  // downstream send-time metadata stay in sync (only the tooltip uses
-  // them today, but keeping them at component scope avoids drift if we
-  // decide to persist them on the ConversationItem later).
-  const senderEmail = resolveSenderEmail(recipient);
+  const bodyRef = useRef<HTMLTextAreaElement | null>(null);
+  // Precomputed once per recipient render — used by the profile
+  // preview dialog's Email row. Kept at component scope so we have a
+  // single source of truth if we later persist it on the
+  // ConversationItem.
   const recipientEmail = resolveRecipientEmail(recipient);
 
-  // Reset both fields every time this panel mounts with a different
+  // Reset every field every time this panel mounts with a different
   // recipient so an abandoned draft doesn't leak across sessions.
+  // Reseeds the signature-only body so the user always lands on a
+  // clean template when jumping between contacts.
   useEffect(() => {
     setSubject("");
-    setDraft("");
-  }, [recipient.id]);
+    setDraft(initialDraft);
+    setHasFocusedBody(false);
+  }, [recipient.id, initialDraft]);
 
   // Focus the Subject input on mount — email typically starts with
   // the subject, so jumping the cursor there is better UX than
@@ -164,7 +250,17 @@ export function EntrataInlineEmailComposer({
 
   const trimmedSubject = subject.trim();
   const trimmedBody = draft.trim();
-  const canSend = trimmedSubject.length > 0 && trimmedBody.length > 0;
+  // "Effective body" = everything the user typed BEFORE the signature.
+  // If they've only edited the signature (or not touched the body at
+  // all), the effective body is empty and Send stays disabled — a
+  // signature-only email is never intentional. If they've re-edited
+  // the tail of the draft so it no longer contains the signature, we
+  // fall back to the full trimmed body.
+  const bodyBeforeSignature = draft.includes(signatureText)
+    ? draft.slice(0, draft.indexOf(signatureText)).trim()
+    : trimmedBody;
+  const canSend =
+    trimmedSubject.length > 0 && bodyBeforeSignature.length > 0;
 
   // "Abel, Ann" → "Ann"; fall back gracefully for any name that
   // isn't in "Last, First" form.
@@ -243,10 +339,12 @@ export function EntrataInlineEmailComposer({
       >
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
-            {/* Hover the name for a quick From/To preview; click to
-                open the recipient's profile card without discarding
-                the in-progress email (subject + draft body remain in
-                local state and re-render behind the dialog). */}
+            {/* Click the name to open the recipient's profile card
+                without discarding the in-progress email (subject +
+                draft body remain in local state and re-render behind
+                the dialog). From/To addresses now live in the always-
+                visible envelope strip inside the composer, so the
+                hover tooltip only needs to hint at the click affordance. */}
             <TooltipProvider delayDuration={150}>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -259,24 +357,8 @@ export function EntrataInlineEmailComposer({
                     {recipient.name}
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom" align="start" className="max-w-[320px]">
-                  <div className="flex flex-col gap-1.5 text-xs">
-                    <div className="flex items-baseline gap-2">
-                      <span className="w-9 shrink-0 text-muted-foreground">From</span>
-                      <span className="font-medium text-foreground break-all">
-                        {senderEmail}
-                      </span>
-                    </div>
-                    <div className="flex items-baseline gap-2">
-                      <span className="w-9 shrink-0 text-muted-foreground">To</span>
-                      <span className="font-medium text-foreground break-all">
-                        {recipientEmail}
-                      </span>
-                    </div>
-                    <p className="mt-1 pt-1.5 border-t border-border/60 text-[11px] text-muted-foreground">
-                      Click to open profile
-                    </p>
-                  </div>
+                <TooltipContent side="bottom" align="start" className="text-[11px]">
+                  Click to open profile
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -310,7 +392,11 @@ export function EntrataInlineEmailComposer({
       {/* Composer footer — verbatim copy of the primary thread
           composer's rounded-xl shell + Attach + Send button, with the
           Message/Private Note tab bar REMOVED (email is a single mode)
-          and a Subject input inserted above the body textarea. */}
+          and a Subject input inserted above the body textarea. From/To
+          addresses aren't shown here: the recipient name is already in
+          the pane header, and the sending property is visible in the
+          seeded signature at the bottom of the body — an explicit
+          envelope strip was redundant. */}
       <div className="shrink-0 border-t border-border bg-muted/40 shadow-[0_-2px_6px_rgba(0,0,0,0.04)]">
         <div className="px-5 pt-3 pb-4">
           <div className="relative flex flex-col rounded-xl border border-input bg-background transition-colors focus-within:ring-1 focus-within:ring-ring">
@@ -330,8 +416,21 @@ export function EntrataInlineEmailComposer({
               aria-label="Subject"
             />
             <textarea
+              ref={bodyRef}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
+              onFocus={(e) => {
+                // First-time focus: the draft is still the untouched
+                // signature template, so snap the cursor to the top
+                // (line 0) so the user types ABOVE the signature. On
+                // subsequent focuses we leave the caret wherever the
+                // browser put it — that respects the user's own
+                // cursor placement once they've started editing.
+                if (!hasFocusedBody && e.currentTarget.value === initialDraft) {
+                  e.currentTarget.setSelectionRange(0, 0);
+                }
+                setHasFocusedBody(true);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey && canSend) {
                   e.preventDefault();
