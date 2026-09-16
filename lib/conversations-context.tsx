@@ -1269,6 +1269,12 @@ Hillside Living
     property: "Enclave at 127th",
     channel: "SMS",
     assignee: "Abe Kashiwagi",
+    // Non-escalated Maintenance AI thread — AI is still handling it and
+    // the escalation label is intentionally omitted so this thread does
+    // NOT arm the SA 1.2 pre-send Eli Prompt gate. It still lands in the
+    // SA 1.2 thread list (needsStaffResponse=true because the last
+    // public message is Abraham's), but in the "No Action Needed"
+    // bucket rather than "Needs Action" since it isn't property-owned.
     labels: ["Maintenance AI", "Work Order"],
     status: "open",
     hasUnread: false,

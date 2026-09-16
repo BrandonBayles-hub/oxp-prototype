@@ -3830,19 +3830,24 @@ function ConversationsContent() {
         : {}),
     };
 
-    // SA 1.2 pre-send gate: on escalated threads where Eli is still on and
-    // the Eli Prompt automation is enabled, buffer the outbound reply and
-    // open the Eli Prompt modal instead of committing the send. The modal
-    // couples the "how does Eli behave next" decision to the send itself so
-    // staff can't ship a reply into an escalated thread without a plan for
-    // the AI. The cadence stamp is only written when they pick an option
-    // (i.e., when they actually send), so cancelling re-opens the modal on
-    // the next Send attempt. Private notes skip the gate.
+    // SA 1.2 pre-send gate: any thread where Eli is still on and the Eli
+    // Prompt automation is enabled buffers the outbound reply and opens
+    // the Eli Prompt modal instead of committing the send. The modal
+    // couples the "how does Eli behave next" decision to the send itself
+    // so staff always makes a conscious hand-off call before jumping into
+    // an Eli-managed thread — whether or not the thread carries an active
+    // AI Escalation label. The modal's copy + commit path (below) adapts
+    // its wording and post-send bookkeeping based on whether the thread
+    // has an active escalation to resolve; when there's nothing to
+    // resolve, the "keep Eli on" option simply keeps Eli responding and
+    // skips the resolve-activity stamp. The cadence stamp is only
+    // written when they pick an option (i.e., when they actually send),
+    // so cancelling re-opens the modal on the next Send attempt. Private
+    // notes skip the gate.
     if (
       superAgent12Enabled &&
       inputMode === "message" &&
       eliPromptEnabled &&
-      hasActiveAiEscalation(selected) &&
       eliModeFor(selected.id).kind === "on"
     ) {
       const lastShown = eliPromptShownAt[selected.id];
@@ -5804,16 +5809,20 @@ function ConversationsContent() {
         </Dialog>
 
         {/* SA 1.2: Eli Prompt modal — pre-send gate.
-            Opens when staff hits Send on an escalated thread where Eli is
-            still on. The reply is buffered in `eliPromptPendingSend` and
-            _will not_ send until staff picks one of the two options:
-              • Turn Eli off until the escalation is resolved
-              • Resolve escalation and Eli turns back on
-            Picking an option + clicking "Send reply" commits both the Eli
-            mode change and the buffered message together. Cancel / ESC /
-            X discard the pending record but leave the composer text alone
-            so staff can edit and try again — no cadence stamp is written,
-            so the modal re-opens on the next Send attempt. */}
+            Opens whenever staff hits Send on ANY thread where Eli is
+            still on (escalated or not). The reply is buffered in
+            `eliPromptPendingSend` and _will not_ send until staff picks
+            one of the two options:
+              • Turn Eli off (until the escalation is resolved, or
+                indefinitely if there's no escalation on the thread)
+              • Keep Eli on — resolves any active escalation labels as
+                a side effect and lets Eli continue responding
+            Picking an option + clicking "Send reply" commits both the
+            Eli mode change and the buffered message together. Cancel /
+            ESC / X discard the pending record but leave the composer
+            text alone so staff can edit and try again — no cadence
+            stamp is written, so the modal re-opens on the next Send
+            attempt. */}
         <Dialog
           open={eliPromptOpen}
           onOpenChange={(open) => {
@@ -5834,18 +5843,26 @@ function ConversationsContent() {
                 : undefined;
               const eliPromptResidentName = eliPromptConversation?.resident;
               // Active escalation label(s) on this thread. "Keep Eli on"
-              // is now paired with resolving these — the staff reply is
+              // is paired with resolving these — the staff reply is
               // treated as the resolution, escalation labels are cleared,
               // and Eli picks the thread back up. If the thread is a
-              // voice-origin escalation with no literal label, the array
-              // is empty and we still stamp a generic resolved_escalation
-              // activity so `hasActiveAiEscalation` flips false.
+              // voice-origin escalation with no literal label, we still
+              // stamp a generic resolved_escalation activity so
+              // `hasActiveAiEscalation` flips false. If the thread has
+              // NO active escalation at all (post-DEV-321796: the gate
+              // now fires for any Eli-on thread, not just escalated
+              // ones), we skip the resolve-activity stamp entirely and
+              // just let "keep Eli on" mean "keep responding" without
+              // pretending anything was resolved.
               const eliPromptActiveEscalationLabels =
                 eliPromptConversation?.labels.filter((l) =>
                   l.endsWith("Escalation"),
                 ) ?? [];
               const eliPromptHasMultipleEscalations =
                 eliPromptActiveEscalationLabels.length > 1;
+              const eliPromptHasEscalationToResolve =
+                eliPromptConversation !== undefined &&
+                hasActiveAiEscalation(eliPromptConversation);
 
               // Commit path — apply the Eli mode change chosen in the radio
               // group, then addMessage the buffered reply, then reset the
@@ -5856,29 +5873,47 @@ function ConversationsContent() {
                 const { threadId, payload, inputMode: pendingMode } =
                   eliPromptPendingSend;
                 if (eliPromptChoice === "off") {
-                  // Eli-Prompt "Turn off Eli" always means "off until the
-                  // escalation is resolved" — the auto-resume effect flips
-                  // Eli back on the moment the last escalation clears.
+                  // Eli-Prompt "Turn off Eli":
+                  //   • Escalated thread → "off until the escalation is
+                  //     resolved"; the auto-resume effect flips Eli back
+                  //     on the moment the last escalation clears.
+                  //   • Non-escalated thread → "off indefinitely" because
+                  //     there IS no escalation to resolve. If we stamped
+                  //     until-resolved here, Eli would never auto-resume
+                  //     and the effect would look identical anyway — but
+                  //     the audit trail should reflect that this was a
+                  //     manual, staff-driven takeover, not an escalation
+                  //     handoff.
                   applyEliModeChange(
                     threadId,
-                    { kind: "off", policy: "until-resolved" },
+                    {
+                      kind: "off",
+                      policy: eliPromptHasEscalationToResolve
+                        ? "until-resolved"
+                        : "indefinite",
+                    },
                     "prompt",
                   );
                 } else {
-                  // "on" means "resolve the escalation(s), keep Eli
-                  // responding". Eli is already on for this thread, so we
-                  // don't need to flip its mode — but we do stamp a manual
-                  // "on" mode-change so the audit trail records the staff
-                  // decision, then resolve every active escalation label
-                  // via a label_activity + label removal.
+                  // "on" means "keep Eli responding". If there was an
+                  // active escalation, staff's reply is treated as the
+                  // resolution — that's handled below. If not (SA 1.2
+                  // demo where the gate fires on any Eli-on thread), we
+                  // just stamp a manual "on" mode-change so the audit
+                  // trail records the decision and let the reply through.
                   applyEliModeChange(threadId, { kind: "on" }, "prompt");
                 }
                 addMessage(threadId, payload);
 
-                // "Resolve escalation and Eli turns back on" post-send
-                // bookkeeping. Stamped AFTER the staff reply so the timeline
-                // reads: reply → resolution notice → thread continues.
-                if (eliPromptChoice === "on") {
+                // "Resolve escalation" post-send bookkeeping. Only runs
+                // when the thread actually had an active AI escalation at
+                // gate time — on a non-escalated Eli-on thread there's
+                // nothing to resolve, so we skip the activity stamp
+                // (avoids a misleading "resolved_escalation" card on a
+                // thread that was never escalated). Stamped AFTER the
+                // staff reply so the timeline reads: reply → resolution
+                // notice → thread continues.
+                if (eliPromptChoice === "on" && eliPromptHasEscalationToResolve) {
                   const resolveTimestamp = new Date().toLocaleString(
                     "en-US",
                     {
@@ -6041,10 +6076,14 @@ function ConversationsContent() {
                         iconRing: "text-status-success-foreground",
                         selectedBorder: "border-status-success",
                         selectedBg: "bg-status-success/10",
-                        title: eliPromptHasMultipleEscalations
-                          ? "Resolve escalations"
-                          : "Resolve escalation",
-                        subtitle: "Eli turns back on",
+                        title: eliPromptHasEscalationToResolve
+                          ? eliPromptHasMultipleEscalations
+                            ? "Resolve escalations"
+                            : "Resolve escalation"
+                          : "Keep Eli on",
+                        subtitle: eliPromptHasEscalationToResolve
+                          ? "Eli turns back on"
+                          : "Eli continues responding",
                       })}
 
                     {promptOptionOffEnabled &&
@@ -6055,9 +6094,11 @@ function ConversationsContent() {
                         selectedBorder: "border-foreground",
                         selectedBg: "bg-muted/60",
                         title: "Turn off Eli",
-                        subtitle: eliPromptHasMultipleEscalations
-                          ? "Until escalations are resolved"
-                          : "Until escalation is resolved",
+                        subtitle: eliPromptHasEscalationToResolve
+                          ? eliPromptHasMultipleEscalations
+                            ? "Until escalations are resolved"
+                            : "Until escalation is resolved"
+                          : "Staff will handle this thread",
                       })}
                   </div>
 
