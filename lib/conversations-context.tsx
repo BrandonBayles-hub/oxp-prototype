@@ -508,6 +508,37 @@ export function hasActiveFollowUpReminder(c: ConversationItem): boolean {
 }
 
 /**
+ * Best-effort parse of a `ConversationItem.time` string
+ * (e.g. "5m ago", "27m ago", "3h ago", "2d ago", "just now") into an
+ * "age in minutes" number so surfaces can order threads by recency.
+ * Anything unparseable is treated as extremely old so it drops to the
+ * bottom under "newest first".
+ *
+ * Exported so both the main /conversations thread list and the
+ * Communications notification bell sort by the exact same recency
+ * model. Duplicating the logic in two places invited drift the last
+ * time we touched the sort; this is now the single source of truth.
+ */
+export function parseAgeMinutes(time: string): number {
+  const raw = (time || "").trim().toLowerCase();
+  if (!raw) return Number.POSITIVE_INFINITY;
+  if (raw === "just now" || raw === "now") return 0;
+  const m = raw.match(
+    /(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|wk|wks|week|weeks|mo|mos|month|months|y|yr|yrs|year|years)\b/,
+  );
+  if (!m) return Number.POSITIVE_INFINITY;
+  const n = parseInt(m[1], 10);
+  const unit = m[2];
+  if (unit.startsWith("m") && !unit.startsWith("mo")) return n; // minutes
+  if (unit.startsWith("h")) return n * 60;
+  if (unit.startsWith("d")) return n * 60 * 24;
+  if (unit.startsWith("w")) return n * 60 * 24 * 7;
+  if (unit.startsWith("mo")) return n * 60 * 24 * 30;
+  if (unit.startsWith("y")) return n * 60 * 24 * 365;
+  return Number.POSITIVE_INFINITY;
+}
+
+/**
  * Open thread that still needs staff attention. Two ways this can be true:
  *   1. The most recent public message is from the lead/resident and no staff
  *      or agent has publicly replied after it.
