@@ -175,6 +175,7 @@ import {
 import { VoicemailPlayer } from "@/components/voicemail-player";
 import { MissedCallBubble } from "@/components/missed-call-bubble";
 import { EntrataInlineSmsComposer } from "@/components/app-shell/entrata-inline-sms-composer";
+import { EntrataInlineEmailComposer } from "@/components/app-shell/entrata-inline-email-composer";
 
 const AVATAR_COLORS = [
   "bg-emerald-100 text-emerald-700",
@@ -2083,6 +2084,7 @@ function ConversationsContent() {
     markRead,
     markUnread,
     pendingSmsCompose,
+    pendingEmailCompose,
   } = useConversations();
   const { agents } = useAgents();
   const { humanMembers } = useWorkforce();
@@ -2147,6 +2149,8 @@ function ConversationsContent() {
     toggleSimulateUserEnabled,
     breakoutsExampleEnabled,
     toggleBreakoutsExampleEnabled,
+    email2DemoEnabled,
+    toggleEmail2DemoEnabled,
     viewportPreset,
     setViewportPreset,
     followUpEnabled,
@@ -4379,6 +4383,8 @@ function ConversationsContent() {
           onToggleSimulateUser={toggleSimulateUserEnabled}
           breakoutsExampleEnabled={breakoutsExampleEnabled}
           onToggleBreakoutsExample={toggleBreakoutsExampleEnabled}
+          email2DemoEnabled={email2DemoEnabled}
+          onToggleEmail2Demo={toggleEmail2DemoEnabled}
           viewportPreset={viewportPreset}
           onSetViewportPreset={setViewportPreset}
         />
@@ -6713,19 +6719,26 @@ function ConversationsContent() {
 
       {/* ===== CONVERSATION DETAIL ===== */}
       {/*
-        Right-pane switch: when the Entrata global-search "SMS" button
-        hands off a `pendingSmsCompose` recipient, we render the inline
-        `EntrataInlineSmsComposer` in this exact slot instead of the
-        selected-thread view. The composer fills the same flex column,
-        so the thread-list left column stays anchored and only the
-        right pane swaps. Cancel/Escape inside the composer clears
-        `pendingSmsCompose`, which drops us back into the ternary
-        below and re-renders the previously-selected thread (or the
-        empty state if none was selected).
+        Right-pane switch: when the Entrata global-search "SMS" or
+        "Email" button hands off a `pendingSmsCompose` /
+        `pendingEmailCompose` recipient, we render the matching inline
+        composer in this exact slot instead of the selected-thread
+        view. Both composers fill the same flex column, so the
+        thread-list left column stays anchored and only the right pane
+        swaps. Cancel/Escape inside either composer clears its pending
+        slot, which drops us back into the ternary below and re-renders
+        the previously-selected thread (or the empty state if none was
+        selected).
+
+        SMS takes precedence over Email if both slots are somehow set
+        simultaneously — arbitrary but deterministic; in practice the
+        top-nav only ever populates one at a time.
       */}
       <div className={cn("flex min-w-0 flex-1 flex-col", (callSystemPanelOpen || manageInboxPanelOpen) && "hidden")}>
         {pendingSmsCompose ? (
           <EntrataInlineSmsComposer recipient={pendingSmsCompose} />
+        ) : pendingEmailCompose ? (
+          <EntrataInlineEmailComposer recipient={pendingEmailCompose} />
         ) : selected ? (
           <>
             {/* Header */}
@@ -12163,6 +12176,8 @@ function CommunicationsDemoControl({
   onToggleSimulateUser,
   breakoutsExampleEnabled,
   onToggleBreakoutsExample,
+  email2DemoEnabled,
+  onToggleEmail2Demo,
   viewportPreset,
   onSetViewportPreset,
 }: {
@@ -12181,6 +12196,8 @@ function CommunicationsDemoControl({
   onToggleSimulateUser: () => void;
   breakoutsExampleEnabled: boolean;
   onToggleBreakoutsExample: () => void;
+  email2DemoEnabled: boolean;
+  onToggleEmail2Demo: () => void;
   viewportPreset: ViewportPreset;
   onSetViewportPreset: (preset: ViewportPreset) => void;
 }) {
@@ -12193,6 +12210,7 @@ function CommunicationsDemoControl({
     translationEnabled ||
     simulateUserEnabled ||
     breakoutsExampleEnabled ||
+    email2DemoEnabled ||
     viewportPreset !== "off";
 
   return (
@@ -12362,6 +12380,30 @@ function CommunicationsDemoControl({
             <Switch
               checked={breakoutsExampleEnabled}
               onCheckedChange={onToggleBreakoutsExample}
+              className="mt-0.5"
+            />
+          </label>
+
+          {/*
+            "Email 2 Demo" — swaps the row-level Email button in the
+            Entrata global-search overlay between the new inline OXP
+            email composer (OFF, default) and the legacy
+            `EntrataComposeEmail` modal (ON). Plain `<Switch>` — this
+            is a manual/staff demo control, not an AI activation.
+          */}
+          <label className="flex cursor-pointer items-start justify-between gap-2 rounded-md px-1.5 py-1.5 transition-colors hover:bg-muted/60">
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-semibold leading-tight text-foreground">Email 2 Demo</p>
+              <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+                When on, clicking Email on a search-row opens the classic
+                Entrata &ldquo;Create Email&rdquo; modal. Off (default) opens
+                a new inline email composer inside OXP Communications —
+                matches the SMS flow.
+              </p>
+            </div>
+            <Switch
+              checked={email2DemoEnabled}
+              onCheckedChange={onToggleEmail2Demo}
               className="mt-0.5"
             />
           </label>

@@ -113,6 +113,25 @@ type ConversationsDemoContextValue = {
   breakoutsExampleEnabled: boolean;
   toggleBreakoutsExampleEnabled: () => void;
   /**
+   * "Email 2 Demo" — governs which experience the row-level Email
+   * button in the Entrata global-search overlay opens.
+   *
+   *   • OFF (default) — clicking Email pushes a `pendingEmailCompose`
+   *     recipient onto `ConversationsContext` and navigates to
+   *     `/conversations/`, where the right pane swaps in the new inline
+   *     `EntrataInlineEmailComposer`. This mirrors the SMS flow (single
+   *     staff-owned surface in OXP Communications).
+   *   • ON — clicking Email opens the legacy `EntrataComposeEmail`
+   *     modal (dark top bar, three-column body, orange Send Email
+   *     footer) — the classic Entrata "Create Email" experience.
+   *
+   * Unlike the SMS "compose vs. active-thread" split, email always
+   * creates a fresh new thread — there is no "existing thread" branch
+   * for the inline email composer.
+   */
+  email2DemoEnabled: boolean;
+  toggleEmail2DemoEnabled: () => void;
+  /**
    * Viewport-emulation demo preset: when non-`off`, the whole `AppShell`
    * is rendered inside a letter-boxed frame of the picked size centered
    * in the physical browser window. Purely visual — we don't touch the
@@ -297,6 +316,10 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
   );
   const [simulateUserEnabled, setSimulateUserEnabled] = useState(false);
   const [breakoutsExampleEnabled, setBreakoutsExampleEnabled] = useState(false);
+  // OFF by default — see the JSDoc on `email2DemoEnabled` in the context
+  // type. Default (off) is the new inline OXP email composer; ON restores
+  // the legacy `EntrataComposeEmail` modal path.
+  const [email2DemoEnabled, setEmail2DemoEnabled] = useState(false);
   const [viewportPreset, setViewportPresetState] = useState<ViewportPreset>("off");
   const [followUpEnabled, setFollowUpEnabled] = useState(false);
   const [followUpDaysList, setFollowUpDaysListState] = useState<number[]>([3]);
@@ -398,6 +421,10 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
     setBreakoutsExampleEnabled((v) => !v);
   }, []);
 
+  const toggleEmail2DemoEnabled = useCallback(() => {
+    setEmail2DemoEnabled((v) => !v);
+  }, []);
+
   // Public setter — accepts the exact enum value the UI is switching to.
   // Wrapped so we can eventually persist / log preset changes without
   // rewriting consumers. Because state lives in a single scalar, mutual
@@ -432,6 +459,8 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
       toggleSimulateUserEnabled,
       breakoutsExampleEnabled,
       toggleBreakoutsExampleEnabled,
+      email2DemoEnabled,
+      toggleEmail2DemoEnabled,
       viewportPreset,
       setViewportPreset,
       followUpEnabled,
@@ -476,6 +505,8 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
       toggleSimulateUserEnabled,
       breakoutsExampleEnabled,
       toggleBreakoutsExampleEnabled,
+      email2DemoEnabled,
+      toggleEmail2DemoEnabled,
       viewportPreset,
       setViewportPreset,
       followUpEnabled,
