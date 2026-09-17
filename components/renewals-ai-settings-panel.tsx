@@ -28,7 +28,15 @@ import {
   FileSignature,
   Mail,
   Check,
+  DoorOpen,
+  ClipboardCheck,
+  Users,
+  PawPrint,
+  Package,
 } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
 
 /* ══════════════════════════════════════════════════════════════════════════
    Types
@@ -86,11 +94,93 @@ interface BlackoutDates {
   customDates: CustomBlackoutDate[]
 }
 
+export type NonLeaseEndMoveOutPolicy = "place_on_notice" | "escalate_to_staff"
+
+export type PreAcceptanceConfirmCategory = "occupants" | "pets" | "addons"
+
+export const DEFAULT_PRE_ACCEPTANCE_CATEGORIES: PreAcceptanceConfirmCategory[] = [
+  "occupants",
+  "pets",
+  "addons",
+]
+
+export const PRE_ACCEPTANCE_CATEGORY_META: Record<
+  PreAcceptanceConfirmCategory,
+  { label: string; description: string }
+> = {
+  occupants: {
+    label: "Occupants / leaseholders",
+    description: "Confirm who lives on the lease and who is financially responsible.",
+  },
+  pets: {
+    label: "Pets",
+    description: "Confirm pets currently listed on the lease.",
+  },
+  addons: {
+    label: "Add-ons",
+    description: "Confirm reserved items such as parking, storage, or similar add-ons.",
+  },
+}
+
 export interface RenewalsAISettingsState {
   communicationWindow: CommunicationWindow
   blackoutDates: BlackoutDates
   offerSteps: OfferFollowUpStep[]
   leaseSteps: LeaseFollowUpStep[]
+  /** When enabled, Renewal AI may submit place on notice after collecting move-out intent, date, and reason. Off by default. */
+  autoPlaceOnNoticeEnabled: boolean
+  /**
+   * When the resident's move-out date is not the lease end date (earlier or later),
+   * either still place on notice or escalate to site staff only.
+   */
+  nonLeaseEndMoveOutPolicy: NonLeaseEndMoveOutPolicy
+  /**
+   * When enabled, after the resident chooses a renewal term the agent confirms
+   * selected lease details before acceptance. Off by default. Skipped on move-out.
+   */
+  preAcceptanceConfirmationEnabled: boolean
+  /** Which lease-detail groups to confirm. Ignored when the master setting is off. */
+  preAcceptanceConfirmCategories: PreAcceptanceConfirmCategory[]
+}
+
+interface PropertyMoveOutReason {
+  id: string
+  label: string
+}
+
+/** Prototype mock — production reads the property's configured move-out reason list from Entrata. */
+const PROPERTY_MOVE_OUT_REASONS: Record<string, PropertyMoveOutReason[]> = {
+  "14th-north-pkwy": [
+    { id: "101", label: "Job transfer" },
+    { id: "102", label: "Buying a home" },
+    { id: "103", label: "Rent increase" },
+    { id: "104", label: "Dissatisfied with community" },
+    { id: "105", label: "Other" },
+  ],
+  "aspen-heights": [
+    { id: "201", label: "Relocating for work" },
+    { id: "202", label: "Relocating — personal" },
+    { id: "203", label: "Financial / affordability" },
+    { id: "204", label: "Roommate change" },
+    { id: "205", label: "Prefer not to say" },
+  ],
+  "summit-view": [
+    { id: "301", label: "Graduation / school change" },
+    { id: "302", label: "Employment relocation" },
+    { id: "303", label: "Home purchase" },
+    { id: "304", label: "Maintenance concerns" },
+  ],
+}
+
+const DEFAULT_MOVE_OUT_REASONS: PropertyMoveOutReason[] = [
+  { id: "1", label: "Relocation" },
+  { id: "2", label: "Financial" },
+  { id: "3", label: "Dissatisfied with property" },
+  { id: "4", label: "Other" },
+]
+
+export function getPropertyMoveOutReasons(propertyId: string): PropertyMoveOutReason[] {
+  return PROPERTY_MOVE_OUT_REASONS[propertyId] ?? DEFAULT_MOVE_OUT_REASONS
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -270,6 +360,37 @@ const DEFAULT_LEASE_STEPS: LeaseFollowUpStep[] = [
   { id: "ls-4", days: 7, anchor: "before_lease_end", target: "all_residents" },
 ]
 
+export function normalizeRenewalsAISettings(
+  settings: RenewalsAISettingsState,
+  propertyId = ""
+): RenewalsAISettingsState {
+  const defaults = makeDefaultRenewalsAISettings(propertyId)
+  return {
+    ...defaults,
+    ...settings,
+    preAcceptanceConfirmationEnabled: settings.preAcceptanceConfirmationEnabled ?? false,
+    preAcceptanceConfirmCategories:
+      settings.preAcceptanceConfirmCategories?.length
+        ? [...settings.preAcceptanceConfirmCategories]
+        : [...DEFAULT_PRE_ACCEPTANCE_CATEGORIES],
+  }
+}
+
+/** Prototype seed: Aspen Heights has place-on-notice enabled for Clone Settings demos. */
+export function buildRenewalsAISettingsSeedForPrototype(): Record<
+  string,
+  RenewalsAISettingsState
+> {
+  const aspen = makeDefaultRenewalsAISettings("aspen-heights")
+  return {
+    "aspen-heights": {
+      ...aspen,
+      autoPlaceOnNoticeEnabled: true,
+      nonLeaseEndMoveOutPolicy: "place_on_notice",
+    },
+  }
+}
+
 export function makeDefaultRenewalsAISettings(
   propertyId: string
 ): RenewalsAISettingsState {
@@ -294,6 +415,10 @@ export function makeDefaultRenewalsAISettings(
     },
     offerSteps: DEFAULT_OFFER_STEPS,
     leaseSteps: DEFAULT_LEASE_STEPS,
+    autoPlaceOnNoticeEnabled: false,
+    nonLeaseEndMoveOutPolicy: "escalate_to_staff",
+    preAcceptanceConfirmationEnabled: false,
+    preAcceptanceConfirmCategories: [...DEFAULT_PRE_ACCEPTANCE_CATEGORIES],
   }
 }
 
@@ -317,10 +442,18 @@ export function RenewalsAISettingsPanel({
   onSave,
 }: Props) {
   const [state, setState] = useState<RenewalsAISettingsState>(
-    () => initialState ?? makeDefaultRenewalsAISettings(propertyId)
+    () =>
+      normalizeRenewalsAISettings(
+        initialState ?? makeDefaultRenewalsAISettings(propertyId),
+        propertyId
+      )
   )
   const [pristine, setPristine] = useState<RenewalsAISettingsState>(
-    () => initialState ?? makeDefaultRenewalsAISettings(propertyId)
+    () =>
+      normalizeRenewalsAISettings(
+        initialState ?? makeDefaultRenewalsAISettings(propertyId),
+        propertyId
+      )
   )
 
   const dirty = JSON.stringify(state) !== JSON.stringify(pristine)
@@ -403,6 +536,43 @@ export function RenewalsAISettingsPanel({
               }
             />
           </SectionShell>
+
+          {/* ── Section 5: Move-out & notice ── */}
+          <GroupHeading label="Place on notice" />
+          <AutoPlaceOnNoticeSection
+            propertyId={propertyId}
+            enabled={state.autoPlaceOnNoticeEnabled}
+            nonLeaseEndPolicy={state.nonLeaseEndMoveOutPolicy}
+            onEnabledChange={(autoPlaceOnNoticeEnabled) =>
+              setState((s) => ({ ...s, autoPlaceOnNoticeEnabled }))
+            }
+            onNonLeaseEndPolicyChange={(nonLeaseEndMoveOutPolicy) =>
+              setState((s) => ({ ...s, nonLeaseEndMoveOutPolicy }))
+            }
+            agentDisplayLabel={agentDisplayLabel}
+          />
+
+          {/* ── Section 6: Pre-acceptance confirmation ── */}
+          <GroupHeading label="Pre-acceptance confirmation" />
+          <PreAcceptanceConfirmationSection
+            enabled={state.preAcceptanceConfirmationEnabled}
+            categories={state.preAcceptanceConfirmCategories}
+            onEnabledChange={(preAcceptanceConfirmationEnabled) =>
+              setState((s) => ({
+                ...s,
+                preAcceptanceConfirmationEnabled,
+                preAcceptanceConfirmCategories:
+                  preAcceptanceConfirmationEnabled &&
+                  s.preAcceptanceConfirmCategories.length === 0
+                    ? [...DEFAULT_PRE_ACCEPTANCE_CATEGORIES]
+                    : s.preAcceptanceConfirmCategories,
+              }))
+            }
+            onCategoriesChange={(preAcceptanceConfirmCategories) =>
+              setState((s) => ({ ...s, preAcceptanceConfirmCategories }))
+            }
+            agentDisplayLabel={agentDisplayLabel}
+          />
         </div>
       </div>
 
@@ -412,6 +582,282 @@ export function RenewalsAISettingsPanel({
         onDiscard={handleDiscard}
       />
     </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Place on notice
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const MOVE_OUT_REASONS_SETUP_URL =
+  "https://DOMAIN.entrata.com/?module=properties_setupxxx&load_large_dialog=%3Fmodule%3Dproperty_move_out_reasonsxxx%26property%5Bid%5D%3DPROPERTYID%26"
+
+function AutoPlaceOnNoticeSection({
+  propertyId,
+  enabled,
+  nonLeaseEndPolicy,
+  onEnabledChange,
+  onNonLeaseEndPolicyChange,
+  agentDisplayLabel,
+}: {
+  propertyId: string
+  enabled: boolean
+  nonLeaseEndPolicy: NonLeaseEndMoveOutPolicy
+  onEnabledChange: (enabled: boolean) => void
+  onNonLeaseEndPolicyChange: (policy: NonLeaseEndMoveOutPolicy) => void
+  agentDisplayLabel: string
+}) {
+  const moveOutReasons = getPropertyMoveOutReasons(propertyId)
+
+  return (
+    <SectionShell
+      icon={DoorOpen}
+      title="Place on notice"
+      description={`Control whether ${agentDisplayLabel} can record a resident on notice when they decide not to renew, or whether your site team handles that step.`}
+    >
+      <div className="space-y-6">
+        <div
+          className={cn(
+            "flex items-start justify-between gap-4 rounded-lg border px-4 py-4 transition-colors",
+            enabled
+              ? "border-emerald-200 bg-emerald-50/40"
+              : "border-border bg-zinc-50/50"
+          )}
+        >
+          <div className="space-y-1.5 min-w-0">
+            <Label
+              htmlFor="auto-place-on-notice"
+              className="text-sm font-semibold text-foreground cursor-pointer"
+            >
+              Allow {agentDisplayLabel} to place residents on notice
+            </Label>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              When this is off, the agent still learns that the resident is moving
+              out and creates an escalation so your team can place them on notice.
+              When this is on, the agent can place the resident on notice after
+              confirming their move-out date and reason, which cancels their open
+              renewal offer.
+            </p>
+          </div>
+          <Switch
+            id="auto-place-on-notice"
+            checked={enabled}
+            onCheckedChange={onEnabledChange}
+            aria-label="Allow agent to place residents on notice"
+          />
+        </div>
+
+        {enabled && (
+          <div className="space-y-3 rounded-lg border border-border bg-white px-4 py-4">
+            <div>
+              <p className="text-xs font-semibold text-foreground">
+                Move-out date is not the lease end date
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                If the resident wants to move out before or after their lease end
+                date, choose whether the agent should still place them on notice or
+                escalate to your team to decide next steps (including whether the
+                lease end date should change).
+              </p>
+            </div>
+            <Select
+              value={nonLeaseEndPolicy}
+              onValueChange={(v) =>
+                onNonLeaseEndPolicyChange(v as NonLeaseEndMoveOutPolicy)
+              }
+            >
+              <SelectTrigger className="h-9 text-xs" aria-label="Policy when move-out date differs from lease end">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="place_on_notice" className="text-xs">
+                  Place on notice, and escalate for staff review of the date
+                </SelectItem>
+                <SelectItem value="escalate_to_staff" className="text-xs">
+                  Escalate to site team — do not place on notice automatically
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            {nonLeaseEndPolicy === "place_on_notice" && (
+              <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
+                <Info className="h-3.5 w-3.5 shrink-0 text-amber-500 mt-0.5" aria-hidden />
+                Staff receive a Nexus escalation so they can confirm whether any
+                further action is needed for the requested move-out date.
+              </p>
+            )}
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-foreground">
+            Move-out reasons for this property
+          </p>
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            During conversations, the agent asks why the resident is not renewing
+            and maps their answer to the closest reason below. An exact match is
+            not required.
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {moveOutReasons.map((r) => (
+              <Badge key={r.id} variant="outline" className="text-[10px] font-normal">
+                {r.label}
+              </Badge>
+            ))}
+          </div>
+          <a
+            href={MOVE_OUT_REASONS_SETUP_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground transition-colors"
+          >
+            Manage move-out reasons in Entrata
+            <ExternalLink className="h-2.5 w-2.5" />
+          </a>
+        </div>
+      </div>
+    </SectionShell>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Pre-acceptance confirmation
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const CATEGORY_ICONS: Record<
+  PreAcceptanceConfirmCategory,
+  React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>
+> = {
+  occupants: Users,
+  pets: PawPrint,
+  addons: Package,
+}
+
+function PreAcceptanceConfirmationSection({
+  enabled,
+  categories,
+  onEnabledChange,
+  onCategoriesChange,
+  agentDisplayLabel,
+}: {
+  enabled: boolean
+  categories: PreAcceptanceConfirmCategory[]
+  onEnabledChange: (enabled: boolean) => void
+  onCategoriesChange: (categories: PreAcceptanceConfirmCategory[]) => void
+  agentDisplayLabel: string
+}) {
+  const toggleCategory = (id: PreAcceptanceConfirmCategory, checked: boolean) => {
+    if (checked) {
+      onCategoriesChange([...new Set([...categories, id])])
+      return
+    }
+    if (enabled && categories.length === 1 && categories[0] === id) {
+      return
+    }
+    onCategoriesChange(categories.filter((item) => item !== id))
+  }
+
+  return (
+    <SectionShell
+      icon={ClipboardCheck}
+      title="Confirm lease details before acceptance"
+      description={`When a resident chooses a renewal term, ${agentDisplayLabel} can confirm selected lease details before they accept. This step is skipped when the resident is moving out.`}
+    >
+      <div className="space-y-6" data-testid="pre-acceptance-confirmation">
+        <div
+          className={cn(
+            "flex items-start justify-between gap-4 rounded-lg border px-4 py-4 transition-colors",
+            enabled
+              ? "border-emerald-200 bg-emerald-50/40"
+              : "border-border bg-zinc-50/50"
+          )}
+        >
+          <div className="space-y-1.5 min-w-0">
+            <Label
+              htmlFor="pre-acceptance-confirmation"
+              className="text-sm font-semibold text-foreground cursor-pointer"
+            >
+              Confirm lease details before the resident accepts a renewal
+            </Label>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              When this is off, the resident can accept a chosen term without
+              reviewing occupants, pets, or add-ons. When this is on, the agent
+              confirms only the categories you select below. If the resident
+              needs a change, the conversation escalates to Nexus so a teammate
+              can update the lease.
+            </p>
+          </div>
+          <Switch
+            id="pre-acceptance-confirmation"
+            checked={enabled}
+            onCheckedChange={onEnabledChange}
+            aria-label="Confirm lease details before the resident accepts a renewal"
+          />
+        </div>
+
+        {enabled && (
+          <div className="space-y-3 rounded-lg border border-border bg-white px-4 py-4">
+            <div>
+              <p className="text-xs font-semibold text-foreground">
+                Details to confirm
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                Choose what the agent should read back after the resident picks
+                a term. At least one category is required.
+              </p>
+            </div>
+            <div className="space-y-2">
+              {(
+                Object.keys(PRE_ACCEPTANCE_CATEGORY_META) as PreAcceptanceConfirmCategory[]
+              ).map((id) => {
+                const meta = PRE_ACCEPTANCE_CATEGORY_META[id]
+                const Icon = CATEGORY_ICONS[id]
+                const checked = categories.includes(id)
+                const lastSelected = enabled && checked && categories.length === 1
+                return (
+                  <label
+                    key={id}
+                    htmlFor={`pre-accept-${id}`}
+                    className={cn(
+                      "flex items-start gap-3 rounded-lg border px-3 py-3 cursor-pointer transition-colors",
+                      checked
+                        ? "border-zinc-900 bg-zinc-50"
+                        : "border-border bg-white hover:border-zinc-400"
+                    )}
+                  >
+                    <Checkbox
+                      id={`pre-accept-${id}`}
+                      checked={checked}
+                      disabled={lastSelected}
+                      onCheckedChange={(value) =>
+                        toggleCategory(id, value === true)
+                      }
+                      aria-label={meta.label}
+                      className="mt-0.5"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <Icon className="h-3.5 w-3.5 text-zinc-600" aria-hidden />
+                        <p className="text-xs font-semibold text-foreground">
+                          {meta.label}
+                        </p>
+                      </div>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground leading-relaxed">
+                        {meta.description}
+                      </p>
+                    </div>
+                  </label>
+                )
+              })}
+            </div>
+            <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
+              <Info className="h-3.5 w-3.5 shrink-0 text-amber-500 mt-0.5" aria-hidden />
+              The agent does not change these details in this release. Any
+              requested update creates a Nexus escalation for staff.
+            </p>
+          </div>
+        )}
+      </div>
+    </SectionShell>
   )
 }
 

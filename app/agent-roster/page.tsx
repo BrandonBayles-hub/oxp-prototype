@@ -63,6 +63,7 @@ import { RenewalsFullPage } from "@/components/eli-plus-setup/pages/RenewalsFull
 import { LeasingAISettingsPanel } from "@/components/leasing-ai-settings-panel";
 import { MaintenanceAISettingsPanel } from "@/components/maintenance-ai-settings-panel";
 import {
+  buildRenewalsAISettingsSeedForPrototype,
   makeDefaultRenewalsAISettings,
   RenewalsAISettingsPanel,
   type RenewalsAISettingsState,
@@ -6511,7 +6512,12 @@ function SimplifiedSettingsDetail({
   );
 }
 
-type CloneSettingType = "communication_windows" | "offer_follow_ups" | "lease_follow_ups";
+type CloneSettingType =
+  | "communication_windows"
+  | "offer_follow_ups"
+  | "lease_follow_ups"
+  | "place_on_notice"
+  | "pre_acceptance_confirmation";
 
 function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string; SettingsPage: React.ComponentType<FlyoutPageProps> }) {
   const [selectedProperty, setSelectedProperty] = useState<typeof AGENT_FLYOUT_PROPERTIES[0] | null>(null);
@@ -6541,7 +6547,7 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
   const [cloneSuccess, setCloneSuccess] = useState(false);
   const [renewalSettingsByProperty, setRenewalSettingsByProperty] = useState<
     Record<string, RenewalsAISettingsState>
-  >({});
+  >(buildRenewalsAISettingsSeedForPrototype);
 
   const activeProperties = AGENT_FLYOUT_PROPERTIES.filter(p => p.status === "Active");
   const isRenewalAI = agentName === "Renewal AI";
@@ -6608,6 +6614,18 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
           leaseSteps: cloneSettings.has("lease_follow_ups")
             ? source.leaseSteps.map((step) => ({ ...step }))
             : target.leaseSteps,
+          autoPlaceOnNoticeEnabled: cloneSettings.has("place_on_notice")
+            ? source.autoPlaceOnNoticeEnabled
+            : target.autoPlaceOnNoticeEnabled,
+          nonLeaseEndMoveOutPolicy: cloneSettings.has("place_on_notice")
+            ? source.nonLeaseEndMoveOutPolicy
+            : target.nonLeaseEndMoveOutPolicy,
+          preAcceptanceConfirmationEnabled: cloneSettings.has("pre_acceptance_confirmation")
+            ? source.preAcceptanceConfirmationEnabled
+            : target.preAcceptanceConfirmationEnabled,
+          preAcceptanceConfirmCategories: cloneSettings.has("pre_acceptance_confirmation")
+            ? [...source.preAcceptanceConfirmCategories]
+            : [...target.preAcceptanceConfirmCategories],
         };
       });
 
@@ -6730,6 +6748,7 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
           </button>
           {isRenewalAI && activeProperties.length > 1 && (
             <button
+              id="btn-clone-settings"
               type="button"
               onClick={openCloneDialog}
               className="h-9 flex items-center gap-2 rounded-lg border border-border bg-white pl-3 pr-3 text-sm text-foreground hover:border-zinc-400 transition-colors"
@@ -7001,8 +7020,8 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
       )}
 
       {cloneOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onClick={() => setCloneOpen(false)}>
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 flex flex-col" style={{ maxHeight: "85vh" }} onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onClick={() => setCloneOpen(false)} role="presentation">
+          <div id="clone-dialog" className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 flex flex-col" style={{ maxHeight: "85vh" }} onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-border">
               <div>
                 <h2 className="text-lg font-bold text-foreground">Clone Renewal AI Settings</h2>
@@ -7040,6 +7059,7 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
                       {activeProperties.map(p => (
                         <button
                           key={p.id}
+                          id={`clone-source-${p.id}`}
                           type="button"
                           onClick={() => { setCloneSource(p.id); setCloneTargets(prev => { const n = new Set(prev); n.delete(p.id); return n; }); }}
                           className={`text-left px-3 py-2 text-sm rounded-lg border transition-all ${
@@ -7067,9 +7087,12 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
                           { id: "communication_windows" as CloneSettingType, label: "Communication Windows", desc: "Follow-up time, allowed days, and each day's proactive messaging hours" },
                           { id: "offer_follow_ups" as CloneSettingType, label: "Renewal Offer Follow-Ups", desc: "Follow-up schedule for pending offers" },
                           { id: "lease_follow_ups" as CloneSettingType, label: "Renewal Lease Follow-Ups", desc: "Follow-up schedule for unsigned leases" },
+                          { id: "place_on_notice" as CloneSettingType, label: "Place on notice", desc: "Copies Allow place on notice and the non–lease-end move-out policy together" },
+                          { id: "pre_acceptance_confirmation" as CloneSettingType, label: "Pre-acceptance confirmation", desc: "Whether the agent confirms occupants, pets, and add-ons after a term is chosen" },
                         ]).map(s => (
                           <button
                             key={s.id}
+                            id={`clone-setting-${s.id}`}
                             type="button"
                             onClick={() => toggleCloneSetting(s.id)}
                             className={`w-full text-left px-3 py-2.5 rounded-lg border transition-all flex items-center gap-3 ${
@@ -7112,6 +7135,7 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
                         {activeProperties.filter(p => p.id !== cloneSource).map(p => (
                           <button
                             key={p.id}
+                            id={`clone-target-${p.id}`}
                             type="button"
                             onClick={() => toggleCloneTarget(p.id)}
                             className={`text-left px-3 py-2 text-sm rounded-lg border transition-all flex items-center gap-2 ${
@@ -7140,6 +7164,7 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
                       : "Complete all steps to clone"}
                   </p>
                   <button
+                    id="btn-clone-confirm"
                     type="button"
                     onClick={handleClone}
                     disabled={!cloneSource || cloneSettings.size === 0 || cloneTargets.size === 0}
