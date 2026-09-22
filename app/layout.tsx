@@ -22,6 +22,7 @@ import { PlaybooksProvider } from "@/lib/playbooks-context";
 
 import { ClickToCallDemoProvider } from "@/lib/click-to-call-demo-context";
 import { CallSystemDemoProvider } from "@/lib/call-system-demo-context";
+import { CallRoutingProvider } from "@/lib/call-routing-context";
 import { ConversationsDemoProvider } from "@/lib/conversations-demo-context";
 import { TranslationDemoProvider } from "@/lib/translation-demo-context";
 import { R1ReleaseProvider } from "@/lib/r1-release-context";
@@ -108,6 +109,7 @@ export default function RootLayout({
         <EliPlusSetupProvider>
         <ClickToCallDemoProvider>
         <CallSystemDemoProvider>
+        <CallRoutingProvider>
         <R1ReleaseProvider>
         <R2ReleaseProvider>
         <EntrataExpertsReleaseProvider>
@@ -165,6 +167,7 @@ export default function RootLayout({
         </EntrataExpertsReleaseProvider>
         </R2ReleaseProvider>
         </R1ReleaseProvider>
+        </CallRoutingProvider>
         </CallSystemDemoProvider>
         </ClickToCallDemoProvider>
         </EliPlusSetupProvider>

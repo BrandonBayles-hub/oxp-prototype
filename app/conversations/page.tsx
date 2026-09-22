@@ -177,7 +177,10 @@ import { VoicemailPlayer } from "@/components/voicemail-player";
 import { MissedCallBubble } from "@/components/missed-call-bubble";
 import { EntrataInlineSmsComposer } from "@/components/app-shell/entrata-inline-sms-composer";
 import { EntrataInlineEmailComposer } from "@/components/app-shell/entrata-inline-email-composer";
+import type { Result as EntrataSearchResult } from "@/components/app-shell/entrata-global-search";
 import { CommunicationsNotificationBell } from "@/components/app-shell/communications-notification-bell";
+import { CallQueuePanel } from "@/components/call-system/call-queue-panel";
+import { CallRoutingPanel } from "@/components/call-system/call-routing-panel";
 
 const AVATAR_COLORS = [
   "bg-emerald-100 text-emerald-700",
@@ -2087,6 +2090,8 @@ function ConversationsContent() {
     markUnread,
     pendingSmsCompose,
     pendingEmailCompose,
+    setPendingSmsCompose,
+    setPendingEmailCompose,
   } = useConversations();
   const { agents } = useAgents();
   const { humanMembers } = useWorkforce();
@@ -6269,6 +6274,20 @@ function ConversationsContent() {
                             });
                             return;
                           }
+                          // If an inline SMS/Email composer is currently
+                          // winning the right pane (see
+                          // `pendingSmsCompose` / `pendingEmailCompose`
+                          // in the render block below), clicking a
+                          // thread should "click away" from the
+                          // composer and reveal the just-selected
+                          // thread's conversation. Without this, the
+                          // composer keeps rendering because both
+                          // pending slots take precedence over
+                          // `selected` in the right-pane ternary. The
+                          // draft is intentionally discarded — the user
+                          // explicitly navigated away.
+                          setPendingSmsCompose(null);
+                          setPendingEmailCompose(null);
                           if (isSuperAgentDemoThread(convo.id)) {
                             previousSelectedIdRef.current = selectedId;
                             setSelectedId(convo.id);
@@ -7891,6 +7910,13 @@ function ConversationsContent() {
                               <button
                                 type="button"
                                 onClick={() => {
+                                  // Mirror the main thread-list click
+                                  // handler: clicking a linked thread
+                                  // should also close any open inline
+                                  // compose panel (see the pending-slot
+                                  // ternary in the right-pane render).
+                                  setPendingSmsCompose(null);
+                                  setPendingEmailCompose(null);
                                   setSelectedId(c.id);
                                   markRead(c.id, MY_INBOX_ASSIGNEE);
                                 }}
@@ -11493,18 +11519,111 @@ function ConversationsContent() {
                           );
                         })}
                   </div>
-                  {/* New Thread button */}
-                  <button
-                    type="button"
-                    className="mt-5 inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-5 py-1.5 text-[13px] font-medium text-gray-600 transition-colors hover:bg-gray-50"
-                    onClick={() => {
-                      setNewThreadFromSelection("");
-                      setNewThreadDialogOpen(true);
-                    }}
-                  >
-                    New Thread
-                    <Plus className="h-3.5 w-3.5 text-gray-400" strokeWidth={1.5} />
-                  </button>
+                  {/* Email / SMS quick-compose buttons.
+                      Replaces the previous "New Thread" button + dialog
+                      flow with the same two-channel action the Entrata
+                      global search exposes on every row. Each button:
+                        · If the resident already has an active thread on
+                          the chosen channel (matched by resident +
+                          property, with SMS also matching Voice threads
+                          that grew an SMS `additionalChannels` entry),
+                          we jump straight into that thread — no
+                          duplicate-thread creation, mirroring the
+                          top-nav's `onOpenSmsThread` handler.
+                        · Otherwise we synthesize an EntrataSearchResult
+                          for the current profile and set the matching
+                          `pending{Sms,Email}Compose` slot, so the
+                          shared `EntrataInline{Sms,Email}Composer` takes
+                          over the main right pane exactly like the
+                          search-bar row action does. The sibling slot
+                          is cleared so the freshest click wins the
+                          right-pane render priority.
+                      In both branches we close the profile side panel
+                      (`threadsPanelOpen` / `profilePanelInboxOpen`) so
+                      the composer / thread is fully visible. */}
+                  <div className="mt-5 flex flex-wrap items-center gap-2">
+                    {(
+                      [
+                        { channel: "Email", icon: Mail, label: "Email" },
+                        { channel: "SMS", icon: MessageSquare, label: "SMS" },
+                      ] as const
+                    ).map(({ channel, icon: Icon, label }) => (
+                      <button
+                        key={channel}
+                        type="button"
+                        className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-5 py-1.5 text-[13px] font-medium text-gray-600 transition-colors hover:bg-gray-50"
+                        onClick={() => {
+                          const existing = conversations.find((c) => {
+                            if (c.resident !== selected.resident) return false;
+                            if (c.property !== selected.property) return false;
+                            if (channel === "Email") return c.channel === "Email";
+                            return (
+                              c.channel === "SMS" ||
+                              (c.additionalChannels ?? []).includes("SMS")
+                            );
+                          });
+
+                          // Close the profile side panel + reset any
+                          // in-panel new-thread state that the legacy
+                          // dialog flow relied on so nothing lingers
+                          // when we bail out to the main right pane.
+                          setThreadsPanelOpen(false);
+                          setProfilePanelInboxOpen(false);
+                          setOpenThreadIdx(null);
+                          setNewThreadOutbound(null);
+                          setNewThreadSubject("");
+                          setNewThreadSubjectError(false);
+
+                          if (existing) {
+                            setPendingSmsCompose(null);
+                            setPendingEmailCompose(null);
+                            setSelectedId(existing.id);
+                            markRead(existing.id, MY_INBOX_ASSIGNEE);
+                            return;
+                          }
+
+                          const { residentPhone } =
+                            getVoiceOrSmsThreadRoutingNumbers(
+                              selected.resident,
+                              selected.property,
+                            );
+                          const { residentEmail } =
+                            getEmailThreadRoutingAddresses(
+                              selected.resident,
+                              selected.property,
+                            );
+                          const recipient: EntrataSearchResult = {
+                            id: `profile-panel-${selected.id}-${channel.toLowerCase()}`,
+                            name: selected.resident,
+                            role: "Primary",
+                            type:
+                              selected.contactType === "Lead"
+                                ? "Lead"
+                                : "Resident",
+                            bldgUnit: selected.unit ?? "-",
+                            property: selected.property,
+                            status: "",
+                            email: residentEmail,
+                            phone: residentPhone,
+                            otherResults: [],
+                          };
+                          if (channel === "Email") {
+                            setPendingSmsCompose(null);
+                            setPendingEmailCompose(recipient);
+                          } else {
+                            setPendingEmailCompose(null);
+                            setPendingSmsCompose(recipient);
+                          }
+                        }}
+                      >
+                        <Icon
+                          className="h-3.5 w-3.5 text-gray-400"
+                          strokeWidth={1.5}
+                        />
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </>
             )}
@@ -14114,9 +14233,8 @@ function ManageInboxSettingsPanel({
 
 function CallSystemSettingsPanel({ onClose }: { onClose: () => void }) {
   const [activeTab, setActiveTab] = useState<CallSystemTab>("softphone");
-  const [routingMode, setRoutingMode] = useState<"round-robin" | "skills-based" | "property-first">("skills-based");
-  const [aiVoiceEnabled, setAiVoiceEnabled] = useState(true);
-  const [maxRingTime, setMaxRingTime] = useState("30");
+  // Routing/queue state moved into `lib/call-routing-context.tsx`. The
+  // Routing and Queue tabs now render the extracted panels directly.
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -14287,262 +14405,9 @@ function CallSystemSettingsPanel({ onClose }: { onClose: () => void }) {
             </div>
           )}
 
-          {activeTab === "queue" && (
-            <div className="max-w-3xl space-y-6">
-              <div>
-                <h3 className="text-base font-semibold">Call Queue & Agent Management</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Configure call queuing, agent team assignments, and supervisor views for managing call center operations.
-                </p>
-              </div>
+          {activeTab === "queue" && <CallQueuePanel />}
 
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Queue Configuration</label>
-                  <p className="text-xs text-muted-foreground mt-0.5">Settings for when callers are waiting</p>
-                </div>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <div>
-                      <p className="text-sm">Estimated wait time announcement</p>
-                      <p className="text-xs text-muted-foreground">Tell callers their approximate wait time</p>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <div>
-                      <p className="text-sm">Position in queue announcement</p>
-                      <p className="text-xs text-muted-foreground">&quot;You are caller number X in line&quot;</p>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm">Max queue wait time</p>
-                      <p className="text-xs text-muted-foreground">Route to overflow after this duration</p>
-                    </div>
-                    <Select defaultValue="180">
-                      <SelectTrigger className="w-[140px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="60">1 minute</SelectItem>
-                        <SelectItem value="120">2 minutes</SelectItem>
-                        <SelectItem value="180">3 minutes</SelectItem>
-                        <SelectItem value="300">5 minutes</SelectItem>
-                        <SelectItem value="600">10 minutes</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <div>
-                      <p className="text-sm">Offer callback option</p>
-                      <p className="text-xs text-muted-foreground">&quot;Press 1 to receive a callback instead of waiting&quot;</p>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <div>
-                      <p className="text-sm">Route to AI Voice while waiting</p>
-                      <p className="text-xs text-muted-foreground">Offer callers the option to speak with AI instead</p>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Agent Teams</label>
-                  <p className="text-xs text-muted-foreground mt-0.5">Organize agents into teams for targeted routing</p>
-                </div>
-                <div className="space-y-2">
-                  {[
-                    { team: "Leasing", agents: 4, queued: 2 },
-                    { team: "Resident Services", agents: 3, queued: 0 },
-                    { team: "Maintenance", agents: 2, queued: 1 },
-                    { team: "General / Front Desk", agents: 5, queued: 0 },
-                  ].map((t) => (
-                    <div key={t.team} className="flex items-center justify-between rounded border border-border px-3 py-2.5">
-                      <div>
-                        <p className="text-sm font-medium">{t.team}</p>
-                        <p className="text-xs text-muted-foreground">{t.agents} agents assigned</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {t.queued > 0 && (
-                          <Badge variant="destructive" className="text-[10px]">{t.queued} in queue</Badge>
-                        )}
-                        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs">Edit</Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <Button variant="outline" size="sm" className="gap-1.5">
-                  <Plus className="h-3.5 w-3.5" />
-                  Add Team
-                </Button>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Supervisor Features</label>
-                  <p className="text-xs text-muted-foreground mt-0.5">Real-time monitoring capabilities for managers</p>
-                </div>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <div>
-                      <p className="text-sm">Live agent status board</p>
-                      <p className="text-xs text-muted-foreground">See all agents, their status, and current calls</p>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <div>
-                      <p className="text-sm">Listen-in (silent monitoring)</p>
-                      <p className="text-xs text-muted-foreground">Supervisors can listen to live calls without being heard</p>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <div>
-                      <p className="text-sm">Whisper coaching</p>
-                      <p className="text-xs text-muted-foreground">Speak to the agent only (caller can&apos;t hear)</p>
-                    </div>
-                    <Switch defaultChecked={false} />
-                  </div>
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <div>
-                      <p className="text-sm">Barge-in</p>
-                      <p className="text-xs text-muted-foreground">Join a call as a third party (all parties hear)</p>
-                    </div>
-                    <Switch defaultChecked={false} />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "routing" && (
-            <div className="max-w-3xl space-y-6">
-              <div>
-                <h3 className="text-base font-semibold">Call Routing & Distribution</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Configure how inbound calls are distributed to your team members and AI agents.
-                </p>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Routing Strategy</label>
-                  <p className="text-xs text-muted-foreground mt-0.5">Choose how calls are assigned to available agents</p>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  {([
-                    { id: "round-robin" as const, label: "Round Robin", desc: "Distribute evenly across agents" },
-                    { id: "skills-based" as const, label: "Skills-Based", desc: "Route by agent expertise" },
-                    { id: "property-first" as const, label: "Property-First", desc: "Route to property's assigned agents" },
-                  ]).map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => setRoutingMode(opt.id)}
-                      className={cn(
-                        "rounded-lg border p-3 text-left transition-colors",
-                        routingMode === opt.id
-                          ? "border-primary bg-primary/5 ring-1 ring-primary"
-                          : "border-border hover:border-primary/40"
-                      )}
-                    >
-                      <p className="text-sm font-medium">{opt.label}</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">{opt.desc}</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <label className="text-sm font-medium">Max Ring Time</label>
-                    <p className="text-xs text-muted-foreground mt-0.5">Seconds before routing to next agent or fallback</p>
-                  </div>
-                  <Select value={maxRingTime} onValueChange={setMaxRingTime}>
-                    <SelectTrigger className="w-[100px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="15">15 sec</SelectItem>
-                      <SelectItem value="20">20 sec</SelectItem>
-                      <SelectItem value="25">25 sec</SelectItem>
-                      <SelectItem value="30">30 sec</SelectItem>
-                      <SelectItem value="45">45 sec</SelectItem>
-                      <SelectItem value="60">60 sec</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Overflow & Fallback</label>
-                  <p className="text-xs text-muted-foreground mt-0.5">What happens when no agents are available</p>
-                </div>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <div>
-                      <p className="text-sm">Route to AI Voice Agent</p>
-                      <p className="text-xs text-muted-foreground">AI handles the call when no humans available</p>
-                    </div>
-                    <Switch checked={aiVoiceEnabled} onCheckedChange={setAiVoiceEnabled} />
-                  </div>
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <div>
-                      <p className="text-sm">Queue callback option</p>
-                      <p className="text-xs text-muted-foreground">Offer callers a callback instead of waiting</p>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <div>
-                      <p className="text-sm">Voicemail fallback</p>
-                      <p className="text-xs text-muted-foreground">Send to voicemail after max retries</p>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border p-4 space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Priority Routing Rules</label>
-                  <p className="text-xs text-muted-foreground mt-0.5">Route specific call types to specialized queues</p>
-                </div>
-                <div className="space-y-2">
-                  {[
-                    { condition: "Caller is current resident", action: "Route to Resident Services" },
-                    { condition: "Caller is prospect/lead", action: "Route to Leasing Team" },
-                    { condition: "Maintenance emergency keywords", action: "Route to Emergency Line" },
-                    { condition: "Repeat caller (3+ attempts)", action: "Priority queue, skip IVR" },
-                  ].map((rule) => (
-                    <div key={rule.condition} className="flex items-center justify-between rounded border border-border bg-muted/30 px-3 py-2">
-                      <div className="flex items-center gap-3">
-                        <Badge variant="secondary" className="text-[10px]">IF</Badge>
-                        <span className="text-sm">{rule.condition}</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <Badge variant="outline" className="text-[10px]">THEN</Badge>
-                        <span className="text-sm text-muted-foreground">{rule.action}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <Button variant="outline" size="sm" className="gap-1.5">
-                  <Plus className="h-3.5 w-3.5" />
-                  Add Rule
-                </Button>
-              </div>
-            </div>
-          )}
+          {activeTab === "routing" && <CallRoutingPanel />}
 
 
 

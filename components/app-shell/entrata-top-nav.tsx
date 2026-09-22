@@ -13,6 +13,7 @@ import {
   AppWindow,
   Search,
   Bell,
+  MessageSquare,
   CircleHelp,
   UserCircle,
   ChevronDown,
@@ -36,7 +37,7 @@ import { useRoadmap } from "@/lib/roadmap-context";
 
 import { useWorkforce } from "@/lib/workforce-context";
 import { useEscalations } from "@/lib/escalations-context";
-import { useConversations } from "@/lib/conversations-context";
+import { useConversations, isConversationUnattended } from "@/lib/conversations-context";
 import { useConversationsDemo } from "@/lib/conversations-demo-context";
 import { useAnalyticsHandoff } from "@/lib/analytics-handoff-context";
 import { useAgentBuilderViewerRole } from "@/lib/agent-builder-viewer-role-context";
@@ -87,6 +88,11 @@ export function EntrataTopNav() {
     );
     return hasAssignedEscalation || hasAssignedConversation;
   }, [currentUser, escalations, conversations]);
+
+  const commsNeedsActionCount = useMemo(
+    () => conversations.filter((c) => c.status === "open" && isConversationUnattended(c)).length,
+    [conversations]
+  );
 
   const [demoOpen, setDemoOpen] = useState(false);
   const [mobilePreviewOpen, setMobilePreviewOpen] = useState(false);
@@ -243,6 +249,25 @@ export function EntrataTopNav() {
         </div>
 
         <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => router.push("/conversations")}
+            title={`Communications · ${commsNeedsActionCount} need action`}
+            className="relative flex items-center justify-center rounded transition-colors"
+            style={{ width: 32, height: 32, color: "rgba(0,0,0,0.45)" }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(0,0,0,0.04)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+          >
+            <MessageSquare className="h-4 w-4" />
+            {commsNeedsActionCount > 0 && (
+              <span
+                className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white"
+                aria-label={`${commsNeedsActionCount} need action`}
+              >
+                {commsNeedsActionCount}
+              </span>
+            )}
+          </button>
           <button
             type="button"
             className="flex items-center justify-center rounded"
