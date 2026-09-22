@@ -14,6 +14,15 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useCallSystemDemo, type IncomingCallerType } from "@/lib/call-system-demo-context";
 import {
+  ALL_PROPERTIES,
+  strategyLabel,
+  useCallRouting,
+  type CallQueue,
+  type CallRoute,
+  type IvrOption,
+} from "@/lib/call-routing-context";
+import { useWorkforce, type WorkforceMember } from "@/lib/workforce-context";
+import {
   InboundCallFloatingPanel,
   type InboundCallSessionInput,
 } from "@/components/inbound-call-floating-panel";
@@ -68,8 +77,106 @@ function initials(name: string) {
     .slice(0, 2);
 }
 
+/**
+ * Which IVR menu option a caller of each type would most likely press. Used
+ * by the routing resolver below to walk from DID → queue when the demo
+ * simulator fires — makes the "Press 1 — Leasing" chip on the ringing panel
+ * feel deterministic instead of random.
+ */
+const IVR_INTENT_LABEL_BY_TYPE: Record<IncomingCallerType, RegExp[]> = {
+  prospect: [/leasing/i, /tours?/i],
+  lead: [/leasing/i, /tours?/i],
+  resident: [/resident/i, /current/i, /operator/i],
+};
+
+/**
+ * Pick the IVR option the caller would most plausibly press. Falls back to
+ * option 0 (or the route's default queue if there is no menu at all).
+ */
+function pickIvrOption(route: CallRoute, callerType: IncomingCallerType): IvrOption | null {
+  if (route.ivrMenu.length === 0) return null;
+  const patterns = IVR_INTENT_LABEL_BY_TYPE[callerType];
+  for (const p of patterns) {
+    const match = route.ivrMenu.find((o) => p.test(o.label));
+    if (match) return match;
+  }
+  return route.ivrMenu[0] ?? null;
+}
+
+/**
+ * Pick the first agent to ring for a queue. Prefers Primary humans, then
+ * Secondary, then Backup (which usually contains AI). Skips agents that are
+ * currently on a call (we assume `metrics.onCall` covers primaries first).
+ */
+function pickAgentForQueue(
+  queue: CallQueue,
+  workforce: WorkforceMember[],
+): WorkforceMember | null {
+  const byTier = (["primary", "secondary", "backup"] as const).flatMap((tier) =>
+    queue.members
+      .filter((m) => m.tier === tier)
+      .map((m) => workforce.find((wm) => wm.id === m.memberId))
+      .filter((m): m is WorkforceMember => Boolean(m)),
+  );
+  return byTier[0] ?? null;
+}
+
+/**
+ * Full routing resolver: DID → IVR option → queue → agent. Returns
+ * enriched routing metadata that the floating panel renders as its
+ * "which queue is picking up this call?" strip.
+ */
+function resolveRouting(
+  callerType: IncomingCallerType,
+  base: Omit<InboundCallSessionInput, "id">,
+  routes: CallRoute[],
+  queues: CallQueue[],
+  workforce: WorkforceMember[],
+): NonNullable<InboundCallSessionInput["routing"]> | undefined {
+  // Match by property first (main line for the callee's property), fall back
+  // to the after-hours emergency line for wildcard callers.
+  const route =
+    routes.find(
+      (r) =>
+        r.enabled &&
+        (r.property === base.propertyName || r.property === ALL_PROPERTIES) &&
+        r.language === "en",
+    ) ?? routes.find((r) => r.enabled);
+  if (!route) return undefined;
+
+  const ivrOption = pickIvrOption(route, callerType);
+  const queueId =
+    ivrOption && ivrOption.action.type === "queue"
+      ? ivrOption.action.queueId
+      : route.defaultQueueId;
+  const queue = queues.find((q) => q.id === queueId);
+  if (!queue) return undefined;
+
+  const agent = pickAgentForQueue(queue, workforce);
+  const positionInQueue = Math.max(1, queue.metrics.inQueue + 1);
+
+  return {
+    routeLabel: route.label,
+    queueId: queue.id,
+    queueName: queue.name,
+    ivrPressed: ivrOption ? `Press ${ivrOption.dtmf} — ${ivrOption.label}` : undefined,
+    positionInQueue,
+    // Rough Erlang-lite: assume the next caller waits for the longest current
+    // caller + a fresh handle time slot. Not exact, just plausible.
+    estimatedWaitSec: Math.max(0, queue.metrics.longestWaitSec) + (positionInQueue - 1) * Math.round(queue.metrics.avgHandleSec / Math.max(1, queue.metrics.availableAgents || 1)),
+    assignedAgentName: agent?.name,
+    assignedAgentRole: agent?.role,
+    assignedAgentInitials: agent ? initials(agent.name) : undefined,
+    strategyLabel: strategyLabel(queue.routingStrategy),
+    slaTargetPct: queue.slaTargetPct,
+    slaTargetSec: queue.slaTargetSec,
+  };
+}
+
 export function GlobalInboundCallHandler() {
   const { callSystemEnabled, inboundCallRequest, inboundCallerType } = useCallSystemDemo();
+  const { routes, queues } = useCallRouting();
+  const { members: workforce } = useWorkforce();
   const [session, setSession] = useState<InboundCallSessionInput | null>(null);
   const [profileOverlay, setProfileOverlay] = useState<InboundCallSessionInput | null>(null);
   const lastRequestRef = useRef(0);
@@ -81,8 +188,20 @@ export function GlobalInboundCallHandler() {
 
     const type = inboundCallerType || "resident";
     const base = SCENARIO_BY_TYPE[type];
-    setSession({ ...base, id: `inbound-${Date.now()}-${type}` });
-  }, [inboundCallRequest, inboundCallerType]);
+    // Resolve routing once at ring-time so the "Ringing X · Queue Y" panel
+    // stays stable through the ringing → connected → ended lifecycle. If
+    // resolution fails (misconfigured demo state), we still show the raw
+    // call info — the panel gracefully degrades.
+    const routing = resolveRouting(type, base, routes, queues, workforce);
+    setSession({
+      ...base,
+      id: `inbound-${Date.now()}-${type}`,
+      routing,
+      // Prefer the IVR-derived selection when we have one; keep the seeded
+      // fallback for demos where routing wasn't configured yet.
+      ivrSelection: routing?.ivrPressed ?? base.ivrSelection,
+    });
+  }, [inboundCallRequest, inboundCallerType, routes, queues, workforce]);
 
   const handleAnswered = useCallback((s: InboundCallSessionInput) => {
     if (s.callerType === "resident" || s.callerType === "lead") {

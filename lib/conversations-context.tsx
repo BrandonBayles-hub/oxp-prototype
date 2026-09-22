@@ -2913,13 +2913,14 @@ Jamison Apartments
   // 4 canonical scenarios above with everyday resolved-touchpoints).
   // ==================================================================
   {
-    // Deliberately kept in "No Action Needed" with `hasUnread: true` so the
-    // "No Action Needed" section header shows a red unread chip in the demo.
+    // In "No Action Needed" — the staff replied via phone call so
+    // `needsStaffResponse` returns false. Marked as read so the
+    // "No Action Needed" header doesn't show a red unread chip.
     // The trick: the last PUBLIC message is Jocelyn's SMS "thanks!" (which
     // makes `clampHasUnread` preserve the unread state) but the staff replied
     // by calling her back — logged as a `phone_call` activity, which
     // `needsStaffResponse` treats as a valid staff reply. Net result:
-    // property-owned + no action needed + still unread.
+    // property-owned + no action needed + read.
     id: "sa12-prop-jocelyn",
     resident: "Jocelyn Trask",
     unit: "Unit 205",
@@ -2932,7 +2933,7 @@ Jamison Apartments
     assignee: "Abe Kashiwagi",
     labels: ["Resident"],
     status: "open",
-    hasUnread: true,
+    hasUnread: false,
     messages: [
       {
         role: "resident",

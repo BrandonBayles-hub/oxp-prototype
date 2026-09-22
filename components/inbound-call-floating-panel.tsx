@@ -32,6 +32,21 @@ export type InboundCallSessionInput = {
   moveInDate?: string;
   ivrSelection?: string;
   aiContextNote?: string;
+  /** Routing metadata populated by `GlobalInboundCallHandler`. */
+  routing?: {
+    routeLabel: string; // e.g. "Hillside Living — Main"
+    queueId: string;
+    queueName: string;
+    ivrPressed?: string; // "Press 1 — Leasing & Tours"
+    positionInQueue: number;
+    estimatedWaitSec: number;
+    assignedAgentName?: string;
+    assignedAgentRole?: string;
+    assignedAgentInitials?: string;
+    strategyLabel: string; // "Longest idle"
+    slaTargetPct: number;
+    slaTargetSec: number;
+  };
 };
 
 type CallPhase = "ringing" | "connected" | "ended" | "missed";
@@ -245,6 +260,65 @@ export function InboundCallFloatingPanel({ session, onDismiss, onAnswered }: Pro
                   {callerTypeLabel}
                 </div>
               </div>
+
+              {/* Routing card — shows the queue that picked up this call,
+                  which IVR option the caller pressed, their position in the
+                  queue, and the agent we'll ring first. Only rendered when
+                  the global handler populated `session.routing` (i.e. the
+                  Call System settings are wired up); otherwise we fall back
+                  to the plain caller-only ringing UI above. */}
+              {session.routing && (
+                <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-2 text-[11px]">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-emerald-900">
+                        {session.routing.queueName}
+                      </p>
+                      <p className="mt-0.5 truncate text-[10px] text-emerald-800/80">
+                        {session.routing.routeLabel}
+                        {session.routing.ivrPressed && (
+                          <> · {session.routing.ivrPressed}</>
+                        )}
+                      </p>
+                    </div>
+                    <div className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                      #{session.routing.positionInQueue} in queue
+                    </div>
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-emerald-900/80">
+                    <span>
+                      Strategy: <span className="font-semibold">{session.routing.strategyLabel}</span>
+                    </span>
+                    <span>
+                      SLA: <span className="font-semibold">{session.routing.slaTargetPct}% / {session.routing.slaTargetSec}s</span>
+                    </span>
+                    {session.routing.estimatedWaitSec > 0 && (
+                      <span>
+                        Est wait:{" "}
+                        <span className="font-semibold">{Math.round(session.routing.estimatedWaitSec / 60) || 1}m</span>
+                      </span>
+                    )}
+                  </div>
+                  {session.routing.assignedAgentName && (
+                    <div className="mt-1.5 flex items-center gap-2 border-t border-emerald-200 pt-1.5">
+                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-[9px] font-bold text-white">
+                        {session.routing.assignedAgentInitials || "?"}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-[11px] font-semibold text-emerald-900">
+                          Ringing {session.routing.assignedAgentName}
+                        </p>
+                        {session.routing.assignedAgentRole && (
+                          <p className="truncate text-[10px] text-emerald-800/80">
+                            {session.routing.assignedAgentRole}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="mt-3 flex items-center gap-2">
                 <Button
                   type="button"
@@ -275,9 +349,16 @@ export function InboundCallFloatingPanel({ session, onDismiss, onAnswered }: Pro
                   <p className="mt-0.5 font-mono text-xs tabular-nums text-primary-foreground/85">
                     {session.callerPhone}
                   </p>
-                  <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-primary-foreground/15 px-2 py-0.5 text-[10px] font-medium text-primary-foreground">
-                    <PhoneIncoming className="h-3 w-3 shrink-0" aria-hidden />
-                    Inbound · {callerTypeLabel}
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-primary-foreground/15 px-2 py-0.5 text-[10px] font-medium text-primary-foreground">
+                      <PhoneIncoming className="h-3 w-3 shrink-0" aria-hidden />
+                      Inbound · {callerTypeLabel}
+                    </span>
+                    {session.routing && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/25 px-2 py-0.5 text-[10px] font-medium text-primary-foreground">
+                        Queue · {session.routing.queueName}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-2">
