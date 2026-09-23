@@ -315,6 +315,12 @@ type ConversationsDemoContextValue = {
    */
   eliPromptShownAt: Record<string, number>;
   markEliPromptShown: (threadId: string) => void;
+  /** When true, "Inactive" properties in the Agent Roster show a "Go Live" button. */
+  goLiveAutomationEnabled: boolean;
+  toggleGoLiveAutomationEnabled: () => void;
+  /** Set of property IDs that have been activated via the "Go Live" flow. */
+  activatedPropertyIds: Set<string>;
+  activateProperty: (id: string) => void;
 };
 
 /**
@@ -458,6 +464,14 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
   const markEliPromptShown = useCallback((threadId: string) => {
     setEliPromptShownAt((prev) => ({ ...prev, [threadId]: Date.now() }));
   }, []);
+  const [goLiveAutomationEnabled, setGoLiveAutomationEnabled] = useState(false);
+  const [activatedPropertyIds, setActivatedPropertyIds] = useState<Set<string>>(new Set());
+  const toggleGoLiveAutomationEnabled = useCallback(() => {
+    setGoLiveAutomationEnabled((v) => !v);
+  }, []);
+  const activateProperty = useCallback((id: string) => {
+    setActivatedPropertyIds((prev) => new Set(prev).add(id));
+  }, []);
 
   const requestProfileCommsPopup = useCallback(() => {
     setProfileCommsPopupRequest((n) => n + 1);
@@ -576,6 +590,10 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
       setEliMode,
       eliPromptShownAt,
       markEliPromptShown,
+      goLiveAutomationEnabled,
+      toggleGoLiveAutomationEnabled,
+      activatedPropertyIds,
+      activateProperty,
     }),
     [
       profileCommsPopupRequest,
@@ -622,6 +640,10 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
       setEliMode,
       eliPromptShownAt,
       markEliPromptShown,
+      goLiveAutomationEnabled,
+      toggleGoLiveAutomationEnabled,
+      activatedPropertyIds,
+      activateProperty,
     ]
   );
 

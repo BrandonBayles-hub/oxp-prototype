@@ -122,7 +122,7 @@ export type ThreadActivity =
 export type VoicemailTranscriptTurn = {
   speaker: "ai" | "resident";
   text: string;
-};
+    };
 
 export type VoicemailRef = {
   /** Length of the recording in seconds. */
