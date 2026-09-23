@@ -2197,6 +2197,8 @@ function ConversationsContent() {
     setEliMode,
     eliPromptShownAt,
     markEliPromptShown,
+    goLiveAutomationEnabled,
+    toggleGoLiveAutomationEnabled,
   } = useConversationsDemo();
   const { translationEnabled, toggleTranslationEnabled } = useTranslationDemo();
   /** Call controls + phone demo threads (missed/voicemail) for Click To Call or Super Agent 1.0. */
@@ -2999,13 +3001,13 @@ function ConversationsContent() {
     const base = !searchQuery.trim()
       ? threadListDateFiltered
       : (() => {
-          const q = searchQuery.toLowerCase();
+    const q = searchQuery.toLowerCase();
           return threadListDateFiltered.filter(
-            (c) =>
-              c.resident.toLowerCase().includes(q) ||
-              c.preview.toLowerCase().includes(q) ||
-              c.labels.some((l) => l.toLowerCase().includes(q))
-          );
+      (c) =>
+        c.resident.toLowerCase().includes(q) ||
+        c.preview.toLowerCase().includes(q) ||
+        c.labels.some((l) => l.toLowerCase().includes(q))
+    );
         })();
 
     // Sort by recency across EVERY mode (SA 1.0, SA 1.2, and default).
@@ -3056,7 +3058,7 @@ function ConversationsContent() {
   // this page once.
   useEffect(() => {
     if (initialConvoId && conversations.some((c) => c.id === initialConvoId)) {
-      setSelectedId(initialConvoId);
+        setSelectedId(initialConvoId);
     }
   }, [initialConvoId, conversations]);
 
@@ -3903,7 +3905,7 @@ function ConversationsContent() {
       setSelectedEscalationTypes(new Set());
       superAgentSelectionsRef.current.set(conversationId, new Set());
       resetComposerAfterSend(selected, inputMode);
-      setPrivateNoteMention(null);
+    setPrivateNoteMention(null);
       return;
     }
 
@@ -4233,42 +4235,42 @@ function ConversationsContent() {
               </ul>
             </TooltipProvider>
           ) : (
-            <ul className="space-y-0.5">
-              {([
-                { id: "all" as const, icon: Inbox, label: "Open Threads" },
-                { id: "mentions" as const, icon: AtSign, label: "Mentions" },
-                { id: "unattended" as const, icon: Clock, label: "Needs Action" },
-              ] as const).map((item) => (
-                <li key={item.id}>
-                  <Button
-                    variant={isSidebarActive(item.id) ? "secondary" : "ghost"}
-                    className={cn(
+          <ul className="space-y-0.5">
+            {([
+              { id: "all" as const, icon: Inbox, label: "Open Threads" },
+              { id: "mentions" as const, icon: AtSign, label: "Mentions" },
+              { id: "unattended" as const, icon: Clock, label: "Needs Action" },
+            ] as const).map((item) => (
+              <li key={item.id}>
+                <Button
+                  variant={isSidebarActive(item.id) ? "secondary" : "ghost"}
+                  className={cn(
                       "w-full justify-start gap-2 px-2 font-normal",
-                      isSidebarActive(item.id) && "font-medium"
-                    )}
-                    onClick={() => setSidebarFilter(item.id)}
-                  >
-                    <item.icon className="h-4 w-4 shrink-0" />
+                    isSidebarActive(item.id) && "font-medium"
+                  )}
+                  onClick={() => setSidebarFilter(item.id)}
+                >
+                  <item.icon className="h-4 w-4 shrink-0" />
                     <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
-                    {item.id === "all" && allThreadsUnreadCount > 0 && (
+                  {item.id === "all" && allThreadsUnreadCount > 0 && (
                       <Badge variant="destructive" className="h-[18px] min-w-[18px] shrink-0 justify-center rounded-full px-1 text-[10px] leading-none">
-                        {allThreadsUnreadCount}
-                      </Badge>
-                    )}
-                    {item.id === "mentions" && mentionsInboxCount > 0 && (
+                      {allThreadsUnreadCount}
+                    </Badge>
+                  )}
+                  {item.id === "mentions" && mentionsInboxCount > 0 && (
                       <Badge variant="destructive" className="h-[18px] min-w-[18px] shrink-0 justify-center rounded-full px-1 text-[10px] leading-none">
-                        {mentionsInboxCount}
-                      </Badge>
-                    )}
-                    {item.id === "unattended" && unattendedInboxCount > 0 && (
+                      {mentionsInboxCount}
+                    </Badge>
+                  )}
+                  {item.id === "unattended" && unattendedInboxCount > 0 && (
                       <Badge variant="destructive" className="h-[18px] min-w-[18px] shrink-0 justify-center rounded-full px-1 text-[10px] leading-none">
-                        {unattendedInboxCount}
-                      </Badge>
-                    )}
-                  </Button>
-                </li>
-              ))}
-            </ul>
+                      {unattendedInboxCount}
+                    </Badge>
+                  )}
+                </Button>
+              </li>
+            ))}
+          </ul>
           )}
 
           <div className="my-3 h-px bg-border" />
@@ -4277,14 +4279,14 @@ function ConversationsContent() {
             <>
               {!superAgent12Enabled && (
                 <>
-                  <h3 className="px-2 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Custom Inboxes
-                  </h3>
-                  <ul className="space-y-0.5">
-                    <li>
-                      <Button
+          <h3 className="px-2 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Custom Inboxes
+          </h3>
+          <ul className="space-y-0.5">
+            <li>
+              <Button
                         variant={isSidebarActive({ type: "custom-inbox-1" }) ? "secondary" : "ghost"}
-                        className={cn(
+                className={cn(
                           "w-full items-center justify-start gap-2 px-2 font-normal",
                           isSidebarActive({ type: "custom-inbox-1" }) && "font-medium"
                         )}
@@ -4294,22 +4296,22 @@ function ConversationsContent() {
                         {customInbox1UnreadCount > 0 && (
                           <Badge variant="destructive" className="h-[18px] min-w-[18px] shrink-0 justify-center rounded-full px-1 text-[10px] leading-none">
                             {customInbox1UnreadCount}
-                          </Badge>
-                        )}
-                      </Button>
-                    </li>
-                  </ul>
+                  </Badge>
+                )}
+              </Button>
+            </li>
+          </ul>
 
-                  <div className="my-3 h-px bg-border" />
+          <div className="my-3 h-px bg-border" />
                 </>
               )}
 
-              <h3 className="px-2 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Settings
-              </h3>
-              <ul className="space-y-0.5">
+          <h3 className="px-2 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Settings
+          </h3>
+          <ul className="space-y-0.5">
                 {(["Call System", "Email Integration", "Manage Vanity Numbers", "Manage Inboxes", "Thread Settings", "Manage Labels", "Reporting"]).map((label) => {
-                  if (label === "Call System" && !callSystemEnabled) return null;
+              if (label === "Call System" && !callSystemEnabled) return null;
                   // Thread Settings is a SA 1.2-only surface — the settings inside
                   // (Thread Automation, Quick Filter defaults, One Time Setup)
                   // only make sense once the SA 1.2 inbox model is turned on.
@@ -4323,11 +4325,11 @@ function ConversationsContent() {
                   ) {
                     return null;
                   }
-                  return (
-                  <li key={label}>
-                    {label === "Call System" ? (
-                      <Button
-                        variant={callSystemPanelOpen ? "secondary" : "ghost"}
+              return (
+              <li key={label}>
+                {label === "Call System" ? (
+                  <Button
+                    variant={callSystemPanelOpen ? "secondary" : "ghost"}
                         className={cn("w-full justify-start px-2 font-normal", callSystemPanelOpen && "font-medium")}
                         onClick={() => {
                           setManageInboxPanelOpen(false);
@@ -4344,30 +4346,30 @@ function ConversationsContent() {
                           setCallSystemPanelOpen(false);
                           setManageInboxPanelOpen((v) => !v);
                         }}
-                      >
-                        {label}
-                      </Button>
-                    ) : label === "Email Integration" ? (
-                      <Link href="/communications-setup/custom-email">
+                  >
+                    {label}
+                  </Button>
+                ) : label === "Email Integration" ? (
+                  <Link href="/communications-setup/custom-email">
                         <Button variant="ghost" className="w-full justify-start px-2 font-normal" onClick={() => { setCallSystemPanelOpen(false); setManageInboxPanelOpen(false); }}>
-                          {label}
-                        </Button>
-                      </Link>
-                    ) : label === "Manage Vanity Numbers" ? (
-                      <Link href="/communications-setup/phone-numbers">
+                      {label}
+                    </Button>
+                  </Link>
+                ) : label === "Manage Vanity Numbers" ? (
+                  <Link href="/communications-setup/phone-numbers">
                         <Button variant="ghost" className="w-full justify-start px-2 font-normal" onClick={() => { setCallSystemPanelOpen(false); setManageInboxPanelOpen(false); }}>
-                          {label}
-                        </Button>
-                      </Link>
-                    ) : (
+                      {label}
+                    </Button>
+                  </Link>
+                ) : (
                       <Button variant="ghost" className="w-full justify-start px-2 font-normal" onClick={() => { setCallSystemPanelOpen(false); setManageInboxPanelOpen(false); }}>
-                        {label}
-                      </Button>
-                    )}
-                  </li>
-                  );
-                })}
-              </ul>
+                    {label}
+                  </Button>
+                )}
+              </li>
+              );
+            })}
+          </ul>
             </>
           )}
         </nav>
@@ -4396,6 +4398,8 @@ function ConversationsContent() {
           onPreviewNotificationPop={triggerNotificationPop}
           viewportPreset={viewportPreset}
           onSetViewportPreset={setViewportPreset}
+          goLiveAutomationEnabled={goLiveAutomationEnabled}
+          onToggleGoLiveAutomation={toggleGoLiveAutomationEnabled}
         />
       </aside>
 
@@ -4524,19 +4528,19 @@ function ConversationsContent() {
             }}
           >
             <PopoverTrigger asChild>
-              <Button
-                type="button"
-                variant={threadListFiltersOpen || threadFiltersAreNonDefault ? "secondary" : "ghost"}
-                size="icon"
+            <Button
+              type="button"
+              variant={threadListFiltersOpen || threadFiltersAreNonDefault ? "secondary" : "ghost"}
+              size="icon"
                 className="relative h-8 w-8 shrink-0"
                 aria-label="Thread filters"
-                aria-expanded={threadListFiltersOpen}
-              >
-                <SlidersHorizontal className="h-4 w-4" />
-                {threadFiltersAreNonDefault && (
-                  <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
-                )}
-              </Button>
+              aria-expanded={threadListFiltersOpen}
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              {threadFiltersAreNonDefault && (
+                <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
+              )}
+            </Button>
             </PopoverTrigger>
             <PopoverContent
               align="end"
@@ -4567,7 +4571,7 @@ function ConversationsContent() {
                     Reset
                   </button>
                 )}
-              </div>
+          </div>
 
               {/* Properties */}
               <div className="space-y-1.5">
@@ -4802,7 +4806,7 @@ function ConversationsContent() {
                   scope the list to only threads that show a red dot, only
                   threads that show a cyan bell, or both. */}
               {superAgent12Enabled && (
-                <div className="space-y-1.5">
+              <div className="space-y-1.5">
                   <div className="flex items-center gap-1">
                     <p className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
                       Action Needed
@@ -4834,7 +4838,7 @@ function ConversationsContent() {
                     </Tooltip>
                   </div>
                   <Popover modal>
-                    <PopoverTrigger asChild>
+                  <PopoverTrigger asChild>
                       <button
                         type="button"
                         className={cn(
@@ -4850,29 +4854,29 @@ function ConversationsContent() {
                         )}
                         <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
                       </button>
-                    </PopoverTrigger>
-                    <PopoverContent
+                  </PopoverTrigger>
+                  <PopoverContent
                       className="z-[200] w-[var(--radix-popover-trigger-width)] p-2"
-                      align="start"
-                      sideOffset={4}
-                    >
+                    align="start"
+                    sideOffset={4}
+                  >
                       <div className="space-y-1">
                         <div className="flex items-start gap-1.5 rounded-md px-1 py-1 hover:bg-accent/60">
-                          <Checkbox
+                        <Checkbox
                             id="thread-filter-action-followup"
                             className="mt-0.5 shrink-0"
                             checked={threadListActionFilters.has("followup")}
-                            onCheckedChange={(c) => {
-                              if (c === "indeterminate") return;
+                          onCheckedChange={(c) => {
+                            if (c === "indeterminate") return;
                               setThreadListActionFilters((prev) => {
                                 const next = new Set(prev);
                                 if (c) next.add("followup");
                                 else next.delete("followup");
                                 return next;
                               });
-                            }}
-                          />
-                          <label
+                          }}
+                        />
+                        <label
                             htmlFor="thread-filter-action-followup"
                             className="min-w-0 flex-1 cursor-pointer text-xs leading-snug text-foreground"
                           >
@@ -4887,8 +4891,8 @@ function ConversationsContent() {
                             <span className="mt-0.5 block text-[10px] text-muted-foreground">
                               Thread Automation nudge (red dot + &quot;Follow up&quot; chip)
                             </span>
-                          </label>
-                        </div>
+                        </label>
+                      </div>
                         <div className="flex items-start gap-1.5 rounded-md px-1 py-1 hover:bg-accent/60">
                           <Checkbox
                             id="thread-filter-action-escalation"
@@ -4997,7 +5001,7 @@ function ConversationsContent() {
                           ] as const
                         ).map((opt) => {
                           const selected = sa12EscalationFilter === opt.id;
-                          return (
+                        return (
                             <button
                               key={opt.id}
                               type="button"
@@ -5078,11 +5082,11 @@ function ConversationsContent() {
                   >
                     <div className="space-y-1">
                       <label className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-accent/60">
-                        <Checkbox
-                          className="mt-0.5"
+                            <Checkbox
+                              className="mt-0.5"
                           checked={threadListStatusFilters.has("active")}
-                          onCheckedChange={(c) => {
-                            if (c === "indeterminate") return;
+                              onCheckedChange={(c) => {
+                                if (c === "indeterminate") return;
                             setThreadListStatusFilters((prev) => {
                               const next = new Set(prev);
                               if (c) next.add("active");
@@ -5108,8 +5112,8 @@ function ConversationsContent() {
                           }}
                         />
                         <span className="text-xs leading-snug text-foreground">Closed</span>
-                      </label>
-                    </div>
+                            </label>
+                          </div>
                   </PopoverContent>
                 </Popover>
               </div>
@@ -5245,7 +5249,7 @@ function ConversationsContent() {
                       selected to include every channel.
                     </TooltipContent>
                   </Tooltip>
-                </div>
+              </div>
                 <Popover modal>
                   <PopoverTrigger asChild>
                     <button
@@ -5301,8 +5305,8 @@ function ConversationsContent() {
                     </div>
                   </PopoverContent>
                 </Popover>
-              </div>
-              )}
+            </div>
+          )}
 
               {/* Apply / Cancel footer. The popover previews changes live
                   while it's open, but only Apply commits them to the
@@ -5336,7 +5340,7 @@ function ConversationsContent() {
               </TooltipProvider>
               </PopoverContent>
           </Popover>
-          </div>
+        </div>
 
           {/* SA 1.2 channel Quick Filter — nested below the search input in
               the same container so search + channel narrow read as a single
@@ -5441,8 +5445,8 @@ function ConversationsContent() {
               >
                 Cancel
               </Button>
-            </div>
           </div>
+        </div>
         )}
 
         <Dialog open={inboxHelpOpen} onOpenChange={setInboxHelpOpen}>
@@ -6252,7 +6256,7 @@ function ConversationsContent() {
                 from the surrounding component scope.
               */
               const renderThreadLi = (convo: (typeof filtered)[number]) => {
-                    const isActive = convo.id === selectedId;
+                  const isActive = convo.id === selectedId;
                   const emailRouting =
                     convo.channel === "Email"
                       ? getEmailThreadRoutingAddresses(convo.resident, convo.property)
@@ -6327,7 +6331,7 @@ function ConversationsContent() {
                             ? "border-l-2 border-l-primary bg-accent"
                             : bulkSelectedIds.has(convo.id)
                               ? "bg-primary/5"
-                              : "hover:bg-accent/50"
+                            : "hover:bg-accent/50"
                         )}
                       >
                         {bulkSelectMode && (
@@ -6470,8 +6474,8 @@ function ConversationsContent() {
                           </span>
                         ) : (
                           <span className={cn("truncate text-sm", isEffectivelyUnread(convo) ? "font-bold" : "font-semibold")}>
-                            {convo.resident}
-                          </span>
+                          {convo.resident}
+                        </span>
                         )}
                         <div className="flex shrink-0 items-center gap-1.5">
                           {(() => {
@@ -6508,14 +6512,14 @@ function ConversationsContent() {
                           <span className="text-[10px] tabular-nums text-muted-foreground">
                             {convo.time}
                           </span>
-                        </div>
+                      </div>
                       </div>
                       <p className={cn("truncate text-xs", isEffectivelyUnread(convo) ? "text-foreground" : "text-muted-foreground")}>{convo.preview}</p>
                       {(superAgent12Enabled && convo.status === "open") || convo.labels.length > 0 ? (
                         <div className="mt-0.5 flex flex-wrap gap-1">
                           {superAgent12Enabled && convo.status === "open" && (
                             isPropertyOwnedSA12(convo) ? (
-                              <Badge
+                            <Badge
                                 variant="secondary"
                                 className="h-auto gap-1 bg-blue-100 px-1.5 py-0 text-[10px] text-blue-900 dark:bg-blue-900/40 dark:text-blue-100"
                               >
@@ -6538,10 +6542,10 @@ function ConversationsContent() {
                                 <Badge
                                   key={chip.label}
                                   variant="secondary"
-                                  className="h-auto px-1.5 py-0 text-[10px]"
-                                >
+                              className="h-auto px-1.5 py-0 text-[10px]"
+                            >
                                   {chip.label}
-                                </Badge>
+                            </Badge>
                               );
                             }
                             const count = chip.labels.length;
@@ -6653,7 +6657,7 @@ function ConversationsContent() {
                             )}
                           </>
                         )}
-                      </div>
+              </div>
                       {showPeekPill && (
                         <div
                           className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center"
@@ -6808,7 +6812,7 @@ function ConversationsContent() {
                   {selected.additionalResidents && selected.additionalResidents.length > 0 ? (
                     <Popover open={multiProfilePickerOpen} onOpenChange={setMultiProfilePickerOpen}>
                       <PopoverTrigger asChild>
-                        <button
+                  <button
                           type="button"
                           className="flex items-center gap-1.5 text-base font-semibold leading-tight text-foreground hover:text-blue-600 transition-colors cursor-pointer"
                           title="Multiple resident profiles are linked to this conversation"
@@ -6857,20 +6861,20 @@ function ConversationsContent() {
                     </Popover>
                   ) : (
                     <button
-                      type="button"
-                      onClick={() => {
-                        setProfileModalOpen(true);
-                        setThreadsPanelOpen(true);
-                        setOpenThreadIdx(null);
-                        setProfilePanelInboxOpen(true);
-                      }}
-                      className="text-base font-semibold leading-tight hover:underline hover:text-blue-600 transition-colors cursor-pointer"
-                    >
-                      {selected.resident}
-                    </button>
+                    type="button"
+                    onClick={() => {
+                      setProfileModalOpen(true);
+                      setThreadsPanelOpen(true);
+                      setOpenThreadIdx(null);
+                      setProfilePanelInboxOpen(true);
+                    }}
+                    className="text-base font-semibold leading-tight hover:underline hover:text-blue-600 transition-colors cursor-pointer"
+                  >
+                    {selected.resident}
+                  </button>
                   )}
                   {(!selected.additionalResidents || selected.additionalResidents.length === 0) && (
-                    <span className="text-sm text-muted-foreground">{selected.property}</span>
+                  <span className="text-sm text-muted-foreground">{selected.property}</span>
                   )}
                   {translationEnabled && (() => {
                     const lang = conversationDetectedLanguage(selected);
@@ -6880,11 +6884,11 @@ function ConversationsContent() {
                       <TooltipProvider delayDuration={200}>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <button
-                              type="button"
+                      <button
+                        type="button"
                               onClick={toggleViewInEnglish}
                               aria-pressed={isViewingInEnglish}
-                              className={cn(
+                            className={cn(
                                 "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
                                 isViewingInEnglish
                                   ? "border-purple-300 bg-purple-50 text-purple-900 hover:bg-purple-100 dark:border-purple-700 dark:bg-purple-900/30 dark:text-purple-100"
@@ -6920,96 +6924,96 @@ function ConversationsContent() {
                     </PopoverTrigger>
                     <PopoverContent className="w-64 p-0" align="end">
                       <div className="max-h-48 overflow-y-auto p-2 space-y-1">
-                        {selected.labels.map((label) => (
+                {selected.labels.map((label) => (
                           <div key={label} className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-muted/60">
                             <span className="inline-flex min-w-0 items-center gap-0.5">
-                              <Badge
-                                variant={label.includes("Escalation") ? "destructive" : "outline"}
-                                className={cn(
-                                  "gap-1 rounded-md text-xs font-normal",
-                                  label.includes("Escalation")
+                  <Badge
+                    variant={label.includes("Escalation") ? "destructive" : "outline"}
+                    className={cn(
+                      "gap-1 rounded-md text-xs font-normal",
+                      label.includes("Escalation")
                                     ? "border-sky-200 bg-sky-50 text-sky-700"
-                                    : "border-border"
-                                )}
-                              >
+                        : "border-border"
+                    )}
+                  >
                                 {label.replace(/\s+\d+(?=\s+Escalation)/, "")}
                               </Badge>
                               {label.includes("Escalation") && (
                                 <EscalationIdHint conversationId={selected.id} label={label} />
                               )}
                             </span>
-                            <button
-                              type="button"
-                              onClick={() => removeLabel(selected.id, label)}
+                    <button
+                      type="button"
+                      onClick={() => removeLabel(selected.id, label)}
                               className="rounded-sm p-0.5 opacity-60 transition-opacity hover:opacity-100 hover:bg-muted"
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
                           </div>
                         ))}
                       </div>
                       <div className="border-t border-border p-2">
-                        <Input
-                          autoFocus
-                          value={newLabelText}
-                          onChange={(e) => setNewLabelText(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" && newLabelText.trim()) {
+                      <Input
+                        autoFocus
+                        value={newLabelText}
+                        onChange={(e) => setNewLabelText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && newLabelText.trim()) {
                               const exists = allLabels.some((l) => l.toLowerCase() === newLabelText.toLowerCase());
                               if (exists) {
                                 const match = allLabels.find((l) => l.toLowerCase() === newLabelText.toLowerCase())!;
                                 if (!selected.labels.includes(match)) addLabel(selected.id, match, MY_INBOX_ASSIGNEE);
                               } else {
-                                addLabel(selected.id, newLabelText.trim(), MY_INBOX_ASSIGNEE);
+                            addLabel(selected.id, newLabelText.trim(), MY_INBOX_ASSIGNEE);
                               }
-                              setNewLabelText("");
-                            }
-                          }}
+                            setNewLabelText("");
+                          }
+                        }}
                           placeholder="Search or create label…"
-                          className="h-7 text-xs"
-                        />
-                      </div>
-                      <div className="max-h-40 overflow-y-auto border-t border-border">
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                    <div className="max-h-40 overflow-y-auto border-t border-border">
                         {[...allLabels]
                           .sort((a, b) => a.localeCompare(b))
-                          .filter((l) => !newLabelText.trim() || l.toLowerCase().includes(newLabelText.toLowerCase()))
-                          .map((label) => {
-                            const applied = selected.labels.includes(label);
-                            return (
-                              <button
-                                key={label}
-                                type="button"
-                                className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent transition-colors"
-                                onClick={() => {
-                                  if (applied) {
-                                    removeLabel(selected.id, label);
-                                  } else {
-                                    addLabel(selected.id, label, MY_INBOX_ASSIGNEE);
-                                  }
-                                }}
-                              >
+                        .filter((l) => !newLabelText.trim() || l.toLowerCase().includes(newLabelText.toLowerCase()))
+                        .map((label) => {
+                          const applied = selected.labels.includes(label);
+                          return (
+                            <button
+                              key={label}
+                              type="button"
+                              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent transition-colors"
+                              onClick={() => {
+                                if (applied) {
+                                  removeLabel(selected.id, label);
+                                } else {
+                                  addLabel(selected.id, label, MY_INBOX_ASSIGNEE);
+                                }
+                              }}
+                            >
                                 <Check className={cn("h-3.5 w-3.5 shrink-0", applied ? "opacity-100 text-emerald-500" : "opacity-0")} />
                                 <span className="truncate">{label.replace(/\s+\d+(?=\s+Escalation)/, "")}</span>
-                              </button>
-                            );
-                          })}
-                        {newLabelText.trim() && !allLabels.some((l) => l.toLowerCase() === newLabelText.toLowerCase()) && (
-                          <button
-                            type="button"
-                            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent transition-colors text-muted-foreground"
-                            onClick={() => {
-                              addLabel(selected.id, newLabelText.trim(), MY_INBOX_ASSIGNEE);
-                              setNewLabelText("");
-                              setAddLabelOpen(false);
-                            }}
-                          >
-                            <Plus className="h-3.5 w-3.5 shrink-0" />
-                            <span className="truncate">Create &ldquo;{newLabelText.trim()}&rdquo;</span>
-                          </button>
-                        )}
-                      </div>
-                    </PopoverContent>
-                  </Popover>
+                            </button>
+                          );
+                        })}
+                      {newLabelText.trim() && !allLabels.some((l) => l.toLowerCase() === newLabelText.toLowerCase()) && (
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent transition-colors text-muted-foreground"
+                          onClick={() => {
+                            addLabel(selected.id, newLabelText.trim(), MY_INBOX_ASSIGNEE);
+                            setNewLabelText("");
+                            setAddLabelOpen(false);
+                          }}
+                        >
+                          <Plus className="h-3.5 w-3.5 shrink-0" />
+                          <span className="truncate">Create &ldquo;{newLabelText.trim()}&rdquo;</span>
+                        </button>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
 
                   {(() => {
                     // In SA 1.2 the AI On/Off pill also appears on any thread carrying an
@@ -7146,7 +7150,7 @@ function ConversationsContent() {
                                         · {stateQualifier}
                                       </span>
                                     </p>
-                                  </div>
+              </div>
                                 </div>
                               );
                             })()}
@@ -7317,12 +7321,12 @@ function ConversationsContent() {
                                   onValueChange={(v) => {
                                     const choice = v as ChannelOptChoice;
                                     setPhoneOpt(choice);
-                                    recordThreadActivity(selected.id, {
+                          recordThreadActivity(selected.id, {
                                       kind: "channel_opt",
                                       channel: "phone",
                                       choice,
-                                      actor: MY_INBOX_ASSIGNEE,
-                                    });
+                            actor: MY_INBOX_ASSIGNEE,
+                          });
                                   }}
                                 >
                                   <SelectTrigger className="h-7 w-[110px] text-[11px]">
@@ -7639,134 +7643,134 @@ function ConversationsContent() {
                             <Switch
                               checked={aiActivated}
                               onCheckedChange={(checked) => {
-                                if (checked) {
+                          if (checked) {
                                   setAiActivated(true);
-                                  setReactivationDate(null);
-                                  setNoLimit(false);
-                                  setShowDatePicker(false);
+                            setReactivationDate(null);
+                            setNoLimit(false);
+                            setShowDatePicker(false);
                                   recordThreadActivity(selected.id, {
                                     kind: "ai_activation",
                                     active: true,
                                     actor: MY_INBOX_ASSIGNEE,
                                   });
-                                } else {
-                                  setShowDatePicker(true);
-                                }
-                              }}
-                            />
+                          } else {
+                            setShowDatePicker(true);
+                          }
+                        }}
+                      />
                             <span className="text-xs font-medium text-foreground whitespace-nowrap">
-                              AI Activated
-                            </span>
+                        AI Activated
+                      </span>
                             {(!aiActivated || showDatePicker) && (
                               <div className="flex items-center gap-1.5 ml-1">
                                 <span className="text-[11px] text-muted-foreground whitespace-nowrap">until</span>
-                                {noLimit ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setNoLimit(false);
-                                      setShowDatePicker(true);
-                                    }}
+                        {noLimit ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNoLimit(false);
+                              setShowDatePicker(true);
+                            }}
                                     className="rounded-md border border-input bg-background px-2 py-0.5 text-[11px] transition-colors hover:bg-accent"
-                                  >
-                                    No Limit
-                                  </button>
-                                ) : (
+                          >
+                            No Limit
+                          </button>
+                        ) : (
                                   <Popover open={showDatePicker} onOpenChange={(open) => {
                                     setShowDatePicker(open);
                                     if (!open && aiActivated && !reactivationDate && !noLimit) {
                                       setShowDatePicker(false);
                                     }
                                   }}>
-                                    <PopoverTrigger asChild>
-                                      <button
-                                        type="button"
+                            <PopoverTrigger asChild>
+                              <button
+                                type="button"
                                         className="flex items-center gap-1 rounded-md border border-input bg-background px-2 py-0.5 text-[11px] transition-colors hover:bg-accent"
-                                      >
+                              >
                                         <CalendarIcon className="h-3 w-3 text-muted-foreground" />
-                                        {reactivationDate
+                                {reactivationDate
                                           ? reactivationDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })
                                           : "Date"}
-                                      </button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0" align="start">
-                                      <MiniCalendar
-                                        selected={reactivationDate}
-                                        onSelect={(date) => {
-                                          setReactivationDate(date);
-                                          setNoLimit(false);
-                                          setShowDatePicker(false);
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="start">
+                              <MiniCalendar
+                                selected={reactivationDate}
+                                onSelect={(date) => {
+                                  setReactivationDate(date);
+                                  setNoLimit(false);
+                                  setShowDatePicker(false);
                                           setAiActivated(false);
                                           recordThreadActivity(selected.id, {
                                             kind: "ai_activation",
                                             active: false,
                                             actor: MY_INBOX_ASSIGNEE,
                                           });
-                                        }}
-                                        onNoLimit={() => {
-                                          setReactivationDate(null);
-                                          setNoLimit(true);
-                                          setShowDatePicker(false);
+                                }}
+                                onNoLimit={() => {
+                                  setReactivationDate(null);
+                                  setNoLimit(true);
+                                  setShowDatePicker(false);
                                           setAiActivated(false);
                                           recordThreadActivity(selected.id, {
                                             kind: "ai_activation",
                                             active: false,
                                             actor: MY_INBOX_ASSIGNEE,
                                           });
-                                        }}
-                                      />
-                                    </PopoverContent>
-                                  </Popover>
-                                )}
-                              </div>
-                            )}
-                          </div>
+                                }}
+                              />
+                            </PopoverContent>
+                          </Popover>
+                        )}
+                      </div>
+                    )}
+                  </div>
                           <div className="flex items-center gap-3 border-t border-border pt-2">
                             <div className="flex items-center gap-2">
                               <label className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">Phone</label>
-                              <Select
-                                value={phoneOpt}
-                                onValueChange={(v) => {
-                                  const choice = v as ChannelOptChoice;
-                                  setPhoneOpt(choice);
-                                  recordThreadActivity(selected.id, {
-                                    kind: "channel_opt",
-                                    channel: "phone",
-                                    choice,
-                                    actor: MY_INBOX_ASSIGNEE,
-                                  });
-                                }}
-                              >
+                      <Select
+                        value={phoneOpt}
+                        onValueChange={(v) => {
+                          const choice = v as ChannelOptChoice;
+                          setPhoneOpt(choice);
+                          recordThreadActivity(selected.id, {
+                            kind: "channel_opt",
+                            channel: "phone",
+                            choice,
+                            actor: MY_INBOX_ASSIGNEE,
+                          });
+                        }}
+                      >
                                 <SelectTrigger className="h-7 w-[110px] text-[11px]"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
-                                  <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
-                                  <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
+                        <SelectContent>
+                          <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
+                          <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
+                          <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                             <div className="flex items-center gap-2">
                               <label className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">Email</label>
-                              <Select
-                                value={emailOpt}
-                                onValueChange={(v) => {
-                                  const choice = v as ChannelOptChoice;
-                                  setEmailOpt(choice);
-                                  recordThreadActivity(selected.id, {
-                                    kind: "channel_opt",
-                                    channel: "email",
-                                    choice,
-                                    actor: MY_INBOX_ASSIGNEE,
-                                  });
-                                }}
-                              >
+                      <Select
+                        value={emailOpt}
+                        onValueChange={(v) => {
+                          const choice = v as ChannelOptChoice;
+                          setEmailOpt(choice);
+                          recordThreadActivity(selected.id, {
+                            kind: "channel_opt",
+                            channel: "email",
+                            choice,
+                            actor: MY_INBOX_ASSIGNEE,
+                          });
+                        }}
+                      >
                                 <SelectTrigger className="h-7 w-[110px] text-[11px]"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
-                                  <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
-                                  <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
-                                </SelectContent>
-                              </Select>
+                        <SelectContent>
+                          <SelectItem value="opt-in"><span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Opt In</span></SelectItem>
+                          <SelectItem value="opt-out"><span className="flex items-center gap-2"><XCircle className="h-3.5 w-3.5 text-red-500" />Opt Out</span></SelectItem>
+                          <SelectItem value="no-indication"><span className="flex items-center gap-2"><MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />No Indication</span></SelectItem>
+                        </SelectContent>
+                      </Select>
                             </div>
                           </div>
                         </div>
@@ -7874,8 +7878,8 @@ function ConversationsContent() {
                       Reopen
                     </Button>
                   )}
-                </div>
-              </div>
+                    </div>
+                  </div>
 
               {/* Row 2: Labels — hidden behind icon popover */}
 
@@ -7905,11 +7909,11 @@ function ConversationsContent() {
                       </button>
                       {linkedExpanded && (
                         <ul className="space-y-0.5 border-t border-violet-200/60 bg-background/60 px-1.5 py-1.5 dark:border-violet-800/40 dark:bg-background/40">
-                          {linkedByEscalation.map((c) => (
-                            <li key={c.id}>
-                              <button
-                                type="button"
-                                onClick={() => {
+                        {linkedByEscalation.map((c) => (
+                          <li key={c.id}>
+                            <button
+                              type="button"
+                              onClick={() => {
                                   // Mirror the main thread-list click
                                   // handler: clicking a linked thread
                                   // should also close any open inline
@@ -7917,22 +7921,22 @@ function ConversationsContent() {
                                   // ternary in the right-pane render).
                                   setPendingSmsCompose(null);
                                   setPendingEmailCompose(null);
-                                  setSelectedId(c.id);
-                                  markRead(c.id, MY_INBOX_ASSIGNEE);
-                                }}
+                                setSelectedId(c.id);
+                                markRead(c.id, MY_INBOX_ASSIGNEE);
+                              }}
                                 className="flex w-full items-center gap-2 rounded-md border border-transparent px-2 py-1.5 text-left text-[11px] transition-colors hover:border-violet-200 hover:bg-violet-50/80 dark:hover:border-violet-800 dark:hover:bg-violet-950/40"
-                              >
+                            >
                                 <span className="shrink-0 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 dark:bg-violet-900/60 dark:text-violet-300">
-                                  {c.channel}
-                                </span>
+                                {c.channel}
+                              </span>
                                 <span className="min-w-0 flex-1 truncate font-medium text-foreground">
                                   {c.resident}
                                 </span>
-                                <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
+                              <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
                       )}
                     </div>
                   )}
@@ -8013,7 +8017,7 @@ function ConversationsContent() {
                               {escalationLabel ? (
                                 <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-orange-500" />
                               ) : (
-                                <CornerDownRight className="h-3 w-3 text-muted-foreground" />
+                              <CornerDownRight className="h-3 w-3 text-muted-foreground" />
                               )}
                               <span className={cn("text-[11px]", escalationLabel ? "text-orange-800 dark:text-orange-200" : "text-muted-foreground")}>
                                 Handoff {handoffAssigneeLabelForConversation(
@@ -8119,7 +8123,7 @@ function ConversationsContent() {
                                 {isEscalation ? (
                                   <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-orange-500" aria-hidden />
                                 ) : (
-                                  <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                              <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
                                 )}
                                 <p className={cn(
                                   "text-center text-[11px] leading-relaxed",
@@ -8147,13 +8151,13 @@ function ConversationsContent() {
                                       </span>
                                     </span>
                                   ))}
-                                  {msg.timestamp && (
-                                    <>
+                                {msg.timestamp && (
+                                  <>
                                       <span className="opacity-60"> · </span>
-                                      <span>{msg.timestamp}</span>
-                                    </>
-                                  )}
-                                </p>
+                                    <span>{msg.timestamp}</span>
+                                  </>
+                                )}
+                              </p>
                               </div>
                               {escalationReason && (
                                 <p className="max-w-xl text-center text-xxs leading-relaxed text-orange-800/80 dark:text-orange-200/80">
@@ -8257,9 +8261,9 @@ function ConversationsContent() {
                                       label={esc}
                                       className="text-blue-700 dark:text-blue-300"
                                     />
-                                  </span>
-                                ))}
-                              </div>
+                                </span>
+                              ))}
+                            </div>
                             )}
                             <TranslatableMessageBody
                               msg={msg}
@@ -8371,7 +8375,7 @@ function ConversationsContent() {
                         {escalationLabel ? (
                           <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-orange-500" />
                         ) : (
-                          <CornerDownRight className="h-3 w-3 text-muted-foreground" />
+                        <CornerDownRight className="h-3 w-3 text-muted-foreground" />
                         )}
                         <span
                           className={cn(
@@ -8382,9 +8386,9 @@ function ConversationsContent() {
                           )}
                         >
                           Handoff {handoffAssigneeLabelForConversation(
-                            selected.assignee,
-                            isHumanAssignee,
-                            selected.staffRespondentIsExternalAgent
+                                selected.assignee,
+                                isHumanAssignee,
+                                selected.staffRespondentIsExternalAgent
                           )}
                           {escalationLabel && (
                             <span className="ml-1.5 inline-flex items-center gap-0.5 rounded bg-orange-100 px-1.5 py-0.5 text-[10px] font-semibold text-orange-800 dark:bg-orange-900/40 dark:text-orange-200">
@@ -8579,7 +8583,7 @@ function ConversationsContent() {
                           {isEscalation ? (
                             <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-orange-500" aria-hidden />
                           ) : (
-                            <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                        <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
                           )}
                           <p className={cn(
                             "text-center text-[11px] leading-relaxed",
@@ -8607,13 +8611,13 @@ function ConversationsContent() {
                                 </span>
                               </span>
                             ))}
-                            {msg.timestamp && (
-                              <>
+                          {msg.timestamp && (
+                            <>
                                 <span className="opacity-60"> · </span>
-                                <span>{msg.timestamp}</span>
-                              </>
-                            )}
-                          </p>
+                              <span>{msg.timestamp}</span>
+                            </>
+                          )}
+                        </p>
                         </div>
                         {escalationReason && (
                           <p className="max-w-xl text-center text-xxs leading-relaxed text-orange-800/80 dark:text-orange-200/80">
@@ -8727,8 +8731,8 @@ function ConversationsContent() {
                                   label={esc}
                                   className="text-white/90"
                                 />
-                              </span>
-                            ))}
+                          </span>
+                        ))}
                           </div>
                         )}
                         <TranslatableMessageBody
@@ -8748,22 +8752,22 @@ function ConversationsContent() {
             <div className="shrink-0 border-t border-border bg-muted/40 shadow-[0_-2px_6px_rgba(0,0,0,0.04)]">
               {/* Mode toggle — hidden for Super Agent when AI is active */}
               {!(selected && isSuperAgentDemoThread(selected.id) && aiActivated) && (
-                <div className="flex items-center gap-1 px-5 pt-3 pb-2">
-                  <Button
-                    variant={inputMode === "message" ? "default" : "ghost"}
-                    size="sm"
-                    className="gap-1.5 rounded-full text-xs"
-                    onClick={() => {
-                      setInputMode("message");
-                      setPrivateNoteMention(null);
-                    }}
-                  >
-                    <MessageSquare className="h-3.5 w-3.5" />
-                    Message
-                  </Button>
-                  <Button
+              <div className="flex items-center gap-1 px-5 pt-3 pb-2">
+                <Button
+                  variant={inputMode === "message" ? "default" : "ghost"}
+                  size="sm"
+                  className="gap-1.5 rounded-full text-xs"
+                  onClick={() => {
+                    setInputMode("message");
+                    setPrivateNoteMention(null);
+                  }}
+                >
+                  <MessageSquare className="h-3.5 w-3.5" />
+                  Message
+                </Button>
+                <Button
                     variant="ghost"
-                    size="sm"
+                  size="sm"
                     className="gap-1.5 rounded-full text-xs"
                     onClick={openPrivateNoteModal}
                   >
@@ -8800,7 +8804,7 @@ function ConversationsContent() {
                   return (
                     <div className="px-5 pb-2">
                       <div
-                        className={cn(
+                  className={cn(
                           "rounded-md border px-2.5 py-1.5 transition-all",
                           isError
                             ? "border-red-400 bg-red-50 dark:border-red-600 dark:bg-red-950/20"
@@ -8970,7 +8974,7 @@ function ConversationsContent() {
                             className="flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[10px] font-semibold text-amber-700 shadow-sm transition-all hover:bg-amber-100 hover:shadow-md dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
                           >
                             <StickyNote className="h-3 w-3" />
-                            Private Note
+                  Private Note
                           </button>
                           <button
                             type="button"
@@ -9188,7 +9192,7 @@ function ConversationsContent() {
                         }}
                       >
                         Cancel
-                      </Button>
+                </Button>
                       <Button
                         size="sm"
                         className="bg-amber-600 text-white hover:bg-amber-700"
@@ -9199,7 +9203,7 @@ function ConversationsContent() {
                         Add Note
                       </Button>
                     </DialogFooter>
-                  </div>
+              </div>
                 </DialogContent>
               </Dialog>
 
@@ -9933,7 +9937,7 @@ function ConversationsContent() {
                       ? "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20"
                       : selected && isSuperAgentDemoThread(selected.id) && aiActivated && selectedEscalationTypes.size > 0
                         ? "border-orange-300 bg-orange-50/30 dark:border-orange-700 dark:bg-orange-950/10"
-                        : "border-input bg-background"
+                      : "border-input bg-background"
                   )}
                 >
                   {escalationError && inputMode !== "private_note" && (
@@ -10055,10 +10059,10 @@ function ConversationsContent() {
                   })()}
                   <div className="flex items-center justify-between px-3 pb-2">
                     <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-muted-foreground">
-                        <Paperclip className="h-3.5 w-3.5" />
-                        Attach
-                      </Button>
+                    <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-muted-foreground">
+                      <Paperclip className="h-3.5 w-3.5" />
+                      Attach
+                    </Button>
                       {(() => {
                         // Compact "translate to <lang>" toggle inline with Attach. Only visible
                         // when the thread has a detected non-English language and we're in
@@ -10211,8 +10215,8 @@ function ConversationsContent() {
       {profileModalOpen && selected && (() => {
         const profileResidentName = profileResidentOverride ?? selected.resident;
         const closeProfileCurtain = () => {
-          setProfileModalOpen(false);
-          setProfilePanelInboxOpen(false);
+              setProfileModalOpen(false);
+              setProfilePanelInboxOpen(false);
           setProfileResidentOverride(null);
           setProfileMainTab("Financial");
         };
@@ -10220,18 +10224,18 @@ function ConversationsContent() {
         <>
         {/* Entrata brand bar — separate top layer, above call panel */}
         <div className="fixed top-0 inset-x-0 z-[120] flex items-center justify-between bg-[#b71c1c] px-4 py-2.5">
-          <span className="text-[16px] font-semibold italic text-white/90 tracking-wide">entrata</span>
-          <div className="flex items-center gap-4">
-            <button
-              type="button"
+              <span className="text-[16px] font-semibold italic text-white/90 tracking-wide">entrata</span>
+              <div className="flex items-center gap-4">
+                <button
+                  type="button"
               onClick={closeProfileCurtain}
-              className="flex items-center gap-1.5 text-[14px] font-medium text-white/90 hover:text-white transition-colors"
-            >
-              <X className="h-4 w-4" />
-              Close
-            </button>
-          </div>
-        </div>
+                  className="flex items-center gap-1.5 text-[14px] font-medium text-white/90 hover:text-white transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                  Close
+                </button>
+              </div>
+            </div>
         <div className="fixed inset-0 z-[60] flex pt-[44px]">
           <div
             className="absolute inset-0 bg-black/30"
@@ -11548,11 +11552,11 @@ function ConversationsContent() {
                         { channel: "SMS", icon: MessageSquare, label: "SMS" },
                       ] as const
                     ).map(({ channel, icon: Icon, label }) => (
-                      <button
+                  <button
                         key={channel}
-                        type="button"
+                    type="button"
                         className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-5 py-1.5 text-[13px] font-medium text-gray-600 transition-colors hover:bg-gray-50"
-                        onClick={() => {
+                    onClick={() => {
                           const existing = conversations.find((c) => {
                             if (c.resident !== selected.resident) return false;
                             if (c.property !== selected.property) return false;
@@ -11621,7 +11625,7 @@ function ConversationsContent() {
                           strokeWidth={1.5}
                         />
                         {label}
-                      </button>
+                  </button>
                     ))}
                   </div>
                 </div>
@@ -12350,6 +12354,8 @@ function CommunicationsDemoControl({
   onPreviewNotificationPop,
   viewportPreset,
   onSetViewportPreset,
+  goLiveAutomationEnabled,
+  onToggleGoLiveAutomation,
 }: {
   clickToCallEnabled: boolean;
   onToggleClickToCall: () => void;
@@ -12370,6 +12376,8 @@ function CommunicationsDemoControl({
   onToggleEmail2Demo: () => void;
   notificationsEnabled: boolean;
   onToggleNotifications: () => void;
+  goLiveAutomationEnabled: boolean;
+  onToggleGoLiveAutomation: () => void;
   /**
    * Fires the "pretend a new notification just arrived" pop animation
    * on the floating bell. Used by the "Preview pop-out" sub-button
@@ -12392,7 +12400,8 @@ function CommunicationsDemoControl({
     breakoutsExampleEnabled ||
     email2DemoEnabled ||
     notificationsEnabled ||
-    viewportPreset !== "off";
+    viewportPreset !== "off" ||
+    goLiveAutomationEnabled;
 
   return (
     <div className="shrink-0 border-t border-border bg-muted/30">
@@ -12705,6 +12714,17 @@ function CommunicationsDemoControl({
               onCheckedChange={(checked) =>
                 onSetViewportPreset(checked ? "1600x900" : "off")
               }
+              className="mt-0.5"
+            />
+          </label>
+
+          <label className="flex cursor-pointer items-start justify-between gap-2 rounded-md px-1.5 py-1.5 transition-colors hover:bg-muted/60">
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-semibold leading-tight text-foreground">Go Live Automation</p>
+            </div>
+            <Switch
+              checked={goLiveAutomationEnabled}
+              onCheckedChange={onToggleGoLiveAutomation}
               className="mt-0.5"
             />
           </label>
@@ -14411,7 +14431,7 @@ function CallSystemSettingsPanel({ onClose }: { onClose: () => void }) {
 
 
 
-        </div>
+              </div>
       </div>
     </div>
   );

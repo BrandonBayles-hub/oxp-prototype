@@ -17,6 +17,7 @@ import { MaintenancePage } from "./pages/MaintenancePage"
 import { RenewalsPage } from "./pages/RenewalsPage"
 import { LeasingPage } from "./pages/LeasingPage"
 import { CommunicationsPage } from "./pages/CommunicationsPage"
+import { CommsGoLivePage } from "./pages/CommsGoLivePage"
 import { IvrSetupPage, type IvrChoice } from "./pages/IvrSetupPage"
 import { makeDefaultRenewalDays, isValidDays } from "./components/RenewalLeadTimeSheetContent"
 import { makeDefaultAgentGoals } from "./components/AgentGoalSheetContent"
@@ -34,7 +35,7 @@ import {
   ENTRATA_AFTER_PHONES,
 } from "./data/entrata-imports"
 
-export type PageId = "overview" | "company" | "privacy" | "email" | "communications" | "ivr-setup" | "leasing" | "payments" | "maintenance" | "renewals" | "renewals-channels" | "golive"
+export type PageId = "overview" | "company" | "privacy" | "email" | "communications" | "comms-go-live" | "ivr-setup" | "leasing" | "payments" | "maintenance" | "renewals" | "renewals-channels" | "golive"
 export type BrandStatus = "idle" | "submitting" | "carrier-rejected" | "approved"
 export type CampaignStatus = "idle" | "creating" | "ready"
 
@@ -346,6 +347,8 @@ export default function EliOnboardingHybrid() {
             privacyActionCount={privacyActionCount}
             totalPropertyCount={PROPERTIES.length}
           />
+        ) : page === "comms-go-live" ? (
+          <CommsGoLivePage navigate={navigate} />
         ) : page === "ivr-setup" ? (
           <IvrSetupPage
             navigate={navigate}

@@ -14,17 +14,21 @@ import {
   ShieldCheck,
   Loader2,
   Lock,
+  Zap,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Progress } from "@/components/ui/progress"
+import { useConversationsDemo } from "@/lib/conversations-demo-context"
 
-const SUB_ITEMS = [
+const BASE_SUB_ITEMS = [
   { id: "company"            as PageId, label: "Carrier Compliance",        icon: Building2,       taskIds: [] as string[], indent: false },
   { id: "privacy"            as PageId, label: "Property Websites",         icon: ShieldCheck,     taskIds: [] as string[], indent: false },
   { id: "email"              as PageId, label: "Email Integration",         icon: Mail,            taskIds: [] as string[], indent: false },
   { id: "ivr-setup"          as PageId, label: "IVR Setup",                 icon: PhoneForwarded,  taskIds: [] as string[], indent: false },
   { id: "communications"     as PageId, label: "Communications",            icon: Phone,           taskIds: [] as string[], indent: false },
 ]
+
+const GO_LIVE_SUB_ITEM = { id: "comms-go-live" as PageId, label: "Go Live", icon: Zap, taskIds: [] as string[], indent: false }
 
 const STATUS: Partial<Record<PageId, "complete" | "warning" | "blocked">> = {}
 
@@ -53,6 +57,8 @@ interface HybridShellProps {
 }
 
 export function HybridShell({ page, navigate, completedTasks, privacyPublished, emailComplete, commsComplete, ivrComplete, maintenancePending, progressPct, carrierSimMode, brandStatus, carrierActionCount, privacyActionCount, ivrActionCount, children }: HybridShellProps) {
+  const { goLiveAutomationEnabled } = useConversationsDemo()
+  const SUB_ITEMS = goLiveAutomationEnabled ? [...BASE_SUB_ITEMS, GO_LIVE_SUB_ITEM] : BASE_SUB_ITEMS
   return (
     <div className="flex h-full bg-background">
       <aside
@@ -107,6 +113,7 @@ export function HybridShell({ page, navigate, completedTasks, privacyPublished, 
                 const isEmail = id === "email"
                 const isComms = id === "communications"
                 const isIvr = id === "ivr-setup"
+                const isGoLive = id === "comms-go-live"
                 // Carrier compliance has 3 states driven by brandStatus
                 const isTenDlcApproved   = isTenDlc && brandStatus === "approved"
                 const isTenDlcSubmitting = isTenDlc && brandStatus === "submitting"
@@ -136,7 +143,7 @@ export function HybridShell({ page, navigate, completedTasks, privacyPublished, 
                         : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                     )}
                   >
-                    {Icon && <Icon className={cn("h-3.5 w-3.5 shrink-0", isComplete ? "text-emerald-700" : isTenDlcSubmitting ? "text-blue-500" : undefined)} aria-hidden />}
+                    {Icon && <Icon className={cn("h-3.5 w-3.5 shrink-0", isGoLive ? "text-emerald-600" : isComplete ? "text-emerald-700" : isTenDlcSubmitting ? "text-blue-500" : undefined)} aria-hidden />}
                     <span className="flex-1 text-left text-xs">{label}</span>
                     {isComplete && <StatusIcon status="complete" />}
                     {isTenDlcSubmitting && <Loader2 className="h-3.5 w-3.5 text-blue-500 shrink-0 animate-spin" aria-label="Processing" />}
@@ -166,7 +173,7 @@ export function HybridShell({ page, navigate, completedTasks, privacyPublished, 
                     )}
                     {/* Communications: lock icon when CC not approved */}
                     {isCommsLocked && <Lock className="h-3 w-3 shrink-0 text-muted-foreground/60" aria-label="Requires Carrier Compliance" />}
-                    {!isTenDlc && !isPrivacy && !isIvr && !isEmail && !isCommsLocked && !isComplete && !isTenDlcSubmitting && needsAction && (
+                    {!isTenDlc && !isPrivacy && !isIvr && !isEmail && !isCommsLocked && !isGoLive && !isComplete && !isTenDlcSubmitting && needsAction && (
                       <span className="h-2 w-2 rounded-full bg-red-500 shrink-0" aria-label="Action required" />
                     )}
                     {!isComplete && !isTenDlcSubmitting && !needsAction && <StatusIcon status={STATUS[id]} />}
