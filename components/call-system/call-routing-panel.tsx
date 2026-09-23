@@ -565,7 +565,7 @@ function RouteEditSheet({
             <div>
               <p className="text-sm font-semibold">After-hours override</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                By default we use the target queue's after-hours action. Override here to route
+                By default we use the target queue&apos;s after-hours action. Override here to route
                 after-hours calls on this DID somewhere else — most common use case is pointing the
                 main line to the After-Hours Emergency queue.
               </p>
