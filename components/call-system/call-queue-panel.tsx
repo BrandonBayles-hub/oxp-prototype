@@ -649,7 +649,7 @@ function PropertiesTab({
         <p className="text-sm font-semibold">Properties served</p>
         <p className="mt-1 text-xs text-muted-foreground">
           Pick every community that should feed this queue. A queue can span
-          any combination of properties — that's how you make one team cover
+          any combination of properties — that&apos;s how you make one team cover
           multiple sites without duplicating the queue.
         </p>
       </div>
@@ -1307,7 +1307,7 @@ function RoutingTab({
           <div>
             <p className="text-sm font-semibold">Callback while waiting</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              After the offer-after time, we ask the caller if they'd rather receive a callback.
+              After the offer-after time, we ask the caller if they&apos;d rather receive a callback.
               They keep their place in the queue — Fonolo/Talkdesk-style virtual hold.
             </p>
           </div>
@@ -1401,7 +1401,7 @@ function RoutingTab({
         <div className="flex items-center justify-between rounded-md border border-border px-3 py-2.5">
           <div>
             <p className="text-sm font-medium">Announce position in queue</p>
-            <p className="text-xs text-muted-foreground">"You are caller number X in line."</p>
+            <p className="text-xs text-muted-foreground">&quot;You are caller number X in line.&quot;</p>
           </div>
           <Switch
             checked={queue.announcePosition}
@@ -1411,7 +1411,7 @@ function RoutingTab({
         <div className="flex items-center justify-between rounded-md border border-border px-3 py-2.5">
           <div>
             <p className="text-sm font-medium">Announce estimated wait time</p>
-            <p className="text-xs text-muted-foreground">"Estimated wait time is 2 minutes."</p>
+            <p className="text-xs text-muted-foreground">&quot;Estimated wait time is 2 minutes.&quot;</p>
           </div>
           <Switch
             checked={queue.announceEta}
@@ -1547,7 +1547,7 @@ function HoursTab({
       <div>
         <p className="text-sm font-semibold">Holiday exceptions</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Full-day exceptions. On these dates the queue behaves like it's outside hours.
+          Full-day exceptions. On these dates the queue behaves like it&apos;s outside hours.
         </p>
         <div className="mt-3 space-y-1.5">
           {(bh.holidays ?? []).map((h) => (
@@ -1794,7 +1794,7 @@ export function AfterHoursPicker({
         onClick={() => onChange({ type: "voicemail" })}
       >
         <p className="text-sm font-semibold">Voicemail</p>
-        <p className="mt-0.5 text-[10px] text-muted-foreground">Send to the queue's voicemail box.</p>
+        <p className="mt-0.5 text-[10px] text-muted-foreground">Send to the queue&apos;s voicemail box.</p>
       </button>
       <button
         type="button"
@@ -1874,7 +1874,7 @@ export function AfterHoursPicker({
           <p className="text-sm font-semibold">Forward to external number</p>
         </div>
         <p className="mt-1 text-[10px] text-muted-foreground">
-          Route to an answering service or manager's cell after hours.
+          Route to an answering service or manager&apos;s cell after hours.
         </p>
         {action.type === "external" && (
           <div className="mt-2 grid gap-2">
