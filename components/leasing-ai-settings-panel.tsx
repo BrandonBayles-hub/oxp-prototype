@@ -520,7 +520,7 @@ const QUESTION_LABELS = Object.fromEntries(
   QUESTION_LIBRARY.flatMap((category) => category.questions.map((q) => [q.id, q.label])),
 ) as Record<QuestionTypeId, string>
 
-type LeasingStageId = "before_chat" | "before_pricing" | "before_tour" | "before_booking" | "before_application"
+type LeasingStageId = "before_chat" | "before_pricing" | "before_booking" | "before_application"
 /**
  * required  — cannot bypass; the agent keeps asking / blocks the gate until answered.
  * preferred — persistent but bypassable; the agent re-asks after resistance, then
@@ -604,12 +604,6 @@ const LEASING_STAGES: LeasingStageMeta[] = [
     behavior: "The agent can answer general questions first, but won't share available homes, units, rent, lease-term pricing, or availability dates until required fields are collected.",
   },
   {
-    id: "before_tour",
-    title: "Before Showing Tour Options",
-    description: "Collect what the prospect is looking for before the agent shows specific tour options.",
-    behavior: "The agent can talk about touring generally, but won't surface specific tour options or times until required fields are collected.",
-  },
-  {
     id: "before_booking",
     title: "Before Booking a Tour",
     description: "Collect contact details before the agent confirms or books a tour appointment.",
@@ -653,11 +647,6 @@ function makeDefaultLeasingStages(): Record<LeasingStageId, LeasingStageConfig> 
         { id: "before_pricing-1", type: "floor_plan", requirement: "required", groupId: "before_pricing-layout", locked: true },
         { id: "before_pricing-2", type: "bedrooms", requirement: "required", groupId: "before_pricing-layout", locked: true },
       ],
-    },
-    before_tour: {
-      enabled: false,
-      groups: [],
-      questions: [],
     },
     before_booking: {
       enabled: true,
@@ -713,7 +702,6 @@ function makeLeasingStagesFromInstructions(text: string): Record<LeasingStageId,
   if (/\b(no pricing gate|show pricing|open pricing|don'?t gate pricing|share pricing freely)\b/.test(t)) {
     setEnabled("before_pricing", false)
   }
-  if (/\b(no tour gate|show tours freely|don'?t gate tours?)\b/.test(t)) setEnabled("before_tour", false)
   if (/\b(book(ing)?|schedule|reserve|confirm)\b/.test(t)) setEnabled("before_booking", true)
   return base
 }
@@ -2757,6 +2745,7 @@ function LeasingStageCard({ meta, config, onChange }: {
 }) {
   const [dragId, setDragId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
+  const [dropGroupId, setDropGroupId] = useState<string | null>(null)
 
   const prune = (c: LeasingStageConfig): LeasingStageConfig => {
     const used = new Set(c.questions.map((q) => q.groupId).filter(Boolean) as string[])
@@ -2800,15 +2789,21 @@ function LeasingStageCard({ meta, config, onChange }: {
       return { ...c, questions: next }
     })
 
-  const createGroupWith = (questionId: string) =>
+  const createGroupFromDrop = (draggedId: string, targetId: string) => {
     onChange((c) => {
+      const dragged = c.questions.find((q) => q.id === draggedId)
+      const target = c.questions.find((q) => q.id === targetId)
+      if (!dragged || !target || dragged.locked || target.locked || dragged.groupId || target.groupId) return c
       const gid = makeQuestionId()
       return {
         ...c,
         groups: [...c.groups, { id: gid, label: `Group ${c.groups.length + 1}`, mode: "any" as GroupMode }],
-        questions: c.questions.map((q) => (q.id === questionId ? { ...q, groupId: gid } : q)),
+        questions: c.questions.map((q) =>
+          q.id === draggedId || q.id === targetId ? { ...q, groupId: gid } : q,
+        ),
       }
     })
+  }
 
   const assignToGroup = (questionId: string, gid: string) =>
     onChange((c) => {
@@ -2932,6 +2927,8 @@ function LeasingStageCard({ meta, config, onChange }: {
               {slots.map((slot) => {
                 if (slot.kind === "question") {
                   const { question, index } = slot
+                  const draggedQuestion = dragId ? config.questions.find((q) => q.id === dragId) : null
+                  const canReceiveDrop = dragId !== null && dragId !== question.id && !question.groupId && !question.locked && draggedQuestion && !draggedQuestion.groupId && !draggedQuestion.locked
                   return (
                     <QuestionRow
                       key={question.id}
@@ -2941,13 +2938,17 @@ function LeasingStageCard({ meta, config, onChange }: {
                       groups={config.groups}
                       draggable
                       isDragging={dragId === question.id}
-                      isDropTarget={overId === question.id && dragId !== null && dragId !== question.id}
+                      isDropTarget={overId === question.id && !!canReceiveDrop}
                       onDragStart={() => setDragId(question.id)}
                       onDragOverRow={() => setOverId(question.id)}
                       onDropRow={() => {
                         if (dragId && dragId !== question.id) {
-                          const from = config.questions.findIndex((q) => q.id === dragId)
-                          if (from !== -1) moveByIndex(from, index)
+                          if (canReceiveDrop) {
+                            createGroupFromDrop(dragId, question.id)
+                          } else {
+                            const from = config.questions.findIndex((q) => q.id === dragId)
+                            if (from !== -1) moveByIndex(from, index)
+                          }
                         }
                         setDragId(null)
                         setOverId(null)
@@ -2961,15 +2962,39 @@ function LeasingStageCard({ meta, config, onChange }: {
                       onRemove={() => removeQuestion(question.id)}
                       onMoveUp={() => moveByIndex(index, index - 1)}
                       onMoveDown={() => moveByIndex(index, index + 1)}
-                      onCreateGroup={() => createGroupWith(question.id)}
                       onAssignGroup={(gid) => assignToGroup(question.id, gid)}
                       onUngroup={() => ungroup(question.id)}
                     />
                   )
                 }
                 const { group, members } = slot
+                const isGroupDropTarget = dropGroupId === group.id && dragId !== null
                 return (
-                  <div key={group.id} className="rounded-lg border border-border bg-muted/30 p-2.5">
+                  <div
+                    key={group.id}
+                    className={cn(
+                      "rounded-lg border bg-muted/30 p-2.5 transition-all",
+                      isGroupDropTarget ? "border-primary ring-1 ring-primary" : "border-border",
+                    )}
+                    onDragOver={!group.locked ? (e) => {
+                      e.preventDefault()
+                      e.dataTransfer.dropEffect = "move"
+                      setDropGroupId(group.id)
+                    } : undefined}
+                    onDragLeave={() => setDropGroupId(null)}
+                    onDrop={!group.locked ? (e) => {
+                      e.preventDefault()
+                      if (dragId) {
+                        const q = config.questions.find((q) => q.id === dragId)
+                        if (q && !q.groupId && !q.locked) {
+                          assignToGroup(dragId, group.id)
+                        }
+                      }
+                      setDragId(null)
+                      setOverId(null)
+                      setDropGroupId(null)
+                    } : undefined}
+                  >
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <Layers className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
@@ -3044,7 +3069,6 @@ function LeasingStageCard({ meta, config, onChange }: {
                           onRemove={() => removeQuestion(member.question.id)}
                           onMoveUp={() => reorderGroupMember(group.id, memberIndex, -1)}
                           onMoveDown={() => reorderGroupMember(group.id, memberIndex, 1)}
-                          onCreateGroup={() => createGroupWith(member.question.id)}
                           onAssignGroup={(gid) => assignToGroup(member.question.id, gid)}
                           onUngroup={() => ungroup(member.question.id)}
                         />
@@ -3141,7 +3165,6 @@ function QuestionRow({
   onRemove,
   onMoveUp,
   onMoveDown,
-  onCreateGroup,
   onAssignGroup,
   onUngroup,
 }: {
@@ -3162,7 +3185,6 @@ function QuestionRow({
   onRemove: () => void
   onMoveUp: () => void
   onMoveDown: () => void
-  onCreateGroup: () => void
   onAssignGroup: (groupId: string) => void
   onUngroup: () => void
 }) {
@@ -3170,22 +3192,24 @@ function QuestionRow({
   const assignableGroups = groups.filter((g) => g.id !== question.groupId && !g.locked)
   return (
     <div
-      draggable={draggable}
-      onDragStart={draggable ? (e) => { e.dataTransfer.effectAllowed = "move"; onDragStart?.() } : undefined}
-      onDragOver={draggable ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; onDragOverRow?.() } : undefined}
-      onDrop={draggable ? (e) => { e.preventDefault(); onDropRow?.() } : undefined}
-      onDragEnd={draggable ? onDragEnd : undefined}
+      draggable={draggable && !locked}
+      onDragStart={draggable && !locked ? (e) => { e.dataTransfer.effectAllowed = "move"; onDragStart?.() } : undefined}
+      onDragOver={draggable && !locked ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; onDragOverRow?.() } : undefined}
+      onDrop={draggable && !locked ? (e) => { e.preventDefault(); onDropRow?.() } : undefined}
+      onDragEnd={draggable && !locked ? onDragEnd : undefined}
       className={cn(
         "flex items-center gap-3 rounded-lg border bg-white px-3 py-2.5 transition-all",
-        draggable && "cursor-grab active:cursor-grabbing",
+        draggable && !locked && "cursor-grab active:cursor-grabbing",
         isDragging && "opacity-50",
         isDropTarget ? "border-zinc-900 ring-1 ring-zinc-900" : "border-border",
       )}
     >
-      <GripVertical
-        className={cn("h-4 w-4 shrink-0", draggable ? "text-zinc-400" : "text-zinc-300")}
-        aria-hidden
-      />
+      {!locked && (
+        <GripVertical
+          className={cn("h-4 w-4 shrink-0", draggable ? "text-zinc-400" : "text-zinc-300")}
+          aria-hidden
+        />
+      )}
       <span className="w-5 shrink-0 text-center text-xxs font-medium tabular-nums text-muted-foreground">
         {priority}
       </span>
@@ -3207,37 +3231,31 @@ function QuestionRow({
       <div className="flex shrink-0 items-center gap-1.5">
         <RequirementToggle value={question.requirement} onChange={onSetRequirement} disabled={requirementDisabled || locked} />
       </div>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            aria-label={`Options for ${QUESTION_LABELS[question.type]}`}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <MoreHorizontal className="h-4 w-4" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-52">
-          <DropdownMenuItem onClick={onMoveUp}>Move up</DropdownMenuItem>
-          <DropdownMenuItem onClick={onMoveDown}>Move down</DropdownMenuItem>
-          {!locked && (
-            <>
-              <DropdownMenuSeparator />
-              {!grouped && <DropdownMenuItem onClick={onCreateGroup}>New group with this</DropdownMenuItem>}
-              {assignableGroups.map((g) => (
-                <DropdownMenuItem key={g.id} onClick={() => onAssignGroup(g.id)}>
-                  Move to {g.label}
-                </DropdownMenuItem>
-              ))}
-              {grouped && <DropdownMenuItem onClick={onUngroup}>Remove from group</DropdownMenuItem>}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={onRemove} className="text-red-600 focus:text-red-600">
-                Remove question
+      {!locked && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label={`Options for ${QUESTION_LABELS[question.type]}`}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            {assignableGroups.map((g) => (
+              <DropdownMenuItem key={g.id} onClick={() => onAssignGroup(g.id)}>
+                Move to {g.label}
               </DropdownMenuItem>
-            </>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+            ))}
+            {grouped && <DropdownMenuItem onClick={onUngroup}>Remove from group</DropdownMenuItem>}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={onRemove} className="text-red-600 focus:text-red-600">
+              Remove question
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   )
 }
