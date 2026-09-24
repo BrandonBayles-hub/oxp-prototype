@@ -6961,7 +6961,7 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
             <div className="rounded-lg border border-red-300 bg-red-50 p-4">
               <h4 className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-red-800">
                 <AlertCircle className="h-3.5 w-3.5 text-red-600" />
-                Staff readiness (required)
+                Staff readiness (recommended)
               </h4>
               <p className="mb-3 text-sm text-red-800">
                 Your team must be trained and prepared to handle all communication replies from leads and residents — including escalations — in the OXP Communications area before going live.
@@ -6993,8 +6993,7 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
               Cancel
             </Button>
             <Button
-              disabled={!goLiveStaffTrained}
-              className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-emerald-600/40"
+              className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
               onClick={() => {
                 if (goLiveModalProp) {
                   activateProperty(goLiveModalProp.id);
@@ -7002,7 +7001,6 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
                 setGoLiveModalProp(null);
                 setGoLiveStaffTrained(false);
               }}
-              title={!goLiveStaffTrained ? "Confirm staff readiness to enable" : undefined}
             >
               <Zap className="h-3.5 w-3.5" />
               Confirm &amp; Go Live
