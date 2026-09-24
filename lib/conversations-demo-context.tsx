@@ -321,6 +321,7 @@ type ConversationsDemoContextValue = {
   /** Set of property IDs that have been activated via the "Go Live" flow. */
   activatedPropertyIds: Set<string>;
   activateProperty: (id: string) => void;
+  deactivateProperty: (id: string) => void;
 };
 
 /**
@@ -472,6 +473,13 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
   const activateProperty = useCallback((id: string) => {
     setActivatedPropertyIds((prev) => new Set(prev).add(id));
   }, []);
+  const deactivateProperty = useCallback((id: string) => {
+    setActivatedPropertyIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
 
   const requestProfileCommsPopup = useCallback(() => {
     setProfileCommsPopupRequest((n) => n + 1);
@@ -594,6 +602,7 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
       toggleGoLiveAutomationEnabled,
       activatedPropertyIds,
       activateProperty,
+      deactivateProperty,
     }),
     [
       profileCommsPopupRequest,
@@ -644,6 +653,7 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
       toggleGoLiveAutomationEnabled,
       activatedPropertyIds,
       activateProperty,
+      deactivateProperty,
     ]
   );
 
